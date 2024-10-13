@@ -7,8 +7,8 @@ import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.func as func
 from pixeltable import catalog
-from pixeltable.func import Function, FunctionRegistry, Batch
-from pixeltable.type_system import IntType, FloatType
+from pixeltable.func import Batch, Function, FunctionRegistry
+
 from .utils import assert_resultset_eq, reload_catalog, validate_update_status
 
 
@@ -16,12 +16,12 @@ def dummy_fn(i: int) -> int:
     return i
 
 class TestFunction:
-    @pxt.udf(return_type=IntType(), param_types=[IntType()])
+    @pxt.udf(return_type=pxt.IntType(), param_types=[pxt.IntType()])
     def func(x: int) -> int:
         """A UDF."""
         return x + 1
 
-    @pxt.uda(value_type=IntType(), update_types=[IntType()])
+    @pxt.uda(value_type=pxt.IntType(), update_types=[pxt.IntType()])
     class agg:
         """An aggregator."""
         def __init__(self):
@@ -55,7 +55,7 @@ class TestFunction:
         with pytest.raises(excs.Error):
             pxt.create_function('dir1.test_fn', self.func)
         with pytest.raises(excs.Error):
-            library_fn = make_library_function(IntType(), [IntType()], __name__, 'dummy_fn')
+            library_fn = make_library_function(pxt.IntType(), [pxt.IntType()], __name__, 'dummy_fn')
             pxt.create_function('library_fn', library_fn)
 
     @pytest.mark.skip(reason='deprecated')
@@ -83,9 +83,9 @@ class TestFunction:
 
         # signature changes
         with pytest.raises(excs.Error):
-            pxt.update_function('test_fn', make_function(FloatType(), [IntType()], fn.py_fn))
+            pxt.update_function('test_fn', make_function(pxt.FloatType(), [pxt.IntType()], fn.py_fn))
         with pytest.raises(excs.Error):
-            pxt.update_function('test_fn', make_function(IntType(), [FloatType()], fn.py_fn))
+            pxt.update_function('test_fn', make_function(pxt.IntType(), [pxt.FloatType()], fn.py_fn))
         with pytest.raises(excs.Error):
             pxt.update_function('test_fn', self.agg)
 
@@ -161,14 +161,12 @@ class TestFunction:
         assert status.num_rows == len(rows)
         assert status.num_excs == 0
 
-    @pxt.udf(return_type=IntType(), param_types=[IntType(), FloatType(), FloatType(), FloatType()])
+    @pxt.udf
     def f1(a: int, b: float, c: float = 0.0, d: float = 1.0) -> float:
         return a + b + c + d
 
-    @pxt.udf(
-        return_type=IntType(),
-        param_types=[IntType(nullable=True), FloatType(nullable=False), FloatType(nullable=True)])
-    def f2(a: int, b: float = 0.0, c: float = 1.0) -> float:
+    @pxt.udf
+    def f2(a: Optional[int], b: float = 0.0, c: Optional[float] = 1.0) -> int:
         return (0.0 if a is None else a) + b + (0.0 if c is None else c)
 
     def test_call(self, test_tbl: catalog.Table) -> None:
@@ -221,25 +219,25 @@ class TestFunction:
 
         # bad default value
         with pytest.raises(excs.Error) as exc_info:
-            @pxt.udf(return_type=IntType(), param_types=[IntType(), FloatType(), FloatType()])
-            def f1(a: int, b: float, c: str = '') -> float:
+            @pxt.udf
+            def f1(a: int, b: float, c: float = '') -> float:
                 return a + b + c
         assert 'default value' in str(exc_info.value).lower()
         # missing param type
         with pytest.raises(excs.Error) as exc_info:
-            @pxt.udf(return_type=IntType(), param_types=[IntType(), FloatType()])
-            def f1(a: int, b: float, c: str = '') -> float:
+            @pxt.udf
+            def f1(a: int, b: float, c = '') -> float:
                 return a + b + c
-        assert 'missing type for parameter c' in str(exc_info.value).lower()
+        assert 'cannot infer pixeltable type for parameter c' in str(exc_info.value).lower()
         # bad parameter name
         with pytest.raises(excs.Error) as exc_info:
-            @pxt.udf(return_type=IntType(), param_types=[IntType()])
+            @pxt.udf
             def f1(group_by: int) -> int:
                 return group_by
         assert 'reserved' in str(exc_info.value)
         # bad parameter name
         with pytest.raises(excs.Error) as exc_info:
-            @pxt.udf(return_type=IntType(), param_types=[IntType()])
+            @pxt.udf
             def f1(order_by: int) -> int:
                 return order_by
         assert 'reserved' in str(exc_info.value)
@@ -257,7 +255,7 @@ class TestFunction:
         return s + suffix
 
     def test_member_access_udf(self, reset_db) -> None:
-        t = pxt.create_table('test', {'c1': pxt.StringType(), 'c2': pxt.IntType()})
+        t = pxt.create_table('test', {'c1': pxt.String, 'c2': pxt.Int})
         rows = [{'c1': 'a', 'c2': 1}, {'c1': 'b', 'c2': 2}]
         validate_update_status(t.insert(rows))
         result = t.select(t.c2.increment(), t.c2.successor, t.c1.append('x')).collect()
@@ -290,7 +288,7 @@ class TestFunction:
         assert 'Stored functions cannot be declared using `is_method` or `is_property`' in str(exc_info.value)
 
     def test_query(self, reset_db) -> None:
-        t = pxt.create_table('test', {'c1': pxt.IntType(), 'c2': pxt.FloatType()})
+        t = pxt.create_table('test', {'c1': pxt.Int, 'c2': pxt.Float})
         name = t._name
         rows = [{'c1': i, 'c2': i + 0.5} for i in range(100)]
         validate_update_status(t.insert(rows))
@@ -311,8 +309,8 @@ class TestFunction:
 
     def test_query2(self, reset_db) -> None:
         schema = {
-            'query_text': pxt.StringType(nullable=False),
-            'i': pxt.IntType(nullable=False),
+            'query_text': pxt.String,
+            'i': pxt.Int,
         }
         queries = pxt.create_table('queries', schema)
         query_rows = [
@@ -360,10 +358,7 @@ class TestFunction:
         assert all(len(c) == 2 for c in res['chunks'])
 
     def test_query_errors(self, reset_db) -> None:
-        schema = {
-            'a': pxt.IntType(nullable=False),
-            'b': pxt.IntType(nullable=False),
-        }
+        schema = {'a': pxt.Int, 'b': pxt.Int}
         t = pxt.create_table('test', schema)
         rows = [{'a': i, 'b': i + 1} for i in range(100)]
         validate_update_status(t.insert(rows), expected_rows=len(rows))
@@ -388,7 +383,7 @@ class TestFunction:
 
         # column name conflicts with query name
         with pytest.raises(excs.Error) as exc_info:
-            t.add_column(c=pxt.IntType(nullable=True))
+            t.add_column(c=pxt.Int)
         assert 'conflicts with a registered query' in str(exc_info.value).lower()
 
     @pxt.expr_udf
@@ -428,7 +423,7 @@ class TestFunction:
 
         with pytest.raises(excs.Error) as exc_info:
             # missing param types
-            @pxt.expr_udf(param_types=[IntType()])
+            @pxt.expr_udf(param_types=[pxt.IntType()])
             def add1(x, y) -> int:
                 return x + y
         assert 'missing type for parameter y' in str(exc_info.value).lower()

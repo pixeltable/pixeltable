@@ -2,18 +2,19 @@ import datetime
 import pickle
 import urllib.request
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
-import PIL.Image
 import bs4
 import numpy as np
+import PIL.Image
 import pytest
 
 import pixeltable as pxt
 from pixeltable import catalog
 from pixeltable import exceptions as excs
 from pixeltable.iterators import FrameIterator
-from .utils import get_video_files, get_audio_files, get_documents, skip_test_if_not_installed, validate_update_status
+
+from .utils import get_audio_files, get_documents, get_video_files, skip_test_if_not_installed, validate_update_status
 
 
 class TestDataFrame:
@@ -98,7 +99,7 @@ class TestDataFrame:
         res = t.select(t.c1, t.c2, t.c3).collect()
         pd_df = res.to_pandas()
 
-        def check_row(row: Dict[str, Any], idx: int) -> None:
+        def check_row(row: dict[str, Any], idx: int) -> None:
             assert len(row) == 3
             assert 'c1' in row
             assert row['c1'] == pd_df['c1'][idx]
@@ -197,9 +198,9 @@ class TestDataFrame:
         assert res[next(iter(res.schema.keys()))] == [1.0] * 10
 
     def test_html_media_url(self, reset_db) -> None:
-        tab = pxt.create_table('test_html_repr', {'video': pxt.VideoType(),
-                                                  'audio': pxt.AudioType(),
-                                                  'doc': pxt.DocumentType()})
+        tab = pxt.create_table('test_html_repr', {'video': pxt.Video,
+                                                  'audio': pxt.Audio,
+                                                  'doc': pxt.Document})
 
         pdf_doc = next(f for f in get_documents() if f.endswith('.pdf'))
         status = tab.insert(video=get_video_files()[0], audio=get_audio_files()[0], doc=pdf_doc)
@@ -420,8 +421,9 @@ class TestDataFrame:
         """
         skip_test_if_not_installed('torch')
         import torch.utils.data
-        @pxt.udf(param_types=[pxt.JsonType()], return_type=pxt.JsonType())
-        def restrict_json_for_default_collate(obj):
+
+        @pxt.udf
+        def restrict_json_for_default_collate(obj: pxt.Json) -> pxt.Json:
             keys = ['id', 'label', 'iscrowd', 'bounding_box']
             return {k: obj[k] for k in keys}
 
@@ -510,7 +512,8 @@ class TestDataFrame:
     def test_to_coco(self, reset_db) -> None:
         skip_test_if_not_installed('yolox')
         from pycocotools.coco import COCO
-        from pixeltable.ext.functions.yolox import yolox, yolo_to_coco
+
+        from pixeltable.ext.functions.yolox import yolo_to_coco, yolox
         base_t = pxt.create_table('videos', {'video': pxt.VideoType()})
         view_t = pxt.create_view('frames', base_t, iterator=FrameIterator.create(video=base_t.video, fps=1))
         view_t.add_column(detections=yolox(view_t.frame, model_id='yolox_m'))

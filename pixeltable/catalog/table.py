@@ -325,10 +325,10 @@ class Table(SchemaObject):
     def add_column(
             self,
             *,
-            type: Optional[ts.ColumnType] = None,
+            type: Union[ts.ColumnType, builtins.type, _GenericAlias, None] = None,
             stored: Optional[bool] = None,
             print_stats: bool = False,
-            **kwargs: Union[ts.ColumnType, exprs.Expr, Callable]
+            **kwargs: Union[ts.ColumnType, builtins.type, _GenericAlias, exprs.Expr, Callable]
     ) -> UpdateStatus:
         """
         Adds a column to the table.
@@ -388,14 +388,12 @@ class Table(SchemaObject):
             raise excs.Error(f'add_column(): keyword argument "type" is redundant')
 
         col_schema: dict[str, Any] = {}
-        if isinstance(spec, ts.ColumnType):
-            col_schema['type'] = spec
-        elif isinstance(spec, builtins.type) or isinstance(spec, _GenericAlias):
-            col_schema['type'] = ts.ColumnType.from_python_type(spec, nullable_default=True)
+        if isinstance(spec, (ts.ColumnType, builtins.type, _GenericAlias)):
+            col_schema['type'] = ts.ColumnType.normalize_type(spec, nullable_default=True)
         else:
             col_schema['value'] = spec
         if type is not None:
-            col_schema['type'] = type
+            col_schema['type'] = ts.ColumnType.normalize_type(type, nullable_default=True)
         if stored is not None:
             col_schema['stored'] = stored
 

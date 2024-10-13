@@ -9,7 +9,6 @@ import pixeltable as pxt
 from pixeltable import exceptions as excs
 from pixeltable.iterators import ComponentIterator
 from pixeltable.iterators.video import FrameIterator
-from pixeltable.type_system import IntType, JsonType, VideoType
 
 from .utils import assert_resultset_eq, get_test_video_files, reload_catalog, validate_update_status
 
@@ -26,14 +25,14 @@ class ConstantImgIterator(ComponentIterator):
     @classmethod
     def input_schema(cls) -> Dict[str, pxt.ColumnType]:
         return {
-            'video': VideoType(nullable=False),
+            'video': pxt.VideoType(nullable=False),
             'fps': pxt.FloatType()
         }
 
     @classmethod
     def output_schema(cls, *args: Any, **kwargs: Any) -> Tuple[Dict[str, pxt.ColumnType], List[str]]:
         return {
-            'frame_idx': IntType(),
+            'frame_idx': pxt.IntType(),
             'pos_msec': pxt.FloatType(),
             'pos_frame': pxt.FloatType(),
             'frame': pxt.ImageType(),
@@ -65,13 +64,13 @@ class TestComponentView:
 
     def test_basic(self, reset_db) -> None:
         # create video table
-        schema = {'video': VideoType(), 'angle': IntType(), 'other_angle': IntType()}
+        schema = {'video': pxt.Video, 'angle': pxt.Int, 'other_angle': pxt.Int}
         video_t = pxt.create_table('video_tbl', schema)
         video_filepaths = get_test_video_files()
 
         # cannot add 'pos' column
         with pytest.raises(excs.Error) as excinfo:
-            video_t.add_column(pos=IntType())
+            video_t.add_column(pos=pxt.Int)
         assert 'reserved' in str(excinfo.value)
 
         # parameter missing
@@ -119,7 +118,7 @@ class TestComponentView:
 
     def test_add_column(self, reset_db) -> None:
         # create video table
-        video_t = pxt.create_table('video_tbl', {'video': VideoType()})
+        video_t = pxt.create_table('video_tbl', {'video': pxt.Video})
         video_filepaths = get_test_video_files()
         # create frame view
         view_t = pxt.create_view('test_view', video_t, iterator=FrameIterator.create(video=video_t.video, fps=1))
@@ -127,22 +126,22 @@ class TestComponentView:
         rows = [{'video': p} for p in video_filepaths]
         validate_update_status(video_t.insert(rows))
         # adding a non-computed column backfills it with nulls
-        validate_update_status(view_t.add_column(annotation=JsonType(nullable=True)))
+        validate_update_status(view_t.add_column(annotation=pxt.Json))
         assert view_t.count() == view_t.where(view_t.annotation == None).count()
         # adding more data via the base table sets the column values to null
         validate_update_status(video_t.insert(rows))
         assert view_t.count() == view_t.where(view_t.annotation == None).count()
 
         with pytest.raises(excs.Error) as excinfo:
-            view_t.add_column(annotation=JsonType(nullable=False))
+            view_t.add_column(annotation=pxt.Required[pxt.Json])
         assert 'must be nullable' in str(excinfo.value)
 
     def test_update(self, reset_db) -> None:
         # create video table
-        video_t = pxt.create_table('video_tbl', {'video': VideoType()})
+        video_t = pxt.create_table('video_tbl', {'video': pxt.Video})
         # create frame view with manually updated column
         view_t = pxt.create_view(
-            'test_view', video_t, additional_columns={'annotation': JsonType(nullable=True)},
+            'test_view', video_t, additional_columns={'annotation': pxt.Json},
             iterator=FrameIterator.create(video=video_t.video, fps=1))
 
         video_filepaths = get_test_video_files()
@@ -167,7 +166,7 @@ class TestComponentView:
 
         with pytest.raises(excs.Error) as excinfo:
             _ = pxt.create_view(
-                'bad_view', video_t, additional_columns={'annotation': JsonType(nullable=False)},
+                'bad_view', video_t, additional_columns={'annotation': pxt.Required[pxt.Json]},
                 iterator=FrameIterator.create(video=video_t.video, fps=1))
         assert 'must be nullable' in str(excinfo.value)
 
@@ -206,7 +205,7 @@ class TestComponentView:
         snap_path = 'test_snap'
 
         # create video table
-        video_t = pxt.create_table(base_path, {'video': VideoType(), 'margin': IntType()})
+        video_t = pxt.create_table(base_path, {'video': pxt.Video, 'margin': pxt.Int})
         video_filepaths = get_test_video_files()
         rows = [{'video': path, 'margin': i * 10} for i, path in enumerate(video_filepaths)]
         status = video_t.insert(rows)
@@ -274,7 +273,7 @@ class TestComponentView:
     def test_chained_views(self, reset_db) -> None:
         """Component view followed by a standard view"""
         # create video table
-        schema = {'video': VideoType(), 'int1': IntType(), 'int2': IntType()}
+        schema = {'video': pxt.Video, 'int1': pxt.Int, 'int2': pxt.Int}
         video_t = pxt.create_table('video_tbl', schema)
         video_filepaths = get_test_video_files()
 

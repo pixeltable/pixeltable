@@ -303,10 +303,13 @@ class ColumnType:
         return None
 
     @classmethod
-    def normalize_type(cls, t: Union[ColumnType, type, _AnnotatedAlias]) -> ColumnType:
+    def normalize_type(cls, t: Union[ColumnType, type, _AnnotatedAlias], nullable_default: bool = False) -> ColumnType:
+        """
+        Convert any type recognizable by Pixeltable to its corresponding ColumnType.
+        """
         if isinstance(t, ColumnType):
             return t
-        col_type = cls.from_python_type(t)
+        col_type = cls.from_python_type(t, nullable_default)
         if col_type is None:
             raise excs.Error(f'Unknown type: {t}')
         return col_type

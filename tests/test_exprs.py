@@ -4,7 +4,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import numpy as np
 import PIL.Image
@@ -21,26 +21,24 @@ from pixeltable.exprs import ColumnRef, Expr
 from pixeltable.functions import cast
 from pixeltable.functions.globals import count, sum
 from pixeltable.iterators import FrameIterator
-from pixeltable.type_system import ArrayType, BoolType, ColumnType, FloatType, IntType, StringType, VideoType
 
 from .utils import get_image_files, reload_catalog, skip_test_if_not_installed, validate_update_status
 
 
 class TestExprs:
-    @pxt.udf(return_type=FloatType(), param_types=[IntType(), IntType()])
+    @pxt.udf
     def div_0_error(a: int, b: int) -> float:
         return a / b
 
     # function that does allow nulls
-    @pxt.udf(return_type=FloatType(nullable=True),
-            param_types=[FloatType(nullable=False), FloatType(nullable=True)])
-    def null_args_fn(a: int, b: int) -> int:
+    @pxt.udf
+    def null_args_fn(a: float, b: Optional[float]) -> float:
         if b is None:
             return a
         return a + b
 
     # error in agg.init()
-    @pxt.uda(update_types=[IntType()], value_type=IntType())
+    @pxt.uda(update_types=[pxt.IntType()], value_type=pxt.IntType())
     class init_exc(pxt.Aggregator):
         def __init__(self):
             self.sum = 1 / 0
@@ -50,7 +48,7 @@ class TestExprs:
             return 1
 
     # error in agg.update()
-    @pxt.uda(update_types=[IntType()], value_type=IntType())
+    @pxt.uda(update_types=[pxt.IntType()], value_type=pxt.IntType())
     class update_exc(pxt.Aggregator):
         def __init__(self):
             self.sum = 0
@@ -60,7 +58,7 @@ class TestExprs:
             return 1
 
     # error in agg.value()
-    @pxt.uda(update_types=[IntType()], value_type=IntType())
+    @pxt.uda(update_types=[pxt.IntType()], value_type=pxt.IntType())
     class value_exc(pxt.Aggregator):
         def __init__(self):
             self.sum = 0
@@ -238,11 +236,11 @@ class TestExprs:
 
     def test_null_args(self, reset_db) -> None:
         # create table with two int columns
-        schema = {'c1': FloatType(nullable=True), 'c2': FloatType(nullable=True)}
+        schema = {'c1': pxt.Float, 'c2': pxt.Float}
         t = pxt.create_table('test', schema)
 
         # computed column that doesn't allow nulls
-        t.add_column(c3=lambda c1, c2: c1 + c2, type=FloatType(nullable=False))
+        t.add_column(c3=lambda c1, c2: c1 + c2, type=pxt.Required[pxt.Float])
         t.add_column(c4=self.null_args_fn(t.c1, t.c2))
 
         # data that tests all combinations of nulls
@@ -258,8 +256,8 @@ class TestExprs:
         t = test_tbl
 
         # Add nullable int and float columns
-        t.add_column(c2n=IntType(nullable=True))
-        t.add_column(c3n=FloatType(nullable=True))
+        t.add_column(c2n=pxt.Int)
+        t.add_column(c3n=pxt.Float)
         t.where(t.c2 % 7 != 0).update({'c2n': t.c2, 'c3n': t.c3})
 
         _ = t[t.c2, t.c6.f3, t.c2 + t.c6.f3, (t.c2 + t.c6.f3) / (t.c6.f3 + 1)].show()
@@ -332,9 +330,9 @@ class TestExprs:
         # (ii) with a Python function call interposed, to ensure that the arithmetic operations are always done in Python;
         # (iii) and (iv), as (i) and (ii) but with JsonType expressions.
         primitive_ops = (t.c2, t.c3)
-        forced_python_ops = (t.c2.apply(math.floor, col_type=IntType()), t.c3.apply(math.floor, col_type=FloatType()))
+        forced_python_ops = (t.c2.apply(math.floor, col_type=pxt.Int), t.c3.apply(math.floor, col_type=pxt.Float))
         json_primitive_ops = (t.c6.f2, t.c6.f3)
-        json_forced_python_ops = (t.c6.f2.apply(math.floor, col_type=IntType()), t.c6.f3.apply(math.floor, col_type=FloatType()))
+        json_forced_python_ops = (t.c6.f2.apply(math.floor, col_type=pxt.Int), t.c6.f3.apply(math.floor, col_type=pxt.Float))
         for (int_operand, float_operand) in (primitive_ops, forced_python_ops, json_primitive_ops, json_forced_python_ops):
             results = t.where(t.c2 == 7).select(
                 add_int=int_operand + (t.c2 - 4),
@@ -358,7 +356,7 @@ class TestExprs:
             )
 
         with pytest.raises(excs.Error) as exc_info:
-            t.select(t.c6 + t.c2.apply(math.floor, col_type=IntType())).collect()
+            t.select(t.c6 + t.c2.apply(math.floor, col_type=pxt.Int)).collect()
         assert '+ requires numeric type, but c6 has type dict' in str(exc_info.value)
 
     def test_comparison(self, test_tbl: catalog.Table) -> None:
@@ -405,9 +403,9 @@ class TestExprs:
         result = t.select(pxt.array([[t.c2, 1], [t.c2, 2]])).show()
         col_type = next(iter(result.schema.values()))
         assert col_type.is_array_type()
-        assert isinstance(col_type, ArrayType)
+        assert isinstance(col_type, pxt.ArrayType)
         assert col_type.shape == (2, 2)
-        assert col_type.dtype == ColumnType.Type.INT
+        assert col_type.dtype == pxt.ColumnType.Type.INT
 
         with pytest.raises(excs.Error) as excinfo:
             _ = t.select(pxt.array([t.c1, t.c2])).collect()
@@ -462,7 +460,7 @@ class TestExprs:
         #_ = t[t.c6.f2].show()
         #_ = t[t.c6.f5].show()
         _ = t[t.c6.f6.f8].show()
-        _ = t[cast(t.c6.f6.f8, ArrayType((4,), FloatType()))].show()
+        _ = t[cast(t.c6.f6.f8, pxt.Array[(4,), float])].show()
 
         # top-level is array
         #_ = t[t.c7['*'].f1].show()
@@ -472,7 +470,7 @@ class TestExprs:
         _ = t[t.c7[0].f6.f8].show()
         _ = t[t.c7[:2].f6.f8].show()
         _ = t[t.c7[::-1].f6.f8].show()
-        _ = t[cast(t.c7['*'].f6.f8, ArrayType((2, 4), FloatType()))].show()
+        _ = t[cast(t.c7['*'].f6.f8, pxt.Array[(2, 4), float])].show()
         print(_)
 
     def test_arrays(self, test_tbl: catalog.Table) -> None:
@@ -543,7 +541,7 @@ class TestExprs:
     def test_astype(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         # Convert int to float
-        status = t.add_column(c2_as_float=t.c2.astype(FloatType()))
+        status = t.add_column(c2_as_float=t.c2.astype(float))
         assert status.num_excs == 0
         data = t.select(t.c2, t.c2_as_float).collect()
         for row in data:
@@ -551,14 +549,14 @@ class TestExprs:
             assert isinstance(row['c2_as_float'], float)
             assert row['c2'] == row['c2_as_float']
         # Compound expression
-        status = t.add_column(compound_as_float=(t.c2 + 1).astype(FloatType()))
+        status = t.add_column(compound_as_float=(t.c2 + 1).astype(float))
         assert status.num_excs == 0
         data = t.select(t.c2, t.compound_as_float).collect()
         for row in data:
             assert isinstance(row['compound_as_float'], float)
             assert row['c2'] + 1 == row['compound_as_float']
         # Type conversion error
-        status = t.add_column(c2_as_string=t.c2.astype(StringType()))
+        status = t.add_column(c2_as_string=t.c2.astype(str))
         assert status.num_excs == t.count()
 
     def test_astype_str_to_img(self, reset_db) -> None:
@@ -567,14 +565,14 @@ class TestExprs:
         # store relative paths in the table
         parent_dir = Path(img_files[0]).parent
         assert(all(parent_dir == Path(img_file).parent for img_file in img_files))
-        t = pxt.create_table('astype_test', {'rel_path': StringType()})
+        t = pxt.create_table('astype_test', {'rel_path': pxt.String})
         validate_update_status(t.insert({'rel_path': Path(f).name} for f in img_files), expected_rows=len(img_files))
 
         # create a computed image column constructed from the relative paths
         import pixeltable.functions as pxtf
         validate_update_status(
             t.add_column(
-                img=pxtf.string.format('{0}/{1}', str(parent_dir), t.rel_path).astype(pxt.ImageType()), stored=True)
+                img=pxtf.string.format('{0}/{1}', str(parent_dir), t.rel_path).astype(pxt.Image), stored=True)
         )
         loaded_imgs = t.select(t.img).collect()['img']
         orig_imgs = [PIL.Image.open(f) for f in img_files]
@@ -583,7 +581,7 @@ class TestExprs:
 
         # the same for a select list item
         loaded_imgs = (
-            t.select(img=pxtf.string.format('{0}/{1}', str(parent_dir), t.rel_path).astype(pxt.ImageType()))
+            t.select(img=pxtf.string.format('{0}/{1}', str(parent_dir), t.rel_path).astype(pxt.Image))
             .collect()['img']
         )
         for orig_img, retrieved_img in zip(orig_imgs, loaded_imgs):
@@ -635,7 +633,7 @@ class TestExprs:
         assert 'Column type of `f1` cannot be inferred.' in str(exc_info.value)
 
         # ... but works if the type is specified explicitly.
-        status = t.add_column(c2_str_f1=t.c2.apply(f1, col_type=StringType()))
+        status = t.add_column(c2_str_f1=t.c2.apply(f1, col_type=pxt.String))
         assert status.num_excs == 0
 
         # Test that the return type of a function can be successfully inferred.
@@ -849,7 +847,7 @@ class TestExprs:
         _ = t.c9.col.has_window_fn_call()
 
         # ordering conflict between frame extraction and window fn
-        base_t = pxt.create_table('videos', {'video': VideoType(), 'c2': IntType(nullable=False)})
+        base_t = pxt.create_table('videos', {'video': pxt.Video, 'c2': pxt.Int})
         v = pxt.create_view('frame_view', base_t, iterator=FrameIterator.create(video=base_t.video, fps=0))
         # compatible ordering
         _ = v.select(v.frame, sum(v.frame_idx, group_by=base_t, order_by=v.pos)).show(100)
@@ -858,9 +856,9 @@ class TestExprs:
             _ = v.select(v.frame, sum(v.c2, order_by=base_t, group_by=v.pos)).show(100)
 
         schema = {
-            'c2': IntType(nullable=False),
-            'c3': FloatType(nullable=False),
-            'c4': BoolType(nullable=False),
+            'c2': pxt.Int,
+            'c3': pxt.Float,
+            'c4': pxt.Bool,
         }
         new_t = pxt.create_table('insert_test', schema)
         new_t.add_column(c2_sum=sum(new_t.c2, group_by=new_t.c4, order_by=new_t.c3))
@@ -902,7 +900,7 @@ class TestExprs:
             _ = t[sum(count(t.c2))].group_by(t.c2 % 2).show()
 
     @pxt.uda(
-        init_types=[IntType()], update_types=[IntType()], value_type=IntType(),
+        init_types=[pxt.IntType()], update_types=[pxt.IntType()], value_type=pxt.IntType(),
         allows_window=True, requires_order_by=False)
     class window_agg:
         def __init__(self, val: int = 0):
@@ -913,7 +911,7 @@ class TestExprs:
             return self.val
 
     @pxt.uda(
-        init_types=[IntType()], update_types=[IntType()], value_type=IntType(),
+        init_types=[pxt.IntType()], update_types=[pxt.IntType()], value_type=pxt.IntType(),
         requires_order_by=True, allows_window=True)
     class ordered_agg:
         def __init__(self, val: int = 0):
@@ -924,7 +922,7 @@ class TestExprs:
             return self.val
 
     @pxt.uda(
-        init_types=[IntType()], update_types=[IntType()], value_type=IntType(),
+        init_types=[pxt.IntType()], update_types=[pxt.IntType()], value_type=pxt.IntType(),
         requires_order_by=False, allows_window=False)
     class std_agg:
         def __init__(self, val: int = 0):
@@ -976,7 +974,7 @@ class TestExprs:
 
         with pytest.raises(excs.Error) as exc_info:
             # missing init type
-            @pxt.uda(update_types=[IntType()], value_type=IntType())
+            @pxt.uda(update_types=[pxt.IntType()], value_type=pxt.IntType())
             class WindowAgg:
                 def __init__(self, val: int = 0):
                     self.val = val
@@ -988,7 +986,7 @@ class TestExprs:
 
         with pytest.raises(excs.Error) as exc_info:
             # missing update parameter
-            @pxt.uda(init_types=[IntType()], update_types=[], value_type=IntType())
+            @pxt.uda(init_types=[pxt.IntType()], update_types=[], value_type=pxt.IntType())
             class WindowAgg:
                 def __init__(self, val: int = 0):
                     self.val = val
@@ -1000,7 +998,7 @@ class TestExprs:
 
         with pytest.raises(excs.Error) as exc_info:
             # missing update type
-            @pxt.uda(init_types=[IntType()], update_types=[IntType()], value_type=IntType())
+            @pxt.uda(init_types=[pxt.IntType()], update_types=[pxt.IntType()], value_type=pxt.IntType())
             class WindowAgg:
                 def __init__(self, val: int = 0):
                     self.val = val
@@ -1012,7 +1010,7 @@ class TestExprs:
 
         with pytest.raises(excs.Error) as exc_info:
             # duplicate parameter names
-            @pxt.uda(init_types=[IntType()], update_types=[IntType()], value_type=IntType())
+            @pxt.uda(init_types=[pxt.IntType()], update_types=[pxt.IntType()], value_type=pxt.IntType())
             class WindowAgg:
                 def __init__(self, val: int = 0):
                     self.val = val
@@ -1024,7 +1022,7 @@ class TestExprs:
 
         with pytest.raises(excs.Error) as exc_info:
             # reserved parameter name
-            @pxt.uda(init_types=[IntType()], update_types=[IntType()], value_type=IntType())
+            @pxt.uda(init_types=[pxt.IntType()], update_types=[pxt.IntType()], value_type=pxt.IntType())
             class WindowAgg:
                 def __init__(self, val: int = 0):
                     self.val = val
@@ -1036,7 +1034,7 @@ class TestExprs:
 
         with pytest.raises(excs.Error) as exc_info:
             # reserved parameter name
-            @pxt.uda(init_types=[IntType()], update_types=[IntType()], value_type=IntType())
+            @pxt.uda(init_types=[pxt.IntType()], update_types=[pxt.IntType()], value_type=pxt.IntType())
             class WindowAgg:
                 def __init__(self, val: int = 0):
                     self.val = val
