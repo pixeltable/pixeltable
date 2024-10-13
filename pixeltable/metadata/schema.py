@@ -191,6 +191,10 @@ class SchemaColumn:
     pos: int
     name: str
 
+    # media validation strategy of this particular media column; if not set, TableMd.media_validation applies
+    # stores column.MediaValiation.value
+    media_validation: Optional[int]
+
 
 @dataclasses.dataclass
 class TableSchemaVersionMd:
@@ -202,6 +206,10 @@ class TableSchemaVersionMd:
     columns: dict[int, SchemaColumn]  # col_id -> SchemaColumn
     num_retained_versions: int
     comment: str
+
+    # default validation strategy for any media column of this table
+    # stores column.MediaValiation.value
+    media_validation: int
 
 
 # versioning: each table schema change results in a new record

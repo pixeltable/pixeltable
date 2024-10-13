@@ -139,10 +139,10 @@ class TestTable:
     def test_names(self, reset_db) -> None:
         pxt.create_dir('dir')
         pxt.create_dir('dir.subdir')
-        for tbl_path in ['test', 'dir.test', 'dir.subdir.test']:
-            tbl = pxt.create_table(tbl_path, {'col': pxt.StringType()})
-            view = pxt.create_view(f'{tbl_path}_view', tbl)
-            snap = pxt.create_view(f'{tbl_path}_snap', tbl, is_snapshot=True)
+        for tbl_path, media_val in [('test', 'on_read'), ('dir.test', 'on_write'), ('dir.subdir.test', 'on_read')]:
+            tbl = pxt.create_table(tbl_path, {'col': pxt.StringType()}, media_validation=media_val)
+            view = pxt.create_view(f'{tbl_path}_view', tbl, media_validation=media_val)
+            snap = pxt.create_view(f'{tbl_path}_snap', tbl, is_snapshot=True, media_validation=media_val)
             assert tbl._path == tbl_path
             assert tbl._name == tbl_path.split('.')[-1]
             assert tbl._parent._path == '.'.join(tbl_path.split('.')[:-1])
@@ -154,12 +154,47 @@ class TestTable:
                     'is_snapshot': t._tbl_version.is_snapshot,
                     'name': t._name,
                     'num_retained_versions': t._num_retained_versions,
+                    'media_validation': media_val,
                     'parent': t._parent._path,
                     'path': t._path,
                     'schema': t._schema,
                     'schema_version': t._tbl_version.schema_version,
                     'version': t._version,
                 }
+
+    def test_media_validation(self, reset_db) -> None:
+        tbl_schema = {
+            'img': {'type': ImageType(nullable=False), 'media_validation': 'on_write'},
+            'video': VideoType(nullable=False)
+        }
+        t = pxt.create_table('test', tbl_schema, media_validation='on_read')
+        assert t.get_metadata()['media_validation'] == 'on_read'
+        assert t.img.col.media_validation == pxt.catalog.MediaValidation.ON_WRITE
+        # table default applies
+        assert t.video.col.media_validation == pxt.catalog.MediaValidation.ON_READ
+
+        v_schema = {
+            'doc': {'type': DocumentType(nullable=True), 'media_validation': 'on_read'},
+            'audio': AudioType(nullable=True)
+        }
+        v = pxt.create_view('test_view', t, additional_columns=v_schema, media_validation='on_write')
+        assert v.get_metadata()['media_validation'] == 'on_write'
+        assert v.doc.col.media_validation == pxt.catalog.MediaValidation.ON_READ
+        # view default applies
+        assert v.audio.col.media_validation == pxt.catalog.MediaValidation.ON_WRITE
+        # flags for base still apply
+        assert v.img.col.media_validation == pxt.catalog.MediaValidation.ON_WRITE
+        assert v.video.col.media_validation == pxt.catalog.MediaValidation.ON_READ
+
+        with pytest.raises(excs.Error) as exc_info:
+            _ = pxt.create_table(
+                'validation_error', {'img': ImageType(nullable=False)}, media_validation='wrong_value')
+        assert "media_validation must be one of: ['on_read', 'on_write']" in str(exc_info.value)
+
+        with pytest.raises(excs.Error) as exc_info:
+            _ = pxt.create_table(
+                'validation_error', {'img': {'type': ImageType(nullable=False), 'media_validation': 'wrong_value'}})
+        assert "media_validation must be one of: ['on_read', 'on_write']" in str(exc_info.value)
 
     def test_create_from_df(self, test_tbl: pxt.Table) -> None:
         t = pxt.get_table('test_tbl')

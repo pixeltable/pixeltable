@@ -1,6 +1,6 @@
 import dataclasses
 import logging
-from typing import Any, Iterable, Optional, Union
+from typing import Any, Iterable, Optional, Union, Literal
 from uuid import UUID
 
 import pandas as pd
@@ -33,6 +33,7 @@ def create_table(
     primary_key: Optional[Union[str, list[str]]] = None,
     num_retained_versions: int = 10,
     comment: str = '',
+    media_validation: Literal['on_read', 'on_write'] = 'on_write'
 ) -> catalog.Table:
     """Create a new base table.
 
@@ -88,15 +89,12 @@ def create_table(
         if not isinstance(primary_key, list) or not all(isinstance(pk, str) for pk in primary_key):
             raise excs.Error('primary_key must be a single column name or a list of column names')
 
+    if media_validation.upper() not in catalog.MediaValidation.__members__.keys():
+        val_strs = ', '.join(f'{s.lower()!r}' for s in catalog.MediaValidation.__members__.keys())
+        raise excs.Error(f'media_validation must be one of: [{val_strs}]')
     tbl = catalog.InsertableTable._create(
-        dir._id,
-        path.name,
-        schema,
-        df,
-        primary_key=primary_key,
-        num_retained_versions=num_retained_versions,
-        comment=comment,
-    )
+        dir._id, path.name, schema, df, primary_key=primary_key, num_retained_versions=num_retained_versions,
+        comment=comment, media_validation=catalog.MediaValidation[media_validation.upper()])
     Catalog.get().paths[path] = tbl
 
     _logger.info(f'Created table `{path_str}`.')
@@ -112,6 +110,7 @@ def create_view(
     iterator: Optional[tuple[type[ComponentIterator], dict[str, Any]]] = None,
     num_retained_versions: int = 10,
     comment: str = '',
+    media_validation: Literal['on_read', 'on_write'] = 'on_write',
     ignore_errors: bool = False,
 ) -> Optional[catalog.Table]:
     """Create a view of an existing table object (which itself can be a view or a snapshot or a base table).
@@ -176,17 +175,15 @@ def create_view(
     else:
         iterator_class, iterator_args = iterator
 
+    if media_validation.upper() not in catalog.MediaValidation.__members__.keys():
+        val_strs = ', '.join(f'{s.lower()!r}' for s in catalog.MediaValidation.__members__.keys())
+        raise excs.Error(f'media_validation must be one of: [{val_strs}]')
+
     view = catalog.View._create(
-        dir._id,
-        path.name,
-        base=tbl_version_path,
-        additional_columns=additional_columns,
-        predicate=where,
-        is_snapshot=is_snapshot,
-        iterator_cls=iterator_class,
-        iterator_args=iterator_args,
-        num_retained_versions=num_retained_versions,
-        comment=comment,
+        dir._id, path.name, base=tbl_version_path, additional_columns=additional_columns, predicate=where,
+        is_snapshot=is_snapshot, iterator_cls=iterator_class, iterator_args=iterator_args,
+        num_retained_versions=num_retained_versions, comment=comment,
+        media_validation=catalog.MediaValidation[media_validation.upper()]
     )
     Catalog.get().paths[path] = view
     _logger.info(f'Created view `{path_str}`.')
