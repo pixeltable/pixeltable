@@ -39,101 +39,6 @@ class TestFunction:
         # TODO: add Function.exec() and then use that
         assert deserialized.py_fn(1) == 2
 
-    @pytest.mark.skip(reason='deprecated')
-    def test_create(self, reset_db) -> None:
-        pxt.create_function('test_fn', self.func)
-        assert self.func.md.fqn == 'test_fn'
-        FunctionRegistry.get().clear_cache()
-        reload_catalog()
-        _ = pxt.list_functions()
-        fn2 = pxt.get_function('test_fn')
-        assert fn2.md.fqn == 'test_fn'
-        assert fn2.py_fn(1) == 2
-
-        with pytest.raises(excs.Error):
-            pxt.create_function('test_fn', self.func)
-        with pytest.raises(excs.Error):
-            pxt.create_function('dir1.test_fn', self.func)
-        with pytest.raises(excs.Error):
-            library_fn = make_library_function(pxt.IntType(), [pxt.IntType()], __name__, 'dummy_fn')
-            pxt.create_function('library_fn', library_fn)
-
-    @pytest.mark.skip(reason='deprecated')
-    def test_update(self, reset_db, test_tbl: catalog.Table) -> None:
-        t = test_tbl
-        pxt.create_function('test_fn', self.func)
-        res1 = t[self.func(t.c2)].show(0).to_pandas()
-
-        # load function from db and make sure it computes the same thing as before
-        FunctionRegistry.get().clear_cache()
-        reload_catalog()
-        fn = pxt.get_function('test_fn')
-        res2 = t[fn(t.c2)].show(0).to_pandas()
-        assert res1.col_0.equals(res2.col_0)
-        fn.py_fn = lambda x: x + 2
-        pxt.update_function('test_fn', fn)
-        assert self.func.md.fqn == fn.md.fqn  # fqn doesn't change
-
-        FunctionRegistry.get().clear_cache()
-        reload_catalog()
-        fn = pxt.get_function('test_fn')
-        assert self.func.md.fqn == fn.md.fqn  # fqn doesn't change
-        res3 = t[fn(t.c2)].show(0).to_pandas()
-        assert (res2.col_0 + 1).equals(res3.col_0)
-
-        # signature changes
-        with pytest.raises(excs.Error):
-            pxt.update_function('test_fn', make_function(pxt.FloatType(), [pxt.IntType()], fn.py_fn))
-        with pytest.raises(excs.Error):
-            pxt.update_function('test_fn', make_function(pxt.IntType(), [pxt.FloatType()], fn.py_fn))
-        with pytest.raises(excs.Error):
-            pxt.update_function('test_fn', self.agg)
-
-    @pytest.mark.skip(reason='deprecated')
-    def test_move(self, reset_db) -> None:
-        pxt.create_function('test_fn', self.func)
-
-        FunctionRegistry.get().clear_cache()
-        reload_catalog()
-        with pytest.raises(excs.Error):
-            pxt.move('test_fn2', 'test_fn')
-        pxt.move('test_fn', 'test_fn2')
-        func = pxt.get_function('test_fn2')
-        assert func.py_fn(1) == 2
-        assert func.md.fqn == 'test_fn2'
-
-        with pytest.raises(excs.Error):
-            _ = pxt.get_function('test_fn')
-
-        # move function between directories
-        pxt.create_dir('functions')
-        pxt.create_dir('functions2')
-        pxt.create_function('functions.func1', self.func)
-        with pytest.raises(excs.Error):
-            pxt.move('functions2.func1', 'functions.func1')
-        pxt.move('functions.func1', 'functions2.func1')
-        func = pxt.get_function('functions2.func1')
-        assert func.md.fqn == 'functions2.func1'
-
-
-        FunctionRegistry.get().clear_cache()
-        reload_catalog()
-        func = pxt.get_function('functions2.func1')
-        assert func.py_fn(1) == 2
-        assert func.md.fqn == 'functions2.func1'
-        with pytest.raises(excs.Error):
-            _ = pxt.get_function('functions.func1')
-
-    @pytest.mark.skip(reason='deprecated')
-    def test_drop(self, reset_db) -> None:
-        pxt.create_function('test_fn', self.func)
-        FunctionRegistry.get().clear_cache()
-        reload_catalog()
-        pxt.drop_function('test_fn')
-
-        with pytest.raises(excs.Error):
-            _ = pxt.get_function('test_fn')
-
     def test_list(self, reset_db) -> None:
         _ = FunctionRegistry.get().list_functions()
         print(_)
@@ -432,7 +337,7 @@ class TestFunction:
             # signature has correct parameter kind
             @pxt.expr_udf
             def add1(*, x: int) -> int:
-                return x + y
+                return x
             _ = t.select(add1(t.c2)).collect()
         assert 'takes 0 positional arguments' in str(exc_info.value).lower()
 
