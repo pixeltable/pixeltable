@@ -165,7 +165,16 @@ class ColumnType:
             return DocumentType()
 
     def __str__(self) -> str:
-        return self._type.name.lower()
+        # Camel-case the type name
+        type_str = self._type.name[0] + self._type.name[1:].lower()
+        return self._with_optional(type_str)
+
+    def _with_optional(self, type_str: str) -> str:
+        """Mark the type as Optional or Required depending on nullability"""
+        if self.nullable:
+            return f'Optional[{type_str}]'
+        else:
+            return type_str
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, ColumnType) and self.matches(other) and self.nullable == other.nullable
@@ -638,7 +647,7 @@ class ArrayType(ColumnType):
         return result
 
     def __str__(self) -> str:
-        return f'{self._type.name.lower()}({self.shape}, dtype={self.dtype.name})'
+        return self._with_optional(f'Array[{self.shape}, {self.pxt_dtype}]')
 
     @classmethod
     def _from_dict(cls, d: dict) -> ColumnType:
@@ -733,22 +742,16 @@ class ImageType(ColumnType):
         return ImageType(self.width, self.height, mode=self.mode, nullable=nullable)
 
     def __str__(self) -> str:
-        if self.width is not None or self.height is not None or self.mode is not None:
+        params = []
+        if self.width is not None or self.height is not None:
+            params.append(f'({self.width}, {self.height})')
+        if self.mode is not None:
+            params.append(repr(self.mode))
+        if len(params) == 0:
             params_str = ''
-            if self.width is not None:
-                params_str = f'width={self.width}'
-            if self.height is not None:
-                if len(params_str) > 0:
-                    params_str += ', '
-                params_str += f'height={self.height}'
-            if self.mode is not None:
-                if len(params_str) > 0:
-                    params_str += ', '
-                params_str += f'mode={self.mode}'
-            params_str = f'({params_str})'
         else:
-            params_str = ''
-        return f'{self._type.name.lower()}{params_str}'
+            params_str = f'[{", ".join(params)}]'
+        return self._with_optional(f'Image{params_str}')
 
     def matches(self, other: ColumnType) -> bool:
         return (
@@ -988,7 +991,7 @@ class Image(PIL.Image.Image, _PxtType):
         - A string, specifying the mode of the image
         Example: Image[(300, 300), 'RGB']
         """
-        if isinstance(item, tuple) and all(isinstance(n, int) for n in item):
+        if isinstance(item, tuple) and all(n is None or isinstance(n, int) for n in item):
             # It's a tuple of the form (width, height)
             params = (item,)
         elif isinstance(item, tuple):

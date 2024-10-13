@@ -43,47 +43,49 @@ class TestTypes:
             assert t == t_deserialized
 
     def test_from_python_type(self) -> None:
-        # Standard/builtin Python types
+        # Test cases: map of python_type to expected (pxt_type, str(pxt_type))
         test_cases: dict[type, ColumnType] = {
             # Builtin and standard types
-            str: StringType(nullable=False),
-            int: IntType(nullable=False),
-            float: FloatType(nullable=False),
-            bool: BoolType(nullable=False),
-            datetime.datetime: TimestampType(nullable=False),
-            list: JsonType(nullable=False),
-            dict: JsonType(nullable=False),
-            list[int]: JsonType(nullable=False),
-            list[dict[str, int]]: JsonType(nullable=False),
-            dict[int, str]: JsonType(nullable=False),
-            dict[dict[str, int], list[int]]: JsonType(nullable=False),
-            List: JsonType(nullable=False),
-            Dict: JsonType(nullable=False),
-            List[int]: JsonType(nullable=False),
-            List[Dict[str, int]]: JsonType(nullable=False),
-            Dict[int, str]: JsonType(nullable=False),
-            PIL.Image.Image: ImageType(nullable=False),
+            str: (StringType(nullable=False), 'String'),
+            int: (IntType(nullable=False), 'Int'),
+            float: (FloatType(nullable=False), 'Float'),
+            bool: (BoolType(nullable=False), 'Bool'),
+            datetime.datetime: (TimestampType(nullable=False), 'Timestamp'),
+            list: (JsonType(nullable=False), 'Json'),
+            dict: (JsonType(nullable=False), 'Json'),
+            list[int]: (JsonType(nullable=False), 'Json'),
+            list[dict[str, int]]: (JsonType(nullable=False), 'Json'),
+            dict[int, str]: (JsonType(nullable=False), 'Json'),
+            dict[dict[str, int], list[int]]: (JsonType(nullable=False), 'Json'),
+            List: (JsonType(nullable=False), 'Json'),
+            Dict: (JsonType(nullable=False), 'Json'),
+            List[int]: (JsonType(nullable=False), 'Json'),
+            List[Dict[str, int]]: (JsonType(nullable=False), 'Json'),
+            Dict[int, str]: (JsonType(nullable=False), 'Json'),
+            PIL.Image.Image: (ImageType(nullable=False), 'Image'),
 
             # Pixeltable types
-            String: StringType(nullable=False),
-            Int: IntType(nullable=False),
-            Float: FloatType(nullable=False),
-            Bool: BoolType(nullable=False),
-            Timestamp: TimestampType(nullable=False),
-            Image: ImageType(height=None, width=None, mode=None, nullable=False),
-            Json: JsonType(nullable=False),
-            Video: VideoType(nullable=False),
-            Audio: AudioType(nullable=False),
-            Document: DocumentType(nullable=False),
+            String: (StringType(nullable=False), 'String'),
+            Int: (IntType(nullable=False), 'Int'),
+            Float: (FloatType(nullable=False), 'Float'),
+            Bool: (BoolType(nullable=False), 'Bool'),
+            Timestamp: (TimestampType(nullable=False), 'Timestamp'),
+            Image: (ImageType(height=None, width=None, mode=None, nullable=False), 'Image'),
+            Json: (JsonType(nullable=False), 'Json'),
+            Video: (VideoType(nullable=False), 'Video'),
+            Audio: (AudioType(nullable=False), 'Audio'),
+            Document: (DocumentType(nullable=False), 'Document'),
 
             # Pixeltable types with specialized parameters
-            Array[(None,), Int]: ArrayType((None,), dtype=IntType(), nullable=False),
-            Array[(5, None, 3), Float]: ArrayType((5, None, 3), dtype=FloatType(), nullable=False),
-            Image[(100, 200)]: ImageType(width=100, height=200, mode=None, nullable=False),
-            Image[(100, 200), 'RGB']: ImageType(width=100, height=200, mode='RGB', nullable=False),
-            Image['RGB']: ImageType(height=None, width=None, mode='RGB', nullable=False),
+            Array[(None,), Int]: (ArrayType((None,), dtype=IntType(), nullable=False), 'Array[(None,), Int]'),
+            Array[(5, None, 3), Float]: (ArrayType((5, None, 3), dtype=FloatType(), nullable=False), 'Array[(5, None, 3), Float]'),
+            Image[(100, 200)]: (ImageType(width=100, height=200, mode=None, nullable=False), 'Image[(100, 200)]'),
+            Image[(100, None)]: (ImageType(width=100, height=None, mode=None, nullable=False), 'Image[(100, None)]'),
+            Image[(None, 200)]: (ImageType(width=None, height=200, mode=None, nullable=False), 'Image[(None, 200)]'),
+            Image[(100, 200), 'RGB']: (ImageType(width=100, height=200, mode='RGB', nullable=False), "Image[(100, 200), 'RGB']"),
+            Image['RGB']: (ImageType(height=None, width=None, mode='RGB', nullable=False), "Image['RGB']"),
         }
-        for py_type, pxt_type in test_cases.items():
+        for py_type, (pxt_type, string) in test_cases.items():
             assert not pxt_type.nullable
             nullable_pxt_type = pxt_type.copy(nullable=True)
 
@@ -96,6 +98,9 @@ class TestTypes:
             assert ColumnType.from_python_type(Required[py_type], nullable_default=True) == pxt_type
             assert ColumnType.from_python_type(Optional[py_type], nullable_default=True) == nullable_pxt_type
             assert ColumnType.from_python_type(Union[None, py_type], nullable_default=True) == nullable_pxt_type
+
+            assert str(pxt_type) == string
+            assert str(nullable_pxt_type) == f'Optional[{string}]'
 
     def test_supertype(self) -> None:
         test_cases = [

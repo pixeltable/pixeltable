@@ -1,4 +1,5 @@
-from typing import Optional, Union, _GenericAlias
+from typing import _GenericAlias  # type: ignore[attr-defined]
+from typing import Optional, Union
 
 import pixeltable.func as func
 import pixeltable.type_system as ts

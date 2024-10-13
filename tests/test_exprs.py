@@ -408,7 +408,7 @@ class TestExprs:
 
         with pytest.raises(excs.Error) as excinfo:
             _ = t.select(pxt.array([t.c1, t.c2])).collect()
-        assert 'element of type `int` at index 1 is not compatible with type `string` of preceding elements' in str(excinfo.value)
+        assert 'element of type `Int` at index 1 is not compatible with type `String` of preceding elements' in str(excinfo.value)
 
     def test_json_path(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
@@ -521,7 +521,7 @@ class TestExprs:
         with pytest.raises(excs.Error) as excinfo:
             # not a scalar
             _ = t.where(t.c2.isin(t.c1)).collect()
-        assert 'c1 has type string' in str(excinfo.value)
+        assert 'c1 has type String' in str(excinfo.value)
 
         status = t.add_column(in_test=t.c2.isin([1, 2, 3]))
         assert status.num_excs == 0

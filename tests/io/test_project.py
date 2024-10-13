@@ -49,12 +49,12 @@ class TestProject:
         # Incompatible types for export
         with pytest.raises(excs.Error) as exc_info:
             Project.validate_columns(t, export_cols, import_cols, {'col1': 'export2'})
-        assert 'Column `col1` cannot be exported to external column `export2` (incompatible types; expecting `image`)' in str(exc_info.value)
+        assert 'Column `col1` cannot be exported to external column `export2` (incompatible types; expecting `Image`)' in str(exc_info.value)
 
         # Incompatible types for import
         with pytest.raises(excs.Error) as exc_info:
             Project.validate_columns(t, export_cols, import_cols, {'col1': 'import2'})
-        assert 'Column `col1` cannot be imported from external column `import2` (incompatible types; expecting `video`)' in str(exc_info.value)
+        assert 'Column `col1` cannot be imported from external column `import2` (incompatible types; expecting `Video`)' in str(exc_info.value)
 
         # Subtype/supertype relationships
 
