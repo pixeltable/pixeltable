@@ -53,11 +53,11 @@ class TableVersion:
     name: str
     version: int
     comment: str
+    media_validation: MediaValidation
     num_retained_versions: int
     schema_version: int
     view_md: Optional[schema.ViewMd]
     is_snapshot: bool
-    media_validation: MediaValidation
     effective_version: Optional[int]
     path: Optional[pxt.catalog.TableVersionPath]
     base: Optional[TableVersion]
@@ -110,7 +110,7 @@ class TableVersion:
         self.view_md = tbl_md.view_md  # save this as-is, it's needed for _create_md()
         is_view = tbl_md.view_md is not None
         self.is_snapshot = (is_view and tbl_md.view_md.is_snapshot) or bool(is_snapshot)
-        self.media_validation = MediaValidation(tbl_md.media_validation)
+        self.media_validation = MediaValidation(schema_version_md.media_validation)
         # a mutable TableVersion doesn't have a static version
         self.effective_version = self.version if self.is_snapshot else None
 
@@ -204,8 +204,7 @@ class TableVersion:
         column_md = cls._create_column_md(cols)
         table_md = schema.TableMd(
             name=name, current_version=0, current_schema_version=0, next_col_id=len(cols),
-            next_idx_id=0, next_row_id=0, column_md=column_md, index_md={}, external_stores=[], view_md=view_md,
-            media_validation=media_validation.value)
+            next_idx_id=0, next_row_id=0, column_md=column_md, index_md={}, external_stores=[], view_md=view_md)
         # create a schema.Table here, we need it to call our c'tor;
         # don't add it to the session yet, we might add index metadata
         tbl_id = uuid.uuid4()
@@ -217,11 +216,16 @@ class TableVersion:
             tbl_id=tbl_record.id, version=0, md=dataclasses.asdict(table_version_md))
 
         # create schema.TableSchemaVersion
-        schema_col_md = {col.id: schema.SchemaColumn(pos=pos, name=col.name) for pos, col in enumerate(cols)}
+        schema_col_md: dict[int, schema.SchemaColumn] = {}
+        for pos, col in enumerate(cols):
+            md = schema.SchemaColumn(
+                pos=pos, name=col.name,
+                media_validation=col._media_validation.value if col._media_validation is not None else None)
+            schema_col_md[col.id] = md
 
         schema_version_md = schema.TableSchemaVersionMd(
             schema_version=0, preceding_schema_version=None, columns=schema_col_md,
-            num_retained_versions=num_retained_versions, comment=comment)
+            num_retained_versions=num_retained_versions, comment=comment, media_validation=media_validation.value)
         schema_version_record = schema.TableSchemaVersion(
             tbl_id=tbl_record.id, schema_version=0, md=dataclasses.asdict(schema_version_md))
 
@@ -288,8 +292,12 @@ class TableVersion:
         self.cols_by_name = {}
         self.cols_by_id = {}
         for col_md in tbl_md.column_md.values():
-            col_name = schema_version_md.columns[col_md.id].name if col_md.id in schema_version_md.columns else None
-            media_val = MediaValidation(col_md.media_validation) if col_md.media_validation is not None else None
+            schema_col_md = schema_version_md.columns[col_md.id] if col_md.id in schema_version_md.columns else None
+            col_name = schema_col_md.name if schema_col_md is not None else None
+            media_val = (
+                MediaValidation(schema_col_md.media_validation)
+                if schema_col_md is not None and schema_col_md.media_validation is not None else None
+            )
             col = Column(
                 col_id=col_md.id, name=col_name, col_type=ts.ColumnType.from_dict(col_md.col_type),
                 is_pk=col_md.is_pk, stored=col_md.stored, media_validation=media_val,
@@ -1171,7 +1179,6 @@ class TableVersion:
             value_expr_dict = col.value_expr.as_dict() if col.value_expr is not None else None
             column_md[col.id] = schema.ColumnMd(
                 id=col.id, col_type=col.col_type.as_dict(), is_pk=col.is_pk,
-                media_validation=col._media_validation.value if col._media_validation is not None else None,
                 schema_version_add=col.schema_version_add, schema_version_drop=col.schema_version_drop,
                 value_expr=value_expr_dict, stored=col.stored)
         return column_md
@@ -1192,7 +1199,6 @@ class TableVersion:
             next_col_id=self.next_col_id, next_idx_id=self.next_idx_id, next_row_id=self.next_rowid,
             column_md=self._create_column_md(self.cols), index_md=self.idx_md,
             external_stores=self._create_stores_md(self.external_stores.values()), view_md=self.view_md,
-            media_validation=self.media_validation.value
         )
 
     def _create_version_md(self, timestamp: float) -> schema.TableVersionMd:
@@ -1201,11 +1207,14 @@ class TableVersion:
     def _create_schema_version_md(self, preceding_schema_version: int) -> schema.TableSchemaVersionMd:
         column_md: dict[int, schema.SchemaColumn] = {}
         for pos, col in enumerate(self.cols_by_name.values()):
-            column_md[col.id] = schema.SchemaColumn(pos=pos, name=col.name)
+            column_md[col.id] = schema.SchemaColumn(
+                pos=pos, name=col.name,
+                media_validation=col._media_validation.value if col._media_validation is not None else None)
         # preceding_schema_version to be set by the caller
         return schema.TableSchemaVersionMd(
             schema_version=self.schema_version, preceding_schema_version=preceding_schema_version,
-            columns=column_md, num_retained_versions=self.num_retained_versions, comment=self.comment)
+            columns=column_md, num_retained_versions=self.num_retained_versions, comment=self.comment,
+            media_validation=self.media_validation.value)
 
     def as_dict(self) -> dict:
         return {'id': str(self.id), 'effective_version': self.effective_version}
