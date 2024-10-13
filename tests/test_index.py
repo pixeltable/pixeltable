@@ -1,16 +1,18 @@
-import PIL.Image
+import random
+import string
 import sys
 from datetime import datetime, timedelta
+from typing import Union, _GenericAlias
 
 import numpy as np
-import string
-import random
+import PIL.Image
 import pytest
 
 import pixeltable as pxt
 from pixeltable.functions.huggingface import clip_image, clip_text
-from .utils import clip_text_embed, clip_img_embed, skip_test_if_not_installed, assert_img_eq, e5_embed, \
-    reload_catalog, validate_update_status
+
+from .utils import (assert_img_eq, clip_img_embed, clip_text_embed, e5_embed, reload_catalog,
+                    skip_test_if_not_installed, validate_update_status)
 
 
 class TestIndex:
@@ -21,8 +23,8 @@ class TestIndex:
         return x
 
     # returns array w/o size
-    @pxt.udf(return_type=pxt.ArrayType((None,), dtype=pxt.FloatType()))
-    def bad_embed2(x: str) -> np.ndarray:
+    @pxt.udf
+    def bad_embed2(x: str) -> pxt.Array[(None,), pxt.Float]:
         return np.zeros(10)
 
     def test_similarity(self, small_img_tbl: pxt.Table) -> None:
@@ -53,14 +55,14 @@ class TestIndex:
 
     def test_query(self, reset_db) -> None:
         skip_test_if_not_installed('transformers')
-        queries = pxt.create_table('queries', {'query_text': pxt.StringType()})
+        queries = pxt.create_table('queries', {'query_text': pxt.String})
         query_rows = [
             {'query_text': 'how much is the stock of AI companies up?'},
             {'query_text': 'what happened to the term machine learning?'}
         ]
         validate_update_status(queries.insert(query_rows))
 
-        chunks = pxt.create_table('test_doc_chunks', {'text': pxt.StringType()})
+        chunks = pxt.create_table('test_doc_chunks', {'text': pxt.String})
         chunks.insert([
             {'text': 'the stock of artificial intelligence companies is up 1000%'},
             {'text': 'the term machine learning has fallen out of fashion now that AI has been rehabilitated and is now the new hotness'},
@@ -146,11 +148,7 @@ class TestIndex:
         img_t = img_tbl
         rows = list(img_t.select(img=img_t.img.fileurl, category=img_t.category, split=img_t.split).collect())
         # create table with fewer rows to speed up testing
-        schema = {
-            'img': pxt.ImageType(nullable=False),
-            'category': pxt.StringType(nullable=False),
-            'split': pxt.StringType(nullable=False),
-        }
+        schema = {'img': pxt.Image, 'category': pxt.String, 'split': pxt.String}
         tbl_name = 'index_test'
         img_t = pxt.create_table(tbl_name, schema)
         img_t.insert(rows[:30])
@@ -323,7 +321,7 @@ class TestIndex:
             _ = img_t.order_by(sim, asc=False).limit(1).collect()
         assert "column 'img' has multiple indices" in str(exc_info.value).lower()
 
-    def run_btree_test(self, data: list, data_type: pxt.ColumnType) -> pxt.Table:
+    def run_btree_test(self, data: list, data_type: Union[type, _GenericAlias]) -> pxt.Table:
         t = pxt.create_table('btree_test', {'data': data_type})
         num_rows = len(data)
         rows = [{'data': value} for value in data]
@@ -343,12 +341,12 @@ class TestIndex:
     def test_int_btree(self, reset_db) -> None:
         random.seed(1)
         data = [random.randint(0, 2 ** 63 - 1) for _ in range(self.BTREE_TEST_NUM_ROWS)]
-        self.run_btree_test(data, pxt.IntType())
+        self.run_btree_test(data, pxt.Int)
 
     def test_float_btree(self, reset_db) -> None:
         random.seed(1)
         data = [random.uniform(0, sys.float_info.max) for _ in range(self.BTREE_TEST_NUM_ROWS)]
-        self.run_btree_test(data, pxt.FloatType())
+        self.run_btree_test(data, pxt.Float)
 
     def test_string_btree(self, reset_db) -> None:
         def create_random_str(n: int) -> str:
@@ -358,7 +356,7 @@ class TestIndex:
         random.seed(1)
         # create random strings of length 200-300 characters
         data = [create_random_str(200 + i % 100) for i in range(self.BTREE_TEST_NUM_ROWS)]
-        t = self.run_btree_test(data, pxt.StringType())
+        t = self.run_btree_test(data, pxt.String)
 
         # edge cases: strings that are at and above the max length
         sorted_data = sorted(data)
@@ -377,7 +375,7 @@ class TestIndex:
         assert 'String literal too long' in str(exc_info.value)
 
         # test that Comparison uses BtreeIndex.MAX_STRING_LEN
-        t = pxt.create_table('test_max_str_len', {'data': pxt.StringType()})
+        t = pxt.create_table('test_max_str_len', {'data': pxt.String})
         rows = [{'data': s}, {'data': s + 'a'}]
         validate_update_status(t.insert(rows), expected_rows=len(rows))
         assert t.where(t.data >= s).count() == 2
@@ -390,4 +388,4 @@ class TestIndex:
         delta = end - start
         delta_secs = int(delta.total_seconds())
         data = [start + timedelta(seconds=random.randint(0, int(delta_secs))) for _ in range(self.BTREE_TEST_NUM_ROWS)]
-        self.run_btree_test(data, pxt.TimestampType())
+        self.run_btree_test(data, pxt.Timestamp)

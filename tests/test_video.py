@@ -1,4 +1,4 @@
-from typing import Optional, List, Tuple
+from typing import Optional
 
 import PIL
 import pytest
@@ -7,24 +7,24 @@ import pixeltable as pxt
 from pixeltable import catalog
 from pixeltable import exceptions as excs
 from pixeltable.iterators import FrameIterator
-from pixeltable.type_system import VideoType, ImageType
 from pixeltable.utils.media_store import MediaStore
-from .utils import get_video_files, skip_test_if_not_installed, reload_catalog, validate_update_status
+
+from .utils import get_video_files, reload_catalog, skip_test_if_not_installed, validate_update_status
 
 
 class TestVideo:
     def create_tbls(
-            self, base_name: str = 'video_tbl', view_name: str = 'frame_view'
-    ) -> Tuple[catalog.InsertableTable, catalog.Table]:
+        self, base_name: str = 'video_tbl', view_name: str = 'frame_view'
+    ) -> tuple[catalog.InsertableTable, catalog.Table]:
         pxt.drop_table(view_name, ignore_errors=True)
         pxt.drop_table(base_name, ignore_errors=True)
-        base_t = pxt.create_table(base_name, {'video': VideoType(nullable=True)})
+        base_t = pxt.create_table(base_name, {'video': pxt.Video})
         view_t = pxt.create_view(view_name, base_t, iterator=FrameIterator.create(video=base_t.video, fps=1))
         return base_t, view_t
 
     def create_and_insert(
-            self, stored: Optional[bool], paths: List[str]
-    ) -> Tuple[catalog.InsertableTable, catalog.Table]:
+        self, stored: Optional[bool], paths: list[str]
+    ) -> tuple[catalog.InsertableTable, catalog.Table]:
         base_t, view_t = self.create_tbls()
 
         view_t.add_column(transform=view_t.frame.rotate(90), stored=stored)
@@ -77,7 +77,7 @@ class TestVideo:
 
     def test_fps(self, reset_db) -> None:
         path = get_video_files()[0]
-        videos = pxt.create_table('videos', {'video': VideoType()})
+        videos = pxt.create_table('videos', {'video': pxt.Video})
         frames_all = pxt.create_view('frames_all', videos, iterator=FrameIterator.create(video=videos.video))
         frames_1_0 = pxt.create_view('frames_1_0', videos, iterator=FrameIterator.create(video=videos.video, fps=1))
         frames_0_5 = pxt.create_view('frames_0_5', videos, iterator=FrameIterator.create(video=videos.video, fps=1/2))
@@ -112,7 +112,7 @@ class TestVideo:
 
     def test_get_metadata(self, reset_db) -> None:
         video_filepaths = get_video_files()
-        base_t = pxt.create_table('video_tbl', {'video': VideoType()})
+        base_t = pxt.create_table('video_tbl', {'video': pxt.Video})
         base_t['metadata'] = base_t.video.get_metadata()
         validate_update_status(base_t.insert({'video': p} for p in video_filepaths), expected_rows=len(video_filepaths))
         result = base_t.where(base_t.metadata.size == 2234371).select(base_t.metadata).collect()['metadata'][0]
@@ -206,8 +206,8 @@ class TestVideo:
 
     # window function that simply passes through the frame
     @pxt.uda(
-        update_types=[ImageType()],
-        value_type=ImageType(),
+        update_types=[pxt.ImageType()],
+        value_type=pxt.ImageType(),
         requires_order_by=True,
         allows_std_agg=False,
         allows_window=True,

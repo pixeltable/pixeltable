@@ -16,7 +16,7 @@ def dummy_fn(i: int) -> int:
     return i
 
 class TestFunction:
-    @pxt.udf(return_type=pxt.IntType(), param_types=[pxt.IntType()])
+    @pxt.udf
     def func(x: int) -> int:
         """A UDF."""
         return x + 1

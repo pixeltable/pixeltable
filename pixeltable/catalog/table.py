@@ -384,7 +384,7 @@ class Table(SchemaObject):
         col_name, spec = next(iter(kwargs.items()))
         if not is_valid_identifier(col_name):
             raise excs.Error(f'Invalid column name: {col_name!r}')
-        if isinstance(spec, (ts.ColumnType, exprs.Expr)) and type is not None:
+        if isinstance(spec, (ts.ColumnType, builtins.type, _GenericAlias, exprs.Expr)) and type is not None:
             raise excs.Error(f'add_column(): keyword argument "type" is redundant')
 
         col_schema: dict[str, Any] = {}
@@ -420,8 +420,8 @@ class Table(SchemaObject):
 
         if 'type' in spec:
             has_type = True
-            if not isinstance(spec['type'], ts.ColumnType):
-                raise excs.Error(f'Column {name}: "type" must be a ColumnType, got {spec["type"]}')
+            if not isinstance(spec['type'], (ts.ColumnType, type, _GenericAlias)):
+                raise excs.Error(f'Column {name}: "type" must be a type or ColumnType, got {spec["type"]}')
 
         if 'value' in spec:
             value_spec = spec['value']
@@ -454,10 +454,8 @@ class Table(SchemaObject):
             primary_key: Optional[bool] = None
             stored = True
 
-            if isinstance(spec, ts.ColumnType):
-                col_type = spec
-            elif isinstance(spec, type) or isinstance(spec, _GenericAlias):
-                col_type = ts.ColumnType.from_python_type(spec, nullable_default=True)
+            if isinstance(spec, (ts.ColumnType, type, _GenericAlias)):
+                col_type = ts.ColumnType.normalize_type(spec, nullable_default=True)
             elif isinstance(spec, exprs.Expr):
                 # create copy so we can modify it
                 value_expr = spec.copy()
@@ -468,7 +466,8 @@ class Table(SchemaObject):
                 )
             elif isinstance(spec, dict):
                 cls._validate_column_spec(name, spec)
-                col_type = spec.get('type')
+                if 'type' in spec:
+                    col_type = ts.ColumnType.normalize_type(spec['type'], nullable_default=True)
                 value_expr = spec.get('value')
                 if value_expr is not None and isinstance(value_expr, exprs.Expr):
                     # create copy so we can modify it
