@@ -909,7 +909,7 @@ class Table(SchemaObject):
             query_name = py_fn.__name__
             if query_name in self._schema.keys():
                 raise excs.Error(f'Query name {query_name!r} conflicts with existing column')
-            if query_name in self._queries:
+            if query_name in self._queries and function_path is not None:
                 raise excs.Error(f'Duplicate query name: {query_name!r}')
             import pixeltable.func as func
             query_fn = func.QueryTemplateFunction.create(
