@@ -5,7 +5,7 @@ from typing import Any
 
 import sqlalchemy as sql
 
-import pixeltable.catalog as catalog
+from pixeltable import catalog, exprs
 
 
 class IndexBase(abc.ABC):
@@ -22,7 +22,7 @@ class IndexBase(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def index_value_expr(self) -> 'pixeltable.exprs.Expr':
+    def index_value_expr(self) -> exprs.Expr:
         """Return expression that computes the value that goes into the index"""
         pass
 
