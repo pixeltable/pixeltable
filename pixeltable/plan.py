@@ -518,7 +518,7 @@ class Planner:
         ob_clauses: list[OrderByClause] = [analyzer.order_by_clause.copy()]
 
         if verify_agg:
-            ordering: OrderByClause = []
+            ordering: OrderByClause
             for fn_call in analyzer.window_fn_calls:
                 # window functions require ordering by the group_by/order_by clauses
                 gb, ob = fn_call.get_window_sort_exprs()

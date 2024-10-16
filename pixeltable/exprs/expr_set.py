@@ -66,5 +66,3 @@ class ExprSet(Generic[T]):
 
     def __sub__(self, other: ExprSet[T]) -> ExprSet[T]:
         return self.difference(other)
-
-ExprSet = ExprSet[Expr]  # type: ignore

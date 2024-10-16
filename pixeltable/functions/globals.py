@@ -36,6 +36,7 @@ class sum(func.Aggregator):
 
 
 # disable type checking: mypy doesn't seem to understand that 'sum' is an instance of Function
+# TODO: find a way to have this type-checked
 @sum.to_sql  # type: ignore
 def _(val: sql.ColumnElement) -> Optional[sql.ColumnElement]:
     # This can produce a Decimal. We are deliberately avoiding an explicit cast to a Bigint here, because that can

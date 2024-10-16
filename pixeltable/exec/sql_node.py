@@ -24,8 +24,9 @@ OrderByClause = list[OrderByItem]
 
 def combine_order_by_clauses(clauses: Iterable[OrderByClause]) -> Optional[OrderByClause]:
     """Returns a clause that's compatible with 'clauses', or None if that doesn't exist.
-    Two clauses are compatible if for each item a) the exprs are identical and b) the asc values are identical or
-    at least one is None (None serves as a wildcard).
+    Two clauses are compatible if for each of their respective items c1[i] and c2[i]
+    a) the exprs are identical and
+    b) the asc values are identical or at least one is None (None serves as a wildcard)
     """
     result: OrderByClause = []
     for clause in clauses:
