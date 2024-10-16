@@ -7,7 +7,7 @@ class TestYolox:
     def test_yolox(self, reset_db):
         skip_test_if_not_installed('yolox')
         from pixeltable.ext.functions.yolox import yolox
-        t = pxt.create_table('yolox_test', {'image': pxt.ImageType()})
+        t = pxt.create_table('yolox_test', {'image': pxt.Image})
         t['detect_yolox_tiny'] = yolox(t.image, model_id='yolox_tiny')
         t['detect_yolox_nano'] = yolox(t.image, model_id='yolox_nano', threshold=0.2)
         t['yolox_nano_bboxes'] = t.detect_yolox_nano.bboxes

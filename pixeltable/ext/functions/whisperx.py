@@ -8,9 +8,14 @@ if TYPE_CHECKING:
 import pixeltable as pxt
 
 
-@pxt.udf(param_types=[pxt.AudioType(), pxt.StringType(), pxt.StringType(), pxt.StringType(), pxt.IntType()])
+@pxt.udf
 def transcribe(
-    audio: str, *, model: str, compute_type: Optional[str] = None, language: Optional[str] = None, chunk_size: int = 30
+    audio: pxt.Audio,
+    *,
+    model: str,
+    compute_type: Optional[str] = None,
+    language: Optional[str] = None,
+    chunk_size: int = 30
 ) -> dict:
     """
     Transcribe an audio file using WhisperX.

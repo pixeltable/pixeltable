@@ -12,7 +12,7 @@ class TestAnthropic:
 
         skip_test_if_not_installed('anthropic')
         skip_test_if_no_client('anthropic')
-        t = pxt.create_table('test_tbl', {'input': pxt.StringType()})
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
 
         msgs = [{'role': 'user', 'content': t.input}]
         t['output'] = messages(messages=msgs, model='claude-3-haiku-20240307')
