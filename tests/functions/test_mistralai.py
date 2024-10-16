@@ -12,7 +12,7 @@ class TestMistral:
 
         skip_test_if_not_installed('mistralai')
         skip_test_if_no_client('mistral')
-        t = pxt.create_table('test_tbl', {'input': pxt.StringType()})
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
 
         msgs = [{'role': 'user', 'content': t.input}]
         t['output'] = chat_completions(messages=msgs, model='mistral-small-latest')
@@ -38,7 +38,7 @@ class TestMistral:
 
         skip_test_if_not_installed('mistralai')
         skip_test_if_no_client('mistral')
-        t = pxt.create_table('test_tbl', {'input': pxt.StringType(), 'suffix': pxt.StringType(nullable=True)})
+        t = pxt.create_table('test_tbl', {'input': pxt.String, 'suffix': pxt.String})
 
         t['output'] = fim_completions(prompt=t.input, model='codestral-latest')
         t['output2'] = fim_completions(
@@ -67,7 +67,7 @@ class TestMistral:
 
         skip_test_if_not_installed('mistralai')
         skip_test_if_no_client('mistral')
-        t = pxt.create_table('test_tbl', {'input': pxt.StringType()})
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
 
         t.add_column(embed=embeddings(t.input, model='mistral-embed'))
         validate_update_status(t.insert(input='A chunk of text that will be embedded.'), 1)

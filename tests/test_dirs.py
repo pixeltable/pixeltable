@@ -97,7 +97,7 @@ class TestDirs:
         pxt.create_dir('dir1.subdir')
         pxt.create_dir('dir1.subdir.subsub')
         # Create lots of views all over the place
-        t = pxt.create_table('dir1.subdir.tbl', {'col': pxt.StringType()})
+        t = pxt.create_table('dir1.subdir.tbl', {'col': pxt.String})
         v = pxt.create_view('dir1.subdir.subsub.v1', t)
         _ = pxt.create_view('dir1.v2', t)
         _ = pxt.create_view('dir2.v3', t)

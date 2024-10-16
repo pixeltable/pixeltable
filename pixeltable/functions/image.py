@@ -15,13 +15,12 @@ from typing import Optional
 
 import PIL.Image
 
-import pixeltable.func as func
-import pixeltable.type_system as ts
-from pixeltable.utils.code import local_public_names
+import pixeltable as pxt
 from pixeltable.exprs import Expr
+from pixeltable.utils.code import local_public_names
 
 
-@func.udf(is_method=True)
+@pxt.udf(is_method=True)
 def b64_encode(img: PIL.Image.Image, image_format: str = 'png') -> str:
     """
     Convert image to a base64-encoded string.
@@ -38,7 +37,7 @@ def b64_encode(img: PIL.Image.Image, image_format: str = 'png') -> str:
     return b64_bytes.decode('utf-8')
 
 
-@func.udf(substitute_fn=PIL.Image.alpha_composite, is_method=True)
+@pxt.udf(substitute_fn=PIL.Image.alpha_composite, is_method=True)
 def alpha_composite(im1: PIL.Image.Image, im2: PIL.Image.Image) -> PIL.Image.Image:
     """
     Alpha composite `im2` over `im1`.
@@ -48,7 +47,7 @@ def alpha_composite(im1: PIL.Image.Image, im2: PIL.Image.Image) -> PIL.Image.Ima
     pass
 
 
-@func.udf(substitute_fn=PIL.Image.blend, is_method=True)
+@pxt.udf(substitute_fn=PIL.Image.blend, is_method=True)
 def blend(im1: PIL.Image.Image, im2: PIL.Image.Image, alpha: float) -> PIL.Image.Image:
     """
     Return a new image by interpolating between two input images, using a constant alpha.
@@ -57,7 +56,7 @@ def blend(im1: PIL.Image.Image, im2: PIL.Image.Image, alpha: float) -> PIL.Image
     """
     pass
 
-@func.udf(substitute_fn=PIL.Image.composite, is_method=True)
+@pxt.udf(substitute_fn=PIL.Image.composite, is_method=True)
 def composite(image1: PIL.Image.Image, image2: PIL.Image.Image, mask: PIL.Image.Image) -> PIL.Image.Image:
     """
     Return a composite image by blending two images using a mask.
@@ -70,7 +69,7 @@ def composite(image1: PIL.Image.Image, image2: PIL.Image.Image, mask: PIL.Image.
 # PIL.Image.Image methods
 
 # Image.convert()
-@func.udf(is_method=True)
+@pxt.udf(is_method=True)
 def convert(self: PIL.Image.Image, mode: str) -> PIL.Image.Image:
     """
     Convert the image to a different mode.
@@ -85,14 +84,14 @@ def convert(self: PIL.Image.Image, mode: str) -> PIL.Image.Image:
 
 
 @convert.conditional_return_type
-def _(self: Expr, mode: str) -> ts.ColumnType:
+def _(self: Expr, mode: str) -> pxt.ColumnType:
     input_type = self.col_type
-    assert isinstance(input_type, ts.ImageType)
-    return ts.ImageType(size=input_type.size, mode=mode, nullable=input_type.nullable)
+    assert isinstance(input_type, pxt.ImageType)
+    return pxt.ImageType(size=input_type.size, mode=mode, nullable=input_type.nullable)
 
 
 # Image.crop()
-@func.udf(substitute_fn=PIL.Image.Image.crop, is_method=True)
+@pxt.udf(substitute_fn=PIL.Image.Image.crop, is_method=True)
 def crop(self: PIL.Image.Image, box: tuple[int, int, int, int]) -> PIL.Image.Image:
     """
     Return a rectangular region from the image. The box is a 4-tuple defining the left, upper, right, and lower pixel
@@ -105,16 +104,16 @@ def crop(self: PIL.Image.Image, box: tuple[int, int, int, int]) -> PIL.Image.Ima
 
 
 @crop.conditional_return_type
-def _(self: Expr, box: tuple[int, int, int, int]) -> ts.ColumnType:
+def _(self: Expr, box: tuple[int, int, int, int]) -> pxt.ColumnType:
     input_type = self.col_type
-    assert isinstance(input_type, ts.ImageType)
+    assert isinstance(input_type, pxt.ImageType)
     if (isinstance(box, list) or isinstance(box, tuple)) and len(box) == 4 and all(isinstance(x, int) for x in box):
-        return ts.ImageType(size=(box[2] - box[0], box[3] - box[1]), mode=input_type.mode, nullable=input_type.nullable)
-    return ts.ImageType(mode=input_type.mode, nullable=input_type.nullable)  # we can't compute the size statically
+        return pxt.ImageType(size=(box[2] - box[0], box[3] - box[1]), mode=input_type.mode, nullable=input_type.nullable)
+    return pxt.ImageType(mode=input_type.mode, nullable=input_type.nullable)  # we can't compute the size statically
 
 
 # Image.getchannel()
-@func.udf(substitute_fn=PIL.Image.Image.getchannel, is_method=True)
+@pxt.udf(substitute_fn=PIL.Image.Image.getchannel, is_method=True)
 def getchannel(self: PIL.Image.Image, channel: int) -> PIL.Image.Image:
     """
     Return an L-mode image containing a single channel of the original image.
@@ -128,7 +127,7 @@ def getchannel(self: PIL.Image.Image, channel: int) -> PIL.Image.Image:
     pass
 
 
-@func.udf(is_method=True)
+@pxt.udf(is_method=True)
 def get_metadata(self: PIL.Image.Image) -> dict:
     """
     Return metadata for the image.
@@ -144,14 +143,14 @@ def get_metadata(self: PIL.Image.Image) -> dict:
 
 
 @getchannel.conditional_return_type
-def _(self: Expr) -> ts.ColumnType:
+def _(self: Expr) -> pxt.ColumnType:
     input_type = self.col_type
-    assert isinstance(input_type, ts.ImageType)
-    return ts.ImageType(size=input_type.size, mode='L', nullable=input_type.nullable)
+    assert isinstance(input_type, pxt.ImageType)
+    return pxt.ImageType(size=input_type.size, mode='L', nullable=input_type.nullable)
 
 
 # Image.resize()
-@func.udf(is_method=True)
+@pxt.udf(is_method=True)
 def resize(self: PIL.Image.Image, size: tuple[int, int]) -> PIL.Image.Image:
     """
     Return a resized copy of the image. The size parameter is a tuple containing the width and height of the new image.
@@ -163,14 +162,14 @@ def resize(self: PIL.Image.Image, size: tuple[int, int]) -> PIL.Image.Image:
 
 
 @resize.conditional_return_type
-def _(self: Expr, size: tuple[int, int]) -> ts.ColumnType:
+def _(self: Expr, size: tuple[int, int]) -> pxt.ColumnType:
     input_type = self.col_type
-    assert isinstance(input_type, ts.ImageType)
-    return ts.ImageType(size=size, mode=input_type.mode, nullable=input_type.nullable)
+    assert isinstance(input_type, pxt.ImageType)
+    return pxt.ImageType(size=size, mode=input_type.mode, nullable=input_type.nullable)
 
 
 # Image.rotate()
-@func.udf(is_method=True)
+@pxt.udf(is_method=True)
 def rotate(self: PIL.Image.Image, angle: int) -> PIL.Image.Image:
     """
     Return a copy of the image rotated by the given angle.
@@ -184,7 +183,7 @@ def rotate(self: PIL.Image.Image, angle: int) -> PIL.Image.Image:
     return self.rotate(angle)
 
 
-@func.udf(substitute_fn=PIL.Image.Image.effect_spread, is_method=True)
+@pxt.udf(substitute_fn=PIL.Image.Image.effect_spread, is_method=True)
 def effect_spread(self: PIL.Image.Image, distance: int) -> PIL.Image.Image:
     """
     Randomly spread pixels in an image.
@@ -198,7 +197,7 @@ def effect_spread(self: PIL.Image.Image, distance: int) -> PIL.Image.Image:
     pass
 
 
-@func.udf(substitute_fn=PIL.Image.Image.transpose, is_method=True)
+@pxt.udf(substitute_fn=PIL.Image.Image.transpose, is_method=True)
 def transpose(self: PIL.Image.Image, method: int) -> PIL.Image.Image:
     """
     Transpose the image.
@@ -215,11 +214,11 @@ def transpose(self: PIL.Image.Image, method: int) -> PIL.Image.Image:
 @rotate.conditional_return_type
 @effect_spread.conditional_return_type
 @transpose.conditional_return_type
-def _(self: Expr) -> ts.ColumnType:
+def _(self: Expr) -> pxt.ColumnType:
     return self.col_type
 
 
-@func.udf(substitute_fn=PIL.Image.Image.entropy, is_method=True)
+@pxt.udf(substitute_fn=PIL.Image.Image.entropy, is_method=True)
 def entropy(self: PIL.Image.Image, mask: Optional[PIL.Image.Image] = None, extrema: Optional[list] = None) -> float:
     """
     Returns the entropy of the image, optionally using a mask and extrema.
@@ -234,7 +233,7 @@ def entropy(self: PIL.Image.Image, mask: Optional[PIL.Image.Image] = None, extre
     pass
 
 
-@func.udf(substitute_fn=PIL.Image.Image.getbands, is_method=True)
+@pxt.udf(substitute_fn=PIL.Image.Image.getbands, is_method=True)
 def getbands(self: PIL.Image.Image) -> tuple[str]:
     """
     Return a tuple containing the names of the image bands.
@@ -245,7 +244,7 @@ def getbands(self: PIL.Image.Image) -> tuple[str]:
     pass
 
 
-@func.udf(substitute_fn=PIL.Image.Image.getbbox, is_method=True)
+@pxt.udf(substitute_fn=PIL.Image.Image.getbbox, is_method=True)
 def getbbox(self: PIL.Image.Image, *, alpha_only: bool = True) -> tuple[int, int, int, int]:
     """
     Return a bounding box for the non-zero regions of the image.
@@ -258,7 +257,7 @@ def getbbox(self: PIL.Image.Image, *, alpha_only: bool = True) -> tuple[int, int
     pass
 
 
-@func.udf(substitute_fn=PIL.Image.Image.getcolors, is_method=True)
+@pxt.udf(substitute_fn=PIL.Image.Image.getcolors, is_method=True)
 def getcolors(self: PIL.Image.Image, maxcolors: int = 256) -> tuple[tuple[int, int, int], int]:
     """
     Return a list of colors used in the image, up to a maximum of `maxcolors`.
@@ -272,7 +271,7 @@ def getcolors(self: PIL.Image.Image, maxcolors: int = 256) -> tuple[tuple[int, i
     pass
 
 
-@func.udf(substitute_fn=PIL.Image.Image.getextrema, is_method=True)
+@pxt.udf(substitute_fn=PIL.Image.Image.getextrema, is_method=True)
 def getextrema(self: PIL.Image.Image) -> tuple[int, int]:
     """
     Return a 2-tuple containing the minimum and maximum pixel values of the image.
@@ -283,7 +282,7 @@ def getextrema(self: PIL.Image.Image) -> tuple[int, int]:
     pass
 
 
-@func.udf(substitute_fn=PIL.Image.Image.getpalette, is_method=True)
+@pxt.udf(substitute_fn=PIL.Image.Image.getpalette, is_method=True)
 def getpalette(self: PIL.Image.Image, mode: Optional[str] = None) -> tuple[int]:
     """
     Return the palette of the image, optionally converting it to a different mode.
@@ -297,8 +296,8 @@ def getpalette(self: PIL.Image.Image, mode: Optional[str] = None) -> tuple[int]:
     pass
 
 
-@func.udf(param_types=[ts.ImageType(), ts.ArrayType((2,), dtype=ts.IntType())], is_method=True)
-def getpixel(self: PIL.Image.Image, xy: tuple[int, int]) -> tuple[int]:
+@pxt.udf(is_method=True)
+def getpixel(self: PIL.Image.Image, xy: list) -> tuple[int]:
     """
     Return the pixel value at the given position. The position `xy` is a tuple containing the x and y coordinates.
 
@@ -309,10 +308,10 @@ def getpixel(self: PIL.Image.Image, xy: tuple[int, int]) -> tuple[int]:
         xy: The coordinates, given as (x, y).
     """
     # `xy` will be a list; `tuple(xy)` is necessary for pillow 9 compatibility
-    return self.getpixel(tuple(xy))  # type: ignore[arg-type]
+    return self.getpixel(tuple(xy))
 
 
-@func.udf(substitute_fn=PIL.Image.Image.getprojection, is_method=True)
+@pxt.udf(substitute_fn=PIL.Image.Image.getprojection, is_method=True)
 def getprojection(self: PIL.Image.Image) -> tuple[int]:
     """
     Return two sequences representing the horizontal and vertical projection of the image.
@@ -323,7 +322,7 @@ def getprojection(self: PIL.Image.Image) -> tuple[int]:
     pass
 
 
-@func.udf(substitute_fn=PIL.Image.Image.histogram, is_method=True)
+@pxt.udf(substitute_fn=PIL.Image.Image.histogram, is_method=True)
 def histogram(
         self: PIL.Image.Image, mask: Optional[PIL.Image.Image] = None, extrema: Optional[list] = None
 ) -> list[int]:
@@ -340,7 +339,7 @@ def histogram(
     pass
 
 
-@func.udf(substitute_fn=PIL.Image.Image.quantize, is_method=True)
+@pxt.udf(substitute_fn=PIL.Image.Image.quantize, is_method=True)
 def quantize(
     self: PIL.Image.Image,
     colors: int = 256,
@@ -365,7 +364,7 @@ def quantize(
     pass
 
 
-@func.udf(substitute_fn=PIL.Image.Image.reduce, is_method=True)
+@pxt.udf(substitute_fn=PIL.Image.Image.reduce, is_method=True)
 def reduce(self: PIL.Image.Image, factor: int, box: Optional[tuple[int, int, int, int]] = None) -> PIL.Image.Image:
     """
     Reduce the image by the given factor.
@@ -380,17 +379,17 @@ def reduce(self: PIL.Image.Image, factor: int, box: Optional[tuple[int, int, int
     pass
 
 
-@func.udf(is_property=True)
+@pxt.udf(is_property=True)
 def width(self: PIL.Image.Image) -> int:
     return self.width
 
 
-@func.udf(is_property=True)
+@pxt.udf(is_property=True)
 def height(self: PIL.Image.Image) -> int:
     return self.height
 
 
-@func.udf(is_property=True)
+@pxt.udf(is_property=True)
 def mode(self: PIL.Image.Image) -> str:
     return self.mode
 

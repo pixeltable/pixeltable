@@ -8,7 +8,6 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable.iterators.document import DocumentSplitter
-from pixeltable.type_system import DocumentType
 from pixeltable.utils.documents import get_document_handle
 
 from .utils import get_audio_files, get_documents, get_image_files, get_video_files, skip_test_if_not_installed
@@ -47,7 +46,7 @@ class TestDocument:
         skip_test_if_not_installed('mistune')
 
         file_paths = self.valid_doc_paths()
-        doc_t = pxt.create_table('docs', {'doc': DocumentType()})
+        doc_t = pxt.create_table('docs', {'doc': pxt.Document})
         status = doc_t.insert({'doc': p} for p in file_paths)
         assert status.num_rows == len(file_paths)
         assert status.num_excs == 0
@@ -68,10 +67,10 @@ class TestDocument:
             handle = get_document_handle(path)
             assert handle is not None
             if extension == 'pdf':
-                assert handle.format == DocumentType.DocumentFormat.PDF, path
+                assert handle.format == pxt.DocumentType.DocumentFormat.PDF, path
                 assert handle.pdf_doc is not None, path
             elif extension in ['html', 'htm']:
-                assert handle.format == DocumentType.DocumentFormat.HTML, path
+                assert handle.format == pxt.DocumentType.DocumentFormat.HTML, path
                 assert handle.bs_doc is not None, path
             elif extension in ['md', 'mmd']:
                 # currently failing, due to ambiguity between HTML and markdown, but prioritizing HTML atm.
@@ -124,7 +123,7 @@ class TestDocument:
         skip_test_if_not_installed('spacy')
 
         file_paths = self.valid_doc_paths()
-        doc_t = pxt.create_table('docs', {'doc': DocumentType()})
+        doc_t = pxt.create_table('docs', {'doc': pxt.Document})
         status = doc_t.insert({'doc': p} for p in file_paths)
         assert status.num_excs == 0
         import tiktoken
@@ -216,7 +215,7 @@ class TestDocument:
     def test_doc_splitter_headings(self, reset_db) -> None:
         skip_test_if_not_installed('spacy')
         file_paths = [ p for p in self.valid_doc_paths() if not p.endswith('.pdf') ]
-        doc_t = pxt.create_table('docs', {'doc': DocumentType()})
+        doc_t = pxt.create_table('docs', {'doc': pxt.Document})
         status = doc_t.insert({'doc': p} for p in file_paths)
         assert status.num_excs == 0
 

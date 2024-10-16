@@ -13,7 +13,6 @@ t.select(pxt.functions.json.make_list()).collect()
 from typing import Any
 
 import pixeltable as pxt
-import pixeltable.type_system as ts
 from pixeltable.utils.code import local_public_names
 
 
