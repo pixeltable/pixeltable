@@ -1,9 +1,12 @@
-from typing import Any, Literal, Optional, Union
+from typing import TYPE_CHECKING, Any, Literal, Optional, Union
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable import Table
 from pixeltable.io.external_store import SyncStatus
+
+if TYPE_CHECKING:
+    import fiftyone as fo
 
 
 def create_label_studio_project(
@@ -265,3 +268,10 @@ def import_json(
         contents = urllib.request.urlopen(filepath_or_url).read()
     data = json.loads(contents, **kwargs)
     return import_rows(tbl_path, data, schema_overrides=schema_overrides, primary_key=primary_key, num_retained_versions=num_retained_versions, comment=comment)
+
+
+def export_as_fiftyone(df: Union[pxt.DataFrame, pxt.Table], image_format: str = 'webp') -> 'fo.Dataset':
+    import fiftyone as fo
+    from pixeltable.io.fiftyone import PxtDatasetImporter
+
+    return fo.Dataset.from_importer(PxtDatasetImporter(df, image_format))
