@@ -4,7 +4,7 @@ import inspect
 from typing import Any, Callable, Optional
 from uuid import UUID
 
-import cloudpickle
+import cloudpickle  # type: ignore[import-untyped]
 
 from .function import Function
 from .signature import Signature
@@ -108,7 +108,7 @@ class CallableFunction(Function):
     @classmethod
     def from_store(cls, name: Optional[str], md: dict, binary_obj: bytes) -> Function:
         py_fn = cloudpickle.loads(binary_obj)
-        assert isinstance(py_fn, Callable)
+        assert callable(py_fn)
         sig = Signature.from_dict(md['signature'])
         batch_size = md['batch_size']
         return CallableFunction(sig, py_fn, self_name=name, batch_size=batch_size)

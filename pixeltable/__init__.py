@@ -8,7 +8,6 @@ from .globals import (array, configure_logging, create_dir, create_table, create
 from .type_system import (Array, ArrayType, Audio, AudioType, Bool, BoolType, ColumnType, Document, DocumentType, Float,
                           FloatType, Image, ImageType, Int, IntType, Json, JsonType, Required, String, StringType,
                           Timestamp, TimestampType, Video, VideoType)
-from .utils.help import help
 
 from . import ext, functions, io, iterators
 from .__version__ import __version__, __version_tuple__

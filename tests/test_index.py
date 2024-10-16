@@ -77,10 +77,8 @@ class TestIndex:
                 .order_by(chunks.text.similarity(query_text), asc=False) \
                 .limit(5)
 
-        _ = queries.select(queries.query_text, out=chunks.top_k_chunks(queries.query_text)).collect()
-        # alternative syntax
-        _ = queries.select(queries.query_text, out=chunks['top_k_chunks'](queries.query_text)).collect()
-        queries.add_column(chunks=chunks.top_k_chunks(queries.query_text))
+        _ = queries.select(queries.query_text, out=chunks.queries.top_k_chunks(queries.query_text)).collect()
+        queries.add_column(chunks=chunks.queries.top_k_chunks(queries.query_text))
         _ = queries.collect()
 
         # make sure we can instantiate the query function from the metadata
@@ -103,7 +101,7 @@ class TestIndex:
         def img_matches(img: PIL.Image.Image):
             return t.select(t.img.localpath).order_by(t.img.similarity(img), asc=False).limit(3)
 
-        res = list(t.select(img=t.img.localpath, matches=t.img_matches(t.img)).head(1))
+        res = list(t.select(img=t.img.localpath, matches=t.queries.img_matches(t.img)).head(1))
 
     def test_similarity_errors(self, indexed_img_tbl: pxt.Table, small_img_tbl: pxt.Table) -> None:
         skip_test_if_not_installed('transformers')
