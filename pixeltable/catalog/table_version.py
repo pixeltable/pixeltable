@@ -6,7 +6,7 @@ import inspect
 import logging
 import time
 import uuid
-from typing import TYPE_CHECKING, Any, Iterable, Optional
+from typing import TYPE_CHECKING, Any, Iterable, Optional, Iterator
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -702,21 +702,30 @@ class TableVersion:
             plan = Planner.create_insert_plan(self, rows, ignore_errors=not fail_on_exception)
         else:
             plan = Planner.create_df_insert_plan(self, df, ignore_errors=not fail_on_exception)
+
+        # this is a base table; we generate rowids during the insert
+        def rowids() -> Iterator[int]:
+            while True:
+                rowid = self.next_rowid
+                self.next_rowid += 1
+                yield rowid
+
         if conn is None:
             with Env.get().engine.begin() as conn:
-                return self._insert(plan, conn, time.time(), print_stats)
+                return self._insert(plan, conn, time.time(), print_stats=print_stats, rowids=rowids())
         else:
-            return self._insert(plan, conn, time.time(), print_stats)
+            return self._insert(plan, conn, time.time(), print_stats=print_stats, rowids=rowids())
 
     def _insert(
-        self, exec_plan: 'exec.ExecNode', conn: sql.engine.Connection, timestamp: float, print_stats: bool = False,
+        self, exec_plan: 'exec.ExecNode', conn: sql.engine.Connection, timestamp: float, *,
+        rowids: Optional[Iterator[int]] = None, print_stats: bool = False,
     ) -> UpdateStatus:
         """Insert rows produced by exec_plan and propagate to views"""
         # we're creating a new version
         self.version += 1
         result = UpdateStatus()
-        num_rows, num_excs, cols_with_excs = self.store_tbl.insert_rows(exec_plan, conn, v_min=self.version)
-        self.next_rowid = num_rows
+        num_rows, num_excs, cols_with_excs = self.store_tbl.insert_rows(
+            exec_plan, conn, v_min=self.version, rowids=rowids)
         result.num_rows = num_rows
         result.num_excs = num_excs
         result.num_computed_values += exec_plan.ctx.num_computed_exprs * num_rows
@@ -727,7 +736,7 @@ class TableVersion:
         for view in self.mutable_views:
             from pixeltable.plan import Planner
             plan, _ = Planner.create_view_load_plan(view.path, propagates_insert=True)
-            status = view._insert(plan, conn, timestamp, print_stats)
+            status = view._insert(plan, conn, timestamp, print_stats=print_stats)
             result.num_rows += status.num_rows
             result.num_excs += status.num_excs
             result.num_computed_values += status.num_computed_values
@@ -764,9 +773,7 @@ class TableVersion:
                 raise excs.Error(f'Filter {analysis_info.filter} not expressible in SQL')
 
         with Env.get().engine.begin() as conn:
-            plan, updated_cols, recomputed_cols = (
-                Planner.create_update_plan(self.path, update_spec, [], where, cascade)
-            )
+            plan, updated_cols, recomputed_cols = Planner.create_update_plan(self.path, update_spec, [], where, cascade)
             from pixeltable.exprs import SqlElementCache
             result = self.propagate_update(
                 plan, where.sql_expr(SqlElementCache()) if where is not None else None, recomputed_cols,

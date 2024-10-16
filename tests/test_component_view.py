@@ -105,11 +105,13 @@ class TestComponentView:
         rows = [{'video': p, 'angle': 30, 'other_angle': -30} for p in video_filepaths]
         status = video_t.insert(rows)
         assert status.num_excs == 0
+        reload_catalog()
+        view_t = pxt.get_table('test_view')
         # pos and frame_idx are identical
         res = view_t.select(view_t.pos, view_t.frame_idx).collect().to_pandas()
         assert np.all(res['pos'] == res['frame_idx'])
 
-        video_url = video_t.select(video_t.video.fileurl).show(0)[0, 0]
+        video_url = video_t.select(video_t.video.fileurl).collect()[0, 0]
         result = view_t.where(view_t.video == video_url).select(view_t.frame, view_t.frame_idx) \
             .collect()
         result = view_t.where(view_t.video == video_url).select(view_t.frame_idx).order_by(view_t.frame_idx) \

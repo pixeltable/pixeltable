@@ -283,7 +283,7 @@ class DataFrame:
 
     def _create_query_plan(self) -> exec.ExecNode:
         # construct a group-by clause if we're grouping by a table
-        group_by_clause: List[exprs.Expr] = []
+        group_by_clause: Optional[list[exprs.Expr]] = None
         if self.grouping_tbl is not None:
             assert self.group_by_clause is None
             num_rowid_cols = len(self.grouping_tbl.store_tbl.rowid_columns())
@@ -302,8 +302,8 @@ class DataFrame:
             where_clause=self.where_clause,
             group_by_clause=group_by_clause,
             order_by_clause=self.order_by_clause if self.order_by_clause is not None else [],
-            limit=self.limit_val if self.limit_val is not None else 0,
-        )  # limit_val == 0: no limit_val
+            limit=self.limit_val
+        )
 
 
     def show(self, n: int = 20) -> DataFrameResultSet:
