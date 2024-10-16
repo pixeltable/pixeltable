@@ -2,7 +2,7 @@ import dataclasses
 import importlib
 import os
 import pkgutil
-from typing import Callable, Dict
+from typing import Callable
 
 import sqlalchemy as sql
 import sqlalchemy.orm as orm
@@ -10,7 +10,7 @@ import sqlalchemy.orm as orm
 from .schema import SystemInfo, SystemInfoMd
 
 # current version of the metadata; this is incremented whenever the metadata schema changes
-VERSION = 21
+VERSION = 22
 
 
 def create_system_info(engine: sql.engine.Engine) -> None:
@@ -24,7 +24,7 @@ def create_system_info(engine: sql.engine.Engine) -> None:
 
 # conversion functions for upgrading the metadata schema from one version to the following
 # key: old schema version
-converter_cbs: Dict[int, Callable[[sql.engine.Engine], None]] = {}
+converter_cbs: dict[int, Callable[[sql.engine.Engine], None]] = {}
 
 def register_converter(version: int) -> Callable[[Callable[[sql.engine.Engine], None]], None]:
     def decorator(fn: Callable[[sql.engine.Engine], None]) -> None:
@@ -41,6 +41,7 @@ def upgrade_md(engine: sql.engine.Engine) -> None:
     with orm.Session(engine) as session:
         system_info = session.query(SystemInfo).one().md
         md_version = system_info['schema_version']
+        assert isinstance(md_version, int)
         if md_version == VERSION:
             return
         while md_version < VERSION:
