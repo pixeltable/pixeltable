@@ -19,7 +19,7 @@ fi
 
 # Copy notebooks to target directory
 echo "Copying notebooks to test folder ..."
-for notebook in $(find docs/release -name '*.ipynb' | grep -v .ipynb_checkpoints); do
+for notebook in $(find docs/release tests -name '*.ipynb' | grep -v .ipynb_checkpoints); do
     if [[ $DO_PIP_INSTALL == true ]]; then
         # Just copy the notebook to the test directory
         cp "$notebook" "$TEST_PATH"

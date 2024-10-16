@@ -77,8 +77,8 @@ class FileCache:
     evicted_working_set_keys: set[str]
     new_redownload_witnessed: bool  # whether a new re-download has occurred since the last time a warning was issued
 
-    ColumnStats = namedtuple('FileCacheColumnStats', ('tbl_id', 'col_id', 'num_files', 'total_size'))
-    CacheStats = namedtuple(
+    FileCacheColumnStats = namedtuple('FileCacheColumnStats', ('tbl_id', 'col_id', 'num_files', 'total_size'))
+    FileCacheStats = namedtuple(
         'FileCacheStats',
         ('total_size', 'num_requests', 'num_hits', 'num_evictions', 'column_stats')
     )
@@ -96,7 +96,7 @@ class FileCache:
     def __init__(self):
         self.cache = OrderedDict()
         self.total_size = 0
-        self.capacity_bytes = Env.get()._file_cache_size_g * (1 << 30)
+        self.capacity_bytes = int(Env.get()._file_cache_size_g * (1 << 30))
         self.num_requests = 0
         self.num_hits = 0
         self.num_evictions = 0
@@ -174,7 +174,7 @@ class FileCache:
         path = entry.path
         path.touch(exist_ok=True)
         file_info = os.stat(str(path))
-        entry.last_used = file_info.st_mtime
+        entry.last_used = datetime.fromtimestamp(file_info.st_mtime)
         self.cache.move_to_end(key, last=True)
         self.num_hits += 1
         self.keys_retrieved.add(key)
@@ -195,7 +195,7 @@ class FileCache:
             self.evicted_working_set_keys.add(key)
             self.new_redownload_witnessed = True
         self.keys_retrieved.add(key)
-        entry = CacheEntry(key, tbl_id, col_id, file_info.st_size, file_info.st_mtime, path.suffix)
+        entry = CacheEntry(key, tbl_id, col_id, file_info.st_size, datetime.fromtimestamp(file_info.st_mtime), path.suffix)
         self.cache[key] = entry
         self.total_size += entry.size
         new_path = entry.path
@@ -223,19 +223,19 @@ class FileCache:
         self.capacity_bytes = capacity_bytes
         self.ensure_capacity(0)  # evict entries if necessary
 
-    def stats(self) -> CacheStats:
+    def stats(self) -> FileCacheStats:
         # collect column stats
         # (tbl_id, col_id) -> (num_files, total_size)
-        d: dict[tuple[int, int], list[int]] = defaultdict(lambda: [0, 0])
+        d: dict[tuple[UUID, int], list[int]] = defaultdict(lambda: [0, 0])
         for entry in self.cache.values():
             t = d[(entry.tbl_id, entry.col_id)]
             t[0] += 1
             t[1] += entry.size
         col_stats = [
-            self.ColumnStats(tbl_id, col_id, num_files, size) for (tbl_id, col_id), (num_files, size) in d.items()
+            self.FileCacheColumnStats(tbl_id, col_id, num_files, size) for (tbl_id, col_id), (num_files, size) in d.items()
         ]
         col_stats.sort(key=lambda e: e[3], reverse=True)
-        return self.CacheStats(self.total_size, self.num_requests, self.num_hits, self.num_evictions, col_stats)
+        return self.FileCacheStats(self.total_size, self.num_requests, self.num_hits, self.num_evictions, col_stats)
 
     def debug_print(self) -> None:
         for entry in self.cache.values():

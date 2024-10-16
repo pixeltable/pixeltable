@@ -299,8 +299,8 @@ class TestFunction:
         def lt_x(x: int) -> int:
             return t.where(t.c2 < x).select(t.c2, t.c1)
 
-        res1 = t.select(out=t.lt_x(t.c1)).order_by(t.c2).collect()
-        validate_update_status(t.add_column(query1=t.lt_x(t.c1)))
+        res1 = t.select(out=t.queries.lt_x(t.c1)).order_by(t.c2).collect()
+        validate_update_status(t.add_column(query1=t.queries.lt_x(t.c1)))
         _ = t.select(t.query1).collect()
 
         reload_catalog()
@@ -345,9 +345,9 @@ class TestFunction:
             """ simply returns 2 passages from the table"""
             return chunks.select(chunks.text).limit(2)
 
-        res = queries.select(queries.i, out=chunks.retrieval(queries.query_text, queries.i)).collect()
+        res = queries.select(queries.i, out=chunks.queries.retrieval(queries.query_text, queries.i)).collect()
         assert all(len(out) == 2 for out in res['out'])
-        validate_update_status(queries.add_column(chunks=chunks.retrieval(queries.query_text, queries.i)))
+        validate_update_status(queries.add_column(chunks=chunks.queries.retrieval(queries.query_text, queries.i)))
         res = queries.select(queries.i, queries.chunks).collect()
         assert all(len(c) == 2 for c in res['chunks'])
 
@@ -390,6 +390,11 @@ class TestFunction:
         with pytest.raises(excs.Error) as exc_info:
             t.add_column(c=pxt.IntType(nullable=True))
         assert 'conflicts with a registered query' in str(exc_info.value).lower()
+
+        # unknown query
+        with pytest.raises(AttributeError) as exc_info:
+            _ = t.queries.not_a_query
+        assert "table 'test' has no query with that name: 'not_a_query'" in str(exc_info.value).lower()
 
     @pxt.expr_udf
     def add1(x: int) -> int:

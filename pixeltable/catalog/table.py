@@ -5,14 +5,14 @@ import builtins
 import json
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Iterable, Literal, Optional, Set, Tuple, Type, Union, overload
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Literal, Optional, Sequence, Set, Tuple, Type, Union, overload
 from uuid import UUID
 
 import pandas as pd
 import pandas.io.formats.style
 import sqlalchemy as sql
 
-import pixeltable
+import pixeltable as pxt
 import pixeltable.catalog as catalog
 import pixeltable.env as env
 import pixeltable.exceptions as excs
@@ -45,8 +45,20 @@ class Table(SchemaObject):
         super().__init__(id, name, dir_id)
         self._is_dropped = False
         self._tbl_version_path = tbl_version_path
-        from pixeltable.func import QueryTemplateFunction
-        self._queries: dict[str, QueryTemplateFunction] = {}
+        self.__query_scope = self.QueryScope(self)
+
+    class QueryScope:
+        __table: 'Table'
+        _queries: dict[str, pxt.func.QueryTemplateFunction]
+
+        def __init__(self, table: 'Table') -> None:
+            self.__table = table
+            self._queries = {}
+
+        def __getattr__(self, name: str) -> pxt.func.QueryTemplateFunction:
+            if name in self._queries:
+                return self._queries[name]
+            raise AttributeError(f'Table {self.__table._name!r} has no query with that name: {name!r}')
 
     def _move(self, new_name: str, new_dir_id: UUID) -> None:
         super()._move(new_name, new_dir_id)
@@ -107,25 +119,24 @@ class Table(SchemaObject):
         if self._is_dropped:
             raise excs.Error(f'{self._display_name()} {self._name} has been dropped')
 
-    def __getattr__(
-            self, name: str
-    ) -> Union['pixeltable.exprs.ColumnRef', 'pixeltable.func.QueryTemplateFunction']:
-        """Return a ColumnRef or QueryTemplateFunction for the given name.
+    def __getattr__(self, name: str) -> 'pxt.exprs.ColumnRef':
+        """Return a ColumnRef for the given name.
         """
-        if name in self._queries:
-            return self._queries[name]
         return getattr(self._tbl_version_path, name)
 
-    def __getitem__(
-            self, index: object
-    ) -> Union[
-        'pixeltable.func.QueryTemplateFunction', 'pixeltable.exprs.ColumnRef', 'pixeltable.DataFrame'
-    ]:
+    @overload
+    def __getitem__(self, name: str) -> 'pxt.exprs.ColumnRef': ...
+
+    @overload
+    def __getitem__(self, index: Union[exprs.Expr, Sequence[exprs.Expr]]) -> 'pxt.DataFrame': ...
+
+    def __getitem__(self, index):
         """Return a ColumnRef or QueryTemplateFunction for the given name, or a DataFrame for the given slice.
         """
-        if isinstance(index, str) and index in self._queries:
-            return self._queries[index]
-        return self._tbl_version_path.__getitem__(index)
+        if isinstance(index, str):
+            return getattr(self, index)
+        else:
+            return self._df()[index]
 
     def list_views(self, *, recursive: bool = True) -> list[str]:
         """
@@ -147,60 +158,55 @@ class Table(SchemaObject):
         else:
             return dependents
 
-    def _df(self) -> 'pixeltable.dataframe.DataFrame':
+    def _df(self) -> 'pxt.dataframe.DataFrame':
         """Return a DataFrame for this table.
         """
         # local import: avoid circular imports
-        from pixeltable.dataframe import DataFrame
-        return DataFrame(self._tbl_version_path)
+        return pxt.DataFrame(self._tbl_version_path)
 
-    def select(self, *items: Any, **named_items: Any) -> 'pixeltable.DataFrame':
+    @property
+    def queries(self) -> 'Table.QueryScope':
+        return self.__query_scope
+
+    def select(self, *items: Any, **named_items: Any) -> 'pxt.DataFrame':
         """Return a [`DataFrame`][pixeltable.DataFrame] for this table."""
-        # local import: avoid circular imports
-        from pixeltable.dataframe import DataFrame
-        return DataFrame(self._tbl_version_path).select(*items, **named_items)
+        return self._df().select(*items, **named_items)
 
-    def where(self, pred: 'exprs.Expr') -> 'pixeltable.DataFrame':
+    def where(self, pred: 'exprs.Expr') -> 'pxt.DataFrame':
         """Return a [`DataFrame`][pixeltable.DataFrame] for this table."""
-        # local import: avoid circular imports
-        from pixeltable.dataframe import DataFrame
-        return DataFrame(self._tbl_version_path).where(pred)
+        return self._df().where(pred)
 
-    def order_by(self, *items: 'exprs.Expr', asc: bool = True) -> 'pixeltable.DataFrame':
+    def order_by(self, *items: 'exprs.Expr', asc: bool = True) -> 'pxt.DataFrame':
         """Return a [`DataFrame`][pixeltable.DataFrame] for this table."""
-        # local import: avoid circular imports
-        from pixeltable.dataframe import DataFrame
-        return DataFrame(self._tbl_version_path).order_by(*items, asc=asc)
+        return self._df().order_by(*items, asc=asc)
 
-    def group_by(self, *items: 'exprs.Expr') -> 'pixeltable.DataFrame':
+    def group_by(self, *items: 'exprs.Expr') -> 'pxt.DataFrame':
         """Return a [`DataFrame`][pixeltable.DataFrame] for this table."""
-        from pixeltable.dataframe import DataFrame
-        return DataFrame(self._tbl_version_path).group_by(*items)
+        return self._df().group_by(*items)
 
-    def limit(self, n: int) -> 'pixeltable.DataFrame':
-        from pixeltable.dataframe import DataFrame
-        return DataFrame(self._tbl_version_path).limit(n)
+    def limit(self, n: int) -> 'pxt.DataFrame':
+        return self._df().limit(n)
 
-    def collect(self) -> 'pixeltable.dataframe.DataFrameResultSet':
+    def collect(self) -> 'pxt.dataframe.DataFrameResultSet':
         """Return rows from this table."""
         return self._df().collect()
 
     def show(
             self, *args, **kwargs
-    ) -> 'pixeltable.dataframe.DataFrameResultSet':
+    ) -> 'pxt.dataframe.DataFrameResultSet':
         """Return rows from this table.
         """
         return self._df().show(*args, **kwargs)
 
     def head(
             self, *args, **kwargs
-    ) -> 'pixeltable.dataframe.DataFrameResultSet':
+    ) -> 'pxt.dataframe.DataFrameResultSet':
         """Return the first n rows inserted into this table."""
         return self._df().head(*args, **kwargs)
 
     def tail(
             self, *args, **kwargs
-    ) -> 'pixeltable.dataframe.DataFrameResultSet':
+    ) -> 'pxt.dataframe.DataFrameResultSet':
         """Return the last n rows inserted into this table."""
         return self._df().tail(*args, **kwargs)
 
@@ -216,7 +222,7 @@ class Table(SchemaObject):
     @property
     def _query_names(self) -> list[str]:
         """Return the names of the registered queries for this table."""
-        return list(self._queries.keys())
+        return list(self.__query_scope._queries.keys())
 
     @property
     def _base(self) -> Optional['Table']:
@@ -292,15 +298,13 @@ class Table(SchemaObject):
         """Return a PyTorch Dataset for this table.
             See DataFrame.to_pytorch_dataset()
         """
-        from pixeltable.dataframe import DataFrame
-        return DataFrame(self._tbl_version_path).to_pytorch_dataset(image_format=image_format)
+        return self._df().to_pytorch_dataset(image_format=image_format)
 
     def to_coco_dataset(self) -> Path:
         """Return the path to a COCO json file for this table.
             See DataFrame.to_coco_dataset()
         """
-        from pixeltable.dataframe import DataFrame
-        return DataFrame(self._tbl_version_path).to_coco_dataset()
+        return self._df().to_coco_dataset()
 
     def __setitem__(self, col_name: str, spec: Union[ts.ColumnType, exprs.Expr]) -> None:
         """
@@ -582,7 +586,7 @@ class Table(SchemaObject):
 
     def add_embedding_index(
             self, col_name: str, *, idx_name: Optional[str] = None,
-            string_embed: Optional[pixeltable.Function] = None, image_embed: Optional[pixeltable.Function] = None,
+            string_embed: Optional[pxt.Function] = None, image_embed: Optional[pxt.Function] = None,
             metric: str = 'cosine'
     ) -> None:
         """
@@ -776,7 +780,7 @@ class Table(SchemaObject):
         raise NotImplementedError
 
     def update(
-            self, value_spec: dict[str, Any], where: Optional['pixeltable.exprs.Expr'] = None, cascade: bool = True
+            self, value_spec: dict[str, Any], where: Optional['pxt.exprs.Expr'] = None, cascade: bool = True
     ) -> UpdateStatus:
         """Update rows in this table.
 
@@ -868,7 +872,7 @@ class Table(SchemaObject):
         FileCache.get().emit_eviction_warnings()
         return status
 
-    def delete(self, where: Optional['pixeltable.exprs.Expr'] = None) -> UpdateStatus:
+    def delete(self, where: Optional['pxt.exprs.Expr'] = None) -> UpdateStatus:
         """Delete rows in this table.
 
         Args:
@@ -897,17 +901,17 @@ class Table(SchemaObject):
         self._tbl_version.revert()
 
     @overload
-    def query(self, py_fn: Callable) -> 'pixeltable.func.QueryTemplateFunction': ...
+    def query(self, py_fn: Callable) -> 'pxt.func.QueryTemplateFunction': ...
 
     @overload
     def query(
             self, *, param_types: Optional[list[ts.ColumnType]] = None
-    ) -> Callable[[Callable], 'pixeltable.func.QueryTemplateFunction']: ...
+    ) -> Callable[[Callable], 'pxt.func.QueryTemplateFunction']: ...
 
     def query(self, *args: Any, **kwargs: Any) -> Any:
         def make_query_template(
                 py_fn: Callable, param_types: Optional[list[ts.ColumnType]]
-        ) -> 'pixeltable.func.QueryTemplateFunction':
+        ) -> 'pxt.func.QueryTemplateFunction':
             if py_fn.__module__ != '__main__' and py_fn.__name__.isidentifier():
                 # this is a named function in a module
                 function_path = f'{py_fn.__module__}.{py_fn.__qualname__}'
@@ -916,12 +920,11 @@ class Table(SchemaObject):
             query_name = py_fn.__name__
             if query_name in self._schema.keys():
                 raise excs.Error(f'Query name {query_name!r} conflicts with existing column')
-            if query_name in self._queries:
+            if query_name in self.__query_scope._queries and function_path is not None:
                 raise excs.Error(f'Duplicate query name: {query_name!r}')
-            import pixeltable.func as func
-            query_fn = func.QueryTemplateFunction.create(
+            query_fn = pxt.func.QueryTemplateFunction.create(
                 py_fn, param_types=param_types, path=function_path, name=query_name)
-            self._queries[query_name] = query_fn
+            self.__query_scope._queries[query_name] = query_fn
             return query_fn
 
             # TODO: verify that the inferred return type matches that of the template
@@ -938,7 +941,7 @@ class Table(SchemaObject):
     def external_stores(self) -> list[str]:
         return list(self._tbl_version.external_stores.keys())
 
-    def _link_external_store(self, store: 'pixeltable.io.ExternalStore') -> None:
+    def _link_external_store(self, store: 'pxt.io.ExternalStore') -> None:
         """
         Links the specified `ExternalStore` to this table.
         """
@@ -993,7 +996,7 @@ class Table(SchemaObject):
             *,
             export_data: bool = True,
             import_data: bool = True
-    ) -> 'pixeltable.io.SyncStatus':
+    ) -> 'pxt.io.SyncStatus':
         """
         Synchronizes this table with its linked external stores.
 
@@ -1015,9 +1018,7 @@ class Table(SchemaObject):
             if store not in all_stores:
                 raise excs.Error(f'Table `{self._name}` has no external store with that name: {store}')
 
-        from pixeltable.io import SyncStatus
-
-        sync_status = SyncStatus.empty()
+        sync_status = pxt.io.SyncStatus.empty()
         for store in stores:
             store_obj = self._tbl_version.external_stores[store]
             store_sync_status = store_obj.sync(self, export_data=export_data, import_data=import_data)
