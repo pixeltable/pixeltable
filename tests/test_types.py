@@ -1,5 +1,6 @@
 import datetime
 from typing import Any, Dict, List, Optional
+import uuid
 
 import numpy as np
 import PIL.Image
@@ -7,7 +8,7 @@ import PIL.Image
 import pixeltable as pxt
 from pixeltable.type_system import (ArrayType, BoolType, ColumnType, FloatType,
                                     ImageType, IntType, InvalidType, JsonType,
-                                    StringType, TimestampType)
+                                    StringType, TimestampType, UuidType)
 
 
 class TestTypes:
@@ -22,6 +23,7 @@ class TestTypes:
             (np.ndarray((1, 2, 3), dtype=np.int64), ArrayType((1, 2, 3), dtype=IntType())),
             ({'a': 1, 'b': '2'}, pxt.JsonType()),
             (['3', 4], pxt.JsonType()),
+            (uuid.uuid4(), UuidType()),
         ]
         for val, expected_type in test_cases:
             assert ColumnType.infer_literal_type(val) == expected_type, val
