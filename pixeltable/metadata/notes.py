@@ -2,7 +2,8 @@
 # rather than as a comment, so that the existence of a description can be enforced by
 # the unit tests when new versions are added.
 VERSION_NOTES = {
-    22: 'TableMd/ColumnMd.media_validation',
+    23: 'TableMd/ColumnMd.media_validation',
+    22: 'Move UDF str_filter out of BtreeIndex class',
     21: 'Separate InlineArray and InlineList',
     20: 'Store DB timestamps in UTC',
     19: 'UDF renames; ImageMemberAccess removal',

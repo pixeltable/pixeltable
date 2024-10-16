@@ -3,7 +3,7 @@ import inspect
 import logging
 from typing import Any
 
-import cloudpickle
+import cloudpickle  # type: ignore[import-untyped]
 import sqlalchemy as sql
 
 import pixeltable.func as func

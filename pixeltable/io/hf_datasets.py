@@ -11,7 +11,7 @@ import pixeltable.type_system as ts
 from pixeltable import exceptions as excs
 
 if typing.TYPE_CHECKING:
-    import datasets
+    import datasets  # type: ignore[import-untyped]
 
 _logger = logging.getLogger(__name__)
 

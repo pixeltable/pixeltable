@@ -1,37 +1,48 @@
 import dataclasses
+import typing
 import uuid
-from typing import Optional, List, get_type_hints, Type, Any, TypeVar, Tuple, Union
+from typing import Any, Optional, TypeVar, Union, get_type_hints
 
 import sqlalchemy as sql
 import sqlalchemy.orm as orm
-from sqlalchemy import ForeignKey
-from sqlalchemy import Integer, BigInteger, LargeBinary
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy import BigInteger, ForeignKey, Integer, LargeBinary
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm.decl_api import DeclarativeMeta
 
-Base = declarative_base()
+# Base has to be marked explicitly as a type, in order to be used elsewhere as a type hint. But in addition to being
+# a type, it's also a `DeclarativeMeta`. The following pattern enables us to expose both `Base` and `Base.metadata`
+# outside of the module in a typesafe way.
+Base: type = declarative_base()
+assert isinstance(Base, DeclarativeMeta)
+base_metadata = Base.metadata
 
 T = TypeVar('T')
 
-def md_from_dict(data_class_type: Type[T], data: Any) -> T:
+def md_from_dict(data_class_type: type[T], data: Any) -> T:
     """Re-instantiate a dataclass instance that contains nested dataclasses from a dict."""
     if dataclasses.is_dataclass(data_class_type):
         fieldtypes = {f: t for f, t in get_type_hints(data_class_type).items()}
-        return data_class_type(**{f: md_from_dict(fieldtypes[f], data[f]) for f in data})
-    elif hasattr(data_class_type, '__origin__'):
-        if data_class_type.__origin__ is Union and type(None) in data_class_type.__args__:
+        return data_class_type(**{f: md_from_dict(fieldtypes[f], data[f]) for f in data})  # type: ignore[return-value]
+
+    origin = typing.get_origin(data_class_type)
+    if origin is not None:
+        type_args = typing.get_args(data_class_type)
+        if origin is Union and type(None) in type_args:
             # Handling Optional types
-            non_none_args = [arg for arg in data_class_type.__args__ if arg is not type(None)]
-            if len(non_none_args) == 1:
-                return md_from_dict(non_none_args[0], data) if data is not None else None
-        elif data_class_type.__origin__ is list:
-            return [md_from_dict(data_class_type.__args__[0], elem) for elem in data]
-        elif data_class_type.__origin__ is dict:
-            key_type = data_class_type.__args__[0]
-            val_type = data_class_type.__args__[1]
-            return {key_type(key): md_from_dict(val_type, val) for key, val in data.items()}
-        elif data_class_type.__origin__ is tuple:
-            return tuple(md_from_dict(arg_type, elem) for arg_type, elem in zip(data_class_type.__args__, data))
+            non_none_args = [arg for arg in type_args if arg is not type(None)]
+            assert len(non_none_args) == 1
+            return md_from_dict(non_none_args[0], data) if data is not None else None
+        elif origin is list:
+            return [md_from_dict(type_args[0], elem) for elem in data]  # type: ignore[return-value]
+        elif origin is dict:
+            key_type = type_args[0]
+            val_type = type_args[1]
+            return {key_type(key): md_from_dict(val_type, val) for key, val in data.items()}  # type: ignore[return-value]
+        elif origin is tuple:
+            return tuple(md_from_dict(arg_type, elem) for arg_type, elem in zip(type_args, data))  # type: ignore[return-value]
+        else:
+            assert False
     else:
         return data
 
@@ -115,7 +126,7 @@ class ViewMd:
     is_snapshot: bool
 
     # (table id, version); for mutable views, all versions are None
-    base_versions: List[Tuple[str, Optional[int]]]
+    base_versions: list[tuple[str, Optional[int]]]
 
     # filter predicate applied to the base table; view-only
     predicate: Optional[dict[str, Any]]
