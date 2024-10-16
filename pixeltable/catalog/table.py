@@ -5,7 +5,8 @@ import builtins
 import json
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Iterable, Literal, Optional, Sequence, Set, Tuple, Type, Union, overload
+from typing import _GenericAlias  # type: ignore[attr-defined]
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Literal, Optional, Set, Sequence, Tuple, Type, Union, overload
 from uuid import UUID
 
 import pandas as pd
@@ -326,17 +327,17 @@ class Table(SchemaObject):
         """
         if not isinstance(col_name, str):
             raise excs.Error(f'Column name must be a string, got {type(col_name)}')
-        if not isinstance(spec, (ts.ColumnType, exprs.Expr)):
-            raise excs.Error(f'Column spec must be a ColumnType or an Expr, got {type(spec)}')
+        if not isinstance(spec, (ts.ColumnType, exprs.Expr, type, _GenericAlias)):
+            raise excs.Error(f'Column spec must be a ColumnType, Expr, or type, got {type(spec)}')
         self.add_column(type=None, stored=None, print_stats=False, **{col_name: spec})
 
     def add_column(
             self,
             *,
-            type: Optional[ts.ColumnType] = None,
+            type: Union[ts.ColumnType, builtins.type, _GenericAlias, None] = None,
             stored: Optional[bool] = None,
             print_stats: bool = False,
-            **kwargs: Union[ts.ColumnType, exprs.Expr, Callable]
+            **kwargs: Union[ts.ColumnType, builtins.type, _GenericAlias, exprs.Expr, Callable]
     ) -> UpdateStatus:
         """
         Adds a column to the table.
@@ -392,16 +393,16 @@ class Table(SchemaObject):
         col_name, spec = next(iter(kwargs.items()))
         if not is_valid_identifier(col_name):
             raise excs.Error(f'Invalid column name: {col_name!r}')
-        if isinstance(spec, (ts.ColumnType, exprs.Expr)) and type is not None:
+        if isinstance(spec, (ts.ColumnType, builtins.type, _GenericAlias, exprs.Expr)) and type is not None:
             raise excs.Error(f'add_column(): keyword argument "type" is redundant')
 
         col_schema: dict[str, Any] = {}
-        if isinstance(spec, ts.ColumnType):
-            col_schema['type'] = spec
+        if isinstance(spec, (ts.ColumnType, builtins.type, _GenericAlias)):
+            col_schema['type'] = ts.ColumnType.normalize_type(spec, nullable_default=True)
         else:
             col_schema['value'] = spec
         if type is not None:
-            col_schema['type'] = type
+            col_schema['type'] = ts.ColumnType.normalize_type(type, nullable_default=True)
         if stored is not None:
             col_schema['stored'] = stored
 
@@ -428,8 +429,8 @@ class Table(SchemaObject):
 
         if 'type' in spec:
             has_type = True
-            if not isinstance(spec['type'], ts.ColumnType):
-                raise excs.Error(f'Column {name}: "type" must be a ColumnType, got {spec["type"]}')
+            if not isinstance(spec['type'], (ts.ColumnType, type, _GenericAlias)):
+                raise excs.Error(f'Column {name}: "type" must be a type or ColumnType, got {spec["type"]}')
 
         if 'value' in spec:
             value_spec = spec['value']
@@ -468,20 +469,20 @@ class Table(SchemaObject):
             media_validation: Optional[catalog.MediaValidation] = None
             stored = True
 
-            if isinstance(spec, ts.ColumnType):
-                # TODO: create copy
-                col_type = spec
+            if isinstance(spec, (ts.ColumnType, type, _GenericAlias)):
+                col_type = ts.ColumnType.normalize_type(spec, nullable_default=True)
             elif isinstance(spec, exprs.Expr):
                 # create copy so we can modify it
                 value_expr = spec.copy()
             elif callable(spec):
-                raise excs.Error((
+                raise excs.Error(
                     f'Column {name} computed with a Callable: specify using a dictionary with '
                     f'the "value" and "type" keys (e.g., "{name}": {{"value": <Callable>, "type": IntType()}})'
-                ))
+                )
             elif isinstance(spec, dict):
                 cls._validate_column_spec(name, spec)
-                col_type = spec.get('type')
+                if 'type' in spec:
+                    col_type = ts.ColumnType.normalize_type(spec['type'], nullable_default=True)
                 value_expr = spec.get('value')
                 if value_expr is not None and isinstance(value_expr, exprs.Expr):
                     # create copy so we can modify it

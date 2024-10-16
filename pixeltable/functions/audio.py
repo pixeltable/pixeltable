@@ -11,18 +11,16 @@ t.select(pxtf.audio.get_metadata()).collect()
 ```
 """
 
-import pixeltable.func as func
-import pixeltable.type_system as ts
+import pixeltable as pxt
 from pixeltable.utils.code import local_public_names
 
 
-@func.udf(return_type=ts.JsonType(nullable=False), param_types=[ts.AudioType(nullable=False)], is_method=True)
-def get_metadata(audio: str) -> dict:
+@pxt.udf(is_method=True)
+def get_metadata(audio: pxt.Audio) -> dict:
     """
     Gets various metadata associated with an audio file and returns it as a dictionary.
     """
-    import pixeltable.functions as pxtf
-    return pxtf.video._get_metadata(audio)
+    return pxt.functions.video._get_metadata(audio)
 
 
 __all__ = local_public_names(__name__)

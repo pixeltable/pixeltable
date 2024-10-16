@@ -1,9 +1,8 @@
-from typing import Any, Dict
+from typing import Any
 
 import pytest
 
 import pixeltable as pxt
-from pixeltable.type_system import BoolType, FloatType, ImageType, JsonType, StringType
 
 from ..utils import (SAMPLE_IMAGE_URL, get_image_files, get_sentences, reload_catalog, skip_test_if_not_installed,
                      validate_update_status)
@@ -12,7 +11,7 @@ from ..utils import (SAMPLE_IMAGE_URL, get_image_files, get_sentences, reload_ca
 class TestHuggingface:
     def test_hf_function(self, reset_db) -> None:
         skip_test_if_not_installed('sentence_transformers')
-        t = pxt.create_table('test_tbl', {'input': StringType(), 'bool_col': BoolType()})
+        t = pxt.create_table('test_tbl', {'input': pxt.String, 'bool_col': pxt.Bool})
         from pixeltable.functions.huggingface import sentence_transformer
 
         model_id = 'intfloat/e5-large-v2'
@@ -36,7 +35,7 @@ class TestHuggingface:
 
     def test_sentence_transformer(self, reset_db) -> None:
         skip_test_if_not_installed('sentence_transformers')
-        t = pxt.create_table('test_tbl', {'input': StringType(), 'input_list': JsonType()})
+        t = pxt.create_table('test_tbl', {'input': pxt.String, 'input_list': pxt.Json})
         sents = get_sentences(10)
         status = t.insert({'input': s, 'input_list': sents} for s in sents)
         assert status.num_rows == len(sents)
@@ -53,9 +52,9 @@ class TestHuggingface:
             assert t._schema[col_name].is_array_type()
             list_col_name = f'embed_list{idx}'
             t[list_col_name] = sentence_transformer_list(t.input_list, model_id=model_id, normalize_embeddings=True)
-            assert t._schema[list_col_name] == JsonType()
+            assert t._schema[list_col_name] == pxt.JsonType()
 
-        def verify_row(row: Dict[str, Any]) -> None:
+        def verify_row(row: dict[str, Any]) -> None:
             for idx, (_, d) in enumerate(zip(model_ids, num_dims)):
                 assert row[f'embed{idx}'].shape == (d,)
                 assert len(row[f'embed_list{idx}']) == len(sents)
@@ -73,7 +72,7 @@ class TestHuggingface:
 
     def test_cross_encoder(self, reset_db) -> None:
         skip_test_if_not_installed('sentence_transformers')
-        t = pxt.create_table('test_tbl', {'input': StringType(), 'input_list': JsonType()})
+        t = pxt.create_table('test_tbl', {'input': pxt.String, 'input_list': pxt.Json})
         sents = get_sentences(10)
         status = t.insert({'input': s, 'input_list': sents} for s in sents)
         assert status.num_rows == len(sents)
@@ -86,12 +85,12 @@ class TestHuggingface:
         for idx, model_id in enumerate(model_ids):
             col_name = f'embed{idx}'
             t[col_name] = cross_encoder(t.input, t.input, model_id=model_id)
-            assert t._schema[col_name] == FloatType()
+            assert t._schema[col_name] == pxt.FloatType()
             list_col_name = f'embed_list{idx}'
             t[list_col_name] = cross_encoder_list(t.input, t.input_list, model_id=model_id)
-            assert t._schema[list_col_name] == JsonType()
+            assert t._schema[list_col_name] == pxt.JsonType()
 
-        def verify_row(row: Dict[str, Any]) -> None:
+        def verify_row(row: dict[str, Any]) -> None:
             for i in range(len(model_ids)):
                 assert len(row[f'embed_list{idx}']) == len(sents)
                 assert all(isinstance(v, float) for v in row[f'embed_list{idx}'])
@@ -108,7 +107,7 @@ class TestHuggingface:
 
     def test_clip(self, reset_db) -> None:
         skip_test_if_not_installed('transformers')
-        t = pxt.create_table('test_tbl', {'text': StringType(), 'img': ImageType()})
+        t = pxt.create_table('test_tbl', {'text': pxt.String, 'img': pxt.Image})
         num_rows = 10
         sents = get_sentences(num_rows)
         imgs = get_image_files()[:num_rows]
@@ -128,7 +127,7 @@ class TestHuggingface:
             t[col_name] = clip_image(t.img, model_id=model_id)
             assert t._schema[col_name].is_array_type()
 
-        def verify_row(row: Dict[str, Any]) -> None:
+        def verify_row(row: dict[str, Any]) -> None:
             for idx, _ in enumerate(model_ids):
                 assert row[f'embed_text{idx}'].shape == (512,)
                 assert row[f'embed_img{idx}'].shape == (512,)
@@ -148,7 +147,7 @@ class TestHuggingface:
         from pixeltable.functions.huggingface import detr_for_object_detection
         from pixeltable.utils import coco
 
-        t = pxt.create_table('test_tbl', {'img': ImageType()})
+        t = pxt.create_table('test_tbl', {'img': pxt.Image})
         t['detect'] = detr_for_object_detection(t.img, model_id='facebook/detr-resnet-50', threshold=0.8)
         status = t.insert(img=SAMPLE_IMAGE_URL)
         assert status.num_rows == 1
@@ -166,7 +165,7 @@ class TestHuggingface:
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import vit_for_image_classification
 
-        t = pxt.create_table('test_tbl', {'img': ImageType()})
+        t = pxt.create_table('test_tbl', {'img': pxt.Image})
         t['img_class'] = vit_for_image_classification(t.img, model_id='google/vit-base-patch16-224')
         validate_update_status(t.insert(img=SAMPLE_IMAGE_URL), expected_rows=1)
         result = t.select(t.img_class).collect()[0]['img_class']

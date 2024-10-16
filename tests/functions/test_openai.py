@@ -2,7 +2,6 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
-from pixeltable.type_system import ImageType, StringType
 
 from ..utils import SAMPLE_IMAGE_URL, skip_test_if_not_installed, validate_update_status
 
@@ -13,7 +12,7 @@ class TestOpenai:
     def test_audio(self, reset_db) -> None:
         skip_test_if_not_installed('openai')
         TestOpenai.skip_test_if_no_openai_client()
-        t = pxt.create_table('test_tbl', {'input': StringType()})
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
         from pixeltable.functions.openai import speech, transcriptions, translations
 
         t.add_column(speech=speech(t.input, model='tts-1', voice='onyx'))
@@ -48,7 +47,7 @@ class TestOpenai:
     def test_chat_completions(self, reset_db) -> None:
         skip_test_if_not_installed('openai')
         TestOpenai.skip_test_if_no_openai_client()
-        t = pxt.create_table('test_tbl', {'input': StringType()})
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
         from pixeltable.functions.openai import chat_completions
 
         msgs = [{'role': 'system', 'content': 'You are a helpful assistant.'}, {'role': 'user', 'content': t.input}]
@@ -100,7 +99,7 @@ class TestOpenai:
     def test_gpt_4_vision(self, reset_db) -> None:
         skip_test_if_not_installed('openai')
         TestOpenai.skip_test_if_no_openai_client()
-        t = pxt.create_table('test_tbl', {'prompt': StringType(), 'img': ImageType()})
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String, 'img': pxt.Image})
         from pixeltable.functions.openai import chat_completions, vision
         from pixeltable.functions.string import format
 
@@ -132,7 +131,7 @@ class TestOpenai:
         TestOpenai.skip_test_if_no_openai_client()
         from pixeltable.functions.openai import embeddings
 
-        t = pxt.create_table('test_tbl', {'input': StringType()})
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
         t.add_column(ada_embed=embeddings(model='text-embedding-ada-002', input=t.input))
         t.add_column(
             text_3=embeddings(model='text-embedding-3-small', input=t.input, dimensions=1024, user='pixeltable')
@@ -146,7 +145,7 @@ class TestOpenai:
     def test_moderations(self, reset_db) -> None:
         skip_test_if_not_installed('openai')
         TestOpenai.skip_test_if_no_openai_client()
-        t = pxt.create_table('test_tbl', {'input': StringType()})
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
         from pixeltable.functions.openai import moderations
 
         t.add_column(moderation=moderations(input=t.input))
@@ -158,7 +157,7 @@ class TestOpenai:
     def test_image_generations(self, reset_db) -> None:
         skip_test_if_not_installed('openai')
         TestOpenai.skip_test_if_no_openai_client()
-        t = pxt.create_table('test_tbl', {'input': StringType()})
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
         from pixeltable.functions.openai import image_generations
 
         t.add_column(img=image_generations(t.input))
@@ -176,7 +175,7 @@ class TestOpenai:
     def test_image_generations_dall_e_3(self, reset_db) -> None:
         skip_test_if_not_installed('openai')
         TestOpenai.skip_test_if_no_openai_client()
-        t = pxt.create_table('test_tbl', {'input': StringType()})
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
         from pixeltable.functions.openai import image_generations
 
         # Test dall-e-3 options
