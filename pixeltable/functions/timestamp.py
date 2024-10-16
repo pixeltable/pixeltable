@@ -15,12 +15,12 @@ from typing import Optional
 
 import sqlalchemy as sql
 
+import pixeltable as pxt
 from pixeltable.env import Env
-import pixeltable.func as func
 from pixeltable.utils.code import local_public_names
 
 
-@func.udf(is_property=True)
+@pxt.udf(is_property=True)
 def year(self: datetime) -> int:
     """
     Between [`MINYEAR`](https://docs.python.org/3/library/datetime.html#datetime.MINYEAR) and
@@ -36,7 +36,7 @@ def _(self: sql.ColumnElement) -> sql.ColumnElement:
     return sql.extract('year', self)
 
 
-@func.udf(is_property=True)
+@pxt.udf(is_property=True)
 def month(self: datetime) -> int:
     """
     Between 1 and 12 inclusive.
@@ -51,7 +51,7 @@ def _(self: sql.ColumnElement) -> sql.ColumnElement:
     return sql.extract('month', self)
 
 
-@func.udf(is_property=True)
+@pxt.udf(is_property=True)
 def day(self: datetime) -> int:
     """
     Between 1 and the number of days in the given month of the given year.
@@ -66,7 +66,7 @@ def _(self: sql.ColumnElement) -> sql.ColumnElement:
     return sql.extract('day', self)
 
 
-@func.udf(is_property=True)
+@pxt.udf(is_property=True)
 def hour(self: datetime) -> int:
     """
     Between 0 and 23 inclusive.
@@ -81,7 +81,7 @@ def _(self: sql.ColumnElement) -> sql.ColumnElement:
     return sql.extract('hour', self)
 
 
-@func.udf(is_property=True)
+@pxt.udf(is_property=True)
 def minute(self: datetime) -> int:
     """
     Between 0 and 59 inclusive.
@@ -96,7 +96,7 @@ def _(self: sql.ColumnElement) -> sql.ColumnElement:
     return sql.extract('minute', self)
 
 
-@func.udf(is_property=True)
+@pxt.udf(is_property=True)
 def second(self: datetime) -> int:
     """
     Between 0 and 59 inclusive.
@@ -111,7 +111,7 @@ def _(self: sql.ColumnElement) -> sql.ColumnElement:
     return sql.extract('second', self)
 
 
-@func.udf(is_property=True)
+@pxt.udf(is_property=True)
 def microsecond(self: datetime) -> int:
     """
     Between 0 and 999999 inclusive.
@@ -126,7 +126,7 @@ def _(self: sql.ColumnElement) -> sql.ColumnElement:
     return sql.extract('microseconds', self) - sql.extract('second', self) * 1000000
 
 
-@func.udf(is_method=True)
+@pxt.udf(is_method=True)
 def astimezone(self: datetime, tz: str) -> datetime:
     """
     Convert the datetime to the given time zone.
@@ -139,7 +139,7 @@ def astimezone(self: datetime, tz: str) -> datetime:
     return self.astimezone(tzinfo)
 
 
-@func.udf(is_method=True)
+@pxt.udf(is_method=True)
 def weekday(self: datetime) -> int:
     """
     Between 0 (Monday) and 6 (Sunday) inclusive.
@@ -154,7 +154,7 @@ def _(self: sql.ColumnElement) -> sql.ColumnElement:
     return sql.extract('isodow', self) - 1
 
 
-@func.udf(is_method=True)
+@pxt.udf(is_method=True)
 def isoweekday(self: datetime) -> int:
     """
     Return the day of the week as an integer, where Monday is 1 and Sunday is 7.
@@ -169,7 +169,7 @@ def _(self: sql.ColumnElement) -> sql.ColumnElement:
     return sql.extract('isodow', self)
 
 
-@func.udf(is_method=True)
+@pxt.udf(is_method=True)
 def isocalendar(self: datetime) -> dict:
     """
     Return a dictionary with three entries: `'year'`, `'week'`, and `'weekday'`.
@@ -181,7 +181,7 @@ def isocalendar(self: datetime) -> dict:
     return {'year': iso_year, 'week': iso_week, 'weekday': iso_weekday}
 
 
-@func.udf(is_method=True)
+@pxt.udf(is_method=True)
 def isoformat(self: datetime, sep: str = 'T', timespec: str = 'auto') -> str:
     """
     Return a string representing the date and time in ISO 8601 format.
@@ -195,7 +195,7 @@ def isoformat(self: datetime, sep: str = 'T', timespec: str = 'auto') -> str:
     return self.isoformat(sep=sep, timespec=timespec)
 
 
-@func.udf(is_method=True)
+@pxt.udf(is_method=True)
 def strftime(self: datetime, format: str) -> str:
     """
     Return a string representing the date and time, controlled by an explicit format string.
@@ -208,7 +208,7 @@ def strftime(self: datetime, format: str) -> str:
     return self.strftime(format)
 
 
-@func.udf(is_method=True)
+@pxt.udf(is_method=True)
 def make_timestamp(
         year: int, month: int, day: int, hour: int = 0, minute: int = 0, second: int = 0, microsecond: int = 0
 ) -> datetime:
@@ -234,7 +234,7 @@ def _(
         sql.cast(minute, sql.Integer),
         sql.cast(second + microsecond / 1000000.0, sql.Double))
 
-# @func.udf
+# @pxt.udf
 # def date(self: datetime) -> datetime:
 #     """
 #     Return the date part of the datetime.
@@ -245,7 +245,7 @@ def _(
 #     return datetime(d.year, d.month, d.day)
 #
 #
-# @func.udf
+# @pxt.udf
 # def time(self: datetime) -> datetime:
 #     """
 #     Return the time part of the datetime, with microseconds set to 0.
@@ -256,7 +256,7 @@ def _(
 #     return datetime(1, 1, 1, t.hour, t.minute, t.second, t.microsecond)
 
 
-@func.udf(is_method=True)
+@pxt.udf(is_method=True)
 def replace(
         self: datetime, year: Optional[int] = None, month: Optional[int] = None, day: Optional[int] = None,
         hour: Optional[int] = None, minute: Optional[int] = None, second: Optional[int] = None,
@@ -271,7 +271,7 @@ def replace(
     return self.replace(**kwargs)
 
 
-@func.udf(is_method=True)
+@pxt.udf(is_method=True)
 def toordinal(self: datetime) -> int:
     """
     Return the proleptic Gregorian ordinal of the date, where January 1 of year 1 has ordinal 1.
@@ -281,7 +281,7 @@ def toordinal(self: datetime) -> int:
     return self.toordinal()
 
 
-@func.udf(is_method=True)
+@pxt.udf(is_method=True)
 def posix_timestamp(self: datetime) -> float:
     """
     Return POSIX timestamp corresponding to the datetime instance.

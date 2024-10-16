@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, Callable, Iterator, Optional, TypeVar, Un
 from uuid import UUID
 
 import sqlalchemy as sql
-from typing_extensions import Self
+from typing_extensions import _AnnotatedAlias, Self
 
 import pixeltable
 import pixeltable.catalog as catalog
@@ -456,11 +456,13 @@ class Expr(abc.ABC):
         else:
             return InPredicate(self, value_set_literal=value_set)
 
-    def astype(self, new_type: ts.ColumnType) -> 'pixeltable.exprs.TypeCast':
+    def astype(self, new_type: Union[ts.ColumnType, type, _AnnotatedAlias]) -> 'pixeltable.exprs.TypeCast':
         from pixeltable.exprs import TypeCast
-        return TypeCast(self, new_type)
+        return TypeCast(self, ts.ColumnType.normalize_type(new_type))
 
-    def apply(self, fn: Callable, *, col_type: Optional[ts.ColumnType] = None) -> 'pixeltable.exprs.FunctionCall':
+    def apply(self, fn: Callable, *, col_type: Union[ts.ColumnType, type, _AnnotatedAlias, None] = None) -> 'pixeltable.exprs.FunctionCall':
+        if col_type is not None:
+            col_type = ts.ColumnType.normalize_type(col_type)
         function = self._make_applicator_function(fn, col_type)
         # Return a `FunctionCall` obtained by passing this `Expr` to the new `function`.
         return function(self)

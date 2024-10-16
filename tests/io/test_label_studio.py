@@ -5,7 +5,7 @@ import subprocess
 import sysconfig
 import time
 import uuid
-from typing import Literal
+from typing import Iterator, Literal
 
 import pytest
 import requests.exceptions
@@ -320,7 +320,7 @@ class TestLabelStudio:
         from pixeltable.io.label_studio import LabelStudioProject
 
         t = ls_image_table
-        t['annotations_col'] = pxt.JsonType(nullable=True)
+        t['annotations_col'] = pxt.Json
         v1 = pxt.create_view('view_1', t.where(t.id < 20))
         v2 = pxt.create_view('view_2', v1.where(t.id < 10))
 
@@ -369,7 +369,7 @@ class TestLabelStudio:
         assert v.count() == 10
         v['rot_frame'] = v.frame.rotate(180)
         v['header'] = format('Frame Number {0}', v.frame_idx)
-        v['text'] = pxt.StringType(nullable=True)
+        v['text'] = pxt.String
         v.update({'text': 'Initial text'})
 
         sync_status = pxt.io.create_label_studio_project(v, self.test_config_complex, media_import_method='file', name='complex_project')
@@ -408,7 +408,7 @@ class TestLabelStudio:
         from pixeltable.io.label_studio import LabelStudioProject
 
         t = ls_image_table
-        t['annotations_col'] = pxt.JsonType(nullable=True)
+        t['annotations_col'] = pxt.Json
 
         with pytest.raises(excs.Error) as exc_info:
             pxt.io.create_label_studio_project(t, self.test_config_with_text, media_import_method='post', col_mapping={'image_col': 'image'})
@@ -430,7 +430,7 @@ def ls_image_table(init_ls, reset_db) -> pxt.InsertableTable:
     skip_test_if_not_installed('label_studio_sdk')
     t = pxt.create_table(
         'test_ls_sync',
-        {'id': pxt.IntType(), 'image_col': pxt.ImageType()}
+        {'id': pxt.Int, 'image_col': pxt.Image}
     )
     t.add_column(rot_image_col=t.image_col.rotate(180), stored=False)
     # 30 rows, a mix of URLs and locally stored image files
@@ -445,7 +445,7 @@ def ls_video_table(init_ls, reset_db) -> pxt.InsertableTable:
     skip_test_if_not_installed('label_studio_sdk')
     t = pxt.create_table(
         'test_ls_sync',
-        {'id': pxt.IntType(), 'video_col': pxt.VideoType()}
+        {'id': pxt.Int, 'video_col': pxt.Video}
     )
     local_video = next(video for video in get_video_files() if video.endswith('bangkok_half_res.mp4'))
     videos = [
@@ -464,7 +464,7 @@ def ls_audio_table(init_ls, reset_db) -> pxt.InsertableTable:
     skip_test_if_not_installed('label_studio_sdk')
     t = pxt.create_table(
         'test_ls_sync',
-        {'id': pxt.IntType(), 'audio_col': pxt.AudioType()}
+        {'id': pxt.Int, 'audio_col': pxt.Audio}
     )
     audio = get_audio_files()
     status = t.insert({'id': n, 'audio_col': audio} for n, audio in enumerate(audio))
@@ -473,7 +473,7 @@ def ls_audio_table(init_ls, reset_db) -> pxt.InsertableTable:
 
 
 @pytest.fixture(scope='session')
-def init_ls(init_env) -> None:
+def init_ls(init_env) -> Iterator[None]:
     skip_test_if_not_installed('label_studio_sdk')
     ls_version = '1.13.0'
     ls_port = 31713

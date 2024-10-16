@@ -16,7 +16,7 @@ class TestWhisper:
         audio_file = next(
             file for file in get_audio_files() if file.endswith('jfk_1961_0109_cityuponahill-excerpt.flac')
         )
-        t = pxt.create_table('whisper', {'audio': pxt.AudioType()})
+        t = pxt.create_table('whisper', {'audio': pxt.Audio})
         t['transcription'] = whisper.transcribe(t.audio, model='base.en')
         validate_update_status(t.insert(audio=audio_file), expected_rows=1)
         result = t.collect()['transcription'][0]

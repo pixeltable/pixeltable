@@ -40,12 +40,12 @@ class TestImport:
         assert 'The following columns have no non-null values: only_none' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
-            pxt.io.import_rows('example4', [{'col': 1}], schema_overrides={'not_col': pxt.StringType()})
+            pxt.io.import_rows('example4', [{'col': 1}], schema_overrides={'not_col': pxt.String})
         assert 'The following columns specified in `schema_overrides` are not present in the data: not_col' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
             pxt.io.import_rows('example5', [{'col': 1}, {'col': 'value'}])
-        assert "Could not infer type of column `col`; the value in row 1 does not match preceding type int: 'value'" in str(exc_info.value)
+        assert "Could not infer type of column `col`; the value in row 1 does not match preceding type Optional[Int]: 'value'" in str(exc_info.value)
 
     def test_import_json(self, reset_db) -> None:
         example = Path(__file__).parent.parent / 'data' / 'json' / 'example.json'

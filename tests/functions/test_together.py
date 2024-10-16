@@ -2,6 +2,7 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
+
 from ..utils import skip_test_if_not_installed, validate_update_status
 
 
@@ -10,7 +11,7 @@ class TestTogether:
     def test_completions(self, reset_db) -> None:
         skip_test_if_not_installed('together')
         TestTogether.skip_test_if_no_together_client()
-        t = pxt.create_table('test_tbl', {'input': pxt.StringType()})
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
         from pixeltable.functions.together import completions
 
         t.add_column(output=completions(prompt=t.input, model='mistralai/Mixtral-8x7B-v0.1', stop=['\n']))
@@ -40,7 +41,7 @@ class TestTogether:
     def test_chat_completions(self, reset_db) -> None:
         skip_test_if_not_installed('together')
         TestTogether.skip_test_if_no_together_client()
-        t = pxt.create_table('test_tbl', {'input': pxt.StringType()})
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
         messages = [{'role': 'user', 'content': t.input}]
         from pixeltable.functions.together import chat_completions
 
@@ -70,7 +71,7 @@ class TestTogether:
     def test_embeddings(self, reset_db) -> None:
         skip_test_if_not_installed('together')
         TestTogether.skip_test_if_no_together_client()
-        t = pxt.create_table('test_tbl', {'input': pxt.StringType()})
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
         from pixeltable.functions.together import embeddings
 
         t.add_column(embed=embeddings(input=t.input, model='togethercomputer/m2-bert-80M-8k-retrieval'))
@@ -81,7 +82,7 @@ class TestTogether:
     def test_image_generations(self, reset_db) -> None:
         skip_test_if_not_installed('together')
         TestTogether.skip_test_if_no_together_client()
-        t = pxt.create_table('test_tbl', {'input': pxt.StringType(), 'negative_prompt': pxt.StringType(nullable=True)})
+        t = pxt.create_table('test_tbl', {'input': pxt.String, 'negative_prompt': pxt.String})
         from pixeltable.functions.together import image_generations
 
         t.add_column(img=image_generations(t.input, model='stabilityai/stable-diffusion-xl-base-1.0'))

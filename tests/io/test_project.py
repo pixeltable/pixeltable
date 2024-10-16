@@ -15,7 +15,7 @@ _logger = logging.getLogger('pixeltable')
 class TestProject:
 
     def test_validation(self, reset_db):
-        schema = {'col1': pxt.StringType(), 'col2': pxt.ImageType(), 'col3': pxt.StringType(), 'col4': pxt.VideoType()}
+        schema = {'col1': pxt.String, 'col2': pxt.Image, 'col3': pxt.String, 'col4': pxt.Video}
         t = pxt.create_table('test_store', schema)
         export_cols = {'export1': pxt.StringType(), 'export2': pxt.ImageType()}
         import_cols = {'import1': pxt.StringType(), 'import2': pxt.VideoType()}
@@ -42,23 +42,23 @@ class TestProject:
         Project.validate_columns(t, export_cols, import_cols, {'col1': 'export1', 'col2': 'export2', 'col3': 'import1', 'col4': 'import2'})
 
         # Default spec is correct
-        schema2 = {'export1': pxt.StringType(), 'export2': pxt.ImageType(), 'import1': pxt.StringType(), 'import2': pxt.VideoType()}
+        schema2 = {'export1': pxt.String, 'export2': pxt.Image, 'import1': pxt.String, 'import2': pxt.Video}
         t2 = pxt.create_table('test_2', schema2)
         Project.validate_columns(t2, export_cols, import_cols, None)
 
         # Incompatible types for export
         with pytest.raises(excs.Error) as exc_info:
             Project.validate_columns(t, export_cols, import_cols, {'col1': 'export2'})
-        assert 'Column `col1` cannot be exported to external column `export2` (incompatible types; expecting `image`)' in str(exc_info.value)
+        assert 'Column `col1` cannot be exported to external column `export2` (incompatible types; expecting `Image`)' in str(exc_info.value)
 
         # Incompatible types for import
         with pytest.raises(excs.Error) as exc_info:
             Project.validate_columns(t, export_cols, import_cols, {'col1': 'import2'})
-        assert 'Column `col1` cannot be imported from external column `import2` (incompatible types; expecting `video`)' in str(exc_info.value)
+        assert 'Column `col1` cannot be imported from external column `import2` (incompatible types; expecting `Video`)' in str(exc_info.value)
 
         # Subtype/supertype relationships
 
-        schema3 = {'img': pxt.ImageType(), 'spec_img': pxt.ImageType(512, 512)}
+        schema3 = {'img': pxt.Image, 'spec_img': pxt.Image[(512, 512)]}
         t3 = pxt.create_table('test_store_3', schema3)
 
         export_img_cols = {'export_img': pxt.ImageType(), 'export_spec_img': pxt.ImageType(512, 512)}
@@ -110,7 +110,7 @@ class TestProject:
 
     @pytest.mark.parametrize('with_reloads', [False, True])
     def test_stored_proxies(self, reset_db, with_reloads: bool) -> None:
-        schema = {'img': pxt.ImageType(), 'other_img': pxt.ImageType()}
+        schema = {'img': pxt.Image, 'other_img': pxt.Image}
         t = pxt.create_table('test_store', schema)
         t.add_column(rot_img=t.img.rotate(180), stored=False)
         t.add_column(rot_other_img=t.other_img.rotate(180), stored=False)

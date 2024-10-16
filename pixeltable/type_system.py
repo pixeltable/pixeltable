@@ -8,15 +8,16 @@ import typing
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple, Union
+from typing import Any, Iterable, Mapping, Optional, Sequence, Union
 
 import av  # type: ignore
 import numpy as np
 import PIL.Image
 import sqlalchemy as sql
+from typing import _GenericAlias  # type: ignore[attr-defined]
+from typing_extensions import _AnnotatedAlias
 
 import pixeltable.exceptions as excs
-from pixeltable.env import Env
 
 
 class ColumnType:
@@ -41,7 +42,7 @@ class ColumnType:
         def supertype(
                 cls, type1: 'ColumnType.Type', type2: 'ColumnType.Type',
                 # we need to pass this in because we can't easily append it as a class member
-                common_supertypes: Dict[Tuple['ColumnType.Type', 'ColumnType.Type'], 'ColumnType.Type']
+                common_supertypes: dict[tuple['ColumnType.Type', 'ColumnType.Type'], 'ColumnType.Type']
         ) -> Optional['ColumnType.Type']:
             if type1 == type2:
                 return type1
@@ -103,16 +104,16 @@ class ColumnType:
             return self.__class__(nullable=nullable)  # type: ignore[call-arg]
 
     @classmethod
-    def serialize_list(cls, type_list: List[ColumnType]) -> str:
+    def serialize_list(cls, type_list: list[ColumnType]) -> str:
         return json.dumps([t.as_dict() for t in type_list])
 
-    def as_dict(self) -> Dict:
+    def as_dict(self) -> dict:
         return {
             '_classname': self.__class__.__name__,
             **self._as_dict(),
         }
 
-    def _as_dict(self) -> Dict:
+    def _as_dict(self) -> dict:
         return {'nullable': self.nullable}
 
     @classmethod
@@ -121,18 +122,18 @@ class ColumnType:
         return cls.from_dict(type_dict)
 
     @classmethod
-    def deserialize_list(cls, type_list_str: str) -> List[ColumnType]:
+    def deserialize_list(cls, type_list_str: str) -> list[ColumnType]:
         type_dict_list = json.loads(type_list_str)
         return [cls.from_dict(type_dict) for type_dict in type_dict_list]
 
     @classmethod
-    def from_dict(cls, type_dict: Dict) -> ColumnType:
+    def from_dict(cls, type_dict: dict) -> ColumnType:
         assert '_classname' in type_dict
         type_class = globals()[type_dict['_classname']]
         return type_class._from_dict(type_dict)
 
     @classmethod
-    def _from_dict(cls, d: Dict) -> ColumnType:
+    def _from_dict(cls, d: dict) -> ColumnType:
         """
         Default implementation: simply invoke c'tor
         """
@@ -164,10 +165,22 @@ class ColumnType:
             return DocumentType()
 
     def __str__(self) -> str:
-        return self._type.name.lower()
+        # Camel-case the type name
+        type_str = self._type.name[0] + self._type.name[1:].lower()
+        return self._with_optional(type_str)
+
+    def _with_optional(self, type_str: str) -> str:
+        """Mark the type as Optional or Required depending on nullability"""
+        if self.nullable:
+            return f'Optional[{type_str}]'
+        else:
+            return type_str
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, ColumnType) and self.matches(other) and self.nullable == other.nullable
+
+    def __hash__(self) -> int:
+        return hash((self._type, self.nullable))
 
     def is_supertype_of(self, other: ColumnType, ignore_nullable: bool = False) -> bool:
         if ignore_nullable:
@@ -253,38 +266,62 @@ class ColumnType:
         return inferred_type
 
     @classmethod
-    def from_python_type(cls, t: type) -> Optional[ColumnType]:
+    def from_python_type(cls, t: Union[type, _GenericAlias], nullable_default: bool = False) -> Optional[ColumnType]:
         if typing.get_origin(t) is typing.Union:
             union_args = typing.get_args(t)
-            if union_args[1] is type(None):
-                # `t` is a type of the form Optional[T] (equivalently, Union[T, None]).
+            if len(union_args) == 2 and type(None) in union_args:
+                # `t` is a type of the form Optional[T] (equivalently, Union[T, None] or Union[None, T]).
                 # We treat it as the underlying type but with nullable=True.
-                underlying = cls.from_python_type(union_args[0])
+                underlying_py_type = union_args[0] if union_args[1] is type(None) else union_args[1]
+                underlying = cls.from_python_type(underlying_py_type)
                 if underlying is not None:
-                    underlying._nullable = True
-                    return underlying
+                    return underlying.copy(nullable=True)
+        elif typing.get_origin(t) is typing.Annotated:
+            annotated_args = typing.get_args(t)
+            origin = annotated_args[0]
+            parameters = annotated_args[1]
+            if isinstance(parameters, ColumnType):
+                return parameters.copy(nullable=nullable_default)
+        elif typing.get_origin(t) is Required:
+            required_args = typing.get_args(t)
+            assert len(required_args) == 1
+            return cls.from_python_type(required_args[0], nullable_default=False)
         else:
             # Discard type parameters to ensure that parameterized types such as `list[T]`
             # are correctly mapped to Pixeltable types.
-            base = typing.get_origin(t)
-            if base is None:
-                # No type parameters; the base type is just `t` itself
-                base = t
-            if base is str:
-                return StringType()
-            if base is int:
-                return IntType()
-            if base is float:
-                return FloatType()
-            if base is bool:
-                return BoolType()
-            if base is datetime.datetime:
-                return TimestampType()
-            if issubclass(base, Sequence) or issubclass(base, Mapping):
-                return JsonType()
-            if issubclass(base, PIL.Image.Image):
-                return ImageType()
+            origin = typing.get_origin(t)
+            if origin is None:
+                # No type parameters; the origin type is just `t` itself
+                origin = t
+            if issubclass(origin, _PxtType):
+                return origin.as_col_type(nullable=nullable_default)
+            if origin is str:
+                return StringType(nullable=nullable_default)
+            if origin is int:
+                return IntType(nullable=nullable_default)
+            if origin is float:
+                return FloatType(nullable=nullable_default)
+            if origin is bool:
+                return BoolType(nullable=nullable_default)
+            if origin is datetime.datetime:
+                return TimestampType(nullable=nullable_default)
+            if origin is PIL.Image.Image:
+                return ImageType(nullable=nullable_default)
+            if issubclass(origin, Sequence) or issubclass(origin, Mapping):
+                return JsonType(nullable=nullable_default)
         return None
+
+    @classmethod
+    def normalize_type(cls, t: Union[ColumnType, type, _AnnotatedAlias], nullable_default: bool = False) -> ColumnType:
+        """
+        Convert any type recognizable by Pixeltable to its corresponding ColumnType.
+        """
+        if isinstance(t, ColumnType):
+            return t
+        col_type = cls.from_python_type(t, nullable_default)
+        if col_type is None:
+            raise excs.Error(f'Unknown type: {t}')
+        return col_type
 
     def validate_literal(self, val: Any) -> None:
         """Raise TypeError if val is not a valid literal for this type"""
@@ -491,7 +528,7 @@ class TimestampType(ColumnType):
 
 class JsonType(ColumnType):
     # TODO: type_spec also needs to be able to express lists
-    def __init__(self, type_spec: Optional[Dict[str, ColumnType]] = None, nullable: bool = False):
+    def __init__(self, type_spec: Optional[dict[str, ColumnType]] = None, nullable: bool = False):
         super().__init__(self.Type.JSON, nullable=nullable)
         self.type_spec = type_spec
 
@@ -526,7 +563,7 @@ class JsonType(ColumnType):
                 type_spec[other_field_name] = field_type
         return JsonType(type_spec, nullable=(self.nullable or other.nullable))
 
-    def _as_dict(self) -> Dict:
+    def _as_dict(self) -> dict:
         result = super()._as_dict()
         if self.type_spec is not None:
             type_spec_dict = {field_name: field_type.serialize() for field_name, field_type in self.type_spec.items()}
@@ -534,7 +571,7 @@ class JsonType(ColumnType):
         return result
 
     @classmethod
-    def _from_dict(cls, d: Dict) -> ColumnType:
+    def _from_dict(cls, d: dict) -> ColumnType:
         type_spec = None
         if 'type_spec' in d:
             type_spec = {
@@ -590,6 +627,9 @@ class ArrayType(ColumnType):
     def matches(self, other: ColumnType) -> bool:
         return isinstance(other, ArrayType) and self.shape == other.shape and self.dtype == other.dtype
 
+    def __hash__(self) -> int:
+        return hash((self._type, self.nullable, self.shape, self.dtype))
+
     def supertype(self, other: ColumnType) -> Optional[ArrayType]:
         if not isinstance(other, ArrayType):
             return None
@@ -601,16 +641,16 @@ class ArrayType(ColumnType):
         shape = [n1 if n1 == n2 else None for n1, n2 in zip(self.shape, other.shape)]
         return ArrayType(tuple(shape), self.make_type(base_type), nullable=(self.nullable or other.nullable))
 
-    def _as_dict(self) -> Dict:
+    def _as_dict(self) -> dict:
         result = super()._as_dict()
         result.update(shape=list(self.shape), dtype=self.dtype.value)
         return result
 
     def __str__(self) -> str:
-        return f'{self._type.name.lower()}({self.shape}, dtype={self.dtype.name})'
+        return self._with_optional(f'Array[{self.shape}, {self.pxt_dtype}]')
 
     @classmethod
-    def _from_dict(cls, d: Dict) -> ColumnType:
+    def _from_dict(cls, d: dict) -> ColumnType:
         assert 'shape' in d
         assert 'dtype' in d
         shape = tuple(d['shape'])
@@ -681,7 +721,7 @@ class ArrayType(ColumnType):
 
 class ImageType(ColumnType):
     def __init__(
-            self, width: Optional[int] = None, height: Optional[int] = None, size: Optional[Tuple[int, int]] = None,
+            self, width: Optional[int] = None, height: Optional[int] = None, size: Optional[tuple[int, int]] = None,
             mode: Optional[str] = None, nullable: bool = False
     ):
         """
@@ -702,22 +742,16 @@ class ImageType(ColumnType):
         return ImageType(self.width, self.height, mode=self.mode, nullable=nullable)
 
     def __str__(self) -> str:
-        if self.width is not None or self.height is not None or self.mode is not None:
+        params = []
+        if self.width is not None or self.height is not None:
+            params.append(f'({self.width}, {self.height})')
+        if self.mode is not None:
+            params.append(repr(self.mode))
+        if len(params) == 0:
             params_str = ''
-            if self.width is not None:
-                params_str = f'width={self.width}'
-            if self.height is not None:
-                if len(params_str) > 0:
-                    params_str += ', '
-                params_str += f'height={self.height}'
-            if self.mode is not None:
-                if len(params_str) > 0:
-                    params_str += ', '
-                params_str += f'mode={self.mode}'
-            params_str = f'({params_str})'
         else:
-            params_str = ''
-        return f'{self._type.name.lower()}{params_str}'
+            params_str = f'[{", ".join(params)}]'
+        return self._with_optional(f'Image{params_str}')
 
     def matches(self, other: ColumnType) -> bool:
         return (
@@ -726,6 +760,9 @@ class ImageType(ColumnType):
             and self.height == other.height
             and self.mode == other.mode
         )
+
+    def __hash__(self) -> int:
+        return hash((self._type, self.nullable, self.size, self.mode))
 
     def supertype(self, other: ColumnType) -> Optional[ImageType]:
         if not isinstance(other, ImageType):
@@ -736,18 +773,18 @@ class ImageType(ColumnType):
         return ImageType(width=width, height=height, mode=mode, nullable=(self.nullable or other.nullable))
 
     @property
-    def size(self) -> Optional[Tuple[int, int]]:
+    def size(self) -> Optional[tuple[int, int]]:
         if self.width is None or self.height is None:
             return None
         return (self.width, self.height)
 
-    def _as_dict(self) -> Dict:
+    def _as_dict(self) -> dict:
         result = super()._as_dict()
         result.update(width=self.width, height=self.height, mode=self.mode)
         return result
 
     @classmethod
-    def _from_dict(cls, d: Dict) -> ColumnType:
+    def _from_dict(cls, d: dict) -> ColumnType:
         assert 'width' in d
         assert 'height' in d
         assert 'mode' in d
@@ -853,6 +890,9 @@ class DocumentType(ColumnType):
     def matches(self, other: ColumnType) -> bool:
         return isinstance(other, DocumentType) and self._doc_formats == other._doc_formats
 
+    def __hash__(self) -> int:
+        return hash((self._type, self.nullable, self._doc_formats))
+
     def to_sa_type(self) -> sql.types.TypeEngine:
         # stored as a file path
         return sql.String()
@@ -866,3 +906,141 @@ class DocumentType(ColumnType):
         dh = get_document_handle(val)
         if dh is None:
             raise excs.Error(f'Not a recognized document format: {val}')
+
+
+T = typing.TypeVar('T')
+
+
+class Required(typing.Generic[T]):
+    """
+    Marker class to indicate that a column is non-nullable in a schema definition. This has no meaning as a type hint,
+    and is intended only for schema declarations.
+    """
+    pass
+
+
+String = typing.Annotated[str, StringType(nullable=False)]
+Int = typing.Annotated[int, IntType(nullable=False)]
+Float = typing.Annotated[float, FloatType(nullable=False)]
+Bool = typing.Annotated[bool, BoolType(nullable=False)]
+Timestamp = typing.Annotated[datetime.datetime, TimestampType(nullable=False)]
+
+
+class _PxtType:
+    """
+    Base class for the Pixeltable type-hint family. Subclasses of this class are meant to be used as type hints, both
+    in schema definitions and in UDF signatures. Whereas `ColumnType`s are instantiable and carry semantic information
+    about the Pixeltable type system, `_PxtType` subclasses are purely for convenience: they are not instantiable and
+    must be resolved to a `ColumnType` (by calling `ColumnType.from_python_type()`) in order to do anything meaningful
+    with them.
+
+    `_PxtType` subclasses can be specialized (as type hints) with type parameters; for example:
+    `Image[(300, 300), 'RGB']`. The specialized forms resolve to `typing.Annotated` instances whose annotation is a
+    `ColumnType`.
+    """
+    def __init__(self):
+        raise TypeError(f'Type `{type(self)}` cannot be instantiated.')
+
+    @classmethod
+    def as_col_type(cls, nullable: bool) -> ColumnType:
+        raise NotImplementedError()
+
+
+class Json(_PxtType):
+    @classmethod
+    def as_col_type(cls, nullable: bool) -> ColumnType:
+        return JsonType(nullable=nullable)
+
+
+class Array(np.ndarray, _PxtType):
+    def __class_getitem__(cls, item: Any) -> _AnnotatedAlias:
+        """
+        `item` (the type subscript) must be a tuple with exactly two elements (in any order):
+        - A tuple of `Optional[int]`s, specifying the shape of the array
+        - A type, specifying the dtype of the array
+        Example: Array[(3, None, 2), float]
+        """
+        params = item if isinstance(item, tuple) else (item,)
+        shape: Optional[tuple] = None
+        dtype: Optional[ColumnType] = None
+        for param in params:
+            if isinstance(param, tuple):
+                if not all(n is None or (isinstance(n, int) and n >= 1) for n in param):
+                    raise TypeError(f'Invalid Array type parameter: {param}')
+                if shape is not None:
+                    raise TypeError(f'Duplicate Array type parameter: {param}')
+                shape = param
+            elif isinstance(param, type) or isinstance(param, _AnnotatedAlias):
+                if dtype is not None:
+                    raise TypeError(f'Duplicate Array type parameter: {param}')
+                dtype = ColumnType.from_python_type(param)
+            else:
+                raise TypeError(f'Invalid Array type parameter: {param}')
+        if shape is None:
+            raise TypeError('Array type is missing parameter: shape')
+        if dtype is None:
+            raise TypeError('Array type is missing parameter: dtype')
+        return typing.Annotated[np.ndarray, ArrayType(shape=shape, dtype=dtype, nullable=False)]
+
+    @classmethod
+    def as_col_type(cls, nullable: bool) -> ColumnType:
+        raise TypeError('Array type cannot be used without specifying shape and dtype')
+
+
+class Image(PIL.Image.Image, _PxtType):
+    def __class_getitem__(cls, item: Any) -> _AnnotatedAlias:
+        """
+        `item` (the type subscript) must be one of the following, or a tuple containing either or both in any order:
+        - A 2-tuple of `int`s, specifying the size of the image
+        - A string, specifying the mode of the image
+        Example: Image[(300, 300), 'RGB']
+        """
+        if isinstance(item, tuple) and all(n is None or isinstance(n, int) for n in item):
+            # It's a tuple of the form (width, height)
+            params = (item,)
+        elif isinstance(item, tuple):
+            # It's a compound tuple (multiple parameters)
+            params = item
+        else:
+            # Not a tuple (single arg)
+            params = (item,)
+        size: Optional[tuple] = None
+        mode: Optional[str] = None
+        for param in params:
+            if isinstance(param, tuple):
+                if len(param) != 2 or not isinstance(param[0], (int, type(None))) or not isinstance(param[1], (int, type(None))):
+                    raise TypeError(f'Invalid Image type parameter: {param}')
+                if size is not None:
+                    raise TypeError(f'Duplicate Image type parameter: {param}')
+                size = param
+            elif isinstance(param, str):
+                if param not in PIL.Image.MODES:
+                    raise TypeError(f'Invalid Image type parameter: {param!r}')
+                if mode is not None:
+                    raise TypeError(f'Duplicate Image type parameter: {param!r}')
+                mode = param
+            else:
+                raise TypeError(f'Invalid Image type parameter: {param}')
+        return typing.Annotated[PIL.Image.Image, ImageType(size=size, mode=mode, nullable=False)]
+
+    @classmethod
+    def as_col_type(cls, nullable: bool) -> ColumnType:
+        return ImageType(nullable=nullable)
+
+
+class Video(str, _PxtType):
+    @classmethod
+    def as_col_type(cls, nullable: bool) -> ColumnType:
+        return VideoType(nullable=nullable)
+
+
+class Audio(str, _PxtType):
+    @classmethod
+    def as_col_type(cls, nullable: bool) -> ColumnType:
+        return AudioType(nullable=nullable)
+
+
+class Document(str, _PxtType):
+    @classmethod
+    def as_col_type(cls, nullable: bool) -> ColumnType:
+        return DocumentType(nullable=nullable)
