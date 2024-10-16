@@ -7,18 +7,19 @@ import sys
 import urllib.parse
 import urllib.request
 import warnings
-from typing import Optional, Any, Union, Iterator
+from typing import Any, Iterator, Literal, Optional, Union
 
 import sqlalchemy as sql
-from tqdm import tqdm, TqdmWarning
+from tqdm import TqdmWarning, tqdm
 
 import pixeltable.catalog as catalog
 import pixeltable.env as env
+import pixeltable.exceptions as excs
 from pixeltable import exprs
 from pixeltable.exec import ExecNode
 from pixeltable.metadata import schema
 from pixeltable.utils.media_store import MediaStore
-from pixeltable.utils.sql import log_stmt, log_explain
+from pixeltable.utils.sql import log_explain, log_stmt
 
 _logger = logging.getLogger('pixeltable')
 
@@ -213,14 +214,20 @@ class StoreBase:
             conn.execute(sql.text(stmt))
 
     def load_column(
-            self, col: catalog.Column, exec_plan: ExecNode, value_expr_slot_idx: int, conn: sql.engine.Connection
+        self,
+        col: catalog.Column,
+        exec_plan: ExecNode,
+        value_expr_slot_idx: int,
+        conn: sql.engine.Connection,
+        on_error: Literal['abort', 'ignore']
     ) -> int:
         """Update store column of a computed column with values produced by an execution plan
 
         Returns:
             number of rows with exceptions
         Raises:
-            sql.exc.DBAPIError if there was an error during SQL execution
+            sql.exc.DBAPIError if there was a SQL error during execution
+            excs.Error if on_error='abort' and there was an exception during row evaluation
         """
         num_excs = 0
         num_rows = 0
@@ -254,6 +261,10 @@ class StoreBase:
                         if result_row.has_exc(value_expr_slot_idx):
                             num_excs += 1
                             value_exc = result_row.get_exc(value_expr_slot_idx)
+                            if on_error == 'abort':
+                                raise excs.Error(
+                                    f'Error while evaluating computed column `{col.name}`:\n{value_exc}'
+                                ) from value_exc
                             # we store a NULL value and record the exception/exc type
                             error_type = type(value_exc).__name__
                             error_msg = str(value_exc)
