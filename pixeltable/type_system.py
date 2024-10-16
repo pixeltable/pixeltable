@@ -912,6 +912,10 @@ T = typing.TypeVar('T')
 
 
 class Required(typing.Generic[T]):
+    """
+    Marker class to indicate that a column is non-nullable in a schema definition. This has no meaning as a type hint,
+    and is intended only for schema declarations.
+    """
     pass
 
 

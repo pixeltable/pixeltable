@@ -44,7 +44,7 @@ class TestTypes:
 
     def test_from_python_type(self) -> None:
         # Test cases: map of python_type to expected (pxt_type, str(pxt_type))
-        test_cases: dict[type, ColumnType] = {
+        test_cases: dict[type, tuple[ColumnType, str]] = {
             # Builtin and standard types
             str: (StringType(nullable=False), 'String'),
             int: (IntType(nullable=False), 'Int'),
