@@ -10,6 +10,9 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm.decl_api import DeclarativeMeta
 
+# Base has to be marked explicitly as a type, in order to be used elsewhere as a type hint. But in addition to being
+# a type, it's also a `DeclarativeMeta`. The following pattern enables us to expose both `Base` and `Base.metadata`
+# outside of the module in a typesafe way.
 Base: type = declarative_base()
 assert isinstance(Base, DeclarativeMeta)
 base_metadata = Base.metadata
