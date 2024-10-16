@@ -294,6 +294,10 @@ class FunctionCall(Expr):
     def get_window_sort_exprs(self) -> tuple[list[Expr], list[Expr]]:
         return self.group_by, self.order_by
 
+    def get_window_ordering(self) -> list[tuple[Expr, bool]]:
+        # ordering is implicitly ascending
+        return [(e, None) for e in self.group_by] + [(e, True) for e in self.order_by]
+
     @property
     def is_agg_fn_call(self) -> bool:
         return isinstance(self.fn, func.AggregateFunction)
@@ -303,6 +307,10 @@ class FunctionCall(Expr):
         return self.order_by
 
     def sql_expr(self, sql_elements: SqlElementCache) -> Optional[sql.ColumnElement]:
+        # we currently can't translate aggregate functions with grouping and/or ordering to SQL
+        if self.has_group_by() or len(self.order_by) > 0:
+            return None
+
         # try to construct args and kwargs to call self.fn._to_sql()
         kwargs: dict[str, sql.ColumnElement] = {}
         for param_name, (component_idx, arg) in self.kwargs.items():
@@ -374,6 +382,18 @@ class FunctionCall(Expr):
         return args, kwargs
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
+        if isinstance(self.fn, func.ExprTemplateFunction):
+            # we need to evaluate the template
+            # TODO: can we get rid of this extra copy?
+            fn_expr = self.components[self.fn_expr_idx]
+            data_row[self.slot_idx] = data_row[fn_expr.slot_idx]
+            return
+        elif self.is_agg_fn_call and not self.is_window_fn_call:
+            if self.aggregator is None:
+                pass
+            data_row[self.slot_idx] = self.aggregator.value()
+            return
+
         args, kwargs = self._make_args(data_row)
         signature = self.fn.signature
         if signature.parameters is not None:
@@ -389,12 +409,7 @@ class FunctionCall(Expr):
                     data_row[self.slot_idx] = None
                     return
 
-        if isinstance(self.fn, func.ExprTemplateFunction):
-            # we need to evaluate the template
-            # TODO: can we get rid of this extra copy?
-            fn_expr = self.components[self.fn_expr_idx]
-            data_row[self.slot_idx] = data_row[fn_expr.slot_idx]
-        elif isinstance(self.fn, func.CallableFunction) and not self.fn.is_batched:
+        if isinstance(self.fn, func.CallableFunction) and not self.fn.is_batched:
             # optimization: avoid additional level of indirection we'd get from calling Function.exec()
             data_row[self.slot_idx] = self.fn.py_fn(*args, **kwargs)
         elif self.is_window_fn_call:
@@ -409,8 +424,6 @@ class FunctionCall(Expr):
             elif self.aggregator is None:
                 self.aggregator = self.fn.agg_cls(**self.agg_init_args)
             self.aggregator.update(*args)
-            data_row[self.slot_idx] = self.aggregator.value()
-        elif self.is_agg_fn_call:
             data_row[self.slot_idx] = self.aggregator.value()
         else:
             data_row[self.slot_idx] = self.fn.exec(*args, **kwargs)
