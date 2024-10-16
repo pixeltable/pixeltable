@@ -1,4 +1,4 @@
-from .catalog import Column, Table, InsertableTable, View
+from .catalog import Column, Table, InsertableTable, View, UpdateStatus
 from .dataframe import DataFrame
 from .exceptions import Error
 from .exprs import RELATIVE_PATH_ROOT
@@ -19,7 +19,6 @@ from .type_system import (
     AudioType,
     DocumentType,
 )
-from .utils.help import help
 
 from . import ext, functions, io, iterators
 from .__version__ import __version__, __version_tuple__

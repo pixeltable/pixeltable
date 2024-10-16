@@ -33,29 +33,40 @@ class DataRow:
     - ImageType: PIL.Image.Image
     - VideoType: local path if available, otherwise url
     """
+
+    vals: list[Any]
+    has_val: list[bool]
+    excs: list[Optional[Exception]]
+
+    # control structures that are shared across all DataRows in a batch
+    img_slot_idxs: list[int]
+    media_slot_idxs: list[int]
+    array_slot_idxs: list[int]
+
+    # the primary key of a store row is a sequence of ints (the number is different for table vs view)
+    pk: Optional[tuple[int, ...]]
+
+    # file_urls:
+    # - stored url of file for media in vals[i]
+    # - None if vals[i] is not media type
+    # - not None if file_paths[i] is not None
+    file_urls: list[Optional[str]]
+
+    # file_paths:
+    # - local path of media file in vals[i]; points to the file cache if file_urls[i] is remote
+    # - None if vals[i] is not a media type or if there is no local file yet for file_urls[i]
+    file_paths: list[Optional[str]]
+
     def __init__(self, size: int, img_slot_idxs: List[int], media_slot_idxs: List[int], array_slot_idxs: List[int]):
-        self.vals: List[Any] = [None] * size  # either cell values or exceptions
+        self.vals = [None] * size
         self.has_val = [False] * size
-        self.excs: List[Optional[Exception]] = [None] * size
-
-        # control structures that are shared across all DataRows in a batch
+        self.excs = [None] * size
         self.img_slot_idxs = img_slot_idxs
-        self.media_slot_idxs = media_slot_idxs  # all media types aside from image
+        self.media_slot_idxs = media_slot_idxs
         self.array_slot_idxs = array_slot_idxs
-
-        # the primary key of a store row is a sequence of ints (the number is different for table vs view)
-        self.pk: Optional[Tuple[int, ...]] = None
-
-        # file_urls:
-        # - stored url of file for media in vals[i]
-        # - None if vals[i] is not media type
-        # - not None if file_paths[i] is not None
-        self.file_urls: List[Optional[str]] = [None] * size
-
-        # file_paths:
-        # - local path of media file in vals[i]; points to the file cache if file_urls[i] is remote
-        # - None if vals[i] is not a media type or if there is no local file yet for file_urls[i]
-        self.file_paths: List[Optional[str]] = [None] * size
+        self.pk = None
+        self.file_urls = [None] * size
+        self.file_paths = [None] * size
 
     def clear(self) -> None:
         size = len(self.vals)

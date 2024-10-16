@@ -149,18 +149,18 @@ class Dumper:
         pxt.create_dir('views')
 
         # simple view
-        v = pxt.create_view('views.view', t, filter=(t.c2 < 50))
+        v = pxt.create_view('views.view', t.where(t.c2 < 50))
         self.__add_expr_columns(v, 'view')
 
         # snapshot
-        _ = pxt.create_view('views.snapshot', t, filter=(t.c2 >= 75), is_snapshot=True)
+        _ = pxt.create_view('views.snapshot', t.where(t.c2 >= 75), is_snapshot=True)
 
         # view of views
-        vv = pxt.create_view('views.view_of_views', v, filter=(t.c2 >= 25))
+        vv = pxt.create_view('views.view_of_views', v.where(t.c2 >= 25))
         self.__add_expr_columns(vv, 'view_of_views')
 
         # empty view
-        e = pxt.create_view('views.empty_view', t, filter=t.c2 == 4171780)
+        e = pxt.create_view('views.empty_view', t.where(t.c2 == 4171780))
         assert e.count() == 0
         self.__add_expr_columns(e, 'empty_view', include_expensive_functions=True)
 
@@ -278,13 +278,13 @@ class Dumper:
             # this breaks; TODO: why?
             #return t.where(t.c2 < i)
             return t.where(t.c2 < i).select(t.c1, t.c2)
-        add_column('query_output', t.q1(t.c2))
+        add_column('query_output', t.queries.q1(t.c2))
 
         @t.query
         def q2(s: str):
             sim = t[f'{col_prefix}_function_call'].similarity(s)
             return t.order_by(sim, asc=False).select(t[f'{col_prefix}_function_call']).limit(5)
-        add_column('sim_output', t.q2(t.c1))
+        add_column('sim_output', t.queries.q2(t.c1))
 
 
 @pxt.udf(_force_stored=True)

@@ -62,13 +62,13 @@ class TestFunction:
     def test_update(self, reset_db, test_tbl: catalog.Table) -> None:
         t = test_tbl
         pxt.create_function('test_fn', self.func)
-        res1 = t[self.func(t.c2)].show(0).to_pandas()
+        res1 = t[self.func(t.c2)].collect().to_pandas()
 
         # load function from db and make sure it computes the same thing as before
         FunctionRegistry.get().clear_cache()
         reload_catalog()
         fn = pxt.get_function('test_fn')
-        res2 = t[fn(t.c2)].show(0).to_pandas()
+        res2 = t[fn(t.c2)].collect().to_pandas()
         assert res1.col_0.equals(res2.col_0)
         fn.py_fn = lambda x: x + 2
         pxt.update_function('test_fn', fn)
@@ -78,7 +78,7 @@ class TestFunction:
         reload_catalog()
         fn = pxt.get_function('test_fn')
         assert self.func.md.fqn == fn.md.fqn  # fqn doesn't change
-        res3 = t[fn(t.c2)].show(0).to_pandas()
+        res3 = t[fn(t.c2)].collect().to_pandas()
         assert (res2.col_0 + 1).equals(res3.col_0)
 
         # signature changes
@@ -174,49 +174,49 @@ class TestFunction:
     def test_call(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
 
-        r0 = t[t.c2, t.c3].show(0).to_pandas()
+        r0 = t[t.c2, t.c3].collect().to_pandas()
         # positional params with default args
-        r1 = t[self.f1(t.c2, t.c3)].show(0).to_pandas()['col_0']
+        r1 = t[self.f1(t.c2, t.c3)].collect().to_pandas()['col_0']
         assert np.all(r1 == r0.c2 + r0.c3 + 1.0)
         # kw args only
-        r2 = t[self.f1(c=0.0, b=t.c3, a=t.c2)].show(0).to_pandas()['col_0']
+        r2 = t[self.f1(c=0.0, b=t.c3, a=t.c2)].collect().to_pandas()['col_0']
         assert np.all(r1 == r2)
         # overriding default args
-        r3 = t[self.f1(d=0.0, c=1.0, b=t.c3, a=t.c2)].show(0).to_pandas()['col_0']
+        r3 = t[self.f1(d=0.0, c=1.0, b=t.c3, a=t.c2)].collect().to_pandas()['col_0']
         assert np.all(r2 == r3)
         # overriding default with positional arg
-        r4 = t[self.f1(t.c2, t.c3, 0.0)].show(0).to_pandas()['col_0']
+        r4 = t[self.f1(t.c2, t.c3, 0.0)].collect().to_pandas()['col_0']
         assert np.all(r3 == r4)
         # overriding default with positional arg and kw arg
-        r5 = t[self.f1(t.c2, t.c3, 1.0, d=0.0)].show(0).to_pandas()['col_0']
+        r5 = t[self.f1(t.c2, t.c3, 1.0, d=0.0)].collect().to_pandas()['col_0']
         assert np.all(r4 == r5)
         # d is kwarg
-        r6 = t[self.f1(t.c2, d=1.0, b=t.c3)].show(0).to_pandas()['col_0']
+        r6 = t[self.f1(t.c2, d=1.0, b=t.c3)].collect().to_pandas()['col_0']
         assert np.all(r5 == r6)
         # d is Expr kwarg
-        r6 = t[self.f1(1, d=t.c3, b=t.c3)].show(0).to_pandas()['col_0']
+        r6 = t[self.f1(1, d=t.c3, b=t.c3)].collect().to_pandas()['col_0']
         assert np.all(r5 == r6)
 
         # test handling of Nones
-        r0 = t[self.f2(1, t.c3)].show(0).to_pandas()['col_0']
-        r1 = t[self.f2(None, t.c3, 2.0)].show(0).to_pandas()['col_0']
+        r0 = t[self.f2(1, t.c3)].collect().to_pandas()['col_0']
+        r1 = t[self.f2(None, t.c3, 2.0)].collect().to_pandas()['col_0']
         assert np.all(r0 == r1)
-        r2 = t[self.f2(2, t.c3, None)].show(0).to_pandas()['col_0']
+        r2 = t[self.f2(2, t.c3, None)].collect().to_pandas()['col_0']
         assert np.all(r1 == r2)
         # kwarg with None
-        r3 = t[self.f2(c=None, a=t.c2)].show(0).to_pandas()['col_0']
+        r3 = t[self.f2(c=None, a=t.c2)].collect().to_pandas()['col_0']
         # kwarg with Expr
-        r4 = t[self.f2(c=t.c3, a=None)].show(0).to_pandas()['col_0']
+        r4 = t[self.f2(c=t.c3, a=None)].collect().to_pandas()['col_0']
         assert np.all(r3 == r4)
 
         with pytest.raises(TypeError) as exc_info:
-            _ = t[self.f1(t.c2, c=0.0)].show(0)
+            _ = t[self.f1(t.c2, c=0.0)].collect()
         assert "'b'" in str(exc_info.value)
         with pytest.raises(TypeError) as exc_info:
-            _ = t[self.f1(t.c2)].show(0)
+            _ = t[self.f1(t.c2)].collect()
         assert "'b'" in str(exc_info.value)
         with pytest.raises(TypeError) as exc_info:
-            _ = t[self.f1(c=1.0, a=t.c2)].show(0)
+            _ = t[self.f1(c=1.0, a=t.c2)].collect()
         assert "'b'" in str(exc_info.value)
 
         # bad default value
@@ -299,8 +299,8 @@ class TestFunction:
         def lt_x(x: int) -> int:
             return t.where(t.c2 < x).select(t.c2, t.c1)
 
-        res1 = t.select(out=t.lt_x(t.c1)).order_by(t.c2).collect()
-        validate_update_status(t.add_column(query1=t.lt_x(t.c1)))
+        res1 = t.select(out=t.queries.lt_x(t.c1)).order_by(t.c2).collect()
+        validate_update_status(t.add_column(query1=t.queries.lt_x(t.c1)))
         _ = t.select(t.query1).collect()
 
         reload_catalog()
@@ -345,9 +345,9 @@ class TestFunction:
             """ simply returns 2 passages from the table"""
             return chunks.select(chunks.text).limit(2)
 
-        res = queries.select(queries.i, out=chunks.retrieval(queries.query_text, queries.i)).collect()
+        res = queries.select(queries.i, out=chunks.queries.retrieval(queries.query_text, queries.i)).collect()
         assert all(len(out) == 2 for out in res['out'])
-        validate_update_status(queries.add_column(chunks=chunks.retrieval(queries.query_text, queries.i)))
+        validate_update_status(queries.add_column(chunks=chunks.queries.retrieval(queries.query_text, queries.i)))
         res = queries.select(queries.i, queries.chunks).collect()
         assert all(len(c) == 2 for c in res['chunks'])
 
@@ -390,6 +390,11 @@ class TestFunction:
         with pytest.raises(excs.Error) as exc_info:
             t.add_column(c=pxt.IntType(nullable=True))
         assert 'conflicts with a registered query' in str(exc_info.value).lower()
+
+        # unknown query
+        with pytest.raises(AttributeError) as exc_info:
+            _ = t.queries.not_a_query
+        assert "table 'test' has no query with that name: 'not_a_query'" in str(exc_info.value).lower()
 
     @pxt.expr_udf
     def add1(x: int) -> int:
