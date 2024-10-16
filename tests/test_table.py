@@ -490,14 +490,14 @@ class TestTable:
         assert FileCache.get().avg_file_size() > 0
 
         # query: we read from the cache
-        _ = tbl.show(0)
+        _ = tbl.collect()
         cache_stats = FileCache.get().stats()
         assert cache_stats.num_requests == 2 * len(urls)
         assert cache_stats.num_hits == len(urls)
 
         # after clearing the cache, we need to re-fetch the files
         FileCache.get().clear()
-        _ = tbl.show(0)
+        _ = tbl.collect()
         cache_stats = FileCache.get().stats()
         assert cache_stats.num_requests == len(urls)
         assert cache_stats.num_hits == 0
@@ -506,7 +506,7 @@ class TestTable:
         reload_catalog()
         FileCache.init()
         t = pxt.get_table('test')
-        _ = t.show(0)
+        _ = t.collect()
         cache_stats = FileCache.get().stats()
         assert cache_stats.num_requests == len(urls)
         assert cache_stats.num_hits == len(urls)
@@ -829,9 +829,9 @@ class TestTable:
         t.add_column(computed3=t.c3 + 3)
 
         # cascade=False
-        computed1 = t.order_by(t.computed1).show(0).to_pandas()['computed1']
-        computed2 = t.order_by(t.computed2).show(0).to_pandas()['computed2']
-        computed3 = t.order_by(t.computed3).show(0).to_pandas()['computed3']
+        computed1 = t.order_by(t.computed1).collect().to_pandas()['computed1']
+        computed2 = t.order_by(t.computed2).collect().to_pandas()['computed2']
+        computed3 = t.order_by(t.computed3).collect().to_pandas()['computed3']
         assert t.where(t.c3 < 10.0).count() == 10
         assert t.where(t.c3 == 10.0).count() == 1
         # update to a value that also satisfies the where clause
@@ -841,9 +841,9 @@ class TestTable:
         assert t.where(t.c3 < 10.0).count() == 10
         assert t.where(t.c3 == 0.0).count() == 10
         # computed cols are not updated
-        assert np.all(t.order_by(t.computed1).show(0).to_pandas()['computed1'] == computed1)
-        assert np.all(t.order_by(t.computed2).show(0).to_pandas()['computed2'] == computed2)
-        assert np.all(t.order_by(t.computed3).show(0).to_pandas()['computed3'] == computed3)
+        assert np.all(t.order_by(t.computed1).collect().to_pandas()['computed1'] == computed1)
+        assert np.all(t.order_by(t.computed2).collect().to_pandas()['computed2'] == computed2)
+        assert np.all(t.order_by(t.computed3).collect().to_pandas()['computed3'] == computed3)
 
         # revert, then verify that we're back to where we started
         reload_catalog()
@@ -860,9 +860,9 @@ class TestTable:
         )
         assert t.where(t.c3 < 10.0).count() == 10
         assert t.where(t.c3 == 0.0).count() == 10
-        assert np.all(t.order_by(t.computed1).show(0).to_pandas()['computed1'][:10] == pd.Series([1.0] * 10))
-        assert np.all(t.order_by(t.computed2).show(0).to_pandas()['computed2'][:10] == pd.Series([2.0] * 10))
-        assert np.all(t.order_by(t.computed3).show(0).to_pandas()['computed3'][:10] == pd.Series([3.0] * 10))
+        assert np.all(t.order_by(t.computed1).collect().to_pandas()['computed1'][:10] == pd.Series([1.0] * 10))
+        assert np.all(t.order_by(t.computed2).collect().to_pandas()['computed2'][:10] == pd.Series([2.0] * 10))
+        assert np.all(t.order_by(t.computed3).collect().to_pandas()['computed3'][:10] == pd.Series([3.0] * 10))
 
         # bad update spec
         with pytest.raises(excs.Error) as excinfo:
@@ -914,9 +914,9 @@ class TestTable:
         t.update({'c10': t.c3})
         # computed column that depends on two columns: exercise duplicate elimination during query construction
         t.add_column(d2=t.c3 - t.c10)
-        r1 = t.where(t.c2 < 5).select(t.c3 + 1.0, t.c10 - 1.0, t.c3, 2.0).order_by(t.c2).show(0)
+        r1 = t.where(t.c2 < 5).select(t.c3 + 1.0, t.c10 - 1.0, t.c3, 2.0).order_by(t.c2).collect()
         t.update({'c4': True, 'c3': t.c3 + 1.0, 'c10': t.c10 - 1.0}, where=t.c2 < 5, cascade=True)
-        r2 = t.where(t.c2 < 5).select(t.c3, t.c10, t.d1, t.d2).order_by(t.c2).show(0)
+        r2 = t.where(t.c2 < 5).select(t.c3, t.c10, t.d1, t.d2).order_by(t.c2).collect()
         assert_resultset_eq(r1, r2)
 
     def test_delete(self, test_tbl: pxt.Table, small_img_tbl) -> None:
@@ -1004,8 +1004,8 @@ class TestTable:
         # make sure we can still insert data and that computed cols are still set correctly
         status = t.insert(rows)
         assert status.num_excs == 0
-        res = t.show(0)
-        tbl_df = t.show(0).to_pandas()
+        res = t.collect()
+        tbl_df = t.collect().to_pandas()
 
         # can't drop c4: c5 depends on it
         with pytest.raises(excs.Error):
@@ -1090,8 +1090,8 @@ class TestTable:
         # make sure we can still insert data and that computed cols are still set correctly
         t2.insert(rows)
         assert MediaStore.count(t2._id) == t2.count() * stores_img_col
-        res = t2.show(0)
-        tbl_df = t2.show(0).to_pandas()
+        res = t2.collect()
+        tbl_df = t2.collect().to_pandas()
 
         # revert also removes computed images
         t2.revert()
@@ -1113,7 +1113,7 @@ class TestTable:
         # c3 is now stored
         t.add_column(c3=t.img.rotate(90))
         self._test_computed_img_cols(t, stores_img_col=True)
-        _ = t[t.c3.errortype].show(0)
+        _ = t[t.c3.errortype].collect()
 
         # computed img col with exceptions
         t = pxt.create_table('test3', schema)
@@ -1121,7 +1121,7 @@ class TestTable:
         rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
         rows = [{'img': r['img']} for r in rows[:20]]
         t.insert(rows, fail_on_exception=False)
-        _ = t[t.c3.errortype].show(0)
+        _ = t[t.c3.errortype].collect()
 
     def test_computed_window_fn(self, reset_db, test_tbl: catalog.Table) -> None:
         t = test_tbl
@@ -1134,7 +1134,7 @@ class TestTable:
         new_t.add_column(c6=pxtf.sum(new_t.c5, group_by=new_t.c4, order_by=new_t.c3))
         rows = list(t.select(t.c2, t.c4, t.c3).collect())
         new_t.insert(rows)
-        _ = new_t.show(0)
+        _ = new_t.collect()
 
     def test_revert(self, reset_db) -> None:
         t1 = make_tbl('test1', ['c1', 'c2'])
