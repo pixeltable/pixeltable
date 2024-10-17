@@ -1,7 +1,7 @@
 from typing import Callable, Optional
 
 from mypy.plugin import AnalyzeTypeContext, Plugin
-from mypy.types import Type
+from mypy.types import AnyType, Type, TypeOfAny
 
 import pixeltable as pxt
 
@@ -29,4 +29,6 @@ def plugin(version: str):
     return PxtPlugin
 
 def pxt_hook(ctx: AnalyzeTypeContext, subst_name: str) -> Type:
+    if subst_name == 'typing.Any':
+        return AnyType(TypeOfAny.special_form)
     return ctx.api.named_type(subst_name)
