@@ -556,7 +556,7 @@ class TestExprs:
             assert isinstance(row['compound_as_float'], float)
             assert row['c2'] + 1 == row['compound_as_float']
         # Type conversion error
-        status = t.add_column(c2_as_string=t.c2.astype(str))
+        status = t.add_column(c2_as_string=t.c2.astype(str), on_error='ignore')
         assert status.num_excs == t.count()
 
     def test_astype_str_to_img(self, reset_db) -> None:

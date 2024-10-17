@@ -1100,10 +1100,23 @@ class TestTable:
         status = t.insert(rows)
         assert status.num_rows == 100
         assert status.num_excs == 0
-        status = t.add_column(add1=self.f2(self.f1(t.c2)))
+
+        with pytest.raises(excs.Error) as exc:
+            t.add_column(add1=self.f2(self.f1(t.c2)))
+        assert 'division by zero' in str(exc.value)
+
+        # on_error='abort' is the default
+        with pytest.raises(excs.Error) as exc:
+            t.add_column(add1=self.f2(self.f1(t.c2)), on_error='abort')
+        assert 'division by zero' in str(exc.value)
+
+        # on_error='ignore' stores the exception in errortype/errormsg
+        status = t.add_column(add1=self.f2(self.f1(t.c2)), on_error='ignore')
         assert status.num_excs == 10
         assert 'test_add_column.add1' in status.cols_with_excs
         assert t.where(t.add1.errortype != None).count() == 10
+        msgs = t.select(msg=t.add1.errormsg).collect()['msg']
+        assert sum('division by zero' in msg for msg in msgs if msg is not None) == 10
 
     def _test_computed_img_cols(self, t: catalog.Table, stores_img_col: bool) -> None:
         rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
@@ -1388,13 +1401,13 @@ class TestTable:
             t.add_column(add2=(t.c2 - 10) / (t.c3 - 10))
 
         # with exception in Python for c6.f2 == 10
-        status = t.add_column(add2=(t.c6.f2 - 10) / (t.c6.f2 - 10))
+        status = t.add_column(add2=(t.c6.f2 - 10) / (t.c6.f2 - 10), on_error='ignore')
         assert status.num_excs == 1
         result = t.where(t.add2.errortype != None).select(t.c6.f2, t.add2, t.add2.errortype, t.add2.errormsg).show()
         assert len(result) == 1
 
         # test case: exceptions in dependencies prevent execution of dependent exprs
-        status = t.add_column(add3=self.f2(self.f1(t.c2)))
+        status = t.add_column(add3=self.f2(self.f1(t.c2)), on_error='ignore')
         assert status.num_excs == 10
         result = t.where(t.add3.errortype != None).select(t.c2, t.add3, t.add3.errortype, t.add3.errormsg).show()
         assert len(result) == 10
