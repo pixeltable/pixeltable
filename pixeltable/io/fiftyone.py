@@ -1,6 +1,6 @@
 import os
 from os import PathLike
-from typing import Iterator, Optional, Union
+from typing import Any, Iterator, Optional, Union
 
 import fiftyone as fo
 import fiftyone.utils.data as foud
@@ -11,21 +11,20 @@ import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable import exprs
 from pixeltable.env import Env
-from pixeltable.exprs.data_row import DataRow
 
 
 class PxtDatasetImporter(foud.LabeledImageDatasetImporter):
     __image_format: str
-    __image_expr: exprs.Expr
-    __image_localpath_expr: Optional[exprs.Expr]
     __labels: dict[str, tuple[exprs.Expr, type]]  # label_name -> (expr, label_cls)
+    __image_idx: int
+    __localpath_idx: Optional[int]
     __count: int
-    __iter: Iterator[DataRow]
+    __iter: Iterator[list]
 
     def __init__(
         self,
         tbl: pxt.Table,
-        images: exprs.Expr,
+        image: exprs.Expr,
         image_format: str,
         classifications: Union[exprs.Expr, list[exprs.Expr], dict[str, exprs.Expr], None] = None,
         detections: Union[exprs.Expr, list[exprs.Expr], dict[str, exprs.Expr], None] = None,
@@ -42,7 +41,6 @@ class PxtDatasetImporter(foud.LabeledImageDatasetImporter):
         )
 
         self.__image_format = image_format
-        self.__image_expr = images
 
         label_categories = [
             (classifications, fo.Classifications, 'classifications'),
@@ -64,7 +62,7 @@ class PxtDatasetImporter(foud.LabeledImageDatasetImporter):
         for exprs_, label_cls, default_name in label_categories:
             if exprs_ is None:
                 continue
-            if isinstance(exprs_, exprs_.Expr):
+            if isinstance(exprs_, exprs.Expr):
                 exprs_ = [exprs_]
             assert isinstance(exprs_, list)
             for expr in exprs_:
@@ -77,30 +75,33 @@ class PxtDatasetImporter(foud.LabeledImageDatasetImporter):
                     name = f'{default_name}_{i}'
                 self.__labels[name] = (expr, label_cls)
 
-        if isinstance(self.__image_expr, exprs.ColumnRef) and self.__image_expr.col.is_stored:
-            # A stored image column; we can use the existing localpaths
-            self.__image_localpath_expr = self.__image_expr.localpath
-            selection = [self.__image_expr, self.__image_localpath_expr]
-        else:
-            # Not a stored image column; we'll write the images to a temp location
-            self.__image_localpath_expr = None
-            selection = [self.__image_expr]
+        # Build the select list:
+        # - Labels first, in the order they appear in self.__labels
+        # - Then the `image` expr
+        # - Then `image.localpath`, if `images` is a stored columnref
 
-        selection.extend(expr for expr, _ in self.__labels.values())
+        selection = [expr for expr, _ in self.__labels.values()]
+        self.__image_idx = len(selection)
+        selection.append(image)
+
+        if isinstance(image, exprs.ColumnRef) and image.col.is_stored:
+            # A stored image column; we can use the existing localpaths
+            self.__localpath_idx = len(selection)
+            selection.append(image.localpath)
 
         df = tbl.select(*selection)
         self.__count = df.count()
-        self.__iter = df._exec()
+        self.__iter = df._row_iterator()
 
     def __len__(self) -> int:
         return self.__count
 
     def __next__(self) -> tuple[str, Optional[fo.ImageMetadata], Optional[dict[str, fo.Label]]]:
         row = next(self.__iter)
-        img = row[self.__image_expr.slot_idx]
+        img = row[self.__image_idx]
         assert isinstance(img, PIL.Image.Image)
-        if self.__image_localpath_expr is not None:
-            file = row[self.__image_localpath_expr.slot_idx]
+        if self.__localpath_idx is not None:
+            file = row[self.__localpath_idx]
             assert isinstance(file, str)
         else:
             file = str(Env.get().create_tmp_path(f'.{self.__image_format}'))
@@ -111,15 +112,47 @@ class PxtDatasetImporter(foud.LabeledImageDatasetImporter):
             mime_type=puremagic.from_file(file, mime=True),
             width=img.width,
             height=img.height,
-            filepath=file
+            filepath=file,
+            num_channels=len(img.getbands()),
         )
 
         labels: dict[str, fo.Label] = {}
-        for label_name, (expr, label_cls) in self.__labels.items():
-            label = row[expr.slot_idx]
-            if label is not None:
-                labels[label_name] = label_cls(label=label)
+        for idx, (label_name, (_, label_cls)) in enumerate(self.__labels.items()):
+            label_data = row[idx]
+            if label_data is None:
+                continue
+
+            label: fo.Label
+            if label_cls is fo.Classifications:
+                label = fo.Classifications(classifications=self.__as_fo_classifications(label_data))
+            elif label_cls is fo.Detections:
+                label = fo.Detections(detections=self.__as_fo_detections(label_data))
+            else:
+                assert False
+            labels[label_name] = label
+
         return file, metadata, labels
+
+    def __as_fo_classifications(self, data: Any) -> list[fo.Classification]:
+        if not isinstance(data, list):
+            raise excs.Error(f'Invalid classifications data: {data}')
+        result: list[fo.Classification] = []
+        for entry in data:
+            if isinstance(entry, str):
+                result.append(fo.Classification(label=entry))
+            elif isinstance(entry, dict):
+                result.append(fo.Classification(label=entry['label'], confidence=entry.get('confidence')))
+            else:
+                raise excs.Error(f'Invalid classification data: {data}')
+        return result
+
+    def __as_fo_detections(self, data: Any) -> list[fo.Detections]:
+        if not isinstance(data, dict):
+            raise excs.Error(f'Invalid detections data: {data}')
+        result: list[fo.Detection] = []
+        for label, box, score in zip(data['label_text'], data['boxes'], data['scores']):
+            result.append(fo.Detection(label=label, bounding_box=box, confidence=score))
+        return result
 
     @property
     def has_dataset_info(self) -> bool:

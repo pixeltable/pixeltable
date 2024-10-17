@@ -347,7 +347,7 @@ def vit_for_image_classification(
     return [
         [
             {
-                'p': top_k_probs[n, k].item(),
+                'confidence': top_k_probs[n, k].item(),
                 'class': top_k_indices[n, k].item(),
                 'label': model.config.id2label[top_k_indices[n, k].item()],
             }
