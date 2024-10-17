@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING, Any, Literal, Optional, Union
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
-from pixeltable import Table
+from pixeltable import Table, exprs
 from pixeltable.io.external_store import SyncStatus
 
 if TYPE_CHECKING:
@@ -270,8 +270,17 @@ def import_json(
     return import_rows(tbl_path, data, schema_overrides=schema_overrides, primary_key=primary_key, num_retained_versions=num_retained_versions, comment=comment)
 
 
-def export_as_fiftyone(df: Union[pxt.DataFrame, pxt.Table], image_format: str = 'webp') -> 'fo.Dataset':
+def export_as_fiftyone(
+    tbl: pxt.Table,
+    images: exprs.Expr,
+    image_format: str = 'webp',
+    classifications: Union[exprs.Expr, list[exprs.Expr], dict[str, exprs.Expr], None] = None,
+    detections: Union[exprs.Expr, list[exprs.Expr], dict[str, exprs.Expr], None] = None,
+) -> 'fo.Dataset':
     import fiftyone as fo
+
     from pixeltable.io.fiftyone import PxtDatasetImporter
 
-    return fo.Dataset.from_importer(PxtDatasetImporter(df, image_format))
+    return fo.Dataset.from_importer(PxtDatasetImporter(
+        tbl, images, image_format, classifications=classifications, detections=detections
+    ))
