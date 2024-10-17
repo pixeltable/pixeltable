@@ -472,6 +472,9 @@ class Expr(abc.ABC):
         ]
         return attrs
 
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        raise NotImplementedError(f'Expression of type `{type(self)}` is not callable')
+
     def __getitem__(self, index: object) -> Expr:
         if self.col_type.is_json_type():
             from .json_path import JsonPath

@@ -20,10 +20,11 @@ class PxtPlugin(Plugin):
         for k, v in __TYPE_MAP.items()
     }
 
-    def get_type_analyze_hook(self, fullname: str) -> Optional[Callable[[AnalyzeTypeContext], type]]:
+    def get_type_analyze_hook(self, fullname: str) -> Optional[Callable[[AnalyzeTypeContext], Type]]:
         if fullname in self.__FULLNAME_MAP:
             subst_name = self.__FULLNAME_MAP[fullname]
             return lambda ctx: pxt_hook(ctx, subst_name)
+        return None
 
 def plugin(version: str):
     return PxtPlugin
@@ -31,4 +32,4 @@ def plugin(version: str):
 def pxt_hook(ctx: AnalyzeTypeContext, subst_name: str) -> Type:
     if subst_name == 'typing.Any':
         return AnyType(TypeOfAny.special_form)
-    return ctx.api.named_type(subst_name)
+    return ctx.api.named_type(subst_name, [])
