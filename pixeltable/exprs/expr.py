@@ -329,11 +329,8 @@ class Expr(abc.ABC):
         return {ref.col.tbl.id for ref in self.subexprs(ColumnRef)} | {ref.tbl.id for ref in self.subexprs(RowidRef)}
 
     @classmethod
-    def list_tbl_ids(cls, expr_list: list[Expr]) -> set[UUID]:
-        ids: set[UUID] = set()
-        for e in expr_list:
-            ids.update(e.tbl_ids())
-        return ids
+    def all_tbl_ids(cls, exprs: Iterable[Expr]) -> set[UUID]:
+        return set(tbl_id for e in exprs for tbl_id in e.tbl_ids())
 
     @classmethod
     def get_refd_columns(cls, expr_dict: dict[str, Any]) -> list[catalog.Column]:
@@ -484,7 +481,7 @@ class Expr(abc.ABC):
             return ArraySlice(self, index)
         raise AttributeError(f'Type {self.col_type} is not subscriptable')
 
-    def __getattr__(self, name: str) -> Union['pixeltable.exprs.MethodRef', 'pixeltable.exprs.FunctionCall', 'pixeltable.exprs.JsonPath']:
+    def __getattr__(self, name: str) -> Union['pixeltable.exprs.MethodRef', 'pixeltable.exprs.JsonPath']:
         """
         ex.: <img col>.rotate(60)
         """

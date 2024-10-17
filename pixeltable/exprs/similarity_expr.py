@@ -1,16 +1,16 @@
-from typing import Optional, List, Any
-from .sql_element_cache import SqlElementCache
+from typing import Any, Optional
 
 import sqlalchemy as sql
-import PIL.Image
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
+
 from .column_ref import ColumnRef
 from .data_row import DataRow
 from .expr import Expr
 from .literal import Literal
 from .row_builder import RowBuilder
+from .sql_element_cache import SqlElementCache
 
 
 class SimilarityExpr(Expr):
@@ -57,13 +57,13 @@ class SimilarityExpr(Expr):
     def __str__(self) -> str:
         return f'{self.components[0]}.similarity({self.components[1]})'
 
-    def sql_expr(self, _: SqlElementCache) -> Optional[sql.ClauseElement]:
+    def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
         if not isinstance(self.components[1], Literal):
              raise excs.Error(f'similarity(): requires a string or a PIL.Image.Image object, not an expression')
         item = self.components[1].val
         return self.idx_info.idx.similarity_clause(self.idx_info.val_col, item)
 
-    def as_order_by_clause(self, is_asc: bool) -> Optional[sql.ClauseElement]:
+    def as_order_by_clause(self, is_asc: bool) -> Optional[sql.ColumnElement]:
         if not isinstance(self.components[1], Literal):
             raise excs.Error(f'similarity(): requires a string or a PIL.Image.Image object, not an expression')
         item = self.components[1].val
@@ -74,7 +74,7 @@ class SimilarityExpr(Expr):
         assert False
 
     @classmethod
-    def _from_dict(cls, d: dict, components: List[Expr]) -> Expr:
+    def _from_dict(cls, d: dict, components: list[Expr]) -> Expr:
         assert len(components) == 2
         assert isinstance(components[0], ColumnRef)
         return cls(components[0], components[1])

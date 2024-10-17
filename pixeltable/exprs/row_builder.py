@@ -248,7 +248,7 @@ class RowBuilder:
         for c in e.components:
             self.__set_slot_idxs_aux(c)
 
-    def get_dependencies(self, targets: List[Expr], exclude: Optional[List[Expr]] = None) -> List[Expr]:
+    def get_dependencies(self, targets: Iterable[Expr], exclude: Optional[Iterable[Expr]] = None) -> list[Expr]:
         """
         Return list of dependencies needed to evaluate the given target exprs (expressed as slot idxs).
         The exprs given in 'exclude' are excluded.
@@ -270,7 +270,7 @@ class RowBuilder:
         result_ids.sort()
         return [self.unique_exprs[id] for id in result_ids]
 
-    def create_eval_ctx(self, targets: list[Expr], exclude: Optional[list[Expr]] = None) -> EvalCtx:
+    def create_eval_ctx(self, targets: Iterable[Expr], exclude: Optional[Iterable[Expr]] = None) -> EvalCtx:
         """Return EvalCtx for targets"""
         if exclude is None:
             exclude = []

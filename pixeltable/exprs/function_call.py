@@ -22,7 +22,7 @@ from .sql_element_cache import SqlElementCache
 
 class FunctionCall(Expr):
 
-    fn: func.Function
+    fn: func.CallableFunction
     is_method_call: bool
     agg_init_args: dict[str, Any]
 

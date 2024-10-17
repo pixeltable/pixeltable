@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import abc
-from typing import Iterable, Optional, List, TYPE_CHECKING, Iterator
+from typing import TYPE_CHECKING, Iterable, Iterator, List, Optional
 
 import pixeltable.exprs as exprs
+
 from .data_row_batch import DataRowBatch
 from .exec_context import ExecContext
 

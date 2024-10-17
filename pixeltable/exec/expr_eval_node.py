@@ -5,10 +5,11 @@ import warnings
 from dataclasses import dataclass
 from typing import Iterable, List, Optional
 
-from tqdm import tqdm, TqdmWarning
+from tqdm import TqdmWarning, tqdm
 
-import pixeltable.exprs as exprs
+from pixeltable import exprs
 from pixeltable.func import CallableFunction
+
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
 
@@ -21,7 +22,7 @@ class ExprEvalNode(ExecNode):
     @dataclass
     class Cohort:
         """List of exprs that form an evaluation context and contain calls to at most one external function"""
-        exprs: List[exprs.Expr]
+        exprs_: List[exprs.Expr]
         batched_fn: Optional[CallableFunction]
         segment_ctxs: List['exprs.RowBuilder.EvalCtx']
         target_slot_idxs: List[int]
@@ -37,7 +38,7 @@ class ExprEvalNode(ExecNode):
         # we're only materializing exprs that are not already in the input
         self.target_exprs = [e for e in output_exprs if e.slot_idx not in input_slot_idxs]
         self.pbar: Optional[tqdm] = None
-        self.cohorts: List[List[ExprEvalNode.Cohort]] = []
+        self.cohorts: List[ExprEvalNode.Cohort] = []
         self._create_cohorts()
 
     def __next__(self) -> DataRowBatch:
@@ -87,6 +88,7 @@ class ExprEvalNode(ExecNode):
         for e in all_exprs:
             if not self._is_batched_fn_call(e):
                 continue
+            assert isinstance(e, exprs.FunctionCall)
             if current_batched_fn is None or current_batched_fn != e.fn:
                 # create a new cohort
                 cohorts.append([])
@@ -95,8 +97,8 @@ class ExprEvalNode(ExecNode):
 
         # expand the cohorts to include all exprs that are in the same evaluation context as the external calls;
         # cohorts are evaluated in order, so we can exclude the target slots from preceding cohorts and input slots
-        exclude = set([e.slot_idx for e in self.input_exprs])
-        all_target_slot_idxs = set([e.slot_idx for e in self.target_exprs])
+        exclude = set(e.slot_idx for e in self.input_exprs)
+        all_target_slot_idxs = set(e.slot_idx for e in self.target_exprs)
         target_slot_idxs: List[List[int]] = []  # the ones materialized by each cohort
         for i in range(len(cohorts)):
             cohorts[i] = self.row_builder.get_dependencies(
@@ -105,7 +107,7 @@ class ExprEvalNode(ExecNode):
                 [e.slot_idx for e in cohorts[i] if e.slot_idx in all_target_slot_idxs])
             exclude.update(target_slot_idxs[-1])
 
-        all_cohort_slot_idxs = set([e.slot_idx for cohort in cohorts for e in cohort])
+        all_cohort_slot_idxs = set(e.slot_idx for cohort in cohorts for e in cohort)
         remaining_slot_idxs = set(all_target_slot_idxs) - all_cohort_slot_idxs
         if len(remaining_slot_idxs) > 0:
             cohorts.append(self.row_builder.get_dependencies(
@@ -163,9 +165,10 @@ class ExprEvalNode(ExecNode):
                             rows[row_idx], segment_ctx, self.ctx.profile, ignore_errors=self.ctx.ignore_errors)
                 else:
                     fn_call = segment_ctx.exprs[0]
+                    assert isinstance(fn_call, exprs.FunctionCall)
                     # make a batched external function call
-                    arg_batches = [[] for _ in range(len(fn_call.args))]
-                    kwarg_batches = {k: [] for k in fn_call.kwargs.keys()}
+                    arg_batches: list[list[exprs.Expr]] = [[] for _ in range(len(fn_call.args))]
+                    kwarg_batches: dict[str, list[exprs.Expr]] = {k: [] for k in fn_call.kwargs.keys()}
 
                     valid_batch_idxs: List[int] = []  # rows with exceptions are not valid
                     for row_idx in range(batch_start_idx, batch_start_idx + num_batch_rows):
@@ -175,8 +178,10 @@ class ExprEvalNode(ExecNode):
                             continue
                         valid_batch_idxs.append(row_idx)
                         args, kwargs = fn_call._make_args(row)
-                        [arg_batches[i].append(args[i]) for i in range(len(args))]
-                        [kwarg_batches[k].append(kwargs[k]) for k in kwargs.keys()]
+                        for i in range(len(args)):
+                            arg_batches[i].append(args[i])
+                        for k in kwargs.keys():
+                            kwarg_batches[k].append(kwargs[k])
                     num_valid_batch_rows = len(valid_batch_idxs)
 
                     if ext_batch_size is None:
