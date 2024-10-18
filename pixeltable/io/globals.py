@@ -187,6 +187,8 @@ def import_rows(
                 # If `key` is not in `schema_overrides`, then we infer its type from the data.
                 # The column type will always be nullable by default.
                 col_type = pxt.ColumnType.infer_literal_type(value, nullable=True)
+                if col_type is None:
+                    raise excs.Error(f'Could not infer type for column `{col_name}`; the value in row {n} has an unsupported type: {type(value)}')
                 if col_name not in schema:
                     schema[col_name] = col_type
                 else:
