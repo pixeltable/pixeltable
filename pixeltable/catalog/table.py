@@ -248,7 +248,7 @@ class Table(SchemaObject):
         cols = self._tbl_version_path.columns()
         df = pd.DataFrame({
             'Column Name': [c.name for c in cols],
-            'Type': [str(c.col_type) for c in cols],
+            'Type': [c.col_type._to_str(as_schema=True) for c in cols],
             'Computed With': [c.value_expr.display_str(inline=False) if c.value_expr is not None else '' for c in cols],
         })
         return df
@@ -271,7 +271,7 @@ class Table(SchemaObject):
             from IPython.display import display
             display(self._description_html())
         else:
-            print(self.__repr__())
+            print(repr(self))
 
     # TODO: Display comments in _repr_html()
     def __repr__(self) -> str:
@@ -311,11 +311,11 @@ class Table(SchemaObject):
         """
         Adds a column to the table. This is an alternate syntax for `add_column()`; the meaning of
 
-        >>> tbl['new_col'] = IntType()
+        >>> tbl['new_col'] = pxt.Int
 
         is exactly equivalent to
 
-        >>> tbl.add_column(new_col=IntType())
+        >>> tbl.add_column(new_col=pxt.Int)
 
         For details, see the documentation for [`add_column()`][pixeltable.catalog.Table.add_column].
         """
@@ -359,17 +359,17 @@ class Table(SchemaObject):
         Examples:
             Add an int column:
 
-            >>> tbl.add_column(new_col=IntType(nullable=True))
+            >>> tbl.add_column(new_col=pxt.Int)
 
             Alternatively, this can also be expressed as:
 
-            >>> tbl['new_col'] = IntType(nullable=True)
+            >>> tbl['new_col'] = pxt.Int
 
             For a table with int column `int_col`, add a column that is the factorial of ``int_col``. The names of
             the parameters of the Callable must correspond to existing column names (the column values are then passed
             as arguments to the Callable). In this case, the column type needs to be specified explicitly:
 
-            >>> tbl.add_column(factorial=lambda int_col: math.factorial(int_col), type=IntType())
+            >>> tbl.add_column(factorial=lambda int_col: math.factorial(int_col), type=pxt.Int)
 
             For a table with an image column ``frame``, add an image column ``rotated`` that rotates the image by
             90 degrees. In this case, the column type is inferred from the expression. Also, the column is not stored
@@ -472,7 +472,7 @@ class Table(SchemaObject):
             elif callable(spec):
                 raise excs.Error(
                     f'Column {name} computed with a Callable: specify using a dictionary with '
-                    f'the "value" and "type" keys (e.g., "{name}": {{"value": <Callable>, "type": IntType()}})'
+                    f'the "value" and "type" keys (e.g., "{name}": {{"value": <Callable>, "type": pxt.Int}})'
                 )
             elif isinstance(spec, dict):
                 cls._validate_column_spec(name, spec)
@@ -594,17 +594,17 @@ class Table(SchemaObject):
         Add an embedding index to the table. Once the index is added, it will be automatically kept up to data as new
         rows are inserted into the table.
 
-        Indices are currently supported only for `StringType()` and `ImageType()` columns. The index must specify, at
+        Indices are currently supported only for `String` and `Image` columns. The index must specify, at
         minimum, an embedding of the appropriate type (string or image). It may optionally specify _both_ a string
         and image embedding (into the same vector space); in particular, this can be used to provide similarity search
         of text over an image column.
 
         Args:
-            col_name: The name of column to index; must be a `StringType()` or `ImageType()` column.
+            col_name: The name of column to index; must be a `String` or `Image` column.
             idx_name: The name of index. If not specified, a name such as `'idx0'` will be generated automatically.
                 If specified, the name must be unique for this table.
-            string_embed: A function to embed text; required if the column is a `StringType()` column.
-            image_embed: A function to embed images; required if the column is an `ImageType()` column.
+            string_embed: A function to embed text; required if the column is a `String` column.
+            image_embed: A function to embed images; required if the column is an `Image` column.
             metric: Distance metric to use for the index; one of `'cosine'`, `'ip'`, or `'l2'`;
                 the default is `'cosine'`.
 

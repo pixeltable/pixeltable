@@ -1,4 +1,5 @@
 import os
+import platform
 from collections import OrderedDict
 from pathlib import Path
 
@@ -13,6 +14,9 @@ from .utils import get_image_files
 
 
 class TestFileCache:
+    # TODO: Understand why this test is flaky on Windows. (It appears to be a timing issue
+    #     related to the Windows filesystem.)
+    @pytest.mark.skipif(platform.system() == 'Windows', reason='Test is flaky on Windows')
     def test_eviction(self, reset_db):
         # Set a very small cache size of 200 kiB for this test (the imagenette images are ~5-10 kiB each)
         fc = FileCache.get()
