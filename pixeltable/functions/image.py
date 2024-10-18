@@ -151,7 +151,7 @@ def _(self: Expr) -> pxt.ColumnType:
 
 # Image.point()
 @pxt.udf(is_method=True)
-def point(self: PIL.Image.Image, lut: list[int]) -> PIL.Image.Image:
+def point(self: PIL.Image.Image, lut: list[int], mode: Optional[str] = None) -> PIL.Image.Image:
     """
     Map image pixels through a lookup table.
 
@@ -161,7 +161,7 @@ def point(self: PIL.Image.Image, lut: list[int]) -> PIL.Image.Image:
     Args:
         lut: A lookup table.
     """
-    return self.point(lut)
+    return self.point(lut, mode=mode)
 
 
 # Image.resize()
