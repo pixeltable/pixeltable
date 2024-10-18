@@ -165,16 +165,21 @@ class ColumnType:
             return DocumentType()
 
     def __str__(self) -> str:
-        # Camel-case the type name
-        type_str = self._type.name[0] + self._type.name[1:].lower()
-        return self._with_optional(type_str)
+        return self._to_str(as_schema=False)
 
-    def _with_optional(self, type_str: str) -> str:
-        """Mark the type as Optional or Required depending on nullability"""
-        if self.nullable:
-            return f'Optional[{type_str}]'
+    def _to_str(self, as_schema: bool) -> str:
+        base_str = self._to_base_str()
+        if as_schema:
+            return base_str if self.nullable else f'Required[{base_str}]'
         else:
-            return type_str
+            return f'Optional[{base_str}]' if self.nullable else base_str
+
+    def _to_base_str(self) -> str:
+        """
+        String representation of this type, disregarding nullability. Default implementation is to camel-case
+        the type name; subclasses may override.
+        """
+        return self._type.name[0] + self._type.name[1:].lower()
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, ColumnType) and self.matches(other) and self.nullable == other.nullable
@@ -646,8 +651,8 @@ class ArrayType(ColumnType):
         result.update(shape=list(self.shape), dtype=self.dtype.value)
         return result
 
-    def __str__(self) -> str:
-        return self._with_optional(f'Array[{self.shape}, {self.pxt_dtype}]')
+    def _to_base_str(self) -> str:
+        return f'Array[{self.shape}, {self.pxt_dtype}]'
 
     @classmethod
     def _from_dict(cls, d: dict) -> ColumnType:
@@ -741,7 +746,7 @@ class ImageType(ColumnType):
     def copy(self, nullable: bool) -> ColumnType:
         return ImageType(self.width, self.height, mode=self.mode, nullable=nullable)
 
-    def __str__(self) -> str:
+    def _to_base_str(self) -> str:
         params = []
         if self.width is not None or self.height is not None:
             params.append(f'({self.width}, {self.height})')
@@ -751,7 +756,7 @@ class ImageType(ColumnType):
             params_str = ''
         else:
             params_str = f'[{", ".join(params)}]'
-        return self._with_optional(f'Image{params_str}')
+        return f'Image{params_str}'
 
     def matches(self, other: ColumnType) -> bool:
         return (

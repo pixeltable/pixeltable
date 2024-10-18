@@ -55,7 +55,7 @@ def create_table(
     Examples:
         Create a table with an int and a string column:
 
-        >>> tbl = pxt.create_table('my_table', schema={'col1': IntType(), 'col2': StringType()})
+        >>> tbl = pxt.create_table('my_table', schema={'col1': pxt.Int, 'col2': pxt.String})
 
         Create a table from a select statement over an existing table `orig_table` (this will create a new table
         containing the exact contents of the query):

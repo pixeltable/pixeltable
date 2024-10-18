@@ -47,6 +47,10 @@ class TestImport:
             pxt.io.import_rows('example5', [{'col': 1}, {'col': 'value'}])
         assert "Could not infer type of column `col`; the value in row 1 does not match preceding type Optional[Int]: 'value'" in str(exc_info.value)
 
+        with pytest.raises(excs.Error) as exc_info:
+            pxt.io.import_rows('example6', [{'col': str}])
+        assert "Could not infer type for column `col`; the value in row 0 has an unsupported type: <class 'type'>" in str(exc_info.value)
+
     def test_import_json(self, reset_db) -> None:
         example = Path(__file__).parent.parent / 'data' / 'json' / 'example.json'
         jeopardy = 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests/data/json/jeopardy.json'

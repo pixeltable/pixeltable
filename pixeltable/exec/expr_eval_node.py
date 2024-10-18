@@ -5,10 +5,11 @@ import warnings
 from dataclasses import dataclass
 from typing import Iterable, List, Optional
 
-from tqdm import tqdm, TqdmWarning
+from tqdm import TqdmWarning, tqdm
 
 import pixeltable.exprs as exprs
 from pixeltable.func import CallableFunction
+
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
 
@@ -51,11 +52,11 @@ class ExprEvalNode(ExecNode):
     def _open(self) -> None:
         warnings.simplefilter("ignore", category=TqdmWarning)
         # This is a temporary hack. When B-tree indices on string columns were implemented (via computed columns
-        # that invoke the `btree._str_filter` udf), it resulted in frivolous progress bars appearing on every
-        # insertion. This special-cases the `_str_filter` call to suppress the corresponding progress bar.
+        # that invoke the `BtreeIndex.str_filter` udf), it resulted in frivolous progress bars appearing on every
+        # insertion. This special-cases the `str_filter` call to suppress the corresponding progress bar.
         # TODO(aaron-siegel) Remove this hack once we clean up progress bars more generally.
         is_str_filter_node = all(
-            isinstance(expr, exprs.FunctionCall) and expr.fn.name == '_str_filter' for expr in self.output_exprs
+            isinstance(expr, exprs.FunctionCall) and expr.fn.name == 'str_filter' for expr in self.output_exprs
         )
         if self.ctx.show_pbar and not is_str_filter_node:
             self.pbar = tqdm(

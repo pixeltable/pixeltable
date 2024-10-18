@@ -212,6 +212,8 @@ class TestTable:
             'req_array_col': pxt.Required[pxt.Array[(5, None, 3), pxt.Int]],
             'img_col': pxt.Image,
             'req_img_col': pxt.Required[pxt.Image],
+            'spec_img_col': pxt.Image[(300, 300), 'RGB'],
+            'req_spec_img_col': pxt.Required[pxt.Image[(300, 300), 'RGB']],
             'video_col': pxt.Video,
             'req_video_col': pxt.Required[pxt.Video],
             'audio_col': pxt.Audio,
@@ -243,6 +245,8 @@ class TestTable:
             'req_array_col': pxt.ArrayType((5, None, 3), dtype=pxt.IntType(), nullable=False),
             'img_col': pxt.ImageType(nullable=True),
             'req_img_col': pxt.ImageType(nullable=False),
+            'spec_img_col': pxt.ImageType(width=300, height=300, mode='RGB', nullable=True),
+            'req_spec_img_col': pxt.ImageType(width=300, height=300, mode='RGB', nullable=False),
             'video_col': pxt.VideoType(nullable=True),
             'req_video_col': pxt.VideoType(nullable=False),
             'audio_col': pxt.AudioType(nullable=True),
@@ -255,6 +259,35 @@ class TestTable:
         })
 
         assert t._schema == expected_schema
+
+        expected_strings = [
+            'String',
+            'Required[String]',
+            'Int',
+            'Required[Int]',
+            'Float',
+            'Required[Float]',
+            'Bool',
+            'Required[Bool]',
+            'Timestamp',
+            'Required[Timestamp]',
+            'Json',
+            'Required[Json]',
+            'Array[(5, None, 3), Int]',
+            'Required[Array[(5, None, 3), Int]]',
+            'Image',
+            'Required[Image]',
+            "Image[(300, 300), 'RGB']",
+            "Required[Image[(300, 300), 'RGB']]",
+            'Video',
+            'Required[Video]',
+            'Audio',
+            'Required[Audio]',
+            'Document',
+            'Required[Document]',
+        ]
+        df = t._description()
+        assert list(df['Type']) == expected_strings + expected_strings
 
     def test_empty_table(self, reset_db) -> None:
         with pytest.raises(excs.Error) as exc_info:
