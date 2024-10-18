@@ -101,6 +101,8 @@ class TestTypes:
 
             assert str(pxt_type) == string
             assert str(nullable_pxt_type) == f'Optional[{string}]'
+            assert pxt_type._to_str(as_schema=True) == f'Required[{string}]'
+            assert nullable_pxt_type._to_str(as_schema=True) == string
 
     def test_supertype(self) -> None:
         test_cases = [

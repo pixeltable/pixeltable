@@ -248,7 +248,7 @@ class Table(SchemaObject):
         cols = self._tbl_version_path.columns()
         df = pd.DataFrame({
             'Column Name': [c.name for c in cols],
-            'Type': [str(c.col_type) for c in cols],
+            'Type': [c.col_type._to_str(as_schema=True) for c in cols],
             'Computed With': [c.value_expr.display_str(inline=False) if c.value_expr is not None else '' for c in cols],
         })
         return df
@@ -271,7 +271,7 @@ class Table(SchemaObject):
             from IPython.display import display
             display(self._description_html())
         else:
-            print(self.__repr__())
+            print(repr(self))
 
     # TODO: Display comments in _repr_html()
     def __repr__(self) -> str:
