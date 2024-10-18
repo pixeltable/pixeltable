@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
+from typing import Any, Iterable, Optional, Sequence
 
 import sqlalchemy as sql
 
@@ -11,7 +11,6 @@ import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
 import pixeltable.func as func
 import pixeltable.utils as utils
-
 from .data_row import DataRow
 from .expr import Expr
 from .expr_set import ExprSet
@@ -48,14 +47,38 @@ class RowBuilder:
     For ColumnRefs to unstored iterator columns:
     - in order for them to be executable, we also record the iterator args and pass them to the ColumnRef
     """
+    unique_exprs: ExprSet
+    next_slot_idx: int
+    input_expr_slot_idxs: set[int]
+
+    # output exprs: all exprs the caller wants to materialize
+    # - explicitly requested output_exprs
+    # - values for computed columns
+    output_exprs: ExprSet
+
+    input_exprs: ExprSet
+
+    table_columns: list[ColumnSlotIdx]
+    default_eval_ctx: EvalCtx
+    unstored_iter_args: dict[int, Expr]
+
+    # record transitive dependencies (list of set of slot_idxs, indexed by slot_idx)
+    dependencies: list[set[int]]
+
+    # derived transitive dependents
+    dependents: list[set[int]]
+
+    # records the output_expr that a subexpr belongs to
+    # (a subexpr can be shared across multiple output exprs)
+    output_expr_ids: list[set[int]]
 
     @dataclass
     class EvalCtx:
         """Context for evaluating a set of target exprs"""
-        slot_idxs: List[int]  # slot idxs of exprs needed to evaluate target exprs; does not contain duplicates
-        exprs: List[Expr]  # exprs corresponding to slot_idxs
-        target_slot_idxs: List[int]  # slot idxs of target exprs; might contain duplicates
-        target_exprs: List[Expr]  # exprs corresponding to target_slot_idxs
+        slot_idxs: list[int]  # slot idxs of exprs needed to evaluate target exprs; does not contain duplicates
+        exprs: list[Expr]  # exprs corresponding to slot_idxs
+        target_slot_idxs: list[int]  # slot idxs of target exprs; might contain duplicates
+        target_exprs: list[Expr]  # exprs corresponding to target_slot_idxs
 
     def __init__(
             self, output_exprs: Sequence[Expr], columns: Sequence[catalog.Column], input_exprs: Iterable[Expr]
@@ -74,28 +97,48 @@ class RowBuilder:
         unique_input_exprs = [self._record_unique_expr(e.copy(), recursive=False) for e in input_exprs]
         self.input_expr_slot_idxs = {e.slot_idx for e in unique_input_exprs}
 
-        # output exprs: all exprs the caller wants to materialize
-        # - explicitly requested output_exprs
-        # - values for computed columns
         resolve_cols = set(columns)
         self.output_exprs = ExprSet([
             self._record_unique_expr(e.copy().resolve_computed_cols(resolve_cols=resolve_cols), recursive=True)
             for e in output_exprs
         ])
 
-        # record columns for create_table_row()
+        # if init(columns):
+        # - we are creating table rows and need to record columns for create_table_row()
+        # - output_exprs materialize those columns
+        # - input_exprs are ColumnRefs of the non-computed columns (ie, what needs to be provided as input)
+        # - media validation:
+        #   * for write-validated columns, we need to create validating ColumnRefs
+        #   * further references to that column (eg, computed cols) need to resolve to the validating ColumnRef
         from .column_ref import ColumnRef
-        self.table_columns: List[ColumnSlotIdx] = []
+        self.table_columns = []
+        self.input_exprs = ExprSet()
+        validating_colrefs: dict[Expr, Expr] = {}  # key: non-validating colref, value: corresp. validating colref
         for col in columns:
+            expr: Expr
             if col.is_computed:
                 assert col.value_expr is not None
                 # create a copy here so we don't reuse execution state and resolve references to computed columns
                 expr = col.value_expr.copy().resolve_computed_cols(resolve_cols=resolve_cols)
+                expr = expr.substitute(validating_colrefs)
                 expr = self._record_unique_expr(expr, recursive=True)
             else:
                 # record a ColumnRef so that references to this column resolve to the same slot idx
-                expr = ColumnRef(col)
-                expr = self._record_unique_expr(expr, recursive=False)
+                perform_validation = (
+                    col.col_type.is_media_type() and col.media_validation == catalog.MediaValidation.ON_WRITE
+                )
+                expr = ColumnRef(col, perform_validation=perform_validation)
+                # recursive=True: needed for validating ColumnRef
+                expr = self._record_unique_expr(expr, recursive=True)
+
+                if perform_validation:
+                    # if expr is a validating ColumnRef, the input is the non-validating ColumnRef
+                    non_validating_colref = expr.components[0]
+                    self.input_exprs.add(non_validating_colref)
+                    validating_colrefs[non_validating_colref] = expr
+                else:
+                    self.input_exprs.add(expr)
+
             self.add_table_column(col, expr.slot_idx)
             self.output_exprs.add(expr)
 
@@ -118,8 +161,9 @@ class RowBuilder:
         unstored_iter_col_refs = [col_ref for col_ref in col_refs if refs_unstored_iter_col(col_ref)]
         component_views = [col_ref.col.tbl for col_ref in unstored_iter_col_refs]
         unstored_iter_args = {view.id: view.iterator_args.copy() for view in component_views}
-        self.unstored_iter_args = \
-            {id: self._record_unique_expr(arg, recursive=True) for id, arg in unstored_iter_args.items()}
+        self.unstored_iter_args = {
+            id: self._record_unique_expr(arg, recursive=True) for id, arg in unstored_iter_args.items()
+        }
 
         for col_ref in unstored_iter_col_refs:
             iter_arg_ctx = self.create_eval_ctx([unstored_iter_args[col_ref.col.tbl.id]])
@@ -129,8 +173,7 @@ class RowBuilder:
         for i, expr in enumerate(self.unique_exprs):
             assert expr.slot_idx == i
 
-        # record transitive dependencies (list of set of slot_idxs, indexed by slot_idx)
-        self.dependencies: List[Set[int]] = [set() for _ in range(self.num_materialized)]
+        self.dependencies = [set() for _ in range(self.num_materialized)]
         for expr in self.unique_exprs:
             if expr.slot_idx in self.input_expr_slot_idxs:
                 # this is input and therefore doesn't depend on other exprs
@@ -139,15 +182,12 @@ class RowBuilder:
                 self.dependencies[expr.slot_idx].add(d.slot_idx)
                 self.dependencies[expr.slot_idx].update(self.dependencies[d.slot_idx])
 
-        # derive transitive dependents
-        self.dependents: List[Set[int]] = [set() for _ in range(self.num_materialized)]
+        self.dependents = [set() for _ in range(self.num_materialized)]
         for expr in self.unique_exprs:
             for d in self.dependencies[expr.slot_idx]:
                 self.dependents[d].add(expr.slot_idx)
 
-        # records the output_expr that a subexpr belongs to
-        # (a subexpr can be shared across multiple output exprs)
-        self.output_expr_ids: List[Set[int]] = [set() for _ in range(self.num_materialized)]
+        self.output_expr_ids = [set() for _ in range(self.num_materialized)]
         for e in self.output_exprs:
             self._record_output_expr_id(e, e.slot_idx)
 

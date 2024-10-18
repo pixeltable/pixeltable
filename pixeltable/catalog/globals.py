@@ -1,4 +1,5 @@
 import dataclasses
+import enum
 import itertools
 import logging
 from typing import Optional
@@ -33,6 +34,12 @@ class UpdateStatus:
         self.updated_cols = list(dict.fromkeys(self.updated_cols + other.updated_cols))
         self.cols_with_excs = list(dict.fromkeys(self.cols_with_excs + other.cols_with_excs))
         return self
+
+
+class MediaValidation(enum.Enum):
+    ON_READ = 0
+    ON_WRITE = 1
+
 
 def is_valid_identifier(name: str) -> bool:
     return name.isidentifier() and not name.startswith('_')

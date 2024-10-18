@@ -66,3 +66,8 @@ class ExprSet(Generic[T]):
 
     def __sub__(self, other: ExprSet[T]) -> ExprSet[T]:
         return self.difference(other)
+
+    def __add__(self, other: ExprSet) -> ExprSet:
+        exprs = self.exprs.copy()
+        exprs.update(other.exprs)
+        return ExprSet(exprs.values())

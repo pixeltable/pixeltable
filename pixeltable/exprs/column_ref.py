@@ -19,6 +19,14 @@ class ColumnRef(Expr):
     When this reference is created in the context of a view, it can also refer to a column of the view base.
     For that reason, a ColumnRef needs to be serialized with the qualifying table id (column ids are only
     unique in the context of a particular table).
+
+    Media validation:
+    - media validation is potentially cpu-intensive, and it's desirable to schedule and parallelize it during
+      general expr evaluation
+    - media validation on read is done in ColumnRef.eval()
+    - a validating ColumnRef cannot be translated to SQL (because the validation is done in Python)
+    - in that case, the ColumnRef also instantiates a second non-validating ColumnRef as a component (= dependency)
+    - the non-validating ColumnRef is used for SQL translation
     """
 
     col: catalog.Column
@@ -29,8 +37,9 @@ class ColumnRef(Expr):
     iterator: Optional[iters.ComponentIterator]
     pos_idx: Optional[int]
     id: int
+    perform_validation: bool  # if True, performs media validation
 
-    def __init__(self, col: catalog.Column):
+    def __init__(self, col: catalog.Column, perform_validation: Optional[bool] = None):
         super().__init__(col.col_type)
         assert col.tbl is not None
         self.col = col
@@ -43,6 +52,17 @@ class ColumnRef(Expr):
         self.iterator = None
         # index of the position column in the view's primary key; don't try to reference tbl.store_tbl here
         self.pos_idx = col.tbl.num_rowid_columns() - 1 if self.is_unstored_iter_col else None
+
+        self.perform_validation = False
+        if col.col_type.is_media_type():
+            # we perform media validation if the column is a media type and the validation is set to ON_READ,
+            # unless we're told not to
+            self.perform_validation = perform_validation if perform_validation is not None else (
+                col.col_type.is_media_type() and col.media_validation == catalog.MediaValidation.ON_READ
+            )
+        if self.perform_validation:
+            non_validating_col_ref = ColumnRef(col, perform_validation=False)
+            self.components = [non_validating_col_ref]
         self.id = self._create_id()
 
     def set_iter_arg_ctx(self, iter_arg_ctx: RowBuilder.EvalCtx) -> None:
@@ -50,7 +70,10 @@ class ColumnRef(Expr):
         assert len(self.iter_arg_ctx.target_slot_idxs) == 1  # a single inline dict
 
     def _id_attrs(self) -> list[Tuple[str, Any]]:
-        return super()._id_attrs() + [('tbl_id', self.col.tbl.id), ('col_id', self.col.id)]
+        return (
+            super()._id_attrs()
+            + [('tbl_id', self.col.tbl.id), ('col_id', self.col.id), ('validates', self.perform_validation)]
+        )
 
     def __getattr__(self, name: str) -> Expr:
         from .column_property_ref import ColumnPropertyRef
@@ -82,7 +105,7 @@ class ColumnRef(Expr):
         return str(self)
 
     def _equals(self, other: ColumnRef) -> bool:
-        return self.col == other.col
+        return self.col == other.col and self.perform_validation == other.perform_validation
 
     def __str__(self) -> str:
         if self.col.name is None:
@@ -94,9 +117,38 @@ class ColumnRef(Expr):
         return f'ColumnRef({self.col!r})'
 
     def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
-        return self.col.sa_col
+        return None if self.perform_validation else self.col.sa_col
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
+        if self.perform_validation:
+            # validate media file of our input ColumnRef and if successful, replicate the state of that slot
+            # to our slot
+            unvalidated_slot_idx = self.components[0].slot_idx
+            if data_row.file_paths[unvalidated_slot_idx] is None:
+                # no media file to validate, we still need to replicate the value
+                assert data_row.file_urls[unvalidated_slot_idx] is None
+                val = data_row.vals[unvalidated_slot_idx]
+                data_row.vals[self.slot_idx] = val
+                data_row.has_val[self.slot_idx] = True
+                return
+
+            try:
+                self.col.col_type.validate_media(data_row.file_paths[unvalidated_slot_idx])
+                # access the value only after successful validation
+                val = data_row[unvalidated_slot_idx]
+                data_row.vals[self.slot_idx] = val
+                data_row.has_val[self.slot_idx] = True
+                # make sure that the validated slot points to the same file as the unvalidated slot
+                data_row.file_paths[self.slot_idx] = data_row.file_paths[unvalidated_slot_idx]
+                data_row.file_urls[self.slot_idx] = data_row.file_urls[unvalidated_slot_idx]
+                return
+            except excs.Error as exc:
+                # propagate the exception, but ignore it otherwise;
+                # media validation errors don't cause exceptions during query execution
+                # TODO: allow for different error-handling behavior
+                row_builder.set_exc(data_row, self.slot_idx, exc)
+                return
+
         if not self.is_unstored_iter_col:
             # supply default
             data_row[self.slot_idx] = None
