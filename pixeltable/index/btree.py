@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 import sqlalchemy as sql
 
@@ -7,9 +7,10 @@ import sqlalchemy as sql
 import pixeltable.exceptions as excs
 from pixeltable import catalog, exprs
 from pixeltable.func.udf import udf
-
 from .base import IndexBase
 
+if TYPE_CHECKING:
+    import pixeltable
 
 @udf
 def _str_filter(s: Optional[str]) -> Optional[str]:
