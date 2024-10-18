@@ -15,10 +15,17 @@ class BtreeIndex(IndexBase):
     """
     MAX_STRING_LEN = 256
 
+    @staticmethod
+    @udf
+    def str_filter(s: Optional[str]) -> Optional[str]:
+        if s is None:
+            return None
+        return s[:BtreeIndex.MAX_STRING_LEN]
+
     def __init__(self, c: 'catalog.Column'):
         if not c.col_type.is_scalar_type() and not c.col_type.is_media_type():
             raise excs.Error(f'Index on column {c.name}: B-tree index requires scalar or media type, got {c.col_type}')
-        self.value_expr = _str_filter(exprs.ColumnRef(c)) if c.col_type.is_string_type() else exprs.ColumnRef(c)
+        self.value_expr = BtreeIndex.str_filter(exprs.ColumnRef(c)) if c.col_type.is_string_type() else exprs.ColumnRef(c)
 
     def index_value_expr(self) -> 'exprs.Expr':
         return self.value_expr
@@ -45,10 +52,3 @@ class BtreeIndex(IndexBase):
     @classmethod
     def from_dict(cls, c: 'catalog.Column', d: dict) -> 'BtreeIndex':
         return cls(c)
-
-
-@udf
-def _str_filter(s: Optional[str]) -> Optional[str]:
-    if s is None:
-        return None
-    return s[:BtreeIndex.MAX_STRING_LEN]
