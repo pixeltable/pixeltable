@@ -6,7 +6,7 @@ from pixeltable import Table, exprs
 from pixeltable.io.external_store import SyncStatus
 
 if TYPE_CHECKING:
-    import fiftyone as fo
+    import fiftyone as fo  # type: ignore[import-untyped]
 
 
 def create_label_studio_project(

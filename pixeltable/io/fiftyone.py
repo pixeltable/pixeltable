@@ -2,8 +2,8 @@ import os
 from os import PathLike
 from typing import Any, Iterator, Optional, Union
 
-import fiftyone as fo
-import fiftyone.utils.data as foud
+import fiftyone as fo  # type: ignore[import-untyped]
+import fiftyone.utils.data as foud  # type: ignore[import-untyped]
 import PIL.Image
 import puremagic
 
