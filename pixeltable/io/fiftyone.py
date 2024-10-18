@@ -126,7 +126,7 @@ class PxtDatasetImporter(foud.LabeledImageDatasetImporter):
             if label_cls is fo.Classifications:
                 label = fo.Classifications(classifications=self.__as_fo_classifications(label_data))
             elif label_cls is fo.Detections:
-                label = fo.Detections(detections=self.__as_fo_detections(label_data))
+                label = fo.Detections(detections=self.__as_fo_detections(img, label_data))
             else:
                 assert False
             labels[label_name] = label
@@ -146,12 +146,18 @@ class PxtDatasetImporter(foud.LabeledImageDatasetImporter):
                 raise excs.Error(f'Invalid classification data: {data}')
         return result
 
-    def __as_fo_detections(self, data: Any) -> list[fo.Detections]:
+    def __as_fo_detections(self, img: PIL.Image.Image, data: Any) -> list[fo.Detections]:
         if not isinstance(data, dict):
             raise excs.Error(f'Invalid detections data: {data}')
         result: list[fo.Detection] = []
         for label, box, score in zip(data['label_text'], data['boxes'], data['scores']):
-            result.append(fo.Detection(label=label, bounding_box=box, confidence=score))
+            bounding_box = [
+                float(box[0]) / img.width,
+                float(box[1]) / img.height,
+                float(box[2] - box[0]) / img.width,
+                float(box[3] - box[1]) / img.height,
+            ]
+            result.append(fo.Detection(label=label, bounding_box=bounding_box, confidence=score))
         return result
 
     @property
