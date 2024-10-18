@@ -93,9 +93,9 @@ def __substitute_md_rec(
 
 
 def convert_table_schema_version_md(
-        engine: sql.engine.Engine,
-        table_schema_version_md_updater: Optional[Callable[[dict], None]] = None,
-        schema_column_updater: Optional[Callable[[dict], None]] = None
+    engine: sql.engine.Engine,
+    table_schema_version_md_updater: Optional[Callable[[dict], None]] = None,
+    schema_column_updater: Optional[Callable[[dict], None]] = None
 ) -> None:
     """
     Converts schema.TableSchemaVersionMd dicts based on the specified conversion functions.

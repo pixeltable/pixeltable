@@ -723,20 +723,22 @@ class TableVersion:
 
         if conn is None:
             with Env.get().engine.begin() as conn:
-                return self._insert(plan, conn, time.time(), print_stats=print_stats, rowids=rowids())
+                return self._insert(
+                    plan, conn, time.time(), print_stats=print_stats, rowids=rowids(), abort_on_exc=fail_on_exception)
         else:
-            return self._insert(plan, conn, time.time(), print_stats=print_stats, rowids=rowids())
+            return self._insert(
+                plan, conn, time.time(), print_stats=print_stats, rowids=rowids(), abort_on_exc=fail_on_exception)
 
     def _insert(
         self, exec_plan: 'exec.ExecNode', conn: sql.engine.Connection, timestamp: float, *,
-        rowids: Optional[Iterator[int]] = None, print_stats: bool = False,
+        rowids: Optional[Iterator[int]] = None, print_stats: bool = False, abort_on_exc: bool = False
     ) -> UpdateStatus:
         """Insert rows produced by exec_plan and propagate to views"""
         # we're creating a new version
         self.version += 1
         result = UpdateStatus()
         num_rows, num_excs, cols_with_excs = self.store_tbl.insert_rows(
-            exec_plan, conn, v_min=self.version, rowids=rowids)
+            exec_plan, conn, v_min=self.version, rowids=rowids, abort_on_exc=abort_on_exc)
         result.num_rows = num_rows
         result.num_excs = num_excs
         result.num_computed_values += exec_plan.ctx.num_computed_exprs * num_rows

@@ -142,8 +142,8 @@ class TestTable:
 
     def test_media_validation(self, reset_db) -> None:
         tbl_schema = {
-            'img': {'type': ImageType(nullable=False), 'media_validation': 'on_write'},
-            'video': VideoType(nullable=False)
+            'img': {'type': pxt.Image, 'media_validation': 'on_write'},
+            'video': pxt.Video
         }
         t = pxt.create_table('test', tbl_schema, media_validation='on_read')
         assert t.get_metadata()['media_validation'] == 'on_read'
@@ -152,8 +152,8 @@ class TestTable:
         assert t.video.col.media_validation == pxt.catalog.MediaValidation.ON_READ
 
         v_schema = {
-            'doc': {'type': DocumentType(nullable=True), 'media_validation': 'on_read'},
-            'audio': AudioType(nullable=True)
+            'doc': {'type': pxt.Document, 'media_validation': 'on_read'},
+            'audio': pxt.Audio
         }
         v = pxt.create_view('test_view', t, additional_columns=v_schema, media_validation='on_write')
         assert v.get_metadata()['media_validation'] == 'on_write'
@@ -166,13 +166,32 @@ class TestTable:
 
         with pytest.raises(excs.Error) as exc_info:
             _ = pxt.create_table(
-                'validation_error', {'img': ImageType(nullable=False)}, media_validation='wrong_value')
+                'validation_error', {'img': pxt.Image}, media_validation='wrong_value')
         assert "media_validation must be one of: ['on_read', 'on_write']" in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
             _ = pxt.create_table(
-                'validation_error', {'img': {'type': ImageType(nullable=False), 'media_validation': 'wrong_value'}})
+                'validation_error', {'img': {'type': pxt.Image, 'media_validation': 'wrong_value'}})
         assert "media_validation must be one of: ['on_read', 'on_write']" in str(exc_info.value)
+
+    def test_validate_on_read(self, reset_db) -> None:
+        files = get_video_files(include_bad_video=True)
+        rows = [{'media': f, 'is_bad_media': f.endswith('bad_video.mp4')} for f in files]
+        schema = {'media': pxt.Video, 'is_bad_media': pxt.Bool}
+
+        on_read_tbl = pxt.create_table('test1', schema, media_validation='on_read')
+        validate_update_status(on_read_tbl.insert(rows), len(rows))
+        on_read_res = (
+            on_read_tbl.select(on_read_tbl.media, on_read_tbl.media.localpath, on_read_tbl.is_bad_media).collect()
+        )
+
+        on_write_tbl = pxt.create_table('test2', schema, media_validation='on_write')
+        status = on_write_tbl.insert(rows, fail_on_exception=False)
+        assert status.num_excs == 2  # 1 row with exceptions in the media col and the index col
+        on_write_res = (
+            on_write_tbl.select(on_write_tbl.media, on_write_tbl.media.localpath, on_write_tbl.is_bad_media).collect()
+        )
+        assert_resultset_eq(on_read_res, on_write_res)
 
     def test_create_from_df(self, test_tbl: pxt.Table) -> None:
         t = pxt.get_table('test_tbl')
@@ -548,7 +567,7 @@ class TestTable:
             's3://open-images-dataset/validation/3b07a2c0d5c0c789.jpg',
         ]
 
-        tbl.insert({'img': url} for url in urls)
+        validate_update_status(tbl.insert({'img': url} for url in urls), expected_rows=len(urls))
         # check that we populated the cache
         cache_stats = FileCache.get().stats()
         assert cache_stats.num_requests == len(urls), f'{str(cache_stats)} tbl_id={tbl._id}'
