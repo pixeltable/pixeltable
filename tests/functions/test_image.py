@@ -26,6 +26,7 @@ class TestImage:
         _ = t[t.img.getpixel([5, 5])].show()
         _ = t[t.img.getprojection()].show()
         _ = t[t.img.histogram(mask=t.img.convert(mode='L'))].show()
+        _ = t[t.img.convert(mode='1').point([min(255, x * 20) for x in range(256)])].show()
         _ = t[t.img.quantize()].show()
         _ = t[t.img.quantize(256, Quantize.MEDIANCUT, 3, None, Dither.NONE)].show()
         _ = t[t.img.reduce(2)].show()

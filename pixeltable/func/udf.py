@@ -38,10 +38,6 @@ def udf(*args, **kwargs):
         >>> @pxt.udf
         ... def my_function(x: int) -> int:
         ...    return x + 1
-
-        >>> @pxt.udf(param_types=[pxt.IntType()], return_type=pxt.IntType())
-        ... def my_function(x):
-        ...    return x + 1
     """
     if len(args) == 1 and len(kwargs) == 0 and callable(args[0]):
 

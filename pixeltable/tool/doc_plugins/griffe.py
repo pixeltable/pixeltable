@@ -1,6 +1,6 @@
 import ast
-from typing import Optional, Union
 import warnings
+from typing import Optional, Union
 
 import griffe
 import griffe.expressions
@@ -39,7 +39,7 @@ class PxtGriffeExtension(Extension):
         udf = griffe.dynamic_import(func.path)
         assert isinstance(udf, pxt.Function)
         # Convert the return type to a Pixeltable type reference
-        func.returns = self.__column_type_to_display_str(udf.signature.get_return_type())
+        func.returns = str(udf.signature.get_return_type())
         # Convert the parameter types to Pixeltable type references
         for griffe_param in func.parameters:
             assert isinstance(griffe_param.annotation, griffe.expressions.Expr)
@@ -47,35 +47,4 @@ class PxtGriffeExtension(Extension):
                 logger.warning(f'Parameter `{griffe_param.name}` not found in signature for UDF: {udf.display_name}')
                 continue
             pxt_param = udf.signature.parameters[griffe_param.name]
-            griffe_param.annotation = self.__column_type_to_display_str(pxt_param.col_type)
-
-    def __column_type_to_display_str(self, column_type: Optional[pxt.ColumnType]) -> str:
-        # TODO: When we enhance the Pixeltable type system, we may want to refactor some of this logic out.
-        #   I'm putting it here for now though.
-        if column_type is None:
-            return 'None'
-        if column_type.is_string_type():
-            base = 'str'
-        elif column_type.is_int_type():
-            base = 'int'
-        elif column_type.is_float_type():
-            base = 'float'
-        elif column_type.is_bool_type():
-            base = 'bool'
-        elif column_type.is_timestamp_type():
-            base = 'datetime'
-        elif column_type.is_array_type():
-            base = 'ArrayT'
-        elif column_type.is_json_type():
-            base = 'JsonT'
-        elif column_type.is_image_type():
-            base = 'ImageT'
-        elif column_type.is_video_type():
-            base = 'VideoT'
-        elif column_type.is_audio_type():
-            base = 'AudioT'
-        elif column_type.is_document_type():
-            base = 'DocumentT'
-        else:
-            assert False
-        return f'Optional[{base}]' if column_type.nullable else base
+            griffe_param.annotation = str(pxt_param.col_type)
