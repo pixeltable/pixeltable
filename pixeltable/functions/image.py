@@ -149,6 +149,21 @@ def _(self: Expr) -> pxt.ColumnType:
     return pxt.ImageType(size=input_type.size, mode='L', nullable=input_type.nullable)
 
 
+# Image.point()
+@pxt.udf(is_method=True)
+def point(self: PIL.Image.Image, lut: list[int], mode: Optional[str] = None) -> PIL.Image.Image:
+    """
+    Map image pixels through a lookup table.
+
+    Equivalent to
+    [`PIL.Image.Image.point()`](https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.point)
+
+    Args:
+        lut: A lookup table.
+    """
+    return self.point(lut, mode=mode)
+
+
 # Image.resize()
 @pxt.udf(is_method=True)
 def resize(self: PIL.Image.Image, size: tuple[int, int]) -> PIL.Image.Image:
