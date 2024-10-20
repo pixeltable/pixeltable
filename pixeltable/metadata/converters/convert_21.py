@@ -14,7 +14,7 @@ def _(engine: sql.engine.Engine) -> None:
 
 
 def __update_table_schema_version(table_schema_version_md: dict) -> None:
-    table_schema_version_md['media_validation'] = 1  # MediaValidation.ON_WRITE
+    table_schema_version_md['media_validation'] = 'on_write'  # MediaValidation.ON_WRITE
 
 
 def __update_schema_column(schema_column: dict) -> None:

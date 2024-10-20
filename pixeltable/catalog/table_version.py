@@ -111,7 +111,6 @@ class TableVersion:
         is_view = tbl_md.view_md is not None
         self.is_snapshot = (is_view and tbl_md.view_md.is_snapshot) or bool(is_snapshot)
         self.media_validation = MediaValidation.__members__[schema_version_md.media_validation.upper()]
-        #self.media_validation = MediaValidation(schema_version_md.media_validation)
         # a mutable TableVersion doesn't have a static version
         self.effective_version = self.version if self.is_snapshot else None
 
