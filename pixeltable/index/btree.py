@@ -41,8 +41,7 @@ class BtreeIndex(IndexBase):
         if c.col_type.is_media_type():
             # an index on a media column is an index on the file url
             # no validation for media columns: we're only interested in the string value
-            col_ref = ColumnRef(c, perform_validation=False)
-            self.value_expr = ColumnPropertyRef(col_ref, ColumnPropertyRef.Property.FILEURL)
+            self.value_expr = ColumnRef(c, perform_validation=False)
         else:
             self.value_expr = BtreeIndex.str_filter(ColumnRef(c)) if c.col_type.is_string_type() else ColumnRef(c)
 

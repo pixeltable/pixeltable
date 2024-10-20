@@ -37,7 +37,7 @@ class ColumnRef(Expr):
     iterator: Optional[iters.ComponentIterator]
     pos_idx: Optional[int]
     id: int
-    perform_validation: bool  # if True, performs media validation
+    validates: bool  # if True, performs media validation
 
     def __init__(self, col: catalog.Column, perform_validation: Optional[bool] = None):
         super().__init__(col.col_type)
@@ -53,14 +53,14 @@ class ColumnRef(Expr):
         # index of the position column in the view's primary key; don't try to reference tbl.store_tbl here
         self.pos_idx = col.tbl.num_rowid_columns() - 1 if self.is_unstored_iter_col else None
 
-        self.perform_validation = False
+        self.validates = False
         if col.col_type.is_media_type():
             # we perform media validation if the column is a media type and the validation is set to ON_READ,
             # unless we're told not to
-            self.perform_validation = perform_validation if perform_validation is not None else (
+            self.validates = perform_validation if perform_validation is not None else (
                 col.col_type.is_media_type() and col.media_validation == catalog.MediaValidation.ON_READ
             )
-        if self.perform_validation:
+        if self.validates:
             non_validating_col_ref = ColumnRef(col, perform_validation=False)
             self.components = [non_validating_col_ref]
         self.id = self._create_id()
@@ -72,7 +72,7 @@ class ColumnRef(Expr):
     def _id_attrs(self) -> list[Tuple[str, Any]]:
         return (
             super()._id_attrs()
-            + [('tbl_id', self.col.tbl.id), ('col_id', self.col.id), ('validates', self.perform_validation)]
+            + [('tbl_id', self.col.tbl.id), ('col_id', self.col.id), ('validates', self.validates)]
         )
 
     def __getattr__(self, name: str) -> Expr:
@@ -105,7 +105,7 @@ class ColumnRef(Expr):
         return str(self)
 
     def _equals(self, other: ColumnRef) -> bool:
-        return self.col == other.col and self.perform_validation == other.perform_validation
+        return self.col == other.col and self.validates == other.validates
 
     def __str__(self) -> str:
         if self.col.name is None:
@@ -117,10 +117,10 @@ class ColumnRef(Expr):
         return f'ColumnRef({self.col!r})'
 
     def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
-        return None if self.perform_validation else self.col.sa_col
+        return None if self.validates else self.col.sa_col
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
-        if self.perform_validation:
+        if self.validates:
             # validate media file of our input ColumnRef and if successful, replicate the state of that slot
             # to our slot
             unvalidated_slot_idx = self.components[0].slot_idx
