@@ -195,7 +195,7 @@ class RowBuilder:
         """Record a column that is part of the table row"""
         self.table_columns.append(ColumnSlotIdx(col, slot_idx))
 
-    def output_slot_idxs(self) -> List[ColumnSlotIdx]:
+    def output_slot_idxs(self) -> list[ColumnSlotIdx]:
         """Return ColumnSlotIdx for output columns"""
         return self.table_columns
 
@@ -246,7 +246,7 @@ class RowBuilder:
         for d in e.dependencies():
             self._record_output_expr_id(d, output_expr_id)
 
-    def _compute_dependencies(self, target_slot_idxs: List[int], excluded_slot_idxs: List[int]) -> List[int]:
+    def _compute_dependencies(self, target_slot_idxs: list[int], excluded_slot_idxs: list[int]) -> list[int]:
         """Compute exprs needed to materialize the given target slots, excluding 'excluded_slot_idxs'"""
         dependencies = [set() for _ in range(self.num_materialized)]  # indexed by slot_idx
         # doing this front-to-back ensures that we capture transitive dependencies
@@ -288,7 +288,7 @@ class RowBuilder:
         for c in e.components:
             self.__set_slot_idxs_aux(c)
 
-    def get_dependencies(self, targets: List[Expr], exclude: Optional[List[Expr]] = None) -> List[Expr]:
+    def get_dependencies(self, targets: list[Expr], exclude: Optional[list[Expr]] = None) -> list[Expr]:
         """
         Return list of dependencies needed to evaluate the given target exprs (expressed as slot idxs).
         The exprs given in 'exclude' are excluded.
@@ -358,14 +358,14 @@ class RowBuilder:
                     raise excs.ExprEvalError(
                         expr, f'expression {expr}', data_row.get_exc(expr.slot_idx), exc_tb, input_vals, 0)
 
-    def create_table_row(self, data_row: DataRow, exc_col_ids: Set[int]) -> Tuple[Dict[str, Any], int]:
+    def create_table_row(self, data_row: DataRow, exc_col_ids: set[int]) -> tuple[dict[str, Any], int]:
         """Create a table row from the slots that have an output column assigned
 
         Return Tuple[dict that represents a stored row (can be passed to sql.insert()), # of exceptions]
             This excludes system columns.
         """
         num_excs = 0
-        table_row: Dict[str, Any] = {}
+        table_row: dict[str, Any] = {}
         for info in self.table_columns:
             col, slot_idx = info.col, info.slot_idx
             if data_row.has_exc(slot_idx):

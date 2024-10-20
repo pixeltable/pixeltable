@@ -203,8 +203,8 @@ class SchemaColumn:
     name: str
 
     # media validation strategy of this particular media column; if not set, TableMd.media_validation applies
-    # stores column.MediaValiation.value
-    media_validation: Optional[int]
+    # stores column.MediaValiation.name.lower()
+    media_validation: Optional[str]
 
 
 @dataclasses.dataclass
@@ -219,8 +219,8 @@ class TableSchemaVersionMd:
     comment: str
 
     # default validation strategy for any media column of this table
-    # stores column.MediaValiation.value
-    media_validation: int
+    # stores column.MediaValiation.name.lower()
+    media_validation: str
 
 
 # versioning: each table schema change results in a new record
