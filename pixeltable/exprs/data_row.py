@@ -97,9 +97,8 @@ class DataRow:
             return self.excs[slot_idx] is not None
         return any(exc is not None for exc in self.excs)
 
-    def get_exc(self, slot_idx: Optional[int] = None) -> Exception:
+    def get_exc(self, slot_idx: Optional[int] = None) -> Optional[Exception]:
         if slot_idx is not None:
-            assert self.excs[slot_idx] is not None
             return self.excs[slot_idx]
         for exc in self.excs:
             if exc is not None:

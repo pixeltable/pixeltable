@@ -45,6 +45,9 @@ def create_table(
             table.
         num_retained_versions: Number of versions of the table to retain.
         comment: An optional comment; its meaning is user-defined.
+        media_validation: Media validation policy for the table.
+            - `'on_read'`: validate media files at query time
+            - `'on_write'`: validate media files during insert/update operations
 
     Returns:
         A handle to the newly created [`Table`][pixeltable.Table].

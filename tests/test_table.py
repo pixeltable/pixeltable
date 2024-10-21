@@ -182,14 +182,20 @@ class TestTable:
         on_read_tbl = pxt.create_table('test1', schema, media_validation='on_read')
         validate_update_status(on_read_tbl.insert(rows), len(rows))
         on_read_res = (
-            on_read_tbl.select(on_read_tbl.media, on_read_tbl.media.localpath, on_read_tbl.is_bad_media).collect()
+            on_read_tbl.select(
+                on_read_tbl.media, on_read_tbl.media.localpath, on_read_tbl.media.errortype, on_read_tbl.media.errormsg,
+                on_read_tbl.is_bad_media
+            ).collect()
         )
 
         on_write_tbl = pxt.create_table('test2', schema, media_validation='on_write')
         status = on_write_tbl.insert(rows, fail_on_exception=False)
         assert status.num_excs == 2  # 1 row with exceptions in the media col and the index col
         on_write_res = (
-            on_write_tbl.select(on_write_tbl.media, on_write_tbl.media.localpath, on_write_tbl.is_bad_media).collect()
+            on_write_tbl.select(
+                on_write_tbl.media, on_write_tbl.media.localpath, on_write_tbl.media.errortype,
+                on_write_tbl.media.errormsg, on_write_tbl.is_bad_media
+            ).collect()
         )
         assert_resultset_eq(on_read_res, on_write_res)
 

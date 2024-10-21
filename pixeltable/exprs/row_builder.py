@@ -62,11 +62,10 @@ class RowBuilder:
     default_eval_ctx: EvalCtx
     unstored_iter_args: dict[int, Expr]
 
-    # record transitive dependencies (list of set of slot_idxs, indexed by slot_idx)
-    dependencies: list[set[int]]
-
-    # derived transitive dependents
-    dependents: list[set[int]]
+    # transitive dependents for the purpose of exception propagation: an exception for slot i is propagated to
+    # _exc_dependents[i]
+    # (list of set of slot_idxs, indexed by slot_idx)
+    _exc_dependents: list[set[int]]
 
     # records the output_expr that a subexpr belongs to
     # (a subexpr can be shared across multiple output exprs)
@@ -173,19 +172,25 @@ class RowBuilder:
         for i, expr in enumerate(self.unique_exprs):
             assert expr.slot_idx == i
 
-        self.dependencies = [set() for _ in range(self.num_materialized)]
+        # determine transitive dependencies for the purpose of exception propagation
+        # (list of set of slot_idxs, indexed by slot_idx)
+        exc_dependencies = [set() for _ in range(self.num_materialized)]
+        from .column_property_ref import ColumnPropertyRef
         for expr in self.unique_exprs:
             if expr.slot_idx in self.input_expr_slot_idxs:
                 # this is input and therefore doesn't depend on other exprs
                 continue
+            # error properties don't have exceptions themselves
+            if isinstance(expr, ColumnPropertyRef) and expr.is_error_prop():
+                continue
             for d in expr.dependencies():
-                self.dependencies[expr.slot_idx].add(d.slot_idx)
-                self.dependencies[expr.slot_idx].update(self.dependencies[d.slot_idx])
+                exc_dependencies[expr.slot_idx].add(d.slot_idx)
+                exc_dependencies[expr.slot_idx].update(exc_dependencies[d.slot_idx])
 
-        self.dependents = [set() for _ in range(self.num_materialized)]
+        self._exc_dependents = [set() for _ in range(self.num_materialized)]
         for expr in self.unique_exprs:
-            for d in self.dependencies[expr.slot_idx]:
-                self.dependents[d].add(expr.slot_idx)
+            for d in exc_dependencies[expr.slot_idx]:
+                self._exc_dependents[d].add(expr.slot_idx)
 
         self.output_expr_ids = [set() for _ in range(self.num_materialized)]
         for e in self.output_exprs:
@@ -327,7 +332,7 @@ class RowBuilder:
     def set_exc(self, data_row: DataRow, slot_idx: int, exc: Exception) -> None:
         """Record an exception in data_row and propagate it to dependents"""
         data_row.set_exc(slot_idx, exc)
-        for slot_idx in self.dependents[slot_idx]:
+        for slot_idx in self._exc_dependents[slot_idx]:
             data_row.set_exc(slot_idx, exc)
 
     def eval(
