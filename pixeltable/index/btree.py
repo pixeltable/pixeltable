@@ -12,12 +12,6 @@ from .base import IndexBase
 if TYPE_CHECKING:
     import pixeltable
 
-@udf
-def _str_filter(s: Optional[str]) -> Optional[str]:
-    if s is None:
-        return None
-    return s[:BtreeIndex.MAX_STRING_LEN]
-
 
 class BtreeIndex(IndexBase):
     """
