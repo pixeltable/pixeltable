@@ -69,6 +69,9 @@ class Project(ExternalStore, abc.ABC):
     An `ExternalStore` that represents a labeling project. Extends `ExternalStore` with a few
     additional capabilities specific to such projects.
     """
+
+    stored_proxies: dict[Column, Column]
+
     def __init__(self, name: str, col_mapping: dict[Column, str], stored_proxies: Optional[dict[Column, Column]]):
         super().__init__(name)
         self._col_mapping = col_mapping
@@ -116,7 +119,7 @@ class Project(ExternalStore, abc.ABC):
             tbl_version.schema_version = tbl_version.version
             proxy_cols = [self.create_stored_proxy(tbl_version, col) for col in stored_proxies_needed]
             # Add the columns; this will also update table metadata.
-            tbl_version._add_columns(proxy_cols, conn)
+            tbl_version._add_columns(proxy_cols, conn, print_stats=False, on_error='ignore')
             # We don't need to retain `UpdateStatus` since the stored proxies are intended to be
             # invisible to the user.
             tbl_version._update_md(time.time(), conn, preceding_schema_version=preceding_schema_version)
@@ -126,7 +129,7 @@ class Project(ExternalStore, abc.ABC):
         # any *other* external store for this table.)
         deletions_needed: set[Column] = set(self.stored_proxies.values())
         for name, store in tbl_version.external_stores.items():
-            if name != self.name:
+            if isinstance(store, Project) and name != self.name:
                 deletions_needed = deletions_needed.difference(set(store.stored_proxies.values()))
         if len(deletions_needed) > 0:
             _logger.info(f'Removing stored proxies for columns: {[col.name for col in deletions_needed]}')
@@ -210,6 +213,8 @@ class Project(ExternalStore, abc.ABC):
         If validation fails, an exception will be raised. If validation succeeds, a new mapping will be returned
         in which the Pixeltable column names are resolved to the corresponding `Column` objects.
         """
+        from pixeltable import exprs
+
         is_user_specified_col_mapping = col_mapping is not None
         if col_mapping is None:
             col_mapping = {col: col for col in itertools.chain(export_cols.keys(), import_cols.keys())}
@@ -235,8 +240,9 @@ class Project(ExternalStore, abc.ABC):
                     f'Column name `{ext_col}` appears as a value in `col_mapping`, but the external store '
                     f'configuration has no column `{ext_col}`.'
                 )
-            col = table[t_col].col
-            resolved_col_mapping[col] = ext_col
+            col_ref = table[t_col]
+            assert isinstance(col_ref, exprs.ColumnRef)
+            resolved_col_mapping[col_ref.col] = ext_col
         # Validate column specs
         t_col_types = table._schema
         for t_col, ext_col in col_mapping.items():
@@ -329,7 +335,7 @@ class MockProject(Project):
     def get_import_columns(self) -> dict[str, ts.ColumnType]:
         return self.import_cols
 
-    def sync(self, t: Table, export_data: bool, import_data: bool) -> NotImplemented:
+    def sync(self, t: Table, export_data: bool, import_data: bool) -> SyncStatus:
         raise NotImplementedError()
 
     def delete(self) -> None:

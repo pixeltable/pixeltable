@@ -7,18 +7,19 @@ import sys
 import urllib.parse
 import urllib.request
 import warnings
-from typing import Optional, Dict, Any, List, Tuple, Set, Union
+from typing import Any, Iterator, Literal, Optional, Union
 
 import sqlalchemy as sql
-from tqdm import tqdm, TqdmWarning
+from tqdm import TqdmWarning, tqdm
 
 import pixeltable.catalog as catalog
 import pixeltable.env as env
+import pixeltable.exceptions as excs
 from pixeltable import exprs
 from pixeltable.exec import ExecNode
 from pixeltable.metadata import schema
 from pixeltable.utils.media_store import MediaStore
-from pixeltable.utils.sql import log_stmt, log_explain
+from pixeltable.utils.sql import log_explain, log_stmt
 
 _logger = logging.getLogger('pixeltable')
 
@@ -31,35 +32,42 @@ class StoreBase:
     - v_min: version at which the row was created
     - v_max: version at which the row was deleted (or MAX_VERSION if it's still live)
     """
+    tbl_version: catalog.TableVersion
+    sa_md: sql.MetaData
+    sa_tbl: Optional[sql.Table]
+    _pk_cols: list[sql.Column]
+    v_min_col: sql.Column
+    v_max_col: sql.Column
+    base: Optional[StoreBase]
 
     __INSERT_BATCH_SIZE = 1000
 
     def __init__(self, tbl_version: catalog.TableVersion):
         self.tbl_version = tbl_version
         self.sa_md = sql.MetaData()
-        self.sa_tbl: Optional[sql.Table] = None
+        self.sa_tbl = None
         # We need to declare a `base` variable here, even though it's only defined for instances of `StoreView`,
         # since it's referenced by various methods of `StoreBase`
         self.base = None if tbl_version.base is None else tbl_version.base.store_tbl
         self.create_sa_tbl()
 
-    def pk_columns(self) -> List[sql.Column]:
-        return self._pk_columns
+    def pk_columns(self) -> list[sql.Column]:
+        return self._pk_cols
 
-    def rowid_columns(self) -> List[sql.Column]:
-        return self._pk_columns[:-1]
+    def rowid_columns(self) -> list[sql.Column]:
+        return self._pk_cols[:-1]
 
     @abc.abstractmethod
-    def _create_rowid_columns(self) -> List[sql.Column]:
+    def _create_rowid_columns(self) -> list[sql.Column]:
         """Create and return rowid columns"""
 
-    def _create_system_columns(self) -> List[sql.Column]:
+    def _create_system_columns(self) -> list[sql.Column]:
         """Create and return system columns"""
         rowid_cols = self._create_rowid_columns()
         self.v_min_col = sql.Column('v_min', sql.BigInteger, nullable=False)
         self.v_max_col = \
             sql.Column('v_max', sql.BigInteger, nullable=False, server_default=str(schema.Table.MAX_VERSION))
-        self._pk_columns = [*rowid_cols, self.v_min_col]
+        self._pk_cols = [*rowid_cols, self.v_min_col]
         return [*rowid_cols, self.v_min_col, self.v_max_col]
 
     def create_sa_tbl(self) -> None:
@@ -79,7 +87,7 @@ class StoreBase:
             # if we're called in response to a schema change, we need to remove the old table first
             self.sa_md.remove(self.sa_tbl)
 
-        idxs: List[sql.Index] = []
+        idxs: list[sql.Index] = []
         # index for all system columns:
         # - base x view joins can be executed as merge joins
         # - speeds up ORDER BY rowid DESC
@@ -126,7 +134,7 @@ class StoreBase:
         return new_file_url
 
     def _move_tmp_media_files(
-            self, table_rows: List[Dict[str, Any]], media_cols: List[catalog.Column], v_min: int
+            self, table_rows: list[dict[str, Any]], media_cols: list[catalog.Column], v_min: int
     ) -> None:
         """Move tmp media files that we generated to a permanent location"""
         for c in media_cols:
@@ -135,23 +143,17 @@ class StoreBase:
                 table_row[c.store_name()] = self._move_tmp_media_file(file_url, c, v_min)
 
     def _create_table_row(
-            self, input_row: exprs.DataRow, row_builder: exprs.RowBuilder, media_cols: List[catalog.Column],
-            exc_col_ids: Set[int], v_min: int
-    ) -> Tuple[Dict[str, Any], int]:
+            self, input_row: exprs.DataRow, row_builder: exprs.RowBuilder, exc_col_ids: set[int], pk: tuple[int, ...]
+    ) -> tuple[dict[str, Any], int]:
         """Return Tuple[complete table row, # of exceptions] for insert()
         Creates a row that includes the PK columns, with the values from input_row.pk.
         Returns:
             Tuple[complete table row, # of exceptions]
         """
         table_row, num_excs = row_builder.create_table_row(input_row, exc_col_ids)
-
-        assert input_row.pk is not None and len(input_row.pk) == len(self._pk_columns)
-        for pk_col, pk_val in zip(self._pk_columns, input_row.pk):
-            if pk_col == self.v_min_col:
-                table_row[pk_col.name] = v_min
-            else:
-                table_row[pk_col.name] = pk_val
-
+        assert len(pk) == len(self._pk_cols)
+        for pk_col, pk_val in zip(self._pk_cols, pk):
+            table_row[pk_col.name] = pk_val
         return table_row, num_excs
 
     def count(self, conn: Optional[sql.engine.Connection] = None) -> int:
@@ -212,14 +214,20 @@ class StoreBase:
             conn.execute(sql.text(stmt))
 
     def load_column(
-            self, col: catalog.Column, exec_plan: ExecNode, value_expr_slot_idx: int, conn: sql.engine.Connection
+        self,
+        col: catalog.Column,
+        exec_plan: ExecNode,
+        value_expr_slot_idx: int,
+        conn: sql.engine.Connection,
+        on_error: Literal['abort', 'ignore']
     ) -> int:
         """Update store column of a computed column with values produced by an execution plan
 
         Returns:
             number of rows with exceptions
         Raises:
-            sql.exc.DBAPIError if there was an error during SQL execution
+            sql.exc.DBAPIError if there was a SQL error during execution
+            excs.Error if on_error='abort' and there was an exception during row evaluation
         """
         num_excs = 0
         num_rows = 0
@@ -253,6 +261,10 @@ class StoreBase:
                         if result_row.has_exc(value_expr_slot_idx):
                             num_excs += 1
                             value_exc = result_row.get_exc(value_expr_slot_idx)
+                            if on_error == 'abort':
+                                raise excs.Error(
+                                    f'Error while evaluating computed column `{col.name}`:\n{value_exc}'
+                                ) from value_exc
                             # we store a NULL value and record the exception/exc type
                             error_type = type(value_exc).__name__
                             error_msg = str(value_exc)
@@ -291,8 +303,8 @@ class StoreBase:
 
     def insert_rows(
             self, exec_plan: ExecNode, conn: sql.engine.Connection, v_min: Optional[int] = None,
-            show_progress: bool = True
-    ) -> Tuple[int, int, Set[int]]:
+            show_progress: bool = True, rowids: Optional[Iterator[int]] = None
+    ) -> tuple[int, int, set[int]]:
         """Insert rows into the store table and update the catalog table's md
         Returns:
             number of inserted rows, number of exceptions, set of column ids that have exceptions
@@ -302,7 +314,7 @@ class StoreBase:
         # TODO: total?
         num_excs = 0
         num_rows = 0
-        cols_with_excs: Set[int] = set()
+        cols_with_excs: set[int] = set()
         progress_bar: Optional[tqdm] = None  # create this only after we started executing
         row_builder = exec_plan.row_builder
         media_cols = [info.col for info in row_builder.table_columns if info.col.col_type.is_media_type()]
@@ -312,13 +324,16 @@ class StoreBase:
                 num_rows += len(row_batch)
                 for batch_start_idx in range(0, len(row_batch), self.__INSERT_BATCH_SIZE):
                     # compute batch of rows and convert them into table rows
-                    table_rows: List[Dict[str, Any]] = []
+                    table_rows: list[dict[str, Any]] = []
                     for row_idx in range(batch_start_idx, min(batch_start_idx + self.__INSERT_BATCH_SIZE, len(row_batch))):
                         row = row_batch[row_idx]
-                        table_row, num_row_exc = \
-                            self._create_table_row(row, row_builder, media_cols, cols_with_excs, v_min=v_min)
+
+                        rowid = (next(rowids),) if rowids is not None else row.pk[:-1]
+                        pk = rowid + (v_min,)
+                        table_row, num_row_exc = self._create_table_row(row, row_builder, cols_with_excs, pk=pk)
                         num_excs += num_row_exc
                         table_rows.append(table_row)
+
                         if show_progress:
                             if progress_bar is None:
                                 warnings.simplefilter("ignore", category=TqdmWarning)
@@ -353,7 +368,7 @@ class StoreBase:
         return sql.and_(clause, self.base._versions_clause(versions[1:], match_on_vmin))
 
     def delete_rows(
-            self, current_version: int, base_versions: List[Optional[int]], match_on_vmin: bool,
+            self, current_version: int, base_versions: list[Optional[int]], match_on_vmin: bool,
             where_clause: Optional[sql.ColumnElement[bool]], conn: sql.engine.Connection) -> int:
         """Mark rows as deleted that are live and were created prior to current_version.
         Also: populate the undo columns
@@ -397,7 +412,7 @@ class StoreTable(StoreBase):
         assert not tbl_version.is_view()
         super().__init__(tbl_version)
 
-    def _create_rowid_columns(self) -> List[sql.Column]:
+    def _create_rowid_columns(self) -> list[sql.Column]:
         self.rowid_col = sql.Column('rowid', sql.BigInteger, nullable=False)
         return [self.rowid_col]
 
@@ -413,7 +428,7 @@ class StoreView(StoreBase):
         assert catalog_view.is_view()
         super().__init__(catalog_view)
 
-    def _create_rowid_columns(self) -> List[sql.Column]:
+    def _create_rowid_columns(self) -> list[sql.Column]:
         # a view row corresponds directly to a single base row, which means it needs to duplicate its rowid columns
         self.rowid_cols = [sql.Column(c.name, c.type) for c in self.base.rowid_columns()]
         return self.rowid_cols
@@ -439,7 +454,7 @@ class StoreComponentView(StoreView):
     def __init__(self, catalog_view: catalog.TableVersion):
         super().__init__(catalog_view)
 
-    def _create_rowid_columns(self) -> List[sql.Column]:
+    def _create_rowid_columns(self) -> list[sql.Column]:
         # each base row is expanded into n view rows
         self.rowid_cols = [sql.Column(c.name, c.type) for c in self.base.rowid_columns()]
         # name of pos column: avoid collisions with bases' pos columns

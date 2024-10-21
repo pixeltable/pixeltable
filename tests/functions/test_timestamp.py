@@ -24,7 +24,7 @@ class TestTimestamp:
         default_tz = ZoneInfo('America/Anchorage')
         Env.get().default_time_zone = default_tz
 
-        t = pxt.create_table('test_tbl', {'dt': pxt.TimestampType()})
+        t = pxt.create_table('test_tbl', {'dt': pxt.Timestamp})
         test_dts = [datetime.fromisoformat(dt) for dt in self.TEST_DATETIMES]
         validate_update_status(t.insert({'dt': dt} for dt in test_dts), expected_rows=len(test_dts))
 
@@ -67,7 +67,7 @@ class TestTimestamp:
             expected = [dt_fn(dt.astimezone(default_tz), *args, **kwargs) for dt in test_dts]
             assert actual == expected, debug_str()
             actual_py = t.select(
-                out=pxt_fn(t.dt.apply(lambda x: x, col_type=pxt.TimestampType()), *args, **kwargs)
+                out=pxt_fn(t.dt.apply(lambda x: x, col_type=pxt.Timestamp), *args, **kwargs)
             ).collect()['out']
             assert actual_py == expected, debug_str()
 
@@ -104,7 +104,7 @@ class TestTimestamp:
             Env.get().default_time_zone = default_time_zone
 
             pxt.drop_table('test_tbl', force=True)
-            t = pxt.create_table('test_tbl', {'dt': pxt.TimestampType()})
+            t = pxt.create_table('test_tbl', {'dt': pxt.Timestamp})
             t.insert({'dt': dt} for dt in timestamps)
             selection = {'dt': t.dt, 'dt_tz': t.dt.astimezone(query_time_zone.key)}
             for prop in props_to_test:
@@ -141,7 +141,7 @@ class TestTimestamp:
 
     def test_time_zone_in_literals(self, reset_db) -> None:
         Env.get().default_time_zone = ZoneInfo('America/Anchorage')
-        t = pxt.create_table('test_tbl', {'n': pxt.IntType(), 'dt': pxt.TimestampType()})
+        t = pxt.create_table('test_tbl', {'n': pxt.Int, 'dt': pxt.Timestamp})
         start = datetime.fromisoformat('2024-07-01T00:00:00+00:00')
         validate_update_status(
             t.insert({'n': n, 'dt': start + timedelta(minutes=n)} for n in range(1440)),
@@ -156,16 +156,19 @@ class TestTimestamp:
 
     def test_make_ts(self, reset_db) -> None:
         Env.get().default_time_zone = ZoneInfo('America/Anchorage')
-        t = pxt.create_table('test_tbl', {'dt': pxt.TimestampType()})
+        t = pxt.create_table('test_tbl', {'dt': pxt.Timestamp})
         test_dts = [datetime.fromisoformat(dt) for dt in self.TEST_DATETIMES]
         validate_update_status(t.insert({'dt': dt} for dt in test_dts), expected_rows=len(test_dts))
         from pixeltable.functions.timestamp import make_timestamp
-        res = t.select(
-            out=make_timestamp(
-                year=t.dt.year, month=t.dt.month, day=t.dt.day, hour=t.dt.hour,
-                # omit minute in order to force FunctionCall.sql_expr() to deal with kw args
-                second=t.dt.second)
-        ).collect()
+        res = (
+            t.select(
+                out=make_timestamp(
+                    year=t.dt.year, month=t.dt.month, day=t.dt.day, hour=t.dt.hour,
+                    # omit minute in order to force FunctionCall.sql_expr() to deal with kw args
+                    second=t.dt.second))
+            #.order_by(t.dt.day, asc=False)
+            .collect()
+        )
         assert (
             res['out'] == [dt.replace(minute=0).astimezone(Env.get().default_time_zone) for dt in test_dts]
         )

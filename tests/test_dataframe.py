@@ -2,95 +2,96 @@ import datetime
 import pickle
 import urllib.request
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
-import PIL.Image
 import bs4
 import numpy as np
+import PIL.Image
 import pytest
 
 import pixeltable as pxt
 from pixeltable import catalog
 from pixeltable import exceptions as excs
 from pixeltable.iterators import FrameIterator
-from .utils import get_video_files, get_audio_files, get_documents, skip_test_if_not_installed, validate_update_status
+
+from .utils import get_audio_files, get_documents, get_video_files, skip_test_if_not_installed, validate_update_status
 
 
 class TestDataFrame:
 
     def test_select_where(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
-        res1 = t.show(0)
-        res2 = t.select().show(0)
-        assert res1 == res2
+        res1 = t.collect()
+        res2 = t.select().collect()
+        assert len(res1) > 0 and res1 == res2
 
-        res1 = t[t.c1, t.c2, t.c3].show(0)
-        res2 = t.select(t.c1, t.c2, t.c3).show(0)
-        assert res1 == res2
+        res1 = t[t.c1, t.c2, t.c3].collect()
+        res2 = t.select(t.c1, t.c2, t.c3).collect()
+        assert len(res1) > 0 and res1 == res2
 
-        res1 = t.where(t.c2 < 10).select(t.c1, t.c2, t.c3).show(0)
+        res1 = t.where(t.c2 < 10).select(t.c1, t.c2, t.c3).collect()
         # this is no longer supported; TODO: do we want this?
-        #res2 = t[t.c2 < 10][t.c1, t.c2, t.c3].show(0)
+        #res2 = t[t.c2 < 10][t.c1, t.c2, t.c3].collect()
         #assert res1 == res2
 
-        res3 = t.where(t.c2 < 10).select(c1=t.c1, c2=t.c2, c3=t.c3).show(0)
+        res3 = t.where(t.c2 < 10).select(c1=t.c1, c2=t.c2, c3=t.c3).collect()
         assert res1 == res3
 
-        res4 = t.where(t.c2 < 10).select(t.c1, c2=t.c2, c3=t.c3).show(0)
+        res4 = t.where(t.c2 < 10).select(t.c1, c2=t.c2, c3=t.c3).collect()
         assert res1 == res4
 
         from pixeltable.functions.string import contains
-        _ = t.where(contains(t.c1, 'test')).select(t.c1).show(0)
-        _ = t.where(contains(t.c1, 'test') & contains(t.c1, '1')).select(t.c1).show(0)
-        _ = t.where(contains(t.c1, 'test') & (t.c2 >= 10)).select(t.c1).show(0)
+        _ = t.where(contains(t.c1, 'test')).select(t.c1).collect()
+        _ = t.where(contains(t.c1, 'test') & contains(t.c1, '1')).select(t.c1).collect()
+        _ = t.where(contains(t.c1, 'test') & (t.c2 >= 10)).select(t.c1).collect()
 
-        _ = t.where(t.c2 < 10).select(t.c2, t.c2).show(0) # repeated name no error
+        _ = t.where(t.c2 < 10).select(t.c2, t.c2).collect() # repeated name no error
 
         # where clause needs to be a predicate
         with pytest.raises(excs.Error) as exc_info:
-            _ = t.where(t.c1).select(t.c2).show(0)
+            _ = t.where(t.c1).select(t.c2).collect()
         assert 'needs to return bool' in str(exc_info.value)
 
         # where clause needs to be a predicate
         with pytest.raises(excs.Error) as exc_info:
-            _ = t.where(15).select(t.c2).show(0)
+            _ = t.where(15).select(t.c2).collect()
         assert 'requires a pixeltable expression' in str(exc_info.value).lower()
 
         # duplicate select list
         with pytest.raises(excs.Error) as exc_info:
-            _ = t.select(t.c1).select(t.c2).show(0)
+            _ = t.select(t.c1).select(t.c2).collect()
         assert 'already specified' in str(exc_info.value)
 
         # invalid expr in select list: Callable is not a valid literal
         with pytest.raises(TypeError) as exc_info:
-            _ = t.select(datetime.datetime.now).show(0)
+            _ = t.select(datetime.datetime.now).collect()
         assert 'Not a valid literal' in str(exc_info.value)
 
         # catch invalid name in select list from user input
         # only check stuff that's not caught by python kwargs checker
         with pytest.raises(excs.Error) as exc_info:
-            _ = t.select(t.c1, **{'c2-1': t.c2}).show(0)
+            _ = t.select(t.c1, **{'c2-1': t.c2}).collect()
         assert 'Invalid name' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
-            _ = t.select(t.c1, **{'': t.c2}).show(0)
+            _ = t.select(t.c1, **{'': t.c2}).collect()
         assert 'Invalid name' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
-            _ = t.select(t.c1, **{'foo.bar': t.c2}).show(0)
+            _ = t.select(t.c1, **{'foo.bar': t.c2}).collect()
         assert 'Invalid name' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
-            _ = t.select(t.c1, _c3=t.c2).show(0)
+            _ = t.select(t.c1, _c3=t.c2).collect()
         assert 'Invalid name' in str(exc_info.value)
 
         # catch repeated name from user input
         with pytest.raises(excs.Error) as exc_info:
-            _ = t.select(t.c2, c2=t.c1).show(0)
+            _ = t.select(t.c2, c2=t.c1).collect()
         assert 'Repeated column name' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
-            _ = t.select(t.c2+1, col_0=t.c2).show(0)
+            _ = t.select(t.c2+1, col_0=t.c2).collect()
         assert 'Repeated column name' in str(exc_info.value)
 
     def test_result_set_iterator(self, test_tbl: catalog.Table) -> None:
@@ -98,7 +99,7 @@ class TestDataFrame:
         res = t.select(t.c1, t.c2, t.c3).collect()
         pd_df = res.to_pandas()
 
-        def check_row(row: Dict[str, Any], idx: int) -> None:
+        def check_row(row: dict[str, Any], idx: int) -> None:
             assert len(row) == 3
             assert 'c1' in row
             assert row['c1'] == pd_df['c1'][idx]
@@ -141,11 +142,11 @@ class TestDataFrame:
 
     def test_order_by(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
-        res = t.select(t.c4, t.c2).order_by(t.c4).order_by(t.c2, asc=False).show(0)
+        res = t.select(t.c4, t.c2).order_by(t.c4).order_by(t.c2, asc=False).collect()
 
         # invalid expr in order_by()
         with pytest.raises(excs.Error) as exc_info:
-            _ = t.order_by(datetime.datetime.now()).show(0)
+            _ = t.order_by(datetime.datetime.now()).collect()
         assert 'Invalid expression' in str(exc_info.value)
 
     def test_head_tail(self, test_tbl: catalog.Table) -> None:
@@ -197,9 +198,9 @@ class TestDataFrame:
         assert res[next(iter(res.schema.keys()))] == [1.0] * 10
 
     def test_html_media_url(self, reset_db) -> None:
-        tab = pxt.create_table('test_html_repr', {'video': pxt.VideoType(),
-                                                  'audio': pxt.AudioType(),
-                                                  'doc': pxt.DocumentType()})
+        tab = pxt.create_table('test_html_repr', {'video': pxt.Video,
+                                                  'audio': pxt.Audio,
+                                                  'doc': pxt.Document})
 
         pdf_doc = next(f for f in get_documents() if f.endswith('.pdf'))
         status = tab.insert(video=get_video_files()[0], audio=get_audio_files()[0], doc=pdf_doc)
@@ -420,8 +421,9 @@ class TestDataFrame:
         """
         skip_test_if_not_installed('torch')
         import torch.utils.data
-        @pxt.udf(param_types=[pxt.JsonType()], return_type=pxt.JsonType())
-        def restrict_json_for_default_collate(obj):
+
+        @pxt.udf
+        def restrict_json_for_default_collate(obj: pxt.Json) -> pxt.Json:
             keys = ['id', 'label', 'iscrowd', 'bounding_box']
             return {k: obj[k] for k in keys}
 
@@ -510,7 +512,8 @@ class TestDataFrame:
     def test_to_coco(self, reset_db) -> None:
         skip_test_if_not_installed('yolox')
         from pycocotools.coco import COCO
-        from pixeltable.ext.functions.yolox import yolox, yolo_to_coco
+
+        from pixeltable.ext.functions.yolox import yolo_to_coco, yolox
         base_t = pxt.create_table('videos', {'video': pxt.VideoType()})
         view_t = pxt.create_view('frames', base_t, iterator=FrameIterator.create(video=base_t.video, fps=1))
         view_t.add_column(detections=yolox(view_t.frame, model_id='yolox_m'))

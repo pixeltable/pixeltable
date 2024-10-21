@@ -6,7 +6,7 @@ import inspect
 import logging
 import time
 import uuid
-from typing import TYPE_CHECKING, Any, Iterable, Optional
+from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, Optional
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -453,7 +453,9 @@ class TableVersion:
         self.idxs_by_name[idx_name] = idx_info
 
         # add the columns and update the metadata
-        status = self._add_columns([val_col, undo_col], conn)
+        # TODO support on_error='abort' for indices; it's tricky because of the way metadata changes are entangled
+        # with the database operations
+        status = self._add_columns([val_col, undo_col], conn, print_stats=False, on_error='ignore')
         # now create the index structure
         idx.create_index(self._store_idx_name(idx_id), val_col, conn)
 
@@ -478,7 +480,7 @@ class TableVersion:
             self._update_md(time.time(), conn, preceding_schema_version=preceding_schema_version)
             _logger.info(f'Dropped index {idx_md.name} on table {self.name}')
 
-    def add_column(self, col: Column, print_stats: bool = False) -> UpdateStatus:
+    def add_column(self, col: Column, print_stats: bool, on_error: Literal['abort', 'ignore']) -> UpdateStatus:
         """Adds a column to the table.
         """
         assert not self.is_snapshot
@@ -498,9 +500,8 @@ class TableVersion:
         preceding_schema_version = self.schema_version
         self.schema_version = self.version
         with Env.get().engine.begin() as conn:
-            status = self._add_columns([col], conn, print_stats=print_stats)
+            status = self._add_columns([col], conn, print_stats=print_stats, on_error=on_error)
             _ = self._add_default_index(col, conn)
-            # TODO: what to do about errors?
             self._update_md(time.time(), conn, preceding_schema_version=preceding_schema_version)
         _logger.info(f'Added column {col.name} to table {self.name}, new version: {self.version}')
 
@@ -512,7 +513,13 @@ class TableVersion:
         _logger.info(f'Column {col.name}: {msg}')
         return status
 
-    def _add_columns(self, cols: Iterable[Column], conn: sql.engine.Connection, print_stats: bool = False) -> UpdateStatus:
+    def _add_columns(
+        self,
+        cols: Iterable[Column],
+        conn: sql.engine.Connection,
+        print_stats: bool,
+        on_error: Literal['abort', 'ignore']
+    ) -> UpdateStatus:
         """Add and populate columns within the current transaction"""
         cols = list(cols)
         row_count = self.store_tbl.count(conn=conn)
@@ -550,10 +557,14 @@ class TableVersion:
             try:
                 plan.ctx.set_conn(conn)
                 plan.open()
-                num_excs = self.store_tbl.load_column(col, plan, value_expr_slot_idx, conn)
+                try:
+                    num_excs = self.store_tbl.load_column(col, plan, value_expr_slot_idx, conn, on_error)
+                except sql.exc.DBAPIError as exc:
+                    # Wrap the DBAPIError in an excs.Error to unify processing in the subsequent except block
+                    raise excs.Error(f'SQL error during execution of computed column `{col.name}`:\n{exc}') from exc
                 if num_excs > 0:
                     cols_with_excs.append(col)
-            except sql.exc.DBAPIError as e:
+            except excs.Error as exc:
                 self.cols.pop()
                 for col in cols:
                     # remove columns that we already added
@@ -564,7 +575,7 @@ class TableVersion:
                     del self.cols_by_id[col.id]
                 # we need to re-initialize the sqlalchemy schema
                 self.store_tbl.create_sa_tbl()
-                raise excs.Error(f'Error during SQL execution:\n{e}')
+                raise exc
             finally:
                 plan.close()
 
@@ -689,21 +700,30 @@ class TableVersion:
             plan = Planner.create_insert_plan(self, rows, ignore_errors=not fail_on_exception)
         else:
             plan = Planner.create_df_insert_plan(self, df, ignore_errors=not fail_on_exception)
+
+        # this is a base table; we generate rowids during the insert
+        def rowids() -> Iterator[int]:
+            while True:
+                rowid = self.next_rowid
+                self.next_rowid += 1
+                yield rowid
+
         if conn is None:
             with Env.get().engine.begin() as conn:
-                return self._insert(plan, conn, time.time(), print_stats)
+                return self._insert(plan, conn, time.time(), print_stats=print_stats, rowids=rowids())
         else:
-            return self._insert(plan, conn, time.time(), print_stats)
+            return self._insert(plan, conn, time.time(), print_stats=print_stats, rowids=rowids())
 
     def _insert(
-        self, exec_plan: 'exec.ExecNode', conn: sql.engine.Connection, timestamp: float, print_stats: bool = False,
+        self, exec_plan: 'exec.ExecNode', conn: sql.engine.Connection, timestamp: float, *,
+        rowids: Optional[Iterator[int]] = None, print_stats: bool = False,
     ) -> UpdateStatus:
         """Insert rows produced by exec_plan and propagate to views"""
         # we're creating a new version
         self.version += 1
         result = UpdateStatus()
-        num_rows, num_excs, cols_with_excs = self.store_tbl.insert_rows(exec_plan, conn, v_min=self.version)
-        self.next_rowid = num_rows
+        num_rows, num_excs, cols_with_excs = self.store_tbl.insert_rows(
+            exec_plan, conn, v_min=self.version, rowids=rowids)
         result.num_rows = num_rows
         result.num_excs = num_excs
         result.num_computed_values += exec_plan.ctx.num_computed_exprs * num_rows
@@ -714,7 +734,7 @@ class TableVersion:
         for view in self.mutable_views:
             from pixeltable.plan import Planner
             plan, _ = Planner.create_view_load_plan(view.path, propagates_insert=True)
-            status = view._insert(plan, conn, timestamp, print_stats)
+            status = view._insert(plan, conn, timestamp, print_stats=print_stats)
             result.num_rows += status.num_rows
             result.num_excs += status.num_excs
             result.num_computed_values += status.num_computed_values
@@ -751,9 +771,7 @@ class TableVersion:
                 raise excs.Error(f'Filter {analysis_info.filter} not expressible in SQL')
 
         with Env.get().engine.begin() as conn:
-            plan, updated_cols, recomputed_cols = (
-                Planner.create_update_plan(self.path, update_spec, [], where, cascade)
-            )
+            plan, updated_cols, recomputed_cols = Planner.create_update_plan(self.path, update_spec, [], where, cascade)
             from pixeltable.exprs import SqlElementCache
             result = self.propagate_update(
                 plan, where.sql_expr(SqlElementCache()) if where is not None else None, recomputed_cols,

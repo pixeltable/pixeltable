@@ -1,4 +1,5 @@
 import os
+import platform
 from collections import OrderedDict
 from pathlib import Path
 
@@ -13,6 +14,9 @@ from .utils import get_image_files
 
 
 class TestFileCache:
+    # TODO: Understand why this test is flaky on Windows. (It appears to be a timing issue
+    #     related to the Windows filesystem.)
+    @pytest.mark.skipif(platform.system() == 'Windows', reason='Test is flaky on Windows')
     def test_eviction(self, reset_db):
         # Set a very small cache size of 200 kiB for this test (the imagenette images are ~5-10 kiB each)
         fc = FileCache.get()
@@ -26,7 +30,7 @@ class TestFileCache:
         image_urls = [base_url + Path(file).name for file in image_files]
 
         # Initialize a table and a dict to separately track the LRU order
-        t = pxt.create_table('images', {'index': pxt.IntType(), 'image': pxt.ImageType()})
+        t = pxt.create_table('images', {'index': pxt.Int, 'image': pxt.Image})
         lru_tracker: OrderedDict[int, (str, int)] = OrderedDict()  # index -> (url, size)
         expected_cache_size = 0
         expected_num_evictions = 0

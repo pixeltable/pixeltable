@@ -30,7 +30,7 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
             """
 
     def test_all(self, reset_db) -> None:
-        t = pxt.create_table('test_tbl', {'s': pxt.StringType()})
+        t = pxt.create_table('test_tbl', {'s': pxt.String})
         test_strs = self.TEST_STR.split('. ')
         validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
 
@@ -94,7 +94,7 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
             assert mref.method_name == pxt_fn.name, pxt_fn
 
     def test_removeprefix(self, reset_db) -> None:
-        t = pxt.create_table('test_tbl', {'s': pxt.StringType()})
+        t = pxt.create_table('test_tbl', {'s': pxt.String})
         test_strs = self.TEST_STR.split('. ')
         validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
         from pixeltable.functions.string import removeprefix
@@ -108,7 +108,7 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
                 assert row['out'] == row['s']
 
     def test_removesuffix(self, reset_db) -> None:
-        t = pxt.create_table('test_tbl', {'s': pxt.StringType()})
+        t = pxt.create_table('test_tbl', {'s': pxt.String})
         test_strs = self.TEST_STR.split('. ')
         validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
 
@@ -121,7 +121,7 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
                 assert row['out'] == row['s']
 
     def test_replace(self, reset_db) -> None:
-        t = pxt.create_table('test_tbl', {'s': pxt.StringType()})
+        t = pxt.create_table('test_tbl', {'s': pxt.String})
         test_strs = self.TEST_STR.split('. ')
         validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
 
@@ -135,7 +135,7 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
         assert n == o
 
     def test_slice_replace(self, reset_db) -> None:
-        t = pxt.create_table('test_tbl', {'s': pxt.StringType()})
+        t = pxt.create_table('test_tbl', {'s': pxt.String})
         test_strs = self.TEST_STR.split('. ')
         validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
 
@@ -145,7 +145,7 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
             assert row['out'] == row['s'][:50] + 'abc' + row['s'][51:]
 
     def test_partition(self, reset_db) -> None:
-        t = pxt.create_table('test_tbl', {'s': pxt.StringType()})
+        t = pxt.create_table('test_tbl', {'s': pxt.String})
         test_strs = self.TEST_STR.split('. ')
         validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
 
@@ -159,7 +159,7 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
             assert row['parts'][1] == 'IBM'
 
     def test_rpartition(self, reset_db) -> None:
-        t = pxt.create_table('test_tbl', {'s': pxt.StringType()})
+        t = pxt.create_table('test_tbl', {'s': pxt.String})
         test_strs = self.TEST_STR.split('. ')
         validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
 
@@ -173,7 +173,7 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
             assert row['parts'][1] == 'IBM'
 
     def test_wrap(self, reset_db) -> None:
-        t = pxt.create_table('test_tbl', {'s': pxt.StringType()})
+        t = pxt.create_table('test_tbl', {'s': pxt.String})
         test_strs = self.TEST_STR.split('. ')
         validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
         import textwrap
@@ -186,7 +186,7 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
             assert row['out'] == textwrap.wrap(row['s'], 5)
 
     def test_slice(self, reset_db) -> None:
-        t = pxt.create_table('test_tbl', {'s': pxt.StringType()})
+        t = pxt.create_table('test_tbl', {'s': pxt.String})
         test_strs = self.TEST_STR.split('. ')
         validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
         res = t.select(t.s, out=t.s.slice(0, 4)).collect()
@@ -194,7 +194,7 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
             assert row['out'] == row['s'][0:4]
 
     def test_match(self, reset_db) -> None:
-        t = pxt.create_table('test_tbl', {'s': pxt.StringType()})
+        t = pxt.create_table('test_tbl', {'s': pxt.String})
         test_strs = self.TEST_STR.split('. ')
         validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
 
@@ -203,7 +203,7 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
         assert len(t.where(t.s.match('codd', case=False)).collect()) == 2
 
     def test_fullmatch(self, reset_db) -> None:
-        t = pxt.create_table('test_tbl', {'s': pxt.StringType()})
+        t = pxt.create_table('test_tbl', {'s': pxt.String})
         test_strs = self.TEST_STR.split('. ')
         validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
 
@@ -212,7 +212,7 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
         assert len(t.where(t.s.fullmatch('f', case=False)).collect()) == 1
 
     def test_pad(self, reset_db) -> None:
-        t = pxt.create_table('test_tbl', {'s': pxt.StringType()})
+        t = pxt.create_table('test_tbl', {'s': pxt.String})
         test_strs = self.TEST_STR.split('. ')
         validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
         res = t.select(t.s, out=t.s.pad(width=100, side='both')).collect()
@@ -220,7 +220,7 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
             assert row['out'] == row['s'].center(100)
 
     def test_normalize(self, reset_db) -> None:
-        t = pxt.create_table('test_tbl', {'s': pxt.StringType()})
+        t = pxt.create_table('test_tbl', {'s': pxt.String})
         test_strs = self.TEST_STR.split('. ')
         validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
         import unicodedata
@@ -230,7 +230,7 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
             assert row['out'] == unicodedata.normalize('NFC', row['s'])
 
     def test_repeat(self, reset_db) -> None:
-        t = pxt.create_table('test_tbl', {'s': pxt.StringType(), 'n': pxt.IntType()})
+        t = pxt.create_table('test_tbl', {'s': pxt.String, 'n': pxt.Int})
         strs = ['a', 'b', 'c', 'd', 'e']
         validate_update_status(t.insert({'s': s, 'n': n} for n, s in enumerate(strs)), expected_rows=len(strs))
         res = t.select(t.s, t.n, out=t.s.repeat(t.n)).collect()
@@ -238,7 +238,7 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
             assert row['out'] == row['s'] * row['n']
 
     def testcontains(self, reset_db) -> None:
-        t = pxt.create_table('test_tbl', {'s': pxt.StringType()})
+        t = pxt.create_table('test_tbl', {'s': pxt.String})
         test_strs = self.TEST_STR.split('. ')
         validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
         assert t.select(out=t.s.contains('IBM')).collect()['out'] == ['IBM' in s for s in test_strs]
@@ -253,7 +253,7 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
                ['ibm' in s.lower() for s in test_strs]
 
     def test_index(self, reset_db) -> None:
-        t = pxt.create_table('test_tbl', {'s': pxt.StringType()})
+        t = pxt.create_table('test_tbl', {'s': pxt.String})
         test_strs = self.TEST_STR.split('. ')
         validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
 
@@ -274,7 +274,7 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
             assert s[idx:idx + 3] == 'IBM'
 
     def test_format(self, reset_db) -> None:
-        t = pxt.create_table('test_tbl', {'input': pxt.StringType()})
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
         from pixeltable.functions.string import format
 
         t.add_column(s1=format('ABC {0}', t.input))

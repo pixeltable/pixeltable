@@ -4,9 +4,9 @@ import av
 
 import pixeltable as pxt
 import pixeltable.env as env
-from .utils import get_video_files, get_audio_files, validate_update_status
-from pixeltable.type_system import VideoType, AudioType
 from pixeltable.utils.media_store import MediaStore
+
+from .utils import get_audio_files, get_video_files, validate_update_status
 
 
 class TestAudio:
@@ -20,7 +20,7 @@ class TestAudio:
 
     def test_basic(self, reset_db) -> None:
         audio_filepaths = get_audio_files()
-        audio_t = pxt.create_table('audio', {'audio_file': AudioType()})
+        audio_t = pxt.create_table('audio', {'audio_file': pxt.Audio})
         status = audio_t.insert({'audio_file': p} for p in audio_filepaths)
         assert status.num_rows == len(audio_filepaths)
         assert status.num_excs == 0
@@ -29,7 +29,7 @@ class TestAudio:
 
     def test_extract(self, reset_db) -> None:
         video_filepaths = get_video_files()
-        video_t = pxt.create_table('videos', {'video': VideoType()})
+        video_t = pxt.create_table('videos', {'video': pxt.Video})
         video_t.add_column(audio=video_t.video.extract_audio())
 
         # one of the 3 videos doesn't have audio
@@ -61,7 +61,7 @@ class TestAudio:
 
     def test_get_metadata(self, reset_db) -> None:
         audio_filepaths = get_audio_files()
-        base_t = pxt.create_table('audio_tbl', {'audio': AudioType()})
+        base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio})
         base_t['metadata'] = base_t.audio.get_metadata()
         validate_update_status(base_t.insert({'audio': p} for p in audio_filepaths), expected_rows=len(audio_filepaths))
         result = base_t.where(base_t.metadata.size == 2568827).select(base_t.metadata).collect()['metadata'][0]

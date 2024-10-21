@@ -7,8 +7,8 @@ import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.func as func
 from pixeltable import catalog
-from pixeltable.func import Function, FunctionRegistry, Batch
-from pixeltable.type_system import IntType, FloatType
+from pixeltable.func import Batch, Function, FunctionRegistry
+
 from .utils import assert_resultset_eq, reload_catalog, validate_update_status
 
 
@@ -16,12 +16,12 @@ def dummy_fn(i: int) -> int:
     return i
 
 class TestFunction:
-    @pxt.udf(return_type=IntType(), param_types=[IntType()])
+    @pxt.udf
     def func(x: int) -> int:
         """A UDF."""
         return x + 1
 
-    @pxt.uda(value_type=IntType(), update_types=[IntType()])
+    @pxt.uda(value_type=pxt.IntType(), update_types=[pxt.IntType()])
     class agg:
         """An aggregator."""
         def __init__(self):
@@ -38,101 +38,6 @@ class TestFunction:
         deserialized = Function.from_dict(d)
         # TODO: add Function.exec() and then use that
         assert deserialized.py_fn(1) == 2
-
-    @pytest.mark.skip(reason='deprecated')
-    def test_create(self, reset_db) -> None:
-        pxt.create_function('test_fn', self.func)
-        assert self.func.md.fqn == 'test_fn'
-        FunctionRegistry.get().clear_cache()
-        reload_catalog()
-        _ = pxt.list_functions()
-        fn2 = pxt.get_function('test_fn')
-        assert fn2.md.fqn == 'test_fn'
-        assert fn2.py_fn(1) == 2
-
-        with pytest.raises(excs.Error):
-            pxt.create_function('test_fn', self.func)
-        with pytest.raises(excs.Error):
-            pxt.create_function('dir1.test_fn', self.func)
-        with pytest.raises(excs.Error):
-            library_fn = make_library_function(IntType(), [IntType()], __name__, 'dummy_fn')
-            pxt.create_function('library_fn', library_fn)
-
-    @pytest.mark.skip(reason='deprecated')
-    def test_update(self, reset_db, test_tbl: catalog.Table) -> None:
-        t = test_tbl
-        pxt.create_function('test_fn', self.func)
-        res1 = t[self.func(t.c2)].show(0).to_pandas()
-
-        # load function from db and make sure it computes the same thing as before
-        FunctionRegistry.get().clear_cache()
-        reload_catalog()
-        fn = pxt.get_function('test_fn')
-        res2 = t[fn(t.c2)].show(0).to_pandas()
-        assert res1.col_0.equals(res2.col_0)
-        fn.py_fn = lambda x: x + 2
-        pxt.update_function('test_fn', fn)
-        assert self.func.md.fqn == fn.md.fqn  # fqn doesn't change
-
-        FunctionRegistry.get().clear_cache()
-        reload_catalog()
-        fn = pxt.get_function('test_fn')
-        assert self.func.md.fqn == fn.md.fqn  # fqn doesn't change
-        res3 = t[fn(t.c2)].show(0).to_pandas()
-        assert (res2.col_0 + 1).equals(res3.col_0)
-
-        # signature changes
-        with pytest.raises(excs.Error):
-            pxt.update_function('test_fn', make_function(FloatType(), [IntType()], fn.py_fn))
-        with pytest.raises(excs.Error):
-            pxt.update_function('test_fn', make_function(IntType(), [FloatType()], fn.py_fn))
-        with pytest.raises(excs.Error):
-            pxt.update_function('test_fn', self.agg)
-
-    @pytest.mark.skip(reason='deprecated')
-    def test_move(self, reset_db) -> None:
-        pxt.create_function('test_fn', self.func)
-
-        FunctionRegistry.get().clear_cache()
-        reload_catalog()
-        with pytest.raises(excs.Error):
-            pxt.move('test_fn2', 'test_fn')
-        pxt.move('test_fn', 'test_fn2')
-        func = pxt.get_function('test_fn2')
-        assert func.py_fn(1) == 2
-        assert func.md.fqn == 'test_fn2'
-
-        with pytest.raises(excs.Error):
-            _ = pxt.get_function('test_fn')
-
-        # move function between directories
-        pxt.create_dir('functions')
-        pxt.create_dir('functions2')
-        pxt.create_function('functions.func1', self.func)
-        with pytest.raises(excs.Error):
-            pxt.move('functions2.func1', 'functions.func1')
-        pxt.move('functions.func1', 'functions2.func1')
-        func = pxt.get_function('functions2.func1')
-        assert func.md.fqn == 'functions2.func1'
-
-
-        FunctionRegistry.get().clear_cache()
-        reload_catalog()
-        func = pxt.get_function('functions2.func1')
-        assert func.py_fn(1) == 2
-        assert func.md.fqn == 'functions2.func1'
-        with pytest.raises(excs.Error):
-            _ = pxt.get_function('functions.func1')
-
-    @pytest.mark.skip(reason='deprecated')
-    def test_drop(self, reset_db) -> None:
-        pxt.create_function('test_fn', self.func)
-        FunctionRegistry.get().clear_cache()
-        reload_catalog()
-        pxt.drop_function('test_fn')
-
-        with pytest.raises(excs.Error):
-            _ = pxt.get_function('test_fn')
 
     def test_list(self, reset_db) -> None:
         _ = FunctionRegistry.get().list_functions()
@@ -161,85 +66,83 @@ class TestFunction:
         assert status.num_rows == len(rows)
         assert status.num_excs == 0
 
-    @pxt.udf(return_type=IntType(), param_types=[IntType(), FloatType(), FloatType(), FloatType()])
+    @pxt.udf
     def f1(a: int, b: float, c: float = 0.0, d: float = 1.0) -> float:
         return a + b + c + d
 
-    @pxt.udf(
-        return_type=IntType(),
-        param_types=[IntType(nullable=True), FloatType(nullable=False), FloatType(nullable=True)])
-    def f2(a: int, b: float = 0.0, c: float = 1.0) -> float:
+    @pxt.udf
+    def f2(a: Optional[int], b: float = 0.0, c: Optional[float] = 1.0) -> int:
         return (0.0 if a is None else a) + b + (0.0 if c is None else c)
 
     def test_call(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
 
-        r0 = t[t.c2, t.c3].show(0).to_pandas()
+        r0 = t[t.c2, t.c3].collect().to_pandas()
         # positional params with default args
-        r1 = t[self.f1(t.c2, t.c3)].show(0).to_pandas()['col_0']
+        r1 = t[self.f1(t.c2, t.c3)].collect().to_pandas()['col_0']
         assert np.all(r1 == r0.c2 + r0.c3 + 1.0)
         # kw args only
-        r2 = t[self.f1(c=0.0, b=t.c3, a=t.c2)].show(0).to_pandas()['col_0']
+        r2 = t[self.f1(c=0.0, b=t.c3, a=t.c2)].collect().to_pandas()['col_0']
         assert np.all(r1 == r2)
         # overriding default args
-        r3 = t[self.f1(d=0.0, c=1.0, b=t.c3, a=t.c2)].show(0).to_pandas()['col_0']
+        r3 = t[self.f1(d=0.0, c=1.0, b=t.c3, a=t.c2)].collect().to_pandas()['col_0']
         assert np.all(r2 == r3)
         # overriding default with positional arg
-        r4 = t[self.f1(t.c2, t.c3, 0.0)].show(0).to_pandas()['col_0']
+        r4 = t[self.f1(t.c2, t.c3, 0.0)].collect().to_pandas()['col_0']
         assert np.all(r3 == r4)
         # overriding default with positional arg and kw arg
-        r5 = t[self.f1(t.c2, t.c3, 1.0, d=0.0)].show(0).to_pandas()['col_0']
+        r5 = t[self.f1(t.c2, t.c3, 1.0, d=0.0)].collect().to_pandas()['col_0']
         assert np.all(r4 == r5)
         # d is kwarg
-        r6 = t[self.f1(t.c2, d=1.0, b=t.c3)].show(0).to_pandas()['col_0']
+        r6 = t[self.f1(t.c2, d=1.0, b=t.c3)].collect().to_pandas()['col_0']
         assert np.all(r5 == r6)
         # d is Expr kwarg
-        r6 = t[self.f1(1, d=t.c3, b=t.c3)].show(0).to_pandas()['col_0']
+        r6 = t[self.f1(1, d=t.c3, b=t.c3)].collect().to_pandas()['col_0']
         assert np.all(r5 == r6)
 
         # test handling of Nones
-        r0 = t[self.f2(1, t.c3)].show(0).to_pandas()['col_0']
-        r1 = t[self.f2(None, t.c3, 2.0)].show(0).to_pandas()['col_0']
+        r0 = t[self.f2(1, t.c3)].collect().to_pandas()['col_0']
+        r1 = t[self.f2(None, t.c3, 2.0)].collect().to_pandas()['col_0']
         assert np.all(r0 == r1)
-        r2 = t[self.f2(2, t.c3, None)].show(0).to_pandas()['col_0']
+        r2 = t[self.f2(2, t.c3, None)].collect().to_pandas()['col_0']
         assert np.all(r1 == r2)
         # kwarg with None
-        r3 = t[self.f2(c=None, a=t.c2)].show(0).to_pandas()['col_0']
+        r3 = t[self.f2(c=None, a=t.c2)].collect().to_pandas()['col_0']
         # kwarg with Expr
-        r4 = t[self.f2(c=t.c3, a=None)].show(0).to_pandas()['col_0']
+        r4 = t[self.f2(c=t.c3, a=None)].collect().to_pandas()['col_0']
         assert np.all(r3 == r4)
 
         with pytest.raises(TypeError) as exc_info:
-            _ = t[self.f1(t.c2, c=0.0)].show(0)
+            _ = t[self.f1(t.c2, c=0.0)].collect()
         assert "'b'" in str(exc_info.value)
         with pytest.raises(TypeError) as exc_info:
-            _ = t[self.f1(t.c2)].show(0)
+            _ = t[self.f1(t.c2)].collect()
         assert "'b'" in str(exc_info.value)
         with pytest.raises(TypeError) as exc_info:
-            _ = t[self.f1(c=1.0, a=t.c2)].show(0)
+            _ = t[self.f1(c=1.0, a=t.c2)].collect()
         assert "'b'" in str(exc_info.value)
 
         # bad default value
         with pytest.raises(excs.Error) as exc_info:
-            @pxt.udf(return_type=IntType(), param_types=[IntType(), FloatType(), FloatType()])
-            def f1(a: int, b: float, c: str = '') -> float:
+            @pxt.udf
+            def f1(a: int, b: float, c: float = '') -> float:
                 return a + b + c
         assert 'default value' in str(exc_info.value).lower()
         # missing param type
         with pytest.raises(excs.Error) as exc_info:
-            @pxt.udf(return_type=IntType(), param_types=[IntType(), FloatType()])
-            def f1(a: int, b: float, c: str = '') -> float:
+            @pxt.udf
+            def f1(a: int, b: float, c = '') -> float:
                 return a + b + c
-        assert 'missing type for parameter c' in str(exc_info.value).lower()
+        assert 'cannot infer pixeltable type for parameter c' in str(exc_info.value).lower()
         # bad parameter name
         with pytest.raises(excs.Error) as exc_info:
-            @pxt.udf(return_type=IntType(), param_types=[IntType()])
+            @pxt.udf
             def f1(group_by: int) -> int:
                 return group_by
         assert 'reserved' in str(exc_info.value)
         # bad parameter name
         with pytest.raises(excs.Error) as exc_info:
-            @pxt.udf(return_type=IntType(), param_types=[IntType()])
+            @pxt.udf
             def f1(order_by: int) -> int:
                 return order_by
         assert 'reserved' in str(exc_info.value)
@@ -257,7 +160,7 @@ class TestFunction:
         return s + suffix
 
     def test_member_access_udf(self, reset_db) -> None:
-        t = pxt.create_table('test', {'c1': pxt.StringType(), 'c2': pxt.IntType()})
+        t = pxt.create_table('test', {'c1': pxt.String, 'c2': pxt.Int})
         rows = [{'c1': 'a', 'c2': 1}, {'c1': 'b', 'c2': 2}]
         validate_update_status(t.insert(rows))
         result = t.select(t.c2.increment(), t.c2.successor, t.c1.append('x')).collect()
@@ -290,7 +193,7 @@ class TestFunction:
         assert 'Stored functions cannot be declared using `is_method` or `is_property`' in str(exc_info.value)
 
     def test_query(self, reset_db) -> None:
-        t = pxt.create_table('test', {'c1': pxt.IntType(), 'c2': pxt.FloatType()})
+        t = pxt.create_table('test', {'c1': pxt.Int, 'c2': pxt.Float})
         name = t._name
         rows = [{'c1': i, 'c2': i + 0.5} for i in range(100)]
         validate_update_status(t.insert(rows))
@@ -299,8 +202,8 @@ class TestFunction:
         def lt_x(x: int) -> int:
             return t.where(t.c2 < x).select(t.c2, t.c1)
 
-        res1 = t.select(out=t.lt_x(t.c1)).order_by(t.c2).collect()
-        validate_update_status(t.add_column(query1=t.lt_x(t.c1)))
+        res1 = t.select(out=t.queries.lt_x(t.c1)).order_by(t.c2).collect()
+        validate_update_status(t.add_column(query1=t.queries.lt_x(t.c1)))
         _ = t.select(t.query1).collect()
 
         reload_catalog()
@@ -311,8 +214,8 @@ class TestFunction:
 
     def test_query2(self, reset_db) -> None:
         schema = {
-            'query_text': pxt.StringType(nullable=False),
-            'i': pxt.IntType(nullable=False),
+            'query_text': pxt.String,
+            'i': pxt.Int,
         }
         queries = pxt.create_table('queries', schema)
         query_rows = [
@@ -345,9 +248,9 @@ class TestFunction:
             """ simply returns 2 passages from the table"""
             return chunks.select(chunks.text).limit(2)
 
-        res = queries.select(queries.i, out=chunks.retrieval(queries.query_text, queries.i)).collect()
+        res = queries.select(queries.i, out=chunks.queries.retrieval(queries.query_text, queries.i)).collect()
         assert all(len(out) == 2 for out in res['out'])
-        validate_update_status(queries.add_column(chunks=chunks.retrieval(queries.query_text, queries.i)))
+        validate_update_status(queries.add_column(chunks=chunks.queries.retrieval(queries.query_text, queries.i)))
         res = queries.select(queries.i, queries.chunks).collect()
         assert all(len(c) == 2 for c in res['chunks'])
 
@@ -360,10 +263,7 @@ class TestFunction:
         assert all(len(c) == 2 for c in res['chunks'])
 
     def test_query_errors(self, reset_db) -> None:
-        schema = {
-            'a': pxt.IntType(nullable=False),
-            'b': pxt.IntType(nullable=False),
-        }
+        schema = {'a': pxt.Int, 'b': pxt.Int}
         t = pxt.create_table('test', schema)
         rows = [{'a': i, 'b': i + 1} for i in range(100)]
         validate_update_status(t.insert(rows), expected_rows=len(rows))
@@ -388,8 +288,13 @@ class TestFunction:
 
         # column name conflicts with query name
         with pytest.raises(excs.Error) as exc_info:
-            t.add_column(c=pxt.IntType(nullable=True))
+            t.add_column(c=pxt.Int)
         assert 'conflicts with a registered query' in str(exc_info.value).lower()
+
+        # unknown query
+        with pytest.raises(AttributeError) as exc_info:
+            _ = t.queries.not_a_query
+        assert "table 'test' has no query with that name: 'not_a_query'" in str(exc_info.value).lower()
 
     @pxt.expr_udf
     def add1(x: int) -> int:
@@ -428,7 +333,7 @@ class TestFunction:
 
         with pytest.raises(excs.Error) as exc_info:
             # missing param types
-            @pxt.expr_udf(param_types=[IntType()])
+            @pxt.expr_udf(param_types=[pxt.IntType()])
             def add1(x, y) -> int:
                 return x + y
         assert 'missing type for parameter y' in str(exc_info.value).lower()
@@ -437,7 +342,7 @@ class TestFunction:
             # signature has correct parameter kind
             @pxt.expr_udf
             def add1(*, x: int) -> int:
-                return x + y
+                return x
             _ = t.select(add1(t.c2)).collect()
         assert 'takes 0 positional arguments' in str(exc_info.value).lower()
 

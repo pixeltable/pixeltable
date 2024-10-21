@@ -7,7 +7,6 @@ import pytest
 import pixeltable as pxt
 from pixeltable import catalog
 from pixeltable import exceptions as excs
-from pixeltable.type_system import FloatType, ImageType, IntType
 
 from .utils import assert_resultset_eq, create_test_tbl, reload_catalog, validate_update_status
 
@@ -25,7 +24,7 @@ class TestView:
         t = create_test_tbl()
         t.add_column(d1=t.c3 - 1)
         # add column that can be updated
-        t.add_column(c10=FloatType(nullable=True))
+        t.add_column(c10=pxt.Float)
         t.update({'c10': t.c3})
         # computed column that depends on two columns: exercise duplicate elimination during query construction
         t.add_column(d2=t.c3 - t.c10)
@@ -298,11 +297,7 @@ class TestView:
     def test_unstored_columns(self, reset_db) -> None:
         """Test chained views with unstored columns"""
         # create table with image column and two updateable int columns
-        schema = {
-            'img': ImageType(),
-            'int1': IntType(nullable=False),
-            'int2': IntType(nullable=False),
-        }
+        schema = {'img': pxt.Image, 'int1': pxt.Int, 'int2': pxt.Int}
         t = pxt.create_table('test_tbl', schema)
         # populate table with images of a defined size
         width, height = 100, 100
@@ -323,7 +318,7 @@ class TestView:
                 'stored': False,
             },
             'int3': t.int1 * 2,
-            'int4': IntType(nullable=True),  # TODO: add default
+            'int4': pxt.Int,  # TODO: add default
         }
         logger.debug('******************* CREATE V1')
         v1 = pxt.create_view('v1', t, additional_columns=v1_schema)
@@ -384,8 +379,8 @@ class TestView:
         }
         v = pxt.create_view('test_view', t, additional_columns=schema)
         assert_resultset_eq(
-            v.select(v.v1).order_by(v.c2).show(0),
-            t.select(t.c3 * 2.0).order_by(t.c2).show(0))
+            v.select(v.v1).order_by(v.c2).collect(),
+            t.select(t.c3 * 2.0).order_by(t.c2).collect())
         # computed columns that don't reference the base table
         v.add_column(v3=v.v1 * 2.0)
         v.add_column(v4=v.v2[0])
@@ -400,22 +395,22 @@ class TestView:
         t.insert(rows)
         assert t.count() == 200
         assert_resultset_eq(
-            v.select(v.v1).order_by(v.c2).show(0),
-            t.select(t.c3 * 2.0).order_by(t.c2).show(0))
+            v.select(v.v1).order_by(v.c2).collect(),
+            t.select(t.c3 * 2.0).order_by(t.c2).collect())
 
         # update data: cascade to view
         t.update({'c4': True, 'c3': t.c3 + 1.0, 'c10': t.c10 - 1.0}, where=t.c2 < 5, cascade=True)
         assert t.count() == 200
         assert_resultset_eq(
-            v.select(v.v1).order_by(v.c2).show(0),
-            t.select(t.c3 * 2.0).order_by(t.c2).show(0))
+            v.select(v.v1).order_by(v.c2).collect(),
+            t.select(t.c3 * 2.0).order_by(t.c2).collect())
 
         # base table delete is reflected in view
         t.delete(where=t.c2 < 5)
         assert t.count() == 190
         assert_resultset_eq(
-            v.select(v.v1).order_by(v.c2).show(0),
-            t.select(t.c3 * 2.0).order_by(t.c2).show(0))
+            v.select(v.v1).order_by(v.c2).collect(),
+            t.select(t.c3 * 2.0).order_by(t.c2).collect())
 
     def test_filter(self, reset_db) -> None:
         t = create_test_tbl()
@@ -423,8 +418,8 @@ class TestView:
         # create view with filter
         v = pxt.create_view('test_view', t.where(t.c2 < 10))
         assert_resultset_eq(
-            v.order_by(v.c2).show(0),
-            t.where(t.c2 < 10).order_by(t.c2).show(0))
+            v.order_by(v.c2).collect(),
+            t.where(t.c2 < 10).order_by(t.c2).collect())
 
         # use view md after reload
         reload_catalog()
@@ -436,22 +431,22 @@ class TestView:
         t.insert(rows)
         assert t.count() == 120
         assert_resultset_eq(
-            v.order_by(v.c2).show(0),
-            t.where(t.c2 < 10).order_by(t.c2).show(0))
+            v.order_by(v.c2).collect(),
+            t.where(t.c2 < 10).order_by(t.c2).collect())
 
         # update data
         t.update({'c4': True, 'c3': t.c3 + 1.0}, where=t.c2 < 5, cascade=True)
         assert t.count() == 120
         assert_resultset_eq(
-            v.order_by(v.c2).show(0),
-            t.where(t.c2 < 10).order_by(t.c2).show(0))
+            v.order_by(v.c2).collect(),
+            t.where(t.c2 < 10).order_by(t.c2).collect())
 
         # base table delete is reflected in view
         t.delete(where=t.c2 < 5)
         assert t.count() == 110
         assert_resultset_eq(
-            v.order_by(v.c2).show(0),
-            t.where(t.c2 < 10).order_by(t.c2).show(0))
+            v.order_by(v.c2).collect(),
+            t.where(t.c2 < 10).order_by(t.c2).collect())
 
         # create view with filter containing datetime
         _ = pxt.create_view('test_view_2', t.where(t.c5 < datetime.datetime.now()))
@@ -575,13 +570,13 @@ class TestView:
         in computed columns.
         """
         # TODO: use non-None default values once we have them
-        t = pxt.create_table('table_1', {'id': pxt.IntType(), 'json_0': pxt.JsonType(nullable=True)})
+        t = pxt.create_table('table_1', {'id': pxt.Int, 'json_0': pxt.Json})
         # computed column depends on nullable non-computed column json_0
         t.add_column(computed_0=t.json_0.a)
         validate_update_status(t.insert(id=0, json_0={'a': 'b'}), expected_rows=1)
         assert t.where(t.computed_0 == None).count() == 0
 
-        v = pxt.create_view('view_1', t.where(t.id >= 0), additional_columns={'json_1': pxt.JsonType(nullable=True)})
+        v = pxt.create_view('view_1', t.where(t.id >= 0), additional_columns={'json_1': pxt.Json})
         # computed column depends on nullable non-computed column json_1
         validate_update_status(v.add_column(computed_1=v.json_1.a))
         assert v.where(v.computed_1 == None).count() == 1

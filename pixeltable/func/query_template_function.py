@@ -6,6 +6,7 @@ from typing import Any, Callable, Optional
 import sqlalchemy as sql
 
 import pixeltable as pxt
+from pixeltable import exprs
 
 from .function import Function
 from .signature import Signature
@@ -16,14 +17,13 @@ class QueryTemplateFunction(Function):
 
     @classmethod
     def create(
-            cls, template_callable: Callable, param_types: Optional[list[pxt.ColumnType]], path: str, name: str
+        cls, template_callable: Callable, param_types: Optional[list[pxt.ColumnType]], path: str, name: str
     ) -> QueryTemplateFunction:
         # we need to construct a template df and a signature
         py_sig = inspect.signature(template_callable)
         py_params = list(py_sig.parameters.values())
         params = Signature.create_parameters(py_params=py_params, param_types=param_types)
         # invoke template_callable with parameter expressions to construct a DataFrame with parameters
-        import pixeltable.exprs as exprs
         var_exprs = [exprs.Variable(param.name, param.col_type) for param in params]
         template_df = template_callable(*var_exprs)
         from pixeltable import DataFrame
@@ -46,7 +46,6 @@ class QueryTemplateFunction(Function):
         self.conn: Optional[sql.engine.Connection] = None
 
         # convert defaults to Literals
-        import pixeltable.exprs as exprs
         self.defaults: dict[str, exprs.Literal] = {}  # key: param name, value: default value converted to a Literal
         param_types = self.template_df.parameters()
         for param in [p for p in self.signature.parameters.values() if p.has_default()]:

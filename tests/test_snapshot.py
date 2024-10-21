@@ -1,11 +1,10 @@
-from typing import Any, Dict, Union
+from typing import Any, Union
 
 import numpy as np
 import pytest
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
-from pixeltable.type_system import IntType
 
 from .utils import assert_resultset_eq, clip_img_embed, create_img_tbl, create_test_tbl, reload_catalog
 
@@ -16,7 +15,7 @@ class TestSnapshot:
         tbl: pxt.Table,
         orig_query: Union[pxt.Table, pxt.DataFrame],
         snap: pxt.Table,
-        extra_items: Dict[str, Any],
+        extra_items: dict[str, Any],
         reload_md: bool
     ) -> None:
         tbl_path, snap_path = tbl._path, snap._path
@@ -87,7 +86,7 @@ class TestSnapshot:
                     schema = {
                         'v1': tbl.c3 * 2.0,
                         # include a lambda to make sure that is handled correctly
-                        'v2': {'value': lambda c3: c3 * 2.0, 'type': pxt.FloatType()}
+                        'v2': {'value': lambda c3: c3 * 2.0, 'type': pxt.Float}
                     } if has_cols else {}
                     extra_items = {'v1': tbl.c3 * 2.0, 'v2': tbl.c3 * 2.0} if has_cols else {}
                     query = tbl.where(tbl.c2 < 10) if has_filter else tbl
@@ -129,7 +128,7 @@ class TestSnapshot:
         assert 'cannot add an index to a snapshot' in str(excinfo.value).lower()
 
     def test_views_of_snapshots(self, reset_db) -> None:
-        t = pxt.create_table('tbl', {'a': IntType()})
+        t = pxt.create_table('tbl', {'a': pxt.Int})
         rows = [{'a': 1}, {'a': 2}, {'a': 3}]
         status = t.insert(rows)
         assert status.num_rows == len(rows)
@@ -160,7 +159,7 @@ class TestSnapshot:
         verify(s1, s2, v1, v2)
 
     def test_snapshot_of_view_chain(self, reset_db) -> None:
-        t = pxt.create_table('tbl', {'a': IntType()})
+        t = pxt.create_table('tbl', {'a': pxt.Int})
         rows = [{'a': 1}, {'a': 2}, {'a': 3}]
         status = t.insert(rows)
         assert status.num_rows == len(rows)

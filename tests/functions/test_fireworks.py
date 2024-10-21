@@ -10,7 +10,7 @@ class TestFireworks:
     def test_fireworks(self, reset_db) -> None:
         skip_test_if_not_installed('fireworks')
         TestFireworks.skip_test_if_no_fireworks_client()
-        t = pxt.create_table('test_tbl', {'input': pxt.StringType()})
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
         from pixeltable.functions.fireworks import chat_completions
 
         messages = [{'role': 'user', 'content': t.input}]

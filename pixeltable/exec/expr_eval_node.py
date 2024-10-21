@@ -5,10 +5,11 @@ import warnings
 from dataclasses import dataclass
 from typing import Iterable, List, Optional
 
-from tqdm import tqdm, TqdmWarning
+from tqdm import TqdmWarning, tqdm
 
 import pixeltable.exprs as exprs
 from pixeltable.func import CallableFunction
+
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
 

@@ -1,25 +1,13 @@
-from .catalog import Column, Table, InsertableTable, View, UpdateStatus
+from .catalog import Column, InsertableTable, Table, UpdateStatus, View
 from .dataframe import DataFrame
 from .exceptions import Error
 from .exprs import RELATIVE_PATH_ROOT
-from .func import Function, udf, Aggregator, uda, expr_udf
-from .globals import init, create_table, create_view, get_table, move, drop_table, list_tables, create_dir, drop_dir, \
-    list_dirs, list_functions, configure_logging, array
-from .type_system import (
-    ColumnType,
-    StringType,
-    IntType,
-    FloatType,
-    BoolType,
-    TimestampType,
-    JsonType,
-    ArrayType,
-    ImageType,
-    VideoType,
-    AudioType,
-    DocumentType,
-)
-from .utils.help import help
+from .func import Aggregator, Function, expr_udf, uda, udf
+from .globals import (array, configure_logging, create_dir, create_table, create_view, drop_dir, drop_table, get_table,
+                      init, list_dirs, list_functions, list_tables, move)
+from .type_system import (Array, ArrayType, Audio, AudioType, Bool, BoolType, ColumnType, Document, DocumentType, Float,
+                          FloatType, Image, ImageType, Int, IntType, Json, JsonType, Required, String, StringType,
+                          Timestamp, TimestampType, Video, VideoType)
 
 from . import ext, functions, io, iterators
 from .__version__ import __version__, __version_tuple__

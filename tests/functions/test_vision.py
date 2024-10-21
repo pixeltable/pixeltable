@@ -2,7 +2,6 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable.iterators import FrameIterator
-from pixeltable.type_system import VideoType
 
 from ..utils import get_video_files, skip_test_if_not_installed
 
@@ -12,7 +11,7 @@ class TestVision:
         skip_test_if_not_installed('yolox')
         from pixeltable.ext.functions.yolox import yolox
 
-        video_t = pxt.create_table('video_tbl', {'video': VideoType()})
+        video_t = pxt.create_table('video_tbl', {'video': pxt.Video})
         # create frame view
         v = pxt.create_view('test_view', video_t, iterator=FrameIterator.create(video=video_t.video, fps=1))
 
@@ -49,7 +48,7 @@ class TestVision:
         skip_test_if_not_installed('yolox')
         from pixeltable.ext.functions.yolox import yolox
 
-        video_t = pxt.create_table('video_tbl', {'video': VideoType()})
+        video_t = pxt.create_table('video_tbl', {'video': pxt.Video})
         # create frame view
         v = pxt.create_view('test_view', video_t, iterator=FrameIterator.create(video=video_t.video, fps=1))
 

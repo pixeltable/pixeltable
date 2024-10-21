@@ -4,17 +4,17 @@ import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator, Optional, Literal
+from typing import Any, Iterator, Literal, Optional, cast
 from xml.etree import ElementTree
 
+import label_studio_sdk  # type: ignore[import-untyped]
 import PIL.Image
-import label_studio_sdk
 from requests.exceptions import HTTPError
 
 import pixeltable as pxt
 import pixeltable.env as env
 import pixeltable.exceptions as excs
-from pixeltable import Table, Column
+from pixeltable import Column, Table
 from pixeltable.exprs import ColumnRef, DataRow, Expr
 from pixeltable.io.external_store import Project, SyncStatus
 from pixeltable.utils import coco
@@ -211,7 +211,7 @@ class LabelStudioProject(Project):
                     assert isinstance(row[media_col_idx], PIL.Image.Image)
                     file = env.Env.get().create_tmp_path(extension='.png')
                     row[media_col_idx].save(file, format='png')
-                    task_id: int = self.project.import_tasks(file)[0]
+                    task_id = self.project.import_tasks(file)[0]
                     os.remove(file)
 
                 # Update the task with `rowid` metadata
@@ -256,7 +256,7 @@ class LabelStudioProject(Project):
                 assert self.media_import_method == 'file'
                 if not col.col_type.is_media_type():
                     # Not a media column; query the data directly
-                    expr_refs[col_name] = t[col_name]
+                    expr_refs[col_name] = cast(ColumnRef, t[col_name])
                 elif col in self.stored_proxies:
                     # Media column that has a stored proxy; use it. We have to give it a name,
                     # since it's an anonymous column
@@ -267,7 +267,7 @@ class LabelStudioProject(Project):
                     # and we can just use the localpath
                     expr_refs[col_name] = t[col_name].localpath
 
-        df = t.select(*[t[col] for col in t_rl_cols], **expr_refs)
+        df = t.select(*[t[col.name] for col in t_rl_cols], **expr_refs)
         # The following buffers will hold `DataRow` indices that correspond to each of the selected
         # columns. `rl_col_idxs` holds the indices for the columns that map to RectangleLabels
         # preannotations; `data_col_idxs` holds the indices for the columns that map to data fields.

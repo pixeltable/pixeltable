@@ -4,7 +4,7 @@ import json
 import os
 import random
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 import more_itertools
 import numpy as np
@@ -14,46 +14,43 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
-import pixeltable.type_system as ts
 from pixeltable import catalog
 from pixeltable.catalog.globals import UpdateStatus
 from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
 from pixeltable.functions.huggingface import clip_image, clip_text, sentence_transformer
 from pixeltable.io import SyncStatus
-from pixeltable.type_system import (ArrayType, BoolType, ColumnType, FloatType, ImageType, IntType, JsonType,
-                                    StringType, TimestampType, VideoType)
 
 
-def make_default_type(t: ColumnType.Type) -> ColumnType:
-    if t == ColumnType.Type.STRING:
-        return StringType()
-    if t == ColumnType.Type.INT:
-        return IntType()
-    if t == ColumnType.Type.FLOAT:
-        return FloatType()
-    if t == ColumnType.Type.BOOL:
-        return BoolType()
-    if t == ColumnType.Type.TIMESTAMP:
-        return TimestampType()
+def make_default_type(t: pxt.ColumnType.Type) -> pxt.ColumnType:
+    if t == pxt.ColumnType.Type.STRING:
+        return pxt.StringType()
+    if t == pxt.ColumnType.Type.INT:
+        return pxt.IntType()
+    if t == pxt.ColumnType.Type.FLOAT:
+        return pxt.FloatType()
+    if t == pxt.ColumnType.Type.BOOL:
+        return pxt.BoolType()
+    if t == pxt.ColumnType.Type.TIMESTAMP:
+        return pxt.TimestampType()
     assert False
 
 
-def make_tbl(name: str = 'test', col_names: Optional[List[str]] = None) -> catalog.InsertableTable:
+def make_tbl(name: str = 'test', col_names: Optional[list[str]] = None) -> catalog.InsertableTable:
     if col_names is None:
         col_names = ['c1']
-    schema: Dict[str, ts.ColumnType] = {}
+    schema: dict[str, pxt.ColumnType] = {}
     for i, col_name in enumerate(col_names):
-        schema[f'{col_name}'] = make_default_type(ColumnType.Type(i % 5))
+        schema[f'{col_name}'] = make_default_type(pxt.ColumnType.Type(i % 5))
     return pxt.create_table(name, schema)
 
 
 def create_table_data(
-    t: catalog.Table, col_names: Optional[List[str]] = None, num_rows: int = 10
-) -> List[Dict[str, Any]]:
+    t: catalog.Table, col_names: Optional[list[str]] = None, num_rows: int = 10
+) -> list[dict[str, Any]]:
     if col_names is None:
         col_names = []
-    data: Dict[str, Any] = {}
+    data: dict[str, Any] = {}
 
     sample_dict = {
         'detections': [
@@ -129,14 +126,14 @@ def create_table_data(
 
 def create_test_tbl(name: str = 'test_tbl') -> catalog.Table:
     schema = {
-        'c1': StringType(nullable=False),
-        'c1n': StringType(nullable=True),
-        'c2': IntType(nullable=False),
-        'c3': FloatType(nullable=False),
-        'c4': BoolType(nullable=False),
-        'c5': TimestampType(nullable=False),
-        'c6': JsonType(nullable=False),
-        'c7': JsonType(nullable=False),
+        'c1': pxt.Required[pxt.String],
+        'c1n': pxt.String,
+        'c2': pxt.Required[pxt.Int],
+        'c3': pxt.Required[pxt.Float],
+        'c4': pxt.Required[pxt.Bool],
+        'c5': pxt.Required[pxt.Timestamp],
+        'c6': pxt.Required[pxt.Json],
+        'c7': pxt.Required[pxt.Json],
     }
     t = pxt.create_table(name, schema, primary_key='c2')
     t.add_column(c8=pxt.array([[1, 2, 3], [4, 5, 6]]))
@@ -196,9 +193,9 @@ def create_test_tbl(name: str = 'test_tbl') -> catalog.Table:
 
 def create_img_tbl(name: str = 'test_img_tbl', num_rows: int = 0) -> catalog.Table:
     schema = {
-        'img': ImageType(nullable=False),
-        'category': StringType(nullable=False),
-        'split': StringType(nullable=False),
+        'img': pxt.Required[pxt.Image],
+        'category': pxt.Required[pxt.String],
+        'split': pxt.Required[pxt.String],
     }
     tbl = pxt.create_table(name, schema)
     rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
@@ -214,16 +211,16 @@ def create_img_tbl(name: str = 'test_img_tbl', num_rows: int = 0) -> catalog.Tab
 def create_all_datatypes_tbl() -> catalog.Table:
     """Creates a table with all supported datatypes."""
     schema = {
-        'row_id': IntType(nullable=False),  # used for row selection
-        'c_array': ArrayType(shape=(10,), dtype=FloatType(), nullable=True),
-        'c_bool': BoolType(nullable=True),
-        'c_float': FloatType(nullable=True),
-        'c_image': ImageType(nullable=True),
-        'c_int': IntType(nullable=True),
-        'c_json': JsonType(nullable=True),
-        'c_string': StringType(nullable=True),
-        'c_timestamp': TimestampType(nullable=True),
-        'c_video': VideoType(nullable=True),
+        'row_id': pxt.Required[pxt.Int],
+        'c_array': pxt.Array[(10,), pxt.Float],
+        'c_bool': pxt.Bool,
+        'c_float': pxt.Float,
+        'c_image': pxt.Image,
+        'c_int': pxt.Int,
+        'c_json': pxt.Json,
+        'c_string': pxt.String,
+        'c_timestamp': pxt.Timestamp,
+        'c_video': pxt.Video,
     }
     tbl = pxt.create_table('all_datatype_tbl', schema)
     example_rows = create_table_data(tbl, num_rows=11)
@@ -235,7 +232,43 @@ def create_all_datatypes_tbl() -> catalog.Table:
     return tbl
 
 
-def read_data_file(dir_name: str, file_name: str, path_col_names: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+def create_scalars_tbl(num_rows: int, seed: int = 0, percent_nulls: int = 10) -> catalog.Table:
+    """
+    Creates a table with scalar columns, each of which contains randomly generated data.
+    """
+    assert percent_nulls >= 0 and percent_nulls <= 100
+    rng = np.random.default_rng(seed)
+    schema = {
+        'row_id': pxt.IntType(nullable=False),  # used for row selection
+        'c_bool': pxt.BoolType(nullable=True),
+        'c_float': pxt.FloatType(nullable=True),
+        'c_int': pxt.IntType(nullable=True),
+        'c_string': pxt.StringType(nullable=True),
+        'c_timestamp': pxt.TimestampType(nullable=True),
+    }
+    tbl = pxt.create_table('scalars_tbl', schema)
+
+    example_rows: list[dict[str, Any]] = []
+    str_chars = 'abcdefghijklmnopqrstuvwxyzab'
+    start_date = datetime.datetime(2010, 1, 1)
+    end_date = datetime.datetime(2019, 12, 31)
+    delta_days = (end_date - start_date).days
+    for i in range(num_rows):
+        str_idx = int(rng.integers(0, 26))
+        days = int(rng.integers(0, delta_days))
+        seconds = int(rng.integers(0, 60*60*24))
+        example_rows.append({
+            'row_id': i,
+            'c_bool': None if rng.integers(0, 100) < percent_nulls else bool(rng.choice([True, False])),
+            'c_float': None if rng.integers(0, 100) < percent_nulls else float(rng.uniform(0, 1)),
+            'c_int': None if rng.integers(0, 100) < percent_nulls else int(rng.integers(0, 10)),
+            'c_string': None if rng.integers(0, 100) < percent_nulls else str_chars[str_idx:str_idx + 3],
+            'c_timestamp': None if rng.integers(0, 100) < percent_nulls else start_date + datetime.timedelta(days=days, seconds=seconds),
+        })
+    tbl.insert(example_rows)
+    return tbl
+
+def read_data_file(dir_name: str, file_name: str, path_col_names: Optional[list[str]] = None) -> list[dict[str, Any]]:
     """
     Locate dir_name, create df out of file_name.
     path_col_names: col names in csv file that contain file names; those will be converted to absolute paths
@@ -258,7 +291,7 @@ def read_data_file(dir_name: str, file_name: str, path_col_names: Optional[List[
     return df.to_dict(orient='records')
 
 
-def get_video_files(include_bad_video: bool = False) -> List[str]:
+def get_video_files(include_bad_video: bool = False) -> list[str]:
     tests_dir = os.path.dirname(__file__)  # search with respect to tests/ dir
     glob_result = glob.glob(f'{tests_dir}/**/videos/*', recursive=True)
     if not include_bad_video:
@@ -269,7 +302,7 @@ def get_video_files(include_bad_video: bool = False) -> List[str]:
     return half_res
 
 
-def get_test_video_files() -> List[str]:
+def get_test_video_files() -> list[str]:
     tests_dir = os.path.dirname(__file__)  # search with respect to tests/ dir
     glob_result = glob.glob(f'{tests_dir}/**/test_videos/*', recursive=True)
     return glob_result
@@ -315,20 +348,22 @@ def __image_mode(path: str) -> str:
         image.close()
 
 
-def get_audio_files(include_bad_audio: bool = False) -> List[str]:
-    tests_dir = os.path.dirname(__file__)
-    glob_result = glob.glob(f'{tests_dir}/**/audio/*', recursive=True)
+def get_audio_files(include_bad_audio: bool = False) -> list[str]:
+    tests_dir = Path(os.path.dirname(__file__))
+    audio_dir = tests_dir / 'data' / 'audio'
+    glob_result = glob.glob(f'{audio_dir}/*', recursive=True)
     if not include_bad_audio:
         glob_result = [f for f in glob_result if 'bad_audio' not in f]
     return glob_result
 
 
-def get_documents() -> List[str]:
-    tests_dir = os.path.dirname(__file__)
-    return [p for p in glob.glob(f'{tests_dir}/**/documents/*', recursive=True)]
+def get_documents() -> list[str]:
+    tests_dir = Path(os.path.dirname(__file__))
+    docs_dir = tests_dir / 'data' / 'documents'
+    return glob.glob(f'{docs_dir}/*', recursive=True)
 
 
-def get_sentences(n: int = 100) -> List[str]:
+def get_sentences(n: int = 100) -> list[str]:
     tests_dir = os.path.dirname(__file__)
     path = glob.glob(f'{tests_dir}/**/jeopardy.json', recursive=True)[0]
     with open(path, 'r', encoding='utf8') as f:
@@ -340,16 +375,17 @@ def get_sentences(n: int = 100) -> List[str]:
 def assert_resultset_eq(r1: DataFrameResultSet, r2: DataFrameResultSet) -> None:
     assert len(r1) == len(r2)
     assert len(r1.schema) == len(r2.schema)  # we don't care about the actual column names
-    r1_pd = r1.to_pandas()
-    r2_pd = r2.to_pandas()
-    for i in range(len(r1.schema)):
+    assert all(type1.matches(type2) for type1, type2 in zip(r1.schema.values(), r2.schema.values()))
+    for r1_col, r2_col in zip(r1.schema, r2.schema):
         # only compare column values
-        s1 = r1_pd.iloc[:, i]
-        s2 = r2_pd.iloc[:, i]
-        if s1.dtype == np.float64:
-            assert np.allclose(s1, s2)
+        s1 = r1[r1_col]
+        s2 = r2[r2_col]
+        if r1.schema[r1_col].is_float_type():
+            assert np.allclose(np.array(s1), np.array(s2))
+        elif r1.schema[r1_col].is_array_type():
+            assert all(np.array_equal(a1, a2) for a1, a2 in zip(s1, s2))
         else:
-            assert s1.equals(s2)
+            assert s1 == s2
 
 
 def skip_test_if_not_installed(package) -> None:

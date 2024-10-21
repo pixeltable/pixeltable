@@ -5,14 +5,15 @@ import builtins
 import json
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Iterable, Literal, Optional, Set, Tuple, Type, Union, overload
+from typing import _GenericAlias  # type: ignore[attr-defined]
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Literal, Optional, Set, Sequence, Tuple, Type, Union, overload
 from uuid import UUID
 
 import pandas as pd
 import pandas.io.formats.style
 import sqlalchemy as sql
 
-import pixeltable
+import pixeltable as pxt
 import pixeltable.catalog as catalog
 import pixeltable.env as env
 import pixeltable.exceptions as excs
@@ -45,8 +46,20 @@ class Table(SchemaObject):
         super().__init__(id, name, dir_id)
         self._is_dropped = False
         self._tbl_version_path = tbl_version_path
-        from pixeltable.func import QueryTemplateFunction
-        self._queries: dict[str, QueryTemplateFunction] = {}
+        self.__query_scope = self.QueryScope(self)
+
+    class QueryScope:
+        __table: 'Table'
+        _queries: dict[str, pxt.func.QueryTemplateFunction]
+
+        def __init__(self, table: 'Table') -> None:
+            self.__table = table
+            self._queries = {}
+
+        def __getattr__(self, name: str) -> pxt.func.QueryTemplateFunction:
+            if name in self._queries:
+                return self._queries[name]
+            raise AttributeError(f'Table {self.__table._name!r} has no query with that name: {name!r}')
 
     def _move(self, new_name: str, new_dir_id: UUID) -> None:
         super()._move(new_name, new_dir_id)
@@ -107,25 +120,24 @@ class Table(SchemaObject):
         if self._is_dropped:
             raise excs.Error(f'{self._display_name()} {self._name} has been dropped')
 
-    def __getattr__(
-            self, name: str
-    ) -> Union['pixeltable.exprs.ColumnRef', 'pixeltable.func.QueryTemplateFunction']:
-        """Return a ColumnRef or QueryTemplateFunction for the given name.
+    def __getattr__(self, name: str) -> 'pxt.exprs.ColumnRef':
+        """Return a ColumnRef for the given name.
         """
-        if name in self._queries:
-            return self._queries[name]
         return getattr(self._tbl_version_path, name)
 
-    def __getitem__(
-            self, index: object
-    ) -> Union[
-        'pixeltable.func.QueryTemplateFunction', 'pixeltable.exprs.ColumnRef', 'pixeltable.DataFrame'
-    ]:
+    @overload
+    def __getitem__(self, name: str) -> 'pxt.exprs.ColumnRef': ...
+
+    @overload
+    def __getitem__(self, index: Union[exprs.Expr, Sequence[exprs.Expr]]) -> 'pxt.DataFrame': ...
+
+    def __getitem__(self, index):
         """Return a ColumnRef or QueryTemplateFunction for the given name, or a DataFrame for the given slice.
         """
-        if isinstance(index, str) and index in self._queries:
-            return self._queries[index]
-        return self._tbl_version_path.__getitem__(index)
+        if isinstance(index, str):
+            return getattr(self, index)
+        else:
+            return self._df()[index]
 
     def list_views(self, *, recursive: bool = True) -> list[str]:
         """
@@ -147,60 +159,55 @@ class Table(SchemaObject):
         else:
             return dependents
 
-    def _df(self) -> 'pixeltable.dataframe.DataFrame':
+    def _df(self) -> 'pxt.dataframe.DataFrame':
         """Return a DataFrame for this table.
         """
         # local import: avoid circular imports
-        from pixeltable.dataframe import DataFrame
-        return DataFrame(self._tbl_version_path)
+        return pxt.DataFrame(self._tbl_version_path)
 
-    def select(self, *items: Any, **named_items: Any) -> 'pixeltable.DataFrame':
+    @property
+    def queries(self) -> 'Table.QueryScope':
+        return self.__query_scope
+
+    def select(self, *items: Any, **named_items: Any) -> 'pxt.DataFrame':
         """Return a [`DataFrame`][pixeltable.DataFrame] for this table."""
-        # local import: avoid circular imports
-        from pixeltable.dataframe import DataFrame
-        return DataFrame(self._tbl_version_path).select(*items, **named_items)
+        return self._df().select(*items, **named_items)
 
-    def where(self, pred: 'exprs.Expr') -> 'pixeltable.DataFrame':
+    def where(self, pred: 'exprs.Expr') -> 'pxt.DataFrame':
         """Return a [`DataFrame`][pixeltable.DataFrame] for this table."""
-        # local import: avoid circular imports
-        from pixeltable.dataframe import DataFrame
-        return DataFrame(self._tbl_version_path).where(pred)
+        return self._df().where(pred)
 
-    def order_by(self, *items: 'exprs.Expr', asc: bool = True) -> 'pixeltable.DataFrame':
+    def order_by(self, *items: 'exprs.Expr', asc: bool = True) -> 'pxt.DataFrame':
         """Return a [`DataFrame`][pixeltable.DataFrame] for this table."""
-        # local import: avoid circular imports
-        from pixeltable.dataframe import DataFrame
-        return DataFrame(self._tbl_version_path).order_by(*items, asc=asc)
+        return self._df().order_by(*items, asc=asc)
 
-    def group_by(self, *items: 'exprs.Expr') -> 'pixeltable.DataFrame':
+    def group_by(self, *items: 'exprs.Expr') -> 'pxt.DataFrame':
         """Return a [`DataFrame`][pixeltable.DataFrame] for this table."""
-        from pixeltable.dataframe import DataFrame
-        return DataFrame(self._tbl_version_path).group_by(*items)
+        return self._df().group_by(*items)
 
-    def limit(self, n: int) -> 'pixeltable.DataFrame':
-        from pixeltable.dataframe import DataFrame
-        return DataFrame(self._tbl_version_path).limit(n)
+    def limit(self, n: int) -> 'pxt.DataFrame':
+        return self._df().limit(n)
 
-    def collect(self) -> 'pixeltable.dataframe.DataFrameResultSet':
+    def collect(self) -> 'pxt.dataframe.DataFrameResultSet':
         """Return rows from this table."""
         return self._df().collect()
 
     def show(
             self, *args, **kwargs
-    ) -> 'pixeltable.dataframe.DataFrameResultSet':
+    ) -> 'pxt.dataframe.DataFrameResultSet':
         """Return rows from this table.
         """
         return self._df().show(*args, **kwargs)
 
     def head(
             self, *args, **kwargs
-    ) -> 'pixeltable.dataframe.DataFrameResultSet':
+    ) -> 'pxt.dataframe.DataFrameResultSet':
         """Return the first n rows inserted into this table."""
         return self._df().head(*args, **kwargs)
 
     def tail(
             self, *args, **kwargs
-    ) -> 'pixeltable.dataframe.DataFrameResultSet':
+    ) -> 'pxt.dataframe.DataFrameResultSet':
         """Return the last n rows inserted into this table."""
         return self._df().tail(*args, **kwargs)
 
@@ -216,7 +223,7 @@ class Table(SchemaObject):
     @property
     def _query_names(self) -> list[str]:
         """Return the names of the registered queries for this table."""
-        return list(self._queries.keys())
+        return list(self.__query_scope._queries.keys())
 
     @property
     def _base(self) -> Optional['Table']:
@@ -241,7 +248,7 @@ class Table(SchemaObject):
         cols = self._tbl_version_path.columns()
         df = pd.DataFrame({
             'Column Name': [c.name for c in cols],
-            'Type': [str(c.col_type) for c in cols],
+            'Type': [c.col_type._to_str(as_schema=True) for c in cols],
             'Computed With': [c.value_expr.display_str(inline=False) if c.value_expr is not None else '' for c in cols],
         })
         return df
@@ -264,7 +271,7 @@ class Table(SchemaObject):
             from IPython.display import display
             display(self._description_html())
         else:
-            print(self.__repr__())
+            print(repr(self))
 
     # TODO: Display comments in _repr_html()
     def __repr__(self) -> str:
@@ -292,53 +299,59 @@ class Table(SchemaObject):
         """Return a PyTorch Dataset for this table.
             See DataFrame.to_pytorch_dataset()
         """
-        from pixeltable.dataframe import DataFrame
-        return DataFrame(self._tbl_version_path).to_pytorch_dataset(image_format=image_format)
+        return self._df().to_pytorch_dataset(image_format=image_format)
 
     def to_coco_dataset(self) -> Path:
         """Return the path to a COCO json file for this table.
             See DataFrame.to_coco_dataset()
         """
-        from pixeltable.dataframe import DataFrame
-        return DataFrame(self._tbl_version_path).to_coco_dataset()
+        return self._df().to_coco_dataset()
 
     def __setitem__(self, col_name: str, spec: Union[ts.ColumnType, exprs.Expr]) -> None:
         """
         Adds a column to the table. This is an alternate syntax for `add_column()`; the meaning of
 
-        >>> tbl['new_col'] = IntType()
+        >>> tbl['new_col'] = pxt.Int
 
         is exactly equivalent to
 
-        >>> tbl.add_column(new_col=IntType())
+        >>> tbl.add_column(new_col=pxt.Int)
 
         For details, see the documentation for [`add_column()`][pixeltable.catalog.Table.add_column].
         """
         if not isinstance(col_name, str):
             raise excs.Error(f'Column name must be a string, got {type(col_name)}')
-        if not isinstance(spec, (ts.ColumnType, exprs.Expr)):
-            raise excs.Error(f'Column spec must be a ColumnType or an Expr, got {type(spec)}')
-        self.add_column(type=None, stored=None, print_stats=False, **{col_name: spec})
+        if not isinstance(spec, (ts.ColumnType, exprs.Expr, type, _GenericAlias)):
+            raise excs.Error(f'Column spec must be a ColumnType, Expr, or type, got {type(spec)}')
+        self.add_column(type=None, stored=None, print_stats=False, on_error='abort', **{col_name: spec})
 
     def add_column(
             self,
             *,
-            type: Optional[ts.ColumnType] = None,
+            type: Union[ts.ColumnType, builtins.type, _GenericAlias, None] = None,
             stored: Optional[bool] = None,
             print_stats: bool = False,
-            **kwargs: Union[ts.ColumnType, exprs.Expr, Callable]
+            on_error: Literal['abort', 'ignore'] = 'abort',
+            **kwargs: Union[ts.ColumnType, builtins.type, _GenericAlias, exprs.Expr, Callable]
     ) -> UpdateStatus:
         """
         Adds a column to the table.
 
         Args:
+            kwargs: Exactly one keyword argument of the form `column_name=type` or `column_name=expression`.
             type: The type of the column. Only valid and required if `value-expression` is a Callable.
             stored: Whether the column is materialized and stored or computed on demand. Only valid for image columns.
             print_stats: If `True`, print execution metrics during evaluation.
-            kwargs: Exactly one keyword argument of the form `column-name=type|value-expression`.
+            on_error: Determines the behavior if an error occurs while evaluating the column expression for at least one
+                row.
+
+                - If `on_error='abort'`, then an exception will be raised and the column will not be added.
+                - If `on_error='ignore'`, then execution will continue and the column will be added. Any rows
+                  with errors will have a `None` value for the column, with information about the error stored in the
+                  corresponding `tbl.col_name.errortype` and `tbl.col_name.errormsg` fields.
 
         Returns:
-            An [`UpdateStatus`][pixeltable.UpdateStatus] object containing information about the update.
+            Information about the execution status of the operation.
 
         Raises:
             Error: If the column name is invalid or already exists.
@@ -346,17 +359,17 @@ class Table(SchemaObject):
         Examples:
             Add an int column:
 
-            >>> tbl.add_column(new_col=IntType(nullable=True))
+            >>> tbl.add_column(new_col=pxt.Int)
 
             Alternatively, this can also be expressed as:
 
-            >>> tbl['new_col'] = IntType(nullable=True)
+            >>> tbl['new_col'] = pxt.Int
 
             For a table with int column `int_col`, add a column that is the factorial of ``int_col``. The names of
             the parameters of the Callable must correspond to existing column names (the column values are then passed
             as arguments to the Callable). In this case, the column type needs to be specified explicitly:
 
-            >>> tbl.add_column(factorial=lambda int_col: math.factorial(int_col), type=IntType())
+            >>> tbl.add_column(factorial=lambda int_col: math.factorial(int_col), type=pxt.Int)
 
             For a table with an image column ``frame``, add an image column ``rotated`` that rotates the image by
             90 degrees. In this case, the column type is inferred from the expression. Also, the column is not stored
@@ -382,25 +395,24 @@ class Table(SchemaObject):
         col_name, spec = next(iter(kwargs.items()))
         if not is_valid_identifier(col_name):
             raise excs.Error(f'Invalid column name: {col_name!r}')
-        if isinstance(spec, (ts.ColumnType, exprs.Expr)) and type is not None:
+        if isinstance(spec, (ts.ColumnType, builtins.type, _GenericAlias, exprs.Expr)) and type is not None:
             raise excs.Error(f'add_column(): keyword argument "type" is redundant')
 
         col_schema: dict[str, Any] = {}
-        if isinstance(spec, ts.ColumnType):
-            col_schema['type'] = spec
+        if isinstance(spec, (ts.ColumnType, builtins.type, _GenericAlias)):
+            col_schema['type'] = ts.ColumnType.normalize_type(spec, nullable_default=True)
         else:
             col_schema['value'] = spec
         if type is not None:
-            col_schema['type'] = type
+            col_schema['type'] = ts.ColumnType.normalize_type(type, nullable_default=True)
         if stored is not None:
             col_schema['stored'] = stored
 
         new_col = self._create_columns({col_name: col_schema})[0]
         self._verify_column(new_col, set(self._schema.keys()), set(self._query_names))
-        status = self._tbl_version.add_column(new_col, print_stats=print_stats)
+        status = self._tbl_version.add_column(new_col, print_stats=print_stats, on_error=on_error)
         FileCache.get().emit_eviction_warnings()
         return status
-
 
     @classmethod
     def _validate_column_spec(cls, name: str, spec: dict[str, Any]) -> None:
@@ -418,8 +430,8 @@ class Table(SchemaObject):
 
         if 'type' in spec:
             has_type = True
-            if not isinstance(spec['type'], ts.ColumnType):
-                raise excs.Error(f'Column {name}: "type" must be a ColumnType, got {spec["type"]}')
+            if not isinstance(spec['type'], (ts.ColumnType, type, _GenericAlias)):
+                raise excs.Error(f'Column {name}: "type" must be a type or ColumnType, got {spec["type"]}')
 
         if 'value' in spec:
             value_spec = spec['value']
@@ -452,20 +464,20 @@ class Table(SchemaObject):
             primary_key: Optional[bool] = None
             stored = True
 
-            if isinstance(spec, ts.ColumnType):
-                # TODO: create copy
-                col_type = spec
+            if isinstance(spec, (ts.ColumnType, type, _GenericAlias)):
+                col_type = ts.ColumnType.normalize_type(spec, nullable_default=True)
             elif isinstance(spec, exprs.Expr):
                 # create copy so we can modify it
                 value_expr = spec.copy()
             elif callable(spec):
-                raise excs.Error((
+                raise excs.Error(
                     f'Column {name} computed with a Callable: specify using a dictionary with '
-                    f'the "value" and "type" keys (e.g., "{name}": {{"value": <Callable>, "type": IntType()}})'
-                ))
+                    f'the "value" and "type" keys (e.g., "{name}": {{"value": <Callable>, "type": pxt.Int}})'
+                )
             elif isinstance(spec, dict):
                 cls._validate_column_spec(name, spec)
-                col_type = spec.get('type')
+                if 'type' in spec:
+                    col_type = ts.ColumnType.normalize_type(spec['type'], nullable_default=True)
                 value_expr = spec.get('value')
                 if value_expr is not None and isinstance(value_expr, exprs.Expr):
                     # create copy so we can modify it
@@ -575,24 +587,24 @@ class Table(SchemaObject):
 
     def add_embedding_index(
             self, col_name: str, *, idx_name: Optional[str] = None,
-            string_embed: Optional[pixeltable.Function] = None, image_embed: Optional[pixeltable.Function] = None,
+            string_embed: Optional[pxt.Function] = None, image_embed: Optional[pxt.Function] = None,
             metric: str = 'cosine'
     ) -> None:
         """
         Add an embedding index to the table. Once the index is added, it will be automatically kept up to data as new
         rows are inserted into the table.
 
-        Indices are currently supported only for `StringType()` and `ImageType()` columns. The index must specify, at
+        Indices are currently supported only for `String` and `Image` columns. The index must specify, at
         minimum, an embedding of the appropriate type (string or image). It may optionally specify _both_ a string
         and image embedding (into the same vector space); in particular, this can be used to provide similarity search
         of text over an image column.
 
         Args:
-            col_name: The name of column to index; must be a `StringType()` or `ImageType()` column.
+            col_name: The name of column to index; must be a `String` or `Image` column.
             idx_name: The name of index. If not specified, a name such as `'idx0'` will be generated automatically.
                 If specified, the name must be unique for this table.
-            string_embed: A function to embed text; required if the column is a `StringType()` column.
-            image_embed: A function to embed images; required if the column is an `ImageType()` column.
+            string_embed: A function to embed text; required if the column is a `String` column.
+            image_embed: A function to embed images; required if the column is an `Image` column.
             metric: Distance metric to use for the index; one of `'cosine'`, `'ip'`, or `'l2'`;
                 the default is `'cosine'`.
 
@@ -769,7 +781,7 @@ class Table(SchemaObject):
         raise NotImplementedError
 
     def update(
-            self, value_spec: dict[str, Any], where: Optional['pixeltable.exprs.Expr'] = None, cascade: bool = True
+            self, value_spec: dict[str, Any], where: Optional['pxt.exprs.Expr'] = None, cascade: bool = True
     ) -> UpdateStatus:
         """Update rows in this table.
 
@@ -861,7 +873,7 @@ class Table(SchemaObject):
         FileCache.get().emit_eviction_warnings()
         return status
 
-    def delete(self, where: Optional['pixeltable.exprs.Expr'] = None) -> UpdateStatus:
+    def delete(self, where: Optional['pxt.exprs.Expr'] = None) -> UpdateStatus:
         """Delete rows in this table.
 
         Args:
@@ -890,17 +902,17 @@ class Table(SchemaObject):
         self._tbl_version.revert()
 
     @overload
-    def query(self, py_fn: Callable) -> 'pixeltable.func.QueryTemplateFunction': ...
+    def query(self, py_fn: Callable) -> 'pxt.func.QueryTemplateFunction': ...
 
     @overload
     def query(
             self, *, param_types: Optional[list[ts.ColumnType]] = None
-    ) -> Callable[[Callable], 'pixeltable.func.QueryTemplateFunction']: ...
+    ) -> Callable[[Callable], 'pxt.func.QueryTemplateFunction']: ...
 
     def query(self, *args: Any, **kwargs: Any) -> Any:
         def make_query_template(
                 py_fn: Callable, param_types: Optional[list[ts.ColumnType]]
-        ) -> 'pixeltable.func.QueryTemplateFunction':
+        ) -> 'pxt.func.QueryTemplateFunction':
             if py_fn.__module__ != '__main__' and py_fn.__name__.isidentifier():
                 # this is a named function in a module
                 function_path = f'{py_fn.__module__}.{py_fn.__qualname__}'
@@ -909,12 +921,11 @@ class Table(SchemaObject):
             query_name = py_fn.__name__
             if query_name in self._schema.keys():
                 raise excs.Error(f'Query name {query_name!r} conflicts with existing column')
-            if query_name in self._queries and function_path is not None:
+            if query_name in self.__query_scope._queries and function_path is not None:
                 raise excs.Error(f'Duplicate query name: {query_name!r}')
-            import pixeltable.func as func
-            query_fn = func.QueryTemplateFunction.create(
+            query_fn = pxt.func.QueryTemplateFunction.create(
                 py_fn, param_types=param_types, path=function_path, name=query_name)
-            self._queries[query_name] = query_fn
+            self.__query_scope._queries[query_name] = query_fn
             return query_fn
 
             # TODO: verify that the inferred return type matches that of the template
@@ -931,7 +942,7 @@ class Table(SchemaObject):
     def external_stores(self) -> list[str]:
         return list(self._tbl_version.external_stores.keys())
 
-    def _link_external_store(self, store: 'pixeltable.io.ExternalStore') -> None:
+    def _link_external_store(self, store: 'pxt.io.ExternalStore') -> None:
         """
         Links the specified `ExternalStore` to this table.
         """
@@ -986,7 +997,7 @@ class Table(SchemaObject):
             *,
             export_data: bool = True,
             import_data: bool = True
-    ) -> 'pixeltable.io.SyncStatus':
+    ) -> 'pxt.io.SyncStatus':
         """
         Synchronizes this table with its linked external stores.
 
@@ -1008,9 +1019,7 @@ class Table(SchemaObject):
             if store not in all_stores:
                 raise excs.Error(f'Table `{self._name}` has no external store with that name: {store}')
 
-        from pixeltable.io import SyncStatus
-
-        sync_status = SyncStatus.empty()
+        sync_status = pxt.io.SyncStatus.empty()
         for store in stores:
             store_obj = self._tbl_version.external_stores[store]
             store_sync_status = store_obj.sync(self, export_data=export_data, import_data=import_data)

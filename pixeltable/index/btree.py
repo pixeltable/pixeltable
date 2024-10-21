@@ -2,10 +2,10 @@ from typing import Optional
 
 import sqlalchemy as sql
 
-# TODO: why does this import result in a circular import, but the one im embedding_index.py doesn't?
-#import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
-import pixeltable.func as func
+from pixeltable import catalog, exprs
+from pixeltable.func.udf import udf
+
 from .base import IndexBase
 
 
@@ -15,7 +15,8 @@ class BtreeIndex(IndexBase):
     """
     MAX_STRING_LEN = 256
 
-    @func.udf
+    @staticmethod
+    @udf
     def str_filter(s: Optional[str]) -> Optional[str]:
         if s is None:
             return None
@@ -24,10 +25,9 @@ class BtreeIndex(IndexBase):
     def __init__(self, c: 'catalog.Column'):
         if not c.col_type.is_scalar_type() and not c.col_type.is_media_type():
             raise excs.Error(f'Index on column {c.name}: B-tree index requires scalar or media type, got {c.col_type}')
-        from pixeltable.exprs import ColumnRef
-        self.value_expr = self.str_filter(ColumnRef(c)) if c.col_type.is_string_type() else ColumnRef(c)
+        self.value_expr = BtreeIndex.str_filter(exprs.ColumnRef(c)) if c.col_type.is_string_type() else exprs.ColumnRef(c)
 
-    def index_value_expr(self) -> 'pixeltable.exprs.Expr':
+    def index_value_expr(self) -> 'exprs.Expr':
         return self.value_expr
 
     def records_value_errors(self) -> bool:
