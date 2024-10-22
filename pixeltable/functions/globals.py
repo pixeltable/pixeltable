@@ -36,8 +36,6 @@ class sum(func.Aggregator):
         return self.sum
 
 
-# disable type checking: mypy doesn't seem to understand that 'sum' is an instance of Function
-# TODO: find a way to have this type-checked
 @sum.to_sql
 def _(val: sql.ColumnElement) -> Optional[sql.ColumnElement]:
     # This can produce a Decimal. We are deliberately avoiding an explicit cast to a Bigint here, because that can
@@ -58,7 +56,7 @@ class count(func.Aggregator):
         return self.count
 
 
-@count.to_sql  # type: ignore
+@count.to_sql
 def _(val: sql.ColumnElement) -> Optional[sql.ColumnElement]:
     return sql.sql.func.count(val)
 
@@ -82,7 +80,7 @@ class min(func.Aggregator):
         return self.val
 
 
-@min.to_sql  # type: ignore
+@min.to_sql
 def _(val: sql.ColumnElement) -> Optional[sql.ColumnElement]:
     return sql.sql.func.min(val)
 
@@ -106,7 +104,7 @@ class max(func.Aggregator):
         return self.val
 
 
-@max.to_sql  # type: ignore
+@max.to_sql
 def _(val: sql.ColumnElement) -> Optional[sql.ColumnElement]:
     return sql.sql.func.max(val)
 
@@ -134,7 +132,7 @@ class mean(func.Aggregator):
         return self.sum / self.count
 
 
-@mean.to_sql  # type: ignore
+@mean.to_sql
 def _(val: sql.ColumnElement) -> Optional[sql.ColumnElement]:
     return sql.sql.func.avg(val)
 

@@ -31,7 +31,6 @@ class PxtPlugin(Plugin):
 
     def get_class_decorator_hook_2(self, fullname: str) -> Optional[Callable[[ClassDefContext], bool]]:
         if fullname == self.__UDA_FULLNAME:
-            print('UDA')
             return pxt_decorator_hook
         return None
 
