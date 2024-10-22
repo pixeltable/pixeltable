@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, Any, Literal, Optional, Union
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable import Table, exprs
+from pixeltable.env import Env
 from pixeltable.io.external_store import SyncStatus
 
 if TYPE_CHECKING:
@@ -119,6 +120,8 @@ def create_label_studio_project(
                 s3_configuration={'bucket': 'my-bucket', 'region_name': 'us-east-2'}
             )
     """
+    Env.get().require_package('label_studio_sdk')
+
     from pixeltable.io.label_studio import LabelStudioProject
 
     ls_project = LabelStudioProject.create(
@@ -346,10 +349,14 @@ def export_images_as_fiftyone(
         See the [Working with Voxel51 in Pixeltable](https://docs.pixeltable.com/docs/working-with-voxel51) tutorial
         for a fully worked example.
     """
+    Env.get().require_package('fiftyone')
+
     import fiftyone as fo
+    from pixeltable.io.fiftyone import PxtImageDatasetImporter
 
-    from pixeltable.io.fiftyone import PxtDatasetImporter
+    if not images.col_type.is_image_type():
+        raise excs.Error(f'`images` must be an expression of type `Image` (got {images.col_type})')
 
-    return fo.Dataset.from_importer(PxtDatasetImporter(
+    return fo.Dataset.from_importer(PxtImageDatasetImporter(
         tbl, images, image_format, classifications=classifications, detections=detections
     ))

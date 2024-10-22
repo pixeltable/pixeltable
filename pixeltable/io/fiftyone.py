@@ -1,6 +1,5 @@
 import os
-from os import PathLike
-from typing import Any, Iterator, Optional, Union
+from typing import Iterator, Optional, Union
 
 import fiftyone as fo  # type: ignore[import-untyped]
 import fiftyone.utils.data as foud  # type: ignore[import-untyped]
@@ -13,9 +12,9 @@ from pixeltable import exprs
 from pixeltable.env import Env
 
 
-class PxtDatasetImporter(foud.LabeledImageDatasetImporter):
+class PxtImageDatasetImporter(foud.LabeledImageDatasetImporter):
     """
-    Implementation of a FiftyOne `DatasetImporter` that reads data from a Pixeltable table.
+    Implementation of a FiftyOne `DatasetImporter` that reads image data from a Pixeltable table.
     """
     __image_format: str
     __labels: dict[str, tuple[exprs.Expr, type]]  # label_name -> (expr, label_cls)
@@ -31,7 +30,7 @@ class PxtDatasetImporter(foud.LabeledImageDatasetImporter):
         image_format: str,
         classifications: Union[exprs.Expr, list[exprs.Expr], dict[str, exprs.Expr], None] = None,
         detections: Union[exprs.Expr, list[exprs.Expr], dict[str, exprs.Expr], None] = None,
-        dataset_dir: Optional[PathLike] = None,
+        dataset_dir: Optional[os.PathLike] = None,
         shuffle: bool = False,
         seed: Union[int, float, str, bytes, bytearray, None] = None,
         max_samples: Optional[int] = None,
@@ -104,9 +103,11 @@ class PxtDatasetImporter(foud.LabeledImageDatasetImporter):
         img = row[self.__image_idx]
         assert isinstance(img, PIL.Image.Image)
         if self.__localpath_idx is not None:
+            # Use the existing localpath of the stored image
             file = row[self.__localpath_idx]
             assert isinstance(file, str)
         else:
+            # Write the dynamically created image to a temp file
             file = str(Env.get().create_tmp_path(f'.{self.__image_format}'))
             img.save(file, format=self.__image_format)
 
