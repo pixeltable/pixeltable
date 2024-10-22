@@ -344,15 +344,14 @@ def vit_for_image_classification(
     probs = torch.softmax(logits, dim=-1)
     top_k_probs, top_k_indices = torch.topk(probs, top_k, dim=-1)
 
+    # There is no official post_process method for ViT models; for consistency, we structure the output
+    # the same way as the output of the DETR model given by `post_process_object_detection`.
     return [
-        [
-            {
-                'confidence': top_k_probs[n, k].item(),
-                'class': top_k_indices[n, k].item(),
-                'label': model.config.id2label[top_k_indices[n, k].item()],
-            }
-            for k in range(top_k_probs.shape[1])
-        ]
+        {
+            'scores': [top_k_probs[n, k].item() for k in range(top_k_probs.shape[1])],
+            'labels': [top_k_indices[n, k].item() for k in range(top_k_probs.shape[1])],
+            'label_text': [model.config.id2label[top_k_indices[n, k].item()] for k in range(top_k_probs.shape[1])],
+        }
         for n in range(top_k_probs.shape[0])
     ]
 

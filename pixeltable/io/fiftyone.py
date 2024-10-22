@@ -126,39 +126,28 @@ class PxtDatasetImporter(foud.LabeledImageDatasetImporter):
             if label_cls is fo.Classifications:
                 label = fo.Classifications(classifications=self.__as_fo_classifications(label_data))
             elif label_cls is fo.Detections:
-                label = fo.Detections(detections=self.__as_fo_detections(img, label_data))
+                label = fo.Detections(detections=self.__as_fo_detections(label_data))
             else:
                 assert False
             labels[label_name] = label
 
         return file, metadata, labels
 
-    def __as_fo_classifications(self, data: Any) -> list[fo.Classification]:
+    def __as_fo_classifications(self, data: list) -> list[fo.Classification]:
         if not isinstance(data, list):
             raise excs.Error(f'Invalid classifications data: {data}')
-        result: list[fo.Classification] = []
-        for entry in data:
-            if isinstance(entry, str):
-                result.append(fo.Classification(label=entry))
-            elif isinstance(entry, dict):
-                result.append(fo.Classification(label=entry['label'], confidence=entry.get('confidence')))
-            else:
-                raise excs.Error(f'Invalid classification data: {data}')
-        return result
+        return [
+            fo.Classification(label=entry['label'], confidence=entry.get('confidence'))
+            for entry in data
+        ]
 
-    def __as_fo_detections(self, img: PIL.Image.Image, data: Any) -> list[fo.Detections]:
-        if not isinstance(data, dict):
+    def __as_fo_detections(self, data: list) -> list[fo.Detections]:
+        if not isinstance(data, list):
             raise excs.Error(f'Invalid detections data: {data}')
-        result: list[fo.Detection] = []
-        for label, box, score in zip(data['label_text'], data['boxes'], data['scores']):
-            bounding_box = [
-                float(box[0]) / img.width,
-                float(box[1]) / img.height,
-                float(box[2] - box[0]) / img.width,
-                float(box[3] - box[1]) / img.height,
-            ]
-            result.append(fo.Detection(label=label, bounding_box=bounding_box, confidence=score))
-        return result
+        return [
+            fo.Detection(label=entry['label'], bounding_box=entry['bounding_box'], confidence=entry.get('confidence'))
+            for entry in data
+        ]
 
     @property
     def has_dataset_info(self) -> bool:
