@@ -46,7 +46,7 @@ Learn how to create tables, populate them with data, and enhance them with built
 ```python
 import pixeltable as pxt
 
-v = pxt.create_table('external_data.videos', {'video': pxt.VideoType()})
+v = pxt.create_table('external_data.videos', {'video': pxt.Video})
 
 prefix = 's3://multimedia-commons/'
 paths = [
@@ -64,7 +64,7 @@ import pixeltable as pxt
 from pixeltable.functions import huggingface
 
 # Create a table to store data persistently
-t = pxt.create_table('image', {'image': pxt.ImageType()})
+t = pxt.create_table('image', {'image': pxt.Image})
 
 # Insert some images
 prefix = 'https://upload.wikimedia.org/wikipedia/commons'
@@ -121,7 +121,7 @@ Learn how to leverage Pixeltable for [Model analytics](https://pixeltable.readme
 
 ### Working with inference services
 ```python
-chat_table = pxt.create_table('together_demo.chat', {'input': pxt.StringType()})
+chat_table = pxt.create_table('together_demo.chat', {'input': pxt.String})
 
 # The chat-completions API expects JSON-formatted input:
 messages = [{'role': 'user', 'content': chat_table.input}]
@@ -157,7 +157,7 @@ from pixeltable.functions.huggingface import clip_image, clip_text
 from pixeltable.iterators import FrameIterator
 import PIL.Image
 
-video_table = pxt.create_table('videos', {'video': pxt.VideoType()})
+video_table = pxt.create_table('videos', {'video': pxt.Video})
 
 video_table.insert([{'video': '/video.mp4'}])
 
