@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
+from typing import Any, Iterable, Optional, Sequence
 
 import sqlalchemy as sql
 
@@ -11,7 +11,6 @@ import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
 import pixeltable.func as func
 import pixeltable.utils as utils
-
 from .data_row import DataRow
 from .expr import Expr
 from .expr_set import ExprSet
@@ -48,14 +47,37 @@ class RowBuilder:
     For ColumnRefs to unstored iterator columns:
     - in order for them to be executable, we also record the iterator args and pass them to the ColumnRef
     """
+    unique_exprs: ExprSet
+    next_slot_idx: int
+    input_expr_slot_idxs: set[int]
+
+    # output exprs: all exprs the caller wants to materialize
+    # - explicitly requested output_exprs
+    # - values for computed columns
+    output_exprs: ExprSet
+
+    input_exprs: ExprSet
+
+    table_columns: list[ColumnSlotIdx]
+    default_eval_ctx: EvalCtx
+    unstored_iter_args: dict[int, Expr]
+
+    # transitive dependents for the purpose of exception propagation: an exception for slot i is propagated to
+    # _exc_dependents[i]
+    # (list of set of slot_idxs, indexed by slot_idx)
+    _exc_dependents: list[set[int]]
+
+    # records the output_expr that a subexpr belongs to
+    # (a subexpr can be shared across multiple output exprs)
+    output_expr_ids: list[set[int]]
 
     @dataclass
     class EvalCtx:
         """Context for evaluating a set of target exprs"""
-        slot_idxs: List[int]  # slot idxs of exprs needed to evaluate target exprs; does not contain duplicates
-        exprs: List[Expr]  # exprs corresponding to slot_idxs
-        target_slot_idxs: List[int]  # slot idxs of target exprs; might contain duplicates
-        target_exprs: List[Expr]  # exprs corresponding to target_slot_idxs
+        slot_idxs: list[int]  # slot idxs of exprs needed to evaluate target exprs; does not contain duplicates
+        exprs: list[Expr]  # exprs corresponding to slot_idxs
+        target_slot_idxs: list[int]  # slot idxs of target exprs; might contain duplicates
+        target_exprs: list[Expr]  # exprs corresponding to target_slot_idxs
 
     def __init__(
             self, output_exprs: Sequence[Expr], columns: Sequence[catalog.Column], input_exprs: Iterable[Expr]
@@ -74,28 +96,48 @@ class RowBuilder:
         unique_input_exprs = [self._record_unique_expr(e.copy(), recursive=False) for e in input_exprs]
         self.input_expr_slot_idxs = {e.slot_idx for e in unique_input_exprs}
 
-        # output exprs: all exprs the caller wants to materialize
-        # - explicitly requested output_exprs
-        # - values for computed columns
         resolve_cols = set(columns)
         self.output_exprs = ExprSet([
             self._record_unique_expr(e.copy().resolve_computed_cols(resolve_cols=resolve_cols), recursive=True)
             for e in output_exprs
         ])
 
-        # record columns for create_table_row()
+        # if init(columns):
+        # - we are creating table rows and need to record columns for create_table_row()
+        # - output_exprs materialize those columns
+        # - input_exprs are ColumnRefs of the non-computed columns (ie, what needs to be provided as input)
+        # - media validation:
+        #   * for write-validated columns, we need to create validating ColumnRefs
+        #   * further references to that column (eg, computed cols) need to resolve to the validating ColumnRef
         from .column_ref import ColumnRef
-        self.table_columns: List[ColumnSlotIdx] = []
+        self.table_columns = []
+        self.input_exprs = ExprSet()
+        validating_colrefs: dict[Expr, Expr] = {}  # key: non-validating colref, value: corresp. validating colref
         for col in columns:
+            expr: Expr
             if col.is_computed:
                 assert col.value_expr is not None
                 # create a copy here so we don't reuse execution state and resolve references to computed columns
                 expr = col.value_expr.copy().resolve_computed_cols(resolve_cols=resolve_cols)
+                expr = expr.substitute(validating_colrefs)
                 expr = self._record_unique_expr(expr, recursive=True)
             else:
                 # record a ColumnRef so that references to this column resolve to the same slot idx
-                expr = ColumnRef(col)
-                expr = self._record_unique_expr(expr, recursive=False)
+                perform_validation = (
+                    col.col_type.is_media_type() and col.media_validation == catalog.MediaValidation.ON_WRITE
+                )
+                expr = ColumnRef(col, perform_validation=perform_validation)
+                # recursive=True: needed for validating ColumnRef
+                expr = self._record_unique_expr(expr, recursive=True)
+
+                if perform_validation:
+                    # if expr is a validating ColumnRef, the input is the non-validating ColumnRef
+                    non_validating_colref = expr.components[0]
+                    self.input_exprs.add(non_validating_colref)
+                    validating_colrefs[non_validating_colref] = expr
+                else:
+                    self.input_exprs.add(expr)
+
             self.add_table_column(col, expr.slot_idx)
             self.output_exprs.add(expr)
 
@@ -118,8 +160,9 @@ class RowBuilder:
         unstored_iter_col_refs = [col_ref for col_ref in col_refs if refs_unstored_iter_col(col_ref)]
         component_views = [col_ref.col.tbl for col_ref in unstored_iter_col_refs]
         unstored_iter_args = {view.id: view.iterator_args.copy() for view in component_views}
-        self.unstored_iter_args = \
-            {id: self._record_unique_expr(arg, recursive=True) for id, arg in unstored_iter_args.items()}
+        self.unstored_iter_args = {
+            id: self._record_unique_expr(arg, recursive=True) for id, arg in unstored_iter_args.items()
+        }
 
         for col_ref in unstored_iter_col_refs:
             iter_arg_ctx = self.create_eval_ctx([unstored_iter_args[col_ref.col.tbl.id]])
@@ -129,25 +172,27 @@ class RowBuilder:
         for i, expr in enumerate(self.unique_exprs):
             assert expr.slot_idx == i
 
-        # record transitive dependencies (list of set of slot_idxs, indexed by slot_idx)
-        self.dependencies: List[Set[int]] = [set() for _ in range(self.num_materialized)]
+        # determine transitive dependencies for the purpose of exception propagation
+        # (list of set of slot_idxs, indexed by slot_idx)
+        exc_dependencies = [set() for _ in range(self.num_materialized)]
+        from .column_property_ref import ColumnPropertyRef
         for expr in self.unique_exprs:
             if expr.slot_idx in self.input_expr_slot_idxs:
                 # this is input and therefore doesn't depend on other exprs
                 continue
+            # error properties don't have exceptions themselves
+            if isinstance(expr, ColumnPropertyRef) and expr.is_error_prop():
+                continue
             for d in expr.dependencies():
-                self.dependencies[expr.slot_idx].add(d.slot_idx)
-                self.dependencies[expr.slot_idx].update(self.dependencies[d.slot_idx])
+                exc_dependencies[expr.slot_idx].add(d.slot_idx)
+                exc_dependencies[expr.slot_idx].update(exc_dependencies[d.slot_idx])
 
-        # derive transitive dependents
-        self.dependents: List[Set[int]] = [set() for _ in range(self.num_materialized)]
+        self._exc_dependents = [set() for _ in range(self.num_materialized)]
         for expr in self.unique_exprs:
-            for d in self.dependencies[expr.slot_idx]:
-                self.dependents[d].add(expr.slot_idx)
+            for d in exc_dependencies[expr.slot_idx]:
+                self._exc_dependents[d].add(expr.slot_idx)
 
-        # records the output_expr that a subexpr belongs to
-        # (a subexpr can be shared across multiple output exprs)
-        self.output_expr_ids: List[Set[int]] = [set() for _ in range(self.num_materialized)]
+        self.output_expr_ids = [set() for _ in range(self.num_materialized)]
         for e in self.output_exprs:
             self._record_output_expr_id(e, e.slot_idx)
 
@@ -155,7 +200,7 @@ class RowBuilder:
         """Record a column that is part of the table row"""
         self.table_columns.append(ColumnSlotIdx(col, slot_idx))
 
-    def output_slot_idxs(self) -> List[ColumnSlotIdx]:
+    def output_slot_idxs(self) -> list[ColumnSlotIdx]:
         """Return ColumnSlotIdx for output columns"""
         return self.table_columns
 
@@ -206,7 +251,7 @@ class RowBuilder:
         for d in e.dependencies():
             self._record_output_expr_id(d, output_expr_id)
 
-    def _compute_dependencies(self, target_slot_idxs: List[int], excluded_slot_idxs: List[int]) -> List[int]:
+    def _compute_dependencies(self, target_slot_idxs: list[int], excluded_slot_idxs: list[int]) -> list[int]:
         """Compute exprs needed to materialize the given target slots, excluding 'excluded_slot_idxs'"""
         dependencies = [set() for _ in range(self.num_materialized)]  # indexed by slot_idx
         # doing this front-to-back ensures that we capture transitive dependencies
@@ -248,7 +293,7 @@ class RowBuilder:
         for c in e.components:
             self.__set_slot_idxs_aux(c)
 
-    def get_dependencies(self, targets: List[Expr], exclude: Optional[List[Expr]] = None) -> List[Expr]:
+    def get_dependencies(self, targets: list[Expr], exclude: Optional[list[Expr]] = None) -> list[Expr]:
         """
         Return list of dependencies needed to evaluate the given target exprs (expressed as slot idxs).
         The exprs given in 'exclude' are excluded.
@@ -287,7 +332,7 @@ class RowBuilder:
     def set_exc(self, data_row: DataRow, slot_idx: int, exc: Exception) -> None:
         """Record an exception in data_row and propagate it to dependents"""
         data_row.set_exc(slot_idx, exc)
-        for slot_idx in self.dependents[slot_idx]:
+        for slot_idx in self._exc_dependents[slot_idx]:
             data_row.set_exc(slot_idx, exc)
 
     def eval(
@@ -318,14 +363,14 @@ class RowBuilder:
                     raise excs.ExprEvalError(
                         expr, f'expression {expr}', data_row.get_exc(expr.slot_idx), exc_tb, input_vals, 0)
 
-    def create_table_row(self, data_row: DataRow, exc_col_ids: Set[int]) -> Tuple[Dict[str, Any], int]:
+    def create_table_row(self, data_row: DataRow, exc_col_ids: set[int]) -> tuple[dict[str, Any], int]:
         """Create a table row from the slots that have an output column assigned
 
         Return Tuple[dict that represents a stored row (can be passed to sql.insert()), # of exceptions]
             This excludes system columns.
         """
         num_excs = 0
-        table_row: Dict[str, Any] = {}
+        table_row: dict[str, Any] = {}
         for info in self.table_columns:
             col, slot_idx = info.col, info.slot_idx
             if data_row.has_exc(slot_idx):

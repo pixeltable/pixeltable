@@ -4,7 +4,7 @@ from typing import Any, Callable, Optional
 
 import sqlalchemy as sql
 
-from pixeltable.metadata.schema import Table
+from pixeltable.metadata.schema import Table, TableSchemaVersion
 
 __logger = logging.getLogger('pixeltable')
 
@@ -17,12 +17,12 @@ def convert_table_md(
     substitution_fn: Optional[Callable[[Optional[str], Any], Optional[tuple[Optional[str], Any]]]] = None
 ) -> None:
     """
-    Converts table metadata based on the specified conversion functions.
+    Converts schema.TableMd dicts based on the specified conversion functions.
 
     Args:
         engine: The SQLAlchemy engine.
-        table_md_updater: A function that updates the table metadata in place.
-        column_md_updater: A function that updates the column metadata in place.
+        table_md_updater: A function that updates schema.TableMd dicts in place.
+        column_md_updater: A function that updates schema.ColumnMd dicts in place.
         external_store_md_updater: A function that updates the external store metadata in place.
         substitution_fn: A function that substitutes metadata values. If specified, all metadata will be traversed
             recursively, and `substitution_fn` will be called once for each metadata entry. If the entry appears in
@@ -90,3 +90,44 @@ def __substitute_md_rec(
         return updated_list
     else:
         return md
+
+
+def convert_table_schema_version_md(
+    engine: sql.engine.Engine,
+    table_schema_version_md_updater: Optional[Callable[[dict], None]] = None,
+    schema_column_updater: Optional[Callable[[dict], None]] = None
+) -> None:
+    """
+    Converts schema.TableSchemaVersionMd dicts based on the specified conversion functions.
+
+    Args:
+        engine: The SQLAlchemy engine.
+        table_schema_version_md_updater: A function that updates schema.TableSchemaVersionMd dicts in place.
+        schema_column_updater: A function that updates schema.SchemaColumn dicts in place.
+    """
+    with engine.begin() as conn:
+        stmt = sql.select(TableSchemaVersion.tbl_id, TableSchemaVersion.schema_version, TableSchemaVersion.md)
+        for row in conn.execute(stmt):
+            tbl_id, schema_version, md = row[0], row[1], row[2]
+            assert isinstance(md, dict)
+            updated_md = copy.deepcopy(md)
+            if table_schema_version_md_updater is not None:
+                table_schema_version_md_updater(updated_md)
+            if schema_column_updater is not None:
+                __update_schema_column(updated_md, schema_column_updater)
+            if updated_md != md:
+                __logger.info(f'Updating TableSchemaVersion(tbl_id={tbl_id}, schema_version={schema_version})')
+                update_stmt = (
+                    sql.update(TableSchemaVersion)
+                    .where(TableSchemaVersion.tbl_id == tbl_id)
+                    .where(TableSchemaVersion.schema_version == schema_version)
+                    .values(md=updated_md)
+                )
+                conn.execute(update_stmt)
+
+
+def __update_schema_column(table_schema_version_md: dict, schema_column_updater: Callable[[dict], None]) -> None:
+    cols = table_schema_version_md['columns']
+    assert isinstance(cols, dict)
+    for schema_col in cols.values():
+        schema_column_updater(schema_col)

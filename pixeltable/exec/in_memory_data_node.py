@@ -27,8 +27,8 @@ class InMemoryDataNode(ExecNode):
         self, tbl: catalog.TableVersion, rows: list[dict[str, Any]],
         row_builder: exprs.RowBuilder, start_row_id: int,
     ):
-        # we materialize all output slots
-        output_exprs = [e for e in row_builder.get_output_exprs() if isinstance(e, exprs.ColumnRef)]
+        # we materialize the input slots
+        output_exprs = list(row_builder.input_exprs)
         super().__init__(row_builder, output_exprs, [], None)
         assert tbl.is_insertable()
         self.tbl = tbl
