@@ -9,6 +9,7 @@ import pixeltable
 import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
+
 from .data_row import DataRow
 from .expr import Expr
 from .globals import print_slice
@@ -16,17 +17,11 @@ from .json_mapper import JsonMapper
 from .row_builder import RowBuilder
 from .sql_element_cache import SqlElementCache
 
-from .data_row import DataRow
-from .expr import Expr
-from .globals import print_slice
-from .json_mapper import JsonMapper
-from .row_builder import RowBuilder
-
 
 class JsonPath(Expr):
     def __init__(
         self,
-        anchor: Optional['pixeltable.exprs.ColumnRef'],
+        anchor: Optional['pixeltable.exprs.Expr'],
         path_elements: Optional[list[Union[str, int, slice]]] = None,
         scope_idx: int = 0
     ) -> None:

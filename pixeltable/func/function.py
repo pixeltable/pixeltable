@@ -3,12 +3,13 @@ from __future__ import annotations
 import abc
 import importlib
 import inspect
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Optional
 
 import sqlalchemy as sql
 
-import pixeltable
+import pixeltable as pxt
 import pixeltable.type_system as ts
+
 from .globals import resolve_symbol
 from .signature import Signature
 
@@ -66,13 +67,13 @@ class Function(abc.ABC):
     def help_str(self) -> str:
         return self.display_name + str(self.signature)
 
-    def __call__(self, *args: Any, **kwargs: Any) -> 'pixeltable.exprs.Expr':
+    def __call__(self, *args: Any, **kwargs: Any) -> 'pxt.exprs.FunctionCall':
         from pixeltable import exprs
         bound_args = self.signature.py_signature.bind(*args, **kwargs)
         self.validate_call(bound_args.arguments)
         return exprs.FunctionCall(self, bound_args.arguments)
 
-    def validate_call(self, bound_args: Dict[str, Any]) -> None:
+    def validate_call(self, bound_args: dict[str, Any]) -> None:
         """Override this to do custom validation of the arguments"""
         pass
 
@@ -121,7 +122,7 @@ class Function(abc.ABC):
         """Print source code"""
         print('source not available')
 
-    def as_dict(self) -> Dict:
+    def as_dict(self) -> dict:
         """
         Return a serialized reference to the instance that can be passed to json.dumps() and converted back
         to an instance with from_dict().
@@ -130,13 +131,13 @@ class Function(abc.ABC):
         classpath = f'{self.__class__.__module__}.{self.__class__.__qualname__}'
         return {'_classpath': classpath, **self._as_dict()}
 
-    def _as_dict(self) -> Dict:
+    def _as_dict(self) -> dict:
         """Default serialization: store the path to self (which includes the module path)"""
         assert self.self_path is not None
         return {'path': self.self_path}
 
     @classmethod
-    def from_dict(cls, d: Dict) -> Function:
+    def from_dict(cls, d: dict) -> Function:
         """
         Turn dict that was produced by calling as_dict() into an instance of the correct Function subclass.
         """
@@ -147,14 +148,14 @@ class Function(abc.ABC):
         return func_class._from_dict(d)
 
     @classmethod
-    def _from_dict(cls, d: Dict) -> Function:
+    def _from_dict(cls, d: dict) -> Function:
         """Default deserialization: load the symbol indicated by the stored symbol_path"""
         assert 'path' in d and d['path'] is not None
         instance = resolve_symbol(d['path'])
         assert isinstance(instance, Function)
         return instance
 
-    def to_store(self) -> Tuple[Dict, bytes]:
+    def to_store(self) -> tuple[dict, bytes]:
         """
         Serialize the function to a format that can be stored in the Pixeltable store
         Returns:
@@ -165,7 +166,7 @@ class Function(abc.ABC):
         raise NotImplementedError()
 
     @classmethod
-    def from_store(cls, name: Optional[str], md: Dict, binary_obj: bytes) -> Function:
+    def from_store(cls, name: Optional[str], md: dict, binary_obj: bytes) -> Function:
         """
         Create a Function instance from the serialized representation returned by to_store()
         """
