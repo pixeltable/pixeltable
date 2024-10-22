@@ -62,7 +62,7 @@ class PxtImageDatasetImporter(foud.LabeledImageDatasetImporter):
 
         # Now add the remaining labels, assigning unused default names.
         for exprs_, label_cls, default_name in label_categories:
-            if exprs_ is None:
+            if exprs_ is None or isinstance(exprs_, dict):
                 continue
             if isinstance(exprs_, exprs.Expr):
                 exprs_ = [exprs_]
@@ -90,6 +90,8 @@ class PxtImageDatasetImporter(foud.LabeledImageDatasetImporter):
             # A stored image column; we can use the existing localpaths
             self.__localpath_idx = len(selection)
             selection.append(image.localpath)
+        else:
+            self.__localpath_idx = None
 
         df = tbl.select(*selection)
         self.__count = df.count()

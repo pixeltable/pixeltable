@@ -166,7 +166,9 @@ filterwarnings = [
     "ignore:Deprecated call to `pkg_resources:DeprecationWarning",
     "ignore:The get_cmap function was deprecated in Matplotlib 3.7:DeprecationWarning",
     "ignore:pkg_resources is deprecated as an API:",
-    "ignore:torchaudio._backend.set_audio_backend:UserWarning"
+    "ignore:torchaudio._backend.set_audio_backend:UserWarning",
+    # This one is raised by mongoengine, which is required by fiftyone:
+    "ignore:No uuidRepresentation is specified! Falling back to 'pythonLegacy' which is the default for pymongo 3.x:DeprecationWarning",
 ]
 
 [tool.ruff]
