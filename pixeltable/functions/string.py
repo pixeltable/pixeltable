@@ -283,6 +283,15 @@ def isspace(self: str) -> bool:
     """
     return self.isspace()
 
+@pxt.udf
+def join(sep: str, elements: list) -> str:
+    """
+    Return a string which is the concatenation of the strings in `elements`.
+
+    Equivalent to [`str.join()`](https://docs.python.org/3/library/stdtypes.html#str.join)
+    """
+    return sep.join(elements)
+
 @pxt.udf(is_method=True)
 def len(self: str) -> int:
     """

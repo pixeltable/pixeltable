@@ -1051,8 +1051,8 @@ files = [
 jmespath = ">=0.7.1,<2.0.0"
 python-dateutil = ">=2.1,<3.0.0"
 urllib3 = [
-    {version = ">=1.25.4,<1.27", markers = "python_version < \"3.10\""},
     {version = ">=1.25.4,<2.2.0 || >2.2.0,<3", markers = "python_version >= \"3.10\""},
+    {version = ">=1.25.4,<1.27", markers = "python_version < \"3.10\""},
 ]
 
 [package.extras]
@@ -1445,8 +1445,8 @@ files = [
 
 [package.dependencies]
 numpy = [
-    {version = ">=1.16,<2.0", markers = "python_version <= \"3.11\""},
     {version = ">=1.26.0rc1,<2.0", markers = "python_version >= \"3.12\""},
+    {version = ">=1.16,<2.0", markers = "python_version <= \"3.11\""},
 ]
 
 [package.extras]
@@ -4697,12 +4697,12 @@ files = [
 
 [package.dependencies]
 numpy = [
+    {version = ">=1.26.0", markers = "python_version >= \"3.12\""},
     {version = ">=1.21.0", markers = "python_version == \"3.9\" and platform_system == \"Darwin\" and platform_machine == \"arm64\""},
     {version = ">=1.21.4", markers = "python_version >= \"3.10\" and platform_system == \"Darwin\" and python_version < \"3.11\""},
     {version = ">=1.21.2", markers = "platform_system != \"Darwin\" and python_version >= \"3.10\" and python_version < \"3.11\""},
     {version = ">=1.19.3", markers = "platform_system == \"Linux\" and platform_machine == \"aarch64\" and python_version >= \"3.8\" and python_version < \"3.10\" or python_version > \"3.9\" and python_version < \"3.10\" or python_version >= \"3.9\" and platform_system != \"Darwin\" and python_version < \"3.10\" or python_version >= \"3.9\" and platform_machine != \"arm64\" and python_version < \"3.10\""},
     {version = ">=1.23.5", markers = "python_version >= \"3.11\" and python_version < \"3.12\""},
-    {version = ">=1.26.0", markers = "python_version >= \"3.12\""},
 ]
 
 [[package]]
@@ -4818,9 +4818,9 @@ files = [
 
 [package.dependencies]
 numpy = [
+    {version = ">=1.26.0,<2", markers = "python_version >= \"3.12\""},
     {version = ">=1.22.4,<2", markers = "python_version < \"3.11\""},
     {version = ">=1.23.2,<2", markers = "python_version == \"3.11\""},
-    {version = ">=1.26.0,<2", markers = "python_version >= \"3.12\""},
 ]
 python-dateutil = ">=2.8.2"
 pytz = ">=2020.1"
@@ -5643,8 +5643,8 @@ files = [
 annotated-types = ">=0.6.0"
 pydantic-core = "2.23.4"
 typing-extensions = [
-    {version = ">=4.6.1", markers = "python_version < \"3.13\""},
     {version = ">=4.12.2", markers = "python_version >= \"3.13\""},
+    {version = ">=4.6.1", markers = "python_version < \"3.13\""},
 ]
 
 [package.extras]
@@ -5782,9 +5782,9 @@ files = [
 astroid = ">=3.1.0,<=3.2.0-dev0"
 colorama = {version = ">=0.4.5", markers = "sys_platform == \"win32\""}
 dill = [
+    {version = ">=0.3.7", markers = "python_version >= \"3.12\""},
     {version = ">=0.2", markers = "python_version < \"3.11\""},
     {version = ">=0.3.6", markers = "python_version >= \"3.11\" and python_version < \"3.12\""},
-    {version = ">=0.3.7", markers = "python_version >= \"3.12\""},
 ]
 isort = ">=4.2.5,<5.13.0 || >5.13.0,<6"
 mccabe = ">=0.6,<0.8"
@@ -6359,6 +6359,23 @@ files = [
     {file = "regex-2022.10.31-cp39-cp39-win_amd64.whl", hash = "sha256:957403a978e10fb3ca42572a23e6f7badff39aa1ce2f4ade68ee452dc6807692"},
     {file = "regex-2022.10.31.tar.gz", hash = "sha256:a3a98921da9a1bf8457aeee6a551948a83601689e5ecdd736894ea9bbec77e83"},
 ]
+
+[[package]]
+name = "replicate"
+version = "1.0.2"
+description = "Python client for Replicate"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "replicate-1.0.2-py3-none-any.whl", hash = "sha256:808009853d5e49f706c9a67a9f97b712c89e2c75e63947f7cc012b847c28bef2"},
+    {file = "replicate-1.0.2.tar.gz", hash = "sha256:faa3551a825d9eb2c0bfc0407ddab75b9e02865344168241a1d41a4e73bbc661"},
+]
+
+[package.dependencies]
+httpx = ">=0.21.0,<1"
+packaging = "*"
+pydantic = ">1.10.7"
+typing-extensions = ">=4.5.0"
 
 [[package]]
 name = "requests"
@@ -7691,8 +7708,8 @@ click = ">=8.1.7,<9.0.0"
 eval-type-backport = ">=0.1.3,<0.3.0"
 filelock = ">=3.13.1,<4.0.0"
 numpy = [
-    {version = ">=1.23.5", markers = "python_version < \"3.12\""},
     {version = ">=1.26.0", markers = "python_version >= \"3.12\""},
+    {version = ">=1.23.5", markers = "python_version < \"3.12\""},
 ]
 pillow = ">=10.3.0,<11.0.0"
 pyarrow = ">=10.0.1"
@@ -8892,4 +8909,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.9,<4.0"
-content-hash = "1f2c9c1f1bd683a10771dffd34cccfe3931f36f25e6dc5a730d0bddff006befd"
+content-hash = "e2fb5f982a4fbc0253f891ed7e3fd3edab58eb233780b59e29d70ffea49bde5b"
