@@ -89,6 +89,7 @@ class ExprEvalNode(ExecNode):
             if not self._is_batched_fn_call(e):
                 continue
             assert isinstance(e, exprs.FunctionCall)
+            assert isinstance(e.fn, CallableFunction)
             if current_batched_fn is None or current_batched_fn != e.fn:
                 # create a new cohort
                 cohorts.append([])
@@ -186,6 +187,7 @@ class ExprEvalNode(ExecNode):
 
                     if ext_batch_size is None:
                         # we need to choose a batch size based on the args
+                        assert isinstance(fn_call.fn, CallableFunction)
                         sample_args = [arg_batches[i][0] for i in range(len(arg_batches))]
                         ext_batch_size = fn_call.fn.get_batch_size(*sample_args)
 
@@ -205,6 +207,7 @@ class ExprEvalNode(ExecNode):
                             for k in kwarg_batches.keys()
                         }
                         start_ts = time.perf_counter()
+                        assert isinstance(fn_call.fn, CallableFunction)
                         result_batch = fn_call.fn.exec_batch(*call_args, **call_kwargs)
                         self.ctx.profile.eval_time[fn_call.slot_idx] += time.perf_counter() - start_ts
                         self.ctx.profile.eval_count[fn_call.slot_idx] += num_ext_batch_rows

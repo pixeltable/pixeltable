@@ -1,15 +1,17 @@
 from __future__ import annotations
-from typing import Optional, List, Any, Dict, Tuple
-from .sql_element_cache import SqlElementCache
+
+from typing import Any, Optional
 from uuid import UUID
 
 import sqlalchemy as sql
 
-from .expr import Expr
-from .data_row import DataRow
-from .row_builder import RowBuilder
-import pixeltable.type_system as ts
 import pixeltable.catalog as catalog
+import pixeltable.type_system as ts
+
+from .data_row import DataRow
+from .expr import Expr
+from .row_builder import RowBuilder
+from .sql_element_cache import SqlElementCache
 
 
 class RowidRef(Expr):
@@ -49,7 +51,7 @@ class RowidRef(Expr):
         return self.normalized_base_id == other.normalized_base_id \
             and self.rowid_component_idx == other.rowid_component_idx
 
-    def _id_attrs(self) -> List[Tuple[str, Any]]:
+    def _id_attrs(self) -> list[tuple[str, Any]]:
         return super()._id_attrs() +\
             [('normalized_base_id', self.normalized_base_id), ('idx', self.rowid_component_idx)]
 
@@ -73,7 +75,7 @@ class RowidRef(Expr):
         self.tbl = tbl.tbl_version
         self.tbl_id = self.tbl.id
 
-    def sql_expr(self, _: SqlElementCache) -> Optional[sql.ClauseElement]:
+    def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
         tbl = self.tbl if self.tbl is not None else catalog.Catalog.get().tbl_versions[(self.tbl_id, None)]
         rowid_cols = tbl.store_tbl.rowid_columns()
         return rowid_cols[self.rowid_component_idx]
@@ -81,7 +83,7 @@ class RowidRef(Expr):
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         data_row[self.slot_idx] = data_row.pk[self.rowid_component_idx]
 
-    def _as_dict(self) -> Dict:
+    def _as_dict(self) -> dict:
         return {
             'tbl_id': str(self.tbl_id),
             'normalized_base_id': str(self.normalized_base_id),
@@ -89,7 +91,6 @@ class RowidRef(Expr):
         }
 
     @classmethod
-    def _from_dict(cls, d: Dict, components: List[Expr]) -> Expr:
+    def _from_dict(cls, d: dict, components: list[Expr]) -> RowidRef:
         tbl_id, normalized_base_id, idx = UUID(d['tbl_id']), UUID(d['normalized_base_id']), d['idx']
         return cls(tbl=None, idx=idx, tbl_id=tbl_id, normalized_base_id=normalized_base_id)
-

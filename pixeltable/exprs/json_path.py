@@ -5,7 +5,7 @@ from typing import Any, Optional, Union
 import jmespath
 import sqlalchemy as sql
 
-import pixeltable
+import pixeltable as pxt
 import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
@@ -21,7 +21,7 @@ from .sql_element_cache import SqlElementCache
 class JsonPath(Expr):
     def __init__(
         self,
-        anchor: Optional['pixeltable.exprs.Expr'],
+        anchor: Optional['pxt.exprs.Expr'],
         path_elements: Optional[list[Union[str, int, slice]]] = None,
         scope_idx: int = 0
     ) -> None:
@@ -56,7 +56,7 @@ class JsonPath(Expr):
         return {'path_elements': path_elements, 'scope_idx': self.scope_idx, **super()._as_dict()}
 
     @classmethod
-    def _from_dict(cls, d: dict, components: list[Expr]) -> Expr:
+    def _from_dict(cls, d: dict, components: list[Expr]) -> JsonPath:
         assert 'path_elements' in d
         assert 'scope_idx' in d
         assert len(components) <= 1
@@ -138,7 +138,7 @@ class JsonPath(Expr):
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return super()._id_attrs() + [('path_elements', self.path_elements)]
 
-    def sql_expr(self, _: SqlElementCache) -> Optional[sql.ClauseElement]:
+    def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
         """
         Postgres appears to have a bug: jsonb_path_query('{a: [{b: 0}, {b: 1}]}', '$.a.b') returns
         *two* rows (each containing col val 0), not a single row with [0, 0].

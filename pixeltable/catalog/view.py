@@ -117,7 +117,7 @@ class View(Table):
 
         with orm.Session(Env.get().engine, future=True) as session:
             from pixeltable.exprs import InlineDict
-            iterator_args_expr = InlineDict(iterator_args) if iterator_args is not None else None
+            iterator_args_expr: exprs.Expr = InlineDict(iterator_args) if iterator_args is not None else None
             iterator_class_fqn = f'{iterator_cls.__module__}.{iterator_cls.__name__}' if iterator_cls is not None \
                 else None
             base_version_path = cls._get_snapshot_path(base) if is_snapshot else base

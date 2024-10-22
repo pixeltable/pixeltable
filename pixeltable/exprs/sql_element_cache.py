@@ -1,4 +1,4 @@
-from typing import Iterable, Union, Optional
+from typing import Iterable, Union, Optional, cast
 
 import sqlalchemy as sql
 
@@ -31,4 +31,4 @@ class SqlElementCache:
         """Returns True if every item has a (non-None) sql.ColumnElement."""
         if isinstance(items, Expr):
             return self.get(items) is not None
-        return all(self.get(e) is not None for e in items)
+        return all(self.get(e) is not None for e in cast(Iterable[Expr], items))

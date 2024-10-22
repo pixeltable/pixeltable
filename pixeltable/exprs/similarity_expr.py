@@ -74,7 +74,7 @@ class SimilarityExpr(Expr):
         assert False
 
     @classmethod
-    def _from_dict(cls, d: dict, components: list[Expr]) -> Expr:
+    def _from_dict(cls, d: dict, components: list[Expr]) -> 'SimilarityExpr':
         assert len(components) == 2
         assert isinstance(components[0], ColumnRef)
         return cls(components[0], components[1])

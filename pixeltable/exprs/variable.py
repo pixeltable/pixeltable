@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from typing import List, Tuple, Any, Dict, NoReturn
+from typing import Any, NoReturn
 
 import pixeltable.type_system as ts
+
 from .data_row import DataRow
 from .expr import Expr
 from .row_builder import RowBuilder
@@ -20,7 +21,7 @@ class Variable(Expr):
         self.name = name
         self.id = self._create_id()
 
-    def _id_attrs(self) -> List[Tuple[str, Any]]:
+    def _id_attrs(self) -> list[tuple[str, Any]]:
         return super()._id_attrs() + [('name', self.name)]
 
     def default_column_name(self) -> NoReturn:
@@ -38,9 +39,9 @@ class Variable(Expr):
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> NoReturn:
         raise NotImplementedError()
 
-    def _as_dict(self) -> Dict:
+    def _as_dict(self) -> dict:
         return {'name': self.name, 'type': self.col_type.as_dict(), **super()._as_dict()}
 
     @classmethod
-    def _from_dict(cls, d: Dict, _: List[Expr]) -> Expr:
+    def _from_dict(cls, d: dict, _: list[Expr]) -> Variable:
         return cls(d['name'], ts.ColumnType.from_dict(d['type']))

@@ -59,7 +59,7 @@ class ArraySlice(Expr):
         return {'index': index, **super()._as_dict()}
 
     @classmethod
-    def _from_dict(cls, d: Dict, components: List[Expr]) -> Expr:
+    def _from_dict(cls, d: Dict, components: List[Expr]) -> ArraySlice:
         assert 'index' in d
         index = []
         for el in d['index']:

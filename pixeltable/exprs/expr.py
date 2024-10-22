@@ -120,7 +120,7 @@ class Expr(abc.ABC):
                 return False
         return self._equals(other)
 
-    def _equals(self, other: Expr) -> bool:
+    def _equals(self, other: Self) -> bool:
         # we already compared the type and components in equals(); subclasses that require additional comparisons
         # override this
         return True
@@ -483,7 +483,7 @@ class Expr(abc.ABC):
             return ArraySlice(self, index)
         raise AttributeError(f'Type {self.col_type} is not subscriptable')
 
-    def __getattr__(self, name: str) -> Union['exprs.MethodRef', 'exprs.JsonPath', 'exprs.FunctionCall']:
+    def __getattr__(self, name: str) -> 'exprs.Expr':
         """
         ex.: <img col>.rotate(60)
         """
@@ -511,13 +511,13 @@ class Expr(abc.ABC):
     def __le__(self, other: object) -> 'exprs.Comparison':
         return self._make_comparison(ComparisonOperator.LE, other)
 
-    def __eq__(self, other: object) -> 'exprs.Comparison':
+    def __eq__(self, other: object) -> 'exprs.Expr':  # type: ignore[override]
         if other is None:
             from .is_null import IsNull
             return IsNull(self)
         return self._make_comparison(ComparisonOperator.EQ, other)
 
-    def __ne__(self, other: object) -> 'exprs.Comparison':
+    def __ne__(self, other: object) -> 'exprs.Expr':  # type: ignore[override]
         if other is None:
             from .compound_predicate import CompoundPredicate
             from .is_null import IsNull
@@ -540,7 +540,7 @@ class Expr(abc.ABC):
         if isinstance(other, Expr):
             return Comparison(op, self, other)
         if isinstance(other, typing.get_args(LiteralPythonTypes)):
-            return Comparison(op, self, Literal(other))  # type: ignore[arg-type]
+            return Comparison(op, self, Literal(other))
         raise TypeError(f'Other must be Expr or literal: {type(other)}')
 
     def __neg__(self) -> 'exprs.ArithmeticExpr':
@@ -592,7 +592,7 @@ class Expr(abc.ABC):
         if isinstance(other, Expr):
             return ArithmeticExpr(op, self, other)
         if isinstance(other, typing.get_args(LiteralPythonTypes)):
-            return ArithmeticExpr(op, self, Literal(other))  # type: ignore[arg-type]
+            return ArithmeticExpr(op, self, Literal(other))
         raise TypeError(f'Other must be Expr or literal: {type(other)}')
 
     def _rmake_arithmetic_expr(self, op: ArithmeticOperator, other: object) -> 'exprs.ArithmeticExpr':
@@ -605,7 +605,7 @@ class Expr(abc.ABC):
         from .literal import Literal
         assert not isinstance(other, Expr)  # Else the left-handed form would have evaluated first
         if isinstance(other, typing.get_args(LiteralPythonTypes)):
-            return ArithmeticExpr(op, Literal(other), self)  # type: ignore[arg-type]
+            return ArithmeticExpr(op, Literal(other), self)
         raise TypeError(f'Other must be Expr or literal: {type(other)}')
 
     def __and__(self, other: object) -> Expr:

@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
+from typing import Any, Iterable, Optional, Sequence
 
 import sqlalchemy as sql
 
@@ -52,10 +52,10 @@ class RowBuilder:
     @dataclass
     class EvalCtx:
         """Context for evaluating a set of target exprs"""
-        slot_idxs: List[int]  # slot idxs of exprs needed to evaluate target exprs; does not contain duplicates
-        exprs: List[Expr]  # exprs corresponding to slot_idxs
-        target_slot_idxs: List[int]  # slot idxs of target exprs; might contain duplicates
-        target_exprs: List[Expr]  # exprs corresponding to target_slot_idxs
+        slot_idxs: list[int]  # slot idxs of exprs needed to evaluate target exprs; does not contain duplicates
+        exprs: list[Expr]  # exprs corresponding to slot_idxs
+        target_slot_idxs: list[int]  # slot idxs of target exprs; might contain duplicates
+        target_exprs: list[Expr]  # exprs corresponding to target_slot_idxs
 
     def __init__(
             self, output_exprs: Sequence[Expr], columns: Sequence[catalog.Column], input_exprs: Iterable[Expr]
@@ -67,7 +67,7 @@ class RowBuilder:
             input_exprs: list of Exprs that are excluded from evaluation (because they're already materialized)
         TODO: enforce that output_exprs doesn't overlap with input_exprs?
         """
-        self.unique_exprs = ExprSet()  # dependencies precede their dependents
+        self.unique_exprs: ExprSet[Expr] = ExprSet()  # dependencies precede their dependents
         self.next_slot_idx = 0
 
         # record input and output exprs; make copies to avoid reusing execution state
@@ -85,7 +85,7 @@ class RowBuilder:
 
         # record columns for create_table_row()
         from .column_ref import ColumnRef
-        self.table_columns: List[ColumnSlotIdx] = []
+        self.table_columns: list[ColumnSlotIdx] = []
         for col in columns:
             if col.is_computed:
                 assert col.value_expr is not None
@@ -130,7 +130,7 @@ class RowBuilder:
             assert expr.slot_idx == i
 
         # record transitive dependencies (list of set of slot_idxs, indexed by slot_idx)
-        self.dependencies: List[Set[int]] = [set() for _ in range(self.num_materialized)]
+        self.dependencies: list[set[int]] = [set() for _ in range(self.num_materialized)]
         for expr in self.unique_exprs:
             if expr.slot_idx in self.input_expr_slot_idxs:
                 # this is input and therefore doesn't depend on other exprs
@@ -140,14 +140,15 @@ class RowBuilder:
                 self.dependencies[expr.slot_idx].update(self.dependencies[d.slot_idx])
 
         # derive transitive dependents
-        self.dependents: List[Set[int]] = [set() for _ in range(self.num_materialized)]
+        self.dependents: list[set[int]] = [set() for _ in range(self.num_materialized)]
         for expr in self.unique_exprs:
-            for d in self.dependencies[expr.slot_idx]:
-                self.dependents[d].add(expr.slot_idx)
+            assert expr.slot_idx is not None
+            for i in self.dependencies[expr.slot_idx]:
+                self.dependents[i].add(expr.slot_idx)
 
         # records the output_expr that a subexpr belongs to
         # (a subexpr can be shared across multiple output exprs)
-        self.output_expr_ids: List[Set[int]] = [set() for _ in range(self.num_materialized)]
+        self.output_expr_ids: list[set[int]] = [set() for _ in range(self.num_materialized)]
         for e in self.output_exprs:
             self._record_output_expr_id(e, e.slot_idx)
 
@@ -155,7 +156,7 @@ class RowBuilder:
         """Record a column that is part of the table row"""
         self.table_columns.append(ColumnSlotIdx(col, slot_idx))
 
-    def output_slot_idxs(self) -> List[ColumnSlotIdx]:
+    def output_slot_idxs(self) -> list[ColumnSlotIdx]:
         """Return ColumnSlotIdx for output columns"""
         return self.table_columns
 
@@ -206,9 +207,9 @@ class RowBuilder:
         for d in e.dependencies():
             self._record_output_expr_id(d, output_expr_id)
 
-    def _compute_dependencies(self, target_slot_idxs: List[int], excluded_slot_idxs: List[int]) -> List[int]:
+    def _compute_dependencies(self, target_slot_idxs: list[int], excluded_slot_idxs: list[int]) -> list[int]:
         """Compute exprs needed to materialize the given target slots, excluding 'excluded_slot_idxs'"""
-        dependencies = [set() for _ in range(self.num_materialized)]  # indexed by slot_idx
+        dependencies: list[set[int]] = [set() for _ in range(self.num_materialized)]  # indexed by slot_idx
         # doing this front-to-back ensures that we capture transitive dependencies
         max_target_slot_idx = max(target_slot_idxs)
         for expr in self.unique_exprs:
@@ -237,6 +238,8 @@ class RowBuilder:
         for e in expr_list:
             self.__set_slot_idxs_aux(e)
         if remove_duplicates:
+            # only allowed if `expr_list` is a mutable list
+            assert isinstance(expr_list, list)
             deduped = list(ExprSet(expr_list))
             expr_list[:] = deduped
 
@@ -255,6 +258,7 @@ class RowBuilder:
         Returns:
             list of Exprs from unique_exprs (= with slot_idx set)
         """
+        targets = list(targets)
         if exclude is None:
             exclude = []
         if len(targets) == 0:
@@ -272,6 +276,7 @@ class RowBuilder:
 
     def create_eval_ctx(self, targets: Iterable[Expr], exclude: Optional[Iterable[Expr]] = None) -> EvalCtx:
         """Return EvalCtx for targets"""
+        targets = list(targets)
         if exclude is None:
             exclude = []
         if len(targets) == 0:
@@ -318,14 +323,14 @@ class RowBuilder:
                     raise excs.ExprEvalError(
                         expr, f'expression {expr}', data_row.get_exc(expr.slot_idx), exc_tb, input_vals, 0)
 
-    def create_table_row(self, data_row: DataRow, exc_col_ids: Set[int]) -> Tuple[Dict[str, Any], int]:
+    def create_table_row(self, data_row: DataRow, exc_col_ids: set[int]) -> tuple[dict[str, Any], int]:
         """Create a table row from the slots that have an output column assigned
 
-        Return Tuple[dict that represents a stored row (can be passed to sql.insert()), # of exceptions]
+        Return tuple[dict that represents a stored row (can be passed to sql.insert()), # of exceptions]
             This excludes system columns.
         """
         num_excs = 0
-        table_row: Dict[str, Any] = {}
+        table_row: dict[str, Any] = {}
         for info in self.table_columns:
             col, slot_idx = info.col, info.slot_idx
             if data_row.has_exc(slot_idx):
