@@ -11,7 +11,7 @@
 [![PyPI Package](https://img.shields.io/pypi/v/pixeltable?color=4D148C)](https://pypi.org/project/pixeltable/)
 <a target="_blank" href="https://huggingface.co/Pixeltable"> <img src="https://img.shields.io/badge/🤗-HF Space-F25022" alt="Visit our Hugging Face space"/></a>
 
-[Installation](https://pixeltable.github.io/pixeltable/getting-started/) | [Documentation](https://pixeltable.readme.io/) | [API Reference](https://pixeltable.github.io/pixeltable/) | [Code Samples](https://github.com/pixeltable/pixeltable?tab=readme-ov-file#-code-samples) | [Computer Vision](https://docs.pixeltable.com/docs/object-detection-in-videos) | [LLM](https://docs.pixeltable.com/docs/document-indexing-and-rag)
+[Installation](https://docs.pixeltable.com/docs/installation) | [Documentation](https://pixeltable.readme.io/) | [API Reference](https://pixeltable.github.io/pixeltable/) | [Code Samples](https://github.com/pixeltable/pixeltable?tab=readme-ov-file#-code-samples) | [Computer Vision](https://docs.pixeltable.com/docs/object-detection-in-videos) | [LLM](https://docs.pixeltable.com/docs/document-indexing-and-rag)
 </div>
 
 Pixeltable is a Python library providing a declarative interface for multimodal data (text, images, audio, video). It features built-in versioning, lineage tracking, and incremental updates, enabling users to **store**, **transform**, **index**, and **iterate** on data for their ML workflows.
@@ -46,7 +46,7 @@ Learn how to create tables, populate them with data, and enhance them with built
 ```python
 import pixeltable as pxt
 
-v = pxt.create_table('external_data.videos', {'video': pxt.VideoType()})
+v = pxt.create_table('external_data.videos', {'video': pxt.Video})
 
 prefix = 's3://multimedia-commons/'
 paths = [
@@ -64,7 +64,7 @@ import pixeltable as pxt
 from pixeltable.functions import huggingface
 
 # Create a table to store data persistently
-t = pxt.create_table('image', {'image': pxt.ImageType()})
+t = pxt.create_table('image', {'image': pxt.Image})
 
 # Insert some images
 prefix = 'https://upload.wikimedia.org/wikipedia/commons'
@@ -121,7 +121,7 @@ Learn how to leverage Pixeltable for [Model analytics](https://pixeltable.readme
 
 ### Working with inference services
 ```python
-chat_table = pxt.create_table('together_demo.chat', {'input': pxt.StringType()})
+chat_table = pxt.create_table('together_demo.chat', {'input': pxt.String})
 
 # The chat-completions API expects JSON-formatted input:
 messages = [{'role': 'user', 'content': chat_table.input}]
@@ -157,7 +157,7 @@ from pixeltable.functions.huggingface import clip_image, clip_text
 from pixeltable.iterators import FrameIterator
 import PIL.Image
 
-video_table = pxt.create_table('videos', {'video': pxt.VideoType()})
+video_table = pxt.create_table('videos', {'video': pxt.Video})
 
 video_table.insert([{'video': '/video.mp4'}])
 
