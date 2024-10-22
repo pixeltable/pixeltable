@@ -14,6 +14,9 @@ from pixeltable.env import Env
 
 
 class PxtDatasetImporter(foud.LabeledImageDatasetImporter):
+    """
+    Implementation of a FiftyOne `DatasetImporter` that reads data from a Pixeltable table.
+    """
     __image_format: str
     __labels: dict[str, tuple[exprs.Expr, type]]  # label_name -> (expr, label_cls)
     __image_idx: int
@@ -155,7 +158,7 @@ class PxtDatasetImporter(foud.LabeledImageDatasetImporter):
 
     @property
     def has_image_metadata(self) -> bool:
-        return False
+        return True
 
     @property
     def label_cls(self) -> dict[str, type]:
