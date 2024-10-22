@@ -166,11 +166,8 @@ class TestHuggingface:
         from pixeltable.functions.huggingface import vit_for_image_classification
 
         t = pxt.create_table('test_tbl', {'img': pxt.Image})
-        t['img_class'] = vit_for_image_classification(t.img, model_id='google/vit-base-patch16-224')
+        t['img_class'] = vit_for_image_classification(t.img, model_id='google/vit-base-patch16-224', top_k=3)
         validate_update_status(t.insert(img=SAMPLE_IMAGE_URL), expected_rows=1)
         result = t.select(t.img_class).collect()[0]['img_class']
-        assert tuple((r['class'], r['label']) for r in result[:3]) == (
-            (962, 'meat loaf, meatloaf'),
-            (935, 'mashed potato'),
-            (937, 'broccoli'),
-        )
+        assert result['labels'] == [962, 935, 937]
+        assert result['label_text'] == ['meat loaf, meatloaf', 'mashed potato', 'broccoli']
