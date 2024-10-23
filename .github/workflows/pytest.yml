@@ -170,7 +170,7 @@ jobs:
       - name: Run the notebook tests
         if: ${{ matrix.test-category == 'ipynb' }}
         run: |
-          ./scripts/prepare-nb-tests.sh --no-pip
+          ./scripts/prepare-nb-tests.sh --no-pip docs/release tests
           pytest -v -m '' --nbmake --nbmake-timeout=1800 target/nb-tests/*.ipynb
       - name: Type check
         if: ${{ matrix.test-category == 'lint' }}
