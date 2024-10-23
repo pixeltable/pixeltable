@@ -291,19 +291,21 @@ class Expr(abc.ABC):
             yield self  # type: ignore[misc]
 
     @overload
+    @classmethod
     def list_subexprs(
-        expr_list: Iterable[Expr], *, filter: Optional[Callable[[Expr], bool]] = None, traverse_matches: bool = True
+        cls, expr_list: Iterable[Expr], *, filter: Optional[Callable[[Expr], bool]] = None, traverse_matches: bool = True
     ) -> Iterator[Expr]: ...
 
     @overload
+    @classmethod
     def list_subexprs(
-        expr_list: list[Expr], expr_class: type[T], filter: Optional[Callable[[Expr], bool]] = None,
+        cls, expr_list: Iterable[Expr], expr_class: type[T], filter: Optional[Callable[[Expr], bool]] = None,
         traverse_matches: bool = True
     ) -> Iterator[T]: ...
 
     @classmethod
     def list_subexprs(
-        cls, expr_list: list[Expr], expr_class: Optional[type[T]] = None,
+        cls, expr_list: Iterable[Expr], expr_class: Optional[type[T]] = None,
         filter: Optional[Callable[[Expr], bool]] = None, traverse_matches: bool = True
     ) -> Iterator[T]:
         """Produce subexprs for all exprs in list. Can contain duplicates."""
