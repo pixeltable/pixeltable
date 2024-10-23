@@ -286,7 +286,7 @@ def vit_for_image_classification(
     *,
     model_id: str,
     top_k: int = 5
-) -> Batch[list[dict[str, Any]]]:
+) -> Batch[dict[str, Any]]:
     """
     Computes image classifications for the specified image using a Vision Transformer (ViT) model.
     `model_id` should be a reference to a pretrained [ViT Model](https://huggingface.co/docs/transformers/en/model_doc/vit).
@@ -307,24 +307,24 @@ def vit_for_image_classification(
         top_k: The number of classes to return.
 
     Returns:
-        A list of the `top_k` highest-scoring classes for each image. Each element in the list is a dictionary
-            in the following format:
+        A dictionary containing the output of the image classification model, in the following format:
 
-            ```python
-            {
-                'p': 0.230,  # class probability
-                'class': 935,  # class ID
-                'label': 'mashed potato',  # class label
-            }
-            ```
+        ```python
+        {
+            'scores': [0.325, 0.198, 0.105],  # list of probabilities of the top-k most likely classes
+            'labels': [340, 353, 386],  # list of class IDs for the top-k most likely classes
+            'label_text': ['zebra', 'gazelle', 'African elephant, Loxodonta africana'],
+                # corresponding text names of the top-k most likely classes
+        ```
 
     Examples:
         Add a computed column that applies the model `google/vit-base-patch16-224` to an existing
-        Pixeltable column `image` of the table `tbl`:
+        Pixeltable column `image` of the table `tbl`, returning the 10 most likely classes for each image:
 
         >>> tbl['image_class'] = vit_for_image_classification(
         ...     tbl.image,
-        ...     model_id='google/vit-base-patch16-224'
+        ...     model_id='google/vit-base-patch16-224',
+        ...     top_k=10
         ... )
     """
     env.Env.get().require_package('transformers')
@@ -344,15 +344,14 @@ def vit_for_image_classification(
     probs = torch.softmax(logits, dim=-1)
     top_k_probs, top_k_indices = torch.topk(probs, top_k, dim=-1)
 
+    # There is no official post_process method for ViT models; for consistency, we structure the output
+    # the same way as the output of the DETR model given by `post_process_object_detection`.
     return [
-        [
-            {
-                'p': top_k_probs[n, k].item(),
-                'class': top_k_indices[n, k].item(),
-                'label': model.config.id2label[top_k_indices[n, k].item()],
-            }
-            for k in range(top_k_probs.shape[1])
-        ]
+        {
+            'scores': [top_k_probs[n, k].item() for k in range(top_k_probs.shape[1])],
+            'labels': [top_k_indices[n, k].item() for k in range(top_k_probs.shape[1])],
+            'label_text': [model.config.id2label[top_k_indices[n, k].item()] for k in range(top_k_probs.shape[1])],
+        }
         for n in range(top_k_probs.shape[0])
     ]
 
