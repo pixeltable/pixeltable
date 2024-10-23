@@ -480,6 +480,10 @@ class Expr(abc.ABC):
             return JsonPath(self)[index]
         if self.col_type.is_array_type():
             from .array_slice import ArraySlice
+            if not isinstance(index, tuple):
+                index = (index,)
+            if any(not isinstance(i, (int, slice)) for i in index):
+                raise AttributeError(f'Invalid array indices: {index}')
             return ArraySlice(self, index)
         raise AttributeError(f'Type {self.col_type} is not subscriptable')
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional, Union
 
 import sqlalchemy as sql
 
@@ -15,7 +15,7 @@ class ArraySlice(Expr):
     """
     Slice operation on an array, eg, t.array_col[:, 1:2].
     """
-    def __init__(self, arr: Expr, index: Tuple):
+    def __init__(self, arr: Expr, index: tuple[Union[int, slice], ...]):
         assert arr.col_type.is_array_type()
         # determine result type
         super().__init__(arr.col_type)
@@ -24,7 +24,7 @@ class ArraySlice(Expr):
         self.id = self._create_id()
 
     def __str__(self) -> str:
-        index_strs: List[str] = []
+        index_strs: list[str] = []
         for el in self.index:
             if isinstance(el, int):
                 index_strs.append(str(el))
@@ -39,7 +39,7 @@ class ArraySlice(Expr):
     def _equals(self, other: ArraySlice) -> bool:
         return self.index == other.index
 
-    def _id_attrs(self) -> List[Tuple[str, Any]]:
+    def _id_attrs(self) -> list[tuple[str, Any]]:
         return super()._id_attrs() + [('index', self.index)]
 
     def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
@@ -49,8 +49,8 @@ class ArraySlice(Expr):
         val = data_row[self._array.slot_idx]
         data_row[self.slot_idx] = val[self.index]
 
-    def _as_dict(self) -> Dict:
-        index = []
+    def _as_dict(self) -> dict:
+        index: list[Any] = []
         for el in self.index:
             if isinstance(el, slice):
                 index.append([el.start, el.stop, el.step])
@@ -59,7 +59,7 @@ class ArraySlice(Expr):
         return {'index': index, **super()._as_dict()}
 
     @classmethod
-    def _from_dict(cls, d: Dict, components: List[Expr]) -> ArraySlice:
+    def _from_dict(cls, d: dict, components: list[Expr]) -> ArraySlice:
         assert 'index' in d
         index = []
         for el in d['index']:

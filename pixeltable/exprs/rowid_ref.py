@@ -58,7 +58,7 @@ class RowidRef(Expr):
     def __str__(self) -> str:
         # check if this is the pos column of a component view
         tbl = self.tbl if self.tbl is not None else catalog.Catalog.get().tbl_versions[(self.tbl_id, None)]
-        if tbl.is_component_view() and self.rowid_component_idx == tbl.store_tbl.pos_col_idx:
+        if tbl.is_component_view() and self.rowid_component_idx == tbl.store_tbl.pos_col_idx:  # type: ignore[attr-defined]
             return catalog.globals._POS_COLUMN_NAME
         return ''
 
