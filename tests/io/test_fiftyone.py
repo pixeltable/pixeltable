@@ -1,11 +1,14 @@
+import pytest
+
 import pixeltable as pxt
-from tests.utils import get_image_files, skip_test_if_not_installed
+import pixeltable.exceptions as excs
+
+from ..utils import get_image_files, skip_test_if_not_installed
 
 
 class TestFiftyone:
     def test_export_images(self, reset_db) -> None:
         skip_test_if_not_installed('fiftyone')
-        import fiftyone as fo
 
         schema = {
             'id': pxt.Int,
@@ -75,3 +78,51 @@ class TestFiftyone:
         assert ds.count('first') == 5
         assert ds.count('detections') == 3
         assert ds.count('other') == 2
+
+    def test_export_images_errors(self, reset_db) -> None:
+        skip_test_if_not_installed('fiftyone')
+
+        schema = {
+            'id': pxt.Int,
+            'image': pxt.Image,
+            'classifications': pxt.Json,
+            'detections': pxt.Json,
+            'other_classifications': pxt.Json,
+        }
+        t = pxt.create_table('test_tbl', schema)
+        img = get_image_files()[0]
+        t.insert(id=0, image=img)
+
+        with pytest.raises(excs.Error, match='`images` must be an expression of type Image'):
+            pxt.io.export_images_as_fiftyone(t, t.id)
+
+        with pytest.raises(excs.Error, match='Invalid label name'):
+            pxt.io.export_images_as_fiftyone(
+                t,
+                t.image,
+                classifications={'invalid name!@#': t.classifications}
+            )
+
+        with pytest.raises(excs.Error, match='Duplicate label name'):
+            pxt.io.export_images_as_fiftyone(
+                t,
+                t.image,
+                classifications={'labels': t.classifications},
+                detections={'labels': t.detections}
+            )
+
+        with pytest.raises(excs.Error, match='Invalid classifications data'):
+            t.update({'classifications': {'a': 'b'}})
+            pxt.io.export_images_as_fiftyone(
+                t,
+                t.image,
+                classifications=t.classifications
+            )
+
+        with pytest.raises(excs.Error, match='Invalid detections data'):
+            t.update({'detections': {'a': 'b'}})
+            pxt.io.export_images_as_fiftyone(
+                t,
+                t.image,
+                detections=t.detections
+            )

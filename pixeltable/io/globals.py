@@ -355,7 +355,7 @@ def export_images_as_fiftyone(
     from pixeltable.io.fiftyone import PxtImageDatasetImporter
 
     if not images.col_type.is_image_type():
-        raise excs.Error(f'`images` must be an expression of type `Image` (got {images.col_type})')
+        raise excs.Error(f'`images` must be an expression of type Image (got {images.col_type._to_base_str()})')
 
     return fo.Dataset.from_importer(PxtImageDatasetImporter(
         tbl, images, image_format, classifications=classifications, detections=detections
