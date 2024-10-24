@@ -4,7 +4,7 @@ import os
 import random
 from typing import Union, _GenericAlias
 
-import cv2
+import av  # type: ignore[import-untyped]
 import numpy as np
 import pandas as pd
 import PIL
@@ -563,10 +563,8 @@ class TestTable:
         # row[1] contains valid path to an mp4 file
         local_path = row['video_localpath']
         assert os.path.exists(local_path) and os.path.isfile(local_path)
-        cap = cv2.VideoCapture(local_path)
-        # TODO: this isn't sufficient to determine that this is actually a video, rather than an image
-        assert cap.isOpened()
-        cap.release()
+        with av.open(local_path) as container:
+            assert container.streams.video[0].codec_context.name == 'h264'
 
     def test_create_video_table(self, reset_db) -> None:
         skip_test_if_not_installed('boto3')
