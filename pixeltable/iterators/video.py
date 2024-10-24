@@ -44,13 +44,12 @@ class FrameIterator(ComponentIterator):
     video_frame_count: int
     video_start_time: int
 
-    # Frame extraction info
-    frames_to_extract: Sequence[int]
-    frames_set: set[int]
+    # List of frame indices to be extracted, or None to extract all frames
+    frames_to_extract: Optional[list[int]]
 
-    # State
+    # Next frame to extract, as an iterator `pos` index. If `frames_to_extract` is None, this is the same as the
+    # frame index in the video. Otherwise, the corresponding frame index is `frames_to_extract[next_frame_idx]`.
     next_frame_idx: int
-    next_pos_frame: int  # sanity check
 
     def __init__(self, video: str, *, fps: Optional[float] = None, num_frames: Optional[int] = None):
         if fps is not None and num_frames is not None:
@@ -67,13 +66,15 @@ class FrameIterator(ComponentIterator):
         self.video_time_base = self.container.streams.video[0].time_base
         self.video_start_time = self.container.streams.video[0].start_time or 0
 
+        # Determine the number of frames in the video
         self.video_frame_count = self.container.streams.video[0].frames
         if self.video_frame_count == 0:
-            # The video codec does not provide a frame count in the `frames` field. Try some other methods.
+            # The video codec does not provide a frame count in the standard `frames` field. Try some other methods.
             metadata: dict = self.container.streams.video[0].metadata
             if 'NUMBER_OF_FRAMES' in metadata:
                 self.video_frame_count = int(metadata['NUMBER_OF_FRAMES'])
             elif 'DURATION' in metadata:
+                # As a last resort, calculate the frame count from the stream duration.
                 duration = metadata['DURATION']
                 assert isinstance(duration, str)
                 seconds = pd.to_timedelta(duration).total_seconds()
@@ -84,14 +85,11 @@ class FrameIterator(ComponentIterator):
             else:
                 raise excs.Error(f'Video {video}: failed to get number of frames')
 
-        if fps is not None and fps > float(self.video_framerate):
-            raise excs.Error(f'Video {video}: requested fps ({fps}) exceeds that of the video ({float(self.video_framerate)})')
-
         if num_frames is not None:
             # specific number of frames
             if num_frames > self.video_frame_count:
                 # Extract all frames
-                self.frames_to_extract = range(self.video_frame_count)
+                self.frames_to_extract = None
             else:
                 spacing = float(self.video_frame_count) / float(num_frames)
                 self.frames_to_extract = list(round(i * spacing) for i in range(num_frames))
@@ -99,19 +97,19 @@ class FrameIterator(ComponentIterator):
         else:
             if fps is None or fps == 0.0:
                 # Extract all frames
-                self.frames_to_extract = range(self.video_frame_count)
+                self.frames_to_extract = None
+            elif fps > float(self.video_framerate):
+                raise excs.Error(
+                    f'Video {video}: requested fps ({fps}) exceeds that of the video ({float(self.video_framerate)})'
+                )
             else:
                 # Extract frames at the implied frequency
                 freq = fps / float(self.video_framerate)
                 n = math.ceil(self.video_frame_count * freq)  # number of frames to extract
                 self.frames_to_extract = list(round(i / freq) for i in range(n))
 
-        # We need the list of frames as both a list (for set_pos) and a set (for fast lookups when
-        # there are lots of frames)
-        self.frames_set = set(self.frames_to_extract)
         _logger.debug(f'FrameIterator: path={self.video_path} fps={self.fps} num_frames={self.num_frames}')
         self.next_frame_idx = 0
-        self.next_pos_frame = 0
 
     @classmethod
     def input_schema(cls) -> dict[str, ts.ColumnType]:
@@ -132,6 +130,12 @@ class FrameIterator(ComponentIterator):
 
     def __next__(self) -> dict[str, Any]:
         while True:
+            if self.frames_to_extract is not None and self.next_frame_idx >= len(self.frames_to_extract):
+                raise StopIteration
+            next_pos_frame = (
+                self.next_frame_idx if self.frames_to_extract is None
+                else self.frames_to_extract[self.next_frame_idx]
+            )
             try:
                 frame = next(self.container.decode(video=0))
             except EOFError:
@@ -140,23 +144,22 @@ class FrameIterator(ComponentIterator):
             pos_msec = float(pts * self.video_time_base * 1000)
             pos_frame = round(pts * self.video_time_base * self.video_framerate)
             assert isinstance(pos_frame, int)
-            assert pos_frame <= self.next_pos_frame, f'{pos_frame} > {self.next_pos_frame}, {pts}'
-            if pos_frame < self.next_pos_frame:
+            if pos_frame < next_pos_frame:
                 # This can happen after a seek, because the frame we seek to is always a keyframe, and
                 # `self.next_pos_frame` is not necessarily a keyframe
                 continue
+
+            assert pos_frame == next_pos_frame, f'{pos_frame} > {next_pos_frame}, {pts}'
             img = frame.to_image()
             assert isinstance(img, PIL.Image.Image)
-            self.next_pos_frame += 1
-            if pos_frame in self.frames_set:
-                result = {
-                    'frame_idx': self.next_frame_idx,
-                    'pos_msec': pos_msec,
-                    'pos_frame': pos_frame,
-                    'frame': img,
-                }
-                self.next_frame_idx += 1
-                return result
+            result = {
+                'frame_idx': self.next_frame_idx,
+                'pos_msec': pos_msec,
+                'pos_frame': pos_frame,
+                'frame': img,
+            }
+            self.next_frame_idx += 1
+            return result
 
     def close(self) -> None:
         self.container.close()
@@ -165,7 +168,7 @@ class FrameIterator(ComponentIterator):
         """Seek to frame idx"""
         if pos == self.next_frame_idx:
             return
-        pos_frame = self.frames_to_extract[pos]
+        pos_frame = pos if self.frames_to_extract is None else self.frames_to_extract[pos]
         _logger.debug(f'seeking to frame number {pos_frame} (at index {pos})')
         # compute the frame position in time_base units
         seek_pos = int(pos_frame / self.video_framerate / self.video_time_base + self.video_start_time)
@@ -173,4 +176,3 @@ class FrameIterator(ComponentIterator):
         # then the iterator will step forward to the desired frame on the succeeding call to next().
         self.container.seek(seek_pos, backward=True, stream=self.container.streams.video[0])
         self.next_frame_idx = pos
-        self.next_pos_frame = pos_frame
