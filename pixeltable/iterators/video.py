@@ -123,8 +123,8 @@ class FrameIterator(ComponentIterator):
     def output_schema(cls, *args: Any, **kwargs: Any) -> tuple[dict[str, ts.ColumnType], list[str]]:
         return {
             'frame_idx': ts.IntType(),
-            'pos_frame': ts.IntType(),
             'pos_msec': ts.FloatType(),
+            'pos_frame': ts.IntType(),
             'frame': ts.ImageType(),
         }, ['frame']
 
