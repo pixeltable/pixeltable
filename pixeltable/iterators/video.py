@@ -1,13 +1,15 @@
 import logging
 import math
+from fractions import Fraction
 from pathlib import Path
 from typing import Any, Optional, Sequence
 
-import cv2
+import av  # type: ignore[import-untyped]
+import pandas as pd
 import PIL.Image
 
-from pixeltable.exceptions import Error
-from pixeltable.type_system import ColumnType, FloatType, ImageType, IntType, VideoType
+import pixeltable.exceptions as excs
+import pixeltable.type_system as ts
 
 from .base import ComponentIterator
 
@@ -30,51 +32,78 @@ class FrameIterator(ComponentIterator):
                 `num_frames` is greater than the number of frames in the video, all frames will be extracted.
     """
 
+    # Input parameters
     video_path: Path
-    video_reader: cv2.VideoCapture
     fps: Optional[float]
     num_frames: Optional[int]
+
+    # Video info
+    container: av.container.input.InputContainer
+    video_framerate: Fraction
+    video_time_base: Fraction
+    video_frame_count: int
+    video_start_time: int
+
+    # Frame extraction info
     frames_to_extract: Sequence[int]
     frames_set: set[int]
+
+    # State
     next_frame_idx: int
+    next_pos_frame: int  # sanity check
 
     def __init__(self, video: str, *, fps: Optional[float] = None, num_frames: Optional[int] = None):
         if fps is not None and num_frames is not None:
-            raise Error('At most one of `fps` or `num_frames` may be specified')
+            raise excs.Error('At most one of `fps` or `num_frames` may be specified')
 
         video_path = Path(video)
         assert video_path.exists() and video_path.is_file()
         self.video_path = video_path
-        self.video_reader = cv2.VideoCapture(str(video_path))
+        self.container = av.open(str(video_path))
         self.fps = fps
         self.num_frames = num_frames
-        if not self.video_reader.isOpened():
-            raise Error(f'Failed to open video: {video}')
 
-        video_fps = int(self.video_reader.get(cv2.CAP_PROP_FPS))
-        if fps is not None and fps > video_fps:
-            raise Error(f'Video {video}: requested fps ({fps}) exceeds that of the video ({video_fps})')
-        num_video_frames = int(self.video_reader.get(cv2.CAP_PROP_FRAME_COUNT))
-        if num_video_frames == 0:
-            raise Error(f'Video {video}: failed to get number of frames')
+        self.video_framerate = self.container.streams.video[0].average_rate
+        self.video_time_base = self.container.streams.video[0].time_base
+        self.video_start_time = self.container.streams.video[0].start_time or 0
+
+        self.video_frame_count = self.container.streams.video[0].frames
+        if self.video_frame_count == 0:
+            # The video codec does not provide a frame count in the `frames` field. Try some other methods.
+            metadata: dict = self.container.streams.video[0].metadata
+            if 'NUMBER_OF_FRAMES' in metadata:
+                self.video_frame_count = int(metadata['NUMBER_OF_FRAMES'])
+            elif 'DURATION' in metadata:
+                duration = metadata['DURATION']
+                assert isinstance(duration, str)
+                seconds = pd.to_timedelta(duration).total_seconds()
+                # Usually the duration and framerate are precise enough for this calculation to be accurate, but if
+                # we encounter a case where it's off by one due to a rounding error, that's ok; we only use this
+                # to determine the positions of the sampled frames when `fps` or `num_frames` is specified.
+                self.video_frame_count = round(seconds * self.video_framerate)
+            else:
+                raise excs.Error(f'Video {video}: failed to get number of frames')
+
+        if fps is not None and fps > float(self.video_framerate):
+            raise excs.Error(f'Video {video}: requested fps ({fps}) exceeds that of the video ({float(self.video_framerate)})')
 
         if num_frames is not None:
             # specific number of frames
-            if num_frames > num_video_frames:
+            if num_frames > self.video_frame_count:
                 # Extract all frames
-                self.frames_to_extract = range(num_video_frames)
+                self.frames_to_extract = range(self.video_frame_count)
             else:
-                spacing = float(num_video_frames) / float(num_frames)
+                spacing = float(self.video_frame_count) / float(num_frames)
                 self.frames_to_extract = list(round(i * spacing) for i in range(num_frames))
                 assert len(self.frames_to_extract) == num_frames
         else:
             if fps is None or fps == 0.0:
                 # Extract all frames
-                self.frames_to_extract = range(num_video_frames)
+                self.frames_to_extract = range(self.video_frame_count)
             else:
                 # Extract frames at the implied frequency
-                freq = fps / video_fps
-                n = math.ceil(num_video_frames * freq)  # number of frames to extract
+                freq = fps / float(self.video_framerate)
+                n = math.ceil(self.video_frame_count * freq)  # number of frames to extract
                 self.frames_to_extract = list(round(i / freq) for i in range(n))
 
         # We need the list of frames as both a list (for set_pos) and a set (for fast lookups when
@@ -82,56 +111,66 @@ class FrameIterator(ComponentIterator):
         self.frames_set = set(self.frames_to_extract)
         _logger.debug(f'FrameIterator: path={self.video_path} fps={self.fps} num_frames={self.num_frames}')
         self.next_frame_idx = 0
+        self.next_pos_frame = 0
 
     @classmethod
-    def input_schema(cls) -> dict[str, ColumnType]:
+    def input_schema(cls) -> dict[str, ts.ColumnType]:
         return {
-            'video': VideoType(nullable=False),
-            'fps': FloatType(nullable=True),
-            'num_frames': IntType(nullable=True),
+            'video': ts.VideoType(nullable=False),
+            'fps': ts.FloatType(nullable=True),
+            'num_frames': ts.IntType(nullable=True),
         }
 
     @classmethod
-    def output_schema(cls, *args: Any, **kwargs: Any) -> tuple[dict[str, ColumnType], list[str]]:
+    def output_schema(cls, *args: Any, **kwargs: Any) -> tuple[dict[str, ts.ColumnType], list[str]]:
         return {
-            'frame_idx': IntType(),
-            'pos_msec': FloatType(),
-            'pos_frame': FloatType(),
-            'frame': ImageType(),
+            'frame_idx': ts.IntType(),
+            'pos_frame': ts.IntType(),
+            'pos_msec': ts.FloatType(),
+            'frame': ts.ImageType(),
         }, ['frame']
 
     def __next__(self) -> dict[str, Any]:
-        # jumping to the target frame here with video_reader.set() is far slower than just
-        # skipping the unwanted frames
         while True:
-            pos_msec = self.video_reader.get(cv2.CAP_PROP_POS_MSEC)
-            pos_frame = self.video_reader.get(cv2.CAP_PROP_POS_FRAMES)
-            status, img = self.video_reader.read()
-            if not status:
-                _logger.debug(f'releasing video reader for {self.video_path}')
-                self.video_reader.release()
-                self.video_reader = None
+            try:
+                frame = next(self.container.decode(video=0))
+            except EOFError:
                 raise StopIteration
+            pts = frame.pts - self.video_start_time
+            pos_msec = float(pts * self.video_time_base * 1000)
+            pos_frame = round(pts * self.video_time_base * self.video_framerate)
+            assert isinstance(pos_frame, int)
+            assert pos_frame <= self.next_pos_frame, f'{pos_frame} > {self.next_pos_frame}, {pts}'
+            if pos_frame < self.next_pos_frame:
+                # This can happen after a seek, because the frame we seek to is always a keyframe, and
+                # `self.next_pos_frame` is not necessarily a keyframe
+                continue
+            img = frame.to_image()
+            assert isinstance(img, PIL.Image.Image)
+            self.next_pos_frame += 1
             if pos_frame in self.frames_set:
-                img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
                 result = {
                     'frame_idx': self.next_frame_idx,
                     'pos_msec': pos_msec,
                     'pos_frame': pos_frame,
-                    'frame': PIL.Image.fromarray(img),
+                    'frame': img,
                 }
                 self.next_frame_idx += 1
                 return result
 
     def close(self) -> None:
-        if self.video_reader is not None:
-            self.video_reader.release()
-            self.video_reader = None
+        self.container.close()
 
     def set_pos(self, pos: int) -> None:
         """Seek to frame idx"""
         if pos == self.next_frame_idx:
             return
-        _logger.debug(f'seeking to frame {pos}')
-        self.video_reader.set(cv2.CAP_PROP_POS_FRAMES, self.frames_to_extract[pos])
+        pos_frame = self.frames_to_extract[pos]
+        _logger.debug(f'seeking to frame number {pos_frame} (at index {pos})')
+        # compute the frame position in time_base units
+        seek_pos = int(pos_frame / self.video_framerate / self.video_time_base + self.video_start_time)
+        # This will seek to the nearest keyframe before the desired frame. If the frame being sought is not a keyframe,
+        # then the iterator will step forward to the desired frame on the succeeding call to next().
+        self.container.seek(seek_pos, backward=True, stream=self.container.streams.video[0])
         self.next_frame_idx = pos
+        self.next_pos_frame = pos_frame
