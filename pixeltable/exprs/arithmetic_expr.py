@@ -6,6 +6,7 @@ import sqlalchemy as sql
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
+
 from .data_row import DataRow
 from .expr import Expr
 from .globals import ArithmeticOperator
@@ -86,6 +87,7 @@ class ArithmeticExpr(Expr):
                 return sql.sql.expression.cast(sql.func.floor(left / right), sql.Integer)
             if self.col_type.is_float_type():
                 return sql.sql.expression.cast(sql.func.floor(left / right), sql.Float)
+        assert False
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         op1_val = data_row[self._op1.slot_idx]
@@ -121,7 +123,7 @@ class ArithmeticExpr(Expr):
         return {'operator': self.operator.value, **super()._as_dict()}
 
     @classmethod
-    def _from_dict(cls, d: dict, components: list[Expr]) -> Expr:
+    def _from_dict(cls, d: dict, components: list[Expr]) -> ArithmeticExpr:
         assert 'operator' in d
         assert len(components) == 2
         return cls(ArithmeticOperator(d['operator']), components[0], components[1])

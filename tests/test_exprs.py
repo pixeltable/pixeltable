@@ -475,11 +475,21 @@ class TestExprs:
 
     def test_arrays(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
-        t.add_column(array_col=pxt.array([[t.c2, 1], [1, t.c2]]))
-        _ = t[t.array_col].show()
-        print(_)
-        _ = t[t.array_col[:, 0]].show()
-        print(_)
+        t.add_column(array_col=pxt.array([[t.c2, 1], [5, t.c2]]))
+
+        def selection_equals(expr: Expr, expected: list[np.ndarray]) -> bool:
+            return all(
+                np.array_equal(x, y)
+                for x, y in zip(t.select(out=expr).collect()['out'], expected)
+            )
+
+        assert selection_equals(t.array_col, [np.array([[i, 1], [5, i]]) for i in range(100)])
+        assert selection_equals(t.array_col[1], [np.array([5, i]) for i in range(100)])
+        assert selection_equals(t.array_col[:, 0], [np.array([i, 5]) for i in range(100)])
+
+        with pytest.raises(AttributeError) as excinfo:
+            t.array_col[1, 'string']
+        assert 'Invalid array indices' in str(excinfo.value)
 
     def test_in(self, test_tbl: catalog.Table) -> None:
         t = test_tbl

@@ -5,6 +5,7 @@ from typing import Optional
 import sqlalchemy as sql
 
 import pixeltable.type_system as ts
+
 from .data_row import DataRow
 from .expr import Expr, ExprScope
 from .json_mapper import JsonMapper
@@ -33,7 +34,7 @@ class ObjectRef(Expr):
     def _equals(self, other: ObjectRef) -> bool:
         return self.owner is other.owner
 
-    def sql_expr(self, _: SqlElementCache) -> Optional[sql.ClauseElement]:
+    def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
         return None
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:

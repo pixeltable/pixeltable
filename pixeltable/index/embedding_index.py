@@ -86,8 +86,8 @@ class EmbeddingIndex(IndexBase):
         )
         idx.create(bind=conn)
 
-    def similarity_clause(self, val_column: catalog.Column, item: Any) -> sql.ClauseElement:
-        """Create a ClauseElement that represents '<val_column> <op> <item>'"""
+    def similarity_clause(self, val_column: catalog.Column, item: Any) -> sql.ColumnElement:
+        """Create a ColumnElement that represents '<val_column> <op> <item>'"""
         assert isinstance(item, (str, PIL.Image.Image))
         if isinstance(item, str):
             assert self.string_embed is not None
@@ -104,8 +104,8 @@ class EmbeddingIndex(IndexBase):
             assert self.metric == self.Metric.L2
             return val_column.sa_col.l2_distance(embedding)
 
-    def order_by_clause(self, val_column: catalog.Column, item: Any, is_asc: bool) -> sql.ClauseElement:
-        """Create a ClauseElement that is used in an ORDER BY clause"""
+    def order_by_clause(self, val_column: catalog.Column, item: Any, is_asc: bool) -> sql.ColumnElement:
+        """Create a ColumnElement that is used in an ORDER BY clause"""
         assert isinstance(item, (str, PIL.Image.Image))
         embedding: Optional[np.ndarray] = None
         if isinstance(item, str):

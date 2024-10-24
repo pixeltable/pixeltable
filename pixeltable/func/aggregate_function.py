@@ -86,7 +86,7 @@ class AggregateFunction(Function):
         res += '\n\n' + inspect.getdoc(self.agg_cls.update)
         return res
 
-    def __call__(self, *args: object, **kwargs: object) -> 'pixeltable.exprs.Expr':
+    def __call__(self, *args: object, **kwargs: object) -> 'pixeltable.exprs.FunctionCall':
         from pixeltable import exprs
 
         # perform semantic analysis of special parameters 'order_by' and 'group_by'

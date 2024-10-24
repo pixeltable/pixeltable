@@ -49,7 +49,7 @@ class DataRowBatch:
     def __len__(self) -> int:
         return len(self.rows)
 
-    def __getitem__(self, index: object) -> exprs.DataRow:
+    def __getitem__(self, index: int) -> exprs.DataRow:
         return self.rows[index]
 
     def flush_imgs(
@@ -74,21 +74,4 @@ class DataRowBatch:
                 row.flush_img(slot_idx)
 
     def __iter__(self) -> Iterator[exprs.DataRow]:
-        return DataRowBatchIterator(self)
-
-
-class DataRowBatchIterator:
-    """
-    Iterator over a DataRowBatch.
-    """
-    def __init__(self, batch: DataRowBatch):
-        self.row_batch = batch
-        self.index = 0
-
-    def __next__(self) -> exprs.DataRow:
-        if self.index >= len(self.row_batch.rows):
-            raise StopIteration
-        row = self.row_batch.rows[self.index]
-        self.index += 1
-        return row
-
+        return iter(self.rows)

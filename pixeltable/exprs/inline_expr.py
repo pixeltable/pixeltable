@@ -73,7 +73,7 @@ class InlineArray(Expr):
         return super()._as_dict()
 
     @classmethod
-    def _from_dict(cls, _: dict, components: list[Expr]) -> Expr:
+    def _from_dict(cls, _: dict, components: list[Expr]) -> InlineArray:
         try:
             return cls(components)
         except excs.Error:
@@ -81,7 +81,7 @@ class InlineArray(Expr):
             # This is because in schema versions <= 19, `InlineArray` was serialized incorrectly, and
             # there is no way to determine the correct expression type until the subexpressions are
             # loaded and their types are known.
-            return InlineList(components)
+            return InlineList(components)  # type: ignore[return-value]
 
 
 class InlineList(Expr):
@@ -122,7 +122,7 @@ class InlineList(Expr):
         return super()._as_dict()
 
     @classmethod
-    def _from_dict(cls, _: dict, components: list[Expr]) -> Expr:
+    def _from_dict(cls, _: dict, components: list[Expr]) -> InlineList:
         return cls(components)
 
 
@@ -193,7 +193,7 @@ class InlineDict(Expr):
         return {'keys': self.keys, **super()._as_dict()}
 
     @classmethod
-    def _from_dict(cls, d: dict, components: list[Expr]) -> Expr:
+    def _from_dict(cls, d: dict, components: list[Expr]) -> InlineDict:
         assert 'keys' in d
         assert len(d['keys']) == len(components)
         arg = dict(zip(d['keys'], components))

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 import sqlalchemy as sql
 
@@ -54,10 +54,10 @@ class Literal(Expr):
     def _equals(self, other: Literal) -> bool:
         return self.val == other.val
 
-    def _id_attrs(self) -> List[Tuple[str, Any]]:
+    def _id_attrs(self) -> list[tuple[str, Any]]:
         return super()._id_attrs() + [('val', self.val)]
 
-    def sql_expr(self, _: SqlElementCache) -> Optional[sql.ClauseElement]:
+    def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
         # we need to return something here so that we can generate a Where clause for predicates
         # that involve literals (like Where c > 0)
         return sql.sql.expression.literal(self.val)
@@ -66,7 +66,7 @@ class Literal(Expr):
         # this will be called, even though sql_expr() does not return None
         data_row[self.slot_idx] = self.val
 
-    def _as_dict(self) -> Dict:
+    def _as_dict(self) -> dict:
         # For some types, we need to explictly record their type, because JSON does not know
         # how to interpret them unambiguously
         if self.col_type.is_timestamp_type():
@@ -80,7 +80,7 @@ class Literal(Expr):
             return {'val': self.val, **super()._as_dict()}
 
     @classmethod
-    def _from_dict(cls, d: Dict, components: List[Expr]) -> Expr:
+    def _from_dict(cls, d: dict, components: list[Expr]) -> Literal:
         assert 'val' in d
         if 'val_t' in d:
             val_t = d['val_t']

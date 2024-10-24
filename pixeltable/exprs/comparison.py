@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from typing import Optional, List, Any, Dict
+from typing import Any, Optional
 
 import sqlalchemy as sql
 
 import pixeltable.exceptions as excs
 import pixeltable.index as index
 import pixeltable.type_system as ts
+
 from .column_ref import ColumnRef
 from .data_row import DataRow
 from .expr import Expr
@@ -65,7 +66,7 @@ class Comparison(Expr):
     def _op2(self) -> Expr:
         return self.components[1]
 
-    def sql_expr(self, sql_elements: SqlElementCache) -> Optional[sql.ClauseElement]:
+    def sql_expr(self, sql_elements: SqlElementCache) -> Optional[sql.ColumnElement]:
         left = sql_elements.get(self._op1)
         if self.is_search_arg_comparison:
             # reference the index value column if there is an index and this is not a snapshot
@@ -113,11 +114,10 @@ class Comparison(Expr):
         elif self.operator == ComparisonOperator.GE:
             data_row[self.slot_idx] = left >= right
 
-    def _as_dict(self) -> Dict:
+    def _as_dict(self) -> dict:
         return {'operator': self.operator.value, **super()._as_dict()}
 
     @classmethod
-    def _from_dict(cls, d: Dict, components: List[Expr]) -> Expr:
+    def _from_dict(cls, d: dict, components: list[Expr]) -> Comparison:
         assert 'operator' in d
         return cls(ComparisonOperator(d['operator']), components[0], components[1])
-

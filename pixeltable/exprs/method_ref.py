@@ -5,6 +5,7 @@ import sqlalchemy as sql
 import pixeltable.type_system as ts
 from pixeltable.exprs import Expr, FunctionCall
 from pixeltable.func import FunctionRegistry
+
 from .data_row import DataRow
 from .row_builder import RowBuilder
 from .sql_element_cache import SqlElementCache
@@ -36,10 +37,10 @@ class MethodRef(Expr):
         return {'method_name': self.method_name, **super()._as_dict()}
 
     @classmethod
-    def _from_dict(cls, d: dict, components: list[Expr]) -> Expr:
+    def _from_dict(cls, d: dict, components: list[Expr]) -> 'MethodRef':
         assert 'method_name' in d
         assert len(components) == 1
-        return cls(d['method_name'], components[0])
+        return cls(components[0], d['method_name'])
 
     def __call__(self, *args, **kwargs) -> FunctionCall:
         result = self.fn(*[self.base_expr, *args], **kwargs)
@@ -48,12 +49,12 @@ class MethodRef(Expr):
         return result
 
     def _equals(self, other: 'MethodRef') -> bool:
-        return self.base_expr == other.base_expr and self.method_name == other.method_name
+        return self.base_expr.id == other.base_expr.id and self.method_name == other.method_name
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return super()._id_attrs() + [('method_name', self.method_name)]
 
-    def sql_expr(self, _: SqlElementCache) -> Optional[sql.ClauseElement]:
+    def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
         return None
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:

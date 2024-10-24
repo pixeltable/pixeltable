@@ -1,13 +1,14 @@
 import logging
 import warnings
 from decimal import Decimal
-from typing import Optional, Iterable, Iterator, NamedTuple
+from typing import Iterable, Iterator, NamedTuple, Optional
 from uuid import UUID
 
 import sqlalchemy as sql
 
 import pixeltable.catalog as catalog
 import pixeltable.exprs as exprs
+
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
 
@@ -126,7 +127,7 @@ class SqlNode(ExecNode):
             sql_select_list += self.tbl.tbl_version.store_tbl.pk_columns()
         stmt = sql.select(*sql_select_list)
 
-        order_by_clause: list[sql.ClauseElement] = []
+        order_by_clause: list[sql.ColumnElement] = []
         for e, asc in self.order_by_clause:
             if isinstance(e, exprs.SimilarityExpr):
                 order_by_clause.append(e.as_order_by_clause(asc))
@@ -141,7 +142,7 @@ class SqlNode(ExecNode):
         return stmt
 
     def _ordering_tbl_ids(self) -> set[UUID]:
-        return exprs.Expr.list_tbl_ids(e for e, _ in self.order_by_clause)
+        return exprs.Expr.all_tbl_ids(e for e, _ in self.order_by_clause)
 
     def to_cte(self) -> Optional[tuple[sql.CTE, exprs.ExprDict[sql.ColumnElement]]]:
         """
@@ -182,9 +183,9 @@ class SqlNode(ExecNode):
         """
         # we need to include at least the root
         if refd_tbl_ids is None:
-            refd_tbl_ids = {}
+            refd_tbl_ids = set()
         if exact_version_only is None:
-            exact_version_only = {}
+            exact_version_only = set()
         candidates = tbl.get_tbl_versions()
         assert len(candidates) > 0
         joined_tbls: list[catalog.TableVersion] = [candidates[0]]
@@ -193,6 +194,7 @@ class SqlNode(ExecNode):
                 joined_tbls.append(tbl)
 
         first = True
+        prev_tbl: catalog.TableVersion
         for tbl in joined_tbls[::-1]:
             if first:
                 stmt = stmt.select_from(tbl.store_tbl.sa_tbl)
@@ -239,22 +241,19 @@ class SqlNode(ExecNode):
     def __iter__(self) -> Iterator[DataRowBatch]:
         # run the query; do this here rather than in _open(), exceptions are only expected during iteration
         assert self.ctx.conn is not None
-        try:
-            with warnings.catch_warnings(record=True) as w:
-                stmt = self._create_stmt()
-                try:
-                    # log stmt, if possible
-                    stmt_str = str(stmt.compile(compile_kwargs={'literal_binds': True}))
-                    _logger.debug(f'SqlLookupNode stmt:\n{stmt_str}')
-                except Exception as e:
-                    pass
-                self._log_explain(stmt)
+        with warnings.catch_warnings(record=True) as w:
+            stmt = self._create_stmt()
+            try:
+                # log stmt, if possible
+                stmt_str = str(stmt.compile(compile_kwargs={'literal_binds': True}))
+                _logger.debug(f'SqlLookupNode stmt:\n{stmt_str}')
+            except Exception:
+                pass
+            self._log_explain(stmt)
 
-                result_cursor = self.ctx.conn.execute(stmt)
-                for warning in w:
-                    pass
-        except Exception as e:
-            raise e
+            result_cursor = self.ctx.conn.execute(stmt)
+            for warning in w:
+                pass
 
         tbl_version = self.tbl.tbl_version if self.tbl is not None else None
         output_batch = DataRowBatch(tbl_version, self.row_builder)
@@ -350,7 +349,7 @@ class SqlScanNode(SqlNode):
     def _create_stmt(self) -> sql.Select:
         stmt = super()._create_stmt()
         where_clause_tbl_ids = self.where_clause.tbl_ids() if self.where_clause is not None else set()
-        refd_tbl_ids = exprs.Expr.list_tbl_ids(self.select_list) | where_clause_tbl_ids | self._ordering_tbl_ids()
+        refd_tbl_ids = exprs.Expr.all_tbl_ids(self.select_list) | where_clause_tbl_ids | self._ordering_tbl_ids()
         stmt = self.create_from_clause(
             self.tbl, stmt, refd_tbl_ids, exact_version_only={t.id for t in self.exact_version_only})
 
@@ -386,7 +385,7 @@ class SqlLookupNode(SqlNode):
 
     def _create_stmt(self) -> sql.Select:
         stmt = super()._create_stmt()
-        refd_tbl_ids = exprs.Expr.list_tbl_ids(self.select_list) | self._ordering_tbl_ids()
+        refd_tbl_ids = exprs.Expr.all_tbl_ids(self.select_list) | self._ordering_tbl_ids()
         stmt = self.create_from_clause(self.tbl, stmt, refd_tbl_ids)
         stmt = stmt.where(self.where_clause)
         return stmt
