@@ -225,18 +225,12 @@ class Expr(abc.ABC):
                 return False
         return True
 
-    def retarget(self, tbl: catalog.TableVersionPath) -> Union[Self, 'exprs.ColumnRef']:
+    def retarget(self, tbl: catalog.TableVersionPath) -> Self:
         """Retarget ColumnRefs in this expr to the specific TableVersions in tbl."""
         tbl_versions = {tbl_version.id: tbl_version for tbl_version in tbl.get_tbl_versions()}
         return self._retarget(tbl_versions)
 
-    def _retarget(self, tbl_versions: dict[UUID, catalog.TableVersion]) -> Union[Self, 'exprs.ColumnRef']:
-        from .column_ref import ColumnRef
-        if isinstance(self, ColumnRef):
-            target = tbl_versions[self.col.tbl.id]
-            assert self.col.id in target.cols_by_id
-            col = target.cols_by_id[self.col.id]
-            return ColumnRef(col)
+    def _retarget(self, tbl_versions: dict[UUID, catalog.TableVersion]) -> Self:
         for i in range (len(self.components)):
             self.components[i] = self.components[i]._retarget(tbl_versions)
         return self
@@ -330,8 +324,8 @@ class Expr(abc.ABC):
         return {ref.col.tbl.id for ref in self.subexprs(ColumnRef)} | {ref.tbl.id for ref in self.subexprs(RowidRef)}
 
     @classmethod
-    def all_tbl_ids(cls, exprs: Iterable[Expr]) -> set[UUID]:
-        return set(tbl_id for e in exprs for tbl_id in e.tbl_ids())
+    def all_tbl_ids(cls, exprs_: Iterable[Expr]) -> set[UUID]:
+        return set(tbl_id for e in exprs_ for tbl_id in e.tbl_ids())
 
     @classmethod
     def get_refd_columns(cls, expr_dict: dict[str, Any]) -> list[catalog.Column]:

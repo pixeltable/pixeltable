@@ -54,6 +54,13 @@ class ColumnRef(Expr):
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return super()._id_attrs() + [('tbl_id', self.col.tbl.id), ('col_id', self.col.id)]
 
+    # override
+    def _retarget(self, tbl_versions: dict[UUID, catalog.TableVersion]) -> ColumnRef:
+        target = tbl_versions[self.col.tbl.id]
+        assert self.col.id in target.cols_by_id
+        col = target.cols_by_id[self.col.id]
+        return ColumnRef(col)
+
     def __getattr__(self, name: str) -> Expr:
         from .column_property_ref import ColumnPropertyRef
 
