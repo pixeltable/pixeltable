@@ -7,19 +7,26 @@ TEST_PATH="target/nb-tests"
 mkdir -p "$TEST_PATH"
 
 DO_PIP_INSTALL=true
-if [ -n "$1" ]; then
-    if [ "$1" == "--no-pip" ]; then
-        echo "Skipping pip install commands in notebooks."
-        DO_PIP_INSTALL=false
-    else
-        echo "Usage: $0 [--no-pip]"
-        exit 1
-    fi
+if [ "$1" == "--no-pip" ]; then
+    DO_PIP_INSTALL=false
+    shift
+fi
+
+if [ -z "$1" ]; then
+    echo "Usage: $0 [--no-pip] <notebook-paths>"
+    exit 1
+fi
+
+echo "Notebook paths: $@"
+if [[ $DO_PIP_INSTALL == false ]]; then
+    echo "Skipping pip install commands in notebooks."
 fi
 
 # Copy notebooks to target directory
+echo
 echo "Copying notebooks to test folder ..."
-for notebook in $(find docs/release tests -name '*.ipynb' | grep -v .ipynb_checkpoints); do
+for notebook in $(find "$@" -name '*.ipynb' | grep -v .ipynb_checkpoints); do
+    echo "$notebook"
     if [[ $DO_PIP_INSTALL == true ]]; then
         # Just copy the notebook to the test directory
         cp "$notebook" "$TEST_PATH"
@@ -29,7 +36,11 @@ for notebook in $(find docs/release tests -name '*.ipynb' | grep -v .ipynb_check
     fi
 done
 
-for env in {ANTHROPIC_API_KEY,FIREWORKS_API_KEY,LABEL_STUDIO_API_KEY,MISTRAL_API_KEY,OPENAI_API_KEY,REPLICATE_API_TOKEN,TOGETHER_API_KEY}; do
+# Get a list of all API keys referenced in the notebooks
+REF_API_KEYS=$(grep -hoE '[A-Z_]*_API_(KEY|TOKEN)' "$TEST_PATH"/*.ipynb | sort | uniq)
+echo
+echo "Checking for API keys: $(echo "$REF_API_KEYS" | tr '\n' ' ')"
+for env in $REF_API_KEYS; do
     if [ -z "${!env}" ]; then
         # The given API key is not available. Delete all notebooks that require it.
         for notebook in $(grep -l "$env" $TEST_PATH/*.ipynb); do
