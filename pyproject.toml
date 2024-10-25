@@ -77,6 +77,7 @@ ipykernel = "^6.27.1"
 nbmake = "^1.4.6"
 # packages required by various optional pieces of the codebase
 mistune = "^3.0.2"
+lxml = "^5.3.0"
 torch = "^2.2"
 torchvision = "^0.17"
 pyarrow = ">=13.0.0"
@@ -160,7 +161,9 @@ filterwarnings = [
     "ignore:Deprecated call to `pkg_resources:DeprecationWarning",
     "ignore:The get_cmap function was deprecated in Matplotlib 3.7:DeprecationWarning",
     "ignore:pkg_resources is deprecated as an API:",
-    "ignore:torchaudio._backend.set_audio_backend:UserWarning"
+    "ignore:torchaudio._backend.set_audio_backend:UserWarning",
+    # This warning is from `lxml` (when it calls out to `beautifulsoup4`):
+    "ignore:The 'strip_cdata' option of HTMLParser() has never done anything:DeprecationWarning"
 ]
 
 [tool.ruff]

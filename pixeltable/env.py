@@ -496,6 +496,7 @@ class Env:
         self.__register_package('datasets')
         self.__register_package('fireworks', library_name='fireworks-ai')
         self.__register_package('label_studio_sdk', library_name='label-studio-sdk')
+        self.__register_package('lxml')
         self.__register_package('mistralai')
         self.__register_package('mistune')
         self.__register_package('openai')
