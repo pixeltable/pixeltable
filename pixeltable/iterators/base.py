@@ -1,6 +1,7 @@
 from __future__ import annotations
-from typing import Dict, Any, Tuple, List
-from abc import abstractmethod, ABC
+
+from abc import ABC, abstractmethod
+from typing import Any
 
 from pixeltable.type_system import ColumnType
 
