@@ -371,7 +371,7 @@ class DataFrame:
             group_by_clause=group_by_clause, grouping_tbl=self.grouping_tbl,
             order_by_clause=order_by_clause, limit=self.limit_val)
 
-    def _row_iterator(self, conn: Optional[sql.engine.Connection] = None) -> Iterator[list]:
+    def _output_row_iterator(self, conn: Optional[sql.engine.Connection] = None) -> Iterator[list]:
         try:
             for data_row in self._exec(conn):
                 yield [data_row[e.slot_idx] for e in self._select_list_exprs]
@@ -398,7 +398,7 @@ class DataFrame:
         return self._collect()
 
     def _collect(self, conn: Optional[sql.engine.Connection] = None) -> DataFrameResultSet:
-        return DataFrameResultSet(list(self._row_iterator(conn)), self.schema)
+        return DataFrameResultSet(list(self._output_row_iterator(conn)), self.schema)
 
     def count(self) -> int:
         from pixeltable.plan import Planner

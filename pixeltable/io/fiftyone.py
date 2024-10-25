@@ -16,12 +16,11 @@ class PxtImageDatasetImporter(foud.LabeledImageDatasetImporter):
     """
     Implementation of a FiftyOne `DatasetImporter` that reads image data from a Pixeltable table.
     """
-    __image_format: str
-    __labels: dict[str, tuple[exprs.Expr, type]]  # label_name -> (expr, label_cls)
-    __image_idx: int
-    __localpath_idx: Optional[int]
-    __count: int
-    __iter: Iterator[list]
+    __image_format: str  # format to use for any exported images that are not already stored on disk
+    __labels: dict[str, tuple[exprs.Expr, type[fo.Label]]]  # label_name -> (expr, label_cls)
+    __image_idx: int  # index of the image expr in the select list
+    __localpath_idx: Optional[int]  # index of the image localpath in the select list, if present
+    __row_iter: Iterator[list]  # iterator over the table rows, to be convered to FiftyOne samples
 
     def __init__(
         self,
@@ -94,14 +93,10 @@ class PxtImageDatasetImporter(foud.LabeledImageDatasetImporter):
             self.__localpath_idx = None
 
         df = tbl.select(*selection)
-        self.__count = df.count()
-        self.__iter = df._row_iterator()
-
-    def __len__(self) -> int:
-        return self.__count
+        self.__row_iter = df._output_row_iterator()
 
     def __next__(self) -> tuple[str, Optional[fo.ImageMetadata], Optional[dict[str, fo.Label]]]:
-        row = next(self.__iter)
+        row = next(self.__row_iter)
         img = row[self.__image_idx]
         assert isinstance(img, PIL.Image.Image)
         if self.__localpath_idx is not None:
@@ -140,16 +135,22 @@ class PxtImageDatasetImporter(foud.LabeledImageDatasetImporter):
         return file, metadata, labels
 
     def __as_fo_classifications(self, data: list) -> list[fo.Classification]:
-        if not isinstance(data, list):
-            raise excs.Error(f'Invalid classifications data: {data}')
+        if not isinstance(data, list) or any('label' not in entry for entry in data):
+            raise excs.Error(
+                f'Invalid classifications data: {data}\n'
+                "(Expected a list of dicts, each containing a 'label' key)"
+            )
         return [
             fo.Classification(label=entry['label'], confidence=entry.get('confidence'))
             for entry in data
         ]
 
     def __as_fo_detections(self, data: list) -> list[fo.Detections]:
-        if not isinstance(data, list):
-            raise excs.Error(f'Invalid detections data: {data}')
+        if not isinstance(data, list) or any('label' not in entry or 'bounding_box' not in entry for entry in data):
+            raise excs.Error(
+                f'Invalid detections data: {data}\n'
+                "(Expected a list of dicts, each containing a 'label' and 'bounding_box' key)"
+            )
         return [
             fo.Detection(label=entry['label'], bounding_box=entry['bounding_box'], confidence=entry.get('confidence'))
             for entry in data

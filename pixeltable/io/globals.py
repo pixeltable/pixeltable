@@ -275,7 +275,7 @@ def import_json(
     return import_rows(tbl_path, data, schema_overrides=schema_overrides, primary_key=primary_key, num_retained_versions=num_retained_versions, comment=comment)
 
 
-def export_images_as_fiftyone(
+def export_images_to_fiftyone_dataset(
     tbl: pxt.Table,
     images: exprs.Expr,
     image_format: str = 'webp',
