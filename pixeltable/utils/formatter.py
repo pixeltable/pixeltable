@@ -1,16 +1,16 @@
 import base64
 import html
+import io
 import json
 import logging
 import mimetypes
 from typing import Any, Callable, Optional
 
+import av  # type: ignore[import-untyped]
+import numpy as np
 import PIL
 import PIL.Image as Image
-import cv2
-import numpy as np
 
-import io
 import pixeltable.type_system as ts
 from pixeltable.utils.http_server import get_file_uri
 
@@ -159,17 +159,16 @@ class Formatter:
         # the video itself is not accessible.
         # TODO(aaron-siegel): If the video is backed by a concrete external URL,
         # should we link to that instead?
-        video_reader = cv2.VideoCapture(str(file_path))
-        if video_reader.isOpened():
-            status, img_array = video_reader.read()
-            if status:
-                img_array = cv2.cvtColor(img_array, cv2.COLOR_BGR2RGB)
-                thumb = PIL.Image.fromarray(img_array)
+        with av.open(file_path) as container:
+            try:
+                thumb = next(container.decode(video=0)).to_image()
+                assert isinstance(thumb, Image.Image)
                 with io.BytesIO() as buffer:
                     thumb.save(buffer, 'jpeg')
                     thumb_base64 = base64.b64encode(buffer.getvalue()).decode()
                     thumb_tag = f'poster="data:image/jpeg;base64,{thumb_base64}"'
-            video_reader.release()
+            except Exception:
+                pass
         if self.__num_rows > 1:
             width = 320
         elif self.__num_cols > 1:
