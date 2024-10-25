@@ -123,18 +123,12 @@ class DataRow:
         assert self.has_val[index], index
 
         if self.file_urls[index] is not None and index in self.img_slot_idxs:
-            if self.file_urls[index].startswith('data:'):
-                # It's a base64-encoded data URL. Decode it now.
-                with urllib.request.urlopen(self.file_urls[index]) as response:
-                    b = response.read()
-                self.vals[index] = PIL.Image.open(io.BytesIO(b))
+            # if we need to load this from a file, it should have been materialized locally
+            # TODO this fails if the url was instantiated dynamically using astype()
+            assert self.file_paths[index] is not None
+            if self.vals[index] is None:
+                self.vals[index] = PIL.Image.open(self.file_paths[index])
                 self.vals[index].load()
-            else:
-                # if we need to load this from a file, it should have been materialized locally
-                assert self.file_paths[index] is not None
-                if self.vals[index] is None:
-                    self.vals[index] = PIL.Image.open(self.file_paths[index])
-                    self.vals[index].load()
 
         return self.vals[index]
 

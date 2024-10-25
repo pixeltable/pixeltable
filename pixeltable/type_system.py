@@ -3,6 +3,7 @@ from __future__ import annotations
 import abc
 import datetime
 import enum
+import io
 import json
 import typing
 import urllib.parse
@@ -797,6 +798,19 @@ class ImageType(ColumnType):
 
     def to_sa_type(self) -> sql.types.TypeEngine:
         return sql.String()
+
+    def _create_literal(self, val: Any) -> Any:
+        if isinstance(val, str) and val.startswith('data:'):
+            # try parsing this as a `data:` URL, and if successful, decode the image immediately
+            try:
+                with urllib.request.urlopen(val) as response:
+                    b = response.read()
+                img = PIL.Image.open(io.BytesIO(b))
+                img.load()
+                return img
+            except Exception:
+                pass  # fall through so this can be captured by the usual validate_literal error handling
+        return val
 
     def _validate_literal(self, val: Any) -> None:
         if isinstance(val, PIL.Image.Image):
