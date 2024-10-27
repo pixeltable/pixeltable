@@ -5,6 +5,7 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-0530AD.svg)](https://opensource.org/licenses/Apache-2.0)
 ![PyPI - Python Version](https://img.shields.io/pypi/pyversions/pixeltable?logo=python&logoColor=white&)
 ![Platform Support](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-E5DDD4)
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fpixeltable%2Fpixeltable.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2Fpixeltable%2Fpixeltable?ref=badge_shield)
 <br>
 [![tests status](https://github.com/pixeltable/pixeltable/actions/workflows/pytest.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions/workflows/pytest.yml)
 [![tests status](https://github.com/pixeltable/pixeltable/actions/workflows/nightly.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions/workflows/nightly.yml)
@@ -235,3 +236,6 @@ Are you experiencing issues or bugs with Pixeltable? File an [Issue](https://git
 ## :classical_building: License
 
 This library is licensed under the Apache 2.0 License.
+
+
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fpixeltable%2Fpixeltable.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2Fpixeltable%2Fpixeltable?ref=badge_large)
