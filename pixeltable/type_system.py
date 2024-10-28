@@ -808,8 +808,9 @@ class ImageType(ColumnType):
                 img = PIL.Image.open(io.BytesIO(b))
                 img.load()
                 return img
-            except Exception:
-                pass  # fall through so this can be captured by the usual validate_literal error handling
+            except Exception as exc:
+                errormsg_val = val if len(val) < 50 else val[:50] + '...'
+                raise excs.Error(f'data URL could not be decoded into a valid image: {errormsg_val}') from exc
         return val
 
     def _validate_literal(self, val: Any) -> None:
