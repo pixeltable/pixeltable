@@ -99,7 +99,7 @@ class CachePrefetchNode(ExecNode):
                     if self.boto_client is None:
                         self.boto_client = get_client()
                     self.boto_client.download_file(parsed.netloc, parsed.path.lstrip('/'), str(tmp_path))
-            elif parsed.scheme == 'http' or parsed.scheme == 'https' or parsed.scheme == 'data':
+            elif parsed.scheme == 'http' or parsed.scheme == 'https':
                 with urllib.request.urlopen(url) as resp, open(tmp_path, 'wb') as f:
                     data = resp.read()
                     f.write(data)
