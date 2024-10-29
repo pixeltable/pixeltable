@@ -50,10 +50,24 @@ class FunctionCall(Expr):
         if group_by_clause is None:
             group_by_clause = []
         signature = fn.signature
-        super().__init__(fn.call_return_type(bound_args))
+        return_type = fn.call_return_type(bound_args)
         self.fn = fn
         self.is_method_call = is_method_call
         self.normalize_args(fn.name, signature, bound_args)
+
+        # If `return_type` is non-nullable, but the function call has a nullable input to any of its non-nullable
+        # parameters, then we need to make it nullable. This is because Pixeltable defaults a function output to
+        # `None` when any of its non-nullable inputs are `None`.
+        for arg_name, arg in bound_args.items():
+            param = signature.parameters[arg_name]
+            if (
+                param.col_type is not None and not param.col_type.nullable
+                and isinstance(arg, Expr) and arg.col_type.nullable
+            ):
+                return_type = return_type.copy(nullable=True)
+                break
+
+        super().__init__(return_type)
 
         self.agg_init_args = {}
         if self.is_agg_fn_call:
