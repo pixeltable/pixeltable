@@ -215,7 +215,13 @@ def _(model_id: str) -> pxt.ArrayType:
 
 
 @pxt.udf(batch_size=4)
-def detr_for_object_detection(image: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0.5) -> Batch[dict]:
+def detr_for_object_detection(
+    image: Batch[PIL.Image.Image],
+    *,
+    model_id: str,
+    threshold: float = 0.5,
+    revision: str = 'no_timm',
+) -> Batch[dict]:
     """
     Computes DETR object detections for the specified image. `model_id` should be a reference to a pretrained
     [DETR Model](https://huggingface.co/docs/transformers/model_doc/detr).
@@ -257,9 +263,9 @@ def detr_for_object_detection(image: Batch[PIL.Image.Image], *, model_id: str, t
     from transformers import DetrImageProcessor, DetrForObjectDetection
 
     model = _lookup_model(
-        model_id, lambda x: DetrForObjectDetection.from_pretrained(x, revision='no_timm'), device=device
+        model_id, lambda x: DetrForObjectDetection.from_pretrained(x, revision=revision), device=device
     )
-    processor = _lookup_processor(model_id, lambda x: DetrImageProcessor.from_pretrained(x, revision='no_timm'))
+    processor = _lookup_processor(model_id, lambda x: DetrImageProcessor.from_pretrained(x, revision=revision))
     normalized_images = [normalize_image_mode(img) for img in image]
 
     with torch.no_grad():

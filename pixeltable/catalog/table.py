@@ -244,8 +244,9 @@ class Table(SchemaObject):
     def _num_retained_versions(self):
         return self._tbl_version.num_retained_versions
 
-    def _description(self) -> pd.DataFrame:
-        cols = self._tbl_version_path.columns()
+    def _description(self, cols: Optional[Iterable[Column]] = None) -> pd.DataFrame:
+        if cols is None:
+            cols = self._tbl_version_path.columns()
         df = pd.DataFrame({
             'Column Name': [c.name for c in cols],
             'Type': [c.col_type._to_str(as_schema=True) for c in cols],
@@ -253,8 +254,8 @@ class Table(SchemaObject):
         })
         return df
 
-    def _description_html(self) -> pandas.io.formats.style.Styler:
-        pd_df = self._description()
+    def _description_html(self, cols: Optional[Iterable[Column]] = None) -> pandas.io.formats.style.Styler:
+        pd_df = self._description(cols)
         # white-space: pre-wrap: print \n as newline
         # th: center-align headings
         return (
