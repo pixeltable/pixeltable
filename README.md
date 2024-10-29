@@ -9,6 +9,7 @@
 [![tests status](https://github.com/pixeltable/pixeltable/actions/workflows/pytest.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions/workflows/pytest.yml)
 [![tests status](https://github.com/pixeltable/pixeltable/actions/workflows/nightly.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions/workflows/nightly.yml)
 [![PyPI Package](https://img.shields.io/pypi/v/pixeltable?color=4D148C)](https://pypi.org/project/pixeltable/)
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fpixeltable%2Fpixeltable.svg?type=shield&issueType=security)](https://app.fossa.com/projects/git%2Bgithub.com%2Fpixeltable%2Fpixeltable?ref=badge_shield&issueType=security)
 <a target="_blank" href="https://huggingface.co/Pixeltable"> <img src="https://img.shields.io/badge/🤗-HF Space-F25022" alt="Visit our Hugging Face space"/></a>
 
 [Installation](https://docs.pixeltable.com/docs/installation) | [Documentation](https://pixeltable.readme.io/) | [API Reference](https://pixeltable.github.io/pixeltable/) | [Code Samples](https://github.com/pixeltable/pixeltable?tab=readme-ov-file#-code-samples) | [Computer Vision](https://docs.pixeltable.com/docs/object-detection-in-videos) | [LLM](https://docs.pixeltable.com/docs/document-indexing-and-rag)
@@ -187,6 +188,38 @@ frames_view.order_by(sim, asc=False).limit(5).select(frames_view.frame, sim=sim)
 
 ```
 Learn how to work with [Embedding and Vector Indexes](https://docs.pixeltable.com/docs/embedding-vector-indexes).
+
+## 🔄 AI Stack Comparison
+
+### 🎯 Computer Vision Workflows
+
+| Requirement | Traditional | Pixeltable |
+|-------------|---------------------|------------|
+| Frame Extraction | ffmpeg + custom code | Automatic via FrameIterator |
+| Object Detection | Multiple scripts + caching | Single computed column |
+| Video Indexing | Custom pipelines + Vector DB | Native similarity search |
+| Annotation Management | Separate tools + custom code | Label Studio integration |
+| Model Evaluation | Custom metrics pipeline | Built-in mAP computation |
+
+### 🤖 LLM Workflows
+
+| Requirement | Traditional | Pixeltable |
+|-------------|---------------------|------------|
+| Document Chunking | Tool + custom code | Native DocumentSplitter |
+| Embedding Generation | Separate pipeline + caching | Computed columns |
+| Vector Search | External vector DB | Built-in vector indexing |
+| Prompt Management | Custom tracking solution | Version-controlled columns |
+| Chain Management | Tool + custom code | Computed column DAGs |
+
+### 🎨 Multimodal Workflows
+
+| Requirement | Traditional | Pixeltable |
+|-------------|---------------------|------------|
+| Data Types | Multiple storage systems | Unified table interface |
+| Cross-Modal Search | Complex integration | Native similarity support |
+| Pipeline Orchestration | Multiple tools (Airflow, etc.) | Single declarative interface |
+| Asset Management | Custom tracking system | Automatic lineage |
+| Quality Control | Multiple validation tools | Computed validation columns |
 
 ## ❓ FAQ
 
