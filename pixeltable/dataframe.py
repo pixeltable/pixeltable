@@ -34,14 +34,6 @@ __all__ = ['DataFrame']
 _logger = logging.getLogger('pixeltable')
 
 
-def _create_source_tag(file_path: str) -> str:
-    src_url = get_file_uri(Env.get().http_address, file_path)
-    mime = mimetypes.guess_type(src_url)[0]
-    # if mime is None, the attribute string would not be valid html.
-    mime_attr = f'type="{mime}"' if mime is not None else ''
-    return f'<source src="{src_url}" {mime_attr} />'
-
-
 class DataFrameResultSet:
     def __init__(self, rows: list[list[Any]], schema: dict[str, ColumnType]):
         self._rows = rows
