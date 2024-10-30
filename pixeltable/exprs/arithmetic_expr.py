@@ -68,11 +68,15 @@ class ArithmeticExpr(Expr):
             return left * right
         if self.operator == ArithmeticOperator.DIV:
             assert self.col_type.is_float_type()
+            # Avoid DivisionByZero: if right is 0, make this a NULL
+            # TODO: Should we cast the NULLs to NaNs when they are retrieved back into Python?
+            nullif = sql.sql.func.nullif(right, 0)
             # We have to cast to a `float`, or else we'll get a `Decimal`
-            return sql.sql.expression.cast(left / right, sql.Float)
+            return sql.sql.expression.cast(left / nullif, sql.Float)
         if self.operator == ArithmeticOperator.MOD:
             if self.col_type.is_int_type():
-                return left % right
+                nullif = sql.sql.func.nullif(right, 0)
+                return left % nullif
             if self.col_type.is_float_type():
                 # Postgres does not support modulus for floats
                 return None
@@ -82,10 +86,11 @@ class ArithmeticExpr(Expr):
             # We need the behavior to be consistent, so that expressions will evaluate the same way
             # whether or not their operands can be translated to SQL. These SQL clauses should
             # mimic the behavior of Python's // operator.
+            nullif = sql.sql.func.nullif(right, 0)
             if self.col_type.is_int_type():
-                return sql.sql.expression.cast(sql.func.floor(left / right), sql.Integer)
+                return sql.sql.expression.cast(sql.func.floor(left / nullif), sql.Integer)
             if self.col_type.is_float_type():
-                return sql.sql.expression.cast(sql.func.floor(left / right), sql.Float)
+                return sql.sql.expression.cast(sql.func.floor(left / nullif), sql.Float)
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         op1_val = data_row[self._op1.slot_idx]

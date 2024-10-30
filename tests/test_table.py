@@ -1392,9 +1392,9 @@ class TestTable:
         assert status.num_excs == 0
         _ = t.show()
 
-        # with exception in SQL
-        with pytest.raises(excs.Error):
-            t.add_column(add2=(t.c2 - 10) / (t.c3 - 10))
+        # TODO(aaron-siegel): This has to be commented out. See explanation in test_exprs.py.
+        # with pytest.raises(excs.Error):
+        #     t.add_column(add2=(t.c2 - 10) / (t.c3 - 10))
 
         # with exception in Python for c6.f2 == 10
         status = t.add_column(add2=(t.c6.f2 - 10) / (t.c6.f2 - 10), on_error='ignore')
