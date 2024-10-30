@@ -7,14 +7,14 @@ first `pip install transformers` (or in some cases, `sentence-transformers`, as 
 UDFs).
 """
 
-from typing import Callable, TypeVar, Optional, Any
+from typing import Any, Callable, Optional, TypeVar
 
 import PIL.Image
 
 import pixeltable as pxt
 import pixeltable.env as env
 from pixeltable.func import Batch
-from pixeltable.functions.util import resolve_torch_device, normalize_image_mode
+from pixeltable.functions.util import normalize_image_mode, resolve_torch_device
 from pixeltable.utils.code import local_public_names
 
 
@@ -260,7 +260,7 @@ def detr_for_object_detection(
     env.Env.get().require_package('transformers')
     device = resolve_torch_device('auto')
     import torch
-    from transformers import DetrImageProcessor, DetrForObjectDetection
+    from transformers import DetrForObjectDetection, DetrImageProcessor
 
     model = _lookup_model(
         model_id, lambda x: DetrForObjectDetection.from_pretrained(x, revision=revision), device=device
@@ -336,7 +336,7 @@ def vit_for_image_classification(
     env.Env.get().require_package('transformers')
     device = resolve_torch_device('auto')
     import torch
-    from transformers import ViTImageProcessor, ViTForImageClassification
+    from transformers import ViTForImageClassification, ViTImageProcessor
 
     model: ViTForImageClassification = _lookup_model(model_id, ViTForImageClassification.from_pretrained, device=device)
     processor = _lookup_processor(model_id, ViTImageProcessor.from_pretrained)
