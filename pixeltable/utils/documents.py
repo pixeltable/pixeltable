@@ -59,14 +59,13 @@ def get_pdf_handle(path: str) -> Optional[fitz.Document]:
 def get_html_handle(path: str) -> Optional[bs4.BeautifulSoup]:
     try:
         with open(path, 'r', encoding='utf8') as fp:
-            doc = bs4.BeautifulSoup(fp, 'html.parser')
+            doc = bs4.BeautifulSoup(fp, 'lxml')
         return doc if doc.find() is not None else None
     except Exception:
         return None
 
 
 def get_xml_handle(path: str) -> Optional[bs4.BeautifulSoup]:
-    Env.get().require_package('lxml')
     try:
         with open(path, 'r', encoding='utf8') as fp:
             doc = bs4.BeautifulSoup(fp, 'xml')
