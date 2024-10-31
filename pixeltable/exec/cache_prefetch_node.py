@@ -79,7 +79,7 @@ class CachePrefetchNode(ExecNode):
 
         return input_batch
 
-    def _fetch_url(self, row: exprs.DataRow, slot_idx: int) -> Optional[str]:
+    def _fetch_url(self, row: exprs.DataRow, slot_idx: int) -> Optional[Path]:
         """Fetches a remote URL into Env.tmp_dir and returns its path"""
         url = row.file_urls[slot_idx]
         parsed = urllib.parse.urlparse(url)
