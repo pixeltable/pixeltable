@@ -130,7 +130,7 @@ class TestView:
         t = pxt.get_table('test_tbl')
         with pytest.raises(excs.Error) as exc_info:
             _ = pxt.create_view('lambda_view', t, additional_columns={'v1': lambda c3: c3 * 2.0})
-        assert 'computed with a callable' in str(exc_info.value).lower()
+        assert "invalid value for column 'v1'" in str(exc_info.value).lower()
 
     def test_from_dataframe(self, reset_db) -> None:
         t = self.create_tbl()

@@ -353,7 +353,7 @@ class TestTable:
 
         with pytest.raises(excs.Error) as exc_info:
             pxt.create_table('test', {'c1': {}})
-        assert '"type" is required' in str(exc_info.value)
+        assert "'type' or 'value' must be specified" in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
             pxt.create_table('test', {'c1': {'xyz': pxt.Int}})
@@ -361,7 +361,7 @@ class TestTable:
 
         with pytest.raises(excs.Error) as exc_info:
             pxt.create_table('test', {'c1': {'stored': True}})
-        assert '"type" is required' in str(exc_info.value)
+        assert "'type' or 'value' must be specified" in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
             pxt.create_table('test', {'c1': {'type': 'string'}})
@@ -369,11 +369,11 @@ class TestTable:
 
         with pytest.raises(excs.Error) as exc_info:
             pxt.create_table('test', {'c1': {'value': 1, 'type': pxt.String}})
-        assert '"type" is redundant' in str(exc_info.value)
+        assert "'type' is redundant" in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
             pxt.create_table('test', {'c1': {'value': pytest}})
-        assert 'value needs to be either' in str(exc_info.value)
+        assert 'value must be a Pixeltable expression' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
 
@@ -381,7 +381,7 @@ class TestTable:
                 return 1.0
 
             pxt.create_table('test', {'c1': {'value': f}})
-        assert '"type" is required' in str(exc_info.value)
+        assert 'value must be a Pixeltable expression' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
             pxt.create_table('test', {'c1': {'type': pxt.String, 'stored': 'true'}})
@@ -998,7 +998,7 @@ class TestTable:
         assert status.num_excs == 0
         status = t.add_column(c8=t.c3.detections['*'].bounding_box)
         assert status.num_excs == 0
-        status = t.add_column(c9=lambda c2: math.sqrt(c2), type=pxt.Float)
+        status = t.add_column(c9=t.c2.apply(math.sqrt, col_type=pxt.Float))
         assert status.num_excs == 0
 
         # unstored cols that compute window functions aren't currently supported
@@ -1174,7 +1174,7 @@ class TestTable:
 
         schema = {'c2': pxt.Int, 'c3': pxt.Float, 'c4': pxt.Bool}
         new_t = pxt.create_table('insert_test', schema)
-        new_t.add_column(c5=lambda c2: c2 * c2, type=pxt.Int)
+        new_t.add_column(c5=t.c2.apply(lambda x: x * x, col_type=pxt.Int))
         new_t.add_column(c6=pxtf.sum(new_t.c5, group_by=new_t.c4, order_by=new_t.c3))
         rows = list(t.select(t.c2, t.c4, t.c3).collect())
         new_t.insert(rows)
@@ -1233,14 +1233,6 @@ class TestTable:
         with pytest.raises(excs.Error) as excs_info:
             _ = t.add_column(insert=pxt.Int)
         assert "'insert' is a reserved name in pixeltable" in str(excs_info.value).lower()
-
-        with pytest.raises(excs.Error) as exc_info:
-            _ = t.add_column(add2=pxt.Int, type=pxt.String)
-        assert '"type" is redundant' in str(exc_info.value).lower()
-
-        with pytest.raises(excs.Error) as exc_info:
-            _ = t.add_column(add2=[[1.0, 2.0], [3.0, 4.0]], type=pxt.String)
-        assert '"type" is redundant' in str(exc_info.value).lower()
 
         with pytest.raises(excs.Error) as exc_info:
             _ = t.add_column(add2=pxt.Int, stored=False)
@@ -1410,8 +1402,8 @@ class TestTable:
 
     def test_describe(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
-        fn = lambda c2: np.full((3, 4), c2)
-        t.add_column(computed1=fn, type=pxt.Array[(3, 4), pxt.Int])
+        fn = lambda x: np.full((3, 4), x)
+        t.add_column(computed1=t.c2.apply(fn, col_type=pxt.Array[(3, 4), pxt.Int]))
         t.describe()
 
         # TODO: how to you check the output of these?

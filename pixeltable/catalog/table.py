@@ -323,23 +323,21 @@ class Table(SchemaObject):
             raise excs.Error(f'Column name must be a string, got {type(col_name)}')
         if not isinstance(spec, (ts.ColumnType, exprs.Expr, type, _GenericAlias)):
             raise excs.Error(f'Column spec must be a ColumnType, Expr, or type, got {type(spec)}')
-        self.add_column(type=None, stored=None, print_stats=False, on_error='abort', **{col_name: spec})
+        self.add_column(stored=None, print_stats=False, on_error='abort', **{col_name: spec})
 
     def add_column(
             self,
             *,
-            type: Union[ts.ColumnType, builtins.type, _GenericAlias, None] = None,
             stored: Optional[bool] = None,
             print_stats: bool = False,
             on_error: Literal['abort', 'ignore'] = 'abort',
-            **kwargs: Union[ts.ColumnType, builtins.type, _GenericAlias, exprs.Expr, Callable]
+            **kwargs: Union[ts.ColumnType, builtins.type, _GenericAlias, exprs.Expr]
     ) -> UpdateStatus:
         """
         Adds a column to the table.
 
         Args:
             kwargs: Exactly one keyword argument of the form `column_name=type` or `column_name=expression`.
-            type: The type of the column. Only valid and required if `value-expression` is a Callable.
             stored: Whether the column is materialized and stored or computed on demand. Only valid for image columns.
             print_stats: If `True`, print execution metrics during evaluation.
             on_error: Determines the behavior if an error occurs while evaluating the column expression for at least one
@@ -365,12 +363,6 @@ class Table(SchemaObject):
 
             >>> tbl['new_col'] = pxt.Int
 
-            For a table with int column `int_col`, add a column that is the factorial of ``int_col``. The names of
-            the parameters of the Callable must correspond to existing column names (the column values are then passed
-            as arguments to the Callable). In this case, the column type needs to be specified explicitly:
-
-            >>> tbl.add_column(factorial=lambda int_col: math.factorial(int_col), type=pxt.Int)
-
             For a table with an image column ``frame``, add an image column ``rotated`` that rotates the image by
             90 degrees. In this case, the column type is inferred from the expression. Also, the column is not stored
             (by default, computed image columns are not stored but recomputed on demand):
@@ -395,16 +387,12 @@ class Table(SchemaObject):
         col_name, spec = next(iter(kwargs.items()))
         if not is_valid_identifier(col_name):
             raise excs.Error(f'Invalid column name: {col_name!r}')
-        if isinstance(spec, (ts.ColumnType, builtins.type, _GenericAlias, exprs.Expr)) and type is not None:
-            raise excs.Error(f'add_column(): keyword argument "type" is redundant')
 
         col_schema: dict[str, Any] = {}
         if isinstance(spec, (ts.ColumnType, builtins.type, _GenericAlias)):
             col_schema['type'] = ts.ColumnType.normalize_type(spec, nullable_default=True)
         else:
             col_schema['value'] = spec
-        if type is not None:
-            col_schema['type'] = ts.ColumnType.normalize_type(type, nullable_default=True)
         if stored is not None:
             col_schema['stored'] = stored
 
@@ -470,36 +458,26 @@ class Table(SchemaObject):
         """
         assert isinstance(spec, dict)
         valid_keys = {'type', 'value', 'stored'}
-        has_type = False
         for k in spec.keys():
             if k not in valid_keys:
                 raise excs.Error(f'Column {name}: invalid key {k!r}')
 
+        if 'type' not in spec and 'value' not in spec:
+            raise excs.Error(f"Column {name}: 'type' or 'value' must be specified")
+
         if 'type' in spec:
-            has_type = True
             if not isinstance(spec['type'], (ts.ColumnType, type, _GenericAlias)):
                 raise excs.Error(f'Column {name}: "type" must be a type or ColumnType, got {spec["type"]}')
 
         if 'value' in spec:
-            value_spec = spec['value']
-            value_expr = exprs.Expr.from_object(value_spec)
+            value_expr = exprs.Expr.from_object(spec['value'])
             if value_expr is None:
-                # needs to be a Callable
-                if not callable(value_spec):
-                    raise excs.Error(
-                        f'Column {name}: value needs to be either a Pixeltable expression or a Callable, '
-                        f'but it is a {type(value_spec)}')
-                if 'type' not in spec:
-                    raise excs.Error(f'Column {name}: "type" is required if value is a Callable')
-            else:
-                has_type = True
-                if 'type' in spec:
-                    raise excs.Error(f'Column {name}: "type" is redundant if value is a Pixeltable expression')
+                raise excs.Error(f'Column {name}: value must be a Pixeltable expression.')
+            if 'type' in spec:
+                raise excs.Error(f"Column {name}: 'type' is redundant if 'value' is specified")
 
         if 'stored' in spec and not isinstance(spec['stored'], bool):
             raise excs.Error(f'Column {name}: "stored" must be a bool, got {spec["stored"]}')
-        if not has_type:
-            raise excs.Error(f'Column {name}: "type" is required')
 
     @classmethod
     def _create_columns(cls, schema: dict[str, Any]) -> list[Column]:
@@ -516,11 +494,6 @@ class Table(SchemaObject):
             elif isinstance(spec, exprs.Expr):
                 # create copy so we can modify it
                 value_expr = spec.copy()
-            elif callable(spec):
-                raise excs.Error(
-                    f'Column {name} computed with a Callable: specify using a dictionary with '
-                    f'the "value" and "type" keys (e.g., "{name}": {{"value": <Callable>, "type": pxt.Int}})'
-                )
             elif isinstance(spec, dict):
                 cls._validate_column_spec(name, spec)
                 if 'type' in spec:
@@ -531,9 +504,10 @@ class Table(SchemaObject):
                     value_expr = value_expr.copy()
                 stored = spec.get('stored', True)
                 primary_key = spec.get('primary_key')
+            else:
+                raise excs.Error(f'Invalid value for column {name!r}')
 
-            column = Column(
-                name, col_type=col_type, computed_with=value_expr, stored=stored, is_pk=primary_key)
+            column = Column(name, col_type=col_type, computed_with=value_expr, stored=stored, is_pk=primary_key)
             columns.append(column)
         return columns
 

@@ -86,7 +86,7 @@ class TestSnapshot:
                     schema = {
                         'v1': tbl.c3 * 2.0,
                         # include a lambda to make sure that is handled correctly
-                        'v2': {'value': lambda c3: c3 * 2.0, 'type': pxt.Float}
+                        'v2': tbl.c3.apply(lambda x: x * 2.0, col_type=pxt.Float)
                     } if has_cols else {}
                     extra_items = {'v1': tbl.c3 * 2.0, 'v2': tbl.c3 * 2.0} if has_cols else {}
                     query = tbl.where(tbl.c2 < 10) if has_filter else tbl

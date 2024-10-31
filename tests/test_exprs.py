@@ -240,18 +240,13 @@ class TestExprs:
         schema = {'c1': pxt.Float, 'c2': pxt.Float}
         t = pxt.create_table('test', schema)
 
-        # computed column that doesn't allow nulls
-        t.add_column(c3=lambda c1, c2: c1 + c2, type=pxt.Required[pxt.Float])
-        t.add_column(c4=self.null_args_fn(t.c1, t.c2))
+        t.add_column(c3=self.null_args_fn(t.c1, t.c2))
 
         # data that tests all combinations of nulls
         data = [{'c1': 1.0, 'c2': 1.0}, {'c1': 1.0, 'c2': None}, {'c1': None, 'c2': 1.0}, {'c1': None, 'c2': None}]
-        status = t.insert(data, fail_on_exception=False)
-        assert status.num_rows == len(data)
-        assert status.num_excs >= len(data) - 1
-        result = t.select(t.c3, t.c4).collect()
-        assert result['c3'] == [2.0, None, None, None]
-        assert result['c4'] == [2.0, 1.0, None, None]
+        validate_update_status(t.insert(data, fail_on_exception=False), expected_rows=4)
+        result = t.select(t.c3).collect()
+        assert result['c3'] == [2.0, 1.0, None, None]
 
     def test_arithmetic_exprs(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
