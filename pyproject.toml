@@ -31,6 +31,7 @@ sqlalchemy = "^2.0.23"
 pgvector = "^0.2.1"
 av = ">=10.0.0"
 beautifulsoup4 = "^4.0.0"
+lxml = ">=5.0"
 requests = "^2.31.0"
 pyyaml = "^6.0.1"
 jinja2 = "^3.1.3"
@@ -163,7 +164,9 @@ filterwarnings = [
     "ignore:Deprecated call to `pkg_resources:DeprecationWarning",
     "ignore:The get_cmap function was deprecated in Matplotlib 3.7:DeprecationWarning",
     "ignore:pkg_resources is deprecated as an API:",
-    "ignore:torchaudio._backend.set_audio_backend:UserWarning"
+    "ignore:torchaudio._backend.set_audio_backend:UserWarning",
+    # This warning is from `lxml` (when it calls out to `beautifulsoup4`):
+    "ignore:The 'strip_cdata' option of HTMLParser:DeprecationWarning"
 ]
 
 [tool.ruff]
