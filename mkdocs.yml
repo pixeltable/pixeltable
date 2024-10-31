@@ -47,6 +47,7 @@ nav:
     - mistralai: api/functions/mistralai.md
     - ollama: api/functions/ollama.md
     - openai: api/functions/openai.md
+    - replicate: api/functions/replicate.md
     - together: api/functions/together.md
     - whisper: api/functions/whisper.md
   - Extended Model and Inference Functions:
