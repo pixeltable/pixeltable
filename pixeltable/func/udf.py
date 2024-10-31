@@ -21,8 +21,6 @@ def udf(decorated_fn: Callable) -> Function: ...
 @overload
 def udf(
         *,
-        return_type: Optional[ts.ColumnType] = None,
-        param_types: Optional[List[ts.ColumnType]] = None,
         batch_size: Optional[int] = None,
         substitute_fn: Optional[Callable] = None,
         is_method: bool = False,
@@ -49,8 +47,6 @@ def udf(*args, **kwargs):
 
         # Decorator schema invoked with parentheses: @pxt.udf(**kwargs)
         # Create a decorator for the specified schema.
-        return_type = kwargs.pop('return_type', None)
-        param_types = kwargs.pop('param_types', None)
         batch_size = kwargs.pop('batch_size', None)
         substitute_fn = kwargs.pop('substitute_fn', None)
         is_method = kwargs.pop('is_method', None)
@@ -64,9 +60,7 @@ def udf(*args, **kwargs):
         def decorator(decorated_fn: Callable):
             return make_function(
                 decorated_fn,
-                return_type,
-                param_types,
-                batch_size,
+                batch_size=batch_size,
                 substitute_fn=substitute_fn,
                 is_method=is_method,
                 is_property=is_property,
