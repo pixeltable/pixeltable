@@ -120,7 +120,7 @@ class TestTable:
         for tbl_path in ['test', 'dir.test', 'dir.subdir.test']:
             tbl = pxt.create_table(tbl_path, {'col': pxt.String})
             view = pxt.create_view(f'{tbl_path}_view', tbl)
-            snap = pxt.create_view(f'{tbl_path}_snap', tbl, is_snapshot=True)
+            snap = pxt.create_snapshot(f'{tbl_path}_snap', tbl)
             assert tbl._path == tbl_path
             assert tbl._name == tbl_path.split('.')[-1]
             assert tbl._parent._path == '.'.join(tbl_path.split('.')[:-1])
