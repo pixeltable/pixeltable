@@ -746,36 +746,68 @@ class Table(SchemaObject):
 
     @overload
     def insert(
-            self, rows: Iterable[dict[str, Any]], /, *, print_stats: bool = False, fail_on_exception: bool = True
+        self,
+        rows: Iterable[dict[str, Any]],
+        /,
+        *,
+        print_stats: bool = False,
+        on_error: Literal['abort', 'ignore'] = 'abort'
     ) -> UpdateStatus: ...
 
     @overload
-    def insert(self, *, print_stats: bool = False, fail_on_exception: bool = True, **kwargs: Any) -> UpdateStatus: ...
+    def insert(
+        self,
+        *,
+        print_stats: bool = False,
+        on_error: Literal['abort', 'ignore'] = 'abort',
+        **kwargs: Any
+    ) -> UpdateStatus: ...
 
     @abc.abstractmethod  # type: ignore[misc]
     def insert(
-            self, rows: Optional[Iterable[dict[str, Any]]] = None, /, *, print_stats: bool = False,
-            fail_on_exception: bool = True, **kwargs: Any
+        self,
+        rows: Optional[Iterable[dict[str, Any]]] = None,
+        /,
+        *,
+        print_stats: bool = False,
+        on_error: Literal['abort', 'ignore'] = 'abort',
+        **kwargs: Any
     ) -> UpdateStatus:
         """Inserts rows into this table. There are two mutually exclusive call patterns:
 
         To insert multiple rows at a time:
-        ``insert(rows: Iterable[dict[str, Any]], /, *, print_stats: bool = False, fail_on_exception: bool = True)``
+
+        ```python
+        insert(
+            rows: Iterable[dict[str, Any]],
+            /,
+            *,
+            print_stats: bool = False,
+            on_error: Literal['abort', 'ignore'] = 'abort'
+        )```
 
         To insert just a single row, you can use the more concise syntax:
-        ``insert(*, print_stats: bool = False, fail_on_exception: bool = True, **kwargs: Any)``
+
+        ```python
+        insert(
+            *,
+            print_stats: bool = False,
+            on_error: Literal['abort', 'ignore'] = 'abort',
+            **kwargs: Any
+        )```
 
         Args:
             rows: (if inserting multiple rows) A list of rows to insert, each of which is a dictionary mapping column
                 names to values.
             kwargs: (if inserting a single row) Keyword-argument pairs representing column names and values.
-            print_stats: If ``True``, print statistics about the cost of computed columns.
-            fail_on_exception:
-                Determines how exceptions in computed columns and invalid media files (e.g., corrupt images)
-                are handled.
-                If ``False``, store error information (accessible as column properties 'errortype' and 'errormsg')
-                for those cases, but continue inserting rows.
-                If ``True``, raise an exception that aborts the insert.
+            print_stats: If `True`, print statistics about the cost of computed columns.
+            on_error: Determines the behavior if an error occurs while evaluating a computed column or detecting an
+                invalid media file (such as a corrupt image) for one of the inserted rows.
+
+                - If `on_error='abort'`, then an exception will be raised and the rows will not be inserted.
+                - If `on_error='ignore'`, then execution will continue and the rows will be inserted. Any cells
+                  with errors will have a `None` value for that cell, with information about the error stored in the
+                  corresponding `tbl.col_name.errortype` and `tbl.col_name.errormsg` fields.
 
         Returns:
             An [`UpdateStatus`][pixeltable.UpdateStatus] object containing information about the update.
@@ -786,7 +818,7 @@ class Table(SchemaObject):
                 - The table is a view or snapshot.
                 - The table has been dropped.
                 - One of the rows being inserted does not conform to the table schema.
-                - An error occurs during processing of computed columns, and `fail_on_exception=True`.
+                - An error occurs during processing of computed columns, and `on_error='ignore'`.
 
         Examples:
             Insert two rows into the table `my_table` with three int columns ``a``, ``b``, and ``c``.

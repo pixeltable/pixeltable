@@ -423,10 +423,10 @@ class TestTable:
         # Mode 1: Validation error on bad input (default)
         # we ignore the exact error here, because it depends on the media type
         with pytest.raises(excs.Error):
-            tbl.insert(rows, fail_on_exception=True)
+            tbl.insert(rows, on_error='abort')
 
         # Mode 2: ignore_errors=True, store error information in table
-        status = tbl.insert(rows, fail_on_exception=False)
+        status = tbl.insert(rows, on_error='ignore')
         _ = tbl.select(tbl.media, tbl.media.errormsg).show()
         assert status.num_rows == len(rows)
         assert status.num_excs >= total_bad_rows
@@ -1086,7 +1086,7 @@ class TestTable:
         t = pxt.create_table('test_insert', schema)
         status = t.add_column(add1=self.f2(self.f1(t.c2)))
         assert status.num_excs == 0
-        status = t.insert(rows, fail_on_exception=False)
+        status = t.insert(rows, on_error='ignore')
         assert status.num_excs >= 10
         assert 'test_insert.add1' in status.cols_with_excs
         assert t.where(t.add1.errortype != None).count() == 10
@@ -1164,7 +1164,7 @@ class TestTable:
         t.add_column(c3=self.img_fn_with_exc(t.img))
         rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
         rows = [{'img': r['img']} for r in rows[:20]]
-        t.insert(rows, fail_on_exception=False)
+        t.insert(rows, on_error='ignore')
         _ = t[t.c3.errortype].collect()
 
     def test_computed_window_fn(self, reset_db, test_tbl: catalog.Table) -> None:

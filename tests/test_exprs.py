@@ -244,7 +244,7 @@ class TestExprs:
 
         # data that tests all combinations of nulls
         data = [{'c1': 1.0, 'c2': 1.0}, {'c1': 1.0, 'c2': None}, {'c1': None, 'c2': 1.0}, {'c1': None, 'c2': None}]
-        validate_update_status(t.insert(data, fail_on_exception=False), expected_rows=4)
+        validate_update_status(t.insert(data), expected_rows=4)
         result = t.select(t.c3).collect()
         assert result['c3'] == [2.0, 1.0, None, None]
 

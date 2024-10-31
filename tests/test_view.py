@@ -347,7 +347,7 @@ class TestView:
         check_views()
 
         logger.debug('******************* INSERT')
-        status = t.insert(rows, fail_on_exception=False)
+        status = t.insert(rows, on_error='ignore')
         v1.update({'int4': 1}, where=v1.int4 == None)
         logger.debug('******************* POST INSERT')
         check_views()
