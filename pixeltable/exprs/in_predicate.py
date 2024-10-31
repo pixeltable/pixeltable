@@ -1,15 +1,16 @@
 from __future__ import annotations
 
-from typing import Optional, List, Any, Dict, Tuple, Iterable
+from typing import Any, Iterable, Optional
 
 import sqlalchemy as sql
 
 import pixeltable.exceptions as excs
-from .sql_element_cache import SqlElementCache
 import pixeltable.type_system as ts
+
 from .data_row import DataRow
 from .expr import Expr
 from .row_builder import RowBuilder
+from .sql_element_cache import SqlElementCache
 
 
 class InPredicate(Expr):
@@ -43,7 +44,7 @@ class InPredicate(Expr):
         assert len(self.components) == 2
         return self.components[1]
 
-    def _normalize_value_set(self, value_set: Any, filter_type_mismatches: bool = True) -> Iterable:
+    def _normalize_value_set(self, value_set: Iterable, filter_type_mismatches: bool = True) -> list:
         if not isinstance(value_set, Iterable):
             raise excs.Error(f'isin(): argument must be an Iterable (eg, list, dict, ...), not {value_set!r}')
         value_list = list(value_set)
@@ -68,10 +69,10 @@ class InPredicate(Expr):
     def _equals(self, other: InPredicate) -> bool:
         return self.value_list == other.value_list
 
-    def _id_attrs(self) -> List[Tuple[str, Any]]:
+    def _id_attrs(self) -> list[tuple[str, Any]]:
         return super()._id_attrs() + [('value_list', self.value_list)]
 
-    def sql_expr(self, sql_elements: SqlElementCache) -> Optional[sql.ClauseElement]:
+    def sql_expr(self, sql_elements: SqlElementCache) -> Optional[sql.ColumnElement]:
         lhs_sql_exprs = sql_elements.get(self.components[0])
         if lhs_sql_exprs is None or self.value_list is None:
             return None
@@ -86,11 +87,11 @@ class InPredicate(Expr):
             value_list = self._normalize_value_set(value_set, filter_type_mismatches=False)
             data_row[self.slot_idx] = lhs_val in value_list
 
-    def _as_dict(self) -> Dict:
+    def _as_dict(self) -> dict:
         return {'value_list': self.value_list, **super()._as_dict()}
 
     @classmethod
-    def _from_dict(cls, d: Dict, components: List[Expr]) -> Expr:
+    def _from_dict(cls, d: dict, components: list[Expr]) -> InPredicate:
         assert 'value_list' in d
         assert len(components) <= 2
         return cls(components[0], d['value_list'], components[1] if len(components) == 2 else None)

@@ -13,7 +13,6 @@ from uuid import UUID
 import sqlalchemy as sql
 from typing_extensions import _AnnotatedAlias, Self
 
-import pixeltable
 import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
 import pixeltable.func as func
@@ -91,7 +90,7 @@ class Expr(abc.ABC):
                 result = c_scope
         return result
 
-    def bind_rel_paths(self, mapper: Optional['pixeltable.exprs.JsonMapper'] = None) -> None:
+    def bind_rel_paths(self, mapper: Optional['exprs.JsonMapper'] = None) -> None:
         """
         Binds relative JsonPaths to mapper.
         This needs to be done in a separate phase after __init__(), because RelativeJsonPath()(-1) cannot be resolved
@@ -121,7 +120,7 @@ class Expr(abc.ABC):
                 return False
         return self._equals(other)
 
-    def _equals(self, other: Expr) -> bool:
+    def _equals(self, other: Self) -> bool:
         # we already compared the type and components in equals(); subclasses that require additional comparisons
         # override this
         return True
@@ -232,12 +231,6 @@ class Expr(abc.ABC):
         return self._retarget(tbl_versions)
 
     def _retarget(self, tbl_versions: dict[UUID, catalog.TableVersion]) -> Self:
-        from .column_ref import ColumnRef
-        if isinstance(self, ColumnRef):
-            target = tbl_versions[self.col.tbl.id]
-            assert self.col.id in target.cols_by_id
-            col = target.cols_by_id[self.col.id]
-            return ColumnRef(col)
         for i in range (len(self.components)):
             self.components[i] = self.components[i]._retarget(tbl_versions)
         return self
@@ -289,22 +282,24 @@ class Expr(abc.ABC):
             for c in self.components:
                 yield from c.subexprs(expr_class=expr_class, filter=filter, traverse_matches=traverse_matches)
         if is_match:
-            yield self
+            yield self  # type: ignore[misc]
 
     @overload
+    @classmethod
     def list_subexprs(
-        expr_list: Iterable[Expr], *, filter: Optional[Callable[[Expr], bool]] = None, traverse_matches: bool = True
+        cls, expr_list: Iterable[Expr], *, filter: Optional[Callable[[Expr], bool]] = None, traverse_matches: bool = True
     ) -> Iterator[Expr]: ...
 
     @overload
+    @classmethod
     def list_subexprs(
-        expr_list: list[Expr], expr_class: type[T], filter: Optional[Callable[[Expr], bool]] = None,
+        cls, expr_list: Iterable[Expr], expr_class: type[T], filter: Optional[Callable[[Expr], bool]] = None,
         traverse_matches: bool = True
     ) -> Iterator[T]: ...
 
     @classmethod
     def list_subexprs(
-        cls, expr_list: list[Expr], expr_class: Optional[type[T]] = None,
+        cls, expr_list: Iterable[Expr], expr_class: Optional[type[T]] = None,
         filter: Optional[Callable[[Expr], bool]] = None, traverse_matches: bool = True
     ) -> Iterator[T]:
         """Produce subexprs for all exprs in list. Can contain duplicates."""
@@ -329,11 +324,8 @@ class Expr(abc.ABC):
         return {ref.col.tbl.id for ref in self.subexprs(ColumnRef)} | {ref.tbl.id for ref in self.subexprs(RowidRef)}
 
     @classmethod
-    def list_tbl_ids(cls, expr_list: list[Expr]) -> set[UUID]:
-        ids: set[UUID] = set()
-        for e in expr_list:
-            ids.update(e.tbl_ids())
-        return ids
+    def all_tbl_ids(cls, exprs_: Iterable[Expr]) -> set[UUID]:
+        return set(tbl_id for e in exprs_ for tbl_id in e.tbl_ids())
 
     @classmethod
     def get_refd_columns(cls, expr_dict: dict[str, Any]) -> list[catalog.Column]:
@@ -383,7 +375,7 @@ class Expr(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def eval(self, data_row: DataRow, row_builder: 'pixeltable.exprs.RowBuilder') -> None:
+    def eval(self, data_row: DataRow, row_builder: 'exprs.RowBuilder') -> None:
         """
         Compute the expr value for data_row and store the result in data_row[slot_idx].
         Not called if sql_expr() != None (exception: Literal).
@@ -449,18 +441,18 @@ class Expr(abc.ABC):
     def _from_dict(cls, d: dict, components: list[Expr]) -> Self:
         assert False, 'not implemented'
 
-    def isin(self, value_set: Any) -> 'pixeltable.exprs.InPredicate':
+    def isin(self, value_set: Any) -> 'exprs.InPredicate':
         from .in_predicate import InPredicate
         if isinstance(value_set, Expr):
             return InPredicate(self, value_set_expr=value_set)
         else:
             return InPredicate(self, value_set_literal=value_set)
 
-    def astype(self, new_type: Union[ts.ColumnType, type, _AnnotatedAlias]) -> 'pixeltable.exprs.TypeCast':
+    def astype(self, new_type: Union[ts.ColumnType, type, _AnnotatedAlias]) -> 'exprs.TypeCast':
         from pixeltable.exprs import TypeCast
         return TypeCast(self, ts.ColumnType.normalize_type(new_type))
 
-    def apply(self, fn: Callable, *, col_type: Union[ts.ColumnType, type, _AnnotatedAlias, None] = None) -> 'pixeltable.exprs.FunctionCall':
+    def apply(self, fn: Callable, *, col_type: Union[ts.ColumnType, type, _AnnotatedAlias, None] = None) -> 'exprs.FunctionCall':
         if col_type is not None:
             col_type = ts.ColumnType.normalize_type(col_type)
         function = self._make_applicator_function(fn, col_type)
@@ -475,23 +467,32 @@ class Expr(abc.ABC):
         ]
         return attrs
 
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        raise NotImplementedError(f'Expression of type `{type(self)}` is not callable')
+
     def __getitem__(self, index: object) -> Expr:
         if self.col_type.is_json_type():
             from .json_path import JsonPath
-            return JsonPath(self).__getitem__(index)
+            return JsonPath(self)[index]
         if self.col_type.is_array_type():
             from .array_slice import ArraySlice
+            if not isinstance(index, tuple):
+                index = (index,)
+            if any(not isinstance(i, (int, slice)) for i in index):
+                raise AttributeError(f'Invalid array indices: {index}')
             return ArraySlice(self, index)
         raise AttributeError(f'Type {self.col_type} is not subscriptable')
 
-    def __getattr__(self, name: str) -> Union['pixeltable.exprs.MethodRef', 'pixeltable.exprs.FunctionCall', 'pixeltable.exprs.JsonPath']:
+    def __getattr__(self, name: str) -> 'exprs.Expr':
         """
         ex.: <img col>.rotate(60)
         """
+        from .json_path import JsonPath
+        from .method_ref import MethodRef
         if self.col_type.is_json_type():
-            return pixeltable.exprs.JsonPath(self).__getattr__(name)
+            return JsonPath(self).__getattr__(name)
         else:
-            method_ref = pixeltable.exprs.MethodRef(self, name)
+            method_ref = MethodRef(self, name)
             if method_ref.fn.is_property:
                 # Marked as a property, so autoinvoke the method to obtain a `FunctionCall`
                 assert method_ref.fn.arity == 1
@@ -504,32 +505,32 @@ class Expr(abc.ABC):
         raise TypeError(
             'Pixeltable expressions cannot be used in conjunction with Python boolean operators (and/or/not)')
 
-    def __lt__(self, other: object) -> 'pixeltable.exprs.Comparison':
+    def __lt__(self, other: object) -> 'exprs.Comparison':
         return self._make_comparison(ComparisonOperator.LT, other)
 
-    def __le__(self, other: object) -> 'pixeltable.exprs.Comparison':
+    def __le__(self, other: object) -> 'exprs.Comparison':
         return self._make_comparison(ComparisonOperator.LE, other)
 
-    def __eq__(self, other: object) -> 'pixeltable.exprs.Comparison':
+    def __eq__(self, other: object) -> 'exprs.Expr':  # type: ignore[override]
         if other is None:
             from .is_null import IsNull
             return IsNull(self)
         return self._make_comparison(ComparisonOperator.EQ, other)
 
-    def __ne__(self, other: object) -> 'pixeltable.exprs.Comparison':
+    def __ne__(self, other: object) -> 'exprs.Expr':  # type: ignore[override]
         if other is None:
             from .compound_predicate import CompoundPredicate
             from .is_null import IsNull
             return CompoundPredicate(LogicalOperator.NOT, [IsNull(self)])
         return self._make_comparison(ComparisonOperator.NE, other)
 
-    def __gt__(self, other: object) -> 'pixeltable.exprs.Comparison':
+    def __gt__(self, other: object) -> 'exprs.Comparison':
         return self._make_comparison(ComparisonOperator.GT, other)
 
-    def __ge__(self, other: object) -> 'pixeltable.exprs.Comparison':
+    def __ge__(self, other: object) -> 'exprs.Comparison':
         return self._make_comparison(ComparisonOperator.GE, other)
 
-    def _make_comparison(self, op: ComparisonOperator, other: object) -> 'pixeltable.exprs.Comparison':
+    def _make_comparison(self, op: ComparisonOperator, other: object) -> 'exprs.Comparison':
         """
         other: Union[Expr, LiteralPythonTypes]
         """
@@ -539,49 +540,49 @@ class Expr(abc.ABC):
         if isinstance(other, Expr):
             return Comparison(op, self, other)
         if isinstance(other, typing.get_args(LiteralPythonTypes)):
-            return Comparison(op, self, Literal(other))  # type: ignore[arg-type]
+            return Comparison(op, self, Literal(other))
         raise TypeError(f'Other must be Expr or literal: {type(other)}')
 
-    def __neg__(self) -> 'pixeltable.exprs.ArithmeticExpr':
+    def __neg__(self) -> 'exprs.ArithmeticExpr':
         return self._make_arithmetic_expr(ArithmeticOperator.MUL, -1)
 
-    def __add__(self, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
+    def __add__(self, other: object) -> 'exprs.ArithmeticExpr':
         return self._make_arithmetic_expr(ArithmeticOperator.ADD, other)
 
-    def __sub__(self, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
+    def __sub__(self, other: object) -> 'exprs.ArithmeticExpr':
         return self._make_arithmetic_expr(ArithmeticOperator.SUB, other)
 
-    def __mul__(self, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
+    def __mul__(self, other: object) -> 'exprs.ArithmeticExpr':
         return self._make_arithmetic_expr(ArithmeticOperator.MUL, other)
 
-    def __truediv__(self, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
+    def __truediv__(self, other: object) -> 'exprs.ArithmeticExpr':
         return self._make_arithmetic_expr(ArithmeticOperator.DIV, other)
 
-    def __mod__(self, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
+    def __mod__(self, other: object) -> 'exprs.ArithmeticExpr':
         return self._make_arithmetic_expr(ArithmeticOperator.MOD, other)
 
-    def __floordiv__(self, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
+    def __floordiv__(self, other: object) -> 'exprs.ArithmeticExpr':
         return self._make_arithmetic_expr(ArithmeticOperator.FLOORDIV, other)
 
-    def __radd__(self, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
+    def __radd__(self, other: object) -> 'exprs.ArithmeticExpr':
         return self._rmake_arithmetic_expr(ArithmeticOperator.ADD, other)
 
-    def __rsub__(self, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
+    def __rsub__(self, other: object) -> 'exprs.ArithmeticExpr':
         return self._rmake_arithmetic_expr(ArithmeticOperator.SUB, other)
 
-    def __rmul__(self, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
+    def __rmul__(self, other: object) -> 'exprs.ArithmeticExpr':
         return self._rmake_arithmetic_expr(ArithmeticOperator.MUL, other)
 
-    def __rtruediv__(self, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
+    def __rtruediv__(self, other: object) -> 'exprs.ArithmeticExpr':
         return self._rmake_arithmetic_expr(ArithmeticOperator.DIV, other)
 
-    def __rmod__(self, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
+    def __rmod__(self, other: object) -> 'exprs.ArithmeticExpr':
         return self._rmake_arithmetic_expr(ArithmeticOperator.MOD, other)
 
-    def __rfloordiv__(self, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
+    def __rfloordiv__(self, other: object) -> 'exprs.ArithmeticExpr':
         return self._rmake_arithmetic_expr(ArithmeticOperator.FLOORDIV, other)
 
-    def _make_arithmetic_expr(self, op: ArithmeticOperator, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
+    def _make_arithmetic_expr(self, op: ArithmeticOperator, other: object) -> 'exprs.ArithmeticExpr':
         """
         other: Union[Expr, LiteralPythonTypes]
         """
@@ -591,10 +592,10 @@ class Expr(abc.ABC):
         if isinstance(other, Expr):
             return ArithmeticExpr(op, self, other)
         if isinstance(other, typing.get_args(LiteralPythonTypes)):
-            return ArithmeticExpr(op, self, Literal(other))  # type: ignore[arg-type]
+            return ArithmeticExpr(op, self, Literal(other))
         raise TypeError(f'Other must be Expr or literal: {type(other)}')
 
-    def _rmake_arithmetic_expr(self, op: ArithmeticOperator, other: object) -> 'pixeltable.exprs.ArithmeticExpr':
+    def _rmake_arithmetic_expr(self, op: ArithmeticOperator, other: object) -> 'exprs.ArithmeticExpr':
         """
         Right-handed version of _make_arithmetic_expr. other must be a literal; if it were an Expr,
         the operation would have already been evaluated in its left-handed form.
@@ -604,7 +605,7 @@ class Expr(abc.ABC):
         from .literal import Literal
         assert not isinstance(other, Expr)  # Else the left-handed form would have evaluated first
         if isinstance(other, typing.get_args(LiteralPythonTypes)):
-            return ArithmeticExpr(op, Literal(other), self)  # type: ignore[arg-type]
+            return ArithmeticExpr(op, Literal(other), self)
         raise TypeError(f'Other must be Expr or literal: {type(other)}')
 
     def __and__(self, other: object) -> Expr:
@@ -639,7 +640,7 @@ class Expr(abc.ABC):
         else:
             return [], self
 
-    def _make_applicator_function(self, fn: Callable, col_type: Optional[ts.ColumnType]) -> 'pixeltable.func.Function':
+    def _make_applicator_function(self, fn: Callable, col_type: Optional[ts.ColumnType]) -> 'func.Function':
         """
         Creates a unary pixeltable `Function` that encapsulates a python `Callable`. The result type of
         the new `Function` is given by `col_type`, and its parameter type will be `self.col_type`.

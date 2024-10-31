@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import logging
 import sys
-from typing import Iterable, Optional, Any, Iterator
+from typing import Any, Iterable, Iterator, Optional, cast
 
 import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
 import pixeltable.exprs as exprs
+
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
 
@@ -28,13 +29,15 @@ class AggregationNode(ExecNode):
             self, tbl: catalog.TableVersion, row_builder: exprs.RowBuilder, group_by: Optional[list[exprs.Expr]],
             agg_fn_calls: list[exprs.FunctionCall], input_exprs: Iterable[exprs.Expr], input: ExecNode
     ):
-        super().__init__(row_builder, group_by + agg_fn_calls, input_exprs, input)
+        output_exprs: list[exprs.Expr] = [] if group_by is None else list(group_by)
+        output_exprs.extend(agg_fn_calls)
+        super().__init__(row_builder, output_exprs, input_exprs, input)
         self.input = input
         self.group_by = group_by
         self.input_exprs = list(input_exprs)
         self.agg_fn_eval_ctx = row_builder.create_eval_ctx(agg_fn_calls, exclude=self.input_exprs)
         # we need to make sure to refer to the same exprs that RowBuilder.eval() will use
-        self.agg_fn_calls = self.agg_fn_eval_ctx.target_exprs
+        self.agg_fn_calls = [cast(exprs.FunctionCall, e) for e in self.agg_fn_eval_ctx.target_exprs]
         # create output_batch here, rather than in __iter__(), so we don't need to remember tbl and row_builder
         self.output_batch = DataRowBatch(tbl, row_builder, 0)
 
