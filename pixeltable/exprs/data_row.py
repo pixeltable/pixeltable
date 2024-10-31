@@ -124,6 +124,7 @@ class DataRow:
 
         if self.file_urls[index] is not None and index in self.img_slot_idxs:
             # if we need to load this from a file, it should have been materialized locally
+            # TODO this fails if the url was instantiated dynamically using astype()
             assert self.file_paths[index] is not None
             if self.vals[index] is None:
                 self.vals[index] = PIL.Image.open(self.file_paths[index])

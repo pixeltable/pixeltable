@@ -1,3 +1,4 @@
+import base64
 import json
 import math
 import urllib.parse
@@ -596,6 +597,38 @@ class TestExprs:
         )
         for orig_img, retrieved_img in zip(orig_imgs, loaded_imgs):
             assert np.array_equal(np.array(orig_img), np.array(retrieved_img))
+
+    def test_astype_str_to_img_data_url(self, reset_db) -> None:
+        t = pxt.create_table('astype_test', {'url': pxt.String})
+        t['img'] = t.url.astype(pxt.Image)
+        images = get_image_files(include_bad_image=True)[:5]  # bad image is at idx 0
+        url_encoded_images = [
+            f'data:image/jpeg;base64,{base64.b64encode(open(img, "rb").read()).decode()}'
+            for img in images
+        ]
+
+        status = t.insert({'url': url} for url in url_encoded_images[1:])
+        validate_update_status(status, expected_rows=4)
+
+        loaded_imgs = t.select(t.img).head(4)['img']
+        for image_file, retrieved_img in zip(images[1:], loaded_imgs):
+            orig_img = PIL.Image.open(image_file)
+            orig_img.load()
+            assert orig_img.size == retrieved_img.size
+
+        # Try inserting a non-image
+        with pytest.raises(
+            excs.ExprEvalError,
+            match='data URL could not be decoded into a valid image: data:text/plain,Hello there.'
+        ):
+            t.insert(url='data:text/plain,Hello there.')
+
+        # Try inserting a bad image
+        with pytest.raises(
+            excs.ExprEvalError,
+            match='data URL could not be decoded into a valid image: data:image/jpeg;base64,dGhlc2UgYXJlIHNvbWUgYmFkIGp...'
+        ):
+            t.insert(url=url_encoded_images[0])
 
     def test_apply(self, test_tbl: catalog.Table) -> None:
 
