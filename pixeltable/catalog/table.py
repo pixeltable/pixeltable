@@ -414,6 +414,53 @@ class Table(SchemaObject):
         FileCache.get().emit_eviction_warnings()
         return status
 
+    def add_computed_column(
+        self,
+        *,
+        print_stats: bool = False,
+        on_error: Literal['abort', 'ignore'] = 'abort',
+        **kwargs: exprs.Expr
+    ) -> UpdateStatus:
+        """
+        Adds a computed column to the table.
+
+        Args:
+            kwargs: Exactly one keyword argument of the form `column_name=expression`.
+
+        Returns:
+            Information about the execution status of the operation.
+
+        Raises:
+            Error: If the column name is invalid or already exists.
+
+        Examples:
+            For a table with int column `int_col`, add a column that is the factorial of ``int_col``:
+
+            >>> tbl.add_computed_column(factorial=lambda int_col: math.factorial(int_col))
+
+            For a table with an image column ``frame``, add an image column ``rotated`` that rotates the image by
+            90 degrees:
+
+            >>> tbl.add_computed_column(rotated=tbl.frame.rotate(90))
+        """
+        self._check_is_dropped()
+        if len(kwargs) != 1:
+            raise excs.Error(
+                f'add_computed_column() requires exactly one keyword argument of the form "column-name=type|value-expression"; '
+                f'got {len(kwargs)} arguments instead ({", ".join(list(kwargs.keys()))})'
+            )
+        col_name, spec = next(iter(kwargs.items()))
+        if not is_valid_identifier(col_name):
+            raise excs.Error(f'Invalid column name: {col_name!r}')
+
+        col_schema = {'value': spec}
+
+        new_col = self._create_columns({col_name: col_schema})[0]
+        self._verify_column(new_col, set(self._schema.keys()), set(self._query_names))
+        status = self._tbl_version.add_column(new_col, print_stats=print_stats, on_error=on_error)
+        FileCache.get().emit_eviction_warnings()
+        return status
+
     @classmethod
     def _validate_column_spec(cls, name: str, spec: dict[str, Any]) -> None:
         """Check integrity of user-supplied Column spec
