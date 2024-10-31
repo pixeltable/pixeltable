@@ -101,7 +101,7 @@ class SqlNode(ExecNode):
             # minimize the number of tables that need to be joined to the target table
             self.retarget_rowid_refs(tbl, self.select_list)
 
-        assert self.sql_elements.contains(self.select_list)
+        assert self.sql_elements.contains_all(self.select_list)
         self.set_pk = set_pk
         self.num_pk_cols = 0
         if set_pk:
@@ -121,7 +121,7 @@ class SqlNode(ExecNode):
     def _create_stmt(self) -> sql.Select:
         """Create Select from local state"""
 
-        assert self.sql_elements.contains(self.select_list)
+        assert self.sql_elements.contains_all(self.select_list)
         sql_select_list = [self.sql_elements.get(e) for e in self.select_list]
         if self.set_pk:
             sql_select_list += self.tbl.tbl_version.store_tbl.pk_columns()
