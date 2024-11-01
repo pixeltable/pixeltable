@@ -30,7 +30,7 @@ class TestFiftyone:
         t.where(t.id < 3).update({'detections': sample_det})
         t.where(t.id < 2).update({'other_classifications': sample_cls})
 
-        ds = pxt.io.export_images_to_fiftyone_dataset(
+        ds = pxt.io.export_images_as_fo_dataset(
             t,
             t.image,
             classifications=t.classifications,
@@ -59,7 +59,7 @@ class TestFiftyone:
             assert d.detections[1].bounding_box == [0.2, 0.2, 0.3, 0.4]
 
         # Try a dynamically created image
-        ds = pxt.io.export_images_to_fiftyone_dataset(
+        ds = pxt.io.export_images_as_fo_dataset(
             t,
             t.image.rotate(180),
             classifications=t.classifications,
@@ -68,7 +68,7 @@ class TestFiftyone:
         assert len(ds) == 10
 
         # Multiple label sets
-        ds = pxt.io.export_images_to_fiftyone_dataset(
+        ds = pxt.io.export_images_as_fo_dataset(
             t,
             t.image,
             classifications={'first': t.classifications, 'other': t.other_classifications},
@@ -94,17 +94,17 @@ class TestFiftyone:
         t.insert(id=0, image=img)
 
         with pytest.raises(excs.Error, match='`images` must be an expression of type Image'):
-            pxt.io.export_images_to_fiftyone_dataset(t, t.id)
+            pxt.io.export_images_as_fo_dataset(t, t.id)
 
         with pytest.raises(excs.Error, match='Invalid label name'):
-            pxt.io.export_images_to_fiftyone_dataset(
+            pxt.io.export_images_as_fo_dataset(
                 t,
                 t.image,
                 classifications={'invalid name!@#': t.classifications}
             )
 
         with pytest.raises(excs.Error, match='Duplicate label name'):
-            pxt.io.export_images_to_fiftyone_dataset(
+            pxt.io.export_images_as_fo_dataset(
                 t,
                 t.image,
                 classifications={'labels': t.classifications},
@@ -113,7 +113,7 @@ class TestFiftyone:
 
         with pytest.raises(excs.Error, match='Invalid classifications data'):
             t.update({'classifications': {'a': 'b'}})
-            pxt.io.export_images_to_fiftyone_dataset(
+            pxt.io.export_images_as_fo_dataset(
                 t,
                 t.image,
                 classifications=t.classifications
@@ -121,7 +121,7 @@ class TestFiftyone:
 
         with pytest.raises(excs.Error, match='Invalid detections data'):
             t.update({'detections': {'a': 'b'}})
-            pxt.io.export_images_to_fiftyone_dataset(
+            pxt.io.export_images_as_fo_dataset(
                 t,
                 t.image,
                 detections=t.detections

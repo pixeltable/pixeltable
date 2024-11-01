@@ -275,7 +275,7 @@ def import_json(
     return import_rows(tbl_path, data, schema_overrides=schema_overrides, primary_key=primary_key, num_retained_versions=num_retained_versions, comment=comment)
 
 
-def export_images_to_fiftyone_dataset(
+def export_images_as_fo_dataset(
     tbl: pxt.Table,
     images: exprs.Expr,
     image_format: str = 'webp',
@@ -352,6 +352,7 @@ def export_images_to_fiftyone_dataset(
     Env.get().require_package('fiftyone')
 
     import fiftyone as fo
+
     from pixeltable.io.fiftyone import PxtImageDatasetImporter
 
     if not images.col_type.is_image_type():
