@@ -4,13 +4,13 @@ import datetime
 import io
 import urllib.parse
 import urllib.request
-from typing import Optional, List, Any, Tuple
+from typing import Any, Optional
 
-import sqlalchemy as sql
-import pgvector.sqlalchemy
+import numpy as np
+import pgvector.sqlalchemy  # type: ignore[import-untyped]
 import PIL
 import PIL.Image
-import numpy as np
+import sqlalchemy as sql
 
 from pixeltable import env
 
@@ -57,7 +57,7 @@ class DataRow:
     # - None if vals[i] is not a media type or if there is no local file yet for file_urls[i]
     file_paths: list[Optional[str]]
 
-    def __init__(self, size: int, img_slot_idxs: List[int], media_slot_idxs: List[int], array_slot_idxs: List[int]):
+    def __init__(self, size: int, img_slot_idxs: list[int], media_slot_idxs: list[int], array_slot_idxs: list[int]):
         self.vals = [None] * size
         self.has_val = [False] * size
         self.excs = [None] * size
@@ -89,7 +89,7 @@ class DataRow:
         target.file_urls = self.file_urls.copy()
         target.file_paths = self.file_paths.copy()
 
-    def set_pk(self, pk: Tuple[int, ...]) -> None:
+    def set_pk(self, pk: tuple[int, ...]) -> None:
         self.pk = pk
 
     def has_exc(self, slot_idx: int) -> bool:
@@ -124,6 +124,7 @@ class DataRow:
 
         if self.file_urls[index] is not None and index in self.img_slot_idxs:
             # if we need to load this from a file, it should have been materialized locally
+            # TODO this fails if the url was instantiated dynamically using astype()
             assert self.file_paths[index] is not None
             if self.vals[index] is None:
                 self.vals[index] = PIL.Image.open(self.file_paths[index])
@@ -231,7 +232,7 @@ class DataRow:
         self.vals[index] = None
 
     @property
-    def rowid(self) -> Tuple[int]:
+    def rowid(self) -> tuple[int, ...]:
         return self.pk[:-1]
 
     @property

@@ -58,6 +58,7 @@ class FunctionCall(Expr):
         self.agg_init_args = {}
         if self.is_agg_fn_call:
             # we separate out the init args for the aggregator
+            assert isinstance(fn, func.AggregateFunction)
             self.agg_init_args = {
                 arg_name: arg for arg_name, arg in bound_args.items() if arg_name in fn.init_param_names
             }
@@ -261,6 +262,7 @@ class FunctionCall(Expr):
             for param_name, (idx, arg) in self.kwargs.items()
         ])
         if len(self.order_by) > 0:
+            assert isinstance(self.fn, func.AggregateFunction)
             if self.fn.requires_order_by:
                 arg_strs.insert(0, Expr.print_list(self.order_by))
             else:
@@ -271,7 +273,7 @@ class FunctionCall(Expr):
         separator = ', ' if inline else ',\n    '
         return separator.join(arg_strs)
 
-    def has_group_by(self) -> list[Expr]:
+    def has_group_by(self) -> bool:
         return self.group_by_stop_idx != 0
 
     @property
@@ -284,10 +286,11 @@ class FunctionCall(Expr):
 
     @property
     def is_window_fn_call(self) -> bool:
-        return isinstance(self.fn, func.AggregateFunction) and self.fn.allows_window and \
-            (not self.fn.allows_std_agg \
-             or self.has_group_by() \
-             or (len(self.order_by) > 0 and not self.fn.requires_order_by))
+        return isinstance(self.fn, func.AggregateFunction) and self.fn.allows_window and (
+            not self.fn.allows_std_agg
+            or self.has_group_by()
+            or (len(self.order_by) > 0 and not self.fn.requires_order_by)
+        )
 
     def get_window_sort_exprs(self) -> tuple[list[Expr], list[Expr]]:
         return self.group_by, self.order_by
@@ -411,6 +414,7 @@ class FunctionCall(Expr):
             # optimization: avoid additional level of indirection we'd get from calling Function.exec()
             data_row[self.slot_idx] = self.fn.py_fn(*args, **kwargs)
         elif self.is_window_fn_call:
+            assert isinstance(self.fn, func.AggregateFunction)
             if self.has_group_by():
                 if self.current_partition_vals is None:
                     self.current_partition_vals = [None] * len(self.group_by)
@@ -436,7 +440,7 @@ class FunctionCall(Expr):
         return result
 
     @classmethod
-    def _from_dict(cls, d: dict, components: list[Expr]) -> Expr:
+    def _from_dict(cls, d: dict, components: list[Expr]) -> FunctionCall:
         assert 'fn' in d
         assert 'args' in d
         assert 'kwargs' in d

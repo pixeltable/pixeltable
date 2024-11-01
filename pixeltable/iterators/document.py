@@ -152,7 +152,7 @@ class DocumentSplitter(ComponentIterator):
             assert self._doc_handle.pdf_doc is not None
             self._sections = self._pdf_sections()
         else:
-            assert False, f'unknown document format: {self._doc_handle.format}'
+            assert False, f'Unsupported document format: {self._doc_handle.format}'
 
         if Separator.SENTENCE in self._separators:
             self._sections = self._sentence_sections(self._sections)

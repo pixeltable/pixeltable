@@ -1,4 +1,4 @@
-from typing import Iterable, Union, Optional
+from typing import Iterable, Union, Optional, cast
 
 import sqlalchemy as sql
 
@@ -27,8 +27,10 @@ class SqlElementCache:
         self.cache[e.id] = el
         return el
 
-    def contains(self, items: Union[Expr, Iterable[Expr]]) -> bool:
-        """Returns True if every item has a (non-None) sql.ColumnElement."""
-        if isinstance(items, Expr):
-            return self.get(items) is not None
+    def contains(self, item: Expr) -> bool:
+        """Returns True if the cache contains a (non-None) value for the given Expr."""
+        return self.get(item) is not None
+
+    def contains_all(self, items: Iterable[Expr]) -> bool:
+        """Returns True if the cache contains a (non-None) value for every item in the collection of Exprs."""
         return all(self.get(e) is not None for e in items)
