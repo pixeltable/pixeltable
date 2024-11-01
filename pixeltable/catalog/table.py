@@ -330,16 +330,14 @@ class Table(SchemaObject):
         schema: dict[str, Union[ts.ColumnType, builtins.type, _GenericAlias]]
     ) -> UpdateStatus:
         """
-        Adds multiple columns to the table.
+        Adds multiple columns to the table. The columns must be concrete (non-computed) columns; to add computed columns,
+        use [`add_computed_column()`][pixeltable.catalog.Table.add_computed_column] instead.
+
+        The format of the `schema` argument is identical to the format of the schema in a call to
+        [`create_table()`][pixeltable.globals.create_table].
 
         Args:
-            schema: A dictionary mapping column names to column specifications. Each column specification can be either a
-                `ColumnType`, an `Expr`, or a dictionary with the following keys:
-
-                - `'type'`: The column type, as a `ColumnType` or a type.
-                - `'value'`: The column expression, as an `Expr`.
-                - `'stored'`: Whether the column is materialized and stored or computed on demand. Only valid for image
-                  columns.
+            schema: A dictionary mapping column names to types.
 
         Returns:
             Information about the execution status of the operation.
@@ -351,23 +349,13 @@ class Table(SchemaObject):
             Add multiple columns to the table `my_table`:
 
             >>> tbl = pxt.get_table('my_table')
-            ... tbl.add_columns({
-            ...     'col1': pxt.Int,
-            ...     'col2': pxt.Float,
-            ...     'col3': pxt.String,
-            ...     'col4': {
-            ...         'type': pxt.Image,
-            ...         'stored': False
-            ...     },
-            ...     'col5': {
-            ...         'value': tbl.col1 + tbl.col2,
-            ...         'stored': True
-            ...     }
-            ... })
+            ... schema = {
+            ...     'new_col_1': pxt.Int,
+            ...     'new_col_2': pxt.String,
+            ... }
+            ... tbl.add_columns(schema)
         """
         self._check_is_dropped()
-        col_schema: dict[str, Any] = {}
-
         col_schema = {
             col_name: {'type': ts.ColumnType.normalize_type(spec, nullable_default=True)}
             for col_name, spec in schema.items()
@@ -379,6 +367,10 @@ class Table(SchemaObject):
         FileCache.get().emit_eviction_warnings()
         return status
 
+    # TODO: add_column() still supports computed columns for backward-compatibility. In the future, computed columns
+    #     will be supported only through add_computed_column(). At that point, we can remove the `stored`,
+    #     `print_stats`, and `on_error` parameters, and change the method body to simply call self.add_columns(kwargs),
+    #     simplifying the code. For the time being, there's some obvious code duplication.
     def add_column(
         self,
         *,
@@ -391,7 +383,7 @@ class Table(SchemaObject):
         Adds a column to the table.
 
         Args:
-            kwargs: Exactly one keyword argument of the form `column_name=type` or `column_name=expression`.
+            kwargs: Exactly one keyword argument of the form `col_name=col_type`.
             stored: Whether the column is materialized and stored or computed on demand. Only valid for image columns.
             print_stats: If `True`, print execution metrics during evaluation.
             on_error: Determines the behavior if an error occurs while evaluating the column expression for at least one
@@ -421,7 +413,7 @@ class Table(SchemaObject):
         # verify kwargs and construct column schema dict
         if len(kwargs) != 1:
             raise excs.Error(
-                f'add_column() requires exactly one keyword argument of the form "column-name=type|value-expression"; '
+                f'add_column() requires exactly one keyword argument of the form "col_name=col_type"; '
                 f'got {len(kwargs)} instead ({", ".join(list(kwargs.keys()))})'
             )
         col_name, spec = next(iter(kwargs.items()))
@@ -454,7 +446,7 @@ class Table(SchemaObject):
         Adds a computed column to the table.
 
         Args:
-            kwargs: Exactly one keyword argument of the form `column_name=expression`.
+            kwargs: Exactly one keyword argument of the form `col_name=expression`.
 
         Returns:
             Information about the execution status of the operation.
