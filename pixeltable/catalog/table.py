@@ -362,20 +362,6 @@ class Table(SchemaObject):
             Alternatively, this can also be expressed as:
 
             >>> tbl['new_col'] = pxt.Int
-
-            For a table with an image column ``frame``, add an image column ``rotated`` that rotates the image by
-            90 degrees. In this case, the column type is inferred from the expression. Also, the column is not stored
-            (by default, computed image columns are not stored but recomputed on demand):
-
-            >>> tbl.add_column(rotated=tbl.frame.rotate(90))
-
-            Alternatively, this can also be expressed as:
-
-            >>> tbl['rotated'] = tbl.frame.rotate(90)
-
-            Do the same, but now the column is unstored:
-
-            >>> tbl.add_column(rotated=tbl.frame.rotate(90), stored=False)
         """
         self._check_is_dropped()
         # verify kwargs and construct column schema dict
@@ -405,6 +391,7 @@ class Table(SchemaObject):
     def add_computed_column(
         self,
         *,
+        stored: Optional[bool] = None,
         print_stats: bool = False,
         on_error: Literal['abort', 'ignore'] = 'abort',
         **kwargs: exprs.Expr
@@ -422,14 +409,14 @@ class Table(SchemaObject):
             Error: If the column name is invalid or already exists.
 
         Examples:
-            For a table with int column `int_col`, add a column that is the factorial of ``int_col``:
-
-            >>> tbl.add_computed_column(factorial=lambda int_col: math.factorial(int_col))
-
-            For a table with an image column ``frame``, add an image column ``rotated`` that rotates the image by
+            For a table with an image column `frame`, add an image column `rotated` that rotates the image by
             90 degrees:
 
             >>> tbl.add_computed_column(rotated=tbl.frame.rotate(90))
+
+            Do the same, but now the column is unstored:
+
+            >>> tbl.add_computed_column(rotated=tbl.frame.rotate(90), stored=False)
         """
         self._check_is_dropped()
         if len(kwargs) != 1:
@@ -442,6 +429,8 @@ class Table(SchemaObject):
             raise excs.Error(f'Invalid column name: {col_name!r}')
 
         col_schema = {'value': spec}
+        if stored is not None:
+            col_schema['stored'] = stored
 
         new_col = self._create_columns({col_name: col_schema})[0]
         self._verify_column(new_col, set(self._schema.keys()), set(self._query_names))
