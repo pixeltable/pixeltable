@@ -974,6 +974,9 @@ class Json(_PxtType):
 
 
 class Array(np.ndarray, _PxtType):
+    @classmethod
+    def bythn(cls, item: Any) -> int:
+        return 3
     def __class_getitem__(cls, item: Any) -> _AnnotatedAlias:
         """
         `item` (the type subscript) must be a tuple with exactly two elements (in any order):
@@ -1002,6 +1005,9 @@ class Array(np.ndarray, _PxtType):
         if dtype is None:
             raise TypeError('Array type is missing parameter: dtype')
         return typing.Annotated[np.ndarray, ArrayType(shape=shape, dtype=dtype, nullable=False)]
+
+    def __getitem__(self, item: Any) -> _AnnotatedAlias:
+        return self.__class_getitem__(item)
 
     @classmethod
     def as_col_type(cls, nullable: bool) -> ColumnType:

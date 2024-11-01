@@ -1,3 +1,6 @@
+[installer]
+no-binary = 'mypy'
+
 [virtualenvs]
 create = true
 in-project = true

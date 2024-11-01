@@ -10,6 +10,7 @@ import pixeltable as pxt
 
 class PxtPlugin(Plugin):
     __UDA_FULLNAME = f'{pxt.uda.__module__}.{pxt.uda.__name__}'
+    __ARRAY_GETITEM_FULLNAME = f'{pxt.Array.__module__}.{pxt.Array.__name__}.__class_getitem__'
     __TYPE_MAP = {
         pxt.Json: 'typing.Any',
         pxt.Array: 'numpy.ndarray',
