@@ -86,17 +86,17 @@ class FunctionCall(Expr):
         self.arg_types = []
         self.kwarg_types = {}
         # the prefix of parameters that are bound can be passed by position
-        for param in fn.signature.py_signature.parameters.values():
-            if param.name not in bound_args or param.kind == inspect.Parameter.KEYWORD_ONLY:
+        for py_param in fn.signature.py_signature.parameters.values():
+            if py_param.name not in bound_args or py_param.kind == inspect.Parameter.KEYWORD_ONLY:
                 break
-            arg = bound_args[param.name]
+            arg = bound_args[py_param.name]
             if isinstance(arg, Expr):
                 self.args.append((len(self.components), None))
                 self.components.append(arg.copy())
             else:
                 self.args.append((None, arg))
-            if param.kind != inspect.Parameter.VAR_POSITIONAL and param.kind != inspect.Parameter.VAR_KEYWORD:
-                self.arg_types.append(signature.parameters[param.name].col_type)
+            if py_param.kind != inspect.Parameter.VAR_POSITIONAL and py_param.kind != inspect.Parameter.VAR_KEYWORD:
+                self.arg_types.append(signature.parameters[py_param.name].col_type)
 
         # the remaining args are passed as keywords
         kw_param_names = set(bound_args.keys()) - set(list(fn.signature.py_signature.parameters.keys())[:len(self.args)])
