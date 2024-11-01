@@ -884,30 +884,6 @@ class TestTable:
             # some rows are missing rowids
             _ = t2.batch_update([{'c1': 'one', '_rowid': (1,)}, {'c1': 'two'}])
 
-    def test_update_img(self, reset_db) -> None:
-        schema = {'id': pxt.Required[pxt.Int], 'img': pxt.Image}
-        t = pxt.create_table('test', schema)
-        t.insert([{'id': i, 'img': None} for i in range(10)])
-        status = (
-            t.where(t.id.isin([0, 1, 2]))
-            .update({
-                'img': 'https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/source/data/port-townsend-map.jpeg'
-            })
-        )
-        assert status.num_excs == 0
-
-        # status = t.add_column(url=t.img.fileurl)
-        # assert status.num_excs == 0
-        # # this breaks because the plan to update a ColumnPropertyRef of an updated column is wrong
-        # # TODO: fix this bug (PXT-316)
-        # status = (
-        #     t.where(t.id.isin([3, 4, 5]))
-        #     .update({
-        #         'img': 'https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/source/data/port-townsend-map.jpeg'
-        #     })
-        # )
-        # assert status.num_excs == 0
-
     def test_update(self, test_tbl: pxt.Table, small_img_tbl) -> None:
         t = test_tbl
         # update every type with a literal

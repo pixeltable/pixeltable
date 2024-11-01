@@ -1,8 +1,11 @@
+from __future__ import annotations
 import dataclasses
 import enum
 import itertools
 import logging
 from typing import Optional
+
+import pixeltable.exceptions as excs
 
 _logger = logging.getLogger('pixeltable')
 
@@ -39,6 +42,14 @@ class UpdateStatus:
 class MediaValidation(enum.Enum):
     ON_READ = 0
     ON_WRITE = 1
+
+    @classmethod
+    def validated(cls, name: str, error_prefix: str) -> MediaValidation:
+        try:
+            return cls[name.upper()]
+        except KeyError:
+            val_strs = ', '.join(f'{s.lower()!r}' for s in cls.__members__.keys())
+            raise excs.Error(f'{error_prefix} must be one of: [{val_strs}]')
 
 
 def is_valid_identifier(name: str) -> bool:

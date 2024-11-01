@@ -24,7 +24,7 @@ import pixeltable.type_system as ts
 from pixeltable.utils.filecache import FileCache
 
 from .column import Column
-from .globals import _ROWID_COLUMN_NAME, UpdateStatus, is_system_column_name, is_valid_identifier
+from .globals import _ROWID_COLUMN_NAME, UpdateStatus, is_system_column_name, is_valid_identifier, MediaValidation
 from .schema_object import SchemaObject
 from .table_version import TableVersion
 from .table_version_path import TableVersionPath
@@ -102,7 +102,7 @@ class Table(SchemaObject):
         md['schema_version'] = self._tbl_version.schema_version
         md['comment'] = self._comment
         md['num_retained_versions'] = self._num_retained_versions
-        md['media_validation'] = self._media_validation
+        md['media_validation'] = self._media_validation.name.lower()
         return md
 
     @property
@@ -247,8 +247,8 @@ class Table(SchemaObject):
         return self._tbl_version.num_retained_versions
 
     @property
-    def _media_validation(self) -> str:
-        return self._tbl_version.media_validation.name.lower()
+    def _media_validation(self) -> MediaValidation:
+        return self._tbl_version.media_validation
 
     def _description(self) -> pd.DataFrame:
         cols = self._tbl_version_path.columns()
@@ -456,9 +456,7 @@ class Table(SchemaObject):
                     raise excs.Error(f'Column {name}: "type" is redundant if value is a Pixeltable expression')
 
         if 'media_validation' in spec:
-            if spec['media_validation'].upper() not in catalog.MediaValidation.__members__.keys():
-                val_strs = ', '.join(f'{s.lower()!r}' for s in catalog.MediaValidation.__members__.keys())
-                raise excs.Error(f'Column {name}: media_validation must be one of: [{val_strs}]')
+            _ = catalog.MediaValidation.validated(spec['media_validation'], f'Column {name}: media_validation')
 
         if 'stored' in spec and not isinstance(spec['stored'], bool):
             raise excs.Error(f'Column {name}: "stored" must be a bool, got {spec["stored"]}')

@@ -92,12 +92,9 @@ def create_table(
         if not isinstance(primary_key, list) or not all(isinstance(pk, str) for pk in primary_key):
             raise excs.Error('primary_key must be a single column name or a list of column names')
 
-    if media_validation.upper() not in catalog.MediaValidation.__members__.keys():
-        val_strs = ', '.join(f'{s.lower()!r}' for s in catalog.MediaValidation.__members__.keys())
-        raise excs.Error(f'media_validation must be one of: [{val_strs}]')
     tbl = catalog.InsertableTable._create(
         dir._id, path.name, schema, df, primary_key=primary_key, num_retained_versions=num_retained_versions,
-        comment=comment, media_validation=catalog.MediaValidation[media_validation.upper()])
+        comment=comment, media_validation=catalog.MediaValidation.validated(media_validation, 'media_validation'))
     Catalog.get().paths[path] = tbl
 
     _logger.info(f'Created table `{path_str}`.')
@@ -178,16 +175,11 @@ def create_view(
     else:
         iterator_class, iterator_args = iterator
 
-    if media_validation.upper() not in catalog.MediaValidation.__members__.keys():
-        val_strs = ', '.join(f'{s.lower()!r}' for s in catalog.MediaValidation.__members__.keys())
-        raise excs.Error(f'media_validation must be one of: [{val_strs}]')
-
     view = catalog.View._create(
         dir._id, path.name, base=tbl_version_path, additional_columns=additional_columns, predicate=where,
         is_snapshot=is_snapshot, iterator_cls=iterator_class, iterator_args=iterator_args,
         num_retained_versions=num_retained_versions, comment=comment,
-        media_validation=catalog.MediaValidation[media_validation.upper()]
-    )
+        media_validation=catalog.MediaValidation.validated(media_validation, 'media_validation'))
     Catalog.get().paths[path] = view
     _logger.info(f'Created view `{path_str}`.')
     FileCache.get().emit_eviction_warnings()

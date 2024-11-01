@@ -6,6 +6,7 @@ from typing import Any, Optional
 import sqlalchemy as sql
 
 import pixeltable.type_system as ts
+from pixeltable import catalog
 from .column_ref import ColumnRef
 from .data_row import DataRow
 from .expr import Expr
@@ -79,18 +80,20 @@ class ColumnPropertyRef(Expr):
             assert data_row.has_val[self._col_ref.slot_idx]
             data_row[self.slot_idx] = data_row.file_urls[self._col_ref.slot_idx]
             return
-        if self.prop == self.Property.LOCALPATH:
+        elif self.prop == self.Property.LOCALPATH:
             assert data_row.has_val[self._col_ref.slot_idx]
             data_row[self.slot_idx] = data_row.file_paths[self._col_ref.slot_idx]
             return
-        if self.prop == self.Property.ERRORTYPE or self.prop == self.Property.ERRORMSG:
+        elif self.is_error_prop():
             exc = data_row.get_exc(self._col_ref.slot_idx)
             if exc is None:
                 data_row[self.slot_idx] = None
+            elif self.prop == self.Property.ERRORTYPE:
+                data_row[self.slot_idx] = type(exc).__name__
             else:
-                data_row[self.slot_idx] = type(exc).__name__ if self.prop == self.Property.ERRORTYPE else str(exc)
-            return
-        assert False
+                data_row[self.slot_idx] = str(exc)
+        else:
+            assert False
 
     def _as_dict(self) -> dict:
         return {'prop': self.prop.value, **super()._as_dict()}

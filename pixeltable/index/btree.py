@@ -10,8 +10,7 @@ from pixeltable.func.udf import udf
 from .base import IndexBase
 
 if TYPE_CHECKING:
-    import pixeltable
-
+    import pixeltable.exprs
 
 class BtreeIndex(IndexBase):
     """
@@ -31,13 +30,14 @@ class BtreeIndex(IndexBase):
     def __init__(self, c: 'catalog.Column'):
         if not c.col_type.is_scalar_type() and not c.col_type.is_media_type():
             raise excs.Error(f'Index on column {c.name}: B-tree index requires scalar or media type, got {c.col_type}')
-        from pixeltable.exprs import ColumnRef, ColumnPropertyRef
         if c.col_type.is_media_type():
             # an index on a media column is an index on the file url
             # no validation for media columns: we're only interested in the string value
-            self.value_expr = ColumnRef(c, perform_validation=False)
+            self.value_expr = exprs.ColumnRef(c, perform_validation=False)
         else:
-            self.value_expr = BtreeIndex.str_filter(ColumnRef(c)) if c.col_type.is_string_type() else ColumnRef(c)
+            self.value_expr = (
+                BtreeIndex.str_filter(exprs.ColumnRef(c)) if c.col_type.is_string_type() else exprs.ColumnRef(c)
+            )
 
     def index_value_expr(self) -> 'exprs.Expr':
         return self.value_expr

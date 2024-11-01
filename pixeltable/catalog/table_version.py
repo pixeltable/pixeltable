@@ -110,7 +110,7 @@ class TableVersion:
         self.view_md = tbl_md.view_md  # save this as-is, it's needed for _create_md()
         is_view = tbl_md.view_md is not None
         self.is_snapshot = (is_view and tbl_md.view_md.is_snapshot) or bool(is_snapshot)
-        self.media_validation = MediaValidation.__members__[schema_version_md.media_validation.upper()]
+        self.media_validation = MediaValidation[schema_version_md.media_validation.upper()]
         # a mutable TableVersion doesn't have a static version
         self.effective_version = self.version if self.is_snapshot else None
 
@@ -296,8 +296,7 @@ class TableVersion:
             schema_col_md = schema_version_md.columns[col_md.id] if col_md.id in schema_version_md.columns else None
             col_name = schema_col_md.name if schema_col_md is not None else None
             media_val = (
-                MediaValidation.__members__[schema_col_md.media_validation.upper()]
-                #MediaValidation(schema_col_md.media_validation)
+                MediaValidation[schema_col_md.media_validation.upper()]
                 if schema_col_md is not None and schema_col_md.media_validation is not None else None
             )
             col = Column(

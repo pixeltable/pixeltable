@@ -4,6 +4,7 @@ import sys
 import time
 from dataclasses import dataclass
 from typing import Any, Iterable, Optional, Sequence
+from uuid import UUID
 
 import sqlalchemy as sql
 
@@ -60,7 +61,7 @@ class RowBuilder:
 
     table_columns: list[ColumnSlotIdx]
     default_eval_ctx: EvalCtx
-    unstored_iter_args: dict[int, Expr]
+    unstored_iter_args: dict[UUID, Expr]
 
     # transitive dependents for the purpose of exception propagation: an exception for slot i is propagated to
     # _exc_dependents[i]
@@ -174,7 +175,7 @@ class RowBuilder:
 
         # determine transitive dependencies for the purpose of exception propagation
         # (list of set of slot_idxs, indexed by slot_idx)
-        exc_dependencies = [set() for _ in range(self.num_materialized)]
+        exc_dependencies: list[set[int]] = [set() for _ in range(self.num_materialized)]
         from .column_property_ref import ColumnPropertyRef
         for expr in self.unique_exprs:
             if expr.slot_idx in self.input_expr_slot_idxs:
@@ -190,8 +191,8 @@ class RowBuilder:
         self._exc_dependents = [set() for _ in range(self.num_materialized)]
         for expr in self.unique_exprs:
             assert expr.slot_idx is not None
-            for d in exc_dependencies[expr.slot_idx]:
-                self._exc_dependents[d].add(expr.slot_idx)
+            for d_idx in exc_dependencies[expr.slot_idx]:
+                self._exc_dependents[d_idx].add(expr.slot_idx)
 
         self.output_expr_ids = [set() for _ in range(self.num_materialized)]
         for e in self.output_exprs:
