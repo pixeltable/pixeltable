@@ -35,6 +35,11 @@ def get_document_handle(path: str) -> Optional[DocumentHandle]:
         if md_ast is not None:
             return DocumentHandle(format=ts.DocumentType.DocumentFormat.MD, md_ast=md_ast)
 
+    if doc_format == '.xml':
+        bs_doc = get_xml_handle(path)
+        if bs_doc is not None:
+            return DocumentHandle(format=ts.DocumentType.DocumentFormat.XML, bs_doc=bs_doc)
+
     return None
 
 
@@ -54,7 +59,16 @@ def get_pdf_handle(path: str) -> Optional[fitz.Document]:
 def get_html_handle(path: str) -> Optional[bs4.BeautifulSoup]:
     try:
         with open(path, 'r', encoding='utf8') as fp:
-            doc = bs4.BeautifulSoup(fp, 'html.parser')
+            doc = bs4.BeautifulSoup(fp, 'lxml')
+        return doc if doc.find() is not None else None
+    except Exception:
+        return None
+
+
+def get_xml_handle(path: str) -> Optional[bs4.BeautifulSoup]:
+    try:
+        with open(path, 'r', encoding='utf8') as fp:
+            doc = bs4.BeautifulSoup(fp, 'xml')
         return doc if doc.find() is not None else None
     except Exception:
         return None

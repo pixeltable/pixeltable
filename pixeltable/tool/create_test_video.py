@@ -1,4 +1,4 @@
-import av
+import av  # type: ignore[import-untyped]
 import PIL.Image
 import PIL.ImageDraw
 import PIL.ImageFont

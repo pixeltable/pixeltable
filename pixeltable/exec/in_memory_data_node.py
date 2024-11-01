@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Optional, Iterator
+from typing import Any, Iterator, Optional
 
 import pixeltable.catalog as catalog
 import pixeltable.exprs as exprs
@@ -22,6 +22,9 @@ class InMemoryDataNode(ExecNode):
     input_rows: list[dict[str, Any]]
     start_row_id: int
     output_rows: Optional[DataRowBatch]
+
+    # output_exprs is declared in the superclass, but we redeclare it here with a more specific type
+    output_exprs: list[exprs.ColumnRef]
 
     def __init__(
         self, tbl: catalog.TableVersion, rows: list[dict[str, Any]],

@@ -504,6 +504,7 @@ class Env:
         self.__register_package('openai')
         self.__register_package('openpyxl')
         self.__register_package('pyarrow')
+        self.__register_package('replicate')
         self.__register_package('sentence_transformers', library_name='sentence-transformers')
         self.__register_package('spacy')
         self.__register_package('tiktoken')

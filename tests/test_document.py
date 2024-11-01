@@ -72,12 +72,12 @@ class TestDocument:
             elif extension in ['html', 'htm']:
                 assert handle.format == pxt.DocumentType.DocumentFormat.HTML, path
                 assert handle.bs_doc is not None, path
-            elif extension in ['md', 'mmd']:
-                # currently failing, due to ambiguity between HTML and markdown, but prioritizing HTML atm.
-                # see https://reviewable.io/reviews/pixeltable/pixeltable/171 for a proposal
-                # assert handle.format == DocumentType.DocumentFormat.MD, path
-                # assert handle.md_ast is not None, path
-                pass
+            elif extension == 'md':
+                assert handle.format == pxt.DocumentType.DocumentFormat.MD, path
+                assert handle.md_ast is not None, path
+            elif extension == 'xml':
+                assert handle.format == pxt.DocumentType.DocumentFormat.XML, path
+                assert handle.bs_doc is not None, path
             else:
                 assert False, f'Unexpected extension {extension}, add corresponding check'
 
@@ -122,7 +122,8 @@ class TestDocument:
         skip_test_if_not_installed('tiktoken')
         skip_test_if_not_installed('spacy')
 
-        file_paths = self.valid_doc_paths()
+        # DocumentSplitter does not support XML
+        file_paths = [path for path in self.valid_doc_paths() if not path.endswith('.xml')]
         doc_t = pxt.create_table('docs', {'doc': pxt.Document})
         status = doc_t.insert({'doc': p} for p in file_paths)
         assert status.num_excs == 0
@@ -214,7 +215,7 @@ class TestDocument:
 
     def test_doc_splitter_headings(self, reset_db) -> None:
         skip_test_if_not_installed('spacy')
-        file_paths = [ p for p in self.valid_doc_paths() if not p.endswith('.pdf') ]
+        file_paths = [p for p in self.valid_doc_paths() if not (p.endswith('.pdf') or p.endswith('.xml'))]
         doc_t = pxt.create_table('docs', {'doc': pxt.Document})
         status = doc_t.insert({'doc': p} for p in file_paths)
         assert status.num_excs == 0

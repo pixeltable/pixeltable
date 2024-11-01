@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from typing import Optional, List, Dict
+from typing import Optional
 
 import sqlalchemy as sql
 
 import pixeltable.type_system as ts
+
 from .data_row import DataRow
 from .expr import Expr
 from .row_builder import RowBuilder
@@ -23,7 +24,7 @@ class IsNull(Expr):
     def _equals(self, other: IsNull) -> bool:
         return True
 
-    def sql_expr(self, sql_elements: SqlElementCache) -> Optional[sql.ClauseElement]:
+    def sql_expr(self, sql_elements: SqlElementCache) -> Optional[sql.ColumnElement]:
         e = sql_elements.get(self.components[0])
         if e is None:
             return None
@@ -33,7 +34,6 @@ class IsNull(Expr):
         data_row[self.slot_idx] = data_row[self.components[0].slot_idx] is None
 
     @classmethod
-    def _from_dict(cls, d: Dict, components: List[Expr]) -> Expr:
+    def _from_dict(cls, d: dict, components: list[Expr]) -> IsNull:
         assert len(components) == 1
         return cls(components[0])
-

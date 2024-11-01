@@ -5,7 +5,7 @@ import enum
 from typing import Union
 
 # Python types corresponding to our literal types
-LiteralPythonTypes = Union[str, int, float, bool, datetime.datetime, datetime.date]
+LiteralPythonTypes = Union[str, int, float, bool, datetime.datetime]
 
 def print_slice(s: slice) -> str:
     start_str = f'{str(s.start) if s.start is not None else ""}'
@@ -35,6 +35,7 @@ class ComparisonOperator(enum.Enum):
             return '>'
         if self == self.GE:
             return '>='
+        assert False
 
     def reverse(self) -> ComparisonOperator:
         if self == self.LT:
@@ -60,6 +61,7 @@ class LogicalOperator(enum.Enum):
             return '|'
         if self == self.NOT:
             return '~'
+        assert False
 
 
 class ArithmeticOperator(enum.Enum):
@@ -83,3 +85,4 @@ class ArithmeticOperator(enum.Enum):
             return '%'
         if self == self.FLOORDIV:
             return '//'
+        assert False
