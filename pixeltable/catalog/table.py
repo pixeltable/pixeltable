@@ -325,13 +325,67 @@ class Table(SchemaObject):
             raise excs.Error(f'Column spec must be a ColumnType, Expr, or type, got {type(spec)}')
         self.add_column(stored=None, print_stats=False, on_error='abort', **{col_name: spec})
 
+    def add_columns(
+        self,
+        schema: dict[str, Union[ts.ColumnType, builtins.type, _GenericAlias]]
+    ) -> UpdateStatus:
+        """
+        Adds multiple columns to the table.
+
+        Args:
+            schema: A dictionary mapping column names to column specifications. Each column specification can be either a
+                `ColumnType`, an `Expr`, or a dictionary with the following keys:
+
+                - `'type'`: The column type, as a `ColumnType` or a type.
+                - `'value'`: The column expression, as an `Expr`.
+                - `'stored'`: Whether the column is materialized and stored or computed on demand. Only valid for image
+                  columns.
+
+        Returns:
+            Information about the execution status of the operation.
+
+        Raises:
+            Error: If any column name is invalid or already exists.
+
+        Examples:
+            Add multiple columns to the table `my_table`:
+
+            >>> tbl = pxt.get_table('my_table')
+            ... tbl.add_columns({
+            ...     'col1': pxt.Int,
+            ...     'col2': pxt.Float,
+            ...     'col3': pxt.String,
+            ...     'col4': {
+            ...         'type': pxt.Image,
+            ...         'stored': False
+            ...     },
+            ...     'col5': {
+            ...         'value': tbl.col1 + tbl.col2,
+            ...         'stored': True
+            ...     }
+            ... })
+        """
+        self._check_is_dropped()
+        col_schema: dict[str, Any] = {}
+
+        col_schema = {
+            col_name: {'type': ts.ColumnType.normalize_type(spec, nullable_default=True)}
+            for col_name, spec in schema.items()
+        }
+        new_cols = self._create_columns(col_schema)
+        for new_col in new_cols:
+            self._verify_column(new_col, set(self._schema.keys()), set(self._query_names))
+        status = self._tbl_version.add_columns(new_cols, print_stats=False, on_error='abort')
+        FileCache.get().emit_eviction_warnings()
+        return status
+
     def add_column(
-            self,
-            *,
-            stored: Optional[bool] = None,
-            print_stats: bool = False,
-            on_error: Literal['abort', 'ignore'] = 'abort',
-            **kwargs: Union[ts.ColumnType, builtins.type, _GenericAlias, exprs.Expr]
+        self,
+        *,
+        stored: Optional[bool] = None,
+        print_stats: bool = False,
+        on_error: Literal['abort', 'ignore'] = 'abort',
+        **kwargs: Union[ts.ColumnType, builtins.type, _GenericAlias, exprs.Expr]
     ) -> UpdateStatus:
         """
         Adds a column to the table.
@@ -384,7 +438,7 @@ class Table(SchemaObject):
 
         new_col = self._create_columns({col_name: col_schema})[0]
         self._verify_column(new_col, set(self._schema.keys()), set(self._query_names))
-        status = self._tbl_version.add_column(new_col, print_stats=print_stats, on_error=on_error)
+        status = self._tbl_version.add_columns([new_col], print_stats=print_stats, on_error=on_error)
         FileCache.get().emit_eviction_warnings()
         return status
 
@@ -428,13 +482,13 @@ class Table(SchemaObject):
         if not is_valid_identifier(col_name):
             raise excs.Error(f'Invalid column name: {col_name!r}')
 
-        col_schema = {'value': spec}
+        col_schema: dict[str, Any] = {'value': spec}
         if stored is not None:
             col_schema['stored'] = stored
 
         new_col = self._create_columns({col_name: col_schema})[0]
         self._verify_column(new_col, set(self._schema.keys()), set(self._query_names))
-        status = self._tbl_version.add_column(new_col, print_stats=print_stats, on_error=on_error)
+        status = self._tbl_version.add_columns([new_col], print_stats=print_stats, on_error=on_error)
         FileCache.get().emit_eviction_warnings()
         return status
 

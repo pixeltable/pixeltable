@@ -41,6 +41,7 @@ YOLOX_OK := $(shell python -c "import sys; sys.stdout.write(str(sys.version_info
 
 .make-install/deps: poetry.lock
 	@echo "Installing dependencies from poetry ..."
+	@export CMAKE_ARGS='-DLLAVA_BUILD=OFF'
 	@poetry install --with dev
 	@touch .make-install/deps
 

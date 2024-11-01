@@ -94,7 +94,7 @@ class InsertableTable(Table):
         **kwargs: Any
     ) -> UpdateStatus: ...
 
-    def insert(
+    def insert(  # type: ignore[misc]
         self,
         rows: Optional[Iterable[dict[str, Any]]] = None,
         /,

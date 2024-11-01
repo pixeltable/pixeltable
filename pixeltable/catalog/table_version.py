@@ -480,37 +480,38 @@ class TableVersion:
             self._update_md(time.time(), conn, preceding_schema_version=preceding_schema_version)
             _logger.info(f'Dropped index {idx_md.name} on table {self.name}')
 
-    def add_column(self, col: Column, print_stats: bool, on_error: Literal['abort', 'ignore']) -> UpdateStatus:
+    def add_columns(self, cols: Iterable[Column], print_stats: bool, on_error: Literal['abort', 'ignore']) -> UpdateStatus:
         """Adds a column to the table.
         """
         assert not self.is_snapshot
-        assert is_valid_identifier(col.name)
-        assert col.stored is not None
-        assert col.name not in self.cols_by_name
-        col.tbl = self
-        col.id = self.next_col_id
-        self.next_col_id += 1
-
-        if col.compute_func is not None:
-            # create value_expr from compute_func
-            self._create_value_expr(col, self.path)
+        assert all(is_valid_identifier(col.name) for col in cols)
+        assert all(col.stored is not None for col in cols)
+        assert all(col.name not in self.cols_by_name for col in cols)
+        for col in cols:
+            col.tbl = self
+            col.id = self.next_col_id
+            self.next_col_id += 1
+            if col.compute_func is not None:
+                # create value_expr from compute_func
+                self._create_value_expr(col, self.path)
 
         # we're creating a new schema version
         self.version += 1
         preceding_schema_version = self.schema_version
         self.schema_version = self.version
         with Env.get().engine.begin() as conn:
-            status = self._add_columns([col], conn, print_stats=print_stats, on_error=on_error)
-            _ = self._add_default_index(col, conn)
+            status = self._add_columns(cols, conn, print_stats=print_stats, on_error=on_error)
+            for col in cols:
+                _ = self._add_default_index(col, conn)
             self._update_md(time.time(), conn, preceding_schema_version=preceding_schema_version)
-        _logger.info(f'Added column {col.name} to table {self.name}, new version: {self.version}')
+        _logger.info(f'Added columns {[col.name for col in cols]} to table {self.name}, new version: {self.version}')
 
         msg = (
             f'Added {status.num_rows} column value{"" if status.num_rows == 1 else "s"} '
             f'with {status.num_excs} error{"" if status.num_excs == 1 else "s"}.'
         )
         print(msg)
-        _logger.info(f'Column {col.name}: {msg}')
+        _logger.info(f'Columns {[col.name for col in cols]}: {msg}')
         return status
 
     def _add_columns(
