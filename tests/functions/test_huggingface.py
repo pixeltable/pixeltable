@@ -52,7 +52,7 @@ class TestHuggingface:
             assert t._schema[col_name].is_array_type()
             list_col_name = f'embed_list{idx}'
             t[list_col_name] = sentence_transformer_list(t.input_list, model_id=model_id, normalize_embeddings=True)
-            assert t._schema[list_col_name] == pxt.JsonType()
+            assert t._schema[list_col_name] == pxt.JsonType(nullable=True)
 
         def verify_row(row: dict[str, Any]) -> None:
             for idx, (_, d) in enumerate(zip(model_ids, num_dims)):
@@ -85,10 +85,10 @@ class TestHuggingface:
         for idx, model_id in enumerate(model_ids):
             col_name = f'embed{idx}'
             t[col_name] = cross_encoder(t.input, t.input, model_id=model_id)
-            assert t._schema[col_name] == pxt.FloatType()
+            assert t._schema[col_name] == pxt.FloatType(nullable=True)
             list_col_name = f'embed_list{idx}'
             t[list_col_name] = cross_encoder_list(t.input, t.input_list, model_id=model_id)
-            assert t._schema[list_col_name] == pxt.JsonType()
+            assert t._schema[list_col_name] == pxt.JsonType(nullable=True)
 
         def verify_row(row: dict[str, Any]) -> None:
             for i in range(len(model_ids)):
