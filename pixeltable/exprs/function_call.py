@@ -159,7 +159,7 @@ class FunctionCall(Expr):
 
     @classmethod
     def normalize_args(cls, fn_name: str, signature: func.Signature, bound_args: dict[str, Any]) -> None:
-        """Converts all args to Exprs and checks that they are compatible with signature.
+        """Converts args to Exprs where appropriate and checks that they are compatible with signature.
 
         Updates bound_args in place, where necessary.
         """
