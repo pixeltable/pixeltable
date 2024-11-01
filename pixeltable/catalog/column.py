@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Callable, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional
 
 import sqlalchemy as sql
 
@@ -24,7 +24,7 @@ class Column:
     """
     def __init__(
             self, name: Optional[str], col_type: Optional[ts.ColumnType] = None,
-            computed_with: Optional[Union[exprs.Expr, Callable]] = None,
+            computed_with: Optional[exprs.Expr] = None,
             is_pk: bool = False, stored: bool = True,
             col_id: Optional[int] = None, schema_version_add: Optional[int] = None,
             schema_version_drop: Optional[int] = None, sa_col_type: Optional[sql.sqltypes.TypeEngine] = None,
@@ -35,7 +35,7 @@ class Column:
         Args:
             name: column name; None for system columns (eg, index columns)
             col_type: column type; can be None if the type can be derived from ``computed_with``
-            computed_with: a callable or an Expr object that computes the column value
+            computed_with: an Expr that computes the column value
             is_pk: if True, this column is part of the primary key
             stored: determines whether a computed column is present in the stored table or recomputed on demand
             col_id: column ID (only used internally)
@@ -44,11 +44,6 @@ class Column:
         - when constructed by the user: ``computed_with`` was constructed explicitly and is passed in;
           col_type is None
         - when loaded from md store: ``computed_with`` is set and col_type is set
-
-        ``computed_with`` is a Callable:
-        - the callable's parameter names must correspond to existing columns in the table for which this Column
-          is being used
-        - ``col_type`` needs to be set to the callable's return type
 
         ``stored`` (only valid for computed image columns):
         - if True: the column is present in the stored table
@@ -62,21 +57,13 @@ class Column:
             raise excs.Error(f'Column `{name}`: col_type is required if computed_with is not specified')
 
         self._value_expr: Optional[exprs.Expr] = None
-        self.compute_func: Optional[Callable] = None
         self.value_expr_dict = value_expr_dict
         if computed_with is not None:
             value_expr = exprs.Expr.from_object(computed_with)
             if value_expr is None:
-                # computed_with needs to be a Callable
-                if not callable(computed_with):
-                    raise excs.Error(
-                        f'Column {name}: computed_with needs to be either a Pixeltable expression or a Callable, '
-                        f'but it is a {type(computed_with)}')
-                if col_type is None:
-                    raise excs.Error(f'Column {name}: col_type is required if computed_with is a Callable')
-                # we need to turn the computed_with function into an Expr, but this requires resolving
-                # column name references and for that we need to wait until we're assigned to a Table
-                self.compute_func = computed_with
+                raise excs.Error(
+                    f'Column {name}: computed_with needs to be a valid Pixeltable expression, '
+                    f'but it is a {type(computed_with)}')
             else:
                 self._value_expr = value_expr.copy()
                 self.col_type = self._value_expr.col_type
@@ -139,7 +126,7 @@ class Column:
 
     @property
     def is_computed(self) -> bool:
-        return self.compute_func is not None or self._value_expr is not None or self.value_expr_dict is not None
+        return self._value_expr is not None or self.value_expr_dict is not None
 
     @property
     def is_stored(self) -> bool:

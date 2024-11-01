@@ -191,8 +191,6 @@ class TableVersion:
             col.id = pos
             col.schema_version_add = 0
             cols_by_name[col.name] = col
-            if col.value_expr is None and col.compute_func is not None:
-                cls._create_value_expr(col, base_path)
             if col.is_computed:
                 col.check_value_expr()
 
@@ -491,9 +489,6 @@ class TableVersion:
             col.tbl = self
             col.id = self.next_col_id
             self.next_col_id += 1
-            if col.compute_func is not None:
-                # create value_expr from compute_func
-                self._create_value_expr(col, self.path)
 
         # we're creating a new schema version
         self.version += 1
@@ -1124,28 +1119,6 @@ class TableVersion:
         """Return the names of all computed columns"""
         names = [c.name for c in self.cols_by_name.values() if c.is_computed]
         return names
-
-    @classmethod
-    def _create_value_expr(cls, col: Column, path: pxt.catalog.TableVersionPath) -> None:
-        """
-        Create col.value_expr, given col.compute_func.
-        Interprets compute_func's parameters to be references to columns and construct ColumnRefs as args.
-        Does not update Column.dependent_cols.
-        """
-        assert col.value_expr is None
-        assert col.compute_func is not None
-        from pixeltable import exprs
-        params = inspect.signature(col.compute_func).parameters
-        args: list[exprs.ColumnRef] = []
-        for param_name in params:
-            param = path.get_column(param_name)
-            if param is None:
-                raise excs.Error(
-                    f'Column {col.name}: Callable parameter refers to an unknown column: {param_name}')
-            args.append(exprs.ColumnRef(param))
-        fn = func.make_function(
-            col.compute_func, return_type=col.col_type, param_types=[arg.col_type for arg in args])
-        col.set_value_expr(fn(*args))
 
     def _record_refd_columns(self, col: Column) -> None:
         """Update Column.dependent_cols for all cols referenced in col.value_expr.
