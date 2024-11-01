@@ -89,7 +89,7 @@ class RowBuilder:
             input_exprs: list of Exprs that are excluded from evaluation (because they're already materialized)
         TODO: enforce that output_exprs doesn't overlap with input_exprs?
         """
-        self.unique_exprs = ExprSet()  # dependencies precede their dependents
+        self.unique_exprs: ExprSet[Expr] = ExprSet()  # dependencies precede their dependents
         self.next_slot_idx = 0
 
         # record input and output exprs; make copies to avoid reusing execution state
@@ -110,7 +110,7 @@ class RowBuilder:
         #   * for write-validated columns, we need to create validating ColumnRefs
         #   * further references to that column (eg, computed cols) need to resolve to the validating ColumnRef
         from .column_ref import ColumnRef
-        self.table_columns = []
+        self.table_columns: list[ColumnSlotIdx] = []
         self.input_exprs = ExprSet()
         validating_colrefs: dict[Expr, Expr] = {}  # key: non-validating colref, value: corresp. validating colref
         for col in columns:
@@ -189,6 +189,7 @@ class RowBuilder:
 
         self._exc_dependents = [set() for _ in range(self.num_materialized)]
         for expr in self.unique_exprs:
+            assert expr.slot_idx is not None
             for d in exc_dependencies[expr.slot_idx]:
                 self._exc_dependents[d].add(expr.slot_idx)
 
@@ -253,7 +254,7 @@ class RowBuilder:
 
     def _compute_dependencies(self, target_slot_idxs: list[int], excluded_slot_idxs: list[int]) -> list[int]:
         """Compute exprs needed to materialize the given target slots, excluding 'excluded_slot_idxs'"""
-        dependencies = [set() for _ in range(self.num_materialized)]  # indexed by slot_idx
+        dependencies: list[set[int]] = [set() for _ in range(self.num_materialized)]  # indexed by slot_idx
         # doing this front-to-back ensures that we capture transitive dependencies
         max_target_slot_idx = max(target_slot_idxs)
         for expr in self.unique_exprs:
@@ -282,6 +283,8 @@ class RowBuilder:
         for e in expr_list:
             self.__set_slot_idxs_aux(e)
         if remove_duplicates:
+            # only allowed if `expr_list` is a mutable list
+            assert isinstance(expr_list, list)
             deduped = list(ExprSet(expr_list))
             expr_list[:] = deduped
 
@@ -293,13 +296,14 @@ class RowBuilder:
         for c in e.components:
             self.__set_slot_idxs_aux(c)
 
-    def get_dependencies(self, targets: list[Expr], exclude: Optional[list[Expr]] = None) -> list[Expr]:
+    def get_dependencies(self, targets: Iterable[Expr], exclude: Optional[Iterable[Expr]] = None) -> list[Expr]:
         """
         Return list of dependencies needed to evaluate the given target exprs (expressed as slot idxs).
         The exprs given in 'exclude' are excluded.
         Returns:
             list of Exprs from unique_exprs (= with slot_idx set)
         """
+        targets = list(targets)
         if exclude is None:
             exclude = []
         if len(targets) == 0:
@@ -315,8 +319,9 @@ class RowBuilder:
         result_ids.sort()
         return [self.unique_exprs[id] for id in result_ids]
 
-    def create_eval_ctx(self, targets: list[Expr], exclude: Optional[list[Expr]] = None) -> EvalCtx:
+    def create_eval_ctx(self, targets: Iterable[Expr], exclude: Optional[Iterable[Expr]] = None) -> EvalCtx:
         """Return EvalCtx for targets"""
+        targets = list(targets)
         if exclude is None:
             exclude = []
         if len(targets) == 0:
@@ -366,7 +371,7 @@ class RowBuilder:
     def create_table_row(self, data_row: DataRow, exc_col_ids: set[int]) -> tuple[dict[str, Any], int]:
         """Create a table row from the slots that have an output column assigned
 
-        Return Tuple[dict that represents a stored row (can be passed to sql.insert()), # of exceptions]
+        Return tuple[dict that represents a stored row (can be passed to sql.insert()), # of exceptions]
             This excludes system columns.
         """
         num_excs = 0

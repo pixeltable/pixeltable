@@ -622,7 +622,8 @@ class Planner:
         assert isinstance(tbl, catalog.TableVersionPath)
         sql_elements = analyzer.sql_elements
         is_python_agg = (
-            not sql_elements.contains(analyzer.agg_fn_calls) or not sql_elements.contains(analyzer.window_fn_calls)
+            not sql_elements.contains_all(analyzer.agg_fn_calls)
+            or not sql_elements.contains_all(analyzer.window_fn_calls)
         )
         ctx = exec.ExecContext(row_builder)
         cls._verify_ordering(analyzer, verify_agg=is_python_agg)
@@ -672,8 +673,8 @@ class Planner:
             ctx.batch_size = 16
 
             # do aggregation in SQL if all agg exprs can be translated
-            if (sql_elements.contains(analyzer.select_list)
-                    and sql_elements.contains(analyzer.grouping_exprs)
+            if (sql_elements.contains_all(analyzer.select_list)
+                    and sql_elements.contains_all(analyzer.grouping_exprs)
                     and isinstance(plan, exec.SqlNode)
                     and plan.to_cte() is not None):
                 plan = exec.SqlAggregationNode(

@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import enum
-from typing import Optional, List, Any, Dict, Tuple
+from typing import Any, Optional
 
 import sqlalchemy as sql
 
 import pixeltable.type_system as ts
-import pixeltable.catalog as catalog
 from .column_ref import ColumnRef
 from .data_row import DataRow
 from .expr import Expr
@@ -34,15 +33,17 @@ class ColumnPropertyRef(Expr):
     def default_column_name(self) -> Optional[str]:
         return str(self).replace('.', '_')
 
-    def _equals(self, other: ColumnRef) -> bool:
+    def _equals(self, other: ColumnPropertyRef) -> bool:
         return self.prop == other.prop
 
-    def _id_attrs(self) -> List[Tuple[str, Any]]:
+    def _id_attrs(self) -> list[tuple[str, Any]]:
         return super()._id_attrs() + [('prop', self.prop.value)]
 
     @property
     def _col_ref(self) -> ColumnRef:
-        return self.components[0]
+        col_ref = self.components[0]
+        assert isinstance(col_ref, ColumnRef)
+        return col_ref
 
     def __str__(self) -> str:
         return f'{self._col_ref}.{self.prop.name.lower()}'
@@ -91,11 +92,11 @@ class ColumnPropertyRef(Expr):
             return
         assert False
 
-    def _as_dict(self) -> Dict:
+    def _as_dict(self) -> dict:
         return {'prop': self.prop.value, **super()._as_dict()}
 
     @classmethod
-    def _from_dict(cls, d: Dict, components: List[Expr]) -> Expr:
+    def _from_dict(cls, d: dict, components: list[Expr]) -> ColumnPropertyRef:
         assert 'prop' in d
         assert isinstance(components[0], ColumnRef)
         return cls(components[0], cls.Property(d['prop']))

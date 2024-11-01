@@ -2,20 +2,17 @@ from __future__ import annotations
 
 import inspect
 import logging
-from typing import TYPE_CHECKING, Any, Dict, Iterable, Optional, Set, Type
+from typing import TYPE_CHECKING, Any, Iterable, Optional
 from uuid import UUID
 
 import sqlalchemy.orm as orm
 
-import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
-import pixeltable.exprs as exprs
-import pixeltable.func as func
 import pixeltable.metadata.schema as md_schema
+import pixeltable.type_system as ts
+from pixeltable import catalog, exprs, func
 from pixeltable.env import Env
-from pixeltable.exceptions import Error
 from pixeltable.iterators import ComponentIterator
-from pixeltable.type_system import IntType, InvalidType
 
 from .catalog import Catalog
 from .column import Column
@@ -52,10 +49,10 @@ class View(Table):
 
     @classmethod
     def _create(
-            cls, dir_id: UUID, name: str, base: TableVersionPath, additional_columns: Dict[str, Any],
+            cls, dir_id: UUID, name: str, base: TableVersionPath, additional_columns: dict[str, Any],
             predicate: Optional['pxt.exprs.Expr'], is_snapshot: bool, num_retained_versions: int, comment: str,
             media_validation: MediaValidation,
-            iterator_cls: Optional[Type[ComponentIterator]], iterator_args: Optional[Dict]
+            iterator_cls: Optional[type[ComponentIterator]], iterator_args: Optional[dict]
     ) -> View:
         columns = cls._create_columns(additional_columns)
         cls._verify_schema(columns)
@@ -93,17 +90,17 @@ class View(Table):
                     func.Parameter(param_name, param_type, kind=inspect.Parameter.POSITIONAL_OR_KEYWORD)
                     for param_name, param_type in iterator_cls.input_schema().items()
                 ]
-                sig = func.Signature(InvalidType(), params)
+                sig = func.Signature(ts.InvalidType(), params)
                 from pixeltable.exprs import FunctionCall
                 FunctionCall.normalize_args(iterator_cls.__name__, sig, bound_args)
             except TypeError as e:
-                raise Error(f'Cannot instantiate iterator with given arguments: {e}')
+                raise excs.Error(f'Cannot instantiate iterator with given arguments: {e}')
 
             # prepend pos and output_schema columns to cols:
             # a component view exposes the pos column of its rowid;
             # we create that column here, so it gets assigned a column id;
             # stored=False: it is not stored separately (it's already stored as part of the rowid)
-            iterator_cols = [Column(_POS_COLUMN_NAME, IntType(), stored=False)]
+            iterator_cols = [Column(_POS_COLUMN_NAME, ts.IntType(), stored=False)]
             output_dict, unstored_cols = iterator_cls.output_schema(**bound_args)
             iterator_cols.extend([
                 Column(col_name, col_type, stored=col_name not in unstored_cols)
@@ -113,12 +110,12 @@ class View(Table):
             iterator_col_names = {col.name for col in iterator_cols}
             for col in columns:
                 if col.name in iterator_col_names:
-                    raise Error(f'Duplicate name: column {col.name} is already present in the iterator output schema')
+                    raise excs.Error(f'Duplicate name: column {col.name} is already present in the iterator output schema')
             columns = iterator_cols + columns
 
         with orm.Session(Env.get().engine, future=True) as session:
             from pixeltable.exprs import InlineDict
-            iterator_args_expr = InlineDict(iterator_args) if iterator_args is not None else None
+            iterator_args_expr: exprs.Expr = InlineDict(iterator_args) if iterator_args is not None else None
             iterator_class_fqn = f'{iterator_cls.__module__}.{iterator_cls.__name__}' if iterator_cls is not None \
                 else None
             base_version_path = cls._get_snapshot_path(base) if is_snapshot else base
@@ -170,11 +167,11 @@ class View(Table):
 
     @classmethod
     def _verify_column(
-            cls, col: Column, existing_column_names: Set[str], existing_query_names: Optional[Set[str]] = None
+            cls, col: Column, existing_column_names: set[str], existing_query_names: Optional[set[str]] = None
     ) -> None:
         # make sure that columns are nullable or have a default
         if not col.col_type.nullable and not col.is_computed:
-            raise Error(f'Column {col.name}: non-computed columns in views must be nullable')
+            raise excs.Error(f'Column {col.name}: non-computed columns in views must be nullable')
         super()._verify_column(col, existing_column_names, existing_query_names)
 
     @classmethod

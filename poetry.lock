@@ -1051,8 +1051,8 @@ files = [
 jmespath = ">=0.7.1,<2.0.0"
 python-dateutil = ">=2.1,<3.0.0"
 urllib3 = [
-    {version = ">=1.25.4,<1.27", markers = "python_version < \"3.10\""},
     {version = ">=1.25.4,<2.2.0 || >2.2.0,<3", markers = "python_version >= \"3.10\""},
+    {version = ">=1.25.4,<1.27", markers = "python_version < \"3.10\""},
 ]
 
 [package.extras]
@@ -1445,8 +1445,8 @@ files = [
 
 [package.dependencies]
 numpy = [
-    {version = ">=1.16,<2.0", markers = "python_version <= \"3.11\""},
     {version = ">=1.26.0rc1,<2.0", markers = "python_version >= \"3.12\""},
+    {version = ">=1.16,<2.0", markers = "python_version <= \"3.11\""},
 ]
 
 [package.extras]
@@ -1723,6 +1723,17 @@ files = [
 [package.extras]
 graph = ["objgraph (>=1.7.2)"]
 profile = ["gprof2dot (>=2022.7.29)"]
+
+[[package]]
+name = "diskcache"
+version = "5.6.3"
+description = "Disk Cache -- Disk and file backed persistent cache."
+optional = false
+python-versions = ">=3"
+files = [
+    {file = "diskcache-5.6.3-py3-none-any.whl", hash = "sha256:5e31b2d5fbad117cc363ebaf6b689474db18a1f6438bc82358b024abd4c2ca19"},
+    {file = "diskcache-5.6.3.tar.gz", hash = "sha256:2c3a3fa2743d8535d832ec61c2054a1641f41775aa7c556758a109941e33e4fc"},
+]
 
 [[package]]
 name = "distro"
@@ -3232,6 +3243,28 @@ docs = ["requests (>=2.0.0)"]
 typing = ["mypy (>=1.0.0)", "types-setuptools"]
 
 [[package]]
+name = "llama-cpp-python"
+version = "0.3.1"
+description = "Python bindings for the llama.cpp library"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "llama_cpp_python-0.3.1.tar.gz", hash = "sha256:75ec8374960b6353c254e55a48e7c7783abf6bcb9178ba0f655490738e5a9004"},
+]
+
+[package.dependencies]
+diskcache = ">=5.6.1"
+jinja2 = ">=2.11.3"
+numpy = ">=1.20.0"
+typing-extensions = ">=4.5.0"
+
+[package.extras]
+all = ["llama_cpp_python[dev,server,test]"]
+dev = ["black (>=23.3.0)", "httpx (>=0.24.1)", "mkdocs (>=1.4.3)", "mkdocs-material (>=9.1.18)", "mkdocstrings[python] (>=0.22.0)", "pytest (>=7.4.0)", "twine (>=4.0.2)"]
+server = ["PyYAML (>=5.1)", "fastapi (>=0.100.0)", "pydantic-settings (>=2.0.1)", "sse-starlette (>=1.6.1)", "starlette-context (>=0.3.6,<0.4)", "uvicorn (>=0.22.0)"]
+test = ["fastapi (>=0.100.0)", "httpx (>=0.24.1)", "huggingface-hub (>=0.23.0)", "pydantic-settings (>=2.0.1)", "pytest (>=7.4.0)", "scipy (>=1.10)", "sse-starlette (>=1.6.1)", "starlette-context (>=0.3.6,<0.4)"]
+
+[[package]]
 name = "llvmlite"
 version = "0.42.0"
 description = "lightweight wrapper around basic LLVM functionality"
@@ -4573,6 +4606,20 @@ files = [
 ]
 
 [[package]]
+name = "ollama"
+version = "0.3.3"
+description = "The official Python client for Ollama."
+optional = false
+python-versions = "<4.0,>=3.8"
+files = [
+    {file = "ollama-0.3.3-py3-none-any.whl", hash = "sha256:ca6242ce78ab34758082b7392df3f9f6c2cb1d070a9dede1a4c545c929e16dba"},
+    {file = "ollama-0.3.3.tar.gz", hash = "sha256:f90a6d61803117f40b0e8ff17465cab5e1eb24758a473cfe8101aff38bc13b51"},
+]
+
+[package.dependencies]
+httpx = ">=0.27.0,<0.28.0"
+
+[[package]]
 name = "omegaconf"
 version = "2.3.0"
 description = "A flexible configuration library"
@@ -4654,12 +4701,13 @@ datalib = ["numpy (>=1)", "pandas (>=1.2.3)", "pandas-stubs (>=1.1.0.11)"]
 
 [[package]]
 name = "openai-whisper"
-version = "20231117"
+version = "20240930"
 description = "Robust Speech Recognition via Large-Scale Weak Supervision"
 optional = false
 python-versions = ">=3.8"
-files = []
-develop = false
+files = [
+    {file = "openai-whisper-20240930.tar.gz", hash = "sha256:b7178e9c1615576807a300024f4daa6353f7e1a815dac5e38c33f1ef055dd2d2"},
+]
 
 [package.dependencies]
 more-itertools = "*"
@@ -4668,42 +4716,10 @@ numpy = "*"
 tiktoken = "*"
 torch = "*"
 tqdm = "*"
-triton = {version = ">=2.0.0,<3", markers = "platform_machine == \"x86_64\" and sys_platform == \"linux\" or sys_platform == \"linux2\""}
+triton = {version = ">=2.0.0", markers = "platform_machine == \"x86_64\" and sys_platform == \"linux\" or sys_platform == \"linux2\""}
 
 [package.extras]
 dev = ["black", "flake8", "isort", "pytest", "scipy"]
-
-[package.source]
-type = "git"
-url = "https://github.com/openai/whisper.git"
-reference = "HEAD"
-resolved_reference = "ba3f3cd54b0e5b8ce1ab3de13e32122d0d5f98ab"
-
-[[package]]
-name = "opencv-python-headless"
-version = "4.9.0.80"
-description = "Wrapper package for OpenCV python bindings."
-optional = false
-python-versions = ">=3.6"
-files = [
-    {file = "opencv-python-headless-4.9.0.80.tar.gz", hash = "sha256:71a4cd8cf7c37122901d8e81295db7fb188730e33a0e40039a4e59c1030b0958"},
-    {file = "opencv_python_headless-4.9.0.80-cp37-abi3-macosx_10_16_x86_64.whl", hash = "sha256:2ea8a2edc4db87841991b2fbab55fc07b97ecb602e0f47d5d485bd75cee17c1a"},
-    {file = "opencv_python_headless-4.9.0.80-cp37-abi3-macosx_11_0_arm64.whl", hash = "sha256:e0ee54e27be493e8f7850847edae3128e18b540dac1d7b2e4001b8944e11e1c6"},
-    {file = "opencv_python_headless-4.9.0.80-cp37-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:57ce2865e8fec431c6f97a81e9faaf23fa5be61011d0a75ccf47a3c0d65fa73d"},
-    {file = "opencv_python_headless-4.9.0.80-cp37-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:976656362d68d9f40a5c66f83901430538002465f7db59142784f3893918f3df"},
-    {file = "opencv_python_headless-4.9.0.80-cp37-abi3-win32.whl", hash = "sha256:11e3849d83e6651d4e7699aadda9ec7ed7c38957cbbcb99db074f2a2d2de9670"},
-    {file = "opencv_python_headless-4.9.0.80-cp37-abi3-win_amd64.whl", hash = "sha256:a8056c2cb37cd65dfcdf4153ca16f7362afcf3a50d600d6bb69c660fc61ee29c"},
-]
-
-[package.dependencies]
-numpy = [
-    {version = ">=1.21.0", markers = "python_version == \"3.9\" and platform_system == \"Darwin\" and platform_machine == \"arm64\""},
-    {version = ">=1.21.4", markers = "python_version >= \"3.10\" and platform_system == \"Darwin\" and python_version < \"3.11\""},
-    {version = ">=1.21.2", markers = "platform_system != \"Darwin\" and python_version >= \"3.10\" and python_version < \"3.11\""},
-    {version = ">=1.19.3", markers = "platform_system == \"Linux\" and platform_machine == \"aarch64\" and python_version >= \"3.8\" and python_version < \"3.10\" or python_version > \"3.9\" and python_version < \"3.10\" or python_version >= \"3.9\" and platform_system != \"Darwin\" and python_version < \"3.10\" or python_version >= \"3.9\" and platform_machine != \"arm64\" and python_version < \"3.10\""},
-    {version = ">=1.23.5", markers = "python_version >= \"3.11\" and python_version < \"3.12\""},
-    {version = ">=1.26.0", markers = "python_version >= \"3.12\""},
-]
 
 [[package]]
 name = "openpyxl"
@@ -4818,9 +4834,9 @@ files = [
 
 [package.dependencies]
 numpy = [
+    {version = ">=1.26.0,<2", markers = "python_version >= \"3.12\""},
     {version = ">=1.22.4,<2", markers = "python_version < \"3.11\""},
     {version = ">=1.23.2,<2", markers = "python_version == \"3.11\""},
-    {version = ">=1.26.0,<2", markers = "python_version >= \"3.12\""},
 ]
 python-dateutil = ">=2.8.2"
 pytz = ">=2020.1"
@@ -5643,8 +5659,8 @@ files = [
 annotated-types = ">=0.6.0"
 pydantic-core = "2.23.4"
 typing-extensions = [
-    {version = ">=4.6.1", markers = "python_version < \"3.13\""},
     {version = ">=4.12.2", markers = "python_version >= \"3.13\""},
+    {version = ">=4.6.1", markers = "python_version < \"3.13\""},
 ]
 
 [package.extras]
@@ -5782,9 +5798,9 @@ files = [
 astroid = ">=3.1.0,<=3.2.0-dev0"
 colorama = {version = ">=0.4.5", markers = "sys_platform == \"win32\""}
 dill = [
+    {version = ">=0.3.7", markers = "python_version >= \"3.12\""},
     {version = ">=0.2", markers = "python_version < \"3.11\""},
     {version = ">=0.3.6", markers = "python_version >= \"3.11\" and python_version < \"3.12\""},
-    {version = ">=0.3.7", markers = "python_version >= \"3.12\""},
 ]
 isort = ">=4.2.5,<5.13.0 || >5.13.0,<6"
 mccabe = ">=0.6,<0.8"
@@ -6359,6 +6375,23 @@ files = [
     {file = "regex-2022.10.31-cp39-cp39-win_amd64.whl", hash = "sha256:957403a978e10fb3ca42572a23e6f7badff39aa1ce2f4ade68ee452dc6807692"},
     {file = "regex-2022.10.31.tar.gz", hash = "sha256:a3a98921da9a1bf8457aeee6a551948a83601689e5ecdd736894ea9bbec77e83"},
 ]
+
+[[package]]
+name = "replicate"
+version = "1.0.2"
+description = "Python client for Replicate"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "replicate-1.0.2-py3-none-any.whl", hash = "sha256:808009853d5e49f706c9a67a9f97b712c89e2c75e63947f7cc012b847c28bef2"},
+    {file = "replicate-1.0.2.tar.gz", hash = "sha256:faa3551a825d9eb2c0bfc0407ddab75b9e02865344168241a1d41a4e73bbc661"},
+]
+
+[package.dependencies]
+httpx = ">=0.21.0,<1"
+packaging = "*"
+pydantic = ">1.10.7"
+typing-extensions = ">=4.5.0"
 
 [[package]]
 name = "requests"
@@ -7691,8 +7724,8 @@ click = ">=8.1.7,<9.0.0"
 eval-type-backport = ">=0.1.3,<0.3.0"
 filelock = ">=3.13.1,<4.0.0"
 numpy = [
-    {version = ">=1.23.5", markers = "python_version < \"3.12\""},
     {version = ">=1.26.0", markers = "python_version >= \"3.12\""},
+    {version = ">=1.23.5", markers = "python_version < \"3.12\""},
 ]
 pillow = ">=10.3.0,<11.0.0"
 pyarrow = ">=10.0.1"
@@ -8892,4 +8925,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.9,<4.0"
-content-hash = "1f2c9c1f1bd683a10771dffd34cccfe3931f36f25e6dc5a730d0bddff006befd"
+content-hash = "d8f310e60001c7c14b44ea7dffe0fa15fa4ed4d0d71ca22dcf74207ddbf93e78"

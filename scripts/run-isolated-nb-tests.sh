@@ -12,7 +12,7 @@ eval "$(conda shell.bash hook)"
 export PIXELTABLE_HOME=~/.pixeltable
 export PIXELTABLE_DB="isolatednbtests"
 
-"$SCRIPT_DIR/prepare-nb-tests.sh"
+"$SCRIPT_DIR/prepare-nb-tests.sh" docs/release
 rm -f target/nb-tests/audio-transcriptions.ipynb  # temporary workaround
 
 FAILURES=0
