@@ -31,3 +31,4 @@ def __substitute_md(k: Optional[str], v: Any) -> Optional[tuple[Optional[str], A
         if 'perform_validation' not in v:
             v['perform_validation'] = False
         return k, v
+    return None
