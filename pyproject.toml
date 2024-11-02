@@ -99,6 +99,7 @@ openpyxl = ">=3.1"  # Excel (.xlsx) support
 openai-whisper = ">=20240930"
 whisperx = { git = "https://github.com/m-bain/whisperX.git", rev = "f2da2f8" }
 label-studio-sdk = "^0.0.32"
+fiftyone = "^1.0.0"
 ollama = ">=0.3.3"
 llama-cpp-python = ">=0.3.1"
 
@@ -166,7 +167,9 @@ filterwarnings = [
     "ignore:pkg_resources is deprecated as an API:",
     "ignore:torchaudio._backend.set_audio_backend:UserWarning",
     # This warning is from `lxml` (when it calls out to `beautifulsoup4`):
-    "ignore:The 'strip_cdata' option of HTMLParser:DeprecationWarning"
+    "ignore:The 'strip_cdata' option of HTMLParser:DeprecationWarning",
+    # This one is raised by mongoengine, which is required by fiftyone:
+    "ignore:No uuidRepresentation is specified! Falling back to 'pythonLegacy' which is the default for pymongo 3.x:DeprecationWarning",
 ]
 
 [tool.ruff]

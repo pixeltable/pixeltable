@@ -494,6 +494,7 @@ class Env:
         self.__register_package('anthropic')
         self.__register_package('boto3')
         self.__register_package('datasets')
+        self.__register_package('fiftyone')
         self.__register_package('fireworks', library_name='fireworks-ai')
         self.__register_package('huggingface_hub', library_name='huggingface-hub')
         self.__register_package('label_studio_sdk', library_name='label-studio-sdk')

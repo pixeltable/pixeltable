@@ -153,9 +153,7 @@ class FunctionCall(Expr):
         return [RowidRef(target, i) for i in range(target.num_rowid_columns())]
 
     def default_column_name(self) -> Optional[str]:
-        if self.fn.is_property:
-            return self.fn.name
-        return super().default_column_name()
+        return self.fn.name
 
     @classmethod
     def normalize_args(cls, fn_name: str, signature: func.Signature, bound_args: dict[str, Any]) -> None:
