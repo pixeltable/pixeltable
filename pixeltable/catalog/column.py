@@ -8,13 +8,13 @@ import sqlalchemy as sql
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable import exprs
-
-from .globals import is_valid_identifier
+from .globals import is_valid_identifier, MediaValidation
 
 if TYPE_CHECKING:
     from .table_version import TableVersion
 
 _logger = logging.getLogger('pixeltable')
+
 
 class Column:
     """Representation of a column in the schema of a Table/DataFrame.
@@ -22,10 +22,29 @@ class Column:
     A Column contains all the metadata necessary for executing queries and updates against a particular version of a
     table/view.
     """
+    name: str
+    id: Optional[int]
+    col_type: ts.ColumnType
+    stored: bool
+    is_pk: bool
+    _media_validation: Optional[MediaValidation]  # if not set, TableVersion.media_validation applies
+    schema_version_add: Optional[int]
+    schema_version_drop: Optional[int]
+    _records_errors: Optional[bool]
+    sa_col: Optional[sql.schema.Column]
+    sa_col_type: Optional[sql.sqltypes.TypeEngine]
+    sa_errormsg_col: Optional[sql.schema.Column]
+    sa_errortype_col: Optional[sql.schema.Column]
+    compute_func: Optional[Callable]
+    _value_expr: Optional[exprs.Expr]
+    value_expr_dict: Optional[dict[str, Any]]
+    dependent_cols: set[Column]
+    tbl: Optional[TableVersion]
+
     def __init__(
             self, name: Optional[str], col_type: Optional[ts.ColumnType] = None,
             computed_with: Optional[Union[exprs.Expr, Callable]] = None,
-            is_pk: bool = False, stored: bool = True,
+            is_pk: bool = False, stored: bool = True, media_validation: Optional[MediaValidation] = None,
             col_id: Optional[int] = None, schema_version_add: Optional[int] = None,
             schema_version_drop: Optional[int] = None, sa_col_type: Optional[sql.sqltypes.TypeEngine] = None,
             records_errors: Optional[bool] = None, value_expr_dict: Optional[dict[str, Any]] = None,
@@ -61,8 +80,8 @@ class Column:
         if col_type is None and computed_with is None:
             raise excs.Error(f'Column `{name}`: col_type is required if computed_with is not specified')
 
-        self._value_expr: Optional[exprs.Expr] = None
-        self.compute_func: Optional[Callable] = None
+        self._value_expr = None
+        self.compute_func = None
         self.value_expr_dict = value_expr_dict
         if computed_with is not None:
             value_expr = exprs.Expr.from_object(computed_with)
@@ -86,24 +105,24 @@ class Column:
         assert self.col_type is not None
 
         self.stored = stored
-        self.dependent_cols: set[Column] = set()  # cols with value_exprs that reference us; set by TableVersion
+        self.dependent_cols = set()  # cols with value_exprs that reference us; set by TableVersion
         self.id = col_id
         self.is_pk = is_pk
+        self._media_validation = media_validation
         self.schema_version_add = schema_version_add
         self.schema_version_drop = schema_version_drop
 
         self._records_errors = records_errors
 
         # column in the stored table for the values of this Column
-        self.sa_col: Optional[sql.schema.Column] = None
+        self.sa_col = None
         self.sa_col_type = sa_col_type
 
         # computed cols also have storage columns for the exception string and type
-        self.sa_errormsg_col: Optional[sql.schema.Column] = None
-        self.sa_errortype_col: Optional[sql.schema.Column] = None
+        self.sa_errormsg_col = None
+        self.sa_errortype_col = None
 
-        from .table_version import TableVersion
-        self.tbl: Optional[TableVersion] = None  # set by owning TableVersion
+        self.tbl = None  # set by owning TableVersion
 
     @property
     def value_expr(self) -> Optional[exprs.Expr]:
@@ -159,6 +178,13 @@ class Column:
     def qualified_name(self) -> str:
         assert self.tbl is not None
         return f'{self.tbl.name}.{self.name}'
+
+    @property
+    def media_validation(self) -> MediaValidation:
+        if self._media_validation is not None:
+            return self._media_validation
+        assert self.tbl is not None
+        return self.tbl.media_validation
 
     def source(self) -> None:
         """

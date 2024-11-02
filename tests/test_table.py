@@ -117,10 +117,10 @@ class TestTable:
     def test_names(self, reset_db) -> None:
         pxt.create_dir('dir')
         pxt.create_dir('dir.subdir')
-        for tbl_path in ['test', 'dir.test', 'dir.subdir.test']:
-            tbl = pxt.create_table(tbl_path, {'col': pxt.String})
-            view = pxt.create_view(f'{tbl_path}_view', tbl)
-            snap = pxt.create_view(f'{tbl_path}_snap', tbl, is_snapshot=True)
+        for tbl_path, media_val in [('test', 'on_read'), ('dir.test', 'on_write'), ('dir.subdir.test', 'on_read')]:
+            tbl = pxt.create_table(tbl_path, {'col': pxt.String}, media_validation=media_val)
+            view = pxt.create_view(f'{tbl_path}_view', tbl, media_validation=media_val)
+            snap = pxt.create_view(f'{tbl_path}_snap', tbl, is_snapshot=True, media_validation=media_val)
             assert tbl._path == tbl_path
             assert tbl._name == tbl_path.split('.')[-1]
             assert tbl._parent._path == '.'.join(tbl_path.split('.')[:-1])
@@ -132,12 +132,120 @@ class TestTable:
                     'is_snapshot': t._tbl_version.is_snapshot,
                     'name': t._name,
                     'num_retained_versions': t._num_retained_versions,
+                    'media_validation': media_val,
                     'parent': t._parent._path,
                     'path': t._path,
                     'schema': t._schema,
                     'schema_version': t._tbl_version.schema_version,
                     'version': t._version,
                 }
+
+    def test_media_validation(self, reset_db) -> None:
+        tbl_schema = {
+            'img': {'type': pxt.Image, 'media_validation': 'on_write'},
+            'video': pxt.Video
+        }
+        t = pxt.create_table('test', tbl_schema, media_validation='on_read')
+        assert t.get_metadata()['media_validation'] == 'on_read'
+        assert t.img.col.media_validation == pxt.catalog.MediaValidation.ON_WRITE
+        # table default applies
+        assert t.video.col.media_validation == pxt.catalog.MediaValidation.ON_READ
+
+        v_schema = {
+            'doc': {'type': pxt.Document, 'media_validation': 'on_read'},
+            'audio': pxt.Audio
+        }
+        v = pxt.create_view('test_view', t, additional_columns=v_schema, media_validation='on_write')
+        assert v.get_metadata()['media_validation'] == 'on_write'
+        assert v.doc.col.media_validation == pxt.catalog.MediaValidation.ON_READ
+        # view default applies
+        assert v.audio.col.media_validation == pxt.catalog.MediaValidation.ON_WRITE
+        # flags for base still apply
+        assert v.img.col.media_validation == pxt.catalog.MediaValidation.ON_WRITE
+        assert v.video.col.media_validation == pxt.catalog.MediaValidation.ON_READ
+
+        with pytest.raises(excs.Error) as exc_info:
+            _ = pxt.create_table(
+                'validation_error', {'img': pxt.Image}, media_validation='wrong_value')
+        assert "media_validation must be one of: ['on_read', 'on_write']" in str(exc_info.value)
+
+        with pytest.raises(excs.Error) as exc_info:
+            _ = pxt.create_table(
+                'validation_error', {'img': {'type': pxt.Image, 'media_validation': 'wrong_value'}})
+        assert "media_validation must be one of: ['on_read', 'on_write']" in str(exc_info.value)
+
+    def test_validate_on_read(self, reset_db) -> None:
+        files = get_video_files(include_bad_video=True)
+        rows = [{'media': f, 'is_bad_media': f.endswith('bad_video.mp4')} for f in files]
+        schema = {'media': pxt.Video, 'is_bad_media': pxt.Bool}
+
+        on_read_tbl = pxt.create_table('read_validated', schema, media_validation='on_read')
+        validate_update_status(on_read_tbl.insert(rows), len(rows))
+        on_read_res = (
+            on_read_tbl.select(
+                on_read_tbl.media, on_read_tbl.media.localpath, on_read_tbl.media.errortype, on_read_tbl.media.errormsg,
+                on_read_tbl.is_bad_media
+            ).collect()
+        )
+
+        on_write_tbl = pxt.create_table('write_validated', schema, media_validation='on_write')
+        status = on_write_tbl.insert(rows, fail_on_exception=False)
+        assert status.num_excs == 2  # 1 row with exceptions in the media col and the index col
+        on_write_res = (
+            on_write_tbl.select(
+                on_write_tbl.media, on_write_tbl.media.localpath, on_write_tbl.media.errortype,
+                on_write_tbl.media.errormsg, on_write_tbl.is_bad_media
+            ).collect()
+        )
+        assert_resultset_eq(on_read_res, on_write_res)
+
+        reload_catalog()
+        on_read_tbl = pxt.get_table('read_validated')
+        on_read_res = (
+            on_read_tbl.select(
+                on_read_tbl.media, on_read_tbl.media.localpath, on_read_tbl.media.errortype, on_read_tbl.media.errormsg,
+                on_read_tbl.is_bad_media
+            ).collect()
+        )
+        assert_resultset_eq(on_read_res, on_write_res)
+
+    def test_validate_on_read_with_computed_col(self, reset_db) -> None:
+        files = get_video_files(include_bad_video=True)
+        rows = [{'media': f, 'is_bad_media': f.endswith('bad_video.mp4')} for f in files]
+        schema = {'media': pxt.Video, 'is_bad_media': pxt.Bool, 'stage': pxt.Required[pxt.Int]}
+
+        # we are testing a nonsensical scenario: a computed column that references a read-validated media column,
+        # which forces validation
+        on_read_tbl = pxt.create_table('read_validated', schema, media_validation='on_read')
+        on_read_tbl.add_column(md=on_read_tbl.media.get_metadata())
+        status = on_read_tbl.insert(({**r, 'stage': 0} for r in rows), fail_on_exception=False)
+        assert status.num_excs == 1
+        on_read_res_1 = (
+            on_read_tbl
+            .select(
+                on_read_tbl.media, on_read_tbl.media.localpath, on_read_tbl.media.errortype, on_read_tbl.media.errormsg,
+                on_read_tbl.is_bad_media, on_read_tbl.md
+            )
+            .order_by(on_read_tbl.media)
+            .collect()
+        )
+
+        reload_catalog()
+        on_read_tbl = pxt.get_table('read_validated')
+        # we can still insert into the table after a catalog reload, and the result is the same
+        status = on_read_tbl.insert(({**r, 'stage': 1} for r in rows), fail_on_exception=False)
+        assert status.num_excs == 1
+        on_read_res_2 = (
+            on_read_tbl
+            .where(on_read_tbl.stage == 1)
+            .select(
+                on_read_tbl.media, on_read_tbl.media.localpath, on_read_tbl.media.errortype, on_read_tbl.media.errormsg,
+                on_read_tbl.is_bad_media, on_read_tbl.md
+            )
+            .order_by(on_read_tbl.media)
+            .collect()
+        )
+        assert_resultset_eq(on_read_res_1, on_read_res_2)
 
     def test_create_from_df(self, test_tbl: pxt.Table) -> None:
         t = pxt.get_table('test_tbl')
@@ -513,7 +621,7 @@ class TestTable:
             's3://open-images-dataset/validation/3b07a2c0d5c0c789.jpg',
         ]
 
-        tbl.insert({'img': url} for url in urls)
+        validate_update_status(tbl.insert({'img': url} for url in urls), expected_rows=len(urls))
         # check that we populated the cache
         cache_stats = FileCache.get().stats()
         assert cache_stats.num_requests == len(urls), f'{str(cache_stats)} tbl_id={tbl._id}'
