@@ -179,7 +179,7 @@ class TestTable:
         rows = [{'media': f, 'is_bad_media': f.endswith('bad_video.mp4')} for f in files]
         schema = {'media': pxt.Video, 'is_bad_media': pxt.Bool}
 
-        on_read_tbl = pxt.create_table('test1', schema, media_validation='on_read')
+        on_read_tbl = pxt.create_table('read_validated', schema, media_validation='on_read')
         validate_update_status(on_read_tbl.insert(rows), len(rows))
         on_read_res = (
             on_read_tbl.select(
@@ -188,7 +188,7 @@ class TestTable:
             ).collect()
         )
 
-        on_write_tbl = pxt.create_table('test2', schema, media_validation='on_write')
+        on_write_tbl = pxt.create_table('write_validated', schema, media_validation='on_write')
         status = on_write_tbl.insert(rows, fail_on_exception=False)
         assert status.num_excs == 2  # 1 row with exceptions in the media col and the index col
         on_write_res = (
@@ -198,6 +198,54 @@ class TestTable:
             ).collect()
         )
         assert_resultset_eq(on_read_res, on_write_res)
+
+        reload_catalog()
+        on_read_tbl = pxt.get_table('read_validated')
+        on_read_res = (
+            on_read_tbl.select(
+                on_read_tbl.media, on_read_tbl.media.localpath, on_read_tbl.media.errortype, on_read_tbl.media.errormsg,
+                on_read_tbl.is_bad_media
+            ).collect()
+        )
+        assert_resultset_eq(on_read_res, on_write_res)
+
+    def test_validate_on_read_with_computed_col(self, reset_db) -> None:
+        files = get_video_files(include_bad_video=True)
+        rows = [{'media': f, 'is_bad_media': f.endswith('bad_video.mp4')} for f in files]
+        schema = {'media': pxt.Video, 'is_bad_media': pxt.Bool, 'stage': pxt.Required[pxt.Int]}
+
+        # we are testing a nonsensical scenario: a computed column that references a read-validated media column,
+        # which forces validation
+        on_read_tbl = pxt.create_table('read_validated', schema, media_validation='on_read')
+        on_read_tbl.add_column(md=on_read_tbl.media.get_metadata())
+        status = on_read_tbl.insert(({**r, 'stage': 0} for r in rows), fail_on_exception=False)
+        assert status.num_excs == 1
+        on_read_res_1 = (
+            on_read_tbl
+            .select(
+                on_read_tbl.media, on_read_tbl.media.localpath, on_read_tbl.media.errortype, on_read_tbl.media.errormsg,
+                on_read_tbl.is_bad_media, on_read_tbl.md
+            )
+            .order_by(on_read_tbl.media)
+            .collect()
+        )
+
+        reload_catalog()
+        on_read_tbl = pxt.get_table('read_validated')
+        # we can still insert into the table after a catalog reload, and the result is the same
+        status = on_read_tbl.insert(({**r, 'stage': 1} for r in rows), fail_on_exception=False)
+        assert status.num_excs == 1
+        on_read_res_2 = (
+            on_read_tbl
+            .where(on_read_tbl.stage == 1)
+            .select(
+                on_read_tbl.media, on_read_tbl.media.localpath, on_read_tbl.media.errortype, on_read_tbl.media.errormsg,
+                on_read_tbl.is_bad_media, on_read_tbl.md
+            )
+            .order_by(on_read_tbl.media)
+            .collect()
+        )
+        assert_resultset_eq(on_read_res_1, on_read_res_2)
 
     def test_create_from_df(self, test_tbl: pxt.Table) -> None:
         t = pxt.get_table('test_tbl')

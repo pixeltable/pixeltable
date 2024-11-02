@@ -125,7 +125,8 @@ class RowBuilder:
             else:
                 # record a ColumnRef so that references to this column resolve to the same slot idx
                 perform_validation = (
-                    col.col_type.is_media_type() and col.media_validation == catalog.MediaValidation.ON_WRITE
+                    None if not col.col_type.is_media_type()
+                    else col.media_validation == catalog.MediaValidation.ON_WRITE
                 )
                 expr = ColumnRef(col, perform_validation=perform_validation)
                 # recursive=True: needed for validating ColumnRef

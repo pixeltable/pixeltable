@@ -93,17 +93,21 @@ class DataRow:
         self.pk = pk
 
     def has_exc(self, slot_idx: Optional[int] = None) -> bool:
+        """
+        Returns True if an exception has been set for the given slot index, or for any slot index if slot_idx is None
+        """
         if slot_idx is not None:
             return self.excs[slot_idx] is not None
         return any(exc is not None for exc in self.excs)
 
-    def get_exc(self, slot_idx: Optional[int] = None) -> Optional[Exception]:
-        if slot_idx is not None:
-            return self.excs[slot_idx]
+    def get_exc(self, slot_idx: int) -> Optional[Exception]:
+        return self.excs[slot_idx]
+
+    def get_first_exc(self) -> Optional[Exception]:
         for exc in self.excs:
             if exc is not None:
                 return exc
-        assert False
+        return None
 
     def set_exc(self, slot_idx: int, exc: Exception) -> None:
         assert self.excs[slot_idx] is None

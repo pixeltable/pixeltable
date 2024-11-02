@@ -29,6 +29,10 @@ class ColumnRef(Expr):
     - a validating ColumnRef cannot be translated to SQL (because the validation is done in Python)
     - in that case, the ColumnRef also instantiates a second non-validating ColumnRef as a component (= dependency)
     - the non-validating ColumnRef is used for SQL translation
+
+    TODO:
+    separate Exprs (like validating ColumnRefs) from the logical expression tree and instead have RowBuilder
+    insert them into the EvalCtxs as needed
     """
 
     col: catalog.Column
@@ -39,7 +43,7 @@ class ColumnRef(Expr):
     iterator: Optional[iters.ComponentIterator]
     pos_idx: Optional[int]
     id: int
-    validates: bool  # if True, performs media validation
+    perform_validation: bool  # if True, performs media validation
 
     def __init__(self, col: catalog.Column, perform_validation: Optional[bool] = None):
         super().__init__(col.col_type)
@@ -55,14 +59,19 @@ class ColumnRef(Expr):
         # index of the position column in the view's primary key; don't try to reference tbl.store_tbl here
         self.pos_idx = col.tbl.num_rowid_columns() - 1 if self.is_unstored_iter_col else None
 
-        self.validates = False
+        self.perform_validation = False
         if col.col_type.is_media_type():
             # we perform media validation if the column is a media type and the validation is set to ON_READ,
             # unless we're told not to
-            self.validates = perform_validation if perform_validation is not None else (
-                col.col_type.is_media_type() and col.media_validation == catalog.MediaValidation.ON_READ
-            )
-        if self.validates:
+            if perform_validation is not None:
+                self.perform_validation = perform_validation
+            else:
+                self.perform_validation = (
+                    col.col_type.is_media_type() and col.media_validation == catalog.MediaValidation.ON_READ
+                )
+        else:
+            assert perform_validation is None or not perform_validation
+        if self.perform_validation:
             non_validating_col_ref = ColumnRef(col, perform_validation=False)
             self.components = [non_validating_col_ref]
         self.id = self._create_id()
@@ -74,7 +83,7 @@ class ColumnRef(Expr):
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return (
             super()._id_attrs()
-            + [('tbl_id', self.col.tbl.id), ('col_id', self.col.id), ('validates', self.validates)]
+            + [('tbl_id', self.col.tbl.id), ('col_id', self.col.id), ('perform_validation', self.perform_validation)]
         )
 
     # override
@@ -115,7 +124,7 @@ class ColumnRef(Expr):
         return str(self)
 
     def _equals(self, other: ColumnRef) -> bool:
-        return self.col == other.col and self.validates == other.validates
+        return self.col == other.col and self.perform_validation == other.perform_validation
 
     def __str__(self) -> str:
         if self.col.name is None:
@@ -127,10 +136,10 @@ class ColumnRef(Expr):
         return f'ColumnRef({self.col!r})'
 
     def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
-        return None if self.validates else self.col.sa_col
+        return None if self.perform_validation else self.col.sa_col
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
-        if self.validates:
+        if self.perform_validation:
             # validate media file of our input ColumnRef and if successful, replicate the state of that slot
             # to our slot
             unvalidated_slot_idx = self.components[0].slot_idx
@@ -177,7 +186,14 @@ class ColumnRef(Expr):
     def _as_dict(self) -> dict:
         tbl = self.col.tbl
         version = tbl.version if tbl.is_snapshot else None
-        return {'tbl_id': str(tbl.id), 'tbl_version': version, 'col_id': self.col.id}
+        # we omit self.components, even if this is a validating ColumnRef, because init() will recreate the
+        # non-validating component ColumnRef
+        return {
+            'tbl_id': str(tbl.id),
+            'tbl_version': version,
+            'col_id': self.col.id,
+            'perform_validation': self.perform_validation
+        }
 
     @classmethod
     def get_column(cls, d: dict) -> catalog.Column:
@@ -190,4 +206,5 @@ class ColumnRef(Expr):
     @classmethod
     def _from_dict(cls, d: dict, _: list[Expr]) -> ColumnRef:
         col = cls.get_column(d)
-        return cls(col)
+        perform_validation = d['perform_validation']
+        return cls(col, perform_validation=perform_validation)

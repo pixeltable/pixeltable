@@ -330,7 +330,7 @@ class StoreBase:
                         row = row_batch[row_idx]
                         # if abort_on_exc == True, we need to check for media validation exceptions
                         if abort_on_exc and row.has_exc():
-                            exc = row.get_exc()
+                            exc = row.get_first_exc()
                             raise exc
 
                         rowid = (next(rowids),) if rowids is not None else row.pk[:-1]
