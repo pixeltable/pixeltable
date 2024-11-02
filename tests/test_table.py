@@ -1400,6 +1400,34 @@ class TestTable:
         result = t.where(t.add3.errortype != None).select(t.c2, t.add3, t.add3.errortype, t.add3.errormsg).show()
         assert len(result) == 10
 
+    def test_computed_column_types(self, reset_db) -> None:
+        t = pxt.create_table(
+            'test',
+            {
+                'c1': pxt.Int,
+                'c1_r': pxt.Required[pxt.Int],
+                'c2': pxt.String,
+                'c2_r': pxt.Required[pxt.String],
+            }
+        )
+
+        # Ensure that arithmetic and (non-nullable) function call expressions inherit nullability from their arguments
+        t.add_column(arith=t.c1 + 1)
+        t.add_column(arith_r=t.c1_r + 1)
+        t.add_column(func=t.c2.upper())
+        t.add_column(func_r=t.c2_r.upper())
+
+        assert t.get_metadata()['schema'] == {
+            'c1': pxt.IntType(nullable=True),
+            'c1_r': pxt.IntType(nullable=False),
+            'c2': pxt.StringType(nullable=True),
+            'c2_r': pxt.StringType(nullable=False),
+            'arith': pxt.IntType(nullable=True),
+            'arith_r': pxt.IntType(nullable=False),
+            'func': pxt.StringType(nullable=True),
+            'func_r': pxt.StringType(nullable=False),
+        }
+
     def test_describe(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         fn = lambda x: np.full((3, 4), x)
