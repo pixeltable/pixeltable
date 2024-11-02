@@ -10,9 +10,11 @@ help:
 	@echo ""
 	@echo "Targets:"
 	@echo "  install       Install the development environment"
-	@echo "  test          Run pytest"
-	@echo "  nbtest        Run notebook tests"
+	@echo "  test          Run pytest, typecheck, and docstest"
+	@echo "  pytest        Run pytest"
 	@echo "  typecheck     Run mypy"
+	@echo "  docstest      Run mkdocs build --strict"
+	@echo "  nbtest        Run notebook tests"
 	@echo "  lint          Run linting tools against changed files"
 	@echo "  format        Format changed files with ruff (updates .py files in place)"
 	@echo "  release       Create a pypi release and post to github"
@@ -41,6 +43,7 @@ YOLOX_OK := $(shell python -c "import sys; sys.stdout.write(str(sys.version_info
 
 .make-install/deps: poetry.lock
 	@echo "Installing dependencies from poetry ..."
+	@export CMAKE_ARGS='-DLLAVA_BUILD=OFF'
 	@poetry install --with dev
 	@touch .make-install/deps
 
@@ -61,7 +64,11 @@ endif
 install: setup-install .make-install/poetry .make-install/deps .make-install/others
 
 .PHONY: test
-test: install
+test: pytest typecheck docstest
+	@echo "All tests passed!"
+
+.PHONY: pytest
+pytest: install
 	@echo "Running pytest ..."
 	@ulimit -n 4000; pytest -v
 
@@ -79,6 +86,10 @@ nbtest: install
 .PHONY: typecheck
 typecheck: install
 	@mypy pixeltable
+
+.PHONY: docstest
+docstest: install
+	@mkdocs build --strict
 
 .PHONY: lint
 lint: install
