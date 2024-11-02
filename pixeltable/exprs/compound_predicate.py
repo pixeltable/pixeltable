@@ -1,20 +1,21 @@
 from __future__ import annotations
 
 import operator
-from typing import Optional, List, Any, Dict, Callable
+from typing import Any, Callable, Optional
 
 import sqlalchemy as sql
+
+import pixeltable.type_system as ts
 
 from .data_row import DataRow
 from .expr import Expr
 from .globals import LogicalOperator
 from .row_builder import RowBuilder
 from .sql_element_cache import SqlElementCache
-import pixeltable.type_system as ts
 
 
 class CompoundPredicate(Expr):
-    def __init__(self, operator: LogicalOperator, operands: List[Expr]):
+    def __init__(self, operator: LogicalOperator, operands: list[Expr]):
         super().__init__(ts.BoolType())
         self.operator = operator
         # operands are stored in self.components
@@ -23,7 +24,7 @@ class CompoundPredicate(Expr):
             self.components = operands
         else:
             assert len(operands) > 1
-            self.operands: List[Expr] = []
+            self.operands: list[Expr] = []
             for operand in operands:
                 self._merge_operand(operand)
 
@@ -35,7 +36,7 @@ class CompoundPredicate(Expr):
         return f' {self.operator} '.join([f'({e})' for e in self.components])
 
     @classmethod
-    def make_conjunction(cls, operands: List[Expr]) -> Optional[Expr]:
+    def make_conjunction(cls, operands: list[Expr]) -> Optional[Expr]:
         if len(operands) == 0:
             return None
         if len(operands) == 1:
@@ -89,11 +90,11 @@ class CompoundPredicate(Expr):
                 val = op_function(val, data_row[op.slot_idx])
             data_row[self.slot_idx] = val
 
-    def _as_dict(self) -> Dict:
+    def _as_dict(self) -> dict:
         return {'operator': self.operator.value, **super()._as_dict()}
 
     @classmethod
-    def _from_dict(cls, d: Dict, components: List[Expr]) -> Expr:
+    def _from_dict(cls, d: dict, components: list[Expr]) -> CompoundPredicate:
         assert 'operator' in d
         return cls(LogicalOperator(d['operator']), components)
 

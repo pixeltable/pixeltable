@@ -50,14 +50,29 @@ class FunctionCall(Expr):
         if group_by_clause is None:
             group_by_clause = []
         signature = fn.signature
-        super().__init__(fn.call_return_type(bound_args))
+        return_type = fn.call_return_type(bound_args)
         self.fn = fn
         self.is_method_call = is_method_call
         self.normalize_args(fn.name, signature, bound_args)
 
+        # If `return_type` is non-nullable, but the function call has a nullable input to any of its non-nullable
+        # parameters, then we need to make it nullable. This is because Pixeltable defaults a function output to
+        # `None` when any of its non-nullable inputs are `None`.
+        for arg_name, arg in bound_args.items():
+            param = signature.parameters[arg_name]
+            if (
+                param.col_type is not None and not param.col_type.nullable
+                and isinstance(arg, Expr) and arg.col_type.nullable
+            ):
+                return_type = return_type.copy(nullable=True)
+                break
+
+        super().__init__(return_type)
+
         self.agg_init_args = {}
         if self.is_agg_fn_call:
             # we separate out the init args for the aggregator
+            assert isinstance(fn, func.AggregateFunction)
             self.agg_init_args = {
                 arg_name: arg for arg_name, arg in bound_args.items() if arg_name in fn.init_param_names
             }
@@ -71,17 +86,17 @@ class FunctionCall(Expr):
         self.arg_types = []
         self.kwarg_types = {}
         # the prefix of parameters that are bound can be passed by position
-        for param in fn.signature.py_signature.parameters.values():
-            if param.name not in bound_args or param.kind == inspect.Parameter.KEYWORD_ONLY:
+        for py_param in fn.signature.py_signature.parameters.values():
+            if py_param.name not in bound_args or py_param.kind == inspect.Parameter.KEYWORD_ONLY:
                 break
-            arg = bound_args[param.name]
+            arg = bound_args[py_param.name]
             if isinstance(arg, Expr):
                 self.args.append((len(self.components), None))
                 self.components.append(arg.copy())
             else:
                 self.args.append((None, arg))
-            if param.kind != inspect.Parameter.VAR_POSITIONAL and param.kind != inspect.Parameter.VAR_KEYWORD:
-                self.arg_types.append(signature.parameters[param.name].col_type)
+            if py_param.kind != inspect.Parameter.VAR_POSITIONAL and py_param.kind != inspect.Parameter.VAR_KEYWORD:
+                self.arg_types.append(signature.parameters[py_param.name].col_type)
 
         # the remaining args are passed as keywords
         kw_param_names = set(bound_args.keys()) - set(list(fn.signature.py_signature.parameters.keys())[:len(self.args)])
@@ -138,13 +153,11 @@ class FunctionCall(Expr):
         return [RowidRef(target, i) for i in range(target.num_rowid_columns())]
 
     def default_column_name(self) -> Optional[str]:
-        if self.fn.is_property:
-            return self.fn.name
-        return super().default_column_name()
+        return self.fn.name
 
     @classmethod
     def normalize_args(cls, fn_name: str, signature: func.Signature, bound_args: dict[str, Any]) -> None:
-        """Converts all args to Exprs and checks that they are compatible with signature.
+        """Converts args to Exprs where appropriate and checks that they are compatible with signature.
 
         Updates bound_args in place, where necessary.
         """
@@ -263,6 +276,7 @@ class FunctionCall(Expr):
             for param_name, (idx, arg) in self.kwargs.items()
         ])
         if len(self.order_by) > 0:
+            assert isinstance(self.fn, func.AggregateFunction)
             if self.fn.requires_order_by:
                 arg_strs.insert(0, Expr.print_list(self.order_by))
             else:
@@ -273,7 +287,7 @@ class FunctionCall(Expr):
         separator = ', ' if inline else ',\n    '
         return separator.join(arg_strs)
 
-    def has_group_by(self) -> list[Expr]:
+    def has_group_by(self) -> bool:
         return self.group_by_stop_idx != 0
 
     @property
@@ -286,10 +300,11 @@ class FunctionCall(Expr):
 
     @property
     def is_window_fn_call(self) -> bool:
-        return isinstance(self.fn, func.AggregateFunction) and self.fn.allows_window and \
-            (not self.fn.allows_std_agg \
-             or self.has_group_by() \
-             or (len(self.order_by) > 0 and not self.fn.requires_order_by))
+        return isinstance(self.fn, func.AggregateFunction) and self.fn.allows_window and (
+            not self.fn.allows_std_agg
+            or self.has_group_by()
+            or (len(self.order_by) > 0 and not self.fn.requires_order_by)
+        )
 
     def get_window_sort_exprs(self) -> tuple[list[Expr], list[Expr]]:
         return self.group_by, self.order_by
@@ -413,6 +428,7 @@ class FunctionCall(Expr):
             # optimization: avoid additional level of indirection we'd get from calling Function.exec()
             data_row[self.slot_idx] = self.fn.py_fn(*args, **kwargs)
         elif self.is_window_fn_call:
+            assert isinstance(self.fn, func.AggregateFunction)
             if self.has_group_by():
                 if self.current_partition_vals is None:
                     self.current_partition_vals = [None] * len(self.group_by)
@@ -438,7 +454,7 @@ class FunctionCall(Expr):
         return result
 
     @classmethod
-    def _from_dict(cls, d: dict, components: list[Expr]) -> Expr:
+    def _from_dict(cls, d: dict, components: list[Expr]) -> FunctionCall:
         assert 'fn' in d
         assert 'args' in d
         assert 'kwargs' in d

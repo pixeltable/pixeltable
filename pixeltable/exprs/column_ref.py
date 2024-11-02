@@ -1,16 +1,18 @@
 from __future__ import annotations
-from typing import Optional, Any, Tuple
+
+from typing import Any, Optional, Sequence
 from uuid import UUID
 
 import sqlalchemy as sql
 
-from .expr import Expr
+import pixeltable.catalog as catalog
+import pixeltable.exceptions as excs
+import pixeltable.iterators as iters
+
 from .data_row import DataRow
+from .expr import Expr
 from .row_builder import RowBuilder
 from .sql_element_cache import SqlElementCache
-import pixeltable.iterators as iters
-import pixeltable.exceptions as excs
-import pixeltable.catalog as catalog
 
 
 class ColumnRef(Expr):
@@ -25,7 +27,7 @@ class ColumnRef(Expr):
     is_unstored_iter_col: bool
     iter_arg_ctx: Optional[RowBuilder.EvalCtx]
     base_rowid_len: int
-    base_rowid: list[Optional[Any]]
+    base_rowid: Sequence[Optional[Any]]
     iterator: Optional[iters.ComponentIterator]
     pos_idx: Optional[int]
     id: int
@@ -49,11 +51,19 @@ class ColumnRef(Expr):
         self.iter_arg_ctx = iter_arg_ctx
         assert len(self.iter_arg_ctx.target_slot_idxs) == 1  # a single inline dict
 
-    def _id_attrs(self) -> list[Tuple[str, Any]]:
+    def _id_attrs(self) -> list[tuple[str, Any]]:
         return super()._id_attrs() + [('tbl_id', self.col.tbl.id), ('col_id', self.col.id)]
+
+    # override
+    def _retarget(self, tbl_versions: dict[UUID, catalog.TableVersion]) -> ColumnRef:
+        target = tbl_versions[self.col.tbl.id]
+        assert self.col.id in target.cols_by_id
+        col = target.cols_by_id[self.col.id]
+        return ColumnRef(col)
 
     def __getattr__(self, name: str) -> Expr:
         from .column_property_ref import ColumnPropertyRef
+
         # resolve column properties
         if name == ColumnPropertyRef.Property.ERRORTYPE.name.lower() \
                 or name == ColumnPropertyRef.Property.ERRORMSG.name.lower():
@@ -130,6 +140,6 @@ class ColumnRef(Expr):
         return col
 
     @classmethod
-    def _from_dict(cls, d: dict, _: list[Expr]) -> Expr:
+    def _from_dict(cls, d: dict, _: list[Expr]) -> ColumnRef:
         col = cls.get_column(d)
         return cls(col)

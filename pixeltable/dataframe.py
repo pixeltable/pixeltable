@@ -363,15 +363,10 @@ class DataFrame:
             group_by_clause=group_by_clause, grouping_tbl=self.grouping_tbl,
             order_by_clause=order_by_clause, limit=self.limit_val)
 
-    def collect(self) -> DataFrameResultSet:
-        return self._collect()
-
-    def _collect(self, conn: Optional[sql.engine.Connection] = None) -> DataFrameResultSet:
+    def _output_row_iterator(self, conn: Optional[sql.engine.Connection] = None) -> Iterator[list]:
         try:
-            result_rows = []
             for data_row in self._exec(conn):
-                result_row = [data_row[e.slot_idx] for e in self._select_list_exprs]
-                result_rows.append(result_row)
+                yield [data_row[e.slot_idx] for e in self._select_list_exprs]
         except excs.ExprEvalError as e:
             msg = f'In row {e.row_num} the {e.expr_msg} encountered exception ' f'{type(e.exc).__name__}:\n{str(e.exc)}'
             if len(e.input_vals) > 0:
@@ -391,7 +386,11 @@ class DataFrame:
         except sql.exc.DBAPIError as e:
             raise excs.Error(f'Error during SQL execution:\n{e}')
 
-        return DataFrameResultSet(result_rows, self.schema)
+    def collect(self) -> DataFrameResultSet:
+        return self._collect()
+
+    def _collect(self, conn: Optional[sql.engine.Connection] = None) -> DataFrameResultSet:
+        return DataFrameResultSet(list(self._output_row_iterator(conn)), self.schema)
 
     def count(self) -> int:
         from pixeltable.plan import Planner

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 import sqlalchemy as sql
 
@@ -66,7 +66,7 @@ class Comparison(Expr):
     def _op2(self) -> Expr:
         return self.components[1]
 
-    def sql_expr(self, sql_elements: SqlElementCache) -> Optional[sql.ClauseElement]:
+    def sql_expr(self, sql_elements: SqlElementCache) -> Optional[sql.ColumnElement]:
         if str(self._op1.col_type.to_sa_type()) != str(self._op2.col_type.to_sa_type()):
             # Comparing columns of different SQL types (e.g., string vs. json); this can only be done in Python
             # TODO(aaron-siegel): We may be able to handle some cases in SQL by casting one side to the other's type
@@ -119,11 +119,10 @@ class Comparison(Expr):
         elif self.operator == ComparisonOperator.GE:
             data_row[self.slot_idx] = left >= right
 
-    def _as_dict(self) -> Dict:
+    def _as_dict(self) -> dict:
         return {'operator': self.operator.value, **super()._as_dict()}
 
     @classmethod
-    def _from_dict(cls, d: Dict, components: List[Expr]) -> Expr:
+    def _from_dict(cls, d: dict, components: list[Expr]) -> Comparison:
         assert 'operator' in d
         return cls(ComparisonOperator(d['operator']), components[0], components[1])
-
