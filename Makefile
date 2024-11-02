@@ -11,15 +11,19 @@ help:
 	@echo "Targets:"
 	@echo "  install       Install the development environment"
 	@echo "  test          Run pytest, typecheck, and docstest"
+	@echo "  fulltest      Run pytest, nbtest, typecheck, and docstest, including expensive tests"
+	@echo "  release       Create a pypi release and post to github"
+	@echo "  release-docs  Build and deploy API documentation (must be run from home repo, not a fork)"
+	@echo ""
+	@echo "Individual test targets:"
+	@echo "  clean         Remove generated files and temp files"
 	@echo "  pytest        Run pytest"
+	@echo "  fullpytest    Run pytest, including expensive tests"
 	@echo "  typecheck     Run mypy"
 	@echo "  docstest      Run mkdocs build --strict"
 	@echo "  nbtest        Run notebook tests"
 	@echo "  lint          Run linting tools against changed files"
 	@echo "  format        Format changed files with ruff (updates .py files in place)"
-	@echo "  release       Create a pypi release and post to github"
-	@echo "  release-docs  Build and deploy API documentation"
-	@echo "  clean         Remove generated files and temp files"
 
 .PHONY: setup-install
 setup-install:
@@ -67,10 +71,19 @@ install: setup-install .make-install/poetry .make-install/deps .make-install/oth
 test: pytest typecheck docstest
 	@echo "All tests passed!"
 
+.PHONY: fulltest
+fulltest: pytestall nbtest typecheck docstest
+	@echo "All tests passed!"
+
 .PHONY: pytest
 pytest: install
 	@echo "Running pytest ..."
-	@ulimit -n 4000; pytest -v
+	@ulimit -n 4000; pytest -v -n auto --dist loadgroup --maxprocesses 6 tests
+
+.PHONY: fullpytest
+fullpytest: install
+	@echo "Running pytest, including expensive tests ..."
+	@ulimit -n 4000; pytest -v -m '' -n auto --dist loadgroup --maxprocesses 6 tests
 
 NB_CELL_TIMEOUT := 3600
 # We ensure the TQDM progress bar is updated exactly once per cell execution, by setting the refresh rate equal
@@ -85,10 +98,12 @@ nbtest: install
 
 .PHONY: typecheck
 typecheck: install
+	@echo "Running mypy ..."
 	@mypy pixeltable
 
 .PHONY: docstest
 docstest: install
+	@echo "Running mkdocs build --strict ..."
 	@mkdocs build --strict
 
 .PHONY: lint
