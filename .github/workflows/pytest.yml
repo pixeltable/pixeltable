@@ -160,7 +160,7 @@ jobs:
       - name: Ensure pytest is installed
         # This is necessary for running the tests without --with dev
         if: ${{ matrix.poetry-options == '' }}
-        run: pip install pytest coverage
+        run: pip install pytest pytest-xdist pytest-rerunfailures coverage
       - name: Run the unit tests
         if: ${{ matrix.test-category == 'py' }}
         # Run the tests with the 'expensive' marker only once, on ubuntu-22.04 with Python 3.9. The other tests
