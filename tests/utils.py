@@ -3,13 +3,16 @@ import glob
 import json
 import os
 import random
+import urllib.parse
 from pathlib import Path
 from typing import Any, Optional
 
+import PIL.Image
+import boto3
+import botocore
 import more_itertools
 import numpy as np
 import pandas as pd
-import PIL.Image
 import pytest
 
 import pixeltable as pxt
@@ -347,6 +350,33 @@ def __image_mode(path: str) -> str:
     finally:
         image.close()
 
+def get_multimedia_commons_video_uris(n: int = 10) -> list[str]:
+    uri = 's3://multimedia-commons/data/videos/mp4/'
+    parsed = urllib.parse.urlparse(uri)
+    bucket_name = parsed.netloc
+    prefix = parsed.path.lstrip('/')
+    s3_client: Any
+    try:
+        boto3.Session().get_credentials().get_frozen_credentials()
+        s3_client = boto3.client('s3')  # credentials are available
+    except AttributeError:
+        # No credentials available, use unsigned mode
+        config = botocore.config.Config(signature_version=botocore.UNSIGNED)
+        s3_client = boto3.client('s3', config=config)
+
+    uris = []
+    # Use paginator to handle more than 1000 objects
+    paginator = s3_client.get_paginator('list_objects_v2')
+
+    for page in paginator.paginate(Bucket=bucket_name, Prefix=prefix):
+        if 'Contents' not in page:
+            continue
+        for obj in page['Contents']:
+            if len(uris) >= n:
+                return uris
+            uri = f"s3://{bucket_name}/{obj['Key']}"
+            uris.append(uri)
+    return uris
 
 def get_audio_files(include_bad_audio: bool = False) -> list[str]:
     tests_dir = Path(os.path.dirname(__file__))

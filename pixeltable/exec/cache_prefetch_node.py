@@ -97,6 +97,7 @@ class CachePrefetchNode(ExecNode):
                         assert row is not None
                         batch.add_row(row)
                     self.num_returned_rows += len(rows)
+                    _logger.debug(f'returning {len(rows)} rows')
                     yield batch
 
                 if self.input_finished and self._num_pending_rows() == 0:
@@ -111,6 +112,10 @@ class CachePrefetchNode(ExecNode):
             sum(1 for row in itertools.islice(self.ready_rows, self.BATCH_SIZE) if row is not None) == self.BATCH_SIZE
         )
 
+    def _ready_batch_size(self) -> int:
+        """Length of the non-None prefix of ready_rows (= what we can return right now)"""
+        return sum(1 for _ in itertools.takewhile(lambda x: x is not None, self.ready_rows))
+
     def _add_ready_row(self, row: exprs.DataRow, row_idx: Optional[int]) -> None:
         if row_idx is None:
             self.ready_rows.append(row)
@@ -124,6 +129,7 @@ class CachePrefetchNode(ExecNode):
     def _wait_for_requests(self) -> None:
         """Wait for in-flight requests to complete until we have a full batch of rows"""
         file_cache = FileCache.get()
+        _logger.debug(f'waiting for requests; ready_batch_size={self._ready_batch_size()}')
         while not self._has_ready_batch() and len(self.in_flight_requests) > 0:
             done, _ = futures.wait(self.in_flight_requests, return_when=futures.FIRST_COMPLETED)
             for f in done:
@@ -135,7 +141,7 @@ class CachePrefetchNode(ExecNode):
                     assert url in self.in_flight_urls
                     _, info = self.in_flight_urls[url][0]
                     local_path = file_cache.add(info.col.tbl.id, info.col.id, url, tmp_path)
-                    _logger.debug(f'CachePrefetchNode: cached {url} as {local_path}')
+                    _logger.debug(f'cached {url} as {local_path}')
 
                 # add the local path/exception to the slots that reference the url
                 for row, info in self.in_flight_urls.pop(url):
@@ -149,7 +155,7 @@ class CachePrefetchNode(ExecNode):
                     if state.num_missing == 0:
                         del self.in_flight_rows[id(row)]
                         self._add_ready_row(row, state.idx)
-                        _logger.debug(f'CachePrefetchNode: row {state.idx} is ready')
+                        _logger.debug(f'row {state.idx} is ready (ready_batch_size={self._ready_batch_size()})')
 
     def _submit_input_batch(self, input: Iterator[DataRowBatch], executor: futures.ThreadPoolExecutor) -> None:
         assert not self.input_finished
@@ -160,11 +166,19 @@ class CachePrefetchNode(ExecNode):
         if self.batch_tbl_version is None:
             self.batch_tbl_version = input_batch.tbl
 
-        # identify missing local files in input batch, or fill in their paths if they're already cached
         file_cache = FileCache.get()
-        cache_misses: set[str] = set()  # URLs from this input batch that aren't already in the file cache
+
+        # URLs from this input batch that aren't already in the file cache;
+        # we use a list to make sure we submit urls in the order in which they appear in the output, which minimizes
+        # the time it takes to get the next batch together
+        cache_misses: list[str] = []
+
+        url_pos: dict[str, int] = {}  # url -> row_idx; used for logging
         for row in input_batch:
+            # identify missing local files in input batch, or fill in their paths if they're already cached
             num_missing = 0
+            row_idx = next(self.row_idx)
+
             for info in self.file_col_info:
                 url = row.file_urls[info.slot_idx]
                 if url is None or row.file_paths[info.slot_idx] is not None:
@@ -179,26 +193,28 @@ class CachePrefetchNode(ExecNode):
 
                 local_path = file_cache.lookup(url)
                 if local_path is None:
-                    cache_misses.add(url)
+                    cache_misses.append(url)
                     self.in_flight_urls[url] = [(row, info)]
                     num_missing += 1
+                    if url not in url_pos:
+                        url_pos[url] = row_idx
                 else:
                     row.set_file_path(info.slot_idx, str(local_path))
 
-            row_idx = next(self.row_idx)
             if num_missing > 0:
                 self.in_flight_rows[id(row)] = self.RowState(row, row_idx, num_missing)
             else:
                 self._add_ready_row(row, row_idx)
 
+        _logger.debug(f'submitting {len(cache_misses)} urls')
         for url in cache_misses:
             f = executor.submit(self._fetch_url, url)
-            _logger.debug(f'CachePrefetchNode: submitted {url}')
+            _logger.debug(f'submitted {url} for idx {url_pos[url]}')
             self.in_flight_requests[f] = url
 
     def _fetch_url(self, url: str) -> tuple[Optional[Path], Optional[Exception]]:
         """Fetches a remote URL into Env.tmp_dir and returns its path"""
-        _logger.debug(f'url={url} thread_name={threading.current_thread().name}')
+        _logger.debug(f'fetching url={url} thread_name={threading.current_thread().name}')
         parsed = urllib.parse.urlparse(url)
         # Use len(parsed.scheme) > 1 here to ensure we're not being passed
         # a Windows filename
