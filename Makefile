@@ -72,7 +72,7 @@ test: pytest typecheck docstest
 	@echo "All tests passed!"
 
 .PHONY: fulltest
-fulltest: pytestall nbtest typecheck docstest
+fulltest: fullpytest nbtest typecheck docstest
 	@echo "All tests passed!"
 
 .PHONY: pytest

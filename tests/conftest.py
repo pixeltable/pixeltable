@@ -25,7 +25,7 @@ def init_env(tmp_path_factory, worker_id) -> None:
     # Set the relevant env vars for the test db.
     # We use a single shared pgserver instance, running in the "true" home directory ($PIXELTABLE_HOME/pgdata).
     # Each worker gets its own test db in this instance, along with its own home directory for everything else
-    # (file cache, media cache, etc).
+    # (file cache, media store, etc).
     shared_home = pathlib.Path(os.environ.get('PIXELTABLE_HOME', str(pathlib.Path.home() / '.pixeltable')))
     home_dir = str(tmp_path_factory.mktemp('base') / '.pixeltable')
     os.environ['PIXELTABLE_HOME'] = home_dir
