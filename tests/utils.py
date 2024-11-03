@@ -8,8 +8,6 @@ from pathlib import Path
 from typing import Any, Optional
 
 import PIL.Image
-import boto3
-import botocore
 import more_itertools
 import numpy as np
 import pandas as pd
@@ -356,6 +354,8 @@ def get_multimedia_commons_video_uris(n: int = 10) -> list[str]:
     bucket_name = parsed.netloc
     prefix = parsed.path.lstrip('/')
     s3_client: Any
+    import boto3
+    import botocore
     try:
         boto3.Session().get_credentials().get_frozen_credentials()
         s3_client = boto3.client('s3')  # credentials are available
