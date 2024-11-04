@@ -479,6 +479,27 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../update-status/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    UpdateStatus
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -902,6 +923,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../llama_cpp/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    llama_cpp
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../mistralai/" class="md-nav__link">
         
   
@@ -923,11 +965,53 @@
   
   
     <li class="md-nav__item">
+      <a href="../ollama/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    ollama
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../openai/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
     openai
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../replicate/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    replicate
   </span>
   
 
@@ -1249,16 +1333,16 @@ t.select(pxtv.draw_bounding_boxes(t.img, boxes=t.boxes, label=t.labels)).collect
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">draw_bounding_boxes</span><span class="p">(</span>
-    <span class="n">img</span><span class="p">:</span> <span class="n">ImageT</span><span class="p">,</span>
-    <span class="n">boxes</span><span class="p">:</span> <span class="n">JsonT</span><span class="p">,</span>
-    <span class="n">labels</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">JsonT</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">color</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">box_colors</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">JsonT</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">fill</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
-    <span class="n">width</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
-    <span class="n">font</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">font_size</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ImageT</span>
+    <span class="n">img</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span>
+    <span class="n">boxes</span><span class="p">:</span> <span class="n">Json</span><span class="p">,</span>
+    <span class="n">labels</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">color</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">box_colors</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">fill</span><span class="p">:</span> <span class="n">Bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="n">width</span><span class="p">:</span> <span class="n">Int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
+    <span class="n">font</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">font_size</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Image</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1275,7 +1359,7 @@ RGB hex codes (e.g., '#FF0000').</p>
     <ul>
         <li class="doc-section-item field-body">
           <b><code>img</code></b>
-              (<code>ImageT</code>)
+              (<code>Image</code>)
           –
           <div class="doc-md-description">
             <p>The image on which to draw the bounding boxes.</p>
@@ -1283,7 +1367,7 @@ RGB hex codes (e.g., '#FF0000').</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>boxes</code></b>
-              (<code>JsonT</code>)
+              (<code>Json</code>)
           –
           <div class="doc-md-description">
             <p>List of bounding boxes, each represented as [xmin, ymin, xmax, ymax].</p>
@@ -1291,7 +1375,7 @@ RGB hex codes (e.g., '#FF0000').</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>labels</code></b>
-              (<code>Optional[JsonT]</code>, default:
+              (<code>Optional[Json]</code>, default:
                   <code>None</code>
 )
           –
@@ -1301,7 +1385,7 @@ RGB hex codes (e.g., '#FF0000').</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>color</code></b>
-              (<code>Optional[str]</code>, default:
+              (<code>Optional[String]</code>, default:
                   <code>None</code>
 )
           –
@@ -1311,7 +1395,7 @@ RGB hex codes (e.g., '#FF0000').</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>box_colors</code></b>
-              (<code>Optional[JsonT]</code>, default:
+              (<code>Optional[Json]</code>, default:
                   <code>None</code>
 )
           –
@@ -1321,7 +1405,7 @@ RGB hex codes (e.g., '#FF0000').</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>fill</code></b>
-              (<code>bool</code>, default:
+              (<code>Bool</code>, default:
                   <code>False</code>
 )
           –
@@ -1331,7 +1415,7 @@ RGB hex codes (e.g., '#FF0000').</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>width</code></b>
-              (<code>int</code>, default:
+              (<code>Int</code>, default:
                   <code>1</code>
 )
           –
@@ -1341,7 +1425,7 @@ RGB hex codes (e.g., '#FF0000').</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>font</code></b>
-              (<code>Optional[str]</code>, default:
+              (<code>Optional[String]</code>, default:
                   <code>None</code>
 )
           –
@@ -1354,7 +1438,7 @@ If <code>None</code>, uses the default provided by
         </li>
         <li class="doc-section-item field-body">
           <b><code>font_size</code></b>
-              (<code>Optional[int]</code>, default:
+              (<code>Optional[Int]</code>, default:
                   <code>None</code>
 )
           –
@@ -1368,7 +1452,7 @@ If <code>None</code>, uses the default provided by
 <p><span class="doc-section-title">Returns:</span></p>
     <ul>
         <li class="doc-section-item field-body">
-              <code>ImageT</code>
+              <code>Image</code>
           –
           <div class="doc-md-description">
             <p>The image with bounding boxes drawn on it.</p>
@@ -1389,13 +1473,13 @@ If <code>None</code>, uses the default provided by
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">eval_detections</span><span class="p">(</span>
-    <span class="n">pred_bboxes</span><span class="p">:</span> <span class="n">JsonT</span><span class="p">,</span>
-    <span class="n">pred_labels</span><span class="p">:</span> <span class="n">JsonT</span><span class="p">,</span>
-    <span class="n">pred_scores</span><span class="p">:</span> <span class="n">JsonT</span><span class="p">,</span>
-    <span class="n">gt_bboxes</span><span class="p">:</span> <span class="n">JsonT</span><span class="p">,</span>
-    <span class="n">gt_labels</span><span class="p">:</span> <span class="n">JsonT</span><span class="p">,</span>
-    <span class="n">min_iou</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.5</span><span class="p">,</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">JsonT</span>
+    <span class="n">pred_bboxes</span><span class="p">:</span> <span class="n">Json</span><span class="p">,</span>
+    <span class="n">pred_labels</span><span class="p">:</span> <span class="n">Json</span><span class="p">,</span>
+    <span class="n">pred_scores</span><span class="p">:</span> <span class="n">Json</span><span class="p">,</span>
+    <span class="n">gt_bboxes</span><span class="p">:</span> <span class="n">Json</span><span class="p">,</span>
+    <span class="n">gt_labels</span><span class="p">:</span> <span class="n">Json</span><span class="p">,</span>
+    <span class="n">min_iou</span><span class="p">:</span> <span class="n">Float</span> <span class="o">=</span> <span class="mf">0.5</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1407,7 +1491,7 @@ If <code>None</code>, uses the default provided by
     <ul>
         <li class="doc-section-item field-body">
           <b><code>pred_bboxes</code></b>
-              (<code>JsonT</code>)
+              (<code>Json</code>)
           –
           <div class="doc-md-description">
             <p>List of predicted bounding boxes, each represented as [xmin, ymin, xmax, ymax].</p>
@@ -1415,7 +1499,7 @@ If <code>None</code>, uses the default provided by
         </li>
         <li class="doc-section-item field-body">
           <b><code>pred_labels</code></b>
-              (<code>JsonT</code>)
+              (<code>Json</code>)
           –
           <div class="doc-md-description">
             <p>List of predicted labels.</p>
@@ -1423,7 +1507,7 @@ If <code>None</code>, uses the default provided by
         </li>
         <li class="doc-section-item field-body">
           <b><code>pred_scores</code></b>
-              (<code>JsonT</code>)
+              (<code>Json</code>)
           –
           <div class="doc-md-description">
             <p>List of predicted scores.</p>
@@ -1431,7 +1515,7 @@ If <code>None</code>, uses the default provided by
         </li>
         <li class="doc-section-item field-body">
           <b><code>gt_bboxes</code></b>
-              (<code>JsonT</code>)
+              (<code>Json</code>)
           –
           <div class="doc-md-description">
             <p>List of ground truth bounding boxes, each represented as [xmin, ymin, xmax, ymax].</p>
@@ -1439,7 +1523,7 @@ If <code>None</code>, uses the default provided by
         </li>
         <li class="doc-section-item field-body">
           <b><code>gt_labels</code></b>
-              (<code>JsonT</code>)
+              (<code>Json</code>)
           –
           <div class="doc-md-description">
             <p>List of ground truth labels.</p>
@@ -1447,7 +1531,7 @@ If <code>None</code>, uses the default provided by
         </li>
         <li class="doc-section-item field-body">
           <b><code>min_iou</code></b>
-              (<code>float</code>, default:
+              (<code>Float</code>, default:
                   <code>0.5</code>
 )
           –
@@ -1462,21 +1546,21 @@ considered a true positive.</p>
 <p><span class="doc-section-title">Returns:</span></p>
     <ul>
         <li class="doc-section-item field-body">
-              <code>JsonT</code>
+              <code>Json</code>
           –
           <div class="doc-md-description">
             <p>A list of dictionaries, one per label class, with the following structure:</p>
           </div>
         </li>
         <li class="doc-section-item field-body">
-              <code>JsonT</code>
+              <code>Json</code>
           –
           <div class="doc-md-description">
             <p>```python</p>
           </div>
         </li>
         <li class="doc-section-item field-body">
-              <code>JsonT</code>
+              <code>Json</code>
           –
           <div class="doc-md-description">
             <p>{
@@ -1491,14 +1575,14 @@ considered a true positive.</p>
           </div>
         </li>
         <li class="doc-section-item field-body">
-              <code>JsonT</code>
+              <code>Json</code>
           –
           <div class="doc-md-description">
             <p>}</p>
           </div>
         </li>
         <li class="doc-section-item field-body">
-              <code>JsonT</code>
+              <code>Json</code>
           –
           <div class="doc-md-description">
             <p>```</p>

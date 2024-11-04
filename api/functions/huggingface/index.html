@@ -14,7 +14,7 @@
         <link rel="prev" href="../fireworks/">
       
       
-        <link rel="next" href="../mistralai/">
+        <link rel="next" href="../llama_cpp/">
       
       
       <link rel="icon" href="../../../assets/images/favicon.png">
@@ -470,6 +470,27 @@
   
   <span class="md-ellipsis">
     Table
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../update-status/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    UpdateStatus
   </span>
   
 
@@ -938,6 +959,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../llama_cpp/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    llama_cpp
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../mistralai/" class="md-nav__link">
         
   
@@ -959,11 +1001,53 @@
   
   
     <li class="md-nav__item">
+      <a href="../ollama/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    ollama
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../openai/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
     openai
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../replicate/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    replicate
   </span>
   
 
@@ -1269,7 +1353,7 @@ UDFs).</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">clip_image</span><span class="p">(</span><span class="n">image</span><span class="p">:</span> <span class="n">ImageT</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ArrayT</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">clip_image</span><span class="p">(</span><span class="n">image</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model_id</span><span class="p">:</span> <span class="n">String</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Array</span><span class="p">[(</span><span class="kc">None</span><span class="p">,),</span> <span class="n">Float</span><span class="p">]</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1286,7 +1370,7 @@ UDFs).</p>
     <ul>
         <li class="doc-section-item field-body">
           <b><code>image</code></b>
-              (<code>ImageT</code>)
+              (<code>Image</code>)
           –
           <div class="doc-md-description">
             <p>The image to embed.</p>
@@ -1294,7 +1378,7 @@ UDFs).</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>model_id</code></b>
-              (<code>str</code>)
+              (<code>String</code>)
           –
           <div class="doc-md-description">
             <p>The pretrained model to use for the embedding.</p>
@@ -1306,7 +1390,7 @@ UDFs).</p>
 <p><span class="doc-section-title">Returns:</span></p>
     <ul>
         <li class="doc-section-item field-body">
-              <code>ArrayT</code>
+              <code>Array[(None,), Float]</code>
           –
           <div class="doc-md-description">
             <p>An array containing the output of the embedding model.</p>
@@ -1333,7 +1417,7 @@ Pixeltable column <code>image</code> of the table <code>tbl</code>:</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">clip_text</span><span class="p">(</span><span class="n">text</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ArrayT</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">clip_text</span><span class="p">(</span><span class="n">text</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model_id</span><span class="p">:</span> <span class="n">String</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Array</span><span class="p">[(</span><span class="kc">None</span><span class="p">,),</span> <span class="n">Float</span><span class="p">]</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1350,7 +1434,7 @@ Pixeltable column <code>image</code> of the table <code>tbl</code>:</p>
     <ul>
         <li class="doc-section-item field-body">
           <b><code>text</code></b>
-              (<code>str</code>)
+              (<code>String</code>)
           –
           <div class="doc-md-description">
             <p>The string to embed.</p>
@@ -1358,7 +1442,7 @@ Pixeltable column <code>image</code> of the table <code>tbl</code>:</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>model_id</code></b>
-              (<code>str</code>)
+              (<code>String</code>)
           –
           <div class="doc-md-description">
             <p>The pretrained model to use for the embedding.</p>
@@ -1370,7 +1454,7 @@ Pixeltable column <code>image</code> of the table <code>tbl</code>:</p>
 <p><span class="doc-section-title">Returns:</span></p>
     <ul>
         <li class="doc-section-item field-body">
-              <code>ArrayT</code>
+              <code>Array[(None,), Float]</code>
           –
           <div class="doc-md-description">
             <p>An array containing the output of the embedding model.</p>
@@ -1397,7 +1481,9 @@ Pixeltable column <code>tbl.text</code> of the table <code>tbl</code>:</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">cross_encoder</span><span class="p">(</span><span class="n">sentences1</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">sentences2</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">cross_encoder</span><span class="p">(</span>
+    <span class="n">sentences1</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">sentences2</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model_id</span><span class="p">:</span> <span class="n">String</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Float</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1416,7 +1502,7 @@ documentation.</p>
     <ul>
         <li class="doc-section-item field-body">
           <b><code>sentences1</code></b>
-              (<code>str</code>)
+              (<code>String</code>)
           –
           <div class="doc-md-description">
             <p>The first sentence to be paired.</p>
@@ -1424,7 +1510,7 @@ documentation.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>sentences2</code></b>
-              (<code>str</code>)
+              (<code>String</code>)
           –
           <div class="doc-md-description">
             <p>The second sentence to be paired.</p>
@@ -1432,7 +1518,7 @@ documentation.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>model_id</code></b>
-              (<code>str</code>)
+              (<code>String</code>)
           –
           <div class="doc-md-description">
             <p>The identifier of the cross-encoder model to use.</p>
@@ -1444,7 +1530,7 @@ documentation.</p>
 <p><span class="doc-section-title">Returns:</span></p>
     <ul>
         <li class="doc-section-item field-body">
-              <code>float</code>
+              <code>Float</code>
           –
           <div class="doc-md-description">
             <p>The similarity score between the inputs.</p>
@@ -1474,8 +1560,8 @@ columns <code>tbl.sentence1</code> and <code>tbl.sentence2</code>:</p>
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">detr_for_object_detection</span><span class="p">(</span>
-    <span class="n">image</span><span class="p">:</span> <span class="n">ImageT</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">threshold</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.5</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">JsonT</span>
+    <span class="n">image</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model_id</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">threshold</span><span class="p">:</span> <span class="n">Float</span> <span class="o">=</span> <span class="mf">0.5</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1492,7 +1578,7 @@ columns <code>tbl.sentence1</code> and <code>tbl.sentence2</code>:</p>
     <ul>
         <li class="doc-section-item field-body">
           <b><code>image</code></b>
-              (<code>ImageT</code>)
+              (<code>Image</code>)
           –
           <div class="doc-md-description">
             <p>The image to embed.</p>
@@ -1500,7 +1586,7 @@ columns <code>tbl.sentence1</code> and <code>tbl.sentence2</code>:</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>model_id</code></b>
-              (<code>str</code>)
+              (<code>String</code>)
           –
           <div class="doc-md-description">
             <p>The pretrained model to use for object detection.</p>
@@ -1512,7 +1598,7 @@ columns <code>tbl.sentence1</code> and <code>tbl.sentence2</code>:</p>
 <p><span class="doc-section-title">Returns:</span></p>
     <ul>
         <li class="doc-section-item field-body">
-              <code>JsonT</code>
+              <code>Json</code>
           –
           <div class="doc-md-description">
             <p>A dictionary containing the output of the object detection model, in the following format:</p>
@@ -1551,7 +1637,7 @@ Pixeltable column <code>image</code> of the table <code>tbl</code>:</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">detr_to_coco</span><span class="p">(</span><span class="n">image</span><span class="p">:</span> <span class="n">ImageT</span><span class="p">,</span> <span class="n">detr_info</span><span class="p">:</span> <span class="n">JsonT</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">JsonT</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">detr_to_coco</span><span class="p">(</span><span class="n">image</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">detr_info</span><span class="p">:</span> <span class="n">Json</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1563,7 +1649,7 @@ Pixeltable column <code>image</code> of the table <code>tbl</code>:</p>
     <ul>
         <li class="doc-section-item field-body">
           <b><code>image</code></b>
-              (<code>ImageT</code>)
+              (<code>Image</code>)
           –
           <div class="doc-md-description">
             <p>The image for which detections were computed.</p>
@@ -1571,7 +1657,7 @@ Pixeltable column <code>image</code> of the table <code>tbl</code>:</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>detr_info</code></b>
-              (<code>JsonT</code>)
+              (<code>Json</code>)
           –
           <div class="doc-md-description">
             <p>The output of a DETR object detection model, as returned by <code>detr_for_object_detection</code>.</p>
@@ -1583,7 +1669,7 @@ Pixeltable column <code>image</code> of the table <code>tbl</code>:</p>
 <p><span class="doc-section-title">Returns:</span></p>
     <ul>
         <li class="doc-section-item field-body">
-              <code>JsonT</code>
+              <code>Json</code>
           –
           <div class="doc-md-description">
             <p>A dictionary containing the data from <code>detr_info</code>, converted to COCO format.</p>
@@ -1611,8 +1697,8 @@ is the image for which detections were computed:</p>
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">sentence_transformer</span><span class="p">(</span>
-    <span class="n">sentence</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">normalize_embeddings</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ArrayT</span>
+    <span class="n">sentence</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model_id</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">normalize_embeddings</span><span class="p">:</span> <span class="n">Bool</span> <span class="o">=</span> <span class="kc">False</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Array</span><span class="p">[(</span><span class="kc">None</span><span class="p">,),</span> <span class="n">Float</span><span class="p">]</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1630,7 +1716,7 @@ documentation.</p>
     <ul>
         <li class="doc-section-item field-body">
           <b><code>sentence</code></b>
-              (<code>str</code>)
+              (<code>String</code>)
           –
           <div class="doc-md-description">
             <p>The sentence to embed.</p>
@@ -1638,7 +1724,7 @@ documentation.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>model_id</code></b>
-              (<code>str</code>)
+              (<code>String</code>)
           –
           <div class="doc-md-description">
             <p>The pretrained model to use for the encoding.</p>
@@ -1646,7 +1732,7 @@ documentation.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>normalize_embeddings</code></b>
-              (<code>bool</code>, default:
+              (<code>Bool</code>, default:
                   <code>False</code>
 )
           –
@@ -1662,7 +1748,7 @@ for more details</p>
 <p><span class="doc-section-title">Returns:</span></p>
     <ul>
         <li class="doc-section-item field-body">
-              <code>ArrayT</code>
+              <code>Array[(None,), Float]</code>
           –
           <div class="doc-md-description">
             <p>An array containing the output of the embedding model.</p>
@@ -1690,8 +1776,8 @@ of the table <code>tbl</code>:</p>
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">vit_for_image_classification</span><span class="p">(</span>
-    <span class="n">image</span><span class="p">:</span> <span class="n">ImageT</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">top_k</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">5</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">JsonT</span>
+    <span class="n">image</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model_id</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">top_k</span><span class="p">:</span> <span class="n">Int</span> <span class="o">=</span> <span class="mi">5</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1713,7 +1799,7 @@ class), such as <code>google/vit-base-patch16-224</code>. General feature-extrac
     <ul>
         <li class="doc-section-item field-body">
           <b><code>image</code></b>
-              (<code>ImageT</code>)
+              (<code>Image</code>)
           –
           <div class="doc-md-description">
             <p>The image to classify.</p>
@@ -1721,7 +1807,7 @@ class), such as <code>google/vit-base-patch16-224</code>. General feature-extrac
         </li>
         <li class="doc-section-item field-body">
           <b><code>model_id</code></b>
-              (<code>str</code>)
+              (<code>String</code>)
           –
           <div class="doc-md-description">
             <p>The pretrained model to use for the classification.</p>
@@ -1729,7 +1815,7 @@ class), such as <code>google/vit-base-patch16-224</code>. General feature-extrac
         </li>
         <li class="doc-section-item field-body">
           <b><code>top_k</code></b>
-              (<code>int</code>, default:
+              (<code>Int</code>, default:
                   <code>5</code>
 )
           –
@@ -1743,17 +1829,35 @@ class), such as <code>google/vit-base-patch16-224</code>. General feature-extrac
 <p><span class="doc-section-title">Returns:</span></p>
     <ul>
         <li class="doc-section-item field-body">
-              <code>JsonT</code>
+              <code>Json</code>
           –
           <div class="doc-md-description">
-            <p>A list of the <code>top_k</code> highest-scoring classes for each image. Each element in the list is a dictionary
-in the following format:</p>
-<pre><code class="language-python">{
-    'p': 0.230,  # class probability
-    'class': 935,  # class ID
-    'label': 'mashed potato',  # class label
-}
-</code></pre>
+            <p>A dictionary containing the output of the image classification model, in the following format:</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+              <code>Json</code>
+          –
+          <div class="doc-md-description">
+            <p>```python</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+              <code>Json</code>
+          –
+          <div class="doc-md-description">
+            <p>{
+'scores': [0.325, 0.198, 0.105],  # list of probabilities of the top-k most likely classes
+'labels': [340, 353, 386],  # list of class IDs for the top-k most likely classes
+'label_text': ['zebra', 'gazelle', 'African elephant, Loxodonta africana'],
+    # corresponding text names of the top-k most likely classes</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+              <code>Json</code>
+          –
+          <div class="doc-md-description">
+            <p>```</p>
           </div>
         </li>
     </ul>
@@ -1761,10 +1865,11 @@ in the following format:</p>
 
 <p><span class="doc-section-title">Examples:</span></p>
     <p>Add a computed column that applies the model <code>google/vit-base-patch16-224</code> to an existing
-Pixeltable column <code>image</code> of the table <code>tbl</code>:</p>
+Pixeltable column <code>image</code> of the table <code>tbl</code>, returning the 10 most likely classes for each image:</p>
     <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="p">[</span><span class="s1">&#39;image_class&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">vit_for_image_classification</span><span class="p">(</span>
 <span class="gp">... </span>    <span class="n">tbl</span><span class="o">.</span><span class="n">image</span><span class="p">,</span>
-<span class="gp">... </span>    <span class="n">model_id</span><span class="o">=</span><span class="s1">&#39;google/vit-base-patch16-224&#39;</span>
+<span class="gp">... </span>    <span class="n">model_id</span><span class="o">=</span><span class="s1">&#39;google/vit-base-patch16-224&#39;</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">top_k</span><span class="o">=</span><span class="mi">10</span>
 <span class="gp">... </span><span class="p">)</span>
 </code></pre></div>
 

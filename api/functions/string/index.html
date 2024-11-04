@@ -479,6 +479,27 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../update-status/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    UpdateStatus
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -846,6 +867,15 @@
   <a href="#pixeltable.functions.string.isupper" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;isupper
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.join" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;join
     </span>
   </a>
   
@@ -1316,6 +1346,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../llama_cpp/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    llama_cpp
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../mistralai/" class="md-nav__link">
         
   
@@ -1337,11 +1388,53 @@
   
   
     <li class="md-nav__item">
+      <a href="../ollama/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    ollama
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../openai/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
     openai
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../replicate/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    replicate
   </span>
   
 
@@ -1726,6 +1819,15 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#pixeltable.functions.string.join" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;join
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#pixeltable.functions.string.len" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;len
@@ -2029,7 +2131,7 @@ t.select(pxt_str.capitalize(t.str_col)).collect()
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">capitalize</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">capitalize</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">String</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2049,7 +2151,7 @@ t.select(pxt_str.capitalize(t.str_col)).collect()
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">casefold</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">casefold</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">String</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2069,7 +2171,7 @@ t.select(pxt_str.capitalize(t.str_col)).collect()
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">center</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">width</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">fillchar</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39; &#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">center</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">width</span><span class="p">:</span> <span class="n">Int</span><span class="p">,</span> <span class="n">fillchar</span><span class="p">:</span> <span class="n">String</span> <span class="o">=</span> <span class="s1">&#39; &#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">String</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2082,7 +2184,7 @@ t.select(pxt_str.capitalize(t.str_col)).collect()
     <ul>
         <li class="doc-section-item field-body">
           <b><code>width</code></b>
-              (<code>int</code>)
+              (<code>Int</code>)
           –
           <div class="doc-md-description">
             <p>Total width of the resulting string.</p>
@@ -2090,7 +2192,7 @@ t.select(pxt_str.capitalize(t.str_col)).collect()
         </li>
         <li class="doc-section-item field-body">
           <b><code>fillchar</code></b>
-              (<code>str</code>, default:
+              (<code>String</code>, default:
                   <code>&#39; &#39;</code>
 )
           –
@@ -2113,12 +2215,12 @@ t.select(pxt_str.capitalize(t.str_col)).collect()
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">contains</span><span class="p">(</span>
-    <span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-    <span class="n">pattern</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-    <span class="n">case</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
-    <span class="n">flags</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
-    <span class="n">regex</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
+    <span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
+    <span class="n">pattern</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
+    <span class="n">case</span><span class="p">:</span> <span class="n">Bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="n">flags</span><span class="p">:</span> <span class="n">Int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+    <span class="n">regex</span><span class="p">:</span> <span class="n">Bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Bool</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2130,7 +2232,7 @@ t.select(pxt_str.capitalize(t.str_col)).collect()
     <ul>
         <li class="doc-section-item field-body">
           <b><code>pattern</code></b>
-              (<code>str</code>)
+              (<code>String</code>)
           –
           <div class="doc-md-description">
             <p>string literal or regular expression</p>
@@ -2138,7 +2240,7 @@ t.select(pxt_str.capitalize(t.str_col)).collect()
         </li>
         <li class="doc-section-item field-body">
           <b><code>case</code></b>
-              (<code>bool</code>, default:
+              (<code>Bool</code>, default:
                   <code>True</code>
 )
           –
@@ -2148,7 +2250,7 @@ t.select(pxt_str.capitalize(t.str_col)).collect()
         </li>
         <li class="doc-section-item field-body">
           <b><code>flags</code></b>
-              (<code>int</code>, default:
+              (<code>Int</code>, default:
                   <code>0</code>
 )
           –
@@ -2158,7 +2260,7 @@ t.select(pxt_str.capitalize(t.str_col)).collect()
         </li>
         <li class="doc-section-item field-body">
           <b><code>regex</code></b>
-              (<code>bool</code>, default:
+              (<code>Bool</code>, default:
                   <code>True</code>
 )
           –
@@ -2180,7 +2282,7 @@ t.select(pxt_str.capitalize(t.str_col)).collect()
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">count</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">pattern</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">flags</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">count</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">pattern</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">flags</span><span class="p">:</span> <span class="n">Int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Int</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2192,7 +2294,7 @@ t.select(pxt_str.capitalize(t.str_col)).collect()
     <ul>
         <li class="doc-section-item field-body">
           <b><code>pattern</code></b>
-              (<code>str</code>)
+              (<code>String</code>)
           –
           <div class="doc-md-description">
             <p>string literal or regular expression</p>
@@ -2200,7 +2302,7 @@ t.select(pxt_str.capitalize(t.str_col)).collect()
         </li>
         <li class="doc-section-item field-body">
           <b><code>flags</code></b>
-              (<code>int</code>, default:
+              (<code>Int</code>, default:
                   <code>0</code>
 )
           –
@@ -2222,7 +2324,7 @@ t.select(pxt_str.capitalize(t.str_col)).collect()
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">endswith</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">pattern</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">endswith</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">pattern</span><span class="p">:</span> <span class="n">String</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Bool</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2235,7 +2337,7 @@ t.select(pxt_str.capitalize(t.str_col)).collect()
     <ul>
         <li class="doc-section-item field-body">
           <b><code>pattern</code></b>
-              (<code>str</code>)
+              (<code>String</code>)
           –
           <div class="doc-md-description">
             <p>string literal</p>
@@ -2255,7 +2357,7 @@ t.select(pxt_str.capitalize(t.str_col)).collect()
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">fill</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">width</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">fill</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">width</span><span class="p">:</span> <span class="n">Int</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">String</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2268,7 +2370,7 @@ t.select(pxt_str.capitalize(t.str_col)).collect()
     <ul>
         <li class="doc-section-item field-body">
           <b><code>width</code></b>
-              (<code>int</code>)
+              (<code>Int</code>)
           –
           <div class="doc-md-description">
             <p>Maximum line width.</p>
@@ -2299,8 +2401,11 @@ t.select(pxt_str.capitalize(t.str_col)).collect()
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">find</span><span class="p">(</span>
-    <span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">substr</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">start</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">end</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span>
+    <span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
+    <span class="n">substr</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
+    <span class="n">start</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+    <span class="n">end</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Int</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2313,7 +2418,7 @@ t.select(pxt_str.capitalize(t.str_col)).collect()
     <ul>
         <li class="doc-section-item field-body">
           <b><code>substr</code></b>
-              (<code>str</code>)
+              (<code>String</code>)
           –
           <div class="doc-md-description">
             <p>substring to search for</p>
@@ -2321,7 +2426,7 @@ t.select(pxt_str.capitalize(t.str_col)).collect()
         </li>
         <li class="doc-section-item field-body">
           <b><code>start</code></b>
-              (<code>Optional[int]</code>, default:
+              (<code>Optional[Int]</code>, default:
                   <code>0</code>
 )
           –
@@ -2331,7 +2436,7 @@ t.select(pxt_str.capitalize(t.str_col)).collect()
         </li>
         <li class="doc-section-item field-body">
           <b><code>end</code></b>
-              (<code>Optional[int]</code>, default:
+              (<code>Optional[Int]</code>, default:
                   <code>None</code>
 )
           –
@@ -2353,7 +2458,7 @@ t.select(pxt_str.capitalize(t.str_col)).collect()
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">findall</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">pattern</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">flags</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">JsonT</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">findall</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">pattern</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">flags</span><span class="p">:</span> <span class="n">Int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2366,7 +2471,7 @@ t.select(pxt_str.capitalize(t.str_col)).collect()
     <ul>
         <li class="doc-section-item field-body">
           <b><code>pattern</code></b>
-              (<code>str</code>)
+              (<code>String</code>)
           –
           <div class="doc-md-description">
             <p>regular expression pattern</p>
@@ -2374,7 +2479,7 @@ t.select(pxt_str.capitalize(t.str_col)).collect()
         </li>
         <li class="doc-section-item field-body">
           <b><code>flags</code></b>
-              (<code>int</code>, default:
+              (<code>Int</code>, default:
                   <code>0</code>
 )
           –
@@ -2396,7 +2501,7 @@ t.select(pxt_str.capitalize(t.str_col)).collect()
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nb">format</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">*</span><span class="nf">args</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nb">format</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nf">String</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">String</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2416,7 +2521,9 @@ t.select(pxt_str.capitalize(t.str_col)).collect()
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">fullmatch</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">pattern</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">case</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">flags</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">fullmatch</span><span class="p">(</span>
+    <span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">pattern</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">case</span><span class="p">:</span> <span class="n">Bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">flags</span><span class="p">:</span> <span class="n">Int</span> <span class="o">=</span> <span class="mi">0</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Bool</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2429,7 +2536,7 @@ t.select(pxt_str.capitalize(t.str_col)).collect()
     <ul>
         <li class="doc-section-item field-body">
           <b><code>pattern</code></b>
-              (<code>str</code>)
+              (<code>String</code>)
           –
           <div class="doc-md-description">
             <p>regular expression pattern</p>
@@ -2437,7 +2544,7 @@ t.select(pxt_str.capitalize(t.str_col)).collect()
         </li>
         <li class="doc-section-item field-body">
           <b><code>case</code></b>
-              (<code>bool</code>, default:
+              (<code>Bool</code>, default:
                   <code>True</code>
 )
           –
@@ -2447,7 +2554,7 @@ t.select(pxt_str.capitalize(t.str_col)).collect()
         </li>
         <li class="doc-section-item field-body">
           <b><code>flags</code></b>
-              (<code>int</code>, default:
+              (<code>Int</code>, default:
                   <code>0</code>
 )
           –
@@ -2470,8 +2577,11 @@ t.select(pxt_str.capitalize(t.str_col)).collect()
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">index</span><span class="p">(</span>
-    <span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">substr</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">start</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">end</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span>
+    <span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
+    <span class="n">substr</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
+    <span class="n">start</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+    <span class="n">end</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Int</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2485,7 +2595,7 @@ Raises ValueError if <code>substr</code> is not found.</p>
     <ul>
         <li class="doc-section-item field-body">
           <b><code>substr</code></b>
-              (<code>str</code>)
+              (<code>String</code>)
           –
           <div class="doc-md-description">
             <p>substring to search for</p>
@@ -2493,7 +2603,7 @@ Raises ValueError if <code>substr</code> is not found.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>start</code></b>
-              (<code>Optional[int]</code>, default:
+              (<code>Optional[Int]</code>, default:
                   <code>0</code>
 )
           –
@@ -2503,7 +2613,7 @@ Raises ValueError if <code>substr</code> is not found.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>end</code></b>
-              (<code>Optional[int]</code>, default:
+              (<code>Optional[Int]</code>, default:
                   <code>None</code>
 )
           –
@@ -2525,7 +2635,7 @@ Raises ValueError if <code>substr</code> is not found.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">isalnum</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">isalnum</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Bool</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2546,7 +2656,7 @@ otherwise.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">isalpha</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">isalpha</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Bool</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2566,7 +2676,7 @@ otherwise.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">isascii</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">isascii</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Bool</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2586,7 +2696,7 @@ otherwise.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">isdecimal</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">isdecimal</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Bool</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2607,7 +2717,7 @@ otherwise.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">isdigit</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">isdigit</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Bool</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2627,7 +2737,7 @@ otherwise.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">isidentifier</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">isidentifier</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Bool</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2647,7 +2757,7 @@ otherwise.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">islower</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">islower</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Bool</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2667,7 +2777,7 @@ otherwise.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">isnumeric</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">isnumeric</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Bool</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2687,7 +2797,7 @@ otherwise.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">isspace</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">isspace</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Bool</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2707,7 +2817,7 @@ otherwise.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">istitle</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">istitle</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Bool</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2727,7 +2837,7 @@ otherwise.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">isupper</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">isupper</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Bool</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2742,12 +2852,32 @@ otherwise.</p>
 <div class="doc doc-object doc-function">
 
 
+<h3 id="pixeltable.functions.string.join" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">join</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">join</span><span class="p">(</span><span class="n">sep</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">elements</span><span class="p">:</span> <span class="n">Json</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">String</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return a string which is the concatenation of the strings in <code>elements</code>.</p>
+<p>Equivalent to <a href="https://docs.python.org/3/library/stdtypes.html#str.join"><code>str.join()</code></a></p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
 <h3 id="pixeltable.functions.string.len" class="doc doc-heading">
 <code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">len</span>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nf">String</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Int</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2767,7 +2897,7 @@ otherwise.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">ljust</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">width</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">fillchar</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39; &#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">ljust</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">width</span><span class="p">:</span> <span class="n">Int</span><span class="p">,</span> <span class="n">fillchar</span><span class="p">:</span> <span class="n">String</span> <span class="o">=</span> <span class="s1">&#39; &#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">String</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2780,7 +2910,7 @@ otherwise.</p>
     <ul>
         <li class="doc-section-item field-body">
           <b><code>width</code></b>
-              (<code>int</code>)
+              (<code>Int</code>)
           –
           <div class="doc-md-description">
             <p>Minimum width of resulting string; additional characters will be filled with character defined in <code>fillchar</code>.</p>
@@ -2788,7 +2918,7 @@ otherwise.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>fillchar</code></b>
-              (<code>str</code>, default:
+              (<code>String</code>, default:
                   <code>&#39; &#39;</code>
 )
           –
@@ -2810,7 +2940,7 @@ otherwise.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">lower</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">lower</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">String</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2830,7 +2960,7 @@ otherwise.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">lstrip</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">chars</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">lstrip</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">chars</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">String</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2844,7 +2974,7 @@ characters to be removed. If omitted or <code>None</code>, whitespace characters
     <ul>
         <li class="doc-section-item field-body">
           <b><code>chars</code></b>
-              (<code>Optional[str]</code>, default:
+              (<code>Optional[String]</code>, default:
                   <code>None</code>
 )
           –
@@ -2866,7 +2996,7 @@ characters to be removed. If omitted or <code>None</code>, whitespace characters
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="k">match</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="nf">pattern</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">case</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">flags</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="k">match</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nf">String</span><span class="p">,</span> <span class="n">pattern</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">case</span><span class="p">:</span> <span class="n">Bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">flags</span><span class="p">:</span> <span class="n">Int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Bool</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2878,7 +3008,7 @@ characters to be removed. If omitted or <code>None</code>, whitespace characters
     <ul>
         <li class="doc-section-item field-body">
           <b><code>pattern</code></b>
-              (<code>str</code>)
+              (<code>String</code>)
           –
           <div class="doc-md-description">
             <p>regular expression pattern</p>
@@ -2886,7 +3016,7 @@ characters to be removed. If omitted or <code>None</code>, whitespace characters
         </li>
         <li class="doc-section-item field-body">
           <b><code>case</code></b>
-              (<code>bool</code>, default:
+              (<code>Bool</code>, default:
                   <code>True</code>
 )
           –
@@ -2896,7 +3026,7 @@ characters to be removed. If omitted or <code>None</code>, whitespace characters
         </li>
         <li class="doc-section-item field-body">
           <b><code>flags</code></b>
-              (<code>int</code>, default:
+              (<code>Int</code>, default:
                   <code>0</code>
 )
           –
@@ -2918,7 +3048,7 @@ characters to be removed. If omitted or <code>None</code>, whitespace characters
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">normalize</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">form</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">normalize</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">form</span><span class="p">:</span> <span class="n">String</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">String</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2931,7 +3061,7 @@ characters to be removed. If omitted or <code>None</code>, whitespace characters
     <ul>
         <li class="doc-section-item field-body">
           <b><code>form</code></b>
-              (<code>str</code>)
+              (<code>String</code>)
           –
           <div class="doc-md-description">
             <p>Unicode normal form (<code>‘NFC’</code>, <code>‘NFKC’</code>, <code>‘NFD’</code>, <code>‘NFKD’</code>)</p>
@@ -2951,7 +3081,9 @@ characters to be removed. If omitted or <code>None</code>, whitespace characters
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">pad</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">width</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">side</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;left&#39;</span><span class="p">,</span> <span class="n">fillchar</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39; &#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">pad</span><span class="p">(</span>
+    <span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">width</span><span class="p">:</span> <span class="n">Int</span><span class="p">,</span> <span class="n">side</span><span class="p">:</span> <span class="n">String</span> <span class="o">=</span> <span class="s2">&quot;left&quot;</span><span class="p">,</span> <span class="n">fillchar</span><span class="p">:</span> <span class="n">String</span> <span class="o">=</span> <span class="s2">&quot; &quot;</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">String</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2963,7 +3095,7 @@ characters to be removed. If omitted or <code>None</code>, whitespace characters
     <ul>
         <li class="doc-section-item field-body">
           <b><code>width</code></b>
-              (<code>int</code>)
+              (<code>Int</code>)
           –
           <div class="doc-md-description">
             <p>Minimum width of resulting string; additional characters will be filled with character defined in <code>fillchar</code>.</p>
@@ -2971,7 +3103,7 @@ characters to be removed. If omitted or <code>None</code>, whitespace characters
         </li>
         <li class="doc-section-item field-body">
           <b><code>side</code></b>
-              (<code>str</code>, default:
+              (<code>String</code>, default:
                   <code>&#39;left&#39;</code>
 )
           –
@@ -2981,7 +3113,7 @@ characters to be removed. If omitted or <code>None</code>, whitespace characters
         </li>
         <li class="doc-section-item field-body">
           <b><code>fillchar</code></b>
-              (<code>str</code>, default:
+              (<code>String</code>, default:
                   <code>&#39; &#39;</code>
 )
           –
@@ -3003,7 +3135,7 @@ characters to be removed. If omitted or <code>None</code>, whitespace characters
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">partition</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">sep</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39; &#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">JsonT</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">partition</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">sep</span><span class="p">:</span> <span class="n">String</span> <span class="o">=</span> <span class="s1">&#39; &#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -3024,7 +3156,7 @@ containing string itself, followed by two empty strings.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">removeprefix</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">prefix</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">removeprefix</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">prefix</span><span class="p">:</span> <span class="n">String</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">String</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -3043,7 +3175,7 @@ containing string itself, followed by two empty strings.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">removesuffix</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">suffix</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">removesuffix</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">suffix</span><span class="p">:</span> <span class="n">String</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">String</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -3062,7 +3194,7 @@ containing string itself, followed by two empty strings.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">repeat</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">n</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">repeat</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">n</span><span class="p">:</span> <span class="n">Int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">String</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -3082,14 +3214,14 @@ containing string itself, followed by two empty strings.</p>
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">replace</span><span class="p">(</span>
-    <span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-    <span class="n">pattern</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-    <span class="n">repl</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-    <span class="n">n</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span>
-    <span class="n">case</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
-    <span class="n">flags</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
-    <span class="n">regex</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+    <span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
+    <span class="n">pattern</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
+    <span class="n">repl</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
+    <span class="n">n</span><span class="p">:</span> <span class="n">Int</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span>
+    <span class="n">case</span><span class="p">:</span> <span class="n">Bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="n">flags</span><span class="p">:</span> <span class="n">Int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+    <span class="n">regex</span><span class="p">:</span> <span class="n">Bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">String</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -3103,7 +3235,7 @@ containing string itself, followed by two empty strings.</p>
     <ul>
         <li class="doc-section-item field-body">
           <b><code>pattern</code></b>
-              (<code>str</code>)
+              (<code>String</code>)
           –
           <div class="doc-md-description">
             <p>string literal or regular expression</p>
@@ -3111,7 +3243,7 @@ containing string itself, followed by two empty strings.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>repl</code></b>
-              (<code>str</code>)
+              (<code>String</code>)
           –
           <div class="doc-md-description">
             <p>replacement string</p>
@@ -3119,7 +3251,7 @@ containing string itself, followed by two empty strings.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>n</code></b>
-              (<code>int</code>, default:
+              (<code>Int</code>, default:
                   <code>-1</code>
 )
           –
@@ -3129,7 +3261,7 @@ containing string itself, followed by two empty strings.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>case</code></b>
-              (<code>bool</code>, default:
+              (<code>Bool</code>, default:
                   <code>True</code>
 )
           –
@@ -3139,7 +3271,7 @@ containing string itself, followed by two empty strings.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>flags</code></b>
-              (<code>int</code>, default:
+              (<code>Int</code>, default:
                   <code>0</code>
 )
           –
@@ -3149,7 +3281,7 @@ containing string itself, followed by two empty strings.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>regex</code></b>
-              (<code>bool</code>, default:
+              (<code>Bool</code>, default:
                   <code>False</code>
 )
           –
@@ -3172,8 +3304,11 @@ containing string itself, followed by two empty strings.</p>
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">rfind</span><span class="p">(</span>
-    <span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">substr</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">start</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">end</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span>
+    <span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
+    <span class="n">substr</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
+    <span class="n">start</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+    <span class="n">end</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Int</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -3186,7 +3321,7 @@ containing string itself, followed by two empty strings.</p>
     <ul>
         <li class="doc-section-item field-body">
           <b><code>substr</code></b>
-              (<code>str</code>)
+              (<code>String</code>)
           –
           <div class="doc-md-description">
             <p>substring to search for</p>
@@ -3194,7 +3329,7 @@ containing string itself, followed by two empty strings.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>start</code></b>
-              (<code>Optional[int]</code>, default:
+              (<code>Optional[Int]</code>, default:
                   <code>0</code>
 )
           –
@@ -3204,7 +3339,7 @@ containing string itself, followed by two empty strings.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>end</code></b>
-              (<code>Optional[int]</code>, default:
+              (<code>Optional[Int]</code>, default:
                   <code>None</code>
 )
           –
@@ -3227,8 +3362,11 @@ containing string itself, followed by two empty strings.</p>
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">rindex</span><span class="p">(</span>
-    <span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">substr</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">start</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">end</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span>
+    <span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
+    <span class="n">substr</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
+    <span class="n">start</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+    <span class="n">end</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Int</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -3249,7 +3387,7 @@ Raises ValueError if <code>substr</code> is not found.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">rjust</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">width</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">fillchar</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39; &#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">rjust</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">width</span><span class="p">:</span> <span class="n">Int</span><span class="p">,</span> <span class="n">fillchar</span><span class="p">:</span> <span class="n">String</span> <span class="o">=</span> <span class="s1">&#39; &#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">String</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -3262,7 +3400,7 @@ Raises ValueError if <code>substr</code> is not found.</p>
     <ul>
         <li class="doc-section-item field-body">
           <b><code>width</code></b>
-              (<code>int</code>)
+              (<code>Int</code>)
           –
           <div class="doc-md-description">
             <p>Minimum width of resulting string.</p>
@@ -3270,7 +3408,7 @@ Raises ValueError if <code>substr</code> is not found.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>fillchar</code></b>
-              (<code>str</code>, default:
+              (<code>String</code>, default:
                   <code>&#39; &#39;</code>
 )
           –
@@ -3292,7 +3430,7 @@ Raises ValueError if <code>substr</code> is not found.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">rpartition</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">sep</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39; &#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">JsonT</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">rpartition</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">sep</span><span class="p">:</span> <span class="n">String</span> <span class="o">=</span> <span class="s1">&#39; &#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -3312,7 +3450,7 @@ separator, the separator itself, and the part after the separator.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">rstrip</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">chars</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">rstrip</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">chars</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">String</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -3325,7 +3463,7 @@ separator, the separator itself, and the part after the separator.</p>
     <ul>
         <li class="doc-section-item field-body">
           <b><code>chars</code></b>
-              (<code>Optional[str]</code>, default:
+              (<code>Optional[String]</code>, default:
                   <code>None</code>
 )
           –
@@ -3348,11 +3486,11 @@ separator, the separator itself, and the part after the separator.</p>
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nb">slice</span><span class="p">(</span>
-    <span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-    <span class="nf">start</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">stop</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">step</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+    <span class="bp">self</span><span class="p">:</span> <span class="nf">String</span><span class="p">,</span>
+    <span class="n">start</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">stop</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">step</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">String</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -3364,7 +3502,7 @@ separator, the separator itself, and the part after the separator.</p>
     <ul>
         <li class="doc-section-item field-body">
           <b><code>start</code></b>
-              (<code>Optional[int]</code>, default:
+              (<code>Optional[Int]</code>, default:
                   <code>None</code>
 )
           –
@@ -3374,7 +3512,7 @@ separator, the separator itself, and the part after the separator.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>stop</code></b>
-              (<code>Optional[int]</code>, default:
+              (<code>Optional[Int]</code>, default:
                   <code>None</code>
 )
           –
@@ -3384,7 +3522,7 @@ separator, the separator itself, and the part after the separator.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>step</code></b>
-              (<code>Optional[int]</code>, default:
+              (<code>Optional[Int]</code>, default:
                   <code>None</code>
 )
           –
@@ -3407,11 +3545,11 @@ separator, the separator itself, and the part after the separator.</p>
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">slice_replace</span><span class="p">(</span>
-    <span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-    <span class="n">start</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">stop</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">repl</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+    <span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
+    <span class="n">start</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">stop</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">repl</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">String</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -3423,7 +3561,7 @@ separator, the separator itself, and the part after the separator.</p>
     <ul>
         <li class="doc-section-item field-body">
           <b><code>start</code></b>
-              (<code>Optional[int]</code>, default:
+              (<code>Optional[Int]</code>, default:
                   <code>None</code>
 )
           –
@@ -3433,7 +3571,7 @@ separator, the separator itself, and the part after the separator.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>stop</code></b>
-              (<code>Optional[int]</code>, default:
+              (<code>Optional[Int]</code>, default:
                   <code>None</code>
 )
           –
@@ -3443,7 +3581,7 @@ separator, the separator itself, and the part after the separator.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>repl</code></b>
-              (<code>Optional[str]</code>, default:
+              (<code>Optional[String]</code>, default:
                   <code>None</code>
 )
           –
@@ -3465,7 +3603,7 @@ separator, the separator itself, and the part after the separator.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">startswith</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">pattern</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">startswith</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">pattern</span><span class="p">:</span> <span class="n">String</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Int</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -3478,7 +3616,7 @@ separator, the separator itself, and the part after the separator.</p>
     <ul>
         <li class="doc-section-item field-body">
           <b><code>pattern</code></b>
-              (<code>str</code>)
+              (<code>String</code>)
           –
           <div class="doc-md-description">
             <p>string literal</p>
@@ -3498,7 +3636,7 @@ separator, the separator itself, and the part after the separator.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">strip</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">chars</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">strip</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">chars</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">String</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -3511,7 +3649,7 @@ separator, the separator itself, and the part after the separator.</p>
     <ul>
         <li class="doc-section-item field-body">
           <b><code>chars</code></b>
-              (<code>Optional[str]</code>, default:
+              (<code>Optional[String]</code>, default:
                   <code>None</code>
 )
           –
@@ -3533,7 +3671,7 @@ separator, the separator itself, and the part after the separator.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">swapcase</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">swapcase</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">String</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -3553,7 +3691,7 @@ separator, the separator itself, and the part after the separator.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">title</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">title</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">String</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -3574,7 +3712,7 @@ are lowercase.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">upper</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">upper</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">String</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -3594,7 +3732,7 @@ are lowercase.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">wrap</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">width</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">JsonT</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">wrap</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">width</span><span class="p">:</span> <span class="n">Int</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -3608,7 +3746,7 @@ Returns a list of output lines, without final newlines.</p>
     <ul>
         <li class="doc-section-item field-body">
           <b><code>width</code></b>
-              (<code>int</code>)
+              (<code>Int</code>)
           –
           <div class="doc-md-description">
             <p>Maximum line width.</p>
@@ -3638,7 +3776,7 @@ Returns a list of output lines, without final newlines.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">zfill</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">width</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">zfill</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">width</span><span class="p">:</span> <span class="n">Int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">String</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -3651,7 +3789,7 @@ Returns a list of output lines, without final newlines.</p>
     <ul>
         <li class="doc-section-item field-body">
           <b><code>width</code></b>
-              (<code>int</code>)
+              (<code>Int</code>)
           –
           <div class="doc-md-description">
             <p>Minimum width of resulting string.</p>

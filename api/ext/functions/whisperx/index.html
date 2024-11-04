@@ -479,6 +479,27 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../update-status/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    UpdateStatus
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -822,6 +843,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../../../functions/llama_cpp/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    llama_cpp
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../../functions/mistralai/" class="md-nav__link">
         
   
@@ -843,11 +885,53 @@
   
   
     <li class="md-nav__item">
+      <a href="../../../functions/ollama/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    ollama
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../../functions/openai/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
     openai
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../functions/replicate/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    replicate
   </span>
   
 
@@ -1156,13 +1240,13 @@
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">transcribe</span><span class="p">(</span>
-    <span class="n">audio</span><span class="p">:</span> <span class="n">AudioT</span><span class="p">,</span>
+    <span class="n">audio</span><span class="p">:</span> <span class="n">Audio</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">model</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-    <span class="n">compute_type</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">language</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">chunk_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">30</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">JsonT</span>
+    <span class="n">model</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
+    <span class="n">compute_type</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">language</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">chunk_size</span><span class="p">:</span> <span class="n">Int</span> <span class="o">=</span> <span class="mi">30</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1182,7 +1266,7 @@ equivalent to the WhisperX <code>transcribe</code> function, as described in the
     <ul>
         <li class="doc-section-item field-body">
           <b><code>audio</code></b>
-              (<code>AudioT</code>)
+              (<code>Audio</code>)
           –
           <div class="doc-md-description">
             <p>The audio file to transcribe.</p>
@@ -1190,7 +1274,7 @@ equivalent to the WhisperX <code>transcribe</code> function, as described in the
         </li>
         <li class="doc-section-item field-body">
           <b><code>model</code></b>
-              (<code>str</code>)
+              (<code>String</code>)
           –
           <div class="doc-md-description">
             <p>The name of the model to use for transcription.</p>
@@ -1204,7 +1288,7 @@ on the remaining parameters.</p>
 <p><span class="doc-section-title">Returns:</span></p>
     <ul>
         <li class="doc-section-item field-body">
-              <code>JsonT</code>
+              <code>Json</code>
           –
           <div class="doc-md-description">
             <p>A dictionary containing the transcription and various other metadata.</p>

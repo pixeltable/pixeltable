@@ -479,6 +479,27 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../update-status/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    UpdateStatus
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -759,6 +780,15 @@
   <a href="#pixeltable.functions.image.histogram" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;histogram
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.point" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;point
     </span>
   </a>
   
@@ -1082,6 +1112,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../llama_cpp/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    llama_cpp
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../mistralai/" class="md-nav__link">
         
   
@@ -1103,11 +1154,53 @@
   
   
     <li class="md-nav__item">
+      <a href="../ollama/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    ollama
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../openai/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
     openai
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../replicate/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    replicate
   </span>
   
 
@@ -1447,6 +1540,15 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.point" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;point
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#pixeltable.functions.image.quantize" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;quantize
@@ -1559,7 +1661,7 @@ t.select(t.img_col.convert('L')).collect()
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">alpha_composite</span><span class="p">(</span><span class="n">im1</span><span class="p">:</span> <span class="n">ImageT</span><span class="p">,</span> <span class="n">im2</span><span class="p">:</span> <span class="n">ImageT</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ImageT</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">alpha_composite</span><span class="p">(</span><span class="n">im1</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">im2</span><span class="p">:</span> <span class="n">Image</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Image</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1579,7 +1681,7 @@ t.select(t.img_col.convert('L')).collect()
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">b64_encode</span><span class="p">(</span><span class="n">img</span><span class="p">:</span> <span class="n">ImageT</span><span class="p">,</span> <span class="n">image_format</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;png&#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">b64_encode</span><span class="p">(</span><span class="n">img</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">image_format</span><span class="p">:</span> <span class="n">String</span> <span class="o">=</span> <span class="s1">&#39;png&#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">String</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1591,7 +1693,7 @@ t.select(t.img_col.convert('L')).collect()
     <ul>
         <li class="doc-section-item field-body">
           <b><code>img</code></b>
-              (<code>ImageT</code>)
+              (<code>Image</code>)
           –
           <div class="doc-md-description">
             <p>image</p>
@@ -1599,7 +1701,7 @@ t.select(t.img_col.convert('L')).collect()
         </li>
         <li class="doc-section-item field-body">
           <b><code>image_format</code></b>
-              (<code>str</code>, default:
+              (<code>String</code>, default:
                   <code>&#39;png&#39;</code>
 )
           –
@@ -1621,7 +1723,7 @@ t.select(t.img_col.convert('L')).collect()
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">blend</span><span class="p">(</span><span class="n">im1</span><span class="p">:</span> <span class="n">ImageT</span><span class="p">,</span> <span class="n">im2</span><span class="p">:</span> <span class="n">ImageT</span><span class="p">,</span> <span class="n">alpha</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ImageT</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">blend</span><span class="p">(</span><span class="n">im1</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">im2</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">alpha</span><span class="p">:</span> <span class="n">Float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Image</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1641,7 +1743,7 @@ t.select(t.img_col.convert('L')).collect()
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">composite</span><span class="p">(</span><span class="n">image1</span><span class="p">:</span> <span class="n">ImageT</span><span class="p">,</span> <span class="n">image2</span><span class="p">:</span> <span class="n">ImageT</span><span class="p">,</span> <span class="n">mask</span><span class="p">:</span> <span class="n">ImageT</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ImageT</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">composite</span><span class="p">(</span><span class="n">image1</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">image2</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">mask</span><span class="p">:</span> <span class="n">Image</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Image</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1661,7 +1763,7 @@ t.select(t.img_col.convert('L')).collect()
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">convert</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">ImageT</span><span class="p">,</span> <span class="n">mode</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ImageT</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">convert</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">mode</span><span class="p">:</span> <span class="n">String</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Image</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1675,7 +1777,7 @@ t.select(t.img_col.convert('L')).collect()
     <ul>
         <li class="doc-section-item field-body">
           <b><code>mode</code></b>
-              (<code>str</code>)
+              (<code>String</code>)
           –
           <div class="doc-md-description">
             <p>The mode to convert to. See the <a href="https://pillow.readthedocs.io/en/stable/handbook/concepts.html#concept-modes">Pillow documentation</a> for a list of supported modes.</p>
@@ -1695,7 +1797,7 @@ t.select(t.img_col.convert('L')).collect()
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">crop</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">ImageT</span><span class="p">,</span> <span class="n">box</span><span class="p">:</span> <span class="n">JsonT</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ImageT</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">crop</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">box</span><span class="p">:</span> <span class="n">Json</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Image</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1717,7 +1819,7 @@ coordinates.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">effect_spread</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">ImageT</span><span class="p">,</span> <span class="n">distance</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ImageT</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">effect_spread</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">distance</span><span class="p">:</span> <span class="n">Int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Image</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1731,7 +1833,7 @@ coordinates.</p>
     <ul>
         <li class="doc-section-item field-body">
           <b><code>distance</code></b>
-              (<code>int</code>)
+              (<code>Int</code>)
           –
           <div class="doc-md-description">
             <p>The distance to spread pixels.</p>
@@ -1752,8 +1854,8 @@ coordinates.</p>
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">entropy</span><span class="p">(</span>
-    <span class="bp">self</span><span class="p">:</span> <span class="n">ImageT</span><span class="p">,</span> <span class="n">mask</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">ImageT</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">extrema</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">JsonT</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span>
+    <span class="bp">self</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">mask</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Image</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">extrema</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Float</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1767,7 +1869,7 @@ coordinates.</p>
     <ul>
         <li class="doc-section-item field-body">
           <b><code>mask</code></b>
-              (<code>Optional[ImageT]</code>, default:
+              (<code>Optional[Image]</code>, default:
                   <code>None</code>
 )
           –
@@ -1777,7 +1879,7 @@ coordinates.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>extrema</code></b>
-              (<code>Optional[JsonT]</code>, default:
+              (<code>Optional[Json]</code>, default:
                   <code>None</code>
 )
           –
@@ -1799,7 +1901,7 @@ coordinates.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_metadata</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">ImageT</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">JsonT</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_metadata</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Image</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1818,7 +1920,7 @@ coordinates.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">getbands</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">ImageT</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">JsonT</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">getbands</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Image</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1839,7 +1941,7 @@ coordinates.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">getbbox</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">ImageT</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">alpha_only</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">JsonT</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">getbbox</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">alpha_only</span><span class="p">:</span> <span class="n">Bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1852,7 +1954,7 @@ coordinates.</p>
     <ul>
         <li class="doc-section-item field-body">
           <b><code>alpha_only</code></b>
-              (<code>bool</code>, default:
+              (<code>Bool</code>, default:
                   <code>True</code>
 )
           –
@@ -1874,7 +1976,7 @@ coordinates.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">getchannel</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">ImageT</span><span class="p">,</span> <span class="n">channel</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ImageT</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">getchannel</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">channel</span><span class="p">:</span> <span class="n">Int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Image</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1888,7 +1990,7 @@ coordinates.</p>
     <ul>
         <li class="doc-section-item field-body">
           <b><code>channel</code></b>
-              (<code>int</code>)
+              (<code>Int</code>)
           –
           <div class="doc-md-description">
             <p>The channel to extract. This is a 0-based index.</p>
@@ -1908,7 +2010,7 @@ coordinates.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">getcolors</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">ImageT</span><span class="p">,</span> <span class="n">maxcolors</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">256</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">JsonT</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">getcolors</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">maxcolors</span><span class="p">:</span> <span class="n">Int</span> <span class="o">=</span> <span class="mi">256</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1922,7 +2024,7 @@ coordinates.</p>
     <ul>
         <li class="doc-section-item field-body">
           <b><code>maxcolors</code></b>
-              (<code>int</code>, default:
+              (<code>Int</code>, default:
                   <code>256</code>
 )
           –
@@ -1944,7 +2046,7 @@ coordinates.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">getextrema</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">ImageT</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">JsonT</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">getextrema</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Image</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1965,7 +2067,7 @@ coordinates.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">getpalette</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">ImageT</span><span class="p">,</span> <span class="n">mode</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">JsonT</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">getpalette</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">mode</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1979,7 +2081,7 @@ coordinates.</p>
     <ul>
         <li class="doc-section-item field-body">
           <b><code>mode</code></b>
-              (<code>Optional[str]</code>, default:
+              (<code>Optional[String]</code>, default:
                   <code>None</code>
 )
           –
@@ -2001,7 +2103,7 @@ coordinates.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">getpixel</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">ImageT</span><span class="p">,</span> <span class="n">xy</span><span class="p">:</span> <span class="n">ArrayT</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">JsonT</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">getpixel</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">xy</span><span class="p">:</span> <span class="n">Json</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2015,7 +2117,7 @@ coordinates.</p>
     <ul>
         <li class="doc-section-item field-body">
           <b><code>xy</code></b>
-              (<code>ArrayT</code>)
+              (<code>Json</code>)
           –
           <div class="doc-md-description">
             <p>The coordinates, given as (x, y).</p>
@@ -2035,7 +2137,7 @@ coordinates.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">getprojection</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">ImageT</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">JsonT</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">getprojection</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Image</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2057,8 +2159,8 @@ coordinates.</p>
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">histogram</span><span class="p">(</span>
-    <span class="bp">self</span><span class="p">:</span> <span class="n">ImageT</span><span class="p">,</span> <span class="n">mask</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">ImageT</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">extrema</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">JsonT</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">JsonT</span>
+    <span class="bp">self</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">mask</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Image</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">extrema</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2072,7 +2174,7 @@ coordinates.</p>
     <ul>
         <li class="doc-section-item field-body">
           <b><code>mask</code></b>
-              (<code>Optional[ImageT]</code>, default:
+              (<code>Optional[Image]</code>, default:
                   <code>None</code>
 )
           –
@@ -2082,12 +2184,46 @@ coordinates.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>extrema</code></b>
-              (<code>Optional[JsonT]</code>, default:
+              (<code>Optional[Json]</code>, default:
                   <code>None</code>
 )
           –
           <div class="doc-md-description">
             <p>An optional list of extrema.</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.image.point" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">point</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">point</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">lut</span><span class="p">:</span> <span class="n">Json</span><span class="p">,</span> <span class="n">mode</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Image</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Map image pixels through a lookup table.</p>
+<p>Equivalent to
+<a href="https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.point"><code>PIL.Image.Image.point()</code></a></p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>lut</code></b>
+              (<code>Json</code>)
+          –
+          <div class="doc-md-description">
+            <p>A lookup table.</p>
           </div>
         </li>
     </ul>
@@ -2105,13 +2241,13 @@ coordinates.</p>
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">quantize</span><span class="p">(</span>
-    <span class="bp">self</span><span class="p">:</span> <span class="n">ImageT</span><span class="p">,</span>
-    <span class="n">colors</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">256</span><span class="p">,</span>
-    <span class="n">method</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">kmeans</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
-    <span class="n">palette</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">dither</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">PIL</span><span class="o">.</span><span class="n">Image</span><span class="o">.</span><span class="n">Dither</span><span class="o">.</span><span class="n">FLOYDSTEINBERG</span><span class="p">,</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ImageT</span>
+    <span class="bp">self</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span>
+    <span class="n">colors</span><span class="p">:</span> <span class="n">Int</span> <span class="o">=</span> <span class="mi">256</span><span class="p">,</span>
+    <span class="n">method</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">kmeans</span><span class="p">:</span> <span class="n">Int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+    <span class="n">palette</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">dither</span><span class="p">:</span> <span class="n">Int</span> <span class="o">=</span> <span class="n">PIL</span><span class="o">.</span><span class="n">Image</span><span class="o">.</span><span class="n">Dither</span><span class="o">.</span><span class="n">FLOYDSTEINBERG</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Image</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2125,7 +2261,7 @@ coordinates.</p>
     <ul>
         <li class="doc-section-item field-body">
           <b><code>colors</code></b>
-              (<code>int</code>, default:
+              (<code>Int</code>, default:
                   <code>256</code>
 )
           –
@@ -2135,7 +2271,7 @@ coordinates.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>method</code></b>
-              (<code>Optional[int]</code>, default:
+              (<code>Optional[Int]</code>, default:
                   <code>None</code>
 )
           –
@@ -2145,7 +2281,7 @@ coordinates.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>kmeans</code></b>
-              (<code>int</code>, default:
+              (<code>Int</code>, default:
                   <code>0</code>
 )
           –
@@ -2155,7 +2291,7 @@ coordinates.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>palette</code></b>
-              (<code>Optional[int]</code>, default:
+              (<code>Optional[Int]</code>, default:
                   <code>None</code>
 )
           –
@@ -2165,7 +2301,7 @@ coordinates.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>dither</code></b>
-              (<code>int</code>, default:
+              (<code>Int</code>, default:
                   <code><span title="PIL.Image.Dither.FLOYDSTEINBERG">FLOYDSTEINBERG</span></code>
 )
           –
@@ -2187,7 +2323,7 @@ coordinates.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">reduce</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">ImageT</span><span class="p">,</span> <span class="n">factor</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">box</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">JsonT</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ImageT</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">reduce</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">factor</span><span class="p">:</span> <span class="n">Int</span><span class="p">,</span> <span class="n">box</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Image</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2201,7 +2337,7 @@ coordinates.</p>
     <ul>
         <li class="doc-section-item field-body">
           <b><code>factor</code></b>
-              (<code>int</code>)
+              (<code>Int</code>)
           –
           <div class="doc-md-description">
             <p>The reduction factor.</p>
@@ -2209,7 +2345,7 @@ coordinates.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>box</code></b>
-              (<code>Optional[JsonT]</code>, default:
+              (<code>Optional[Json]</code>, default:
                   <code>None</code>
 )
           –
@@ -2231,7 +2367,7 @@ coordinates.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">resize</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">ImageT</span><span class="p">,</span> <span class="n">size</span><span class="p">:</span> <span class="n">JsonT</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ImageT</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">resize</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">size</span><span class="p">:</span> <span class="n">Json</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Image</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2252,7 +2388,7 @@ coordinates.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">rotate</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">ImageT</span><span class="p">,</span> <span class="n">angle</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ImageT</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">rotate</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">angle</span><span class="p">:</span> <span class="n">Int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Image</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2266,7 +2402,7 @@ coordinates.</p>
     <ul>
         <li class="doc-section-item field-body">
           <b><code>angle</code></b>
-              (<code>int</code>)
+              (<code>Int</code>)
           –
           <div class="doc-md-description">
             <p>The angle to rotate the image, in degrees. Positive angles are counter-clockwise.</p>
@@ -2286,7 +2422,7 @@ coordinates.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">transpose</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">ImageT</span><span class="p">,</span> <span class="n">method</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ImageT</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">transpose</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">method</span><span class="p">:</span> <span class="n">Int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Image</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2300,7 +2436,7 @@ coordinates.</p>
     <ul>
         <li class="doc-section-item field-body">
           <b><code>method</code></b>
-              (<code>int</code>)
+              (<code>Int</code>)
           –
           <div class="doc-md-description">
             <p>The transpose method. See the <a href="https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.transpose">Pillow documentation</a> for a list of supported methods.</p>

@@ -479,6 +479,27 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../update-status/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    UpdateStatus
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -1028,6 +1049,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../llama_cpp/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    llama_cpp
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../mistralai/" class="md-nav__link">
         
   
@@ -1049,11 +1091,53 @@
   
   
     <li class="md-nav__item">
+      <a href="../ollama/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    ollama
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../openai/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
     openai
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../replicate/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    replicate
   </span>
   
 
@@ -1451,7 +1535,7 @@ t.select(t.timestamp_col.year, t.timestamp_col.weekday()).collect()
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">astimezone</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">datetime</span><span class="p">,</span> <span class="n">tz</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">datetime</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">astimezone</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Timestamp</span><span class="p">,</span> <span class="n">tz</span><span class="p">:</span> <span class="n">String</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Timestamp</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1463,7 +1547,7 @@ t.select(t.timestamp_col.year, t.timestamp_col.weekday()).collect()
     <ul>
         <li class="doc-section-item field-body">
           <b><code>tz</code></b>
-              (<code>str</code>)
+              (<code>String</code>)
           –
           <div class="doc-md-description">
             <p>The time zone to convert to. Must be a valid time zone name from the IANA Time Zone Database.</p>
@@ -1483,7 +1567,7 @@ t.select(t.timestamp_col.year, t.timestamp_col.weekday()).collect()
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">day</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">datetime</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">day</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Timestamp</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Int</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1503,7 +1587,7 @@ t.select(t.timestamp_col.year, t.timestamp_col.weekday()).collect()
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">hour</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">datetime</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">hour</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Timestamp</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Int</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1523,7 +1607,7 @@ t.select(t.timestamp_col.year, t.timestamp_col.weekday()).collect()
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">isocalendar</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">datetime</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">JsonT</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">isocalendar</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Timestamp</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1544,7 +1628,9 @@ t.select(t.timestamp_col.year, t.timestamp_col.weekday()).collect()
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">isoformat</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">datetime</span><span class="p">,</span> <span class="n">sep</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;T&#39;</span><span class="p">,</span> <span class="n">timespec</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;auto&#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">isoformat</span><span class="p">(</span>
+    <span class="bp">self</span><span class="p">:</span> <span class="n">Timestamp</span><span class="p">,</span> <span class="n">sep</span><span class="p">:</span> <span class="n">String</span> <span class="o">=</span> <span class="s2">&quot;T&quot;</span><span class="p">,</span> <span class="n">timespec</span><span class="p">:</span> <span class="n">String</span> <span class="o">=</span> <span class="s2">&quot;auto&quot;</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">String</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1557,7 +1643,7 @@ t.select(t.timestamp_col.year, t.timestamp_col.weekday()).collect()
     <ul>
         <li class="doc-section-item field-body">
           <b><code>sep</code></b>
-              (<code>str</code>, default:
+              (<code>String</code>, default:
                   <code>&#39;T&#39;</code>
 )
           –
@@ -1567,7 +1653,7 @@ t.select(t.timestamp_col.year, t.timestamp_col.weekday()).collect()
         </li>
         <li class="doc-section-item field-body">
           <b><code>timespec</code></b>
-              (<code>str</code>, default:
+              (<code>String</code>, default:
                   <code>&#39;auto&#39;</code>
 )
           –
@@ -1589,7 +1675,7 @@ t.select(t.timestamp_col.year, t.timestamp_col.weekday()).collect()
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">isoweekday</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">datetime</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">isoweekday</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Timestamp</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Int</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1610,14 +1696,14 @@ t.select(t.timestamp_col.year, t.timestamp_col.weekday()).collect()
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">make_timestamp</span><span class="p">(</span>
-    <span class="n">year</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
-    <span class="n">month</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
-    <span class="n">day</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
-    <span class="n">hour</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
-    <span class="n">minute</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
-    <span class="n">second</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
-    <span class="n">microsecond</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">datetime</span>
+    <span class="n">year</span><span class="p">:</span> <span class="n">Int</span><span class="p">,</span>
+    <span class="n">month</span><span class="p">:</span> <span class="n">Int</span><span class="p">,</span>
+    <span class="n">day</span><span class="p">:</span> <span class="n">Int</span><span class="p">,</span>
+    <span class="n">hour</span><span class="p">:</span> <span class="n">Int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+    <span class="n">minute</span><span class="p">:</span> <span class="n">Int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+    <span class="n">second</span><span class="p">:</span> <span class="n">Int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+    <span class="n">microsecond</span><span class="p">:</span> <span class="n">Int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Timestamp</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1637,7 +1723,7 @@ t.select(t.timestamp_col.year, t.timestamp_col.weekday()).collect()
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">microsecond</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">datetime</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">microsecond</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Timestamp</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Int</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1657,7 +1743,7 @@ t.select(t.timestamp_col.year, t.timestamp_col.weekday()).collect()
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">minute</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">datetime</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">minute</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Timestamp</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Int</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1677,7 +1763,7 @@ t.select(t.timestamp_col.year, t.timestamp_col.weekday()).collect()
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">month</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">datetime</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">month</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Timestamp</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Int</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1697,7 +1783,7 @@ t.select(t.timestamp_col.year, t.timestamp_col.weekday()).collect()
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">posix_timestamp</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">datetime</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">posix_timestamp</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Timestamp</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Float</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1718,15 +1804,15 @@ t.select(t.timestamp_col.year, t.timestamp_col.weekday()).collect()
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">replace</span><span class="p">(</span>
-    <span class="bp">self</span><span class="p">:</span> <span class="n">datetime</span><span class="p">,</span>
-    <span class="n">year</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">month</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">day</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">hour</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">minute</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">second</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">microsecond</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">datetime</span>
+    <span class="bp">self</span><span class="p">:</span> <span class="n">Timestamp</span><span class="p">,</span>
+    <span class="n">year</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">month</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">day</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">hour</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">minute</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">second</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">microsecond</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Timestamp</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1747,7 +1833,7 @@ arguments are specified.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">second</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">datetime</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">second</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Timestamp</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Int</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1767,7 +1853,7 @@ arguments are specified.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">strftime</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">datetime</span><span class="p">,</span> <span class="nb">format</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">strftime</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Timestamp</span><span class="p">,</span> <span class="nb">format</span><span class="p">:</span> <span class="n">String</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">String</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1780,7 +1866,7 @@ arguments are specified.</p>
     <ul>
         <li class="doc-section-item field-body">
           <b><code>format</code></b>
-              (<code>str</code>)
+              (<code>String</code>)
           –
           <div class="doc-md-description">
             <p>The format string to control the output. For a complete list of formatting directives, see <a href="https://docs.python.org/3/library/datetime.html#strftime-and-strptime-behavior"><code>strftime()</code> and <code>strptime()</code> Behavior</a>.</p>
@@ -1800,7 +1886,7 @@ arguments are specified.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">toordinal</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">datetime</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">toordinal</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Timestamp</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Int</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1820,7 +1906,7 @@ arguments are specified.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">weekday</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">datetime</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">weekday</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Timestamp</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Int</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1840,7 +1926,7 @@ arguments are specified.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">year</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">datetime</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">year</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Timestamp</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Int</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">

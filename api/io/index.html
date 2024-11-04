@@ -604,6 +604,27 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../update-status/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    UpdateStatus
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -947,6 +968,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../functions/llama_cpp/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    llama_cpp
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../functions/mistralai/" class="md-nav__link">
         
   
@@ -968,11 +1010,53 @@
   
   
     <li class="md-nav__item">
+      <a href="../functions/ollama/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    ollama
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../functions/openai/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
     openai
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../functions/replicate/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    replicate
   </span>
   
 
@@ -1318,7 +1402,7 @@ consistent with their corresponding Label Studio fields; otherwise, an exception
 <p>The API key and URL for a valid Label Studio server must be specified in Pixeltable config. Either:</p>
 <ul>
 <li>Set the <code>LABEL_STUDIO_API_KEY</code> and <code>LABEL_STUDIO_URL</code> environment variables; or</li>
-<li>Specify <code>api_key</code> and <code>url</code> fields in the <code>label-studio</code> section of <code>$PIXELTABLE_HOME/config.yaml</code>.</li>
+<li>Specify <code>api_key</code> and <code>url</code> fields in the <code>label-studio</code> section of <code>$PIXELTABLE_HOME/config.toml</code>.</li>
 </ul>
 <p><strong>Requirements:</strong></p>
 <ul>
@@ -1872,7 +1956,7 @@ Pixeltable identifiers).</p>
     <span class="n">table_path</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">parquet_path</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span>
-    <span class="n">schema_overrides</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n"><span title="typing.Dict">Dict</span></span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="pixeltable.type_system.ColumnType">ColumnType</span></span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">schema_overrides</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="pixeltable.type_system.ColumnType">ColumnType</span></span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n"><span title="typing.Any">Any</span></span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.Table" href="../table/#pixeltable.Table">Table</a></span>
 </code></pre></div>
@@ -1902,7 +1986,7 @@ Pixeltable identifiers).</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>schema_overrides</code></b>
-              (<code><span title="typing.Optional">Optional</span>[<span title="typing.Dict">Dict</span>[str, <span title="pixeltable.type_system.ColumnType">ColumnType</span>]]</code>, default:
+              (<code><span title="typing.Optional">Optional</span>[dict[str, <span title="pixeltable.type_system.ColumnType">ColumnType</span>]]</code>, default:
                   <code>None</code>
 )
           –

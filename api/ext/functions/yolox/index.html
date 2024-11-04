@@ -477,6 +477,27 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../update-status/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    UpdateStatus
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -820,6 +841,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../../../functions/llama_cpp/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    llama_cpp
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../../functions/mistralai/" class="md-nav__link">
         
   
@@ -841,11 +883,53 @@
   
   
     <li class="md-nav__item">
+      <a href="../../../functions/ollama/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    ollama
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../../functions/openai/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
     openai
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../functions/replicate/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    replicate
   </span>
   
 
@@ -1171,7 +1255,7 @@
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">yolo_to_coco</span><span class="p">(</span><span class="n">detections</span><span class="p">:</span> <span class="n">JsonT</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">JsonT</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">yolo_to_coco</span><span class="p">(</span><span class="n">detections</span><span class="p">:</span> <span class="n">Json</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1184,7 +1268,7 @@
     <ul>
         <li class="doc-section-item field-body">
           <b><code>detections</code></b>
-              (<code>JsonT</code>)
+              (<code>Json</code>)
           –
           <div class="doc-md-description">
             <p>The output of a YOLOX object detection model, as returned by <code>yolox</code>.</p>
@@ -1196,7 +1280,7 @@
 <p><span class="doc-section-title">Returns:</span></p>
     <ul>
         <li class="doc-section-item field-body">
-              <code>JsonT</code>
+              <code>Json</code>
           –
           <div class="doc-md-description">
             <p>A dictionary containing the data from <code>detections</code>, converted to COCO format.</p>
@@ -1224,7 +1308,7 @@ is the image for which detections were computed:</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">yolox</span><span class="p">(</span><span class="n">images</span><span class="p">:</span> <span class="n">ImageT</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">threshold</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.5</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">JsonT</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">yolox</span><span class="p">(</span><span class="n">images</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model_id</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">threshold</span><span class="p">:</span> <span class="n">Float</span> <span class="o">=</span> <span class="mf">0.5</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1242,7 +1326,7 @@ defined in the <a href="https://github.com/Megvii-BaseDetection/YOLOX">YOLOX doc
     <ul>
         <li class="doc-section-item field-body">
           <b><code>model_id</code></b>
-              (<code>str</code>)
+              (<code>String</code>)
           –
           <div class="doc-md-description">
             <p>one of: <code>yolox_nano</code>, <code>yolox_tiny</code>, <code>yolox_s</code>, <code>yolox_m</code>, <code>yolox_l</code>, <code>yolox_x</code></p>
@@ -1250,7 +1334,7 @@ defined in the <a href="https://github.com/Megvii-BaseDetection/YOLOX">YOLOX doc
         </li>
         <li class="doc-section-item field-body">
           <b><code>threshold</code></b>
-              (<code>float</code>, default:
+              (<code>Float</code>, default:
                   <code>0.5</code>
 )
           –
@@ -1264,7 +1348,7 @@ defined in the <a href="https://github.com/Megvii-BaseDetection/YOLOX">YOLOX doc
 <p><span class="doc-section-title">Returns:</span></p>
     <ul>
         <li class="doc-section-item field-body">
-              <code>JsonT</code>
+              <code>Json</code>
           –
           <div class="doc-md-description">
             <p>A dictionary containing the output of the object detection model.</p>

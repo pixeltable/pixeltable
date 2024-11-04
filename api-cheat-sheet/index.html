@@ -615,6 +615,27 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/update-status/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    UpdateStatus
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -958,6 +979,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../api/functions/llama_cpp/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    llama_cpp
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../api/functions/mistralai/" class="md-nav__link">
         
   
@@ -979,11 +1021,53 @@
   
   
     <li class="md-nav__item">
+      <a href="../api/functions/ollama/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    ollama
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../api/functions/openai/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
     openai
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/functions/replicate/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    replicate
   </span>
   
 
@@ -1285,7 +1369,7 @@ import pixeltable.functions as pxtf
 <tbody>
 <tr>
 <td>Create a (mutable) table</td>
-<td>t = <a class="autorefs autorefs-internal" href="../api/pixeltable/#pixeltable.create_table"><code>pxt.create_table</code></a>('table_name', {'col_1': pxt.StringType(), 'col_2': pxt.IntType(), ...})</td>
+<td>t = <a class="autorefs autorefs-internal" href="../api/pixeltable/#pixeltable.create_table"><code>pxt.create_table</code></a>('table_name', {'col_1': pxt.String, 'col_2': pxt.Int, ...})</td>
 </tr>
 <tr>
 <td>Create a view</td>
@@ -1371,8 +1455,8 @@ import pixeltable.functions as pxtf
 <p>Create a table with video data and view for the frames:</p>
 <pre><code class="language-python">import pixeltable as pxt
 from pixeltable.iterators import FrameIterator
-t = pxt.create_table('tbl_name', {'video': pxt.VideoType()})
-f = pxt.create_view('frame_view_name', t, iterator=FrameIterator.create(video=t, fps=0))
+t = pxt.create_table('tbl_name', {'video': pxt.Video})
+f = pxt.create_view('frame_view_name', t, iterator=FrameIterator.create(video=t.video, fps=0))
 </code></pre>
 <p><code>fps=0</code> extracts frames at the original frame rate.</p>
 <h2 id="pixeltable-types">Pixeltable types</h2>
@@ -1380,48 +1464,52 @@ f = pxt.create_view('frame_view_name', t, iterator=FrameIterator.create(video=t,
 <thead>
 <tr>
 <th>Pixeltable type</th>
-<th>Python type</th>
+<th>Corresponding Python type</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>pxt.StringType()</code></td>
+<td><code>pxt.String</code></td>
 <td><code>str</code></td>
 </tr>
 <tr>
-<td><code>pxt.IntType()</code></td>
+<td><code>pxt.Int</code></td>
 <td><code>int</code></td>
 </tr>
 <tr>
-<td><code>pxt.FloatType()</code></td>
+<td><code>pxt.Float</code></td>
 <td><code>float</code></td>
 </tr>
 <tr>
-<td><code>pxt.BoolType()</code></td>
+<td><code>pxt.Bool</code></td>
 <td><code>bool</code></td>
 </tr>
 <tr>
-<td><code>pxt.TimestampType()</code></td>
+<td><code>pxt.Timestamp</code></td>
 <td><code>datetime.datetime</code></td>
 </tr>
 <tr>
-<td><code>pxt.JsonType()</code></td>
+<td><code>pxt.Json</code></td>
 <td><code>list</code> or <code>dict</code></td>
 </tr>
 <tr>
-<td><code>pxt.ArrayType()</code></td>
+<td><code>pxt.Array</code></td>
 <td><code>numpy.ndarray</code></td>
 </tr>
 <tr>
-<td><code>pxt.ImageType()</code></td>
+<td><code>pxt.Image</code></td>
 <td><code>PIL.Image.Image</code></td>
 </tr>
 <tr>
-<td><code>pxt.VideoType()</code></td>
+<td><code>pxt.Video</code></td>
 <td><code>str</code> (the file path or URL)</td>
 </tr>
 <tr>
-<td><code>pxt.AudioType()</code></td>
+<td><code>pxt.Audio</code></td>
+<td><code>str</code> (the file path or URL)</td>
+</tr>
+<tr>
+<td><code>pxt.Document</code></td>
 <td><code>str</code> (the file path or URL)</td>
 </tr>
 </tbody>
@@ -1441,7 +1529,11 @@ f = pxt.create_view('frame_view_name', t, iterator=FrameIterator.create(video=t,
 </tr>
 <tr>
 <td>Query a table</td>
-<td>t.<a class="autorefs autorefs-internal" href="../api/table/#pixeltable.Table.select"><code>select</code></a>(t.col2, t.col3 + 5).where(t.col1 == 'green').show()</td>
+<td>t.<a class="autorefs autorefs-internal" href="../api/table/#pixeltable.Table.select"><code>select</code></a>(t.col2, t.col3 + 5).show()</td>
+</tr>
+<tr>
+<td>Query a table with a filter</td>
+<td>t.<a class="autorefs autorefs-internal" href="../api/table/#pixeltable.Table.where"><code>where</code></a>(t.col1 == 'green').<a class="autorefs autorefs-internal" href="../api/table/#pixeltable.Table.select"><code>select</code></a>(t.col2).show()</td>
 </tr>
 <tr>
 <td>Insert a single row into a table</td>
@@ -1453,11 +1545,11 @@ f = pxt.create_view('frame_view_name', t, iterator=FrameIterator.create(video=t,
 </tr>
 <tr>
 <td>Add a column</td>
-<td>t.<a class="autorefs autorefs-internal" href="../api/table/#pixeltable.Table.add_column"><code>add_column</code></a>(new_col_name=pxt.IntType())</td>
+<td>t.<a class="autorefs autorefs-internal" href="../api/table/#pixeltable.Table.add_column"><code>add_column</code></a>(new_col_name=pxt.Int)</td>
 </tr>
 <tr>
 <td>Add a column (alternate form)</td>
-<td>t[new_col_name] = pxt.IntType()</td>
+<td>t[new_col_name] = pxt.Int</td>
 </tr>
 <tr>
 <td>Rename a column</td>
@@ -1484,7 +1576,7 @@ f = pxt.create_view('frame_view_name', t, iterator=FrameIterator.create(video=t,
 <tbody>
 <tr>
 <td>Look at 10 rows</td>
-<td>t.<a class="autorefs autorefs-internal" href="../api/table/#pixeltable.Table.show"><code>show</code></a>(10)</td>
+<td>t.<a class="autorefs autorefs-internal" href="../api/table/#pixeltable.Table.collect"><code>collect</code></a>(10)</td>
 </tr>
 <tr>
 <td>Look at the oldest 10 rows</td>

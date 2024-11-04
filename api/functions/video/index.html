@@ -479,6 +479,27 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../update-status/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    UpdateStatus
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -902,6 +923,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../llama_cpp/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    llama_cpp
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../mistralai/" class="md-nav__link">
         
   
@@ -923,11 +965,53 @@
   
   
     <li class="md-nav__item">
+      <a href="../ollama/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    ollama
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../openai/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
     openai
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../replicate/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    replicate
   </span>
   
 
@@ -1239,11 +1323,11 @@ t.select(pxt_video.extract_audio(t.video_col)).collect()
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">extract_audio</span><span class="p">(</span>
-    <span class="n">video_path</span><span class="p">:</span> <span class="n">VideoT</span><span class="p">,</span>
-    <span class="n">stream_idx</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
-    <span class="nb">format</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;wav&quot;</span><span class="p">,</span>
-    <span class="n">codec</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="n">AudioT</span><span class="p">]</span>
+    <span class="n">video_path</span><span class="p">:</span> <span class="n">Video</span><span class="p">,</span>
+    <span class="n">stream_idx</span><span class="p">:</span> <span class="n">Int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+    <span class="nb">format</span><span class="p">:</span> <span class="n">String</span> <span class="o">=</span> <span class="s2">&quot;wav&quot;</span><span class="p">,</span>
+    <span class="n">codec</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Audio</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1255,7 +1339,7 @@ t.select(pxt_video.extract_audio(t.video_col)).collect()
     <ul>
         <li class="doc-section-item field-body">
           <b><code>stream_idx</code></b>
-              (<code>int</code>, default:
+              (<code>Int</code>, default:
                   <code>0</code>
 )
           –
@@ -1265,7 +1349,7 @@ t.select(pxt_video.extract_audio(t.video_col)).collect()
         </li>
         <li class="doc-section-item field-body">
           <b><code>format</code></b>
-              (<code>str</code>, default:
+              (<code>String</code>, default:
                   <code>&#39;wav&#39;</code>
 )
           –
@@ -1275,7 +1359,7 @@ t.select(pxt_video.extract_audio(t.video_col)).collect()
         </li>
         <li class="doc-section-item field-body">
           <b><code>codec</code></b>
-              (<code>Optional[str]</code>, default:
+              (<code>Optional[String]</code>, default:
                   <code>None</code>
 )
           –
@@ -1297,7 +1381,7 @@ t.select(pxt_video.extract_audio(t.video_col)).collect()
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_metadata</span><span class="p">(</span><span class="n">video</span><span class="p">:</span> <span class="n">VideoT</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">JsonT</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_metadata</span><span class="p">(</span><span class="n">video</span><span class="p">:</span> <span class="n">Video</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">

@@ -11,10 +11,10 @@
       
       
       
-        <link rel="prev" href="../mistralai/">
+        <link rel="prev" href="../ollama/">
       
       
-        <link rel="next" href="../together/">
+        <link rel="next" href="../replicate/">
       
       
       <link rel="icon" href="../../../assets/images/favicon.png">
@@ -479,6 +479,27 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../update-status/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    UpdateStatus
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -824,11 +845,53 @@
   
   
     <li class="md-nav__item">
+      <a href="../llama_cpp/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    llama_cpp
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../mistralai/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
     mistralai
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ollama/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    ollama
   </span>
   
 
@@ -977,6 +1040,27 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../replicate/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    replicate
+  </span>
+  
+
+      </a>
     </li>
   
 
@@ -1287,25 +1371,25 @@ the <a href="https://pixeltable.readme.io/docs/working-with-openai">Working with
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">chat_completions</span><span class="p">(</span>
-    <span class="n">messages</span><span class="p">:</span> <span class="n">JsonT</span><span class="p">,</span>
+    <span class="n">messages</span><span class="p">:</span> <span class="n">Json</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">model</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-    <span class="n">frequency_penalty</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">logit_bias</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">JsonT</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">logprobs</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">bool</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">top_logprobs</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">max_tokens</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">n</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">presence_penalty</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">response_format</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">JsonT</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">seed</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">stop</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">JsonT</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">temperature</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">top_p</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">tools</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">JsonT</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">tool_choice</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">JsonT</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">user</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">JsonT</span>
+    <span class="n">model</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
+    <span class="n">frequency_penalty</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">logit_bias</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">logprobs</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Bool</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">top_logprobs</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">max_tokens</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">n</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">presence_penalty</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">response_format</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">seed</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">stop</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">temperature</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">top_p</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">tools</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">tool_choice</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">user</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1323,7 +1407,7 @@ For additional details, see: <a href="https://platform.openai.com/docs/guides/ch
     <ul>
         <li class="doc-section-item field-body">
           <b><code>messages</code></b>
-              (<code>JsonT</code>)
+              (<code>Json</code>)
           –
           <div class="doc-md-description">
             <p>A list of messages to use for chat completion, as described in the OpenAI API documentation.</p>
@@ -1331,7 +1415,7 @@ For additional details, see: <a href="https://platform.openai.com/docs/guides/ch
         </li>
         <li class="doc-section-item field-body">
           <b><code>model</code></b>
-              (<code>str</code>)
+              (<code>String</code>)
           –
           <div class="doc-md-description">
             <p>The model to use for chat completion.</p>
@@ -1344,7 +1428,7 @@ For additional details, see: <a href="https://platform.openai.com/docs/guides/ch
 <p><span class="doc-section-title">Returns:</span></p>
     <ul>
         <li class="doc-section-item field-body">
-              <code>JsonT</code>
+              <code>Json</code>
           –
           <div class="doc-md-description">
             <p>A dictionary containing the response and other metadata.</p>
@@ -1376,12 +1460,12 @@ of the table <code>tbl</code>:</p>
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">embeddings</span><span class="p">(</span>
-    <span class="nb">input</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="nb">input</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">model</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-    <span class="n">dimensions</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">user</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ArrayT</span>
+    <span class="n">model</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
+    <span class="n">dimensions</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">user</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Array</span><span class="p">[(</span><span class="kc">None</span><span class="p">,),</span> <span class="n">Float</span><span class="p">]</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1399,7 +1483,7 @@ For additional details, see: <a href="https://platform.openai.com/docs/guides/em
     <ul>
         <li class="doc-section-item field-body">
           <b><code>input</code></b>
-              (<code>str</code>)
+              (<code>String</code>)
           –
           <div class="doc-md-description">
             <p>The text to embed.</p>
@@ -1407,7 +1491,7 @@ For additional details, see: <a href="https://platform.openai.com/docs/guides/em
         </li>
         <li class="doc-section-item field-body">
           <b><code>model</code></b>
-              (<code>str</code>)
+              (<code>String</code>)
           –
           <div class="doc-md-description">
             <p>The model to use for the embedding.</p>
@@ -1415,7 +1499,7 @@ For additional details, see: <a href="https://platform.openai.com/docs/guides/em
         </li>
         <li class="doc-section-item field-body">
           <b><code>dimensions</code></b>
-              (<code>Optional[int]</code>, default:
+              (<code>Optional[Int]</code>, default:
                   <code>None</code>
 )
           –
@@ -1431,7 +1515,7 @@ a default value based on the model.</p>
 <p><span class="doc-section-title">Returns:</span></p>
     <ul>
         <li class="doc-section-item field-body">
-              <code>ArrayT</code>
+              <code>Array[(None,), Float]</code>
           –
           <div class="doc-md-description">
             <p>An array representing the application of the given embedding to <code>input</code>.</p>
@@ -1459,14 +1543,14 @@ Pixeltable column <code>tbl.text</code> of the table <code>tbl</code>:</p>
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">image_generations</span><span class="p">(</span>
-    <span class="n">prompt</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">prompt</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">model</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">quality</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">size</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">style</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">user</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ImageT</span>
+    <span class="n">model</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">quality</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">size</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">style</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">user</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Image</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1484,7 +1568,7 @@ For additional details, see: <a href="https://platform.openai.com/docs/guides/im
     <ul>
         <li class="doc-section-item field-body">
           <b><code>prompt</code></b>
-              (<code>str</code>)
+              (<code>String</code>)
           –
           <div class="doc-md-description">
             <p>Prompt for the image.</p>
@@ -1492,7 +1576,7 @@ For additional details, see: <a href="https://platform.openai.com/docs/guides/im
         </li>
         <li class="doc-section-item field-body">
           <b><code>model</code></b>
-              (<code>Optional[str]</code>, default:
+              (<code>Optional[String]</code>, default:
                   <code>None</code>
 )
           –
@@ -1507,7 +1591,7 @@ For additional details, see: <a href="https://platform.openai.com/docs/guides/im
 <p><span class="doc-section-title">Returns:</span></p>
     <ul>
         <li class="doc-section-item field-body">
-              <code>ImageT</code>
+              <code>Image</code>
           –
           <div class="doc-md-description">
             <p>The generated image.</p>
@@ -1534,7 +1618,7 @@ Pixeltable column <code>tbl.text</code> of the table <code>tbl</code>:</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">moderations</span><span class="p">(</span><span class="nb">input</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">JsonT</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">moderations</span><span class="p">(</span><span class="nb">input</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1552,7 +1636,7 @@ For additional details, see: <a href="https://platform.openai.com/docs/guides/mo
     <ul>
         <li class="doc-section-item field-body">
           <b><code>input</code></b>
-              (<code>str</code>)
+              (<code>String</code>)
           –
           <div class="doc-md-description">
             <p>Text to analyze with the moderations model.</p>
@@ -1560,7 +1644,7 @@ For additional details, see: <a href="https://platform.openai.com/docs/guides/mo
         </li>
         <li class="doc-section-item field-body">
           <b><code>model</code></b>
-              (<code>Optional[str]</code>, default:
+              (<code>Optional[String]</code>, default:
                   <code>None</code>
 )
           –
@@ -1575,7 +1659,7 @@ For additional details, see: <a href="https://platform.openai.com/docs/guides/mo
 <p><span class="doc-section-title">Returns:</span></p>
     <ul>
         <li class="doc-section-item field-body">
-              <code>JsonT</code>
+              <code>Json</code>
           –
           <div class="doc-md-description">
             <p>Details of the moderations results.</p>
@@ -1603,13 +1687,13 @@ Pixeltable column <code>tbl.input</code> of the table <code>tbl</code>:</p>
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">speech</span><span class="p">(</span>
-    <span class="nb">input</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="nb">input</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">model</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-    <span class="n">voice</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-    <span class="n">response_format</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">speed</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">AudioT</span>
+    <span class="n">model</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
+    <span class="n">voice</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
+    <span class="n">response_format</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">speed</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Audio</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1627,7 +1711,7 @@ For additional details, see: <a href="https://platform.openai.com/docs/guides/te
     <ul>
         <li class="doc-section-item field-body">
           <b><code>input</code></b>
-              (<code>str</code>)
+              (<code>String</code>)
           –
           <div class="doc-md-description">
             <p>The text to synthesize into speech.</p>
@@ -1635,7 +1719,7 @@ For additional details, see: <a href="https://platform.openai.com/docs/guides/te
         </li>
         <li class="doc-section-item field-body">
           <b><code>model</code></b>
-              (<code>str</code>)
+              (<code>String</code>)
           –
           <div class="doc-md-description">
             <p>The model to use for speech synthesis.</p>
@@ -1643,7 +1727,7 @@ For additional details, see: <a href="https://platform.openai.com/docs/guides/te
         </li>
         <li class="doc-section-item field-body">
           <b><code>voice</code></b>
-              (<code>str</code>)
+              (<code>String</code>)
           –
           <div class="doc-md-description">
             <p>The voice profile to use for speech synthesis. Supported options include:
@@ -1657,7 +1741,7 @@ For additional details, see: <a href="https://platform.openai.com/docs/guides/te
 <p><span class="doc-section-title">Returns:</span></p>
     <ul>
         <li class="doc-section-item field-body">
-              <code>AudioT</code>
+              <code>Audio</code>
           –
           <div class="doc-md-description">
             <p>An audio file containing the synthesized speech.</p>
@@ -1685,13 +1769,13 @@ of the table <code>tbl</code>:</p>
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">transcriptions</span><span class="p">(</span>
-    <span class="n">audio</span><span class="p">:</span> <span class="n">AudioT</span><span class="p">,</span>
+    <span class="n">audio</span><span class="p">:</span> <span class="n">Audio</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">model</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-    <span class="n">language</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">prompt</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">temperature</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">JsonT</span>
+    <span class="n">model</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
+    <span class="n">language</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">prompt</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">temperature</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1709,7 +1793,7 @@ For additional details, see: <a href="https://platform.openai.com/docs/guides/sp
     <ul>
         <li class="doc-section-item field-body">
           <b><code>audio</code></b>
-              (<code>AudioT</code>)
+              (<code>Audio</code>)
           –
           <div class="doc-md-description">
             <p>The audio to transcribe.</p>
@@ -1717,7 +1801,7 @@ For additional details, see: <a href="https://platform.openai.com/docs/guides/sp
         </li>
         <li class="doc-section-item field-body">
           <b><code>model</code></b>
-              (<code>str</code>)
+              (<code>String</code>)
           –
           <div class="doc-md-description">
             <p>The model to use for speech transcription.</p>
@@ -1730,7 +1814,7 @@ For additional details, see: <a href="https://platform.openai.com/docs/guides/sp
 <p><span class="doc-section-title">Returns:</span></p>
     <ul>
         <li class="doc-section-item field-body">
-              <code>JsonT</code>
+              <code>Json</code>
           –
           <div class="doc-md-description">
             <p>A dictionary containing the transcription and other metadata.</p>
@@ -1758,12 +1842,12 @@ of the table <code>tbl</code>:</p>
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">translations</span><span class="p">(</span>
-    <span class="n">audio</span><span class="p">:</span> <span class="n">AudioT</span><span class="p">,</span>
+    <span class="n">audio</span><span class="p">:</span> <span class="n">Audio</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">model</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-    <span class="n">prompt</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">temperature</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">JsonT</span>
+    <span class="n">model</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
+    <span class="n">prompt</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">temperature</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1781,7 +1865,7 @@ For additional details, see: <a href="https://platform.openai.com/docs/guides/sp
     <ul>
         <li class="doc-section-item field-body">
           <b><code>audio</code></b>
-              (<code>AudioT</code>)
+              (<code>Audio</code>)
           –
           <div class="doc-md-description">
             <p>The audio to translate.</p>
@@ -1789,7 +1873,7 @@ For additional details, see: <a href="https://platform.openai.com/docs/guides/sp
         </li>
         <li class="doc-section-item field-body">
           <b><code>model</code></b>
-              (<code>str</code>)
+              (<code>String</code>)
           –
           <div class="doc-md-description">
             <p>The model to use for speech transcription and translation.</p>
@@ -1802,7 +1886,7 @@ For additional details, see: <a href="https://platform.openai.com/docs/guides/sp
 <p><span class="doc-section-title">Returns:</span></p>
     <ul>
         <li class="doc-section-item field-body">
-              <code>JsonT</code>
+              <code>Json</code>
           –
           <div class="doc-md-description">
             <p>A dictionary containing the translation and other metadata.</p>
@@ -1829,7 +1913,7 @@ of the table <code>tbl</code>:</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">vision</span><span class="p">(</span><span class="n">prompt</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">image</span><span class="p">:</span> <span class="n">ImageT</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">vision</span><span class="p">(</span><span class="n">prompt</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">image</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="n">String</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">String</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1847,7 +1931,7 @@ prompt, and constructs a chat completion request that utilizes OpenAI vision.</p
     <ul>
         <li class="doc-section-item field-body">
           <b><code>prompt</code></b>
-              (<code>str</code>)
+              (<code>String</code>)
           –
           <div class="doc-md-description">
             <p>A prompt for the OpenAI vision request.</p>
@@ -1855,7 +1939,7 @@ prompt, and constructs a chat completion request that utilizes OpenAI vision.</p
         </li>
         <li class="doc-section-item field-body">
           <b><code>image</code></b>
-              (<code>ImageT</code>)
+              (<code>Image</code>)
           –
           <div class="doc-md-description">
             <p>The image to analyze.</p>
@@ -1863,7 +1947,7 @@ prompt, and constructs a chat completion request that utilizes OpenAI vision.</p
         </li>
         <li class="doc-section-item field-body">
           <b><code>model</code></b>
-              (<code>str</code>)
+              (<code>String</code>)
           –
           <div class="doc-md-description">
             <p>The model to use for OpenAI vision.</p>
@@ -1875,7 +1959,7 @@ prompt, and constructs a chat completion request that utilizes OpenAI vision.</p
 <p><span class="doc-section-title">Returns:</span></p>
     <ul>
         <li class="doc-section-item field-body">
-              <code>str</code>
+              <code>String</code>
           –
           <div class="doc-md-description">
             <p>The response from the OpenAI vision API.</p>

@@ -11,22 +11,22 @@
       
       
       
-        <link rel="prev" href="../document-splitter/">
+        <link rel="prev" href="../table/">
       
       
-        <link rel="next" href="../../data-frame/">
+        <link rel="next" href="../functions/audio/">
       
       
-      <link rel="icon" href="../../../assets/images/favicon.png">
+      <link rel="icon" href="../../assets/images/favicon.png">
       <meta name="generator" content="mkdocs-1.6.0, mkdocs-material-9.5.23">
     
     
       
-        <title>FrameIterator - Pixeltable API</title>
+        <title>UpdateStatus - Pixeltable API</title>
       
     
     
-      <link rel="stylesheet" href="../../../assets/stylesheets/main.6543a935.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.6543a935.min.css">
       
       
 
@@ -45,11 +45,11 @@
       
     
     
-      <link rel="stylesheet" href="../../../assets/_mkdocstrings.css">
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
     
-      <link rel="stylesheet" href="../../../css/mkdocstrings.css">
+      <link rel="stylesheet" href="../../css/mkdocstrings.css">
     
-    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce((e,_)=>(e<<5)-e+_.charCodeAt(0),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce((e,_)=>(e<<5)-e+_.charCodeAt(0),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -68,7 +68,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#pixeltable.iterators.FrameIterator" class="md-skip">
+        <a href="#pixeltable.UpdateStatus" class="md-skip">
           Skip to content
         </a>
       
@@ -84,7 +84,7 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="../../.." title="Pixeltable API" class="md-header__button md-logo" aria-label="Pixeltable API" data-md-component="logo">
+    <a href="../.." title="Pixeltable API" class="md-header__button md-logo" aria-label="Pixeltable API" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54Z"/></svg>
@@ -104,7 +104,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              FrameIterator
+              UpdateStatus
             
           </span>
         </div>
@@ -191,7 +191,7 @@
 
 <nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="../../.." title="Pixeltable API" class="md-nav__button md-logo" aria-label="Pixeltable API" data-md-component="logo">
+    <a href="../.." title="Pixeltable API" class="md-nav__button md-logo" aria-label="Pixeltable API" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54Z"/></svg>
@@ -221,7 +221,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../.." class="md-nav__link">
+      <a href="../.." class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -241,7 +241,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../api-cheat-sheet/" class="md-nav__link">
+      <a href="../../api-cheat-sheet/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -298,7 +298,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../pixeltable/" class="md-nav__link">
+      <a href="../pixeltable/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -319,7 +319,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../io/" class="md-nav__link">
+      <a href="../io/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -337,19 +337,17 @@
                 
   
   
-    
   
   
-  
     
     
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_3" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_3" >
         
           
           <label class="md-nav__link" for="__nav_3_3" id="__nav_3_3_label" tabindex="0">
@@ -363,7 +361,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_3_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_3_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_3_3">
             <span class="md-nav__icon md-icon"></span>
             pixeltable.iterators
@@ -377,7 +375,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../component-iterator/" class="md-nav__link">
+      <a href="../iterators/component-iterator/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -398,11 +396,82 @@
   
   
     <li class="md-nav__item">
-      <a href="../document-splitter/" class="md-nav__link">
+      <a href="../iterators/document-splitter/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
     DocumentSplitter
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../iterators/frame-iterator/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    FrameIterator
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../data-frame/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    DataFrame
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../table/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Table
   </span>
   
 
@@ -430,7 +499,7 @@
           
   
   <span class="md-ellipsis">
-    FrameIterator
+    UpdateStatus
   </span>
   
 
@@ -441,7 +510,7 @@
         
   
   <span class="md-ellipsis">
-    FrameIterator
+    UpdateStatus
   </span>
   
 
@@ -461,26 +530,11 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#pixeltable.iterators.FrameIterator" class="md-nav__link">
+  <a href="#pixeltable.UpdateStatus" class="md-nav__link">
     <span class="md-ellipsis">
-      <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;FrameIterator
+      <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;UpdateStatus
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label=" FrameIterator">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#pixeltable.iterators.FrameIterator.set_pos" class="md-nav__link">
-    <span class="md-ellipsis">
-      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;set_pos
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -488,77 +542,6 @@
   
 </nav>
       
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../data-frame/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    DataFrame
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../table/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    Table
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../update-status/" class="md-nav__link">
-        
-  
-  <span class="md-ellipsis">
-    UpdateStatus
-  </span>
-  
-
-      </a>
     </li>
   
 
@@ -613,7 +596,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../functions/audio/" class="md-nav__link">
+      <a href="../functions/audio/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -634,7 +617,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../functions/image/" class="md-nav__link">
+      <a href="../functions/image/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -655,7 +638,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../functions/json/" class="md-nav__link">
+      <a href="../functions/json/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -676,7 +659,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../functions/string/" class="md-nav__link">
+      <a href="../functions/string/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -697,7 +680,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../functions/timestamp/" class="md-nav__link">
+      <a href="../functions/timestamp/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -718,7 +701,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../functions/video/" class="md-nav__link">
+      <a href="../functions/video/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -781,7 +764,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../functions/vision/" class="md-nav__link">
+      <a href="../functions/vision/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -844,7 +827,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../functions/anthropic/" class="md-nav__link">
+      <a href="../functions/anthropic/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -865,7 +848,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../functions/fireworks/" class="md-nav__link">
+      <a href="../functions/fireworks/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -886,7 +869,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../functions/huggingface/" class="md-nav__link">
+      <a href="../functions/huggingface/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -907,7 +890,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../functions/llama_cpp/" class="md-nav__link">
+      <a href="../functions/llama_cpp/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -928,7 +911,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../functions/mistralai/" class="md-nav__link">
+      <a href="../functions/mistralai/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -949,7 +932,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../functions/ollama/" class="md-nav__link">
+      <a href="../functions/ollama/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -970,7 +953,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../functions/openai/" class="md-nav__link">
+      <a href="../functions/openai/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -991,7 +974,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../functions/replicate/" class="md-nav__link">
+      <a href="../functions/replicate/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -1012,7 +995,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../functions/together/" class="md-nav__link">
+      <a href="../functions/together/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -1033,7 +1016,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../functions/whisper/" class="md-nav__link">
+      <a href="../functions/whisper/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -1096,7 +1079,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../ext/functions/whisperx/" class="md-nav__link">
+      <a href="../ext/functions/whisperx/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -1117,7 +1100,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../ext/functions/yolox/" class="md-nav__link">
+      <a href="../ext/functions/yolox/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -1163,26 +1146,11 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#pixeltable.iterators.FrameIterator" class="md-nav__link">
+  <a href="#pixeltable.UpdateStatus" class="md-nav__link">
     <span class="md-ellipsis">
-      <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;FrameIterator
+      <code class="doc-symbol doc-symbol-toc doc-symbol-class"></code>&nbsp;UpdateStatus
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label=" FrameIterator">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#pixeltable.iterators.FrameIterator.set_pos" class="md-nav__link">
-    <span class="md-ellipsis">
-      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;set_pos
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -1207,37 +1175,34 @@
   
 
 
-  <h1>FrameIterator</h1>
+  <h1>UpdateStatus</h1>
 
 <div class="doc doc-object doc-class">
 
 
 
-<h2 id="pixeltable.iterators.FrameIterator" class="doc doc-heading">
-<code class="doc-symbol doc-symbol-heading doc-symbol-class"></code>            <span class="doc doc-object-name doc-class-name">pixeltable.iterators.FrameIterator</span>
+<h2 id="pixeltable.UpdateStatus" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-class"></code>            <span class="doc doc-object-name doc-class-name">pixeltable.UpdateStatus</span>
 
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-dataclass"><code>dataclass</code></small>
+  </span>
 
 </h2>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">FrameIterator</span><span class="p">(</span>
-    <span class="n">video</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">fps</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">num_frames</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">UpdateStatus</span><span class="p">(</span>
+    <span class="n">num_rows</span><span class="p">:</span> <span class="n">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+    <span class="n">num_computed_values</span><span class="p">:</span> <span class="n">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+    <span class="n">num_excs</span><span class="p">:</span> <span class="n">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+    <span class="n">updated_cols</span><span class="p">:</span> <span class="n">list</span><span class="p">[</span><span class="n">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(),</span>
+    <span class="n">cols_with_excs</span><span class="p">:</span> <span class="n">list</span><span class="p">[</span><span class="n">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(),</span>
 <span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents first">
 
 
-      <p>Iterator over frames of a video. At most one of <code>fps</code> or <code>num_frames</code> may be specified. If <code>fps</code> is specified,
-then frames will be extracted at the specified rate (frames per second). If <code>num_frames</code> is specified, then the
-exact number of frames will be extracted. If neither is specified, then all frames will be extracted. The first
-frame of the video will always be extracted, and the remaining frames will be spaced as evenly as possible.</p>
-<pre><code>Args:
-    video: URL or path of the video to use for frame extraction.
-    fps: Number of frames to extract per second of video. This may be a fractional value, such as 0.5.
-        If omitted or set to 0.0, then the native framerate of the video will be used (all frames will be
-        extracted). If `fps` is greater than the frame rate of the video, an error will be raised.
-    num_frames: Exact number of frames to extract. The frames will be spaced as evenly as possible. If
-        `num_frames` is greater than the number of frames in the video, all frames will be extracted.
-</code></pre>
+      <p>Information about updates that resulted from a table operation.</p>
 
 
 
@@ -1251,25 +1216,6 @@ frame of the video will always be extracted, and the remaining frames will be sp
 
 
 
-
-<div class="doc doc-object doc-function">
-
-
-<h3 id="pixeltable.iterators.FrameIterator.set_pos" class="doc doc-heading">
-<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">set_pos</span>
-
-
-</h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">set_pos</span><span class="p">(</span><span class="n">pos</span><span class="p">:</span> <span class="n">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
-</code></pre></div>
-
-    <div class="doc doc-contents ">
-
-      <p>Seek to frame idx</p>
-
-    </div>
-
-</div>
 
 
 
@@ -1330,10 +1276,10 @@ frame of the video will always be extracted, and the remaining frames will be sp
     </div>
     
     
-    <script id="__config" type="application/json">{"base": "../../..", "features": [], "search": "../../../assets/javascripts/workers/search.b8dbb3d2.min.js", "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}}</script>
+    <script id="__config" type="application/json">{"base": "../..", "features": [], "search": "../../assets/javascripts/workers/search.b8dbb3d2.min.js", "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}}</script>
     
     
-      <script src="../../../assets/javascripts/bundle.ebd0bdb7.min.js"></script>
+      <script src="../../assets/javascripts/bundle.ebd0bdb7.min.js"></script>
       
     
   </body>
