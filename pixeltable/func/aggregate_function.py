@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import abc
 import inspect
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Type
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
@@ -36,8 +36,8 @@ class AggregateFunction(Function):
     RESERVED_PARAMS = {ORDER_BY_PARAM, GROUP_BY_PARAM}
 
     def __init__(
-            self, aggregator_class: Type[Aggregator], self_path: str,
-            init_types: List[ts.ColumnType], update_types: List[ts.ColumnType], value_type: ts.ColumnType,
+            self, aggregator_class: type[Aggregator], self_path: str,
+            init_types: list[ts.ColumnType], update_types: list[ts.ColumnType], value_type: ts.ColumnType,
             requires_order_by: bool, allows_std_agg: bool, allows_window: bool):
         self.agg_cls = aggregator_class
         self.requires_order_by = requires_order_by
@@ -128,7 +128,7 @@ class AggregateFunction(Function):
             order_by_clause=[order_by_clause] if order_by_clause is not None else [],
             group_by_clause=[group_by_clause] if group_by_clause is not None else [])
 
-    def validate_call(self, bound_args: Dict[str, Any]) -> None:
+    def validate_call(self, bound_args: dict[str, Any]) -> None:
         # check that init parameters are not Exprs
         # TODO: do this in the planner (check that init parameters are either constants or only refer to grouping exprs)
         import pixeltable.exprs as exprs
@@ -146,10 +146,10 @@ class AggregateFunction(Function):
 def uda(
         *,
         value_type: ts.ColumnType,
-        update_types: List[ts.ColumnType],
-        init_types: Optional[List[ts.ColumnType]] = None,
+        update_types: list[ts.ColumnType],
+        init_types: Optional[list[ts.ColumnType]] = None,
         requires_order_by: bool = False, allows_std_agg: bool = True, allows_window: bool = False,
-) -> Callable[[Type[Aggregator]], AggregateFunction]:
+) -> Callable[[type[Aggregator]], AggregateFunction]:
     """Decorator for user-defined aggregate functions.
 
     The decorated class must inherit from Aggregator and implement the following methods:
@@ -171,7 +171,7 @@ def uda(
     if init_types is None:
         init_types = []
 
-    def decorator(cls: Type[Aggregator]) -> AggregateFunction:
+    def decorator(cls: type[Aggregator]) -> AggregateFunction:
         # validate type parameters
         num_init_params = len(inspect.signature(cls.__init__).parameters) - 1
         if num_init_params > 0:
