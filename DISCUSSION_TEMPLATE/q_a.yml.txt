@@ -1,0 +1,54 @@
+title: "[Q&A] "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for starting a discussion! Please follow this template to help us provide better assistance.
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: What do you need help with?
+      placeholder: Describe your question clearly and provide context
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Code Example
+      description: Share relevant code snippets or a minimal reproduction of the issue
+      render: python
+      placeholder: |
+        ```python
+        import pixeltable as pxt
+
+        # Your code here
+        ```
+    validations:
+      required: false
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: What version of Pixeltable and Python are you using?
+      value: |
+        - Pixeltable version:
+        - Python version:
+        - Operating System:
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      description: Please confirm the following
+      options:
+        - label: I have searched existing discussions to avoid duplicates
+          required: true
+        - label: I have included all relevant information
+          required: true
