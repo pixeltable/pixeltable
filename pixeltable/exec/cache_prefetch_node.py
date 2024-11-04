@@ -30,6 +30,7 @@ class CachePrefetchNode(ExecNode):
     - adapting the number of download threads at runtime to maximize throughput
     """
     BATCH_SIZE = 16
+    NUM_EXECUTOR_THREADS = 16
 
     retain_input_order: bool
     file_col_info: list[exprs.ColumnSlotIdx]
@@ -75,7 +76,7 @@ class CachePrefetchNode(ExecNode):
 
     def __iter__(self) -> Iterator[DataRowBatch]:
         input_iter = iter(self.input)
-        with futures.ThreadPoolExecutor(max_workers=16, thread_name_prefix='prefetch') as executor:
+        with futures.ThreadPoolExecutor(max_workers=self.NUM_EXECUTOR_THREADS) as executor:
             # we create enough in-flight requests to fill the first batch
             while not self.input_finished and self._num_pending_rows() < self.BATCH_SIZE:
                 self._submit_input_batch(input_iter, executor)
@@ -231,8 +232,14 @@ class CachePrefetchNode(ExecNode):
                 from pixeltable.utils.s3 import get_client
                 with self.boto_client_lock:
                     if self.boto_client is None:
-                        self.boto_client = get_client()
-                    self.boto_client.download_file(parsed.netloc, parsed.path.lstrip('/'), str(tmp_path))
+                        config = {
+                            'max_pool_connections': self.NUM_EXECUTOR_THREADS + 4,  # +4: leave some headroom
+                            'connect_timeout': 5,
+                            'read_timeout': 30,
+                            'retries': {'max_attempts': 3, 'mode': 'adaptive'},
+                        }
+                        self.boto_client = get_client(**config)
+                self.boto_client.download_file(parsed.netloc, parsed.path.lstrip('/'), str(tmp_path))
             elif parsed.scheme == 'http' or parsed.scheme == 'https':
                 with urllib.request.urlopen(url) as resp, open(tmp_path, 'wb') as f:
                     data = resp.read()
