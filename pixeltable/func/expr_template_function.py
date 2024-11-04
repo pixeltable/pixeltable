@@ -1,10 +1,11 @@
 import inspect
-from typing import Dict, Optional, Any
+from typing import Any, Optional
 
 import pixeltable
 import pixeltable.exceptions as excs
+
 from .function import Function
-from .signature import Signature, Parameter
+from .signature import Signature
 
 
 class ExprTemplateFunction(Function):
@@ -22,7 +23,7 @@ class ExprTemplateFunction(Function):
         self.param_exprs_by_name = {p.name: p for p in self.param_exprs}
 
         # verify default values
-        self.defaults: Dict[str, exprs.Literal] = {}  # key: param name, value: default value converted to a Literal
+        self.defaults: dict[str, exprs.Literal] = {}  # key: param name, value: default value converted to a Literal
         for param in signature.parameters.values():
             if param.default is inspect.Parameter.empty:
                 continue
@@ -77,7 +78,7 @@ class ExprTemplateFunction(Function):
     def name(self) -> str:
         return self.self_name
 
-    def _as_dict(self) -> Dict:
+    def _as_dict(self) -> dict:
         if self.self_path is not None:
             return super()._as_dict()
         return {
@@ -87,7 +88,7 @@ class ExprTemplateFunction(Function):
         }
 
     @classmethod
-    def _from_dict(cls, d: Dict) -> Function:
+    def _from_dict(cls, d: dict) -> Function:
         if 'expr' not in d:
             return super()._from_dict(d)
         assert 'signature' in d and 'name' in d
