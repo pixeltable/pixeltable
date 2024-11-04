@@ -11,13 +11,14 @@ below.
 
 ## Overview
 
-| Table Operations                              |                                 |
-|-----------------------------------------------|---------------------------------|
-| [`pxt.create_table`][pixeltable.create_table] | Create a new (insertable) table |
-| [`pxt.create_view`][pixeltable.create_view]   | Create a new view               |
-| [`pxt.drop_table`][pixeltable.drop_table]     | Delete a table                  |
-| [`pxt.get_table`][pixeltable.get_table]       | Get a handle to a table         |
-| [`pxt.list_tables`][pixeltable.list_tables]   | List the tables in a directory  |
+| Table Operations                                    |                                 |
+|-----------------------------------------------------|---------------------------------|
+| [`pxt.create_table`][pixeltable.create_table]       | Create a new (insertable) table |
+| [`pxt.create_view`][pixeltable.create_view]         | Create a new view               |
+| [`pxt.create_snapshot`][pixeltable.create_snapshot] | Create a new snapshot           |
+| [`pxt.drop_table`][pixeltable.drop_table]           | Delete a table                  |
+| [`pxt.get_table`][pixeltable.get_table]             | Get a handle to a table         |
+| [`pxt.list_tables`][pixeltable.list_tables]         | List the tables in a directory  |
 
 | Directory Operations                      |                                     |
 |-------------------------------------------|-------------------------------------|

@@ -194,7 +194,7 @@ class TestSnapshot:
         s1 = pxt.create_snapshot('s1', v)
         t.drop_column('c4')
         # s2 references the same view version as s1, but a different version of t (due to a schema change)
-        s2 = pxt.create_snapshot('s2', v)
+        s2 = pxt.create_view('s2', v, is_snapshot=True)  # Test alternate syntax; equiv. pxt.create_snapshot('s2', v)
         t.update({'c6': {'a': 17}})
         # s3 references the same view version as s2, but a different version of t (due to a data change)
         s3 = pxt.create_snapshot('s3', v)

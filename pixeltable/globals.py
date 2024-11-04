@@ -123,7 +123,8 @@ def create_view(
         additional_columns: If specified, will add these columns to the view once it is created. The format
             of the `additional_columns` parameter is identical to the format of the `schema_or_df` parameter in
             [`create_table`][pixeltable.create_table].
-        is_snapshot: If `True`, create a snapshot instead (see [`create_snapshot`][pixeltable.create_snapshot]).
+        is_snapshot: Whether the view is a snapshot. Setting this to `True` is equivalent to calling
+            [`create_snapshot`][pixeltable.create_snapshot].
         iterator: The iterator to use for this view. If specified, then this view will be a one-to-many view of
             the base table.
         num_retained_versions: Number of versions of the view to retain.
@@ -186,6 +187,7 @@ def create_snapshot(
     base: Union[catalog.Table, DataFrame],
     *,
     additional_columns: Optional[dict[str, Any]] = None,
+    iterator: Optional[tuple[type[ComponentIterator], dict[str, Any]]] = None,
     num_retained_versions: int = 10,
     comment: str = '',
     media_validation: Literal['on_read', 'on_write'] = 'on_write',
@@ -201,6 +203,8 @@ def create_snapshot(
         additional_columns: If specified, will add these columns to the snapshot once it is created. The format
             of the `additional_columns` parameter is identical to the format of the `schema_or_df` parameter in
             [`create_table`][pixeltable.create_table].
+        iterator: The iterator to use for this snapshot. If specified, then this snapshot will be a one-to-many view of
+            the base table.
         num_retained_versions: Number of versions of the view to retain.
         comment: Optional comment for the view.
         ignore_errors: if True, fail silently if the path already exists or is invalid.
@@ -222,6 +226,7 @@ def create_snapshot(
         path_str,
         base,
         additional_columns=additional_columns,
+        iterator=iterator,
         is_snapshot=True,
         num_retained_versions=num_retained_versions,
         comment=comment,

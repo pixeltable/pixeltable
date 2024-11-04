@@ -395,8 +395,8 @@ class Table(SchemaObject):
             on_error: Determines the behavior if an error occurs while evaluating the column expression for at least one
                 row.
 
-                - If `on_error='abort'`, then an exception will be raised and the column will not be added.
-                - If `on_error='ignore'`, then execution will continue and the column will be added. Any rows
+                - `'abort'`: an exception will be raised and the column will not be added.
+                - `'ignore'`: execution will continue and the column will be added. Any rows
                   with errors will have a `None` value for the column, with information about the error stored in the
                   corresponding `tbl.col_name.errortype` and `tbl.col_name.errormsg` fields.
 
