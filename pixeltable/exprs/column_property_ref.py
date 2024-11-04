@@ -6,7 +6,7 @@ from typing import Any, Optional
 import sqlalchemy as sql
 
 import pixeltable.type_system as ts
-
+from pixeltable import catalog
 from .column_ref import ColumnRef
 from .data_row import DataRow
 from .expr import Expr
@@ -49,9 +49,21 @@ class ColumnPropertyRef(Expr):
     def __str__(self) -> str:
         return f'{self._col_ref}.{self.prop.name.lower()}'
 
+    def is_error_prop(self) -> bool:
+        return self.prop == self.Property.ERRORTYPE or self.prop == self.Property.ERRORMSG
+
     def sql_expr(self, sql_elements: SqlElementCache) -> Optional[sql.ColumnElement]:
         if not self._col_ref.col.is_stored:
             return None
+
+        # the errortype/-msg properties of a read-validated media column need to be extracted from the DataRow
+        if (
+            self._col_ref.col.col_type.is_media_type()
+            and self._col_ref.col.media_validation == catalog.MediaValidation.ON_READ
+            and self.is_error_prop()
+        ):
+            return None
+
         if self.prop == self.Property.ERRORTYPE:
             assert self._col_ref.col.sa_errortype_col is not None
             return self._col_ref.col.sa_errortype_col
@@ -64,12 +76,24 @@ class ColumnPropertyRef(Expr):
         return None
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
-        assert self.prop == self.Property.FILEURL or self.prop == self.Property.LOCALPATH
-        assert data_row.has_val[self._col_ref.slot_idx]
         if self.prop == self.Property.FILEURL:
+            assert data_row.has_val[self._col_ref.slot_idx]
             data_row[self.slot_idx] = data_row.file_urls[self._col_ref.slot_idx]
-        if self.prop == self.Property.LOCALPATH:
+            return
+        elif self.prop == self.Property.LOCALPATH:
+            assert data_row.has_val[self._col_ref.slot_idx]
             data_row[self.slot_idx] = data_row.file_paths[self._col_ref.slot_idx]
+            return
+        elif self.is_error_prop():
+            exc = data_row.get_exc(self._col_ref.slot_idx)
+            if exc is None:
+                data_row[self.slot_idx] = None
+            elif self.prop == self.Property.ERRORTYPE:
+                data_row[self.slot_idx] = type(exc).__name__
+            else:
+                data_row[self.slot_idx] = str(exc)
+        else:
+            assert False
 
     def _as_dict(self) -> dict:
         return {'prop': self.prop.value, **super()._as_dict()}

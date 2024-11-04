@@ -24,7 +24,7 @@ import pixeltable.type_system as ts
 from pixeltable.utils.filecache import FileCache
 
 from .column import Column
-from .globals import _ROWID_COLUMN_NAME, UpdateStatus, is_system_column_name, is_valid_identifier
+from .globals import _ROWID_COLUMN_NAME, UpdateStatus, is_system_column_name, is_valid_identifier, MediaValidation
 from .schema_object import SchemaObject
 from .table_version import TableVersion
 from .table_version_path import TableVersionPath
@@ -91,6 +91,7 @@ class Table(SchemaObject):
                     'num_retained_versions': 10,
                     'is_view': False,
                     'is_snapshot': False,
+                    'media_validation': 'on_write',
                 }
                 ```
         """
@@ -101,6 +102,7 @@ class Table(SchemaObject):
         md['schema_version'] = self._tbl_version.schema_version
         md['comment'] = self._comment
         md['num_retained_versions'] = self._num_retained_versions
+        md['media_validation'] = self._media_validation.name.lower()
         return md
 
     @property
@@ -243,6 +245,10 @@ class Table(SchemaObject):
     @property
     def _num_retained_versions(self):
         return self._tbl_version.num_retained_versions
+
+    @property
+    def _media_validation(self) -> MediaValidation:
+        return self._tbl_version.media_validation
 
     def _description(self) -> pd.DataFrame:
         cols = self._tbl_version_path.columns()
@@ -492,7 +498,7 @@ class Table(SchemaObject):
         (on account of containing Python Callables or Exprs).
         """
         assert isinstance(spec, dict)
-        valid_keys = {'type', 'value', 'stored'}
+        valid_keys = {'type', 'value', 'stored', 'media_validation'}
         for k in spec.keys():
             if k not in valid_keys:
                 raise excs.Error(f'Column {name}: invalid key {k!r}')
@@ -511,6 +517,9 @@ class Table(SchemaObject):
             if 'type' in spec:
                 raise excs.Error(f"Column {name}: 'type' is redundant if 'value' is specified")
 
+        if 'media_validation' in spec:
+            _ = catalog.MediaValidation.validated(spec['media_validation'], f'Column {name}: media_validation')
+
         if 'stored' in spec and not isinstance(spec['stored'], bool):
             raise excs.Error(f'Column {name}: "stored" must be a bool, got {spec["stored"]}')
 
@@ -522,6 +531,7 @@ class Table(SchemaObject):
             col_type: Optional[ts.ColumnType] = None
             value_expr: Optional[exprs.Expr] = None
             primary_key: Optional[bool] = None
+            media_validation: Optional[catalog.MediaValidation] = None
             stored = True
 
             if isinstance(spec, (ts.ColumnType, type, _GenericAlias)):
@@ -539,10 +549,17 @@ class Table(SchemaObject):
                     value_expr = value_expr.copy()
                 stored = spec.get('stored', True)
                 primary_key = spec.get('primary_key')
+                media_validation_str = spec.get('media_validation')
+                media_validation = (
+                    catalog.MediaValidation[media_validation_str.upper()] if media_validation_str is not None
+                    else None
+                )
             else:
                 raise excs.Error(f'Invalid value for column {name!r}')
 
-            column = Column(name, col_type=col_type, computed_with=value_expr, stored=stored, is_pk=primary_key)
+            column = Column(
+                name, col_type=col_type, computed_with=value_expr, stored=stored, is_pk=primary_key,
+                media_validation=media_validation)
             columns.append(column)
         return columns
 

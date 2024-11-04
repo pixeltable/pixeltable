@@ -13,7 +13,7 @@ from pixeltable.env import Env
 from pixeltable.utils.filecache import FileCache
 
 from .catalog import Catalog
-from .globals import UpdateStatus
+from .globals import UpdateStatus, MediaValidation
 from .table import Table
 from .table_version import TableVersion
 from .table_version_path import TableVersionPath
@@ -35,8 +35,8 @@ class InsertableTable(Table):
     # MODULE-LOCAL, NOT PUBLIC
     @classmethod
     def _create(
-            cls, dir_id: UUID, name: str, schema: dict[str, ts.ColumnType], df: Optional[pxt.DataFrame], primary_key: List[str],
-            num_retained_versions: int, comment: str
+        cls, dir_id: UUID, name: str, schema: dict[str, ts.ColumnType], df: Optional[pxt.DataFrame],
+        primary_key: List[str], num_retained_versions: int, comment: str, media_validation: MediaValidation
     ) -> InsertableTable:
         columns = cls._create_columns(schema)
         cls._verify_schema(columns)
@@ -50,7 +50,9 @@ class InsertableTable(Table):
             col.is_pk = True
 
         with orm.Session(Env.get().engine, future=True) as session:
-            _, tbl_version = TableVersion.create(session, dir_id, name, columns, num_retained_versions, comment)
+            _, tbl_version = TableVersion.create(
+                session, dir_id, name, columns, num_retained_versions=num_retained_versions, comment=comment,
+                media_validation=media_validation)
             tbl = cls(dir_id, tbl_version)
             # TODO We need to commit before doing the insertion, in order to avoid a primary key (version) collision
             #   when the table metadata gets updated. Once we have a notion of user-defined transactions in

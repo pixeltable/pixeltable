@@ -1,6 +1,6 @@
 import dataclasses
 import logging
-from typing import Any, Iterable, Optional, Union
+from typing import Any, Iterable, Optional, Union, Literal
 from uuid import UUID
 
 import pandas as pd
@@ -33,6 +33,7 @@ def create_table(
     primary_key: Optional[Union[str, list[str]]] = None,
     num_retained_versions: int = 10,
     comment: str = '',
+    media_validation: Literal['on_read', 'on_write'] = 'on_write'
 ) -> catalog.Table:
     """Create a new base table.
 
@@ -44,6 +45,9 @@ def create_table(
             table.
         num_retained_versions: Number of versions of the table to retain.
         comment: An optional comment; its meaning is user-defined.
+        media_validation: Media validation policy for the table.
+            - `'on_read'`: validate media files at query time
+            - `'on_write'`: validate media files during insert/update operations
 
     Returns:
         A handle to the newly created [`Table`][pixeltable.Table].
@@ -89,14 +93,8 @@ def create_table(
             raise excs.Error('primary_key must be a single column name or a list of column names')
 
     tbl = catalog.InsertableTable._create(
-        dir._id,
-        path.name,
-        schema,
-        df,
-        primary_key=primary_key,
-        num_retained_versions=num_retained_versions,
-        comment=comment,
-    )
+        dir._id, path.name, schema, df, primary_key=primary_key, num_retained_versions=num_retained_versions,
+        comment=comment, media_validation=catalog.MediaValidation.validated(media_validation, 'media_validation'))
     Catalog.get().paths[path] = tbl
 
     _logger.info(f'Created table `{path_str}`.')
@@ -112,6 +110,7 @@ def create_view(
     iterator: Optional[tuple[type[ComponentIterator], dict[str, Any]]] = None,
     num_retained_versions: int = 10,
     comment: str = '',
+    media_validation: Literal['on_read', 'on_write'] = 'on_write',
     ignore_errors: bool = False,
 ) -> Optional[catalog.Table]:
     """Create a view of an existing table object (which itself can be a view or a snapshot or a base table).
@@ -172,17 +171,10 @@ def create_view(
         iterator_class, iterator_args = iterator
 
     view = catalog.View._create(
-        dir._id,
-        path.name,
-        base=tbl_version_path,
-        additional_columns=additional_columns,
-        predicate=where,
-        is_snapshot=is_snapshot,
-        iterator_cls=iterator_class,
-        iterator_args=iterator_args,
-        num_retained_versions=num_retained_versions,
-        comment=comment,
-    )
+        dir._id, path.name, base=tbl_version_path, additional_columns=additional_columns, predicate=where,
+        is_snapshot=is_snapshot, iterator_cls=iterator_class, iterator_args=iterator_args,
+        num_retained_versions=num_retained_versions, comment=comment,
+        media_validation=catalog.MediaValidation.validated(media_validation, 'media_validation'))
     Catalog.get().paths[path] = view
     _logger.info(f'Created view `{path_str}`.')
     FileCache.get().emit_eviction_warnings()
@@ -196,6 +188,7 @@ def create_snapshot(
     additional_columns: Optional[dict[str, Any]] = None,
     num_retained_versions: int = 10,
     comment: str = '',
+    media_validation: Literal['on_read', 'on_write'] = 'on_write',
     ignore_errors: bool = False,
 ) -> Optional[catalog.Table]:
     """Create a snapshot of an existing table object (which itself can be a view or a snapshot or a base table).
@@ -232,6 +225,7 @@ def create_snapshot(
         is_snapshot=True,
         num_retained_versions=num_retained_versions,
         comment=comment,
+        media_validation=media_validation,
         ignore_errors=ignore_errors,
     )
 
