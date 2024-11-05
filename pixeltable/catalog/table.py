@@ -218,6 +218,12 @@ class Table(SchemaObject):
         return self._df().count()
 
     @property
+    def columns(self) -> list[str]:
+        """Return the names of the columns in this table. """
+        cols = self._tbl_version_path.columns()
+        return [c.name for c in cols]
+
+    @property
     def _schema(self) -> dict[str, ts.ColumnType]:
         """Return the schema (column names and column types) of this table."""
         return {c.name: c.col_type for c in self._tbl_version_path.columns()}
