@@ -33,7 +33,7 @@ class CachePrefetchNode(ExecNode):
     BATCH_SIZE = 16
     NUM_EXECUTOR_THREADS = 16
 
-    retain_input_order: bool
+    retain_input_order: bool  # if True, return rows in the exact order they were received
     file_col_info: list[exprs.ColumnSlotIdx]
     boto_client: Optional[Any]
     boto_client_lock: threading.Lock
@@ -42,8 +42,8 @@ class CachePrefetchNode(ExecNode):
     batch_tbl_version: Optional[catalog.TableVersion]  # needed to construct output batches
     num_returned_rows: int
     ready_rows: deque[Optional[exprs.DataRow]]  # the implied row idx of ready_rows[0] is num_returned_rows
-    in_flight_rows: dict[int, CachePrefetchNode.RowState]  # id(row) -> RowState
-    in_flight_requests: dict[futures.Future, str]  # future -> URL
+    in_flight_rows: dict[int, CachePrefetchNode.RowState]  # rows with in-flight urls; id(row) -> RowState
+    in_flight_requests: dict[futures.Future, str]  # in-flight requests for urls; future -> URL
     in_flight_urls: dict[str, list[tuple[exprs.DataRow, exprs.ColumnSlotIdx]]]  # URL -> [(row, info)]
     input_finished: bool
     row_idx: Iterator[Optional[int]]
@@ -79,17 +79,17 @@ class CachePrefetchNode(ExecNode):
         input_iter = iter(self.input)
         with futures.ThreadPoolExecutor(max_workers=self.NUM_EXECUTOR_THREADS) as executor:
             # we create enough in-flight requests to fill the first batch
-            while not self.input_finished and self._num_pending_rows() < self.BATCH_SIZE:
-                self._submit_input_batch(input_iter, executor)
+            while not self.input_finished and self.__num_pending_rows() < self.BATCH_SIZE:
+                self.__submit_input_batch(input_iter, executor)
 
             while True:
                 # try to assemble a full batch of output rows
-                if not self._has_ready_batch() and len(self.in_flight_requests) > 0:
-                    self._wait_for_requests()
+                if not self.__has_ready_batch() and len(self.in_flight_requests) > 0:
+                    self.__wait_for_requests()
 
                 # try to create enough in-flight requests to fill the next batch
-                while not self.input_finished and self._num_pending_rows() < self.BATCH_SIZE:
-                    self._submit_input_batch(input_iter, executor)
+                while not self.input_finished and self.__num_pending_rows() < self.BATCH_SIZE:
+                    self.__submit_input_batch(input_iter, executor)
 
                 if len(self.ready_rows) > 0:
                     # create DataRowBatch from the first BATCH_SIZE ready rows
@@ -102,23 +102,23 @@ class CachePrefetchNode(ExecNode):
                     _logger.debug(f'returning {len(rows)} rows')
                     yield batch
 
-                if self.input_finished and self._num_pending_rows() == 0:
+                if self.input_finished and self.__num_pending_rows() == 0:
                     return
 
-    def _num_pending_rows(self) -> int:
+    def __num_pending_rows(self) -> int:
         return len(self.in_flight_rows) + len(self.ready_rows)
 
-    def _has_ready_batch(self) -> bool:
-        """True if the first BATCH_SIZE entries in ready_rows are all non-None"""
+    def __has_ready_batch(self) -> bool:
+        """True if there are >= BATCH_SIZES entries in ready_rows and the first BATCH_SIZE ones are all non-None"""
         return (
-            sum(1 for row in itertools.islice(self.ready_rows, self.BATCH_SIZE) if row is not None) == self.BATCH_SIZE
+            sum(int(row is not None) for row in itertools.islice(self.ready_rows, self.BATCH_SIZE)) == self.BATCH_SIZE
         )
 
-    def _ready_batch_size(self) -> int:
+    def __ready_prefix_len(self) -> int:
         """Length of the non-None prefix of ready_rows (= what we can return right now)"""
         return sum(1 for _ in itertools.takewhile(lambda x: x is not None, self.ready_rows))
 
-    def _add_ready_row(self, row: exprs.DataRow, row_idx: Optional[int]) -> None:
+    def __add_ready_row(self, row: exprs.DataRow, row_idx: Optional[int]) -> None:
         if row_idx is None:
             self.ready_rows.append(row)
         else:
@@ -128,11 +128,11 @@ class CachePrefetchNode(ExecNode):
                 self.ready_rows.extend([None] * (idx - len(self.ready_rows) + 1))
             self.ready_rows[idx] = row
 
-    def _wait_for_requests(self) -> None:
+    def __wait_for_requests(self) -> None:
         """Wait for in-flight requests to complete until we have a full batch of rows"""
         file_cache = FileCache.get()
-        _logger.debug(f'waiting for requests; ready_batch_size={self._ready_batch_size()}')
-        while not self._has_ready_batch() and len(self.in_flight_requests) > 0:
+        _logger.debug(f'waiting for requests; ready_batch_size={self.__ready_prefix_len()}')
+        while not self.__has_ready_batch() and len(self.in_flight_requests) > 0:
             done, _ = futures.wait(self.in_flight_requests, return_when=futures.FIRST_COMPLETED)
             for f in done:
                 url = self.in_flight_requests.pop(f)
@@ -156,10 +156,10 @@ class CachePrefetchNode(ExecNode):
                     state.num_missing -= 1
                     if state.num_missing == 0:
                         del self.in_flight_rows[id(row)]
-                        self._add_ready_row(row, state.idx)
-                        _logger.debug(f'row {state.idx} is ready (ready_batch_size={self._ready_batch_size()})')
+                        self.__add_ready_row(row, state.idx)
+                        _logger.debug(f'row {state.idx} is ready (ready_batch_size={self.__ready_prefix_len()})')
 
-    def _submit_input_batch(self, input: Iterator[DataRowBatch], executor: futures.ThreadPoolExecutor) -> None:
+    def __submit_input_batch(self, input: Iterator[DataRowBatch], executor: futures.ThreadPoolExecutor) -> None:
         assert not self.input_finished
         input_batch = next(input, None)
         if input_batch is None:
@@ -206,15 +206,15 @@ class CachePrefetchNode(ExecNode):
             if num_missing > 0:
                 self.in_flight_rows[id(row)] = self.RowState(row, row_idx, num_missing)
             else:
-                self._add_ready_row(row, row_idx)
+                self.__add_ready_row(row, row_idx)
 
         _logger.debug(f'submitting {len(cache_misses)} urls')
         for url in cache_misses:
-            f = executor.submit(self._fetch_url, url)
+            f = executor.submit(self.__fetch_url, url)
             _logger.debug(f'submitted {url} for idx {url_pos[url]}')
             self.in_flight_requests[f] = url
 
-    def _fetch_url(self, url: str) -> tuple[Optional[Path], Optional[Exception]]:
+    def __fetch_url(self, url: str) -> tuple[Optional[Path], Optional[Exception]]:
         """Fetches a remote URL into Env.tmp_dir and returns its path"""
         _logger.debug(f'fetching url={url} thread_name={threading.current_thread().name}')
         parsed = urllib.parse.urlparse(url)

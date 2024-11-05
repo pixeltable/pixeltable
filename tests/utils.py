@@ -21,6 +21,7 @@ from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
 from pixeltable.functions.huggingface import clip_image, clip_text, sentence_transformer
 from pixeltable.io import SyncStatus
+import pixeltable.utils.s3 as s3_util
 
 
 def make_default_type(t: pxt.ColumnType.Type) -> pxt.ColumnType:
@@ -353,18 +354,8 @@ def get_multimedia_commons_video_uris(n: int = 10) -> list[str]:
     parsed = urllib.parse.urlparse(uri)
     bucket_name = parsed.netloc
     prefix = parsed.path.lstrip('/')
-    s3_client: Any
-    import boto3
-    import botocore
-    try:
-        boto3.Session().get_credentials().get_frozen_credentials()
-        s3_client = boto3.client('s3')  # credentials are available
-    except AttributeError:
-        # No credentials available, use unsigned mode
-        config = botocore.config.Config(signature_version=botocore.UNSIGNED)
-        s3_client = boto3.client('s3', config=config)
-
-    uris = []
+    s3_client = s3_util.get_client()
+    uris: list[str] = []
     # Use paginator to handle more than 1000 objects
     paginator = s3_client.get_paginator('list_objects_v2')
 
