@@ -17,6 +17,7 @@ import pixeltable.exceptions as excs
 import pixeltable.exprs as exprs
 from pixeltable import catalog
 from pixeltable.utils.filecache import FileCache
+
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
 

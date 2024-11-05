@@ -3,7 +3,7 @@ import sys
 import time
 import warnings
 from dataclasses import dataclass
-from typing import Iterable, List, Optional
+from typing import Iterable, Optional
 
 from tqdm import TqdmWarning, tqdm
 
@@ -22,10 +22,10 @@ class ExprEvalNode(ExecNode):
     @dataclass
     class Cohort:
         """List of exprs that form an evaluation context and contain calls to at most one external function"""
-        exprs_: List[exprs.Expr]
+        exprs_: list[exprs.Expr]
         batched_fn: Optional[CallableFunction]
-        segment_ctxs: List['exprs.RowBuilder.EvalCtx']
-        target_slot_idxs: List[int]
+        segment_ctxs: list['exprs.RowBuilder.EvalCtx']
+        target_slot_idxs: list[int]
         batch_size: int = 8
 
     def __init__(
@@ -38,7 +38,7 @@ class ExprEvalNode(ExecNode):
         # we're only materializing exprs that are not already in the input
         self.target_exprs = [e for e in output_exprs if e.slot_idx not in input_slot_idxs]
         self.pbar: Optional[tqdm] = None
-        self.cohorts: List[ExprEvalNode.Cohort] = []
+        self.cohorts: list[ExprEvalNode.Cohort] = []
         self._create_cohorts()
 
     def __next__(self) -> DataRowBatch:
@@ -83,7 +83,7 @@ class ExprEvalNode(ExecNode):
         all_exprs = self.row_builder.get_dependencies(self.target_exprs)
         # break up all_exprs into cohorts such that each cohort contains calls to at most one external function;
         # seed the cohorts with only the ext fn calls
-        cohorts: List[List[exprs.Expr]] = []
+        cohorts: list[list[exprs.Expr]] = []
         current_batched_fn: Optional[CallableFunction] = None
         for e in all_exprs:
             if not self._is_batched_fn_call(e):
@@ -100,7 +100,7 @@ class ExprEvalNode(ExecNode):
         # cohorts are evaluated in order, so we can exclude the target slots from preceding cohorts and input slots
         exclude = set(e.slot_idx for e in self.input_exprs)
         all_target_slot_idxs = set(e.slot_idx for e in self.target_exprs)
-        target_slot_idxs: List[List[int]] = []  # the ones materialized by each cohort
+        target_slot_idxs: list[list[int]] = []  # the ones materialized by each cohort
         for i in range(len(cohorts)):
             cohorts[i] = self.row_builder.get_dependencies(
                 cohorts[i], exclude=[self.row_builder.unique_exprs[slot_idx] for slot_idx in exclude])
@@ -171,7 +171,7 @@ class ExprEvalNode(ExecNode):
                     arg_batches: list[list[exprs.Expr]] = [[] for _ in range(len(fn_call.args))]
                     kwarg_batches: dict[str, list[exprs.Expr]] = {k: [] for k in fn_call.kwargs.keys()}
 
-                    valid_batch_idxs: List[int] = []  # rows with exceptions are not valid
+                    valid_batch_idxs: list[int] = []  # rows with exceptions are not valid
                     for row_idx in range(batch_start_idx, batch_start_idx + num_batch_rows):
                         row = rows[row_idx]
                         if row.has_exc(fn_call.slot_idx):

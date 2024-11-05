@@ -2,14 +2,15 @@ import json
 import logging
 import os
 import pathlib
-from typing import List
 
 import pytest
+from filelock import FileLock
 
 import pixeltable as pxt
 import pixeltable.catalog as catalog
 import pixeltable.functions as pxtf
 from pixeltable import exprs
+from pixeltable.env import Env
 from pixeltable.exprs import RELATIVE_PATH_ROOT as R
 from pixeltable.metadata import SystemInfo, create_system_info
 from pixeltable.metadata.schema import Dir, Function, Table, TableSchemaVersion, TableVersion
@@ -19,23 +20,28 @@ from .utils import create_all_datatypes_tbl, create_img_tbl, create_test_tbl, re
 
 
 @pytest.fixture(scope='session')
-def init_env(tmp_path_factory) -> None:
-    from pixeltable.env import Env
-
-    # set the relevant env vars for the test db
+def init_env(tmp_path_factory, worker_id) -> None:
+    # Set the relevant env vars for the test db.
+    # We use a single shared pgserver instance, running in the "true" home directory ($PIXELTABLE_HOME/pgdata).
+    # Each worker gets its own test db in this instance, along with its own home directory for everything else
+    # (file cache, media store, etc).
     shared_home = pathlib.Path(os.environ.get('PIXELTABLE_HOME', str(pathlib.Path.home() / '.pixeltable')))
     home_dir = str(tmp_path_factory.mktemp('base') / '.pixeltable')
     os.environ['PIXELTABLE_HOME'] = home_dir
     os.environ['PIXELTABLE_CONFIG'] = str(shared_home / 'config.toml')
-    test_db = 'test'
-    os.environ['PIXELTABLE_DB'] = test_db
+    os.environ['PIXELTABLE_DB'] = f'test_{worker_id}'
     os.environ['PIXELTABLE_PGDATA'] = str(shared_home / 'pgdata')
 
-    # ensure this home dir exits
+    # Ensure the shared home directory exists.
     shared_home.mkdir(parents=True, exist_ok=True)
-    # this also runs create_all()
+
+    # Initialize Pixeltable. If using multiple workers, they need to be initialized synchronously to ensure we
+    # don't have several processes trying to initialize pgserver in parallel.
+    root_tmp_dir = tmp_path_factory.getbasetemp().parent
+    with FileLock(str(root_tmp_dir / 'pxt-init.lock')):
+        pxt.init()
+
     Env.get().configure_logging(level=logging.DEBUG, to_stdout=True)
-    # leave db in place for debugging purposes
 
 
 @pytest.fixture(scope='function')
@@ -81,7 +87,7 @@ def test_tbl(reset_db) -> catalog.Table:
     return create_test_tbl()
 
 @pytest.fixture(scope='function')
-def test_tbl_exprs(test_tbl: catalog.Table) -> List[exprs.Expr]:
+def test_tbl_exprs(test_tbl: catalog.Table) -> list[exprs.Expr]:
     t = test_tbl
     return [
         t.c1,
@@ -125,7 +131,7 @@ def img_tbl(reset_db) -> catalog.Table:
     return create_img_tbl('test_img_tbl')
 
 @pytest.fixture(scope='function')
-def img_tbl_exprs(indexed_img_tbl: catalog.Table) -> List[exprs.Expr]:
+def img_tbl_exprs(indexed_img_tbl: catalog.Table) -> list[exprs.Expr]:
     t = indexed_img_tbl
     return [
         t.img.width,
