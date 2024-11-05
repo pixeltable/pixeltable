@@ -1,4 +1,4 @@
-from typing import Any, Iterable, Optional, Sequence, cast
+from typing import Any, Iterable, Optional, Sequence
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -225,27 +225,28 @@ class Planner:
         assert not tbl.is_view()
         # stored_cols: all cols we need to store, incl computed cols (and indices)
         stored_cols = [c for c in tbl.cols if c.is_stored]
-        assert len(stored_cols) > 0
-
+        assert len(stored_cols) > 0  # there needs to be something to store
         row_builder = exprs.RowBuilder([], stored_cols, [])
 
         # create InMemoryDataNode for 'rows'
-        stored_col_info = row_builder.output_slot_idxs()
-        stored_img_col_info = [info for info in stored_col_info if info.col.col_type.is_image_type()]
-        input_col_info = [info for info in stored_col_info if not info.col.is_computed]
         plan: exec.ExecNode = exec.InMemoryDataNode(tbl, rows, row_builder, tbl.next_rowid)
 
-        media_input_cols = [info for info in input_col_info if info.col.col_type.is_media_type()]
-        if len(media_input_cols) > 0:
-            # prefetch external files for all input column refs for validation
-            plan = exec.CachePrefetchNode(tbl.id, media_input_cols, input=plan)
-            plan = exec.MediaValidationNode(row_builder, media_input_cols, input=plan)
+        media_input_col_info = [
+            exprs.ColumnSlotIdx(col_ref.col, col_ref.slot_idx)
+            for col_ref in row_builder.input_exprs
+            if isinstance(col_ref, exprs.ColumnRef) and col_ref.col_type.is_media_type()
+        ]
+        if len(media_input_col_info) > 0:
+            # prefetch external files for all input column refs
+            plan = exec.CachePrefetchNode(tbl.id, media_input_col_info, input=plan)
 
-        computed_exprs = [e for e in row_builder.default_eval_ctx.target_exprs if not isinstance(e, exprs.ColumnRef)]
+        computed_exprs = row_builder.output_exprs - row_builder.input_exprs
         if len(computed_exprs) > 0:
             # add an ExprEvalNode when there are exprs to compute
             plan = exec.ExprEvalNode(row_builder, computed_exprs, plan.output_exprs, input=plan)
 
+        stored_col_info = row_builder.output_slot_idxs()
+        stored_img_col_info = [info for info in stored_col_info if info.col.col_type.is_image_type()]
         plan.set_stored_img_cols(stored_img_col_info)
         plan.set_ctx(
             exec.ExecContext(

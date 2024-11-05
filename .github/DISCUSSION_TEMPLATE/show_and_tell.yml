@@ -1,0 +1,41 @@
+title: "[Show and Tell] "
+labels: ["showcase"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Share your Pixeltable project or implementation with the community!
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Project Description
+      description: Tell us about your project
+      placeholder: What did you build with Pixeltable?
+    validations:
+      required: true
+
+  - type: textarea
+    id: implementation
+    attributes:
+      label: Implementation Details
+      description: Share key implementation details or interesting code snippets
+      render: python
+    validations:
+      required: false
+
+  - type: textarea
+    id: learning
+    attributes:
+      label: Learnings & Tips
+      description: What insights or tips would you share with others?
+    validations:
+      required: false
+
+  - type: input
+    id: links
+    attributes:
+      label: Project Links
+      description: Share relevant links (GitHub, blog posts, etc.)
+    validations:
+      required: false

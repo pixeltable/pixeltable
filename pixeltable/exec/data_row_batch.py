@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import List, Iterator, Optional
+from typing import Iterator, Optional
 import logging
 
 import pixeltable.exprs as exprs
@@ -53,8 +53,8 @@ class DataRowBatch:
         return self.rows[index]
 
     def flush_imgs(
-            self, idx_range: Optional[slice] = None, stored_img_info: Optional[List[exprs.ColumnSlotIdx]] = None,
-            flushed_slot_idxs: Optional[List[int]] = None
+            self, idx_range: Optional[slice] = None, stored_img_info: Optional[list[exprs.ColumnSlotIdx]] = None,
+            flushed_slot_idxs: Optional[list[int]] = None
     ) -> None:
         """Flushes images in the given range of rows."""
         assert self.tbl is not None

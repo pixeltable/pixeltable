@@ -303,7 +303,7 @@ class StoreBase:
 
     def insert_rows(
             self, exec_plan: ExecNode, conn: sql.engine.Connection, v_min: Optional[int] = None,
-            show_progress: bool = True, rowids: Optional[Iterator[int]] = None
+            show_progress: bool = True, rowids: Optional[Iterator[int]] = None, abort_on_exc: bool = False
     ) -> tuple[int, int, set[int]]:
         """Insert rows into the store table and update the catalog table's md
         Returns:
@@ -325,8 +325,13 @@ class StoreBase:
                 for batch_start_idx in range(0, len(row_batch), self.__INSERT_BATCH_SIZE):
                     # compute batch of rows and convert them into table rows
                     table_rows: list[dict[str, Any]] = []
-                    for row_idx in range(batch_start_idx, min(batch_start_idx + self.__INSERT_BATCH_SIZE, len(row_batch))):
+                    batch_stop_idx = min(batch_start_idx + self.__INSERT_BATCH_SIZE, len(row_batch))
+                    for row_idx in range(batch_start_idx, batch_stop_idx):
                         row = row_batch[row_idx]
+                        # if abort_on_exc == True, we need to check for media validation exceptions
+                        if abort_on_exc and row.has_exc():
+                            exc = row.get_first_exc()
+                            raise exc
 
                         rowid = (next(rowids),) if rowids is not None else row.pk[:-1]
                         pk = rowid + (v_min,)

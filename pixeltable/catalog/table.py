@@ -6,7 +6,7 @@ import json
 import logging
 from pathlib import Path
 from typing import _GenericAlias  # type: ignore[attr-defined]
-from typing import TYPE_CHECKING, Any, Callable, Iterable, Literal, Optional, Set, Sequence, Tuple, Type, Union, overload
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Literal, Optional, Sequence, Union, overload
 from uuid import UUID
 
 import pandas as pd
@@ -24,7 +24,7 @@ import pixeltable.type_system as ts
 from pixeltable.utils.filecache import FileCache
 
 from .column import Column
-from .globals import _ROWID_COLUMN_NAME, UpdateStatus, is_system_column_name, is_valid_identifier
+from .globals import _ROWID_COLUMN_NAME, UpdateStatus, is_system_column_name, is_valid_identifier, MediaValidation
 from .schema_object import SchemaObject
 from .table_version import TableVersion
 from .table_version_path import TableVersionPath
@@ -91,6 +91,7 @@ class Table(SchemaObject):
                     'num_retained_versions': 10,
                     'is_view': False,
                     'is_snapshot': False,
+                    'media_validation': 'on_write',
                 }
                 ```
         """
@@ -101,6 +102,7 @@ class Table(SchemaObject):
         md['schema_version'] = self._tbl_version.schema_version
         md['comment'] = self._comment
         md['num_retained_versions'] = self._num_retained_versions
+        md['media_validation'] = self._media_validation.name.lower()
         return md
 
     @property
@@ -244,9 +246,12 @@ class Table(SchemaObject):
     def _num_retained_versions(self):
         return self._tbl_version.num_retained_versions
 
+    @property
+    def _media_validation(self) -> MediaValidation:
+        return self._tbl_version.media_validation
+
     def _description(self, cols: Optional[Iterable[Column]] = None) -> pd.DataFrame:
-        if cols is None:
-            cols = self._tbl_version_path.columns()
+        cols = self._tbl_version_path.columns()
         df = pd.DataFrame({
             'Column Name': [c.name for c in cols],
             'Type': [c.col_type._to_str(as_schema=True) for c in cols],
@@ -423,7 +428,7 @@ class Table(SchemaObject):
         (on account of containing Python Callables or Exprs).
         """
         assert isinstance(spec, dict)
-        valid_keys = {'type', 'value', 'stored'}
+        valid_keys = {'type', 'value', 'stored', 'media_validation'}
         has_type = False
         for k in spec.keys():
             if k not in valid_keys:
@@ -450,6 +455,9 @@ class Table(SchemaObject):
                 if 'type' in spec:
                     raise excs.Error(f'Column {name}: "type" is redundant if value is a Pixeltable expression')
 
+        if 'media_validation' in spec:
+            _ = catalog.MediaValidation.validated(spec['media_validation'], f'Column {name}: media_validation')
+
         if 'stored' in spec and not isinstance(spec['stored'], bool):
             raise excs.Error(f'Column {name}: "stored" must be a bool, got {spec["stored"]}')
         if not has_type:
@@ -463,6 +471,7 @@ class Table(SchemaObject):
             col_type: Optional[ts.ColumnType] = None
             value_expr: Optional[exprs.Expr] = None
             primary_key: Optional[bool] = None
+            media_validation: Optional[catalog.MediaValidation] = None
             stored = True
 
             if isinstance(spec, (ts.ColumnType, type, _GenericAlias)):
@@ -485,15 +494,21 @@ class Table(SchemaObject):
                     value_expr = value_expr.copy()
                 stored = spec.get('stored', True)
                 primary_key = spec.get('primary_key')
+                media_validation_str = spec.get('media_validation')
+                media_validation = (
+                    catalog.MediaValidation[media_validation_str.upper()] if media_validation_str is not None
+                    else None
+                )
 
             column = Column(
-                name, col_type=col_type, computed_with=value_expr, stored=stored, is_pk=primary_key)
+                name, col_type=col_type, computed_with=value_expr, stored=stored, is_pk=primary_key,
+                media_validation=media_validation)
             columns.append(column)
         return columns
 
     @classmethod
     def _verify_column(
-            cls, col: Column, existing_column_names: Set[str], existing_query_names: Optional[Set[str]] = None
+            cls, col: Column, existing_column_names: set[str], existing_query_names: Optional[set[str]] = None
     ) -> None:
         """Check integrity of user-supplied Column and supply defaults"""
         if is_system_column_name(col.name):
@@ -514,7 +529,7 @@ class Table(SchemaObject):
     @classmethod
     def _verify_schema(cls, schema: list[Column]) -> None:
         """Check integrity of user-supplied schema and set defaults"""
-        column_names: Set[str] = set()
+        column_names: set[str] = set()
         for col in schema:
             cls._verify_column(col, column_names)
             column_names.add(col.name)
@@ -695,7 +710,7 @@ class Table(SchemaObject):
 
     def _drop_index(
             self, *, column_name: Optional[str] = None, idx_name: Optional[str] = None,
-            _idx_class: Optional[Type[index.IndexBase]] = None
+            _idx_class: Optional[type[index.IndexBase]] = None
     ) -> None:
         if self._tbl_version_path.is_snapshot():
             raise excs.Error('Cannot drop an index from a snapshot')
@@ -852,7 +867,7 @@ class Table(SchemaObject):
 
         # pseudo-column _rowid: contains the rowid of the row to update and can be used instead of the primary key
         has_rowid = _ROWID_COLUMN_NAME in rows[0]
-        rowids: list[Tuple[int, ...]] = []
+        rowids: list[tuple[int, ...]] = []
         if len(pk_col_names) == 0 and not has_rowid:
             raise excs.Error('Table must have primary key for batch update')
 
