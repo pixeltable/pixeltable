@@ -515,6 +515,20 @@ class TestTable:
             pxt.create_table('test', {'c1': pxt.String}, primary_key='c1')
         assert 'cannot be nullable' in str(exc_info.value).lower()
 
+        for badtype, name, suggestion in [
+            (str, 'str', 'pxt.String'),
+            (int, 'int', 'pxt.Int'),
+            (float, 'float', 'pxt.Float'),
+            (bool, 'bool', 'pxt.Bool'),
+            (datetime.datetime, 'datetime.datetime', 'pxt.Timestamp'),
+            (list, 'list', 'pxt.Json'),
+            (dict, 'dict', 'pxt.Json'),
+            (PIL.Image.Image, 'PIL.Image.Image', 'pxt.Image'),
+        ]:
+            with pytest.raises(excs.Error) as exc_info:
+                pxt.create_table('test', {'c1': badtype})
+            assert f'Standard Python type `{name}` cannot be used here; use `{suggestion}` instead' in str(exc_info.value)
+
     def check_bad_media(
         self, rows: list[tuple[str, bool]], col_type: type, validate_local_path: bool = True
     ) -> None:

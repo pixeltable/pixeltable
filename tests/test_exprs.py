@@ -456,7 +456,7 @@ class TestExprs:
         #_ = t[t.c6.f2].show()
         #_ = t[t.c6.f5].show()
         _ = t[t.c6.f6.f8].show()
-        _ = t[cast(t.c6.f6.f8, pxt.Array[(4,), float])].show()
+        _ = t[cast(t.c6.f6.f8, pxt.Array[(4,), pxt.Float])].show()
 
         # top-level is array
         #_ = t[t.c7['*'].f1].show()
@@ -466,7 +466,7 @@ class TestExprs:
         _ = t[t.c7[0].f6.f8].show()
         _ = t[t.c7[:2].f6.f8].show()
         _ = t[t.c7[::-1].f6.f8].show()
-        _ = t[cast(t.c7['*'].f6.f8, pxt.Array[(2, 4), float])].show()
+        _ = t[cast(t.c7['*'].f6.f8, pxt.Array[(2, 4), pxt.Float])].show()
         print(_)
 
     def test_arrays(self, test_tbl: catalog.Table) -> None:

@@ -363,7 +363,7 @@ class Table(SchemaObject):
         """
         self._check_is_dropped()
         col_schema = {
-            col_name: {'type': ts.ColumnType.normalize_type(spec, nullable_default=True)}
+            col_name: {'type': ts.ColumnType.normalize_type(spec, nullable_default=True, allow_builtin_types=False)}
             for col_name, spec in schema.items()
         }
         new_cols = self._create_columns(col_schema)
@@ -428,7 +428,7 @@ class Table(SchemaObject):
 
         col_schema: dict[str, Any] = {}
         if isinstance(spec, (ts.ColumnType, builtins.type, _GenericAlias)):
-            col_schema['type'] = ts.ColumnType.normalize_type(spec, nullable_default=True)
+            col_schema['type'] = ts.ColumnType.normalize_type(spec, nullable_default=True, allow_builtin_types=False)
         else:
             col_schema['value'] = spec
         if stored is not None:
@@ -535,14 +535,15 @@ class Table(SchemaObject):
             stored = True
 
             if isinstance(spec, (ts.ColumnType, type, _GenericAlias)):
-                col_type = ts.ColumnType.normalize_type(spec, nullable_default=True)
+                col_type = ts.ColumnType.normalize_type(spec, nullable_default=True, allow_builtin_types=False)
             elif isinstance(spec, exprs.Expr):
                 # create copy so we can modify it
                 value_expr = spec.copy()
             elif isinstance(spec, dict):
                 cls._validate_column_spec(name, spec)
                 if 'type' in spec:
-                    col_type = ts.ColumnType.normalize_type(spec['type'], nullable_default=True)
+                    col_type = ts.ColumnType.normalize_type(
+                        spec['type'], nullable_default=True, allow_builtin_types=False)
                 value_expr = spec.get('value')
                 if value_expr is not None and isinstance(value_expr, exprs.Expr):
                     # create copy so we can modify it
