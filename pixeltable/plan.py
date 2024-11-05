@@ -1,4 +1,4 @@
-from typing import Any, Iterable, Optional, Sequence, cast
+from typing import Any, Iterable, Optional, Sequence
 from uuid import UUID
 
 import sqlalchemy as sql

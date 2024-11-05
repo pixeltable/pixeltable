@@ -7,13 +7,14 @@ import urllib.parse
 import urllib.request
 from collections import defaultdict
 from pathlib import Path
-from typing import List, Optional, Any, Tuple, Dict
+from typing import Any, Optional
 from uuid import UUID
 
 import pixeltable.env as env
 import pixeltable.exceptions as excs
 import pixeltable.exprs as exprs
 from pixeltable.utils.filecache import FileCache
+
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
 
@@ -26,7 +27,7 @@ class CachePrefetchNode(ExecNode):
     - maintain a queue of row batches, in order to overlap download and evaluation
     - adapting the number of download threads at runtime to maximize throughput
     """
-    def __init__(self, tbl_id: UUID, file_col_info: List[exprs.ColumnSlotIdx], input: ExecNode):
+    def __init__(self, tbl_id: UUID, file_col_info: list[exprs.ColumnSlotIdx], input: ExecNode):
         # []: we don't have anything to evaluate
         super().__init__(input.row_builder, [], [], input)
         self.tbl_id = tbl_id
@@ -41,8 +42,8 @@ class CachePrefetchNode(ExecNode):
 
         # collect external URLs that aren't already cached, and set DataRow.file_paths for those that are
         file_cache = FileCache.get()
-        cache_misses: List[Tuple[exprs.DataRow, exprs.ColumnSlotIdx]] = []
-        missing_url_rows: Dict[str, List[exprs.DataRow]] = defaultdict(list)  # URL -> rows in which it's missing
+        cache_misses: list[tuple[exprs.DataRow, exprs.ColumnSlotIdx]] = []
+        missing_url_rows: dict[str, list[exprs.DataRow]] = defaultdict(list)  # URL -> rows in which it's missing
         for row in input_batch:
             for info in self.file_col_info:
                 url = row.file_urls[info.slot_idx]
@@ -61,7 +62,7 @@ class CachePrefetchNode(ExecNode):
 
         # download the cache misses in parallel
         # TODO: set max_workers to maximize throughput
-        futures: Dict[concurrent.futures.Future, Tuple[exprs.DataRow, exprs.ColumnSlotIdx]] = {}
+        futures: dict[concurrent.futures.Future, tuple[exprs.DataRow, exprs.ColumnSlotIdx]] = {}
         with concurrent.futures.ThreadPoolExecutor(max_workers=16) as executor:
             for row, info in cache_misses:
                 futures[executor.submit(self._fetch_url, row, info.slot_idx)] = (row, info)

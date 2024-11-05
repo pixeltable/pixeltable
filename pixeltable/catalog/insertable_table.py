@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Iterable, List, Literal, Optional, overload
+from typing import Any, Iterable, Literal, Optional, overload
 from uuid import UUID
 
 import sqlalchemy.orm as orm
@@ -13,7 +13,7 @@ from pixeltable.env import Env
 from pixeltable.utils.filecache import FileCache
 
 from .catalog import Catalog
-from .globals import UpdateStatus, MediaValidation
+from .globals import MediaValidation, UpdateStatus
 from .table import Table
 from .table_version import TableVersion
 from .table_version_path import TableVersionPath
@@ -36,7 +36,7 @@ class InsertableTable(Table):
     @classmethod
     def _create(
         cls, dir_id: UUID, name: str, schema: dict[str, ts.ColumnType], df: Optional[pxt.DataFrame],
-        primary_key: List[str], num_retained_versions: int, comment: str, media_validation: MediaValidation
+        primary_key: list[str], num_retained_versions: int, comment: str, media_validation: MediaValidation
     ) -> InsertableTable:
         columns = cls._create_columns(schema)
         cls._verify_schema(columns)
@@ -139,7 +139,7 @@ class InsertableTable(Table):
         FileCache.get().emit_eviction_warnings()
         return status
 
-    def _validate_input_rows(self, rows: List[Dict[str, Any]]) -> None:
+    def _validate_input_rows(self, rows: list[dict[str, Any]]) -> None:
         """Verify that the input rows match the table schema"""
         valid_col_names = set(self._schema.keys())
         reqd_col_names = set(self._tbl_version_path.tbl_version.get_required_col_names())

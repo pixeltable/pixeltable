@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import abc
-from typing import TYPE_CHECKING, Iterable, Iterator, List, Optional
+from typing import TYPE_CHECKING, Iterable, Iterator, Optional
 
 import pixeltable.exprs as exprs
 
@@ -43,7 +43,7 @@ class ExecNode(abc.ABC):
         if self.input is not None:
             self.input.set_ctx(ctx)
 
-    def set_stored_img_cols(self, stored_img_cols: List[exprs.ColumnSlotIdx]) -> None:
+    def set_stored_img_cols(self, stored_img_cols: list[exprs.ColumnSlotIdx]) -> None:
         self.stored_img_cols = stored_img_cols
         # propagate batch size to the source
         if self.input is not None:

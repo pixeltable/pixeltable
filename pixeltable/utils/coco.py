@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Set
+from typing import Any
 
 import PIL
 
@@ -22,7 +22,7 @@ Required format:
 }
 """
 
-def _verify_input_dict(input_dict: Dict[str, Any]) -> None:
+def _verify_input_dict(input_dict: dict[str, Any]) -> None:
     """Verify that input_dict is a valid input dict for write_coco_dataset()"""
     if not isinstance(input_dict, dict):
         raise excs.Error(f'Expected dict, got {input_dict}{format_msg}')
@@ -61,11 +61,11 @@ def write_coco_dataset(df: pxt.DataFrame, dest_path: Path) -> Path:
     images_dir = dest_path / 'images'
     images_dir.mkdir()
 
-    images: List[Dict[str, Any]] = []
+    images: list[dict[str, Any]] = []
     img_id = -1
-    annotations: List[Dict[str, Any]] = []
+    annotations: list[dict[str, Any]] = []
     ann_id = -1
-    categories: Set[Any] = set()
+    categories: set[Any] = set()
     for input_row in df._exec():
         if input_dict_slot_idx == -1:
             input_dict_expr = df._select_list_exprs[0]

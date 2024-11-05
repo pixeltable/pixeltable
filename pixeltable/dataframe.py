@@ -8,7 +8,7 @@ import logging
 import mimetypes
 import traceback
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Dict, Hashable, Iterator, List, Optional, Sequence, Set, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, Hashable, Iterator, Optional, Sequence, Union
 
 import pandas as pd
 import pandas.io.formats.style
@@ -77,7 +77,7 @@ class DataFrameResultSet:
     def to_pandas(self) -> pd.DataFrame:
         return pd.DataFrame.from_records(self._rows, columns=self._col_names)
 
-    def _row_to_dict(self, row_idx: int) -> Dict[str, Any]:
+    def _row_to_dict(self, row_idx: int) -> dict[str, Any]:
         return {self._col_names[i]: self._rows[row_idx][i] for i in range(len(self._col_names))}
 
     def __getitem__(self, index: Any) -> Any:
@@ -111,22 +111,22 @@ class DataFrameResultSet:
 #     def __init__(self, tbl: catalog.TableVersion):
 #         self.tbl = tbl
 #         # output of the SQL scan stage
-#         self.sql_scan_output_exprs: List[exprs.Expr] = []
+#         self.sql_scan_output_exprs: list[exprs.Expr] = []
 #         # output of the agg stage
-#         self.agg_output_exprs: List[exprs.Expr] = []
+#         self.agg_output_exprs: list[exprs.Expr] = []
 #         # Where clause of the Select stmt of the SQL scan stage
 #         self.sql_where_clause: Optional[sql.ClauseElement] = None
 #         # filter predicate applied to input rows of the SQL scan stage
 #         self.filter: Optional[exprs.Predicate] = None
 #         self.similarity_clause: Optional[exprs.ImageSimilarityPredicate] = None
-#         self.agg_fn_calls: List[exprs.FunctionCall] = []  # derived from unique_exprs
+#         self.agg_fn_calls: list[exprs.FunctionCall] = []  # derived from unique_exprs
 #         self.has_frame_col: bool = False  # True if we're referencing the frame col
 #
 #         self.evaluator: Optional[exprs.Evaluator] = None
-#         self.sql_scan_eval_ctx: List[exprs.Expr] = []  # needed to materialize output of SQL scan stage
-#         self.agg_eval_ctx: List[exprs.Expr] = []  # needed to materialize output of agg stage
-#         self.filter_eval_ctx: List[exprs.Expr] = []
-#         self.group_by_eval_ctx: List[exprs.Expr] = []
+#         self.sql_scan_eval_ctx: list[exprs.Expr] = []  # needed to materialize output of SQL scan stage
+#         self.agg_eval_ctx: list[exprs.Expr] = []  # needed to materialize output of agg stage
+#         self.filter_eval_ctx: list[exprs.Expr] = []
+#         self.group_by_eval_ctx: list[exprs.Expr] = []
 #
 #     def finalize_exec(self) -> None:
 #         """
@@ -142,11 +142,11 @@ class DataFrame:
     def __init__(
         self,
         tbl: catalog.TableVersionPath,
-        select_list: Optional[List[Tuple[exprs.Expr, Optional[str]]]] = None,
+        select_list: Optional[list[tuple[exprs.Expr, Optional[str]]]] = None,
         where_clause: Optional[exprs.Expr] = None,
-        group_by_clause: Optional[List[exprs.Expr]] = None,
+        group_by_clause: Optional[list[exprs.Expr]] = None,
         grouping_tbl: Optional[catalog.TableVersion] = None,
-        order_by_clause: Optional[List[Tuple[exprs.Expr, bool]]] = None,  # List[(expr, asc)]
+        order_by_clause: Optional[list[tuple[exprs.Expr, bool]]] = None,  # list[(expr, asc)]
         limit: Optional[int] = None,
     ):
         self.tbl = tbl
@@ -174,7 +174,7 @@ class DataFrame:
     @classmethod
     def _select_list_check_rep(
         cls,
-        select_list: Optional[List[Tuple[exprs.Expr, Optional[str]]]],
+        select_list: Optional[list[tuple[exprs.Expr, Optional[str]]]],
     ) -> None:
         """Validate basic select list types."""
         if select_list is None:  # basic check for valid select list
@@ -411,8 +411,8 @@ class DataFrame:
 
     def _description(self) -> pd.DataFrame:
         """see DataFrame.describe()"""
-        heading_vals: List[str] = []
-        info_vals: List[str] = []
+        heading_vals: list[str] = []
+        info_vals: list[str] = []
         if self.select_list is not None:
             assert len(self.select_list) > 0
             heading_vals.append('Select')
@@ -497,7 +497,7 @@ class DataFrame:
 
         # check user provided names do not conflict among themselves
         # or with auto-generated ones
-        seen: Set[str] = set()
+        seen: set[str] = set()
         _, names = DataFrame._normalize_select_list(self.tbl, select_list)
         for name in names:
             if name in seen:
@@ -540,7 +540,7 @@ class DataFrame:
         if self.group_by_clause is not None:
             raise excs.Error(f'Group-by already specified')
         grouping_tbl: Optional[catalog.TableVersion] = None
-        group_by_clause: Optional[List[exprs.Expr]] = None
+        group_by_clause: Optional[list[exprs.Expr]] = None
         for item in grouping_items:
             if isinstance(item, catalog.Table):
                 if len(grouping_items) > 1:
@@ -618,7 +618,7 @@ class DataFrame:
     def __getitem__(self, index: Union[exprs.Expr, Sequence[exprs.Expr]]) -> DataFrame:
         """
         Allowed:
-        - [List[Expr]]/[Tuple[Expr]]: setting the select list
+        - [list[Expr]]/[tuple[Expr]]: setting the select list
         - [Expr]: setting a single-col select list
         """
         if isinstance(index, exprs.Expr):
@@ -627,7 +627,7 @@ class DataFrame:
             return self.select(*index)
         raise TypeError(f'Invalid index type: {type(index)}')
 
-    def as_dict(self) -> Dict[str, Any]:
+    def as_dict(self) -> dict[str, Any]:
         """
         Returns:
             Dictionary representing this dataframe.
@@ -649,7 +649,7 @@ class DataFrame:
         return d
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> 'DataFrame':
+    def from_dict(cls, d: dict[str, Any]) -> 'DataFrame':
         tbl = catalog.TableVersionPath.from_dict(d['tbl'])
         select_list = [(exprs.Expr.from_dict(e), name) for e, name in d['select_list']] \
             if d['select_list'] is not None else None

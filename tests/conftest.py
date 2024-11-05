@@ -2,7 +2,6 @@ import json
 import logging
 import os
 import pathlib
-from typing import List
 
 import pytest
 from filelock import FileLock
@@ -88,7 +87,7 @@ def test_tbl(reset_db) -> catalog.Table:
     return create_test_tbl()
 
 @pytest.fixture(scope='function')
-def test_tbl_exprs(test_tbl: catalog.Table) -> List[exprs.Expr]:
+def test_tbl_exprs(test_tbl: catalog.Table) -> list[exprs.Expr]:
     t = test_tbl
     return [
         t.c1,
@@ -132,7 +131,7 @@ def img_tbl(reset_db) -> catalog.Table:
     return create_img_tbl('test_img_tbl')
 
 @pytest.fixture(scope='function')
-def img_tbl_exprs(indexed_img_tbl: catalog.Table) -> List[exprs.Expr]:
+def img_tbl_exprs(indexed_img_tbl: catalog.Table) -> list[exprs.Expr]:
     t = indexed_img_tbl
     return [
         t.img.width,

@@ -6,7 +6,7 @@ import json
 import logging
 from pathlib import Path
 from typing import _GenericAlias  # type: ignore[attr-defined]
-from typing import TYPE_CHECKING, Any, Callable, Iterable, Literal, Optional, Set, Sequence, Tuple, Type, Union, overload
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Literal, Optional, Sequence, Union, overload
 from uuid import UUID
 
 import pandas as pd
@@ -565,7 +565,7 @@ class Table(SchemaObject):
 
     @classmethod
     def _verify_column(
-            cls, col: Column, existing_column_names: Set[str], existing_query_names: Optional[Set[str]] = None
+            cls, col: Column, existing_column_names: set[str], existing_query_names: Optional[set[str]] = None
     ) -> None:
         """Check integrity of user-supplied Column and supply defaults"""
         if is_system_column_name(col.name):
@@ -586,7 +586,7 @@ class Table(SchemaObject):
     @classmethod
     def _verify_schema(cls, schema: list[Column]) -> None:
         """Check integrity of user-supplied schema and set defaults"""
-        column_names: Set[str] = set()
+        column_names: set[str] = set()
         for col in schema:
             cls._verify_column(col, column_names)
             column_names.add(col.name)
@@ -767,7 +767,7 @@ class Table(SchemaObject):
 
     def _drop_index(
             self, *, column_name: Optional[str] = None, idx_name: Optional[str] = None,
-            _idx_class: Optional[Type[index.IndexBase]] = None
+            _idx_class: Optional[type[index.IndexBase]] = None
     ) -> None:
         if self._tbl_version_path.is_snapshot():
             raise excs.Error('Cannot drop an index from a snapshot')
@@ -956,7 +956,7 @@ class Table(SchemaObject):
 
         # pseudo-column _rowid: contains the rowid of the row to update and can be used instead of the primary key
         has_rowid = _ROWID_COLUMN_NAME in rows[0]
-        rowids: list[Tuple[int, ...]] = []
+        rowids: list[tuple[int, ...]] = []
         if len(pk_col_names) == 0 and not has_rowid:
             raise excs.Error('Table must have primary key for batch update')
 

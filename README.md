@@ -314,11 +314,33 @@ dealing with the customary data plumbing.
 > Check out the [Integrations](https://pixeltable.readme.io/docs/working-with-openai) section, and feel free to submit
 > a request for additional ones.
 
-## 🐛 Contributions & Feedback
+## 🤝 Contributing to Pixeltable
 
-Are you experiencing issues or bugs with Pixeltable? File an [Issue](https://github.com/pixeltable/pixeltable/issues).
-</br>Do you want to contribute? Feel free to open a [PR](https://github.com/pixeltable/pixeltable/pulls).
+We're excited to welcome contributions from the community! Here's how you can get involved:
 
-## :classical_building: License
+### 🐛 Report Issues
+
+- Found a bug? [Open an issue](https://github.com/pixeltable/pixeltable/issues)
+- Include steps to reproduce and environment details
+
+### 💡 Submit Changes
+
+- Fork the repository
+- Create a feature branch
+- Submit a [pull request](https://github.com/pixeltable/pixeltable/pulls)
+- See our [Contributing Guide](CONTRIBUTING.md) for detailed instructions
+
+### 💬 Join the Discussion
+
+- Have questions? Start a [Discussion](https://github.com/pixeltable/pixeltable/discussions)
+- Share your Pixeltable projects and use cases
+- Help others in the community
+
+### 📝 Improve Documentation
+
+- Suggest examples and tutorials
+- Propose improvements
+
+## 🏢 License
 
 This library is licensed under the Apache 2.0 License.
