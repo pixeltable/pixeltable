@@ -6,7 +6,7 @@ KERNEL_NAME := $(shell basename `pwd`)
 help:
 	@echo "Usage: make <target>"
 	@echo "You must be in a conda environment to install the Pixeltable dev environment."
-	@echo "See: https://www.notion.so/Setting-up-a-dev-environment-83a1ca32de034f94bd7fee0ddb46fed8"
+	@echo "See: https://github.com/pixeltable/pixeltable/blob/main/CONTRIBUTING.md"
 	@echo ""
 	@echo "Targets:"
 	@echo "  install       Install the development environment"

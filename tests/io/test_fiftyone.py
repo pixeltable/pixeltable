@@ -1,3 +1,4 @@
+import sysconfig
 import pytest
 
 import pixeltable as pxt
@@ -6,6 +7,7 @@ import pixeltable.exceptions as excs
 from ..utils import get_image_files, skip_test_if_not_installed
 
 
+@pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Not supported on Linux ARM')
 class TestFiftyone:
     def test_export_images(self, reset_db) -> None:
         skip_test_if_not_installed('fiftyone')
