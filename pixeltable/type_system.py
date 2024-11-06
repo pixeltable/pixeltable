@@ -5,6 +5,7 @@ import datetime
 import enum
 import io
 import json
+import types
 import typing
 import urllib.parse
 import urllib.request
@@ -321,7 +322,7 @@ class ColumnType:
                 # Discard type parameters to ensure that parameterized types such as `list[T]`
                 # are correctly mapped to Pixeltable types.
                 t = origin
-            if issubclass(t, _PxtType):
+            if isinstance(t, type) and issubclass(t, _PxtType):
                 return t.as_col_type(nullable=nullable_default)
             elif allow_builtin_types:
                 if t is str:
@@ -357,7 +358,7 @@ class ColumnType:
             cls.__raise_exc_for_invalid_type(t)
         return col_type
 
-    __TYPE_SUGGESTIONS = [
+    __TYPE_SUGGESTIONS: list[tuple[type, str]] = [
         (str, 'pxt.String'),
         (bool, 'pxt.Bool'),
         (int, 'pxt.Int'),
@@ -369,9 +370,9 @@ class ColumnType:
     ]
 
     @classmethod
-    def __raise_exc_for_invalid_type(cls, t: Union[ColumnType, type, _AnnotatedAlias]) -> None:
+    def __raise_exc_for_invalid_type(cls, t: Union[type, _AnnotatedAlias]) -> None:
         for builtin_type, suggestion in cls.__TYPE_SUGGESTIONS:
-            if t is builtin_type or issubclass(t, builtin_type):
+            if t is builtin_type or (isinstance(t, type) and issubclass(t, builtin_type)):
                 name = t.__name__ if t.__module__ == 'builtins' else f'{t.__module__}.{t.__name__}'
                 raise excs.Error(f'Standard Python type `{name}` cannot be used here; use `{suggestion}` instead')
         raise excs.Error(f'Unknown type: {t}')
