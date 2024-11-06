@@ -115,7 +115,6 @@ class TestTable:
         assert "'insert' is a reserved name in pixeltable" in str(exc_info.value).lower()
 
     def test_columns(self, reset_db) -> None:  # noqa: PLR6301
-        pxt.create_dir('dir1')
         schema = {
             'c1': pxt.String,
             'c2': pxt.Int,
@@ -123,8 +122,7 @@ class TestTable:
             'c4': pxt.Timestamp,
         }
         t = pxt.create_table('test', schema)
-        colList = t.columns
-        assert colList == ['c1', 'c2', 'c3', 'c4']
+        assert t.columns == ['c1', 'c2', 'c3', 'c4']
 
     def test_names(self, reset_db) -> None:
         pxt.create_dir('dir')
@@ -1146,7 +1144,7 @@ class TestTable:
 
         # test loading from store
         reload_catalog()
-		# RESOLVE: comparing t == t? should this be t'?
+        # RESOLVE: comparing t == t? should we be using a different handle t' here?
         t = pxt.get_table('test')
         assert len(t._tbl_version_path.columns()) == len(t.columns)
         for i in range(len(t._tbl_version_path.columns())):
@@ -1248,9 +1246,10 @@ class TestTable:
         reload_catalog()
         t2 = pxt.get_table(t._name)
         assert len(t.columns) == len(t2.columns)
-        for i in range(len(t.columns)):
-            if t.columns[i] is not None:
-                assert t.columns[i] == t2.columns[i]
+        assert len(t._tbl_version_path.columns()) == len(t2._tbl_version_path.columns())
+        for i in range(len(t._tbl_version_path.columns())):
+            if t._tbl_version_path.columns()[i].value_expr is not None:
+                assert t._tbl_version_path.columns()[i].value_expr.equals(t2._tbl_version_path.columns()[i].value_expr)
 
         # make sure we can still insert data and that computed cols are still set correctly
         t2.insert(rows)

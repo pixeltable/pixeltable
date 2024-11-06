@@ -91,13 +91,6 @@ def create_table_data(
         ]
     }
 
-	# RESOLVE: At present we are passing catalog.Table as param t to this function
-	# from tests. It is done the handle returned by pxt.create_table() API.
-	# Yet, we called t.columns() here. AFAICT, the columns() API is only available
-	# for catalog.TableVersionPath and that API returns list[Column] (and not list
-	# of column name string). This is needed for the is_computed check - although
-	# the test callers for this function do not seem to be using computed columns.
-	# Making the API explicit here. But need to understand how this worked.
     if len(col_names) == 0:
         col_names = [c.name for c in t._tbl_version_path.columns() if not c.is_computed]
 
