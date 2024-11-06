@@ -1144,12 +1144,12 @@ class TestTable:
 
         # test loading from store
         reload_catalog()
-        # RESOLVE: comparing t == t? should we be using a different handle t' here?
-        t = pxt.get_table('test')
-        assert len(t._tbl_version_path.columns()) == len(t.columns)
+        t2 = pxt.get_table('test')
+        assert len(t2._tbl_version_path.columns()) == len(t2.columns)
+        assert len(t._tbl_version_path.columns()) == len(t2._tbl_version_path.columns())
         for i in range(len(t._tbl_version_path.columns())):
             if t._tbl_version_path.columns()[i].value_expr is not None:
-                assert t._tbl_version_path.columns()[i].value_expr.equals(t._tbl_version_path.columns()[i].value_expr)
+                assert t._tbl_version_path.columns()[i].value_expr.equals(t2._tbl_version_path.columns()[i].value_expr)
 
         # make sure we can still insert data and that computed cols are still set correctly
         status = t.insert(rows)
