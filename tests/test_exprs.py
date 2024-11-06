@@ -23,7 +23,7 @@ from pixeltable.functions import cast
 from pixeltable.iterators import FrameIterator
 
 from .utils import (create_scalars_tbl, get_image_files, reload_catalog, skip_test_if_not_installed,
-                    validate_update_status)
+                    validate_update_status, ReloadTester)
 
 
 class TestExprs:
@@ -87,11 +87,13 @@ class TestExprs:
             _ = t.does_not_exist
         assert 'unknown' in str(excinfo.value).lower()
 
-    def test_compound_predicates(self, test_tbl: catalog.Table) -> None:
+    def test_compound_predicates(self, test_tbl: catalog.Table, reload_test: ReloadTester) -> None:
         t = test_tbl
         # compound predicates that can be fully evaluated in SQL
-        _ = t.where((t.c1 == 'test string') & (t.c6.f1 > 50)).collect()
-        _ = t.where((t.c1 == 'test string') & (t.c2 > 50)).collect()
+        df = t.where((t.c1 == 'test string') & (t.c6.f1 > 50))
+        reload_test.register_query(df)
+        df = t.where((t.c1 == 'test string') & (t.c2 > 50))
+        reload_test.register_query(df)
         sql_elements = pxt.exprs.SqlElementCache()
         e = sql_elements.get(((t.c1 == 'test string') & (t.c2 > 50)))
         assert len(e.clauses) == 2
@@ -108,6 +110,8 @@ class TestExprs:
         with pytest.raises(TypeError) as exc_info:
             _ = t.where((t.c1 == 'test string') or (t.c6.f1 > 50)).collect()
         assert 'cannot be used in conjunction with python boolean operators' in str(exc_info.value).lower()
+
+        reload_test.run()
 
         # # compound predicates with Python functions
         # @pt.udf(return_type=BoolType(), param_types=[StringType()])
@@ -144,16 +148,18 @@ class TestExprs:
         # assert sql_pred is None
         # assert isinstance(other_pred, CompoundPredicate)
 
-    def test_filters(self, test_tbl: catalog.Table) -> None:
+    def test_filters(self, test_tbl: catalog.Table, reload_test: ReloadTester) -> None:
         t = test_tbl
-        _ = t.where(t.c1 == 'test string').show()
-        print(_)
-        _ = t.where(t.c2 > 50).show()
-        print(_)
-        _ = t.where(t.c1n == None).show()
-        print(_)
-        _ = t.where(t.c1n != None).collect()
-        print(_)
+        df = t.where(t.c1 == 'test string')
+        reload_test.register_query(df)
+        df = t.where(t.c2 > 50)
+        reload_test.register_query(df)
+        df = t.where(t.c1n == None)
+        reload_test.register_query(df)
+        df = t.where(t.c1n != None)
+        reload_test.register_query(df)
+
+        reload_test.run()
 
     def test_exception_handling(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
@@ -183,34 +189,48 @@ class TestExprs:
         with pytest.raises(excs.Error):
             _ = t[t.c2 <= 2][self.value_exc(t.c2 - 1)].show()
 
-    def test_props(self, test_tbl: catalog.Table, img_tbl: catalog.Table) -> None:
+    def test_props(self, test_tbl: catalog.Table, img_tbl: catalog.Table, reload_test: ReloadTester) -> None:
         t = test_tbl
         # errortype/-msg for computed column
-        res = t.select(error=t.c8.errortype).collect()
+        df = t.select(error=t.c8.errortype)
+        reload_test.register_query(df)
+        res = df.collect()
         assert res.to_pandas()['error'].isna().all()
-        res = t.select(error=t.c8.errormsg).collect()
+        df = t.select(error=t.c8.errormsg)
+        reload_test.register_query(df)
+        res = df.collect()
         assert res.to_pandas()['error'].isna().all()
 
         img_t = img_tbl
         # fileurl
-        res = img_t.select(img_t.img.fileurl).collect().to_pandas()
+        df = img_t.select(img_t.img.fileurl)
+        reload_test.register_query(df)
+        res = df.collect().to_pandas()
         stored_urls = set(res.iloc[:, 0])
         assert len(stored_urls) == len(res)
         all_urls = set(urllib.parse.urljoin('file:', urllib.request.pathname2url(path)) for path in get_image_files())
         assert stored_urls <= all_urls
 
         # localpath
-        res = img_t.select(img_t.img.localpath).collect().to_pandas()
+        df = img_t.select(img_t.img.localpath)
+        reload_test.register_query(df)
+        res = df.collect().to_pandas()
         stored_paths = set(res.iloc[:, 0])
         assert len(stored_paths) == len(res)
         all_paths  = set(get_image_files())
         assert stored_paths <= all_paths
 
         # errortype/-msg for image column
-        res = img_t.select(error=img_t.img.errortype).collect().to_pandas()
+        df = img_t.select(error=img_t.img.errortype)
+        reload_test.register_query(df)
+        res = df.collect().to_pandas()
         assert res['error'].isna().all()
-        res = img_t.select(error=img_t.img.errormsg).collect().to_pandas()
+        df = img_t.select(error=img_t.img.errormsg)
+        reload_test.register_query(df)
+        res = df.collect().to_pandas()
         assert res['error'].isna().all()
+
+        reload_test.run()
 
         for c in [t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7]:
             # errortype/errormsg only applies to stored computed and media columns
@@ -235,7 +255,7 @@ class TestExprs:
             _ = img_t.select(img_t.c9.localpath).show()
         assert 'computed unstored' in str(excinfo.value)
 
-    def test_null_args(self, reset_db) -> None:
+    def test_null_args(self, reset_db, reload_test: ReloadTester) -> None:
         # create table with two int columns
         schema = {'c1': pxt.Float, 'c2': pxt.Float}
         t = pxt.create_table('test', schema)
@@ -249,9 +269,13 @@ class TestExprs:
         status = t.insert(data, fail_on_exception=False)
         assert status.num_rows == len(data)
         assert status.num_excs >= len(data) - 1
-        result = t.select(t.c3, t.c4).collect()
+        df = t.select(t.c3, t.c4)
+        reload_test.register_query(df)
+        result = df.collect()
         assert result['c3'] == [2.0, None, None, None]
         assert result['c4'] == [2.0, 1.0, None, None]
+
+        reload_test.run()
 
     def test_arithmetic_exprs(self, test_tbl: catalog.Table) -> None:
         t = test_tbl

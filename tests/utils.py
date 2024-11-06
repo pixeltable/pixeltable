@@ -5,6 +5,7 @@ import os
 import random
 from pathlib import Path
 from typing import Any, Optional
+import dataclasses
 
 import more_itertools
 import numpy as np
@@ -372,10 +373,12 @@ def get_sentences(n: int = 100) -> list[str]:
     return [q['question'].replace("'", '') for q in questions_list[:n]]
 
 
-def assert_resultset_eq(r1: DataFrameResultSet, r2: DataFrameResultSet) -> None:
+def assert_resultset_eq(r1: DataFrameResultSet, r2: DataFrameResultSet, compare_col_names: bool = False) -> None:
     assert len(r1) == len(r2)
-    assert len(r1.schema) == len(r2.schema)  # we don't care about the actual column names
+    assert len(r1.schema) == len(r2.schema)
     assert all(type1.matches(type2) for type1, type2 in zip(r1.schema.values(), r2.schema.values()))
+    if compare_col_names:
+        assert r1.schema.keys() == r2.schema.keys()
     for r1_col, r2_col in zip(r1.schema, r2.schema):
         # only compare column values
         s1 = r1[r1_col]
@@ -517,3 +520,32 @@ def clip_text_embed(txt: str) -> np.ndarray:
 SAMPLE_IMAGE_URL = (
     'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/source/data/images/000000000009.jpg'
 )
+
+
+class ReloadTester:
+    """Utility to to verify that queries return identical results after a catalog reload"""
+    @dataclasses.dataclass
+    class DfInfo:
+        df_dict: dict[str, Any]  # serialized DataFrame
+        result_set: pxt.dataframe.DataFrameResultSet
+
+    df_info: list[DfInfo]
+
+    def __init__(self):
+        self.df_info = []
+
+    def register_query(self, df: pxt.DataFrame) -> None:
+        df_dict = df.as_dict()
+        result_set = df.collect()
+        self.df_info.append(self.DfInfo(df_dict, result_set))
+
+    def run(self) -> None:
+        reload_catalog()
+        for df_info in self.df_info:
+            df = pxt.DataFrame.from_dict(df_info.df_dict)
+            result_set = df.collect()
+            try:
+                assert_resultset_eq(result_set, df_info.result_set, compare_col_names=True)
+            except Exception as e:
+                s = f'Reload test failed for query:\n{df}\n{e}'
+                raise RuntimeError(s)

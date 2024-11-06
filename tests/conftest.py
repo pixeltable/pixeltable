@@ -16,7 +16,9 @@ from pixeltable.metadata import SystemInfo, create_system_info
 from pixeltable.metadata.schema import Dir, Function, Table, TableSchemaVersion, TableVersion
 from pixeltable.utils.filecache import FileCache
 
-from .utils import create_all_datatypes_tbl, create_img_tbl, create_test_tbl, reload_catalog, skip_test_if_not_installed
+from .utils import (
+    create_all_datatypes_tbl, create_img_tbl, create_test_tbl, reload_catalog, skip_test_if_not_installed, ReloadTester
+)
 
 
 @pytest.fixture(scope='session')
@@ -85,6 +87,10 @@ def clean_db(restore_tables: bool = True) -> None:
 @pytest.fixture(scope='function')
 def test_tbl(reset_db) -> catalog.Table:
     return create_test_tbl()
+
+@pytest.fixture(scope='function')
+def reload_test(init_env) -> ReloadTester:
+    return ReloadTester()
 
 @pytest.fixture(scope='function')
 def test_tbl_exprs(test_tbl: catalog.Table) -> list[exprs.Expr]:
