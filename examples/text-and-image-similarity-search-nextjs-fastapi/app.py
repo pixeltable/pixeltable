@@ -1,4 +1,3 @@
-# backend/app.py
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -12,7 +11,8 @@ import io
 import base64
 from pathlib import Path
 import logging
-from typing import Optional
+from typing import Optional, Literal
+import tempfile
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -30,9 +30,7 @@ app.add_middleware(
 )
 
 # Create temp directory
-BASE_DIR = Path(__file__).resolve().parent
-TEMP_DIR = BASE_DIR / "temp_uploads"
-TEMP_DIR.mkdir(parents=True, exist_ok=True)
+TEMP_DIR = tempfile.mkdtemp()
 
 # Embedding functions
 @pxt.expr_udf
@@ -70,11 +68,10 @@ frames_view.add_embedding_index(
 @app.post("/api/process-video")
 async def process_video(file: UploadFile = File(...)):
     try:
-
         video_table = pxt.get_table('video_search.videos')
 
         # Save video file
-        temp_path = TEMP_DIR / file.filename
+        temp_path = Path(TEMP_DIR) / file.filename
         with temp_path.open("wb") as buffer:
             content = await file.read()
             buffer.write(content)
@@ -90,13 +87,13 @@ async def process_video(file: UploadFile = File(...)):
 
 class SearchQuery(BaseModel):
     query: str
-    search_type: str
+    search_type: Literal['text', 'image']
     num_results: int
 
 @app.post("/api/search")
 async def search_video(
     query: Optional[UploadFile] = File(None),
-    search_type: str = Form(...),
+    search_type: Literal['text', 'image'] = Form(...),
     num_results: int = Form(...)
 ):
     try:
@@ -119,10 +116,12 @@ async def search_video(
             sim = frames_view.frame.similarity(image)
 
         # Get results
-        results = frames_view.order_by(sim, asc=False)\
-            .limit(num_results)\
-            .select(frames_view.frame)\
+        results = (
+            frames_view.order_by(sim, asc=False)
+            .limit(num_results)
+            .select(frames_view.frame)
             .collect()
+        )
 
         # Convert frames to base64 for sending to frontend
         frames = []

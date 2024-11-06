@@ -4,7 +4,7 @@
 
 <a href="https://github.com/pixeltable/pixeltable"><img src="https://img.shields.io/badge/Powered%20by-Pixeltable-blue.svg"/></a>
 
-[Pixeltable](https://github.com/pixeltable/pixeltable) is a declarative interface for working with text, images, embeddings, and even video, enabling you to store, transform, index, and iterate on data.
+[Pixeltable](https://github.com/pixeltable/pixeltable) is a declarative interface for working with text, images, embeddings, and video, enabling you to store, transform, index, and iterate on data.
 
 This example shows how to  build a video frame search application built with Next.js, FastAPI, and Pixeltable.
 
