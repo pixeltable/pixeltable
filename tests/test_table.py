@@ -1145,11 +1145,13 @@ class TestTable:
         # test loading from store
         reload_catalog()
         t2 = pxt.get_table('test')
-        assert len(t2._tbl_version_path.columns()) == len(t2.columns)
-        assert len(t._tbl_version_path.columns()) == len(t2._tbl_version_path.columns())
-        for i in range(len(t._tbl_version_path.columns())):
-            if t._tbl_version_path.columns()[i].value_expr is not None:
-                assert t._tbl_version_path.columns()[i].value_expr.equals(t2._tbl_version_path.columns()[i].value_expr)
+        t2_columns = t2._tbl_version_path.columns()
+        assert len(t2_columns) == len(t2.columns)
+        t_columns = t._tbl_version_path.columns()
+        assert len(t_columns) == len(t2_columns)
+        for i in range(len(t_columns)):
+            if t_columns[i].value_expr is not None:
+                assert t_columns[i].value_expr.equals(t2_columns[i].value_expr)
 
         # make sure we can still insert data and that computed cols are still set correctly
         status = t.insert(rows)
@@ -1246,10 +1248,12 @@ class TestTable:
         reload_catalog()
         t2 = pxt.get_table(t._name)
         assert len(t.columns) == len(t2.columns)
-        assert len(t._tbl_version_path.columns()) == len(t2._tbl_version_path.columns())
-        for i in range(len(t._tbl_version_path.columns())):
-            if t._tbl_version_path.columns()[i].value_expr is not None:
-                assert t._tbl_version_path.columns()[i].value_expr.equals(t2._tbl_version_path.columns()[i].value_expr)
+        t_columns = t._tbl_version_path.columns()
+        t2_columns = t2._tbl_version_path.columns()
+        assert len(t_columns) == len(t2_columns)
+        for i in range(len(t_columns)):
+            if t_columns[i].value_expr is not None:
+                assert t_columns[i].value_expr.equals(t2_columns[i].value_expr)
 
         # make sure we can still insert data and that computed cols are still set correctly
         t2.insert(rows)
