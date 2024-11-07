@@ -48,11 +48,17 @@ def sentence_transformer(
         >>> tbl['result'] = sentence_transformer(tbl.sentence, model_id='all-mpnet-base-v2')
     """
     env.Env.get().require_package('sentence_transformers')
+    device = resolve_torch_device('auto')
+    import torch
     from sentence_transformers import SentenceTransformer  # type: ignore
 
-    model = _lookup_model(model_id, SentenceTransformer)
+    # specifying the device, moves the model to device (gpu:cuda/mps, cpu)
+    model = _lookup_model(model_id, SentenceTransformer, device=device)
 
-    array = model.encode(sentence, normalize_embeddings=normalize_embeddings)
+    # specifying the device, uses it for computation
+    # RESOLVE: not clear if the input sentence (data) is moved to the device
+    # automatically or not per doc.
+    array = model.encode(sentence, device=device, normalize_embeddings=normalize_embeddings)
     return [array[i] for i in range(array.shape[0])]
 
 
@@ -70,11 +76,17 @@ def _(model_id: str) -> pxt.ArrayType:
 @pxt.udf
 def sentence_transformer_list(sentences: list, *, model_id: str, normalize_embeddings: bool = False) -> list:
     env.Env.get().require_package('sentence_transformers')
+    device = resolve_torch_device('auto')
+    import torch
     from sentence_transformers import SentenceTransformer
 
-    model = _lookup_model(model_id, SentenceTransformer)
+    # specifying the device, moves the model to device (gpu:cuda/mps, cpu)
+    model = _lookup_model(model_id, SentenceTransformer, device=device)
 
-    array = model.encode(sentences, normalize_embeddings=normalize_embeddings)
+    # specifying the device, uses it for computation
+    # RESOLVE: not clear if the input sentence (data) is moved to the device
+    # automatically or not per doc.
+    array = model.encode(sentences, device=device, normalize_embeddings=normalize_embeddings)
     return [array[i].tolist() for i in range(array.shape[0])]
 
 
@@ -107,22 +119,52 @@ def cross_encoder(sentences1: Batch[str], sentences2: Batch[str], *, model_id: s
             )
     """
     env.Env.get().require_package('sentence_transformers')
+    device = resolve_torch_device('auto')
+    import torch
     from sentence_transformers import CrossEncoder
 
-    model = _lookup_model(model_id, CrossEncoder)
+    # specifying the device, moves the model to device (gpu:cuda/mps, cpu)
+    model = _lookup_model(model_id, CrossEncoder, device=device)
 
-    array = model.predict([[s1, s2] for s1, s2 in zip(sentences1, sentences2)], convert_to_numpy=True)
+    data = [[s1, s2] for s1, s2 in zip(sentences1, sentences2)]
+    # RESOLVE:
+    # doc of CrossEncoder says it uses gpu whenever it finds one.
+    # or if device is specified. But the input for its predict() API
+    # is a list of sentences. does it then move them to gpu automatically?
+    # or do we still need to explicitly move them to gpu device
+    # before calling?
+    #
+    # We cannot use torch's to(device) API to move data in builtin
+    # types like str, list etc. AFAICT, we have the following options:
+    # 1. convert builtin type to tensor and then use torch's
+    #    to(device) API on the tensor. this creates a copy of data.
+    # 2. use cupy's cp.array() API or numba's cuda.to_device() API
+    #    to transfer and convert into a gpu array. But these only
+    #    works for cuda gpu, not mps. they also create a copy.
+    # 3. .... any other??
+    #
+    # Further, it seems like the following tensor conversion does not
+    # even work for list of strings like in sentences, only numbers.
+    #       tensor_data = torch.tensor(data).to(device)
+    # we need to encode them, which itself is expensive operation
+    # that can use gpu.
+    # the predict() API does not even support passing encodings as input,
+    # probably does it internally. may be it uses gpu already? doc of
+    # CrossEncoder says it only uses device at the time of instantiation.
+    array = model.predict(data, convert_to_numpy=True)
     return array.tolist()
 
 
 @pxt.udf
 def cross_encoder_list(sentence1: str, sentences2: list, *, model_id: str) -> list:
     env.Env.get().require_package('sentence_transformers')
+    device = resolve_torch_device('auto')
+    import torch
     from sentence_transformers import CrossEncoder
 
-    model = _lookup_model(model_id, CrossEncoder)
-
-    array = model.predict([[sentence1, s2] for s2 in sentences2], convert_to_numpy=True)
+    model = _lookup_model(model_id, CrossEncoder, device=device)
+    data = [[sentence1, s2] for s2 in sentences2]
+    array = model.predict(data, convert_to_numpy=True)
     return array.tolist()
 
 
