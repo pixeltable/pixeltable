@@ -81,13 +81,13 @@ class TableVersionPath:
             return None
         return self.base.find_tbl_version(id)
 
-    def __getattr__(self, col_name: str) -> exprs.ColumnRef:
+    def get_column_ref(self, col_name: str) -> exprs.ColumnRef:
         """Return a ColumnRef for the given column name."""
         from pixeltable.exprs import ColumnRef
         if col_name not in self.tbl_version.cols_by_name:
             if self.base is None:
                 raise AttributeError(f'Column {col_name} unknown')
-            return getattr(self.base, col_name)
+            return self.base.get_column_ref(col_name)
         col = self.tbl_version.cols_by_name[col_name]
         return ColumnRef(col)
 

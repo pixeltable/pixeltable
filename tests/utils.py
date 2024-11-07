@@ -92,7 +92,7 @@ def create_table_data(
     }
 
     if len(col_names) == 0:
-        col_names = [c.name for c in t.columns() if not c.is_computed]
+        col_names = [c.name for c in t._tbl_version_path.columns() if not c.is_computed]
 
     col_types = t._schema
     for col_name in col_names:
