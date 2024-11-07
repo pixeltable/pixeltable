@@ -668,7 +668,8 @@ class TestTable:
         random.seed(0)
         random.shuffle(uris)
 
-        FileCache.get().clear()  # make sure we need to download the files
+        # TODO: give parallel test runners their own cache
+        #FileCache.get().clear()  # make sure we need to download the files
         validate_update_status(tbl.insert({'video': uri} for uri in uris), expected_rows=len(uris))
         row = tbl.select(tbl.video.fileurl, tbl.video.localpath).head(1)[0]
         assert row['video_fileurl'] == uris[0]
