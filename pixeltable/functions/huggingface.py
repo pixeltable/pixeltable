@@ -48,11 +48,15 @@ def sentence_transformer(
         >>> tbl['result'] = sentence_transformer(tbl.sentence, model_id='all-mpnet-base-v2')
     """
     env.Env.get().require_package('sentence_transformers')
+    device = resolve_torch_device('auto')
+    import torch
     from sentence_transformers import SentenceTransformer  # type: ignore
 
-    model = _lookup_model(model_id, SentenceTransformer)
+    # specifying the device, moves the model to device (gpu:cuda/mps, cpu)
+    model = _lookup_model(model_id, SentenceTransformer, device=device)
 
-    array = model.encode(sentence, normalize_embeddings=normalize_embeddings)
+    # specifying the device, uses it for computation
+    array = model.encode(sentence, device=device, normalize_embeddings=normalize_embeddings)
     return [array[i] for i in range(array.shape[0])]
 
 
@@ -70,11 +74,15 @@ def _(model_id: str) -> pxt.ArrayType:
 @pxt.udf
 def sentence_transformer_list(sentences: list, *, model_id: str, normalize_embeddings: bool = False) -> list:
     env.Env.get().require_package('sentence_transformers')
+    device = resolve_torch_device('auto')
+    import torch
     from sentence_transformers import SentenceTransformer
 
-    model = _lookup_model(model_id, SentenceTransformer)
+    # specifying the device, moves the model to device (gpu:cuda/mps, cpu)
+    model = _lookup_model(model_id, SentenceTransformer, device=device)
 
-    array = model.encode(sentences, normalize_embeddings=normalize_embeddings)
+    # specifying the device, uses it for computation
+    array = model.encode(sentences, device=device, normalize_embeddings=normalize_embeddings)
     return [array[i].tolist() for i in range(array.shape[0])]
 
 
@@ -107,9 +115,13 @@ def cross_encoder(sentences1: Batch[str], sentences2: Batch[str], *, model_id: s
             )
     """
     env.Env.get().require_package('sentence_transformers')
+    device = resolve_torch_device('auto')
+    import torch
     from sentence_transformers import CrossEncoder
 
-    model = _lookup_model(model_id, CrossEncoder)
+    # specifying the device, moves the model to device (gpu:cuda/mps, cpu)
+    # and uses the device for predict computation
+    model = _lookup_model(model_id, CrossEncoder, device=device)
 
     array = model.predict([[s1, s2] for s1, s2 in zip(sentences1, sentences2)], convert_to_numpy=True)
     return array.tolist()
@@ -118,9 +130,13 @@ def cross_encoder(sentences1: Batch[str], sentences2: Batch[str], *, model_id: s
 @pxt.udf
 def cross_encoder_list(sentence1: str, sentences2: list, *, model_id: str) -> list:
     env.Env.get().require_package('sentence_transformers')
+    device = resolve_torch_device('auto')
+    import torch
     from sentence_transformers import CrossEncoder
 
-    model = _lookup_model(model_id, CrossEncoder)
+    # specifying the device, moves the model to device (gpu:cuda/mps, cpu)
+    # and uses the device for predict computation
+    model = _lookup_model(model_id, CrossEncoder, device=device)
 
     array = model.predict([[sentence1, s2] for s2 in sentences2], convert_to_numpy=True)
     return array.tolist()
@@ -390,7 +406,10 @@ def _lookup_model(model_id: str, create: Callable[[str], T], device: Optional[st
 
     key = (model_id, create, device)  # For safety, include the `create` callable in the cache key
     if key not in _model_cache:
-        model = create(model_id)
+        if create.__name__ in {'SentenceTransformer', 'CrossEncoder'}:
+            model = create(model_id, device=device)
+        else:
+            model = create(model_id)
         if isinstance(model, nn.Module):
             if device is not None:
                 model.to(device)
