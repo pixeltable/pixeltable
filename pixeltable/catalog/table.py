@@ -256,7 +256,7 @@ class Table(SchemaObject):
     def _media_validation(self) -> MediaValidation:
         return self._tbl_version.media_validation
 
-    def _description(self) -> pd.DataFrame:
+    def _description(self, cols: Optional[Iterable[Column]] = None) -> pd.DataFrame:
         cols = self._tbl_version_path.columns()
         df = pd.DataFrame({
             'Column Name': [c.name for c in cols],
@@ -265,8 +265,8 @@ class Table(SchemaObject):
         })
         return df
 
-    def _description_html(self) -> pandas.io.formats.style.Styler:
-        pd_df = self._description()
+    def _description_html(self, cols: Optional[Iterable[Column]] = None) -> pandas.io.formats.style.Styler:
+        pd_df = self._description(cols)
         # white-space: pre-wrap: print \n as newline
         # th: center-align headings
         return (

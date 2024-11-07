@@ -135,6 +135,10 @@ class ColumnRef(Expr):
     def __repr__(self) -> str:
         return f'ColumnRef({self.col!r})'
 
+    def _repr_html_(self) -> str:
+        tbl = catalog.Catalog.get().tbls[self.col.tbl.id]
+        return tbl._description_html(cols=[self.col])._repr_html_()  # type: ignore[attr-defined]
+
     def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
         return None if self.perform_validation else self.col.sa_col
 
