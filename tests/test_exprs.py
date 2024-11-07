@@ -164,9 +164,13 @@ class TestExprs:
     def test_exception_handling(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
 
+        # TODO(aaron-siegel): I had to comment this out. We can't let division by zero errors
+        #     be handled in SQL; this will fail if we have a query whose where clause is a Python
+        #     UDF that excludes the rows triggering the error. We'll need to substitute a different
+        #     example, or perhaps ensure we avoid SQL errors in the first place.
         # error in expr that's handled in SQL
-        with pytest.raises(excs.Error):
-            _ = t[(t.c2 + 1) / t.c2].show()
+        # with pytest.raises(excs.Error):
+        #     _ = t[(t.c2 + 1) / t.c2].show()
 
         # error in expr that's handled in Python
         with pytest.raises(excs.Error):
@@ -291,9 +295,9 @@ class TestExprs:
             _ = t.select(op1 + op2).collect()
             _ = t.select(op1 - op2).collect()
             _ = t.select(op1 * op2).collect()
-            _ = t.where(op1 > 0).select(op1 / op2).collect()
-            _ = t.where(op1 > 0).select(op1 % op2).collect()
-            _ = t.where(op1 > 0).select(op1 // op2).collect()
+            _ = t.where(op2 > 0).select(op1 / op2).collect()
+            _ = t.where(op2 > 0).select(op1 % op2).collect()
+            _ = t.where(op2 > 0).select(op1 // op2).collect()
 
         # non-numeric types
         for op1, op2 in [

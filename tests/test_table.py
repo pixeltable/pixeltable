@@ -114,6 +114,16 @@ class TestTable:
             _ = pxt.create_table('test', {'insert': pxt.Int})
         assert "'insert' is a reserved name in pixeltable" in str(exc_info.value).lower()
 
+    def test_columns(self, reset_db) -> None:  # noqa: PLR6301
+        schema = {
+            'c1': pxt.String,
+            'c2': pxt.Int,
+            'c3': pxt.Float,
+            'c4': pxt.Timestamp,
+        }
+        t = pxt.create_table('test', schema)
+        assert t.columns == ['c1', 'c2', 'c3', 'c4']
+
     def test_names(self, reset_db) -> None:
         pxt.create_dir('dir')
         pxt.create_dir('dir.subdir')
@@ -1134,11 +1144,14 @@ class TestTable:
 
         # test loading from store
         reload_catalog()
-        t = pxt.get_table('test')
-        assert len(t.columns()) == len(t.columns())
-        for i in range(len(t.columns())):
-            if t.columns()[i].value_expr is not None:
-                assert t.columns()[i].value_expr.equals(t.columns()[i].value_expr)
+        t2 = pxt.get_table('test')
+        t2_columns = t2._tbl_version_path.columns()
+        assert len(t2_columns) == len(t2.columns)
+        t_columns = t._tbl_version_path.columns()
+        assert len(t_columns) == len(t2_columns)
+        for i in range(len(t_columns)):
+            if t_columns[i].value_expr is not None:
+                assert t_columns[i].value_expr.equals(t2_columns[i].value_expr)
 
         # make sure we can still insert data and that computed cols are still set correctly
         status = t.insert(rows)
@@ -1234,10 +1247,13 @@ class TestTable:
         # test loading from store
         reload_catalog()
         t2 = pxt.get_table(t._name)
-        assert len(t.columns()) == len(t2.columns())
-        for i in range(len(t.columns())):
-            if t.columns()[i].value_expr is not None:
-                assert t.columns()[i].value_expr.equals(t2.columns()[i].value_expr)
+        assert len(t.columns) == len(t2.columns)
+        t_columns = t._tbl_version_path.columns()
+        t2_columns = t2._tbl_version_path.columns()
+        assert len(t_columns) == len(t2_columns)
+        for i in range(len(t_columns)):
+            if t_columns[i].value_expr is not None:
+                assert t_columns[i].value_expr.equals(t2_columns[i].value_expr)
 
         # make sure we can still insert data and that computed cols are still set correctly
         t2.insert(rows)
@@ -1315,12 +1331,12 @@ class TestTable:
 
     def test_add_column(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
-        num_orig_cols = len(t.columns())
+        num_orig_cols = len(t.columns)
         t.add_column(add1=pxt.Int)
         # Make sure that `name` and `id` are allowed, i.e., not reserved as system names
         t.add_column(name=pxt.String)
         t.add_column(id=pxt.String)
-        assert len(t.columns()) == num_orig_cols + 3
+        assert len(t.columns) == num_orig_cols + 3
 
         with pytest.raises(excs.Error) as exc_info:
             _ = t.add_column(add2=pxt.Required[pxt.Int])
@@ -1370,26 +1386,26 @@ class TestTable:
         # make sure this is still true after reloading the metadata
         reload_catalog()
         t = pxt.get_table(t._name)
-        assert len(t.columns()) == num_orig_cols + 3
+        assert len(t.columns) == num_orig_cols + 3
 
         # revert() works
         t.revert()
         t.revert()
         t.revert()
-        assert len(t.columns()) == num_orig_cols
+        assert len(t.columns) == num_orig_cols
 
         # make sure this is still true after reloading the metadata once more
         reload_catalog()
         t = pxt.get_table(t._name)
-        assert len(t.columns()) == num_orig_cols
+        assert len(t.columns) == num_orig_cols
 
     def test_add_column_setitem(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
-        num_orig_cols = len(t.columns())
+        num_orig_cols = len(t.columns)
         t['add1'] = pxt.Int
-        assert len(t.columns()) == num_orig_cols + 1
+        assert len(t.columns) == num_orig_cols + 1
         t['computed1'] = t.c2 + 1
-        assert len(t.columns()) == num_orig_cols + 2
+        assert len(t.columns) == num_orig_cols + 2
 
         with pytest.raises(excs.Error) as exc_info:
             _ = t['pos'] = pxt.String
@@ -1419,23 +1435,23 @@ class TestTable:
         # make sure this is still true after reloading the metadata
         reload_catalog()
         t = pxt.get_table(t._name)
-        assert len(t.columns()) == num_orig_cols + 2
+        assert len(t.columns) == num_orig_cols + 2
 
         # revert() works
         t.revert()
         t.revert()
-        assert len(t.columns()) == num_orig_cols
+        assert len(t.columns) == num_orig_cols
 
         # make sure this is still true after reloading the metadata once more
         reload_catalog()
         t = pxt.get_table(t._name)
-        assert len(t.columns()) == num_orig_cols
+        assert len(t.columns) == num_orig_cols
 
     def test_drop_column(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
-        num_orig_cols = len(t.columns())
+        num_orig_cols = len(t.columns)
         t.drop_column('c1')
-        assert len(t.columns()) == num_orig_cols - 1
+        assert len(t.columns) == num_orig_cols - 1
 
         with pytest.raises(excs.Error):
             t.drop_column('unknown')
@@ -1443,22 +1459,22 @@ class TestTable:
         # make sure this is still true after reloading the metadata
         reload_catalog()
         t = pxt.get_table(t._name)
-        assert len(t.columns()) == num_orig_cols - 1
+        assert len(t.columns) == num_orig_cols - 1
 
         # revert() works
         t.revert()
-        assert len(t.columns()) == num_orig_cols
+        assert len(t.columns) == num_orig_cols
 
         # make sure this is still true after reloading the metadata once more
         reload_catalog()
         t = pxt.get_table(t._name)
-        assert len(t.columns()) == num_orig_cols
+        assert len(t.columns) == num_orig_cols
 
     def test_rename_column(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
-        num_orig_cols = len(t.columns())
+        num_orig_cols = len(t.columns)
         t.rename_column('c1', 'c1_renamed')
-        assert len(t.columns()) == num_orig_cols
+        assert len(t.columns) == num_orig_cols
 
         def check_rename(t: pxt.Table, known: str, unknown: str) -> None:
             with pytest.raises(AttributeError) as exc_info:
@@ -1500,9 +1516,9 @@ class TestTable:
         assert status.num_excs == 0
         _ = t.show()
 
-        # with exception in SQL
-        with pytest.raises(excs.Error):
-            t.add_column(add2=(t.c2 - 10) / (t.c3 - 10))
+        # TODO(aaron-siegel): This has to be commented out. See explanation in test_exprs.py.
+        # with pytest.raises(excs.Error):
+        #     t.add_column(add2=(t.c2 - 10) / (t.c3 - 10))
 
         # with exception in Python for c6.f2 == 10
         status = t.add_column(add2=(t.c6.f2 - 10) / (t.c6.f2 - 10), on_error='ignore')

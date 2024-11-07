@@ -125,7 +125,7 @@ class Table(SchemaObject):
     def __getattr__(self, name: str) -> 'pxt.exprs.ColumnRef':
         """Return a ColumnRef for the given name.
         """
-        return getattr(self._tbl_version_path, name)
+        return self._tbl_version_path.get_column_ref(name)
 
     @overload
     def __getitem__(self, name: str) -> 'pxt.exprs.ColumnRef': ...
@@ -218,6 +218,12 @@ class Table(SchemaObject):
         return self._df().count()
 
     @property
+    def columns(self) -> list[str]:
+        """Return the names of the columns in this table. """
+        cols = self._tbl_version_path.columns()
+        return [c.name for c in cols]
+
+    @property
     def _schema(self) -> dict[str, ts.ColumnType]:
         """Return the schema (column names and column types) of this table."""
         return {c.name: c.col_type for c in self._tbl_version_path.columns()}
@@ -250,7 +256,7 @@ class Table(SchemaObject):
     def _media_validation(self) -> MediaValidation:
         return self._tbl_version.media_validation
 
-    def _description(self) -> pd.DataFrame:
+    def _description(self, cols: Optional[Iterable[Column]] = None) -> pd.DataFrame:
         cols = self._tbl_version_path.columns()
         df = pd.DataFrame({
             'Column Name': [c.name for c in cols],
@@ -259,8 +265,8 @@ class Table(SchemaObject):
         })
         return df
 
-    def _description_html(self) -> pandas.io.formats.style.Styler:
-        pd_df = self._description()
+    def _description_html(self, cols: Optional[Iterable[Column]] = None) -> pandas.io.formats.style.Styler:
+        pd_df = self._description(cols)
         # white-space: pre-wrap: print \n as newline
         # th: center-align headings
         return (
