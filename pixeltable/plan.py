@@ -1,5 +1,7 @@
 from typing import Any, Iterable, Optional, Sequence
 from uuid import UUID
+import dataclasses
+import enum
 
 import sqlalchemy as sql
 
@@ -36,6 +38,27 @@ def _get_combined_ordering(
     elif len(o2) > prefix_len:
         result.extend(o2[prefix_len:])
     return result
+
+
+class JoinType(enum.Enum):
+    INNER = 0
+    LEFT = 1
+    RIGHT = 2
+    CROSS = 3
+
+
+@dataclasses.dataclass
+class JoinClause:
+    """Corresponds to a single 'JOIN ... ON (...)' clause in a SELECT statement"""
+    join_type: JoinType
+    join_pred: exprs.Expr
+
+
+@dataclasses.dataclass
+class FromClause:
+    """Corresponds to the From-clause ('FROM <tbl> JOIN ... ON (...) JOIN ...') of a SELECT statement """
+    tbls: list[catalog.TableVersionPath]
+    join_clauses: list[JoinClause]
 
 
 class Analyzer:

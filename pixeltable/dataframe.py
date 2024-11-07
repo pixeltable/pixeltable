@@ -17,11 +17,12 @@ import sqlalchemy as sql
 import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
 import pixeltable.exprs as exprs
+import pixeltable.type_system as ts
 from pixeltable import exec
+from pixeltable import plan
 from pixeltable.catalog import is_valid_identifier
 from pixeltable.catalog.globals import UpdateStatus
 from pixeltable.env import Env
-from pixeltable.plan import Planner
 from pixeltable.type_system import ColumnType
 from pixeltable.utils.formatter import Formatter
 from pixeltable.utils.http_server import get_file_uri
@@ -139,6 +140,16 @@ class DataFrameResultSet:
 
 
 class DataFrame:
+    from_clause: plan.FromClause
+    _select_list_exprs: list[exprs.Expr]
+    _schema: dict[str, ts.ColumnType]
+    select_list: Optional[list[tuple[exprs.Expr, Optional[str]]]]
+    where_clause: Optional[exprs.Expr]
+    group_by_clause: Optional[list[exprs.Expr]]
+    grouping_tbl: Optional[catalog.TableVersion]
+    order_by_clause: Optional[list[tuple[exprs.Expr, bool]]]
+    limit_val: Optional[int]
+
     def __init__(
         self,
         tbl: catalog.TableVersionPath,
@@ -149,7 +160,8 @@ class DataFrame:
         order_by_clause: Optional[list[tuple[exprs.Expr, bool]]] = None,  # list[(expr, asc)]
         limit: Optional[int] = None,
     ):
-        self.tbl = tbl
+        self.from_clause = plan.FromClause(tbls=[tbl], join_clauses=[])
+        #self.tbl = tbl
 
         # select list logic
         DataFrame._select_list_check_rep(select_list)  # check select list without expansion
