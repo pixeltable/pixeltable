@@ -41,7 +41,11 @@ class CachePrefetchNode(ExecNode):
     # execution state
     batch_tbl_version: Optional[catalog.TableVersion]  # needed to construct output batches
     num_returned_rows: int
-    ready_rows: deque[Optional[exprs.DataRow]]  # the implied row idx of ready_rows[0] is num_returned_rows
+
+    # ready_rows: rows that are ready to be returned, ordered by row idx;
+    # the implied row idx of ready_rows[0] is num_returned_rows
+    ready_rows: deque[Optional[exprs.DataRow]]
+
     in_flight_rows: dict[int, CachePrefetchNode.RowState]  # rows with in-flight urls; id(row) -> RowState
     in_flight_requests: dict[futures.Future, str]  # in-flight requests for urls; future -> URL
     in_flight_urls: dict[str, list[tuple[exprs.DataRow, exprs.ColumnSlotIdx]]]  # URL -> [(row, info)]
