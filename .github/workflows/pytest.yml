@@ -115,6 +115,9 @@ jobs:
         # Needed for WhisperX
         if: ${{ matrix.poetry-options != '' }}
         run: conda install -c conda-forge libiconv ffmpeg
+      - name: Install ollama
+        if: ${{ matrix.poetry-options != '' && matrix.os == 'ubuntu-22.04' }}
+        run: curl -fsSL https://ollama.com/install.sh | sh
       - name: Install poetry
         # setuptools >= 69.2 has been causing problems with github actions even when its
         # version is enforced in poetry. For now, explicitly revert to setuptools 69.1.1
