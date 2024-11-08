@@ -13,6 +13,7 @@ import PIL.Image
 
 import pixeltable as pxt
 import pixeltable.env as env
+import pixeltable.exceptions as excs
 from pixeltable.func import Batch
 from pixeltable.functions.util import normalize_image_mode, resolve_torch_device
 from pixeltable.utils.code import local_public_names
@@ -29,7 +30,7 @@ def sentence_transformer(
 
     __Requirements:__
 
-    - `pip install sentence-transformers`
+    - `pip install torch sentence-transformers`
 
     Args:
         sentence: The sentence to embed.
@@ -88,7 +89,7 @@ def cross_encoder(sentences1: Batch[str], sentences2: Batch[str], *, model_id: s
 
     __Requirements:__
 
-    - `pip install sentence-transformers`
+    - `pip install torch sentence-transformers`
 
     Parameters:
         sentences1: The first sentence to be paired.
@@ -134,7 +135,7 @@ def clip_text(text: Batch[str], *, model_id: str) -> Batch[pxt.Array[(None,), fl
 
     __Requirements:__
 
-    - `pip install transformers`
+    - `pip install torch transformers`
 
     Args:
         text: The string to embed.
@@ -172,7 +173,7 @@ def clip_image(image: Batch[PIL.Image.Image], *, model_id: str) -> Batch[pxt.Arr
 
     __Requirements:__
 
-    - `pip install transformers`
+    - `pip install torch transformers`
 
     Args:
         image: The image to embed.
@@ -228,7 +229,7 @@ def detr_for_object_detection(
 
     __Requirements:__
 
-    - `pip install transformers`
+    - `pip install torch transformers`
 
     Args:
         image: The image to embed.
@@ -305,7 +306,7 @@ def vit_for_image_classification(
 
     __Requirements:__
 
-    - `pip install transformers`
+    - `pip install torch transformers`
 
     Args:
         image: The image to classify.
@@ -360,6 +361,86 @@ def vit_for_image_classification(
         }
         for n in range(top_k_probs.shape[0])
     ]
+
+
+@pxt.udf
+def speech2text_for_conditional_generation(
+    audio: pxt.Audio,
+    *,
+    model_id: str,
+    language: Optional[str] = None,
+) -> str:
+    """
+    Transcribes or translates speech to text using a Speech2Text model. `model_id` should be a reference to a
+    pretrained [Speech2Text](https://huggingface.co/docs/transformers/en/model_doc/speech_to_text) model.
+
+    __Requirements:__
+
+    - `pip install torch torchaudio sentencepiece transformers`
+
+    Args:
+        audio: The audio clip to transcribe or translate.
+        model_id: The pretrained model to use for the transcription or translation.
+        language: If using a multilingual translation model, the language code to translate to. If not provided,
+            the model's default language will be used. If the model is not translation model, is not a
+            multilingual model, or does not support the specified language, an error will be raised.
+
+    Returns:
+        The transcribed or translated text.
+
+    Examples:
+        Add a computed column that applies the model `facebook/s2t-small-librispeech-asr` to an existing
+        Pixeltable column `audio` of the table `tbl`:
+
+        >>> tbl['transcription'] = speech2text_for_conditional_generation(
+        ...     tbl.audio,
+        ...     model_id='facebook/s2t-small-librispeech-asr'
+        ... )
+
+        Add a computed column that applies the model `facebook/s2t-medium-mustc-multilingual-st` to an existing
+        Pixeltable column `audio` of the table `tbl`, translating the audio to French:
+
+        >>> tbl['translation'] = speech2text_for_conditional_generation(
+        ...     tbl.audio,
+        ...     model_id='facebook/s2t-medium-mustc-multilingual-st',
+        ...     language='fr'
+        ... )
+    """
+    env.Env.get().require_package('transformers')
+    env.Env.get().require_package('torchaudio')
+    env.Env.get().require_package('sentencepiece')
+    device = resolve_torch_device('auto', allow_mps=False)  # Doesn't seem to work on 'mps'; use 'cpu' instead
+    import librosa
+    import torch
+    from transformers import Speech2TextForConditionalGeneration, Speech2TextProcessor
+
+    # facebook/s2t-small-librispeech-asr
+    # facebook/s2t-small-mustc-en-fr-st
+    model = _lookup_model(model_id, Speech2TextForConditionalGeneration.from_pretrained, device=device)
+    processor = _lookup_processor(model_id, Speech2TextProcessor.from_pretrained)
+    assert isinstance(processor, Speech2TextProcessor)
+
+    if language is not None and language not in processor.tokenizer.lang_code_to_id:
+        raise excs.Error(
+            f"Language code '{language}' is not supported by the model '{model_id}'. "
+            f"Supported languages are: {list(processor.tokenizer.lang_code_to_id.keys())}")
+
+    forced_bos_token_id: Optional[int] = None if language is None else processor.tokenizer.lang_code_to_id[language]
+
+    # Get the model's sampling rate. Default to 16 kHz (the standard) if not in config
+    model_sampling_rate = getattr(model.config, 'sampling_rate', 16_000)
+    waveform, sampling_rate = librosa.load(audio, sr=model_sampling_rate, mono=True)
+
+    with torch.no_grad():
+        inputs = processor(
+            waveform,
+            sampling_rate=sampling_rate,
+            return_tensors='pt'
+        )
+        generated_ids = model.generate(**inputs.to(device), forced_bos_token_id=forced_bos_token_id).to('cpu')
+
+    transcription = processor.batch_decode(generated_ids, skip_special_tokens=True)
+    return transcription
 
 
 @pxt.udf

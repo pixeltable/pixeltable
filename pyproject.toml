@@ -80,6 +80,7 @@ nbmake = "^1.4.6"
 # packages required by various optional pieces of the codebase
 mistune = "^3.0.2"
 torch = "^2.2"
+torchaudio = "^2.2"
 torchvision = "^0.17"
 pyarrow = ">=13.0.0"
 openai = "^1.10.0"
