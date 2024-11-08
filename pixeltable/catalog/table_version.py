@@ -193,8 +193,6 @@ class TableVersion:
             col.id = pos
             col.schema_version_add = 0
             cols_by_name[col.name] = col
-            if col.value_expr is None and col.compute_func is not None:
-                cls._create_value_expr(col, base_path)
             if col.is_computed:
                 col.check_value_expr()
 
@@ -494,37 +492,35 @@ class TableVersion:
             self._update_md(time.time(), conn, preceding_schema_version=preceding_schema_version)
             _logger.info(f'Dropped index {idx_md.name} on table {self.name}')
 
-    def add_column(self, col: Column, print_stats: bool, on_error: Literal['abort', 'ignore']) -> UpdateStatus:
+    def add_columns(self, cols: Iterable[Column], print_stats: bool, on_error: Literal['abort', 'ignore']) -> UpdateStatus:
         """Adds a column to the table.
         """
         assert not self.is_snapshot
-        assert is_valid_identifier(col.name)
-        assert col.stored is not None
-        assert col.name not in self.cols_by_name
-        col.tbl = self
-        col.id = self.next_col_id
-        self.next_col_id += 1
-
-        if col.compute_func is not None:
-            # create value_expr from compute_func
-            self._create_value_expr(col, self.path)
+        assert all(is_valid_identifier(col.name) for col in cols)
+        assert all(col.stored is not None for col in cols)
+        assert all(col.name not in self.cols_by_name for col in cols)
+        for col in cols:
+            col.tbl = self
+            col.id = self.next_col_id
+            self.next_col_id += 1
 
         # we're creating a new schema version
         self.version += 1
         preceding_schema_version = self.schema_version
         self.schema_version = self.version
         with Env.get().engine.begin() as conn:
-            status = self._add_columns([col], conn, print_stats=print_stats, on_error=on_error)
-            _ = self._add_default_index(col, conn)
+            status = self._add_columns(cols, conn, print_stats=print_stats, on_error=on_error)
+            for col in cols:
+                _ = self._add_default_index(col, conn)
             self._update_md(time.time(), conn, preceding_schema_version=preceding_schema_version)
-        _logger.info(f'Added column {col.name} to table {self.name}, new version: {self.version}')
+        _logger.info(f'Added columns {[col.name for col in cols]} to table {self.name}, new version: {self.version}')
 
         msg = (
             f'Added {status.num_rows} column value{"" if status.num_rows == 1 else "s"} '
             f'with {status.num_excs} error{"" if status.num_excs == 1 else "s"}.'
         )
         print(msg)
-        _logger.info(f'Column {col.name}: {msg}')
+        _logger.info(f'Columns {[col.name for col in cols]}: {msg}')
         return status
 
     def _add_columns(
@@ -1139,28 +1135,6 @@ class TableVersion:
         """Return the names of all computed columns"""
         names = [c.name for c in self.cols_by_name.values() if c.is_computed]
         return names
-
-    @classmethod
-    def _create_value_expr(cls, col: Column, path: pxt.catalog.TableVersionPath) -> None:
-        """
-        Create col.value_expr, given col.compute_func.
-        Interprets compute_func's parameters to be references to columns and construct ColumnRefs as args.
-        Does not update Column.dependent_cols.
-        """
-        assert col.value_expr is None
-        assert col.compute_func is not None
-        from pixeltable import exprs
-        params = inspect.signature(col.compute_func).parameters
-        args: list[exprs.ColumnRef] = []
-        for param_name in params:
-            param = path.get_column(param_name)
-            if param is None:
-                raise excs.Error(
-                    f'Column {col.name}: Callable parameter refers to an unknown column: {param_name}')
-            args.append(exprs.ColumnRef(param))
-        fn = func.make_function(
-            col.compute_func, return_type=col.col_type, param_types=[arg.col_type for arg in args])
-        col.set_value_expr(fn(*args))
 
     def _record_refd_columns(self, col: Column) -> None:
         """Update Column.dependent_cols for all cols referenced in col.value_expr.

@@ -131,7 +131,7 @@ class TestTable:
         for tbl_path, media_val in [('test', 'on_read'), ('dir.test', 'on_write'), ('dir.subdir.test', 'on_read')]:
             tbl = pxt.create_table(tbl_path, {'col': pxt.String}, media_validation=media_val)
             view = pxt.create_view(f'{tbl_path}_view', tbl, media_validation=media_val)
-            snap = pxt.create_view(f'{tbl_path}_snap', tbl, is_snapshot=True, media_validation=media_val)
+            snap = pxt.create_snapshot(f'{tbl_path}_snap', tbl, media_validation=media_val)
             assert tbl._path == tbl_path
             assert tbl._name == tbl_path.split('.')[-1]
             assert tbl._parent._path == '.'.join(tbl_path.split('.')[:-1])
@@ -200,7 +200,7 @@ class TestTable:
         )
 
         on_write_tbl = pxt.create_table('write_validated', schema, media_validation='on_write')
-        status = on_write_tbl.insert(rows, fail_on_exception=False)
+        status = on_write_tbl.insert(rows, on_error='ignore')
         assert status.num_excs == 2  # 1 row with exceptions in the media col and the index col
         on_write_res = (
             on_write_tbl.select(
@@ -229,7 +229,7 @@ class TestTable:
         # which forces validation
         on_read_tbl = pxt.create_table('read_validated', schema, media_validation='on_read')
         on_read_tbl.add_column(md=on_read_tbl.media.get_metadata())
-        status = on_read_tbl.insert(({**r, 'stage': 0} for r in rows), fail_on_exception=False)
+        status = on_read_tbl.insert(({**r, 'stage': 0} for r in rows), on_error='ignore')
         assert status.num_excs == 1
         on_read_res_1 = (
             on_read_tbl
@@ -244,7 +244,7 @@ class TestTable:
         reload_catalog()
         on_read_tbl = pxt.get_table('read_validated')
         # we can still insert into the table after a catalog reload, and the result is the same
-        status = on_read_tbl.insert(({**r, 'stage': 1} for r in rows), fail_on_exception=False)
+        status = on_read_tbl.insert(({**r, 'stage': 1} for r in rows), on_error='ignore')
         assert status.num_excs == 1
         on_read_res_2 = (
             on_read_tbl
@@ -472,7 +472,7 @@ class TestTable:
 
         with pytest.raises(excs.Error) as exc_info:
             pxt.create_table('test', {'c1': {}})
-        assert '"type" is required' in str(exc_info.value)
+        assert "'type' or 'value' must be specified" in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
             pxt.create_table('test', {'c1': {'xyz': pxt.Int}})
@@ -480,7 +480,7 @@ class TestTable:
 
         with pytest.raises(excs.Error) as exc_info:
             pxt.create_table('test', {'c1': {'stored': True}})
-        assert '"type" is required' in str(exc_info.value)
+        assert "'type' or 'value' must be specified" in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
             pxt.create_table('test', {'c1': {'type': 'string'}})
@@ -488,11 +488,11 @@ class TestTable:
 
         with pytest.raises(excs.Error) as exc_info:
             pxt.create_table('test', {'c1': {'value': 1, 'type': pxt.String}})
-        assert '"type" is redundant' in str(exc_info.value)
+        assert "'type' is redundant" in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
             pxt.create_table('test', {'c1': {'value': pytest}})
-        assert 'value needs to be either' in str(exc_info.value)
+        assert 'value must be a Pixeltable expression' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
 
@@ -500,7 +500,7 @@ class TestTable:
                 return 1.0
 
             pxt.create_table('test', {'c1': {'value': f}})
-        assert '"type" is required' in str(exc_info.value)
+        assert 'value must be a Pixeltable expression' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
             pxt.create_table('test', {'c1': {'type': pxt.String, 'stored': 'true'}})
@@ -526,6 +526,20 @@ class TestTable:
             pxt.create_table('test', {'c1': pxt.String}, primary_key='c1')
         assert 'cannot be nullable' in str(exc_info.value).lower()
 
+        for badtype, name, suggestion in [
+            (str, 'str', 'pxt.String'),
+            (int, 'int', 'pxt.Int'),
+            (float, 'float', 'pxt.Float'),
+            (bool, 'bool', 'pxt.Bool'),
+            (datetime.datetime, 'datetime.datetime', 'pxt.Timestamp'),
+            (list, 'list', 'pxt.Json'),
+            (dict, 'dict', 'pxt.Json'),
+            (PIL.Image.Image, 'PIL.Image.Image', 'pxt.Image'),
+        ]:
+            with pytest.raises(excs.Error) as exc_info:
+                pxt.create_table('test', {'c1': badtype})
+            assert f'Standard Python type `{name}` cannot be used here; use `{suggestion}` instead' in str(exc_info.value)
+
     def check_bad_media(
         self, rows: list[tuple[str, bool]], col_type: type, validate_local_path: bool = True
     ) -> None:
@@ -542,10 +556,10 @@ class TestTable:
         # Mode 1: Validation error on bad input (default)
         # we ignore the exact error here, because it depends on the media type
         with pytest.raises(excs.Error):
-            tbl.insert(rows, fail_on_exception=True)
+            tbl.insert(rows, on_error='abort')
 
         # Mode 2: ignore_errors=True, store error information in table
-        status = tbl.insert(rows, fail_on_exception=False)
+        status = tbl.insert(rows, on_error='ignore')
         _ = tbl.select(tbl.media, tbl.media.errormsg).show()
         assert status.num_rows == len(rows)
         assert status.num_excs >= total_bad_rows
@@ -1139,7 +1153,7 @@ class TestTable:
         assert status.num_excs == 0
         status = t.add_column(c8=t.c3.detections['*'].bounding_box)
         assert status.num_excs == 0
-        status = t.add_column(c9=lambda c2: math.sqrt(c2), type=pxt.Float)
+        status = t.add_column(c9=t.c2.apply(math.sqrt, col_type=pxt.Float))
         assert status.num_excs == 0
 
         # unstored cols that compute window functions aren't currently supported
@@ -1230,7 +1244,7 @@ class TestTable:
         t = pxt.create_table('test_insert', schema)
         status = t.add_column(add1=self.f2(self.f1(t.c2)))
         assert status.num_excs == 0
-        status = t.insert(rows, fail_on_exception=False)
+        status = t.insert(rows, on_error='ignore')
         assert status.num_excs >= 10
         assert 'test_insert.add1' in status.cols_with_excs
         assert t.where(t.add1.errortype != None).count() == 10
@@ -1311,7 +1325,7 @@ class TestTable:
         t.add_column(c3=self.img_fn_with_exc(t.img))
         rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
         rows = [{'img': r['img']} for r in rows[:20]]
-        t.insert(rows, fail_on_exception=False)
+        t.insert(rows, on_error='ignore')
         _ = t[t.c3.errortype].collect()
 
     def test_computed_window_fn(self, reset_db, test_tbl: catalog.Table) -> None:
@@ -1321,7 +1335,7 @@ class TestTable:
 
         schema = {'c2': pxt.Int, 'c3': pxt.Float, 'c4': pxt.Bool}
         new_t = pxt.create_table('insert_test', schema)
-        new_t.add_column(c5=lambda c2: c2 * c2, type=pxt.Int)
+        new_t.add_column(c5=t.c2.apply(lambda x: x * x, col_type=pxt.Int))
         new_t.add_column(c6=pxtf.sum(new_t.c5, group_by=new_t.c4, order_by=new_t.c3))
         rows = list(t.select(t.c2, t.c4, t.c3).collect())
         new_t.insert(rows)
@@ -1380,14 +1394,6 @@ class TestTable:
         with pytest.raises(excs.Error) as excs_info:
             _ = t.add_column(insert=pxt.Int)
         assert "'insert' is a reserved name in pixeltable" in str(excs_info.value).lower()
-
-        with pytest.raises(excs.Error) as exc_info:
-            _ = t.add_column(add2=pxt.Int, type=pxt.String)
-        assert '"type" is redundant' in str(exc_info.value).lower()
-
-        with pytest.raises(excs.Error) as exc_info:
-            _ = t.add_column(add2=[[1.0, 2.0], [3.0, 4.0]], type=pxt.String)
-        assert '"type" is redundant' in str(exc_info.value).lower()
 
         with pytest.raises(excs.Error) as exc_info:
             _ = t.add_column(add2=pxt.Int, stored=False)
@@ -1585,8 +1591,8 @@ class TestTable:
 
     def test_describe(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
-        fn = lambda c2: np.full((3, 4), c2)
-        t.add_column(computed1=fn, type=pxt.Array[(3, 4), pxt.Int])
+        fn = lambda x: np.full((3, 4), x)
+        t.add_column(computed1=t.c2.apply(fn, col_type=pxt.Array[(3, 4), pxt.Int]))
         t.describe()
 
         # TODO: how to you check the output of these?

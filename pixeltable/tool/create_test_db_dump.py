@@ -153,7 +153,7 @@ class Dumper:
         self.__add_expr_columns(v, 'view')
 
         # snapshot
-        _ = pxt.create_view('views.snapshot', t.where(t.c2 >= 75), is_snapshot=True)
+        _ = pxt.create_snapshot('views.snapshot', t.where(t.c2 >= 75))
 
         # view of views
         vv = pxt.create_view('views.view_of_views', v.where(t.c2 >= 25))
