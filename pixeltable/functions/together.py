@@ -186,7 +186,7 @@ _embedding_dimensions_cache = {
 
 
 @pxt.udf(batch_size=32)
-def embeddings(input: Batch[str], *, model: str) -> Batch[pxt.Array[(None,), float]]:
+def embeddings(input: Batch[str], *, model: str) -> Batch[pxt.Array[(None,), pxt.Float]]:
     """
     Query an embedding model for a given string of text.
 

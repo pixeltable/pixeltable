@@ -335,30 +335,74 @@ class Table(SchemaObject):
             raise excs.Error(f'Column name must be a string, got {type(col_name)}')
         if not isinstance(spec, (ts.ColumnType, exprs.Expr, type, _GenericAlias)):
             raise excs.Error(f'Column spec must be a ColumnType, Expr, or type, got {type(spec)}')
-        self.add_column(type=None, stored=None, print_stats=False, on_error='abort', **{col_name: spec})
+        self.add_column(stored=None, print_stats=False, on_error='abort', **{col_name: spec})
 
+    def add_columns(
+        self,
+        schema: dict[str, Union[ts.ColumnType, builtins.type, _GenericAlias]]
+    ) -> UpdateStatus:
+        """
+        Adds multiple columns to the table. The columns must be concrete (non-computed) columns; to add computed columns,
+        use [`add_computed_column()`][pixeltable.catalog.Table.add_computed_column] instead.
+
+        The format of the `schema` argument is identical to the format of the schema in a call to
+        [`create_table()`][pixeltable.globals.create_table].
+
+        Args:
+            schema: A dictionary mapping column names to types.
+
+        Returns:
+            Information about the execution status of the operation.
+
+        Raises:
+            Error: If any column name is invalid or already exists.
+
+        Examples:
+            Add multiple columns to the table `my_table`:
+
+            >>> tbl = pxt.get_table('my_table')
+            ... schema = {
+            ...     'new_col_1': pxt.Int,
+            ...     'new_col_2': pxt.String,
+            ... }
+            ... tbl.add_columns(schema)
+        """
+        self._check_is_dropped()
+        col_schema = {
+            col_name: {'type': ts.ColumnType.normalize_type(spec, nullable_default=True, allow_builtin_types=False)}
+            for col_name, spec in schema.items()
+        }
+        new_cols = self._create_columns(col_schema)
+        for new_col in new_cols:
+            self._verify_column(new_col, set(self._schema.keys()), set(self._query_names))
+        status = self._tbl_version.add_columns(new_cols, print_stats=False, on_error='abort')
+        FileCache.get().emit_eviction_warnings()
+        return status
+
+    # TODO: add_column() still supports computed columns for backward-compatibility. In the future, computed columns
+    #     will be supported only through add_computed_column(). At that point, we can remove the `stored`,
+    #     `print_stats`, and `on_error` parameters, and change the method body to simply call self.add_columns(kwargs),
+    #     simplifying the code. For the time being, there's some obvious code duplication.
     def add_column(
-            self,
-            *,
-            type: Union[ts.ColumnType, builtins.type, _GenericAlias, None] = None,
-            stored: Optional[bool] = None,
-            print_stats: bool = False,
-            on_error: Literal['abort', 'ignore'] = 'abort',
-            **kwargs: Union[ts.ColumnType, builtins.type, _GenericAlias, exprs.Expr, Callable]
+        self,
+        *,
+        stored: Optional[bool] = None,
+        print_stats: bool = False,
+        on_error: Literal['abort', 'ignore'] = 'abort',
+        **kwargs: Union[ts.ColumnType, builtins.type, _GenericAlias, exprs.Expr]
     ) -> UpdateStatus:
         """
         Adds a column to the table.
 
         Args:
-            kwargs: Exactly one keyword argument of the form `column_name=type` or `column_name=expression`.
-            type: The type of the column. Only valid and required if `value-expression` is a Callable.
+            kwargs: Exactly one keyword argument of the form `col_name=col_type`.
             stored: Whether the column is materialized and stored or computed on demand. Only valid for image columns.
             print_stats: If `True`, print execution metrics during evaluation.
             on_error: Determines the behavior if an error occurs while evaluating the column expression for at least one
                 row.
 
-                - If `on_error='abort'`, then an exception will be raised and the column will not be added.
-                - If `on_error='ignore'`, then execution will continue and the column will be added. Any rows
+                - `'abort'`: an exception will be raised and the column will not be added.
+                - `'ignore'`: execution will continue and the column will be added. Any rows
                   with errors will have a `None` value for the column, with information about the error stored in the
                   corresponding `tbl.col_name.errortype` and `tbl.col_name.errormsg` fields.
 
@@ -376,53 +420,79 @@ class Table(SchemaObject):
             Alternatively, this can also be expressed as:
 
             >>> tbl['new_col'] = pxt.Int
-
-            For a table with int column `int_col`, add a column that is the factorial of ``int_col``. The names of
-            the parameters of the Callable must correspond to existing column names (the column values are then passed
-            as arguments to the Callable). In this case, the column type needs to be specified explicitly:
-
-            >>> tbl.add_column(factorial=lambda int_col: math.factorial(int_col), type=pxt.Int)
-
-            For a table with an image column ``frame``, add an image column ``rotated`` that rotates the image by
-            90 degrees. In this case, the column type is inferred from the expression. Also, the column is not stored
-            (by default, computed image columns are not stored but recomputed on demand):
-
-            >>> tbl.add_column(rotated=tbl.frame.rotate(90))
-
-            Alternatively, this can also be expressed as:
-
-            >>> tbl['rotated'] = tbl.frame.rotate(90)
-
-            Do the same, but now the column is unstored:
-
-            >>> tbl.add_column(rotated=tbl.frame.rotate(90), stored=False)
         """
         self._check_is_dropped()
         # verify kwargs and construct column schema dict
         if len(kwargs) != 1:
             raise excs.Error(
-                f'add_column() requires exactly one keyword argument of the form "column-name=type|value-expression"; '
+                f'add_column() requires exactly one keyword argument of the form "col_name=col_type"; '
                 f'got {len(kwargs)} instead ({", ".join(list(kwargs.keys()))})'
             )
         col_name, spec = next(iter(kwargs.items()))
         if not is_valid_identifier(col_name):
             raise excs.Error(f'Invalid column name: {col_name!r}')
-        if isinstance(spec, (ts.ColumnType, builtins.type, _GenericAlias, exprs.Expr)) and type is not None:
-            raise excs.Error(f'add_column(): keyword argument "type" is redundant')
 
         col_schema: dict[str, Any] = {}
         if isinstance(spec, (ts.ColumnType, builtins.type, _GenericAlias)):
-            col_schema['type'] = ts.ColumnType.normalize_type(spec, nullable_default=True)
+            col_schema['type'] = ts.ColumnType.normalize_type(spec, nullable_default=True, allow_builtin_types=False)
         else:
             col_schema['value'] = spec
-        if type is not None:
-            col_schema['type'] = ts.ColumnType.normalize_type(type, nullable_default=True)
         if stored is not None:
             col_schema['stored'] = stored
 
         new_col = self._create_columns({col_name: col_schema})[0]
         self._verify_column(new_col, set(self._schema.keys()), set(self._query_names))
-        status = self._tbl_version.add_column(new_col, print_stats=print_stats, on_error=on_error)
+        status = self._tbl_version.add_columns([new_col], print_stats=print_stats, on_error=on_error)
+        FileCache.get().emit_eviction_warnings()
+        return status
+
+    def add_computed_column(
+        self,
+        *,
+        stored: Optional[bool] = None,
+        print_stats: bool = False,
+        on_error: Literal['abort', 'ignore'] = 'abort',
+        **kwargs: exprs.Expr
+    ) -> UpdateStatus:
+        """
+        Adds a computed column to the table.
+
+        Args:
+            kwargs: Exactly one keyword argument of the form `col_name=expression`.
+
+        Returns:
+            Information about the execution status of the operation.
+
+        Raises:
+            Error: If the column name is invalid or already exists.
+
+        Examples:
+            For a table with an image column `frame`, add an image column `rotated` that rotates the image by
+            90 degrees:
+
+            >>> tbl.add_computed_column(rotated=tbl.frame.rotate(90))
+
+            Do the same, but now the column is unstored:
+
+            >>> tbl.add_computed_column(rotated=tbl.frame.rotate(90), stored=False)
+        """
+        self._check_is_dropped()
+        if len(kwargs) != 1:
+            raise excs.Error(
+                f'add_computed_column() requires exactly one keyword argument of the form "column-name=type|value-expression"; '
+                f'got {len(kwargs)} arguments instead ({", ".join(list(kwargs.keys()))})'
+            )
+        col_name, spec = next(iter(kwargs.items()))
+        if not is_valid_identifier(col_name):
+            raise excs.Error(f'Invalid column name: {col_name!r}')
+
+        col_schema: dict[str, Any] = {'value': spec}
+        if stored is not None:
+            col_schema['stored'] = stored
+
+        new_col = self._create_columns({col_name: col_schema})[0]
+        self._verify_column(new_col, set(self._schema.keys()), set(self._query_names))
+        status = self._tbl_version.add_columns([new_col], print_stats=print_stats, on_error=on_error)
         FileCache.get().emit_eviction_warnings()
         return status
 
@@ -435,39 +505,29 @@ class Table(SchemaObject):
         """
         assert isinstance(spec, dict)
         valid_keys = {'type', 'value', 'stored', 'media_validation'}
-        has_type = False
         for k in spec.keys():
             if k not in valid_keys:
                 raise excs.Error(f'Column {name}: invalid key {k!r}')
 
+        if 'type' not in spec and 'value' not in spec:
+            raise excs.Error(f"Column {name}: 'type' or 'value' must be specified")
+
         if 'type' in spec:
-            has_type = True
             if not isinstance(spec['type'], (ts.ColumnType, type, _GenericAlias)):
                 raise excs.Error(f'Column {name}: "type" must be a type or ColumnType, got {spec["type"]}')
 
         if 'value' in spec:
-            value_spec = spec['value']
-            value_expr = exprs.Expr.from_object(value_spec)
+            value_expr = exprs.Expr.from_object(spec['value'])
             if value_expr is None:
-                # needs to be a Callable
-                if not callable(value_spec):
-                    raise excs.Error(
-                        f'Column {name}: value needs to be either a Pixeltable expression or a Callable, '
-                        f'but it is a {type(value_spec)}')
-                if 'type' not in spec:
-                    raise excs.Error(f'Column {name}: "type" is required if value is a Callable')
-            else:
-                has_type = True
-                if 'type' in spec:
-                    raise excs.Error(f'Column {name}: "type" is redundant if value is a Pixeltable expression')
+                raise excs.Error(f'Column {name}: value must be a Pixeltable expression.')
+            if 'type' in spec:
+                raise excs.Error(f"Column {name}: 'type' is redundant if 'value' is specified")
 
         if 'media_validation' in spec:
             _ = catalog.MediaValidation.validated(spec['media_validation'], f'Column {name}: media_validation')
 
         if 'stored' in spec and not isinstance(spec['stored'], bool):
             raise excs.Error(f'Column {name}: "stored" must be a bool, got {spec["stored"]}')
-        if not has_type:
-            raise excs.Error(f'Column {name}: "type" is required')
 
     @classmethod
     def _create_columns(cls, schema: dict[str, Any]) -> list[Column]:
@@ -481,19 +541,15 @@ class Table(SchemaObject):
             stored = True
 
             if isinstance(spec, (ts.ColumnType, type, _GenericAlias)):
-                col_type = ts.ColumnType.normalize_type(spec, nullable_default=True)
+                col_type = ts.ColumnType.normalize_type(spec, nullable_default=True, allow_builtin_types=False)
             elif isinstance(spec, exprs.Expr):
                 # create copy so we can modify it
                 value_expr = spec.copy()
-            elif callable(spec):
-                raise excs.Error(
-                    f'Column {name} computed with a Callable: specify using a dictionary with '
-                    f'the "value" and "type" keys (e.g., "{name}": {{"value": <Callable>, "type": pxt.Int}})'
-                )
             elif isinstance(spec, dict):
                 cls._validate_column_spec(name, spec)
                 if 'type' in spec:
-                    col_type = ts.ColumnType.normalize_type(spec['type'], nullable_default=True)
+                    col_type = ts.ColumnType.normalize_type(
+                        spec['type'], nullable_default=True, allow_builtin_types=False)
                 value_expr = spec.get('value')
                 if value_expr is not None and isinstance(value_expr, exprs.Expr):
                     # create copy so we can modify it
@@ -505,6 +561,8 @@ class Table(SchemaObject):
                     catalog.MediaValidation[media_validation_str.upper()] if media_validation_str is not None
                     else None
                 )
+            else:
+                raise excs.Error(f'Invalid value for column {name!r}')
 
             column = Column(
                 name, col_type=col_type, computed_with=value_expr, stored=stored, is_pk=primary_key,
@@ -747,36 +805,68 @@ class Table(SchemaObject):
 
     @overload
     def insert(
-            self, rows: Iterable[dict[str, Any]], /, *, print_stats: bool = False, fail_on_exception: bool = True
+        self,
+        rows: Iterable[dict[str, Any]],
+        /,
+        *,
+        print_stats: bool = False,
+        on_error: Literal['abort', 'ignore'] = 'abort'
     ) -> UpdateStatus: ...
 
     @overload
-    def insert(self, *, print_stats: bool = False, fail_on_exception: bool = True, **kwargs: Any) -> UpdateStatus: ...
+    def insert(
+        self,
+        *,
+        print_stats: bool = False,
+        on_error: Literal['abort', 'ignore'] = 'abort',
+        **kwargs: Any
+    ) -> UpdateStatus: ...
 
     @abc.abstractmethod  # type: ignore[misc]
     def insert(
-            self, rows: Optional[Iterable[dict[str, Any]]] = None, /, *, print_stats: bool = False,
-            fail_on_exception: bool = True, **kwargs: Any
+        self,
+        rows: Optional[Iterable[dict[str, Any]]] = None,
+        /,
+        *,
+        print_stats: bool = False,
+        on_error: Literal['abort', 'ignore'] = 'abort',
+        **kwargs: Any
     ) -> UpdateStatus:
         """Inserts rows into this table. There are two mutually exclusive call patterns:
 
         To insert multiple rows at a time:
-        ``insert(rows: Iterable[dict[str, Any]], /, *, print_stats: bool = False, fail_on_exception: bool = True)``
+
+        ```python
+        insert(
+            rows: Iterable[dict[str, Any]],
+            /,
+            *,
+            print_stats: bool = False,
+            on_error: Literal['abort', 'ignore'] = 'abort'
+        )```
 
         To insert just a single row, you can use the more concise syntax:
-        ``insert(*, print_stats: bool = False, fail_on_exception: bool = True, **kwargs: Any)``
+
+        ```python
+        insert(
+            *,
+            print_stats: bool = False,
+            on_error: Literal['abort', 'ignore'] = 'abort',
+            **kwargs: Any
+        )```
 
         Args:
             rows: (if inserting multiple rows) A list of rows to insert, each of which is a dictionary mapping column
                 names to values.
             kwargs: (if inserting a single row) Keyword-argument pairs representing column names and values.
-            print_stats: If ``True``, print statistics about the cost of computed columns.
-            fail_on_exception:
-                Determines how exceptions in computed columns and invalid media files (e.g., corrupt images)
-                are handled.
-                If ``False``, store error information (accessible as column properties 'errortype' and 'errormsg')
-                for those cases, but continue inserting rows.
-                If ``True``, raise an exception that aborts the insert.
+            print_stats: If `True`, print statistics about the cost of computed columns.
+            on_error: Determines the behavior if an error occurs while evaluating a computed column or detecting an
+                invalid media file (such as a corrupt image) for one of the inserted rows.
+
+                - If `on_error='abort'`, then an exception will be raised and the rows will not be inserted.
+                - If `on_error='ignore'`, then execution will continue and the rows will be inserted. Any cells
+                  with errors will have a `None` value for that cell, with information about the error stored in the
+                  corresponding `tbl.col_name.errortype` and `tbl.col_name.errormsg` fields.
 
         Returns:
             An [`UpdateStatus`][pixeltable.UpdateStatus] object containing information about the update.
@@ -787,7 +877,7 @@ class Table(SchemaObject):
                 - The table is a view or snapshot.
                 - The table has been dropped.
                 - One of the rows being inserted does not conform to the table schema.
-                - An error occurs during processing of computed columns, and `fail_on_exception=True`.
+                - An error occurs during processing of computed columns, and `on_error='ignore'`.
 
         Examples:
             Insert two rows into the table `my_table` with three int columns ``a``, ``b``, and ``c``.

@@ -5,13 +5,13 @@ Instances of class `Table` are handles to Pixeltable tables and views/snapshots.
 Use this handle to query and update the table and to add and drop columns.
 
 Tables are created by calling [`pxt.create_table`][pixeltable.create_table].
-Views and snapshots are created by calling [`pxt.create_view`][pixeltable.create_view]
-(snapshots require `is_snapshot=True`).
+Views are created by calling [`pxt.create_view`][pixeltable.create_view], and snapshots by calling
+[`pxt.create_snapshot`][pixeltable.create_snapshot].
 
 To get a handle to an existing table/view/snapshot, call [`pxt.get_table`][pixeltable.get_table].
 
-
 ## Overview
+
 | Column Operations                                  |                                        |
 |----------------------------------------------------|----------------------------------------|
 | [`add_column`][pixeltable.Table.add_column]        | Add a column to the table or view      |
@@ -35,5 +35,6 @@ To get a handle to an existing table/view/snapshot, call [`pxt.get_table`][pixel
 | [`revert`][pixeltable.Table.revert]   | Revert the last change |
 
 ## ::: pixeltable.Table
+
     options:
       inherited_members: true

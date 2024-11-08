@@ -14,7 +14,7 @@ import pixeltable.functions as pxtf
 | Create a (mutable) table    | t = [`pxt.create_table`][pixeltable.create_table]('table_name', {'col_1': pxt.String, 'col_2': pxt.Int, ...})                    |
 | Create a view               | t = [`pxt.create_view`][pixeltable.create_view]('view_name', base_tbl.where(base_tbl.col > 10))                                  |
 | Create a view with iterator | t = [`pxt.create_view`][pixeltable.create_view]('view_name', base_tbl, iterator=FrameIterator.create(video=base_tbl.col, fps=0)) |
-| Create a snapshot           | t = [`pxt.create_view`][pixeltable.create_view]('snapshot_name', base_tbl, is_snapshot=True)                                     |
+| Create a snapshot           | t = [`pxt.create_snapshot`][pixeltable.create_snapshot]('snapshot_name', base_tbl)                                               |
 
 The following functions apply to tables, views, and snapshots.
 
