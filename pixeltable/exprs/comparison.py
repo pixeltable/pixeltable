@@ -67,6 +67,11 @@ class Comparison(Expr):
         return self.components[1]
 
     def sql_expr(self, sql_elements: SqlElementCache) -> Optional[sql.ColumnElement]:
+        if str(self._op1.col_type.to_sa_type()) != str(self._op2.col_type.to_sa_type()):
+            # Comparing columns of different SQL types (e.g., string vs. json); this can only be done in Python
+            # TODO(aaron-siegel): We may be able to handle some cases in SQL by casting one side to the other's type
+            return None
+
         left = sql_elements.get(self._op1)
         if self.is_search_arg_comparison:
             # reference the index value column if there is an index and this is not a snapshot

@@ -8957,6 +8957,24 @@ requests = ">=2.26.0"
 blobfile = ["blobfile (>=2)"]
 
 [[package]]
+name = "timm"
+version = "1.0.11"
+description = "PyTorch Image Models"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "timm-1.0.11-py3-none-any.whl", hash = "sha256:52a6f895e2cbec35a87d0846870419c2c0aa40de9b205bcda917f38278bf3044"},
+    {file = "timm-1.0.11.tar.gz", hash = "sha256:a005f72b87e67ed30cdbf405a9ffd4e723360c780a43b1cefe266af8ecc9d151"},
+]
+
+[package.dependencies]
+huggingface_hub = "*"
+pyyaml = "*"
+safetensors = "*"
+torch = "*"
+torchvision = "*"
+
+[[package]]
 name = "tinycss2"
 version = "1.2.1"
 description = "A tiny CSS parser"
@@ -10365,4 +10383,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.9,<4.0"
-content-hash = "22bdf7911905ed9d0ea718fd49a523021305ed5366ba519aa968f11c601e4c91"
+content-hash = "a7afe871ad10bd7d8a91cefe9a99a2fef151cd9fe4301acb0fa004f631e077ea"
