@@ -136,7 +136,12 @@ class EmbeddingIndex(IndexBase):
         """Validate the signature"""
         assert isinstance(embed_fn, func.Function)
         sig = embed_fn.signature
-        if len(sig.parameters) != 1 or sig.parameters_by_pos[0].col_type.type_enum != expected_type:
+
+        # The embedding function must be a 1-ary function of the correct type. But it's ok if the function signature
+        # has more than one parameter, as long as it has at most one *required* parameter.
+        if (len(sig.parameters) == 0
+            or len(sig.required_parameters) > 1
+            or sig.parameters_by_pos[0].col_type.type_enum != expected_type):
             raise excs.Error(
                 f'{name} must take a single {expected_type.name.lower()} parameter, but has signature {sig}')
 

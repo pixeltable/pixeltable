@@ -91,6 +91,7 @@ class Signature:
         self.parameters_by_pos = parameters.copy()
         self.constant_parameters = [p for p in parameters if not p.is_batched]
         self.batched_parameters = [p for p in parameters if p.is_batched]
+        self.required_parameters = [p for p in parameters if not p.has_default()]
         self.py_signature = inspect.Signature([p.to_py_param() for p in self.parameters_by_pos])
 
     def get_return_type(self) -> ts.ColumnType:
