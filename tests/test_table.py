@@ -668,6 +668,23 @@ class TestTable:
         cache_stats = FileCache.get().stats()
         assert cache_stats.total_size == 0
 
+    def test_video_url(self, reset_db) -> None:
+        skip_test_if_not_installed('boto3')
+        schema = {
+            'payload': pxt.Int,
+            'video': pxt.Video,
+        }
+        tbl = pxt.create_table('test', schema)
+        url = 's3://multimedia-commons/data/videos/mp4/ffe/ff3/ffeff3c6bf57504e7a6cecaff6aefbc9.mp4'
+        tbl.insert(payload=1, video=url)
+        row = tbl.select(tbl.video.fileurl, tbl.video.localpath).collect()[0]
+        assert row['video_fileurl'] == url
+        # row[1] contains valid path to an mp4 file
+        local_path = row['video_localpath']
+        assert os.path.exists(local_path) and os.path.isfile(local_path)
+        with av.open(local_path) as container:
+             assert container.streams.video[0].codec_context.name == 'h264'
+
     def test_create_video_table(self, reset_db) -> None:
         skip_test_if_not_installed('boto3')
         tbl = pxt.create_table('test_tbl', {'payload': pxt.Int, 'video': pxt.Video})
