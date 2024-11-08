@@ -1,18 +1,23 @@
+# Standard library imports
+import os
+import io
+import base64
+import tempfile
+import logging
+from pathlib import Path
+from typing import Optional, Literal
+
+# Third-party library imports
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+import PIL.Image
+
+# Local imports
 import pixeltable as pxt
 from pixeltable.iterators import FrameIterator
 from pixeltable.functions.huggingface import clip_image, clip_text
-import PIL.Image
-import os
-import io
-import base64
-from pathlib import Path
-import logging
-from typing import Optional, Literal
-import tempfile
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -48,7 +53,7 @@ pxt.create_dir('video_search')
 # Create video table
 video_table = pxt.create_table(
     'video_search.videos',
-    {'video': pxt.VideoType()}
+    {'video': pxt.Video}
 )
 
 # Create frames view
