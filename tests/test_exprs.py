@@ -27,13 +27,28 @@ from .utils import (create_scalars_tbl, get_image_files, reload_catalog, skip_te
 
 
 class TestExprs:
+    @staticmethod
     @pxt.udf
     def div_0_error(a: int, b: int) -> float:
         return a / b
 
-    # function that does allow nulls
+    @staticmethod
     @pxt.udf
-    def null_args_fn(a: float, b: Optional[float]) -> float:
+    def required_params_fn(a: float, b: float) -> float:
+        return a + b
+
+    @staticmethod
+    @pxt.udf
+    def mixed_params_fn(a: float, b: Optional[float]) -> float:
+        if b is None:
+            return a
+        return a + b
+
+    @staticmethod
+    @pxt.udf
+    def optional_params_fn(a: Optional[float], b: Optional[float]) -> Optional[float]:
+        if a is None:
+            return b
         if b is None:
             return a
         return a + b
@@ -240,17 +255,21 @@ class TestExprs:
         assert 'computed unstored' in str(excinfo.value)
 
     def test_null_args(self, reset_db) -> None:
-        # create table with two int columns
+        # create table with two columns
         schema = {'c1': pxt.Float, 'c2': pxt.Float}
         t = pxt.create_table('test', schema)
 
-        t.add_column(c3=self.null_args_fn(t.c1, t.c2))
+        t.add_column(c3=self.required_params_fn(t.c1, t.c2))
+        t.add_column(c4=self.mixed_params_fn(t.c1, t.c2))
+        t.add_column(c5=self.optional_params_fn(t.c1, t.c2))
 
         # data that tests all combinations of nulls
         data = [{'c1': 1.0, 'c2': 1.0}, {'c1': 1.0, 'c2': None}, {'c1': None, 'c2': 1.0}, {'c1': None, 'c2': None}]
         validate_update_status(t.insert(data), expected_rows=4)
-        result = t.select(t.c3).collect()
-        assert result['c3'] == [2.0, 1.0, None, None]
+        result = t.collect()
+        assert result['c3'] == [2.0, None, None, None]
+        assert result['c4'] == [2.0, 1.0, None, None]
+        assert result['c5'] == [2.0, 1.0, 1.0, None]
 
     def test_arithmetic_exprs(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
