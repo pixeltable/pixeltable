@@ -3,13 +3,14 @@ import glob
 import json
 import os
 import random
+import urllib.parse
 from pathlib import Path
 from typing import Any, Optional
 
+import PIL.Image
 import more_itertools
 import numpy as np
 import pandas as pd
-import PIL.Image
 import pytest
 
 import pixeltable as pxt
@@ -20,6 +21,7 @@ from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
 from pixeltable.functions.huggingface import clip_image, clip_text, sentence_transformer
 from pixeltable.io import SyncStatus
+import pixeltable.utils.s3 as s3_util
 
 
 def make_default_type(t: pxt.ColumnType.Type) -> pxt.ColumnType:
@@ -347,6 +349,25 @@ def __image_mode(path: str) -> str:
     finally:
         image.close()
 
+def get_multimedia_commons_video_uris(n: int = 10) -> list[str]:
+    uri = 's3://multimedia-commons/data/videos/mp4/'
+    parsed = urllib.parse.urlparse(uri)
+    bucket_name = parsed.netloc
+    prefix = parsed.path.lstrip('/')
+    s3_client = s3_util.get_client()
+    uris: list[str] = []
+    # Use paginator to handle more than 1000 objects
+    paginator = s3_client.get_paginator('list_objects_v2')
+
+    for page in paginator.paginate(Bucket=bucket_name, Prefix=prefix):
+        if 'Contents' not in page:
+            continue
+        for obj in page['Contents']:
+            if len(uris) >= n:
+                return uris
+            uri = f"s3://{bucket_name}/{obj['Key']}"
+            uris.append(uri)
+    return uris
 
 def get_audio_files(include_bad_audio: bool = False) -> list[str]:
     tests_dir = Path(os.path.dirname(__file__))

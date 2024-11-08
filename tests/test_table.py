@@ -1,4 +1,5 @@
 import datetime
+import random
 import math
 import os
 import random
@@ -20,7 +21,7 @@ from pixeltable.utils.media_store import MediaStore
 
 from .utils import (assert_resultset_eq, create_table_data, get_audio_files, get_documents, get_image_files,
                     get_video_files, make_tbl, read_data_file, reload_catalog, skip_test_if_not_installed,
-                    validate_update_status)
+                    validate_update_status, get_multimedia_commons_video_uris)
 
 
 class TestTable:
@@ -682,7 +683,7 @@ class TestTable:
         local_path = row['video_localpath']
         assert os.path.exists(local_path) and os.path.isfile(local_path)
         with av.open(local_path) as container:
-            assert container.streams.video[0].codec_context.name == 'h264'
+             assert container.streams.video[0].codec_context.name == 'h264'
 
     def test_create_video_table(self, reset_db) -> None:
         skip_test_if_not_installed('boto3')
@@ -736,6 +737,28 @@ class TestTable:
         pxt.drop_table('test_view')
         pxt.drop_table('test_tbl')
         assert MediaStore.count(view._id) == 0
+
+    def test_video_urls(self, reset_db) -> None:
+        skip_test_if_not_installed('boto3')
+        tbl = pxt.create_table('test', {'video': pxt.Video})
+
+        # create a list of uris with duplicates, to test the duplicate-handling logic of CachePrefetchNode
+        uris = get_multimedia_commons_video_uris(n=pxt.exec.CachePrefetchNode.BATCH_SIZE * 2)
+        uris = [uri for uri in uris for _ in range(10)]
+        random.seed(0)
+        random.shuffle(uris)
+
+        # clearing the file cache here makes the tests fail on Windows
+        # TODO: investigate why
+        #FileCache.get().clear()  # make sure we need to download the files
+        validate_update_status(tbl.insert({'video': uri} for uri in uris), expected_rows=len(uris))
+        row = tbl.select(tbl.video.fileurl, tbl.video.localpath).head(1)[0]
+        assert row['video_fileurl'] == uris[0]
+        # tbl.video.localpath contains valid path to an mp4 file
+        local_path = row['video_localpath']
+        assert os.path.exists(local_path) and os.path.isfile(local_path)
+        with av.open(local_path) as container:
+            assert container.streams.video[0].codec_context.name == 'h264'
 
     def test_insert_nulls(self, reset_db) -> None:
         schema = {
