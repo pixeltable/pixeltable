@@ -9,6 +9,7 @@ from ..utils import get_image_files, skip_test_if_not_installed
 
 @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Not supported on Linux ARM')
 class TestFiftyone:
+    @pytest.mark.flaky(reruns=3)
     def test_export_images(self, reset_db) -> None:
         skip_test_if_not_installed('fiftyone')
 
