@@ -43,7 +43,7 @@ Search through video content using text descriptions or similar images.
 ### Frontend Setup
 
 ```bash
-cd docs/release/tutorials/text-and-image-similarity-search-nextjs-fastapi/frontend
+cd examples/text-and-image-similarity-search-nextjs-fastapi/frontend
 npm install
 npm run dev
 ```
@@ -51,7 +51,7 @@ npm run dev
 ### Backend Setup
 
 ```bash
-cd docs/release/tutorials/text-and-image-similarity-search-nextjs-fastapi
+cd examples/text-and-image-similarity-search-nextjs-fastapi
 python -m venv venv
 pip install -r requirements.txt 
 python app.py
