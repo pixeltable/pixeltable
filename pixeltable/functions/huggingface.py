@@ -403,7 +403,7 @@ T = TypeVar('T')
 
 def _lookup_model(
     model_id: str,
-    create: Callable[[str, ...], T],
+    create: Callable[..., T],
     device: Optional[str] = None,
     pass_device_to_create: bool = False
 ) -> T:
