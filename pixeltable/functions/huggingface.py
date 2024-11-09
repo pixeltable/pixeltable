@@ -53,7 +53,7 @@ def sentence_transformer(
     from sentence_transformers import SentenceTransformer  # type: ignore
 
     # specifying the device, moves the model to device (gpu:cuda/mps, cpu)
-    model = _lookup_model(model_id, SentenceTransformer, device=device)
+    model = _lookup_model(model_id, SentenceTransformer, device=device, pass_device_to_create=True)
 
     # specifying the device, uses it for computation
     array = model.encode(sentence, device=device, normalize_embeddings=normalize_embeddings)
@@ -79,7 +79,7 @@ def sentence_transformer_list(sentences: list, *, model_id: str, normalize_embed
     from sentence_transformers import SentenceTransformer
 
     # specifying the device, moves the model to device (gpu:cuda/mps, cpu)
-    model = _lookup_model(model_id, SentenceTransformer, device=device)
+    model = _lookup_model(model_id, SentenceTransformer, device=device, pass_device_to_create=True)
 
     # specifying the device, uses it for computation
     array = model.encode(sentences, device=device, normalize_embeddings=normalize_embeddings)
@@ -121,7 +121,7 @@ def cross_encoder(sentences1: Batch[str], sentences2: Batch[str], *, model_id: s
 
     # specifying the device, moves the model to device (gpu:cuda/mps, cpu)
     # and uses the device for predict computation
-    model = _lookup_model(model_id, CrossEncoder, device=device)
+    model = _lookup_model(model_id, CrossEncoder, device=device, pass_device_to_create=True)
 
     array = model.predict([[s1, s2] for s1, s2 in zip(sentences1, sentences2)], convert_to_numpy=True)
     return array.tolist()
@@ -136,7 +136,7 @@ def cross_encoder_list(sentence1: str, sentences2: list, *, model_id: str) -> li
 
     # specifying the device, moves the model to device (gpu:cuda/mps, cpu)
     # and uses the device for predict computation
-    model = _lookup_model(model_id, CrossEncoder, device=device)
+    model = _lookup_model(model_id, CrossEncoder, device=device, pass_device_to_create=True)
 
     array = model.predict([[sentence1, s2] for s2 in sentences2], convert_to_numpy=True)
     return array.tolist()
@@ -401,17 +401,22 @@ def detr_to_coco(image: PIL.Image.Image, detr_info: dict[str, Any]) -> dict[str,
 T = TypeVar('T')
 
 
-def _lookup_model(model_id: str, create: Callable[[str], T], device: Optional[str] = None) -> T:
+def _lookup_model(
+    model_id: str,
+    create: Callable[[str], T],
+    device: Optional[str] = None,
+    pass_device_to_create: bool = False
+) -> T:
     from torch import nn
 
     key = (model_id, create, device)  # For safety, include the `create` callable in the cache key
     if key not in _model_cache:
-        if create.__name__ in {'SentenceTransformer', 'CrossEncoder'}:
+        if pass_device_to_create:
             model = create(model_id, device=device)
         else:
             model = create(model_id)
         if isinstance(model, nn.Module):
-            if device is not None:
+            if pass_device_to_create == False and device is not None:
                 model.to(device)
             model.eval()
         _model_cache[key] = model
