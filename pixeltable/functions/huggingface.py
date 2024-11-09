@@ -403,7 +403,7 @@ T = TypeVar('T')
 
 def _lookup_model(
     model_id: str,
-    create: Callable[[str], T],
+    create: Callable[[str, ...], T],
     device: Optional[str] = None,
     pass_device_to_create: bool = False
 ) -> T:
@@ -416,7 +416,7 @@ def _lookup_model(
         else:
             model = create(model_id)
         if isinstance(model, nn.Module):
-            if pass_device_to_create == False and device is not None:
+            if not pass_device_to_create and device is not None:
                 model.to(device)
             model.eval()
         _model_cache[key] = model
