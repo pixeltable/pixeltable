@@ -523,29 +523,28 @@ SAMPLE_IMAGE_URL = (
 
 
 class ReloadTester:
-    """Utility to to verify that queries return identical results after a catalog reload"""
-    @dataclasses.dataclass
-    class DfInfo:
-        df_dict: dict[str, Any]  # serialized DataFrame
-        result_set: pxt.dataframe.DataFrameResultSet
+    """Utility to verify that queries return identical results after a catalog reload"""
 
-    df_info: list[DfInfo]
+    df_info: list[tuple[dict[str, Any], DataFrameResultSet]]
 
     def __init__(self):
         self.df_info = []
 
-    def register_query(self, df: pxt.DataFrame) -> None:
+    def run_query(self, df: pxt.DataFrame) -> DataFrameResultSet:
         df_dict = df.as_dict()
         result_set = df.collect()
-        self.df_info.append(self.DfInfo(df_dict, result_set))
+        self.df_info.append((df_dict, result_set))
+        return result_set
 
-    def run(self) -> None:
+    def run_test(self, clear: bool = True) -> None:
         reload_catalog()
-        for df_info in self.df_info:
-            df = pxt.DataFrame.from_dict(df_info.df_dict)
+        for df_dict, result_set in self.df_info:
+            df = pxt.DataFrame.from_dict(df_dict)
             result_set = df.collect()
             try:
-                assert_resultset_eq(result_set, df_info.result_set, compare_col_names=True)
+                assert_resultset_eq(result_set, result_set, compare_col_names=True)
             except Exception as e:
                 s = f'Reload test failed for query:\n{df}\n{e}'
                 raise RuntimeError(s)
+        if clear:
+            self.df_info = []

@@ -14,46 +14,38 @@ from pixeltable import catalog
 from pixeltable import exceptions as excs
 from pixeltable.iterators import FrameIterator
 
-from .utils import (
-    get_audio_files, get_documents, get_video_files, skip_test_if_not_installed, validate_update_status, ReloadTester
-)
+from .utils import get_audio_files, get_documents, get_video_files, skip_test_if_not_installed, validate_update_status
 
 
 class TestDataFrame:
 
-    def test_select_where(self, test_tbl: catalog.Table, reload_test: ReloadTester) -> None:
+    def test_select_where(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         res1 = t.collect()
         res2 = t.select().collect()
         assert len(res1) > 0 and res1 == res2
-        reload_test.register_query(t.select())
 
         res1 = t[t.c1, t.c2, t.c3].collect()
-        df = t.select(t.c1, t.c2, t.c3)
-        res2 = df.collect()
+        res2 = t.select(t.c1, t.c2, t.c3).collect()
         assert len(res1) > 0 and res1 == res2
-        reload_test.register_query(df)
 
-        df = t.where(t.c2 < 10).select(t.c1, t.c2, t.c3)
-        reload_test.register_query(df)
-        res1 = df.collect()
-        df = t.where(t.c2 < 10).select(c1=t.c1, c2=t.c2, c3=t.c3)
-        reload_test.register_query(df)
-        res2 = df.collect()
-        assert res1 == res2
+        res1 = t.where(t.c2 < 10).select(t.c1, t.c2, t.c3).collect()
+        # this is no longer supported; TODO: do we want this?
+        #res2 = t[t.c2 < 10][t.c1, t.c2, t.c3].collect()
+        #assert res1 == res2
 
-        df = t.where(t.c2 < 10).select(t.c1, c2=t.c2, c3=t.c3)
-        reload_test.register_query(df)
-        res3 = df.collect()
+        res3 = t.where(t.c2 < 10).select(c1=t.c1, c2=t.c2, c3=t.c3).collect()
         assert res1 == res3
+
+        res4 = t.where(t.c2 < 10).select(t.c1, c2=t.c2, c3=t.c3).collect()
+        assert res1 == res4
 
         from pixeltable.functions.string import contains
         _ = t.where(contains(t.c1, 'test')).select(t.c1).collect()
         _ = t.where(contains(t.c1, 'test') & contains(t.c1, '1')).select(t.c1).collect()
         _ = t.where(contains(t.c1, 'test') & (t.c2 >= 10)).select(t.c1).collect()
 
-        df = t.where(t.c2 < 10).select(t.c2, t.c2)  # repeated name no error
-        reload_test.register_query(df)
+        _ = t.where(t.c2 < 10).select(t.c2, t.c2).collect() # repeated name no error
 
         # where clause needs to be a predicate
         with pytest.raises(excs.Error) as exc_info:
@@ -102,8 +94,6 @@ class TestDataFrame:
             _ = t.select(t.c2+1, col_0=t.c2).collect()
         assert 'Repeated column name' in str(exc_info.value)
 
-        reload_test.run()
-
     def test_result_set_iterator(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         res = t.select(t.c1, t.c2, t.c3).collect()
@@ -150,17 +140,14 @@ class TestDataFrame:
             _ = res['c2', 0]
         assert 'Bad index' in str(exc_info.value)
 
-    def test_order_by(self, test_tbl: catalog.Table, reload_test: ReloadTester) -> None:
+    def test_order_by(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
-        df = t.select(t.c4, t.c2).order_by(t.c4).order_by(t.c2, asc=False)
-        reload_test.register_query(df)
+        res = t.select(t.c4, t.c2).order_by(t.c4).order_by(t.c2, asc=False).collect()
 
         # invalid expr in order_by()
         with pytest.raises(excs.Error) as exc_info:
             _ = t.order_by(datetime.datetime.now()).collect()
         assert 'Invalid expression' in str(exc_info.value)
-
-        reload_test.run()
 
     def test_head_tail(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
@@ -205,12 +192,10 @@ class TestDataFrame:
         with pytest.raises(excs.Error):
             _ = t.where(t.img.width > 100).count()
 
-    def test_select_literal(self, test_tbl: catalog.Table, reload_test: ReloadTester) -> None:
+    def test_select_literal(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
-        df = t.select(1.0).where(t.c2 < 10)
-        res = df.collect()
+        res = t.select(1.0).where(t.c2 < 10).collect()
         assert res[next(iter(res.schema.keys()))] == [1.0] * 10
-        reload_test.run()
 
     def test_html_media_url(self, reset_db) -> None:
         tab = pxt.create_table('test_html_repr', {'video': pxt.Video,

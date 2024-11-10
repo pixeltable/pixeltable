@@ -12,7 +12,7 @@ import pixeltable as pxt
 from pixeltable.functions.huggingface import clip_image, clip_text
 
 from .utils import (assert_img_eq, clip_img_embed, clip_text_embed, e5_embed, reload_catalog,
-                    skip_test_if_not_installed, validate_update_status)
+                    skip_test_if_not_installed, validate_update_status, ReloadTester)
 
 
 class TestIndex:
@@ -27,7 +27,7 @@ class TestIndex:
     def bad_embed2(x: str) -> pxt.Array[(None,), pxt.Float]:
         return np.zeros(10)
 
-    def test_similarity(self, small_img_tbl: pxt.Table) -> None:
+    def test_similarity(self, small_img_tbl: pxt.Table, reload_test: ReloadTester) -> None:
         skip_test_if_not_installed('transformers')
         t = small_img_tbl
         sample_img = t.select(t.img).head(1)[0, 'img']
@@ -36,20 +36,28 @@ class TestIndex:
         for metric, is_asc in [('cosine', False), ('ip', False), ('l2', True)]:
             t.add_embedding_index('img', metric=metric, image_embed=clip_img_embed, string_embed=clip_text_embed)
 
-            res = t.select(img=t.img, sim=t.img.similarity(sample_img))\
-                .order_by(t.img.similarity(sample_img), asc=is_asc)\
-                .limit(1).collect()
+            df = (
+                t.select(img=t.img, sim=t.img.similarity(sample_img))
+                .order_by(t.img.similarity(sample_img), asc=is_asc)
+                .limit(1)
+            )
+            res = reload_test.run_query(df)
             out_img = res[0, 'img']
             assert_img_eq(sample_img, out_img), f'{metric} failed'
 
             # TODO:  how to verify the output?
-            _ = t.select(path=t.img.localpath, sim=t.img.similarity('parachute')) \
-                .order_by(t.img.similarity('parachute'), asc=is_asc) \
-                .limit(1).collect()
+            df = (
+                t.select(path=t.img.localpath, sim=t.img.similarity('parachute'))
+                .order_by(t.img.similarity('parachute'), asc=is_asc)
+                .limit(1)
+            )
+            _ = reload_test.run_query(df)
 
             # can also be used in a computed column
             validate_update_status(t.add_column(sim=t.img.similarity('parachute')))
             t.drop_column('sim')
+
+            reload_test.run_test()
 
             t.drop_embedding_index(column_name='img')
 
