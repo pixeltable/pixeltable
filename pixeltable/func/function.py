@@ -103,7 +103,7 @@ class Function(abc.ABC):
         self._conditional_return_type = fn
         return fn
 
-    def using(self, **kwargs) -> 'ExprTemplateFunction':
+    def using(self, **kwargs: Any) -> 'ExprTemplateFunction':
         from pixeltable import exprs
 
         from .expr_template_function import ExprTemplateFunction
@@ -125,8 +125,7 @@ class Function(abc.ABC):
 
         # Bind each remaining parameter to a like-named variable
         for param in residual_params:
-            if param.name not in bindings:
-                bindings[param.name] = exprs.Variable(param.name, param.col_type)
+            bindings[param.name] = exprs.Variable(param.name, param.col_type)
 
         call = exprs.FunctionCall(self, bindings)
 
