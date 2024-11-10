@@ -445,14 +445,16 @@ def speech2text_for_conditional_generation(
     model_sampling_rate = getattr(model.config, 'sampling_rate', 16_000)
 
     waveform, sampling_rate = torchaudio.load(audio)
+
+    # Resample to the model's sampling rate, if necessary
     if sampling_rate != model_sampling_rate:
         waveform = torchaudio.transforms.Resample(sampling_rate, model_sampling_rate)(waveform)
 
-    # Convert to mono by averaging the channels (this will be a no-op if it's already in mono)
-    waveform = torch.mean(waveform, dim=0).unsqueeze(0)
-
-    # We now have a 2D tensor with shape (1, num_samples). Convert to a 1D tensor with shape (num_samples,).
-    waveform = waveform[0]
+    # Average the channels to get a single-channel waveform as a 1D tensor (if the original waveform is already
+    # mono, this will simply squeeze the tensor)
+    assert waveform.dim() == 2
+    waveform = torch.mean(waveform, dim=0)
+    assert waveform.dim() == 1
 
     with torch.no_grad():
         inputs = processor(
