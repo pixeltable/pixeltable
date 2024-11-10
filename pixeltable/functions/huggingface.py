@@ -13,6 +13,7 @@ import PIL.Image
 
 import pixeltable as pxt
 import pixeltable.env as env
+import pixeltable.exceptions as excs
 from pixeltable.func import Batch
 from pixeltable.functions.util import normalize_image_mode, resolve_torch_device
 from pixeltable.utils.code import local_public_names
@@ -21,7 +22,7 @@ from pixeltable.utils.code import local_public_names
 @pxt.udf(batch_size=32)
 def sentence_transformer(
     sentence: Batch[str], *, model_id: str, normalize_embeddings: bool = False
-) -> Batch[pxt.Array[(None,), float]]:
+) -> Batch[pxt.Array[(None,), pxt.Float]]:
     """
     Computes sentence embeddings. `model_id` should be a pretrained Sentence Transformers model, as described
     in the [Sentence Transformers Pretrained Models](https://sbert.net/docs/sentence_transformer/pretrained_models.html)
@@ -29,7 +30,7 @@ def sentence_transformer(
 
     __Requirements:__
 
-    - `pip install sentence-transformers`
+    - `pip install torch sentence-transformers`
 
     Args:
         sentence: The sentence to embed.
@@ -48,11 +49,15 @@ def sentence_transformer(
         >>> tbl['result'] = sentence_transformer(tbl.sentence, model_id='all-mpnet-base-v2')
     """
     env.Env.get().require_package('sentence_transformers')
+    device = resolve_torch_device('auto')
+    import torch
     from sentence_transformers import SentenceTransformer  # type: ignore
 
-    model = _lookup_model(model_id, SentenceTransformer)
+    # specifying the device, moves the model to device (gpu:cuda/mps, cpu)
+    model = _lookup_model(model_id, SentenceTransformer, device=device, pass_device_to_create=True)
 
-    array = model.encode(sentence, normalize_embeddings=normalize_embeddings)
+    # specifying the device, uses it for computation
+    array = model.encode(sentence, device=device, normalize_embeddings=normalize_embeddings)
     return [array[i] for i in range(array.shape[0])]
 
 
@@ -70,11 +75,15 @@ def _(model_id: str) -> pxt.ArrayType:
 @pxt.udf
 def sentence_transformer_list(sentences: list, *, model_id: str, normalize_embeddings: bool = False) -> list:
     env.Env.get().require_package('sentence_transformers')
+    device = resolve_torch_device('auto')
+    import torch
     from sentence_transformers import SentenceTransformer
 
-    model = _lookup_model(model_id, SentenceTransformer)
+    # specifying the device, moves the model to device (gpu:cuda/mps, cpu)
+    model = _lookup_model(model_id, SentenceTransformer, device=device, pass_device_to_create=True)
 
-    array = model.encode(sentences, normalize_embeddings=normalize_embeddings)
+    # specifying the device, uses it for computation
+    array = model.encode(sentences, device=device, normalize_embeddings=normalize_embeddings)
     return [array[i].tolist() for i in range(array.shape[0])]
 
 
@@ -88,7 +97,7 @@ def cross_encoder(sentences1: Batch[str], sentences2: Batch[str], *, model_id: s
 
     __Requirements:__
 
-    - `pip install sentence-transformers`
+    - `pip install torch sentence-transformers`
 
     Parameters:
         sentences1: The first sentence to be paired.
@@ -107,9 +116,13 @@ def cross_encoder(sentences1: Batch[str], sentences2: Batch[str], *, model_id: s
             )
     """
     env.Env.get().require_package('sentence_transformers')
+    device = resolve_torch_device('auto')
+    import torch
     from sentence_transformers import CrossEncoder
 
-    model = _lookup_model(model_id, CrossEncoder)
+    # specifying the device, moves the model to device (gpu:cuda/mps, cpu)
+    # and uses the device for predict computation
+    model = _lookup_model(model_id, CrossEncoder, device=device, pass_device_to_create=True)
 
     array = model.predict([[s1, s2] for s1, s2 in zip(sentences1, sentences2)], convert_to_numpy=True)
     return array.tolist()
@@ -118,23 +131,27 @@ def cross_encoder(sentences1: Batch[str], sentences2: Batch[str], *, model_id: s
 @pxt.udf
 def cross_encoder_list(sentence1: str, sentences2: list, *, model_id: str) -> list:
     env.Env.get().require_package('sentence_transformers')
+    device = resolve_torch_device('auto')
+    import torch
     from sentence_transformers import CrossEncoder
 
-    model = _lookup_model(model_id, CrossEncoder)
+    # specifying the device, moves the model to device (gpu:cuda/mps, cpu)
+    # and uses the device for predict computation
+    model = _lookup_model(model_id, CrossEncoder, device=device, pass_device_to_create=True)
 
     array = model.predict([[sentence1, s2] for s2 in sentences2], convert_to_numpy=True)
     return array.tolist()
 
 
 @pxt.udf(batch_size=32)
-def clip_text(text: Batch[str], *, model_id: str) -> Batch[pxt.Array[(None,), float]]:
+def clip_text(text: Batch[str], *, model_id: str) -> Batch[pxt.Array[(None,), pxt.Float]]:
     """
     Computes a CLIP embedding for the specified text. `model_id` should be a reference to a pretrained
     [CLIP Model](https://huggingface.co/docs/transformers/model_doc/clip).
 
     __Requirements:__
 
-    - `pip install transformers`
+    - `pip install torch transformers`
 
     Args:
         text: The string to embed.
@@ -165,14 +182,14 @@ def clip_text(text: Batch[str], *, model_id: str) -> Batch[pxt.Array[(None,), fl
 
 
 @pxt.udf(batch_size=32)
-def clip_image(image: Batch[PIL.Image.Image], *, model_id: str) -> Batch[pxt.Array[(None,), float]]:
+def clip_image(image: Batch[PIL.Image.Image], *, model_id: str) -> Batch[pxt.Array[(None,), pxt.Float]]:
     """
     Computes a CLIP embedding for the specified image. `model_id` should be a reference to a pretrained
     [CLIP Model](https://huggingface.co/docs/transformers/model_doc/clip).
 
     __Requirements:__
 
-    - `pip install transformers`
+    - `pip install torch transformers`
 
     Args:
         image: The image to embed.
@@ -228,7 +245,7 @@ def detr_for_object_detection(
 
     __Requirements:__
 
-    - `pip install transformers`
+    - `pip install torch transformers`
 
     Args:
         image: The image to embed.
@@ -305,7 +322,7 @@ def vit_for_image_classification(
 
     __Requirements:__
 
-    - `pip install transformers`
+    - `pip install torch transformers`
 
     Args:
         image: The image to classify.
@@ -363,6 +380,86 @@ def vit_for_image_classification(
 
 
 @pxt.udf
+def speech2text_for_conditional_generation(
+    audio: pxt.Audio,
+    *,
+    model_id: str,
+    language: Optional[str] = None,
+) -> str:
+    """
+    Transcribes or translates speech to text using a Speech2Text model. `model_id` should be a reference to a
+    pretrained [Speech2Text](https://huggingface.co/docs/transformers/en/model_doc/speech_to_text) model.
+
+    __Requirements:__
+
+    - `pip install torch torchaudio sentencepiece transformers`
+
+    Args:
+        audio: The audio clip to transcribe or translate.
+        model_id: The pretrained model to use for the transcription or translation.
+        language: If using a multilingual translation model, the language code to translate to. If not provided,
+            the model's default language will be used. If the model is not translation model, is not a
+            multilingual model, or does not support the specified language, an error will be raised.
+
+    Returns:
+        The transcribed or translated text.
+
+    Examples:
+        Add a computed column that applies the model `facebook/s2t-small-librispeech-asr` to an existing
+        Pixeltable column `audio` of the table `tbl`:
+
+        >>> tbl['transcription'] = speech2text_for_conditional_generation(
+        ...     tbl.audio,
+        ...     model_id='facebook/s2t-small-librispeech-asr'
+        ... )
+
+        Add a computed column that applies the model `facebook/s2t-medium-mustc-multilingual-st` to an existing
+        Pixeltable column `audio` of the table `tbl`, translating the audio to French:
+
+        >>> tbl['translation'] = speech2text_for_conditional_generation(
+        ...     tbl.audio,
+        ...     model_id='facebook/s2t-medium-mustc-multilingual-st',
+        ...     language='fr'
+        ... )
+    """
+    env.Env.get().require_package('transformers')
+    env.Env.get().require_package('torchaudio')
+    env.Env.get().require_package('sentencepiece')
+    device = resolve_torch_device('auto', allow_mps=False)  # Doesn't seem to work on 'mps'; use 'cpu' instead
+    import librosa
+    import torch
+    from transformers import Speech2TextForConditionalGeneration, Speech2TextProcessor
+
+    # facebook/s2t-small-librispeech-asr
+    # facebook/s2t-small-mustc-en-fr-st
+    model = _lookup_model(model_id, Speech2TextForConditionalGeneration.from_pretrained, device=device)
+    processor = _lookup_processor(model_id, Speech2TextProcessor.from_pretrained)
+    assert isinstance(processor, Speech2TextProcessor)
+
+    if language is not None and language not in processor.tokenizer.lang_code_to_id:
+        raise excs.Error(
+            f"Language code '{language}' is not supported by the model '{model_id}'. "
+            f"Supported languages are: {list(processor.tokenizer.lang_code_to_id.keys())}")
+
+    forced_bos_token_id: Optional[int] = None if language is None else processor.tokenizer.lang_code_to_id[language]
+
+    # Get the model's sampling rate. Default to 16 kHz (the standard) if not in config
+    model_sampling_rate = getattr(model.config, 'sampling_rate', 16_000)
+    waveform, sampling_rate = librosa.load(audio, sr=model_sampling_rate, mono=True)
+
+    with torch.no_grad():
+        inputs = processor(
+            waveform,
+            sampling_rate=sampling_rate,
+            return_tensors='pt'
+        )
+        generated_ids = model.generate(**inputs.to(device), forced_bos_token_id=forced_bos_token_id).to('cpu')
+
+    transcription = processor.batch_decode(generated_ids, skip_special_tokens=True)
+    return transcription
+
+
+@pxt.udf
 def detr_to_coco(image: PIL.Image.Image, detr_info: dict[str, Any]) -> dict[str, Any]:
     """
     Converts the output of a DETR object detection model to COCO format.
@@ -391,14 +488,22 @@ def detr_to_coco(image: PIL.Image.Image, detr_info: dict[str, Any]) -> dict[str,
 T = TypeVar('T')
 
 
-def _lookup_model(model_id: str, create: Callable[[str], T], device: Optional[str] = None) -> T:
+def _lookup_model(
+    model_id: str,
+    create: Callable[..., T],
+    device: Optional[str] = None,
+    pass_device_to_create: bool = False
+) -> T:
     from torch import nn
 
     key = (model_id, create, device)  # For safety, include the `create` callable in the cache key
     if key not in _model_cache:
-        model = create(model_id)
+        if pass_device_to_create:
+            model = create(model_id, device=device)
+        else:
+            model = create(model_id)
         if isinstance(model, nn.Module):
-            if device is not None:
+            if not pass_device_to_create and device is not None:
                 model.to(device)
             model.eval()
         _model_cache[key] = model

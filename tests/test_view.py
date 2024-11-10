@@ -130,7 +130,7 @@ class TestView:
         t = pxt.get_table('test_tbl')
         with pytest.raises(excs.Error) as exc_info:
             _ = pxt.create_view('lambda_view', t, additional_columns={'v1': lambda c3: c3 * 2.0})
-        assert 'computed with a callable' in str(exc_info.value).lower()
+        assert "invalid value for column 'v1'" in str(exc_info.value).lower()
 
     def test_from_dataframe(self, reset_db) -> None:
         t = self.create_tbl()
@@ -347,7 +347,7 @@ class TestView:
         check_views()
 
         logger.debug('******************* INSERT')
-        status = t.insert(rows, fail_on_exception=False)
+        status = t.insert(rows, on_error='ignore')
         v1.update({'int4': 1}, where=v1.int4 == None)
         logger.debug('******************* POST INSERT')
         check_views()
@@ -454,7 +454,7 @@ class TestView:
     def test_view_of_snapshot(self, reset_db) -> None:
         """Test view over a snapshot"""
         t = self.create_tbl()
-        snap = pxt.create_view('test_snap', t, is_snapshot=True)
+        snap = pxt.create_snapshot('test_snap', t)
 
         # create view with filter and computed columns
         schema = {
@@ -503,7 +503,7 @@ class TestView:
     def test_snapshots(self, reset_db) -> None:
         """Test snapshot of a view of a snapshot"""
         t = self.create_tbl()
-        s = pxt.create_view('test_snap', t, is_snapshot=True)
+        s = pxt.create_snapshot('test_snap', t)
         assert s.select(s.c2).order_by(s.c2).collect()['c2'] == t.select(t.c2).order_by(t.c2).collect()['c2']
 
         with pytest.raises(excs.Error) as exc_info:
@@ -521,7 +521,7 @@ class TestView:
         }
         v = pxt.create_view('test_view', s.where(s.c2 < 10), additional_columns=schema)
         orig_view_cols = v._schema.keys()
-        view_s = pxt.create_view('test_view_snap', v, is_snapshot=True)
+        view_s = pxt.create_snapshot('test_view_snap', v)
         assert set(view_s._schema.keys()) == set(orig_view_cols)
 
         def check(s1: pxt.Table, v: pxt.Table, s2: pxt.Table) -> None:

@@ -304,7 +304,7 @@ _embedding_dimensions_cache: dict[str, int] = {
 @pxt.udf(batch_size=32)
 def embeddings(
     input: Batch[str], *, model: str, dimensions: Optional[int] = None, user: Optional[str] = None
-) -> Batch[pxt.Array[(None,), float]]:
+) -> Batch[pxt.Array[(None,), pxt.Float]]:
     """
     Creates an embedding vector representing the input text.
 

@@ -5,6 +5,7 @@ import datetime
 import enum
 import io
 import json
+import types
 import typing
 import urllib.parse
 import urllib.request
@@ -272,62 +273,109 @@ class ColumnType:
         return inferred_type
 
     @classmethod
-    def from_python_type(cls, t: Union[type, _GenericAlias], nullable_default: bool = False) -> Optional[ColumnType]:
-        if typing.get_origin(t) is typing.Union:
+    def from_python_type(
+        cls,
+        t: Union[type, _GenericAlias],
+        nullable_default: bool = False,
+        allow_builtin_types: bool = True
+    ) -> Optional[ColumnType]:
+        """
+        Convert a Python type into a Pixeltable `ColumnType` instance.
+
+        Args:
+            t: The Python type.
+            nullable_default: If True, then the returned `ColumnType` will be nullable unless it is marked as
+                `Required`.
+            allow_builtin_types: If True, then built-in types such as `str`, `int`, `float`, etc., will be
+                allowed (as in UDF definitions). If False, then only Pixeltable types such as `pxt.String`,
+                `pxt.Int`, etc., will be allowed (as in schema definitions). `Optional` and `Required`
+                designations will be allowed regardless.
+        """
+        origin = typing.get_origin(t)
+        if origin is typing.Union:
+            # Check if `t` has the form Optional[T].
             union_args = typing.get_args(t)
             if len(union_args) == 2 and type(None) in union_args:
                 # `t` is a type of the form Optional[T] (equivalently, Union[T, None] or Union[None, T]).
                 # We treat it as the underlying type but with nullable=True.
                 underlying_py_type = union_args[0] if union_args[1] is type(None) else union_args[1]
-                underlying = cls.from_python_type(underlying_py_type)
+                underlying = cls.from_python_type(underlying_py_type, allow_builtin_types=allow_builtin_types)
                 if underlying is not None:
                     return underlying.copy(nullable=True)
-        elif typing.get_origin(t) is typing.Annotated:
+        elif origin is Required:
+            required_args = typing.get_args(t)
+            assert len(required_args) == 1
+            return cls.from_python_type(
+                required_args[0],
+                nullable_default=False,
+                allow_builtin_types=allow_builtin_types
+            )
+        elif origin is typing.Annotated:
             annotated_args = typing.get_args(t)
             origin = annotated_args[0]
             parameters = annotated_args[1]
             if isinstance(parameters, ColumnType):
                 return parameters.copy(nullable=nullable_default)
-        elif typing.get_origin(t) is Required:
-            required_args = typing.get_args(t)
-            assert len(required_args) == 1
-            return cls.from_python_type(required_args[0], nullable_default=False)
         else:
-            # Discard type parameters to ensure that parameterized types such as `list[T]`
-            # are correctly mapped to Pixeltable types.
-            origin = typing.get_origin(t)
-            if origin is None:
-                # No type parameters; the origin type is just `t` itself
-                origin = t
-            if issubclass(origin, _PxtType):
-                return origin.as_col_type(nullable=nullable_default)
-            if origin is str:
-                return StringType(nullable=nullable_default)
-            if origin is int:
-                return IntType(nullable=nullable_default)
-            if origin is float:
-                return FloatType(nullable=nullable_default)
-            if origin is bool:
-                return BoolType(nullable=nullable_default)
-            if origin is datetime.datetime:
-                return TimestampType(nullable=nullable_default)
-            if origin is PIL.Image.Image:
-                return ImageType(nullable=nullable_default)
-            if issubclass(origin, Sequence) or issubclass(origin, Mapping):
-                return JsonType(nullable=nullable_default)
+            # It's something other than Optional[T], Required[T], or an explicitly annotated type.
+            if origin is not None:
+                # Discard type parameters to ensure that parameterized types such as `list[T]`
+                # are correctly mapped to Pixeltable types.
+                t = origin
+            if isinstance(t, type) and issubclass(t, _PxtType):
+                return t.as_col_type(nullable=nullable_default)
+            elif allow_builtin_types:
+                if t is str:
+                    return StringType(nullable=nullable_default)
+                if t is int:
+                    return IntType(nullable=nullable_default)
+                if t is float:
+                    return FloatType(nullable=nullable_default)
+                if t is bool:
+                    return BoolType(nullable=nullable_default)
+                if t is datetime.datetime:
+                    return TimestampType(nullable=nullable_default)
+                if t is PIL.Image.Image:
+                    return ImageType(nullable=nullable_default)
+                if issubclass(t, Sequence) or issubclass(t, Mapping):
+                    return JsonType(nullable=nullable_default)
         return None
 
     @classmethod
-    def normalize_type(cls, t: Union[ColumnType, type, _AnnotatedAlias], nullable_default: bool = False) -> ColumnType:
+    def normalize_type(
+        cls,
+        t: Union[ColumnType, type, _AnnotatedAlias],
+        nullable_default: bool = False,
+        allow_builtin_types: bool = True
+    ) -> ColumnType:
         """
         Convert any type recognizable by Pixeltable to its corresponding ColumnType.
         """
         if isinstance(t, ColumnType):
             return t
-        col_type = cls.from_python_type(t, nullable_default)
+        col_type = cls.from_python_type(t, nullable_default, allow_builtin_types)
         if col_type is None:
-            raise excs.Error(f'Unknown type: {t}')
+            cls.__raise_exc_for_invalid_type(t)
         return col_type
+
+    __TYPE_SUGGESTIONS: list[tuple[type, str]] = [
+        (str, 'pxt.String'),
+        (bool, 'pxt.Bool'),
+        (int, 'pxt.Int'),
+        (float, 'pxt.Float'),
+        (datetime.datetime, 'pxt.Timestamp'),
+        (PIL.Image.Image, 'pxt.Image'),
+        (Sequence, 'pxt.Json'),
+        (Mapping, 'pxt.Json'),
+    ]
+
+    @classmethod
+    def __raise_exc_for_invalid_type(cls, t: Union[type, _AnnotatedAlias]) -> None:
+        for builtin_type, suggestion in cls.__TYPE_SUGGESTIONS:
+            if t is builtin_type or (isinstance(t, type) and issubclass(t, builtin_type)):
+                name = t.__name__ if t.__module__ == 'builtins' else f'{t.__module__}.{t.__name__}'
+                raise excs.Error(f'Standard Python type `{name}` cannot be used here; use `{suggestion}` instead')
+        raise excs.Error(f'Unknown type: {t}')
 
     def validate_literal(self, val: Any) -> None:
         """Raise TypeError if val is not a valid literal for this type"""
@@ -979,7 +1027,7 @@ class Array(np.ndarray, _PxtType):
         `item` (the type subscript) must be a tuple with exactly two elements (in any order):
         - A tuple of `Optional[int]`s, specifying the shape of the array
         - A type, specifying the dtype of the array
-        Example: Array[(3, None, 2), float]
+        Example: Array[(3, None, 2), pxt.Float]
         """
         params = item if isinstance(item, tuple) else (item,)
         shape: Optional[tuple] = None
@@ -994,7 +1042,7 @@ class Array(np.ndarray, _PxtType):
             elif isinstance(param, type) or isinstance(param, _AnnotatedAlias):
                 if dtype is not None:
                     raise TypeError(f'Duplicate Array type parameter: {param}')
-                dtype = ColumnType.from_python_type(param)
+                dtype = ColumnType.normalize_type(param, allow_builtin_types=False)
             else:
                 raise TypeError(f'Invalid Array type parameter: {param}')
         if shape is None:

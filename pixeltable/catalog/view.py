@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import inspect
 import logging
-from typing import TYPE_CHECKING, Any, Iterable, Optional
+from typing import TYPE_CHECKING, Any, Iterable, Literal, Optional
 from uuid import UUID
 
 import sqlalchemy.orm as orm
@@ -216,7 +216,7 @@ class View(Table):
 
     def insert(
             self, rows: Optional[Iterable[dict[str, Any]]] = None, /, *, print_stats: bool = False,
-            fail_on_exception: bool = True, **kwargs: Any
+            on_error: Literal['abort', 'ignore'] = 'abort', **kwargs: Any
     ) -> UpdateStatus:
         raise excs.Error(f'{self._display_name()} {self._name!r}: cannot insert into view')
 
