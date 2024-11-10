@@ -116,7 +116,7 @@ class Function(abc.ABC):
             param = self.signature.parameters[k]
             expr = exprs.Expr.from_object(v)
             if not param.col_type.is_supertype_of(expr.col_type):
-                raise excs.Error(f'Expected type {param.col_type}; got {expr.col_type}')
+                raise excs.Error(f'Expected type `{param.col_type}` for parameter `{k}`; got `{expr.col_type}`')
             bindings[k] = v  # Use the original value, not the Expr (The Expr is only for validation)
 
         residual_params = [
