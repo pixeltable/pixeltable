@@ -427,7 +427,7 @@ def speech2text_for_conditional_generation(
     env.Env.get().require_package('sentencepiece')
     device = resolve_torch_device('auto', allow_mps=False)  # Doesn't seem to work on 'mps'; use 'cpu' instead
     import torch
-    import torchaudio
+    import torchaudio  # type: ignore[import-untyped]
     from transformers import Speech2TextForConditionalGeneration, Speech2TextProcessor
 
     model = _lookup_model(model_id, Speech2TextForConditionalGeneration.from_pretrained, device=device)
