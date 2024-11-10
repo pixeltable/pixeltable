@@ -426,12 +426,10 @@ def speech2text_for_conditional_generation(
     env.Env.get().require_package('torchaudio')
     env.Env.get().require_package('sentencepiece')
     device = resolve_torch_device('auto', allow_mps=False)  # Doesn't seem to work on 'mps'; use 'cpu' instead
-    import librosa
     import torch
+    import torchaudio
     from transformers import Speech2TextForConditionalGeneration, Speech2TextProcessor
 
-    # facebook/s2t-small-librispeech-asr
-    # facebook/s2t-small-mustc-en-fr-st
     model = _lookup_model(model_id, Speech2TextForConditionalGeneration.from_pretrained, device=device)
     processor = _lookup_processor(model_id, Speech2TextProcessor.from_pretrained)
     assert isinstance(processor, Speech2TextProcessor)
@@ -445,12 +443,21 @@ def speech2text_for_conditional_generation(
 
     # Get the model's sampling rate. Default to 16 kHz (the standard) if not in config
     model_sampling_rate = getattr(model.config, 'sampling_rate', 16_000)
-    waveform, sampling_rate = librosa.load(audio, sr=model_sampling_rate, mono=True)
+
+    waveform, sampling_rate = torchaudio.load(audio)
+    if sampling_rate != model_sampling_rate:
+        waveform = torchaudio.transforms.Resample(sampling_rate, model_sampling_rate)(waveform)
+
+    # Convert to mono by averaging the channels (this will be a no-op if it's already in mono)
+    waveform = torch.mean(waveform, dim=0).unsqueeze(0)
+
+    # We now have a 2D tensor with shape (1, num_samples). Convert to a 1D tensor with shape (num_samples,).
+    waveform = waveform[0]
 
     with torch.no_grad():
         inputs = processor(
             waveform,
-            sampling_rate=sampling_rate,
+            sampling_rate=model_sampling_rate,
             return_tensors='pt'
         )
         generated_ids = model.generate(**inputs.to(device), forced_bos_token_id=forced_bos_token_id).to('cpu')
