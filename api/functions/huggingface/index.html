@@ -930,6 +930,15 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#pixeltable.functions.huggingface.speech2text_for_conditional_generation" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;speech2text_for_conditional_generation
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#pixeltable.functions.huggingface.vit_for_image_classification" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;vit_for_image_classification
@@ -1279,6 +1288,15 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#pixeltable.functions.huggingface.speech2text_for_conditional_generation" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;speech2text_for_conditional_generation
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#pixeltable.functions.huggingface.vit_for_image_classification" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;vit_for_image_classification
@@ -1362,7 +1380,7 @@ UDFs).</p>
 <a href="https://huggingface.co/docs/transformers/model_doc/clip">CLIP Model</a>.</p>
 <p><strong>Requirements:</strong></p>
 <ul>
-<li><code>pip install transformers</code></li>
+<li><code>pip install torch transformers</code></li>
 </ul>
 
 
@@ -1426,7 +1444,7 @@ Pixeltable column <code>image</code> of the table <code>tbl</code>:</p>
 <a href="https://huggingface.co/docs/transformers/model_doc/clip">CLIP Model</a>.</p>
 <p><strong>Requirements:</strong></p>
 <ul>
-<li><code>pip install transformers</code></li>
+<li><code>pip install torch transformers</code></li>
 </ul>
 
 
@@ -1494,7 +1512,7 @@ Pixeltable column <code>tbl.text</code> of the table <code>tbl</code>:</p>
 documentation.</p>
 <p><strong>Requirements:</strong></p>
 <ul>
-<li><code>pip install sentence-transformers</code></li>
+<li><code>pip install torch sentence-transformers</code></li>
 </ul>
 
 
@@ -1560,7 +1578,11 @@ columns <code>tbl.sentence1</code> and <code>tbl.sentence2</code>:</p>
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">detr_for_object_detection</span><span class="p">(</span>
-    <span class="n">image</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model_id</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">threshold</span><span class="p">:</span> <span class="n">Float</span> <span class="o">=</span> <span class="mf">0.5</span>
+    <span class="n">image</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">model_id</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
+    <span class="n">threshold</span><span class="p">:</span> <span class="n">Float</span> <span class="o">=</span> <span class="mf">0.5</span><span class="p">,</span>
+    <span class="n">revision</span><span class="p">:</span> <span class="n">String</span> <span class="o">=</span> <span class="s2">&quot;no_timm&quot;</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
 </code></pre></div>
 
@@ -1570,7 +1592,7 @@ columns <code>tbl.sentence1</code> and <code>tbl.sentence2</code>:</p>
 <a href="https://huggingface.co/docs/transformers/model_doc/detr">DETR Model</a>.</p>
 <p><strong>Requirements:</strong></p>
 <ul>
-<li><code>pip install transformers</code></li>
+<li><code>pip install torch transformers</code></li>
 </ul>
 
 
@@ -1708,7 +1730,7 @@ in the <a href="https://sbert.net/docs/sentence_transformer/pretrained_models.ht
 documentation.</p>
 <p><strong>Requirements:</strong></p>
 <ul>
-<li><code>pip install sentence-transformers</code></li>
+<li><code>pip install torch sentence-transformers</code></li>
 </ul>
 
 
@@ -1770,6 +1792,95 @@ of the table <code>tbl</code>:</p>
 <div class="doc doc-object doc-function">
 
 
+<h3 id="pixeltable.functions.huggingface.speech2text_for_conditional_generation" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">speech2text_for_conditional_generation</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">speech2text_for_conditional_generation</span><span class="p">(</span>
+    <span class="n">audio</span><span class="p">:</span> <span class="n">Audio</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model_id</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">language</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">String</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Transcribes or translates speech to text using a Speech2Text model. <code>model_id</code> should be a reference to a
+pretrained <a href="https://huggingface.co/docs/transformers/en/model_doc/speech_to_text">Speech2Text</a> model.</p>
+<p><strong>Requirements:</strong></p>
+<ul>
+<li><code>pip install torch torchaudio sentencepiece transformers</code></li>
+</ul>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>audio</code></b>
+              (<code>Audio</code>)
+          –
+          <div class="doc-md-description">
+            <p>The audio clip to transcribe or translate.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>model_id</code></b>
+              (<code>String</code>)
+          –
+          <div class="doc-md-description">
+            <p>The pretrained model to use for the transcription or translation.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>language</code></b>
+              (<code>Optional[String]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>If using a multilingual translation model, the language code to translate to. If not provided,
+the model's default language will be used. If the model is not translation model, is not a
+multilingual model, or does not support the specified language, an error will be raised.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code>String</code>
+          –
+          <div class="doc-md-description">
+            <p>The transcribed or translated text.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <p>Add a computed column that applies the model <code>facebook/s2t-small-librispeech-asr</code> to an existing
+Pixeltable column <code>audio</code> of the table <code>tbl</code>:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="p">[</span><span class="s1">&#39;transcription&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">speech2text_for_conditional_generation</span><span class="p">(</span>
+<span class="gp">... </span>    <span class="n">tbl</span><span class="o">.</span><span class="n">audio</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">model_id</span><span class="o">=</span><span class="s1">&#39;facebook/s2t-small-librispeech-asr&#39;</span>
+<span class="gp">... </span><span class="p">)</span>
+</code></pre></div>
+    <p>Add a computed column that applies the model <code>facebook/s2t-medium-mustc-multilingual-st</code> to an existing
+Pixeltable column <code>audio</code> of the table <code>tbl</code>, translating the audio to French:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="p">[</span><span class="s1">&#39;translation&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">speech2text_for_conditional_generation</span><span class="p">(</span>
+<span class="gp">... </span>    <span class="n">tbl</span><span class="o">.</span><span class="n">audio</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">model_id</span><span class="o">=</span><span class="s1">&#39;facebook/s2t-medium-mustc-multilingual-st&#39;</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="n">language</span><span class="o">=</span><span class="s1">&#39;fr&#39;</span>
+<span class="gp">... </span><span class="p">)</span>
+</code></pre></div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
 <h3 id="pixeltable.functions.huggingface.vit_for_image_classification" class="doc doc-heading">
 <code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">vit_for_image_classification</span>
 
@@ -1791,7 +1902,7 @@ class), such as <code>google/vit-base-patch16-224</code>. General feature-extrac
 <code>google/vit-base-patch16-224-in21k</code> will not produce the desired results.</p>
 <p><strong>Requirements:</strong></p>
 <ul>
-<li><code>pip install transformers</code></li>
+<li><code>pip install torch transformers</code></li>
 </ul>
 
 

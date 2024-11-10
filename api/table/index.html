@@ -532,9 +532,36 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#pixeltable.Table.columns" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;columns
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#pixeltable.Table.add_column" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;add_column
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.add_columns" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;add_columns
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.add_computed_column" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;add_computed_column
     </span>
   </a>
   
@@ -1429,9 +1456,36 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#pixeltable.Table.columns" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-attribute"></code>&nbsp;columns
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#pixeltable.Table.add_column" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;add_column
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.add_columns" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;add_columns
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.add_computed_column" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;add_computed_column
     </span>
   </a>
   
@@ -1701,8 +1755,8 @@
 <p>Instances of class <code>Table</code> are handles to Pixeltable tables and views/snapshots.</p>
 <p>Use this handle to query and update the table and to add and drop columns.</p>
 <p>Tables are created by calling <a class="autorefs autorefs-internal" href="../pixeltable/#pixeltable.create_table"><code>pxt.create_table</code></a>.
-Views and snapshots are created by calling <a class="autorefs autorefs-internal" href="../pixeltable/#pixeltable.create_view"><code>pxt.create_view</code></a>
-(snapshots require <code>is_snapshot=True</code>).</p>
+Views are created by calling <a class="autorefs autorefs-internal" href="../pixeltable/#pixeltable.create_view"><code>pxt.create_view</code></a>, and snapshots by calling
+<a class="autorefs autorefs-internal" href="../pixeltable/#pixeltable.create_snapshot"><code>pxt.create_snapshot</code></a>.</p>
 <p>To get a handle to an existing table/view/snapshot, call <a class="autorefs autorefs-internal" href="../pixeltable/#pixeltable.get_table"><code>pxt.get_table</code></a>.</p>
 <h2 id="overview">Overview</h2>
 <table>
@@ -1816,6 +1870,29 @@ Views and snapshots are created by calling <a class="autorefs autorefs-internal"
 
 
 
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="pixeltable.Table.columns" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-attribute"></code>            <span class="doc doc-object-name doc-attribute-name">columns</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">columns</span><span class="p">:</span> <span class="n">list</span><span class="p">[</span><span class="n">str</span><span class="p">]</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return the names of the columns in this table.</p>
+    </div>
+
+</div>
+
 
 
 <div class="doc doc-object doc-function">
@@ -1828,11 +1905,10 @@ Views and snapshots are created by calling <a class="autorefs autorefs-internal"
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">add_column</span><span class="p">(</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="nb">type</span><span class="p">:</span> <span class="n"><span title="typing.Union">Union</span></span><span class="p">[</span><span class="n"><span title="pixeltable.type_system.ColumnType">ColumnType</span></span><span class="p">,</span> <span class="n"><span title="builtins.type">type</span></span><span class="p">,</span> <span class="n"><span title="typing._GenericAlias">_GenericAlias</span></span><span class="p">,</span> <span class="kc">None</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">stored</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">bool</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">print_stats</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
     <span class="n">on_error</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;abort&quot;</span><span class="p">,</span> <span class="s2">&quot;ignore&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;abort&quot;</span><span class="p">,</span>
-    <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n"><span title="typing.Union">Union</span></span><span class="p">[</span><span class="n"><span title="pixeltable.type_system.ColumnType">ColumnType</span></span><span class="p">,</span> <span class="n"><span title="builtins.type">type</span></span><span class="p">,</span> <span class="n"><span title="typing._GenericAlias">_GenericAlias</span></span><span class="p">,</span> <span class="n"><span title="pixeltable.exprs.Expr">Expr</span></span><span class="p">,</span> <span class="n"><span title="typing.Callable">Callable</span></span><span class="p">]</span>
+    <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n"><span title="typing.Union">Union</span></span><span class="p">[</span><span class="n"><span title="pixeltable.type_system.ColumnType">ColumnType</span></span><span class="p">,</span> <span class="n"><span title="builtins.type">type</span></span><span class="p">,</span> <span class="n"><span title="typing._GenericAlias">_GenericAlias</span></span><span class="p">,</span> <span class="n"><span title="pixeltable.exprs.Expr">Expr</span></span><span class="p">]</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.globals.UpdateStatus" href="../update-status/#pixeltable.UpdateStatus">UpdateStatus</a></span>
 </code></pre></div>
 
@@ -1845,22 +1921,12 @@ Views and snapshots are created by calling <a class="autorefs autorefs-internal"
     <ul>
         <li class="doc-section-item field-body">
           <b><code>kwargs</code></b>
-              (<code><span title="typing.Union">Union</span>[<span title="pixeltable.type_system.ColumnType">ColumnType</span>, <span title="builtins.type">type</span>, <span title="typing._GenericAlias">_GenericAlias</span>, <span title="pixeltable.exprs.Expr">Expr</span>, <span title="typing.Callable">Callable</span>]</code>, default:
+              (<code><span title="typing.Union">Union</span>[<span title="pixeltable.type_system.ColumnType">ColumnType</span>, <span title="builtins.type">type</span>, <span title="typing._GenericAlias">_GenericAlias</span>, <span title="pixeltable.exprs.Expr">Expr</span>]</code>, default:
                   <code>{}</code>
 )
           –
           <div class="doc-md-description">
-            <p>Exactly one keyword argument of the form <code>column_name=type</code> or <code>column_name=expression</code>.</p>
-          </div>
-        </li>
-        <li class="doc-section-item field-body">
-          <b><code>type</code></b>
-              (<code><span title="typing.Union">Union</span>[<span title="pixeltable.type_system.ColumnType">ColumnType</span>, <span title="builtins.type">type</span>, <span title="typing._GenericAlias">_GenericAlias</span>, None]</code>, default:
-                  <code>None</code>
-)
-          –
-          <div class="doc-md-description">
-            <p>The type of the column. Only valid and required if <code>value-expression</code> is a Callable.</p>
+            <p>Exactly one keyword argument of the form <code>col_name=col_type</code>.</p>
           </div>
         </li>
         <li class="doc-section-item field-body">
@@ -1893,8 +1959,8 @@ Views and snapshots are created by calling <a class="autorefs autorefs-internal"
             <p>Determines the behavior if an error occurs while evaluating the column expression for at least one
 row.</p>
 <ul>
-<li>If <code>on_error='abort'</code>, then an exception will be raised and the column will not be added.</li>
-<li>If <code>on_error='ignore'</code>, then execution will continue and the column will be added. Any rows
+<li><code>'abort'</code>: an exception will be raised and the column will not be added.</li>
+<li><code>'ignore'</code>: execution will continue and the column will be added. Any rows
   with errors will have a <code>None</code> value for the column, with information about the error stored in the
   corresponding <code>tbl.col_name.errortype</code> and <code>tbl.col_name.errormsg</code> fields.</li>
 </ul>
@@ -1934,21 +2000,151 @@ row.</p>
     <p>Alternatively, this can also be expressed as:</p>
     <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="p">[</span><span class="s1">&#39;new_col&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">pxt</span><span class="o">.</span><span class="n">Int</span>
 </code></pre></div>
-    <p>For a table with int column <code>int_col</code>, add a column that is the factorial of <code>int_col</code>. The names of
-the parameters of the Callable must correspond to existing column names (the column values are then passed
-as arguments to the Callable). In this case, the column type needs to be specified explicitly:</p>
-    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span><span class="n">factorial</span><span class="o">=</span><span class="k">lambda</span> <span class="n">int_col</span><span class="p">:</span> <span class="n">math</span><span class="o">.</span><span class="n">factorial</span><span class="p">(</span><span class="n">int_col</span><span class="p">),</span> <span class="nb">type</span><span class="o">=</span><span class="n">pxt</span><span class="o">.</span><span class="n">Int</span><span class="p">)</span>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.Table.add_columns" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">add_columns</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">add_columns</span><span class="p">(</span>
+    <span class="n">schema</span><span class="p">:</span> <span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Union">Union</span></span><span class="p">[</span><span class="n"><span title="pixeltable.type_system.ColumnType">ColumnType</span></span><span class="p">,</span> <span class="n"><span title="builtins.type">type</span></span><span class="p">,</span> <span class="n"><span title="typing._GenericAlias">_GenericAlias</span></span><span class="p">]]</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.globals.UpdateStatus" href="../update-status/#pixeltable.UpdateStatus">UpdateStatus</a></span>
 </code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Adds multiple columns to the table. The columns must be concrete (non-computed) columns; to add computed columns,
+use <a class="autorefs autorefs-internal" href="#pixeltable.Table.add_computed_column"><code>add_computed_column()</code></a> instead.</p>
+<p>The format of the <code>schema</code> argument is identical to the format of the schema in a call to
+<a class="autorefs autorefs-internal" href="../pixeltable/#pixeltable.create_table"><code>create_table()</code></a>.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>schema</code></b>
+              (<code>dict[str, <span title="typing.Union">Union</span>[<span title="pixeltable.type_system.ColumnType">ColumnType</span>, <span title="builtins.type">type</span>, <span title="typing._GenericAlias">_GenericAlias</span>]]</code>)
+          –
+          <div class="doc-md-description">
+            <p>A dictionary mapping column names to types.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><a class="autorefs autorefs-internal" title="pixeltable.catalog.globals.UpdateStatus" href="../update-status/#pixeltable.UpdateStatus">UpdateStatus</a></code>
+          –
+          <div class="doc-md-description">
+            <p>Information about the execution status of the operation.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Raises:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><span title="pixeltable.exceptions.Error">Error</span></code>
+            –
+          <div class="doc-md-description">
+            <p>If any column name is invalid or already exists.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <p>Add multiple columns to the table <code>my_table</code>:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span> <span class="o">=</span> <span class="n">pxt</span><span class="o">.</span><span class="n">get_table</span><span class="p">(</span><span class="s1">&#39;my_table&#39;</span><span class="p">)</span>
+<span class="gp">... </span><span class="n">schema</span> <span class="o">=</span> <span class="p">{</span>
+<span class="gp">... </span>    <span class="s1">&#39;new_col_1&#39;</span><span class="p">:</span> <span class="n">pxt</span><span class="o">.</span><span class="n">Int</span><span class="p">,</span>
+<span class="gp">... </span>    <span class="s1">&#39;new_col_2&#39;</span><span class="p">:</span> <span class="n">pxt</span><span class="o">.</span><span class="n">String</span><span class="p">,</span>
+<span class="gp">... </span><span class="p">}</span>
+<span class="gp">... </span><span class="n">tbl</span><span class="o">.</span><span class="n">add_columns</span><span class="p">(</span><span class="n">schema</span><span class="p">)</span>
+</code></pre></div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.Table.add_computed_column" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">add_computed_column</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">add_computed_column</span><span class="p">(</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">stored</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">bool</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">print_stats</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="n">on_error</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;abort&quot;</span><span class="p">,</span> <span class="s2">&quot;ignore&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;abort&quot;</span><span class="p">,</span>
+    <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n"><span title="pixeltable.exprs.Expr">Expr</span></span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.globals.UpdateStatus" href="../update-status/#pixeltable.UpdateStatus">UpdateStatus</a></span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Adds a computed column to the table.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>kwargs</code></b>
+              (<code><span title="pixeltable.exprs.Expr">Expr</span></code>, default:
+                  <code>{}</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Exactly one keyword argument of the form <code>col_name=expression</code>.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><a class="autorefs autorefs-internal" title="pixeltable.catalog.globals.UpdateStatus" href="../update-status/#pixeltable.UpdateStatus">UpdateStatus</a></code>
+          –
+          <div class="doc-md-description">
+            <p>Information about the execution status of the operation.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Raises:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><span title="pixeltable.exceptions.Error">Error</span></code>
+            –
+          <div class="doc-md-description">
+            <p>If the column name is invalid or already exists.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
     <p>For a table with an image column <code>frame</code>, add an image column <code>rotated</code> that rotates the image by
-90 degrees. In this case, the column type is inferred from the expression. Also, the column is not stored
-(by default, computed image columns are not stored but recomputed on demand):</p>
-    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span><span class="n">rotated</span><span class="o">=</span><span class="n">tbl</span><span class="o">.</span><span class="n">frame</span><span class="o">.</span><span class="n">rotate</span><span class="p">(</span><span class="mi">90</span><span class="p">))</span>
-</code></pre></div>
-    <p>Alternatively, this can also be expressed as:</p>
-    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="p">[</span><span class="s1">&#39;rotated&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">tbl</span><span class="o">.</span><span class="n">frame</span><span class="o">.</span><span class="n">rotate</span><span class="p">(</span><span class="mi">90</span><span class="p">)</span>
+90 degrees:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">add_computed_column</span><span class="p">(</span><span class="n">rotated</span><span class="o">=</span><span class="n">tbl</span><span class="o">.</span><span class="n">frame</span><span class="o">.</span><span class="n">rotate</span><span class="p">(</span><span class="mi">90</span><span class="p">))</span>
 </code></pre></div>
     <p>Do the same, but now the column is unstored:</p>
-    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span><span class="n">rotated</span><span class="o">=</span><span class="n">tbl</span><span class="o">.</span><span class="n">frame</span><span class="o">.</span><span class="n">rotate</span><span class="p">(</span><span class="mi">90</span><span class="p">),</span> <span class="n">stored</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">add_computed_column</span><span class="p">(</span><span class="n">rotated</span><span class="o">=</span><span class="n">tbl</span><span class="o">.</span><span class="n">frame</span><span class="o">.</span><span class="n">rotate</span><span class="p">(</span><span class="mi">90</span><span class="p">),</span> <span class="n">stored</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
 </code></pre></div>
 
     </div>
@@ -2549,7 +2745,7 @@ indices or multiple indices.</p>
     <span class="o">/</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">print_stats</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
-    <span class="n">fail_on_exception</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="n">on_error</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;abort&quot;</span><span class="p">,</span> <span class="s2">&quot;ignore&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;abort&quot;</span><span class="p">,</span>
     <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.globals.UpdateStatus" href="../update-status/#pixeltable.UpdateStatus">UpdateStatus</a></span>
 </code></pre></div>
@@ -2557,10 +2753,23 @@ indices or multiple indices.</p>
     <div class="doc doc-contents ">
 
       <p>Inserts rows into this table. There are two mutually exclusive call patterns:</p>
-<p>To insert multiple rows at a time:
-<code>insert(rows: Iterable[dict[str, Any]], /, *, print_stats: bool = False, fail_on_exception: bool = True)</code></p>
-<p>To insert just a single row, you can use the more concise syntax:
-<code>insert(*, print_stats: bool = False, fail_on_exception: bool = True, **kwargs: Any)</code></p>
+<p>To insert multiple rows at a time:</p>
+<p><code>python
+insert(
+    rows: Iterable[dict[str, Any]],
+    /,
+    *,
+    print_stats: bool = False,
+    on_error: Literal['abort', 'ignore'] = 'abort'
+)</code></p>
+<p>To insert just a single row, you can use the more concise syntax:</p>
+<p><code>python
+insert(
+    *,
+    print_stats: bool = False,
+    on_error: Literal['abort', 'ignore'] = 'abort',
+    **kwargs: Any
+)</code></p>
 
 
 <p><span class="doc-section-title">Parameters:</span></p>
@@ -2597,17 +2806,20 @@ names to values.</p>
           </div>
         </li>
         <li class="doc-section-item field-body">
-          <b><code>fail_on_exception</code></b>
-              (<code>bool</code>, default:
-                  <code>True</code>
+          <b><code>on_error</code></b>
+              (<code><span title="typing.Literal">Literal</span>[&#39;abort&#39;, &#39;ignore&#39;]</code>, default:
+                  <code>&#39;abort&#39;</code>
 )
           –
           <div class="doc-md-description">
-            <p>Determines how exceptions in computed columns and invalid media files (e.g., corrupt images)
-are handled.
-If <code>False</code>, store error information (accessible as column properties 'errortype' and 'errormsg')
-for those cases, but continue inserting rows.
-If <code>True</code>, raise an exception that aborts the insert.</p>
+            <p>Determines the behavior if an error occurs while evaluating a computed column or detecting an
+invalid media file (such as a corrupt image) for one of the inserted rows.</p>
+<ul>
+<li>If <code>on_error='abort'</code>, then an exception will be raised and the rows will not be inserted.</li>
+<li>If <code>on_error='ignore'</code>, then execution will continue and the rows will be inserted. Any cells
+  with errors will have a <code>None</code> value for that cell, with information about the error stored in the
+  corresponding <code>tbl.col_name.errortype</code> and <code>tbl.col_name.errormsg</code> fields.</li>
+</ul>
           </div>
         </li>
     </ul>
@@ -2636,7 +2848,7 @@ If <code>True</code>, raise an exception that aborts the insert.</p>
 <li>The table is a view or snapshot.</li>
 <li>The table has been dropped.</li>
 <li>One of the rows being inserted does not conform to the table schema.</li>
-<li>An error occurs during processing of computed columns, and <code>fail_on_exception=True</code>.</li>
+<li>An error occurs during processing of computed columns, and <code>on_error='ignore'</code>.</li>
 </ul>
           </div>
         </li>
