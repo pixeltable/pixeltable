@@ -32,7 +32,7 @@ class JsonPath(Expr):
         """
         if path_elements is None:
             path_elements = []
-        super().__init__(ts.JsonType())
+        super().__init__(ts.JsonType(nullable=True))  # JsonPath expressions are always nullable
         if anchor is not None:
             self.components = [anchor]
         self.path_elements: list[Union[str, int, slice]] = path_elements

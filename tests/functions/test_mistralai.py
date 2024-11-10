@@ -46,7 +46,6 @@ class TestMistral:
             temperature=0.8,
             top_p=0.95,
             max_tokens=300,
-            min_tokens=100,
             stop=['def'],
             random_seed=4171780,
             suffix=t.suffix

@@ -315,7 +315,7 @@ class TestDataFrame:
         assert 'Cannot delete from view' in str(exc_info.value)
 
         # update snapshot
-        snap = pxt.create_view('test_snapshot', t, is_snapshot=True)
+        snap = pxt.create_snapshot('test_snapshot', t)
         with pytest.raises(excs.Error) as exc_info:
             snap.where(t.c2 < 10).update({'c3': 0.0})
         assert 'Cannot update a snapshot' in str(exc_info.value)

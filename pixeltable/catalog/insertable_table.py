@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Iterable, Optional, overload
+from typing import Any, Iterable, Literal, Optional, overload
 from uuid import UUID
 
 import sqlalchemy.orm as orm
@@ -13,7 +13,7 @@ from pixeltable.env import Env
 from pixeltable.utils.filecache import FileCache
 
 from .catalog import Catalog
-from .globals import UpdateStatus, MediaValidation
+from .globals import MediaValidation, UpdateStatus
 from .table import Table
 from .table_version import TableVersion
 from .table_version_path import TableVersionPath
@@ -79,15 +79,31 @@ class InsertableTable(Table):
 
     @overload
     def insert(
-            self, rows: Iterable[dict[str, Any]], /, *, print_stats: bool = False, fail_on_exception: bool = True
+        self,
+        rows: Iterable[dict[str, Any]],
+        /,
+        *,
+        print_stats: bool = False,
+        on_error: Literal['abort', 'ignore'] = 'abort'
     ) -> UpdateStatus: ...
 
     @overload
-    def insert(self, *, print_stats: bool = False, fail_on_exception: bool = True, **kwargs: Any) -> UpdateStatus: ...
+    def insert(
+        self,
+        *,
+        print_stats: bool = False,
+        on_error: Literal['abort', 'ignore'] = 'abort',
+        **kwargs: Any
+    ) -> UpdateStatus: ...
 
     def insert(  # type: ignore[misc]
-            self, rows: Optional[Iterable[dict[str, Any]]] = None, /, *, print_stats: bool = False,
-            fail_on_exception: bool = True, **kwargs: Any
+        self,
+        rows: Optional[Iterable[dict[str, Any]]] = None,
+        /,
+        *,
+        print_stats: bool = False,
+        on_error: Literal['abort', 'ignore'] = 'abort',
+        **kwargs: Any
     ) -> UpdateStatus:
         if rows is None:
             rows = [kwargs]
@@ -95,6 +111,8 @@ class InsertableTable(Table):
             rows = list(rows)
             if len(kwargs) > 0:
                 raise excs.Error('`kwargs` cannot be specified unless `rows is None`.')
+
+        fail_on_exception = on_error == 'abort'
 
         if not isinstance(rows, list):
             raise excs.Error('rows must be a list of dictionaries')

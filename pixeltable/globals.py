@@ -123,7 +123,8 @@ def create_view(
         additional_columns: If specified, will add these columns to the view once it is created. The format
             of the `additional_columns` parameter is identical to the format of the `schema_or_df` parameter in
             [`create_table`][pixeltable.create_table].
-        is_snapshot: Whether the view is a snapshot.
+        is_snapshot: Whether the view is a snapshot. Setting this to `True` is equivalent to calling
+            [`create_snapshot`][pixeltable.create_snapshot].
         iterator: The iterator to use for this view. If specified, then this view will be a one-to-many view of
             the base table.
         num_retained_versions: Number of versions of the view to retain.
@@ -142,11 +143,6 @@ def create_view(
 
         >>> tbl = pxt.get_table('my_table')
         ... view = pxt.create_view('my_view', tbl.where(tbl.col1 > 10))
-
-        Create a snapshot of `my_table`:
-
-        >>> tbl = pxt.get_table('my_table')
-        ... snapshot_view = pxt.create_view('my_snapshot_view', tbl, is_snapshot=True)
     """
     where: Optional[exprs.Expr] = None
     if isinstance(base, catalog.Table):
@@ -184,6 +180,59 @@ def create_view(
     _logger.info(f'Created view `{path_str}`.')
     FileCache.get().emit_eviction_warnings()
     return view
+
+
+def create_snapshot(
+    path_str: str,
+    base: Union[catalog.Table, DataFrame],
+    *,
+    additional_columns: Optional[dict[str, Any]] = None,
+    iterator: Optional[tuple[type[ComponentIterator], dict[str, Any]]] = None,
+    num_retained_versions: int = 10,
+    comment: str = '',
+    media_validation: Literal['on_read', 'on_write'] = 'on_write',
+    ignore_errors: bool = False,
+) -> Optional[catalog.Table]:
+    """Create a snapshot of an existing table object (which itself can be a view or a snapshot or a base table).
+
+    Args:
+        path_str: A name for the snapshot; can be either a simple name such as `my_snapshot`, or a pathname such as
+            `dir1.my_snapshot`.
+        base: [`Table`][pixeltable.Table] (i.e., table or view or snapshot) or [`DataFrame`][pixeltable.DataFrame] to
+            base the snapshot on.
+        additional_columns: If specified, will add these columns to the snapshot once it is created. The format
+            of the `additional_columns` parameter is identical to the format of the `schema_or_df` parameter in
+            [`create_table`][pixeltable.create_table].
+        iterator: The iterator to use for this snapshot. If specified, then this snapshot will be a one-to-many view of
+            the base table.
+        num_retained_versions: Number of versions of the view to retain.
+        comment: Optional comment for the view.
+        ignore_errors: if True, fail silently if the path already exists or is invalid.
+
+    Returns:
+        A handle to the [`Table`][pixeltable.Table] representing the newly created snapshot. If the path already
+            exists or is invalid and `ignore_errors=True`, returns `None`.
+
+    Raises:
+        Error: if the path already exists or is invalid and `ignore_errors=False`.
+
+    Examples:
+        Create a snapshot of `my_table`:
+
+        >>> tbl = pxt.get_table('my_table')
+        ... snapshot = pxt.create_snapshot('my_snapshot', tbl)
+    """
+    return create_view(
+        path_str,
+        base,
+        additional_columns=additional_columns,
+        iterator=iterator,
+        is_snapshot=True,
+        num_retained_versions=num_retained_versions,
+        comment=comment,
+        media_validation=media_validation,
+        ignore_errors=ignore_errors,
+    )
 
 
 def get_table(path: str) -> catalog.Table:

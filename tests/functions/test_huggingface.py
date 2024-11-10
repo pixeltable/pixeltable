@@ -4,7 +4,7 @@ import pytest
 
 import pixeltable as pxt
 
-from ..utils import (SAMPLE_IMAGE_URL, get_image_files, get_sentences, reload_catalog, skip_test_if_not_installed,
+from ..utils import (SAMPLE_IMAGE_URL, get_audio_files, get_image_files, get_sentences, reload_catalog, skip_test_if_not_installed,
                      validate_update_status)
 
 
@@ -171,3 +171,20 @@ class TestHuggingface:
         result = t.select(t.img_class).collect()[0]['img_class']
         assert result['labels'] == [962, 935, 937]
         assert result['label_text'] == ['meat loaf, meatloaf', 'mashed potato', 'broccoli']
+
+    def test_speech2text_for_conditional_generation(self, reset_db) -> None:
+        skip_test_if_not_installed('transformers')
+        from pixeltable.functions.huggingface import speech2text_for_conditional_generation
+
+        t = pxt.create_table('test_tbl', {'audio': pxt.Audio})
+        audio_file = next(
+            file for file in get_audio_files() if file.endswith('jfk_1961_0109_cityuponahill-excerpt.flac')
+        )
+        t['transcription'] = speech2text_for_conditional_generation(t.audio, model_id='facebook/s2t-small-librispeech-asr')
+        t['translation'] = speech2text_for_conditional_generation(
+            t.audio, model_id='facebook/s2t-medium-mustc-multilingual-st', language='fr')
+
+        validate_update_status(t.insert(audio=audio_file), expected_rows=1)
+        result = t.collect()
+        assert 'administration' in result['transcription'][0]
+        assert 'construire' in result['translation'][0]

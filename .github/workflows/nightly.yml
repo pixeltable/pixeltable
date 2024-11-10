@@ -26,7 +26,7 @@ jobs:
         python-version: ["3.9", "3.12"]
         package-configs:
           - ""
-          - "torch torchvision transformers sentence-transformers pyarrow"
+          - "torch torchvision torchaudio transformers sentence-transformers sentencepiece pyarrow"
           - "openai together fireworks-ai anthropic mistralai"
           - "datasets boto3 openpyxl tiktoken pymupdf mistune 'spacy<3.8'"  # spacy 3.8 is problematic on python 3.12
           - "label_studio_sdk"
