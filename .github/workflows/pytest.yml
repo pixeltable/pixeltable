@@ -119,8 +119,9 @@ jobs:
         if: ${{ matrix.poetry-options != '' && matrix.os == 'ubuntu-22.04' }}
         run: |
           curl -fsSL https://ollama.com/install.sh | sh
-          sleep 10
-          ollama pull 'qwen2.5:0.5b'  # Pull this now so we fail-fast if there's a connection issue
+          sleep 10  # Wait for the ollama server to start
+          # Pull the model used for testing now, with retries, to safeguard against connection issues
+          ./scripts/retry.sh 3 30 ollama pull 'qwen2.5:0.5b'
       - name: Install poetry
         # setuptools >= 69.2 has been causing problems with github actions even when its
         # version is enforced in poetry. For now, explicitly revert to setuptools 69.1.1
