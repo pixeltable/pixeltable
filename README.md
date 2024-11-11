@@ -3,7 +3,7 @@
      alt="Pixeltable" width="50%" />
 <br></br>
 
-<h2>AI Data Insfrastructure — Declarative, Multimodal, and Incremental</h2>
+<h2>AI Data Infrastructure — Declarative, Multimodal, and Incremental</h2>
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-0530AD.svg)](https://opensource.org/licenses/Apache-2.0)
 ![PyPI - Python Version](https://img.shields.io/pypi/pyversions/pixeltable?logo=python&logoColor=white&)
