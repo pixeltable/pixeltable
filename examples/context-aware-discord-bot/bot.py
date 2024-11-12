@@ -266,9 +266,9 @@ class PixelTableBot:
 
 def main():
     load_dotenv()
-    token = os.getenv('DISCORD_TOKEN')
+    token = os.getenv('DISCORD_TOKEN', 'OPENAI_API_KEY')
     if not token:
-        raise ValueError("Missing DISCORD_TOKEN in environment")
+        raise ValueError("Missing key in environment")
 
     try:
         bot = PixelTableBot()
