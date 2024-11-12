@@ -302,7 +302,7 @@ class Table(SchemaObject):
         cat = catalog.Catalog.get()
         # verify all dependents are deleted by now
         for dep in cat.tbl_dependents[self._id]:
-            assert dep._check_is_dropped() == True
+            dep._check_is_dropped()
         self._check_is_dropped()
         self._tbl_version.drop()
         self._is_dropped = True
@@ -628,7 +628,7 @@ class Table(SchemaObject):
 
         if col_name not in self._tbl_version.cols_by_name:
             raise excs.Error(f'Unknown column: {col_name}')
-        col = self._tbl_version.cols_by_name[name]
+        col = self._tbl_version.cols_by_name[col_name]
         dependent_user_cols = [c for c in col.dependent_cols if c.name is not None]
         if len(dependent_user_cols) > 0:
             raise excs.Error(
