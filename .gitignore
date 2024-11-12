@@ -4,6 +4,7 @@
 .make-install
 .mypy_cache
 .venv
+.vscode
 **/__pycache__
 *.iml
 dist
