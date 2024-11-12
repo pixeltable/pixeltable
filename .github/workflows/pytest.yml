@@ -142,7 +142,7 @@ jobs:
           key: venv-${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.poetry-options }}-${{
             hashFiles('.github/workflows/pytest.yml', 'poetry.lock', 'poetry.toml', 'pyproject.toml', 'Makefile') }}
       - name: Install the project dependencies
-        # Retry 3 times to be resilient against transitient connectivity issues.
+        # Retry 3 times to be resilient against transient connectivity issues.
         run: ./scripts/retry.sh 3 60 poetry install ${{ matrix.poetry-options }}
       - name: Install yolox
         # Yolox cannot be installed with poetry and only seems to work with python <= 3.10 and not on ubuntu-arm64
