@@ -602,7 +602,7 @@ class Table(SchemaObject):
             cls._verify_column(col, column_names)
             column_names.add(col.name)
 
-    def drop_column(self, name: str) -> None:
+    def drop_column(self, name: Union[str, Column]) -> None:
         """Drop a column from the table.
 
         Args:
@@ -616,13 +616,18 @@ class Table(SchemaObject):
 
             >>> tbl = pxt.get_table('my_table')
             ... tbl.drop_column('col')
+            OR
+            ... tbl.drop_column(col)
         """
         self._check_is_dropped()
+        if isinstance(name, str):
+            col_name = name
+        else:
+            col_name = name.name
 
-        if name not in self._tbl_version.cols_by_name:
-            raise excs.Error(f'Unknown column: {name}')
+        if col_name not in self._tbl_version.cols_by_name:
+            raise excs.Error(f'Unknown column: {col_name}')
         col = self._tbl_version.cols_by_name[name]
-
         dependent_user_cols = [c for c in col.dependent_cols if c.name is not None]
         if len(dependent_user_cols) > 0:
             raise excs.Error(

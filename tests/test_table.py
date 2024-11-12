@@ -431,6 +431,44 @@ class TestTable:
         pxt.drop_table('test_tbl', force=True)  # Drops everything else
         assert len(pxt.list_tables()) == 0
 
+    def test_drop_table_force_via_handle(self, test_tbl: pxt.Table) -> None:
+        t = pxt.get_table('test_tbl')
+        v1 = pxt.create_view('v1', t)
+        v2 = pxt.create_view('v2', t)
+        v3 = pxt.create_view('v3', v1)
+        v4 = pxt.create_view('v4', v2)
+        v5 = pxt.create_view('v5', t)
+        assert len(pxt.list_tables()) == 6
+        pxt.drop_table(v2, force=True)  # Drops v2 and v4, but not the others
+        assert len(pxt.list_tables()) == 4
+        assert 'v2' not in pxt.list_tables()
+        assert 'v4' not in pxt.list_tables()
+        pxt.drop_table('test_tbl', force=True)  # Drops everything else
+        assert len(pxt.list_tables()) == 0
+
+    def test_drop_column(self, reset_db) -> None:
+        t = pxt.create_table('test1', {'c1': pxt.String, 'c2': pxt.String})
+        t.insert([{'c1':'a1', 'c2':'b1'}, {'c1':'a2', 'c2':'b2'}])
+        assert 'c3' not in t.columns
+        with pytest.raises(excs.Error):
+            t.drop_column('c3')
+        assert 'c2' in t.columns
+        t.drop_column('c2')
+        with pytest.raises(excs.Error):
+            _ = t.c2
+        with pytest.raises(excs.Error):
+            _ = t.drop_column('c2')
+
+        t.add_column(c2=pxt.Int)
+        with pytest.raises(excs.Error):
+            t.drop_column(t.c3)
+        t.drop_column(t.c2)
+        with pytest.raises(excs.Error):
+            _ = t.c2
+        with pytest.raises(excs.Error):
+            _ = t.drop_column(t.c2)
+
+
     @pytest.mark.skip(reason='Skip until we figure out the right API for altering table attributes')
     def test_table_attrs(self, reset_db) -> None:
         schema = {'c': pxt.String}
