@@ -603,11 +603,11 @@ class Table(SchemaObject):
             cls._verify_column(col, column_names)
             column_names.add(col.name)
 
-    def drop_column(self, name: Union[str, Column]) -> None:
+    def drop_column(self, name: Union[str, ColumnRef]) -> None:
         """Drop a column from the table.
 
         Args:
-            name: The name or handle of the column to drop.
+            name: The name or reference of the column to drop.
 
         Raises:
             Error: If the column does not exist or if it is referenced by a dependent computed column.
@@ -624,7 +624,7 @@ class Table(SchemaObject):
         if isinstance(name, str):
             col_name = name
         else:
-            col_name = name.name
+            col_name = name.col.name
 
         if col_name not in self._tbl_version.cols_by_name:
             raise excs.Error(f'Unknown column: {col_name}')

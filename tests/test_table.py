@@ -446,7 +446,7 @@ class TestTable:
         pxt.drop_table('test_tbl', force=True)  # Drops everything else
         assert len(pxt.list_tables()) == 0
 
-    def test_drop_column(self, reset_db) -> None:
+    def test_drop_column_via_handle(self, reset_db) -> None:
         t = pxt.create_table('test1', {'c1': pxt.String, 'c2': pxt.String})
         t.insert([{'c1':'a1', 'c2':'b1'}, {'c1':'a2', 'c2':'b2'}])
         assert 'c3' not in t.columns
@@ -454,18 +454,18 @@ class TestTable:
             t.drop_column('c3')
         assert 'c2' in t.columns
         t.drop_column('c2')
-        with pytest.raises(excs.Error):
+        with pytest.raises(AttributeError):
             _ = t.c2
         with pytest.raises(excs.Error):
             _ = t.drop_column('c2')
 
         t.add_column(c2=pxt.Int)
-        with pytest.raises(excs.Error):
+        with pytest.raises(AttributeError):
             t.drop_column(t.c3)
         t.drop_column(t.c2)
-        with pytest.raises(excs.Error):
+        with pytest.raises(AttributeError):
             _ = t.c2
-        with pytest.raises(excs.Error):
+        with pytest.raises(AttributeError):
             _ = t.drop_column(t.c2)
 
 
