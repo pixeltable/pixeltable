@@ -386,6 +386,38 @@ class TestTable:
         with pytest.raises(excs.Error):
             _ = t.show(1)
 
+    def test_drop_table_via_handle(self, test_tbl: pxt.Table) -> None:
+        t = pxt.create_table('test1', {'c1': pxt.String})
+        pxt.drop_table(t)
+        with pytest.raises(excs.Error):
+            _ = pxt.get_table('test1')
+        with pytest.raises(excs.Error):
+            _ = t.show(1)
+        t = pxt.create_table('test2', {'c1': pxt.String})
+        t = pxt.get_table('test2')
+        pxt.drop_table(t)
+        with pytest.raises(excs.Error):
+            _ = pxt.get_table('test2')
+        with pytest.raises(excs.Error):
+            _ = t.show(1)
+        t = pxt.create_table('test3', {'c1': pxt.String})
+        v = pxt.create_view('view3', t)
+        pxt.drop_table(v)
+        with pytest.raises(excs.Error):
+            _ = pxt.get_table('view3')
+        with pytest.raises(excs.Error):
+            _ = v.show(1)
+        _ = pxt.get_table('test3')
+        v = pxt.create_view('view4', t)
+        v = pxt.get_table('view4')
+        pxt.drop_table(v)
+        with pytest.raises(excs.Error):
+            _ = pxt.get_table('view4')
+        with pytest.raises(excs.Error):
+            _ = v.show(1)
+        _ = pxt.get_table('test3')
+        pxt.drop_table(t)
+
     def test_drop_table_force(self, test_tbl: pxt.Table) -> None:
         t = pxt.get_table('test_tbl')
         v1 = pxt.create_view('v1', t)

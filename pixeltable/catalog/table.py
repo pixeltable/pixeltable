@@ -298,6 +298,10 @@ class Table(SchemaObject):
         return self._description_html()._repr_html_()  # type: ignore[attr-defined]
 
     def _drop(self) -> None:
+        cat = catalog.Catalog.get()
+        # verify all dependents are deleted by now
+        for dep in cat.tbl_dependents[self._id]:
+            assert dep._check_is_dropped() == True
         self._check_is_dropped()
         self._tbl_version.drop()
         self._is_dropped = True

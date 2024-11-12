@@ -296,7 +296,7 @@ def move(path: str, new_path: str) -> None:
     obj._move(new_p.name, new_dir._id)
 
 
-def drop_table(path: str, force: bool = False, ignore_errors: bool = False) -> None:
+def drop_table(path: Union[str,catalog.Table], force: bool = False, ignore_errors: bool = False) -> None:
     """Drop a table, view, or snapshot.
 
     Args:
@@ -309,18 +309,25 @@ def drop_table(path: str, force: bool = False, ignore_errors: bool = False) -> N
 
     Examples:
         >>> pxt.drop_table('my_table')
+        OR
+        >>> t = pxt.create_table('my_table') or t = pxt.get_handle('my_table')
+        >>> pxt.drop_table(t)
     """
     cat = Catalog.get()
-    path_obj = catalog.Path(path)
-    try:
-        cat.paths.check_is_valid(path_obj, expected=catalog.Table)
-    except Exception as e:
-        if ignore_errors or force:
-            _logger.info(f'Skipped table `{path}` (does not exist).')
-            return
-        else:
-            raise e
-    tbl = cat.paths[path_obj]
+    if isinstance(path, str):
+        tbl_path_obj = catalog.Path(path)
+        try:
+            cat.paths.check_is_valid(tbl_path_obj, expected=catalog.Table)
+        except Exception as e:
+            if ignore_errors or force:
+                _logger.info(f'Skipped table `{path}` (does not exist).')
+                return
+            else:
+                raise e
+        tbl = cat.paths[tbl_path_obj]
+    else:
+        tbl = path
+        tbl_path_obj = catalog.Path(tbl._path)
     assert isinstance(tbl, catalog.Table)
     if len(cat.tbl_dependents[tbl._id]) > 0:
         dependent_paths = [dep._path for dep in cat.tbl_dependents[tbl._id]]
@@ -330,8 +337,8 @@ def drop_table(path: str, force: bool = False, ignore_errors: bool = False) -> N
         else:
             raise excs.Error(f'Table {path} has dependents: {", ".join(dependent_paths)}')
     tbl._drop()
-    del cat.paths[path_obj]
-    _logger.info(f'Dropped table `{path}`.')
+    del cat.paths[tbl_path_obj]
+    _logger.info(f'Dropped table `{tbl._path}`.')
 
 
 def list_tables(dir_path: str = '', recursive: bool = True) -> list[str]:
