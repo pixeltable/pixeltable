@@ -1,3 +1,4 @@
+import sysconfig
 from typing import Any
 
 import pytest
@@ -33,6 +34,7 @@ class TestHuggingface:
         # TODO: is there some way to capture the output?
         t.describe()
 
+    @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Not supported on Linux ARM')
     def test_sentence_transformer(self, reset_db) -> None:
         skip_test_if_not_installed('sentence_transformers')
         t = pxt.create_table('test_tbl', {'input': pxt.String, 'input_list': pxt.Json})
@@ -70,6 +72,7 @@ class TestHuggingface:
         assert status.num_excs == 0
         verify_row(t.tail(1)[0])
 
+    @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Not supported on Linux ARM')
     def test_cross_encoder(self, reset_db) -> None:
         skip_test_if_not_installed('sentence_transformers')
         t = pxt.create_table('test_tbl', {'input': pxt.String, 'input_list': pxt.Json})
