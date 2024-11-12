@@ -28,6 +28,7 @@ from .globals import _ROWID_COLUMN_NAME, UpdateStatus, is_system_column_name, is
 from .schema_object import SchemaObject
 from .table_version import TableVersion
 from .table_version_path import TableVersionPath
+from ..exprs import ColumnRef
 
 if TYPE_CHECKING:
     import torch.utils.data
@@ -606,7 +607,7 @@ class Table(SchemaObject):
         """Drop a column from the table.
 
         Args:
-            name: The name of the column to drop.
+            name: The name or handle of the column to drop.
 
         Raises:
             Error: If the column does not exist or if it is referenced by a dependent computed column.
@@ -617,7 +618,7 @@ class Table(SchemaObject):
             >>> tbl = pxt.get_table('my_table')
             ... tbl.drop_column('col')
             OR
-            ... tbl.drop_column(col)
+            ... tbl.drop_column(tbl.col)
         """
         self._check_is_dropped()
         if isinstance(name, str):
@@ -733,15 +734,18 @@ class Table(SchemaObject):
         # TODO: how to deal with exceptions here? drop the index and raise?
         FileCache.get().emit_eviction_warnings()
 
-    def drop_embedding_index(self, *, column_name: Optional[str] = None, idx_name: Optional[str] = None) -> None:
+    def drop_embedding_index(
+            self, *,
+            column_name: Optional[Union[str, ColumnRef]] = None,
+            idx_name: Optional[str] = None) -> None:
         """
         Drop an embedding index from the table. Either a column name or an index name (but not both) must be
         specified. If a column name is specified, it must be a column containing exactly one embedding index;
         otherwise the specific index name must be provided instead.
 
         Args:
-            column_name: The name of the column from which to drop the index. Invalid if the column has multiple
-                embedding indices.
+            column_name: The name or handle of the column from which to drop the index.
+                         Invalid if the column has multiple embedding indices.
             idx_name: The name of the index to drop.
 
         Raises:
@@ -754,18 +758,23 @@ class Table(SchemaObject):
 
             >>> tbl = pxt.get_table('my_table')
             ... tbl.drop_embedding_index(column_name='img')
+            OR
+            ... tbl.drop_embedding_index(column_name=tbl.img)
         """
         self._drop_index(column_name=column_name, idx_name=idx_name, _idx_class=index.EmbeddingIndex)
 
-    def drop_index(self, *, column_name: Optional[str] = None, idx_name: Optional[str] = None) -> None:
+    def drop_index(
+            self, *,
+            column_name: Optional[Union[str, ColumnRef]] = None,
+            idx_name: Optional[str] = None) -> None:
         """
         Drop an index from the table. Either a column name or an index name (but not both) must be
         specified. If a column name is specified, it must be a column containing exactly one index;
         otherwise the specific index name must be provided instead.
 
         Args:
-            column_name: The name of the column from which to drop the index. Invalid if the column has multiple
-                indices.
+            column_name: The name or handle of the column from which to drop the index.
+                         Invalid if the column has multiple indices.
             idx_name: The name of the index to drop.
 
         Raises:
@@ -778,11 +787,14 @@ class Table(SchemaObject):
 
             >>> tbl = pxt.get_table('my_table')
             ... tbl.drop_index(column_name='img')
+            OR
+            ... tbl.drop_index(tbl.img)
         """
         self._drop_index(column_name=column_name, idx_name=idx_name)
 
     def _drop_index(
-            self, *, column_name: Optional[str] = None, idx_name: Optional[str] = None,
+            self, *, column_name: Optional[Union[str, ColumnRef]] = None,
+            idx_name: Optional[str] = None,
             _idx_class: Optional[type[index.IndexBase]] = None
     ) -> None:
         if self._tbl_version_path.is_snapshot():
@@ -796,19 +808,23 @@ class Table(SchemaObject):
                 raise excs.Error(f'Index {idx_name!r} does not exist')
             idx_id = self._tbl_version.idxs_by_name[idx_name].id
         else:
-            col = self._tbl_version_path.get_column(column_name, include_bases=True)
+            if isinstance(column_name, str):
+                cname = column_name
+            else:
+                cname = column_name.col.name
+            col = self._tbl_version_path.get_column(cname, include_bases=True)
             if col is None:
-                raise excs.Error(f'Column {column_name!r} unknown')
+                raise excs.Error(f'Column {cname!r} unknown')
             if col.tbl.id != self._tbl_version.id:
                 raise excs.Error(
-                    f'Column {column_name!r}: cannot drop index from column that belongs to base ({col.tbl.name}!r)')
+                    f'Column {cname!r}: cannot drop index from column that belongs to base ({col.tbl.name}!r)')
             idx_info = [info for info in self._tbl_version.idxs_by_name.values() if info.col.id == col.id]
             if _idx_class is not None:
                 idx_info = [info for info in idx_info if isinstance(info.idx, _idx_class)]
             if len(idx_info) == 0:
-                raise excs.Error(f'Column {column_name!r} does not have an index')
+                raise excs.Error(f'Column {cname!r} does not have an index')
             if len(idx_info) > 1:
-                raise excs.Error(f"Column {column_name!r} has multiple indices; specify 'idx_name' instead")
+                raise excs.Error(f"Column {cname!r} has multiple indices; specify 'idx_name' instead")
             idx_id = idx_info[0].id
         self._tbl_version.drop_index(idx_id)
 
