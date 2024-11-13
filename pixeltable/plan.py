@@ -1,7 +1,9 @@
-from typing import Any, Iterable, Optional, Sequence
-from uuid import UUID
+from __future__ import annotations
+
 import dataclasses
 import enum
+from typing import Any, Iterable, Optional, Sequence
+from uuid import UUID
 
 import sqlalchemy as sql
 
@@ -44,12 +46,21 @@ class JoinType(enum.Enum):
     INNER = 0
     LEFT = 1
     RIGHT = 2
-    CROSS = 3
+    FULL_OUTER = 3
+    CROSS = 4
+
+    @classmethod
+    def validated(cls, name: str, error_prefix: str) -> JoinType:
+        try:
+            return cls[name.upper()]
+        except KeyError:
+            val_strs = ', '.join(f'{s.lower()!r}' for s in cls.__members__.keys())
+            raise excs.Error(f'{error_prefix} must be one of: [{val_strs}]')
 
 
 @dataclasses.dataclass
 class JoinClause:
-    """Corresponds to a single 'JOIN ... ON (...)' clause in a SELECT statement"""
+    """Corresponds to a single 'JOIN ... ON (...)' clause in a SELECT statement; excludes the joined table."""
     join_type: JoinType
     join_pred: exprs.Expr
 
@@ -512,10 +523,10 @@ class Planner:
         # 1. materialize exprs computed from the base that are needed for stored view columns
         # 2. if it's an iterator view, expand the base rows into component rows
         # 3. materialize stored view columns that haven't been produced by step 1
-        base_output_exprs = [e for e in row_builder.default_eval_ctx.exprs if e.is_bound_by(view.base)]
+        base_output_exprs = [e for e in row_builder.default_eval_ctx.exprs if e.is_bound_by([view.base])]
         view_output_exprs = [
             e for e in row_builder.default_eval_ctx.target_exprs
-            if e.is_bound_by(view) and not e.is_bound_by(view.base)
+            if e.is_bound_by([view]) and not e.is_bound_by([view.base])
         ]
         # if we're propagating an insert, we only want to see those base rows that were created for the current version
         base_analyzer = Analyzer(view, base_output_exprs, where_clause=target.predicate)

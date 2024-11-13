@@ -179,6 +179,14 @@ class Table(SchemaObject):
         """Return a [`DataFrame`][pixeltable.DataFrame] for this table."""
         return self._df().where(pred)
 
+    def join(
+            self, other: 'Table', *, on: Optional['exprs.Expr'] = None,
+            how: Optional[Literal['inner', 'left', 'right', 'full_outer', 'cross']] = None
+    ) -> 'pxt.DataFrame':
+
+        """Return a [`DataFrame`][pixeltable.DataFrame] for this table."""
+        return self._df().join(other, on=on, how=how)
+
     def order_by(self, *items: 'exprs.Expr', asc: bool = True) -> 'pxt.DataFrame':
         """Return a [`DataFrame`][pixeltable.DataFrame] for this table."""
         return self._df().order_by(*items, asc=asc)

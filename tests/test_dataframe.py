@@ -94,6 +94,19 @@ class TestDataFrame:
             _ = t.select(t.c2+1, col_0=t.c2).collect()
         assert 'Repeated column name' in str(exc_info.value)
 
+    def test_join(self, reset_db) -> None:
+        t1 = pxt.create_table('t1', {'id': pxt.Int, 'int_col': pxt.Int})
+        t2 = pxt.create_table('t2', {'id': pxt.Int, 'float_col': pxt.Float})
+        num_rows = 1000
+        validate_update_status(t1.insert({'id': i, 'int_col': i} for i in range(num_rows)), expected_rows=num_rows)
+        validate_update_status(
+            t2.insert({'id': i, 'float_col': float(num_rows - i)} for i in range(num_rows)), expected_rows=num_rows)
+        df = t1.join(t2, on=t1.id, how='inner').select(t1.int_col, t2.float_col, t1.int_col + t2.float_col)
+
+        # select list contains invalid references
+        with pytest.raises(excs.Error) as exc_info:
+            df = t1.select(t1.int_col, t2.float_col, t1.int_col + t2.float_col)
+
     def test_result_set_iterator(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         res = t.select(t.c1, t.c2, t.c3).collect()
