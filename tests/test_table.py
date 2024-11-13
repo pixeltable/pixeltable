@@ -883,6 +883,23 @@ class TestTable:
         for tup in t.collect():
             assert tup['c1'] == 'this is a python string'
 
+    def test_insert_bad_udf_bug_repro(self, reset_db) -> None:
+        @pxt.udf(_force_stored=True)
+        def bad_udf(x: str) -> str:
+            assert False
+
+        t = pxt.create_table('test', {'str_col': pxt.String})
+        t.add_column(bad=bad_udf(t.str_col))  # Succeeds because the table has no data
+        t.drop_column('bad')
+        # Before fix the following statement would fail with an exception
+        # even though 'bad' was dropped. This was due to a bug in Planner.create_insert_plan
+        # using catalog.TableVersion.cols to get the list of columns.
+        # catalog.TableVersion.cols tracks history of all the columns, including
+        # dropped ones. Fixed Planner.create_insert_plan to instead use
+        # catalog.TableVersion.cols_by_id that tracks the current list of columns
+        # to make this test pass.
+        t.insert(str_col='Hello there.')
+
     def test_query(self, reset_db) -> None:
         skip_test_if_not_installed('boto3')
         col_names = ['c1', 'c2', 'c3', 'c4', 'c5']
