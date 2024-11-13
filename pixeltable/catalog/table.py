@@ -676,7 +676,7 @@ class Table(SchemaObject):
         self._tbl_version.rename_column(old_name, new_name)
 
     def add_embedding_index(
-            self, col_name: str, *, idx_name: Optional[str] = None,
+            self, col_name_or_ref: Union[str, ColumnRef], *, idx_name: Optional[str] = None,
             string_embed: Optional[pxt.Function] = None, image_embed: Optional[pxt.Function] = None,
             metric: str = 'cosine'
     ) -> None:
@@ -690,7 +690,7 @@ class Table(SchemaObject):
         of text over an image column.
 
         Args:
-            col_name: The name of column to index; must be a `String` or `Image` column.
+            col_name_or_ref: The name or reference of column to index; must be a `String` or `Image` column.
             idx_name: The name of index. If not specified, a name such as `'idx0'` will be generated automatically.
                 If specified, the name must be unique for this table.
             string_embed: A function to embed text; required if the column is a `String` column.
@@ -706,6 +706,9 @@ class Table(SchemaObject):
 
             >>> tbl = pxt.get_table('my_table')
             ... tbl.add_embedding_index('img', image_embed=my_image_func)
+            OR
+            >>> tbl = pxt.get_table('my_table')
+            ... tbl.add_embedding_index(tbl.img, image_embed=my_image_func)
 
             Add another index to the `img` column, using the inner product as the distance metric,
             and with a specific name; `string_embed` is also specified in order to search with text:
@@ -717,11 +720,25 @@ class Table(SchemaObject):
             ...     string_embed=my_string_func,
             ...     metric='ip'
             ... )
+            OR
+            >>> tbl.add_embedding_index(
+            ...     tbl.img,
+            ...     idx_name='clip_idx',
+            ...     image_embed=my_image_func,
+            ...     string_embed=my_string_func,
+            ...     metric='ip'
+            ... )
         """
         if self._tbl_version_path.is_snapshot():
             raise excs.Error('Cannot add an index to a snapshot')
         self._check_is_dropped()
-        col = self._tbl_version_path.get_column(col_name, include_bases=True)
+        if isinstance(col_name_or_ref, str):
+            col = self._tbl_version_path.get_column(col_name_or_ref, include_bases=True)
+            col_name = col_name_or_ref
+        else:
+            col = self._tbl_version_path.get_column(col_name_or_ref.col.name, include_bases=True)
+            col_name = col_name_or_ref.col.name
+
         if col is None:
             raise excs.Error(f'Column {col_name} unknown')
         if idx_name is not None and idx_name in self._tbl_version.idxs_by_name:

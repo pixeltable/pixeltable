@@ -69,7 +69,7 @@ class TestIndex:
             {'text': 'machine learning is a subset of artificial intelligence'},
             {'text': 'gas car companies are in danger of being left behind by electric car companies'},
         ])
-        chunks.add_embedding_index(col_name='text', string_embed=clip_text_embed)
+        chunks.add_embedding_index(col_name_or_ref='text', string_embed=clip_text_embed)
 
         @chunks.query
         def top_k_chunks(query_text: str) -> pxt.DataFrame:
@@ -166,7 +166,7 @@ class TestIndex:
             img_t.drop_embedding_index(column_name='category')
         with pytest.raises(pxt.Error):
             img_t.drop_embedding_index(column_name=img_t.category)
-        img_t.add_embedding_index('category', string_embed=e5_embed)
+        img_t.add_embedding_index(img_t.category, string_embed=e5_embed)
 
         # revert() removes the index
         img_t.revert()
@@ -208,7 +208,7 @@ class TestIndex:
         img_t.revert()
 
         # multiple indices
-        img_t.add_embedding_index('img', idx_name='other_idx', image_embed=clip_img_embed, string_embed=clip_text_embed)
+        img_t.add_embedding_index(img_t.img, idx_name='other_idx', image_embed=clip_img_embed, string_embed=clip_text_embed)
         with pytest.raises(pxt.Error) as exc_info:
             sim = img_t.img.similarity('red truck')
             _ = img_t.order_by(sim, asc=False).limit(1).collect()
