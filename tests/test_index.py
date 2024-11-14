@@ -51,7 +51,7 @@ class TestIndex:
             validate_update_status(t.add_column(sim=t.img.similarity('parachute')))
             t.drop_column('sim')
 
-            t.drop_embedding_index(column_name='img')
+            t.drop_embedding_index(column_name_or_ref='img')
 
     def test_query(self, reset_db) -> None:
         skip_test_if_not_installed('transformers')
@@ -150,8 +150,20 @@ class TestIndex:
         tbl_name = 'index_test'
         img_t = pxt.create_table(tbl_name, schema)
         img_t.insert(rows[:30])
+        dummy_img_t = pxt.create_table('dummy', schema)
+        dummy_img_t.insert(rows[:10])
+
+        with pytest.raises(pxt.Error) as exc_info:
+            # cannot pass another table's column reference
+            img_t.add_embedding_index(dummy_img_t.img, image_embed=clip_img_embed, string_embed=clip_text_embed)
+        assert 'unknown column: dummy.img' in str(exc_info.value).lower()
 
         img_t.add_embedding_index('img', image_embed=clip_img_embed, string_embed=clip_text_embed)
+
+        with pytest.raises(pxt.Error) as exc_info:
+            # cannot pass another table's column reference
+            img_t.drop_embedding_index(column_name_or_ref=dummy_img_t.img);
+        assert 'unknown column: dummy.img' in str(exc_info.value).lower()
 
         # predicates on media columns that have both a B-tree and an embedding index still work
         res = img_t.where(img_t.img == rows[0]['img']).collect()
@@ -161,21 +173,19 @@ class TestIndex:
             # duplicate name
             img_t.add_embedding_index('img', idx_name='idx0', image_embed=clip_img_embed)
         assert 'duplicate index name' in str(exc_info.value).lower()
+        with pytest.raises(pxt.Error) as exc_info:
+            img_t.add_embedding_index(img_t.img, idx_name='idx0', image_embed=clip_img_embed)
+        assert 'duplicate index name' in str(exc_info.value).lower()
 
-        with pytest.raises(pxt.Error):
-            img_t.drop_embedding_index(column_name='category')
-        with pytest.raises(pxt.Error):
-            img_t.drop_embedding_index(column_name=img_t.category)
         img_t.add_embedding_index(img_t.category, string_embed=e5_embed)
 
         # revert() removes the index
         img_t.revert()
         with pytest.raises(pxt.Error) as exc_info:
-            img_t.drop_embedding_index(column_name='category')
-
-        with pytest.raises(pxt.Error):
-            img_t.drop_embedding_index(column_name=img_t.category)
-
+            img_t.drop_embedding_index(column_name_or_ref='category')
+        assert 'does not have an index' in str(exc_info.value).lower()
+        with pytest.raises(pxt.Error) as exc_info:
+            img_t.drop_embedding_index(column_name_or_ref=img_t.category)
         assert 'does not have an index' in str(exc_info.value).lower()
 
         rows = list(img_t.collect())
@@ -227,10 +237,10 @@ class TestIndex:
         assert "index 'doesnotexist' not found" in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error) as exc_info:
-            img_t.drop_embedding_index(column_name='img')
+            img_t.drop_embedding_index(column_name_or_ref='img')
         assert "column 'img' has multiple indices" in str(exc_info.value).lower()
         with pytest.raises(pxt.Error) as exc_info:
-            img_t.drop_embedding_index(column_name=img_t.img)
+            img_t.drop_embedding_index(column_name_or_ref=img_t.img)
         assert "column 'img' has multiple indices" in str(exc_info.value).lower()
         img_t.drop_embedding_index(idx_name='other_idx')
 
@@ -239,9 +249,9 @@ class TestIndex:
             _ = img_t.order_by(sim, asc=False).limit(1).collect()
         assert "index 'other_idx' not found" in str(exc_info.value).lower()
 
-        img_t.drop_embedding_index(column_name=img_t.img)
+        img_t.drop_embedding_index(column_name_or_ref=img_t.img)
         with pytest.raises(pxt.Error) as exc_info:
-            img_t.drop_embedding_index(column_name=img_t.img)
+            img_t.drop_embedding_index(column_name_or_ref=img_t.img)
         assert 'does not have an index' in str(exc_info.value).lower()
 
         # revert() makes the index reappear
@@ -267,7 +277,7 @@ class TestIndex:
         with pytest.raises(pxt.Error) as exc_info:
             # unknown column
             img_t.add_embedding_index('does_not_exist', idx_name='idx0', image_embed=clip_img_embed)
-        assert 'column does_not_exist unknown' in str(exc_info.value).lower()
+        assert "column 'does_not_exist' unknown" in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error) as exc_info:
             # wrong column type
@@ -304,25 +314,34 @@ class TestIndex:
 
         with pytest.raises(pxt.Error) as exc_info:
             img_t.drop_embedding_index()
-        assert "exactly one of 'column_name' or 'idx_name' must be provided" in str(exc_info.value).lower()
+        assert "exactly one of 'column_name_or_ref' or 'idx_name' must be provided" in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error) as exc_info:
             img_t.drop_embedding_index(idx_name='doesnotexist')
         assert "index 'doesnotexist' does not exist" in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error) as exc_info:
-            img_t.drop_embedding_index(column_name='doesnotexist')
+            img_t.drop_embedding_index(column_name_or_ref='doesnotexist')
         assert "column 'doesnotexist' unknown" in str(exc_info.value).lower()
+        with pytest.raises(AttributeError) as exc_info:
+            img_t.drop_embedding_index(column_name_or_ref=img_t.doesnotexist)
+        assert 'column doesnotexist unknown' in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error) as exc_info:
-            img_t.drop_embedding_index(column_name='img')
+            img_t.drop_embedding_index(column_name_or_ref='img')
+        assert "column 'img' does not have an index" in str(exc_info.value).lower()
+        with pytest.raises(pxt.Error) as exc_info:
+            img_t.drop_embedding_index(column_name_or_ref=img_t.img)
         assert "column 'img' does not have an index" in str(exc_info.value).lower()
 
         img_t.add_embedding_index('img', idx_name='embed0', image_embed=clip_img_embed, string_embed=clip_text_embed)
         img_t.add_embedding_index('img', idx_name='embed1', image_embed=clip_img_embed, string_embed=clip_text_embed)
 
         with pytest.raises(pxt.Error) as exc_info:
-            img_t.drop_embedding_index(column_name='img')
+            img_t.drop_embedding_index(column_name_or_ref='img')
+        assert "column 'img' has multiple indices" in str(exc_info.value).lower()
+        with pytest.raises(pxt.Error) as exc_info:
+            img_t.drop_embedding_index(column_name_or_ref=img_t.img)
         assert "column 'img' has multiple indices" in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error) as exc_info:

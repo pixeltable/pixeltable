@@ -196,7 +196,7 @@ class View(Table):
         cat = catalog.Catalog.get()
         # verify all dependents are deleted by now
         for dep in cat.tbl_dependents[self._id]:
-            dep._check_is_dropped
+            assert dep._is_dropped == True
         if self._snapshot_only:
             # there is not TableVersion to drop
             self._check_is_dropped()

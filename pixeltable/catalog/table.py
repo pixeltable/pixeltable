@@ -200,6 +200,7 @@ class Table(SchemaObject):
     ) -> 'pxt.dataframe.DataFrameResultSet':
         """Return rows from this table.
         """
+        self._check_is_dropped()
         return self._df().show(*args, **kwargs)
 
     def head(
@@ -302,7 +303,7 @@ class Table(SchemaObject):
         cat = catalog.Catalog.get()
         # verify all dependents are deleted by now
         for dep in cat.tbl_dependents[self._id]:
-            dep._check_is_dropped()
+            assert dep._is_dropped == True
         self._check_is_dropped()
         self._tbl_version.drop()
         self._is_dropped = True
@@ -603,36 +604,52 @@ class Table(SchemaObject):
             cls._verify_column(col, column_names)
             column_names.add(col.name)
 
-    def drop_column(self, name: Union[str, ColumnRef]) -> None:
+    def _check_column_str(self, column_name : str, include_bases : bool = False) -> None:
+        col = self._tbl_version_path.get_column(column_name, include_bases)
+        if col is None:
+            raise excs.Error(f'Column {column_name!r} unknown')
+
+    def _check_column_ref(self, col_ref : ColumnRef, include_bases : bool = False) -> None:
+        if include_bases:
+            tbl_cols = self._tbl_version_path.columns()
+        else:
+            tbl_cols = list(self._tbl_version.cols_by_name.values())
+        if col_ref.col not in tbl_cols:
+            raise excs.Error(f'Unknown column: {col_ref.col.qualified_name}')
+
+    def drop_column(self, name_or_ref: Union[str, ColumnRef]) -> None:
         """Drop a column from the table.
 
         Args:
-            name: The name or reference of the column to drop.
+            name_or_ref: The name or reference of the column to drop.
 
         Raises:
             Error: If the column does not exist or if it is referenced by a dependent computed column.
 
         Examples:
-            Drop the column `col` from the table `my_table`:
+            Drop the column `col` from the table `my_table` using column name:
 
             >>> tbl = pxt.get_table('my_table')
             ... tbl.drop_column('col')
-            OR
+
+            Drop the column `col` from the table `my_table` using column reference:
+
+            >>> tbl = pxt.get_table('my_table')
             ... tbl.drop_column(tbl.col)
         """
         self._check_is_dropped()
-        if isinstance(name, str):
-            col_name = name
-        else:
-            col_name = name.col.name
 
-        if col_name not in self._tbl_version.cols_by_name:
-            raise excs.Error(f'Unknown column: {col_name}')
-        col = self._tbl_version.cols_by_name[col_name]
+        if isinstance(name_or_ref, str):
+            self._check_column_str(name_or_ref)
+            col = self._tbl_version.cols_by_name[name_or_ref]
+        else:
+            self._check_column_ref(name_or_ref)
+            col = name_or_ref.col
+
         dependent_user_cols = [c for c in col.dependent_cols if c.name is not None]
         if len(dependent_user_cols) > 0:
             raise excs.Error(
-                f'Cannot drop column `{name}` because the following columns depend on it:\n'
+                f'Cannot drop column `{col.name}` because the following columns depend on it:\n'
                 f'{", ".join(c.name for c in dependent_user_cols)}'
             )
 
@@ -650,7 +667,7 @@ class Table(SchemaObject):
                 for view, store in dependent_stores
             ]
             raise excs.Error(
-                f'Cannot drop column `{name}` because the following external stores depend on it:\n'
+                f'Cannot drop column `{col.name}` because the following external stores depend on it:\n'
                 f'{", ".join(dependent_store_names)}'
             )
 
@@ -702,11 +719,12 @@ class Table(SchemaObject):
             Error: If an index with that name already exists for the table, or if the specified column does not exist.
 
         Examples:
-            Add an index to the `img` column of the table `my_table`:
+            Add an index to the `img` column of the table `my_table` by column name:
 
             >>> tbl = pxt.get_table('my_table')
             ... tbl.add_embedding_index('img', image_embed=my_image_func)
-            OR
+
+            Add an index to the `img` column of the table `my_table` by column reference:
             >>> tbl = pxt.get_table('my_table')
             ... tbl.add_embedding_index(tbl.img, image_embed=my_image_func)
 
@@ -733,14 +751,12 @@ class Table(SchemaObject):
             raise excs.Error('Cannot add an index to a snapshot')
         self._check_is_dropped()
         if isinstance(col_name_or_ref, str):
+            self._check_column_str(col_name_or_ref, include_bases=True)
             col = self._tbl_version_path.get_column(col_name_or_ref, include_bases=True)
-            col_name = col_name_or_ref
         else:
-            col = self._tbl_version_path.get_column(col_name_or_ref.col.name, include_bases=True)
-            col_name = col_name_or_ref.col.name
+            self._check_column_ref(col_name_or_ref, include_bases=True)
+            col = col_name_or_ref.col
 
-        if col is None:
-            raise excs.Error(f'Column {col_name} unknown')
         if idx_name is not None and idx_name in self._tbl_version.idxs_by_name:
             raise excs.Error(f'Duplicate index name: {idx_name}')
         from pixeltable.index import EmbeddingIndex
@@ -753,95 +769,128 @@ class Table(SchemaObject):
 
     def drop_embedding_index(
             self, *,
-            column_name: Optional[Union[str, ColumnRef]] = None,
+            column_name_or_ref: Union[str, ColumnRef, None] = None,
             idx_name: Optional[str] = None) -> None:
         """
         Drop an embedding index from the table. Either a column name or an index name (but not both) must be
-        specified. If a column name is specified, it must be a column containing exactly one embedding index;
-        otherwise the specific index name must be provided instead.
+        specified. If a column name or reference is specified, it must be a column containing exactly one
+        embedding index; otherwise the specific index name must be provided instead.
 
         Args:
-            column_name: The name or handle of the column from which to drop the index.
-                         Invalid if the column has multiple embedding indices.
+            column_name_or_ref: The name or reference of the column from which to drop the index.
+                                The column must have only one embedding index.
             idx_name: The name of the index to drop.
 
         Raises:
-            Error: If `column_name` is specified, but the column does not exist, or it contains no embedding
+            Error: If `column_name_or_ref` is specified, but the column does not exist, or it contains no embedding
                 indices or multiple embedding indices.
             Error: If `idx_name` is specified, but the index does not exist or is not an embedding index.
 
         Examples:
-            Drop the embedding index on the `img` column of the table `my_table`:
+            Drop the embedding index on the `img` column of the table `my_table` by column name:
 
             >>> tbl = pxt.get_table('my_table')
-            ... tbl.drop_embedding_index(column_name='img')
-            OR
-            ... tbl.drop_embedding_index(column_name=tbl.img)
+            ... tbl.drop_embedding_index(column_name_or_ref='img')
+
+            Drop the embedding index on the `img` column of the table `my_table` by column reference:
+
+            >>> tbl = pxt.get_table('my_table')
+            ... tbl.drop_embedding_index(column_name_or_ref=tbl.img)
+
+            Drop the embedding index `idx1` of the table `my_table` by index name:
+            >>> tbl = pxt.get_table('my_table')
+            ... tbl.drop_embedding_index(idx_name='idx1')
+
         """
-        self._drop_index(column_name=column_name, idx_name=idx_name, _idx_class=index.EmbeddingIndex)
+        if (column_name_or_ref is None) == (idx_name is None):
+            raise excs.Error("Exactly one of 'column_name_or_ref' or 'idx_name' must be provided")
+
+        col = None
+        if idx_name is None:
+            if isinstance(column_name_or_ref, str):
+                self._check_column_str(column_name_or_ref, include_bases=True)
+                col = self._tbl_version_path.get_column(column_name_or_ref, include_bases=True)
+            else:
+                self._check_column_ref(column_name_or_ref, include_bases=True)
+                col = column_name_or_ref.col
+            assert col is not None
+        self._drop_index(col=col, idx_name=idx_name, _idx_class=index.EmbeddingIndex)
 
     def drop_index(
             self, *,
-            column_name: Optional[Union[str, ColumnRef]] = None,
+            column_name_or_ref: Union[str, ColumnRef, None] = None,
             idx_name: Optional[str] = None) -> None:
         """
         Drop an index from the table. Either a column name or an index name (but not both) must be
-        specified. If a column name is specified, it must be a column containing exactly one index;
+        specified. If a column name or reference is specified, it must be a column containing exactly one index;
         otherwise the specific index name must be provided instead.
 
         Args:
-            column_name: The name or handle of the column from which to drop the index.
-                         Invalid if the column has multiple indices.
+            column_name_or_ref: The name or handle of the column from which to drop the index.
+                                The column must have only one embedding index.
             idx_name: The name of the index to drop.
 
         Raises:
-            Error: If `column_name` is specified, but the column does not exist, or it contains no
+            Error: If `column_name_or_ref` is specified, but the column does not exist, or it contains no
                 indices or multiple indices.
             Error: If `idx_name` is specified, but the index does not exist.
 
         Examples:
-            Drop the index on the `img` column of the table `my_table`:
+            Drop the index on the `img` column of the table `my_table` by column name:
 
             >>> tbl = pxt.get_table('my_table')
             ... tbl.drop_index(column_name='img')
-            OR
+
+            Drop the index on the `img` column of the table `my_table` by column reference:
+
+            >>> tbl = pxt.get_table('my_table')
             ... tbl.drop_index(tbl.img)
+
+            Drop the index `idx1` of the table `my_table` by index name:
+            >>> tbl = pxt.get_table('my_table')
+            ... tbl.drop_index(idx_name='idx1')
+
         """
-        self._drop_index(column_name=column_name, idx_name=idx_name)
+        if (column_name_or_ref is None) == (idx_name is None):
+            raise excs.Error("Exactly one of 'column_name_or_ref' or 'idx_name' must be provided")
+
+        col = None
+        if idx_name is None:
+            if isinstance(column_name_or_ref, str):
+                self._check_column_str(column_name_or_ref, include_bases=True)
+                col = self._tbl_version_path.get_column(column_name_or_ref, include_bases=True)
+            else:
+                self._check_column_ref(column_name_or_ref, include_bases=True)
+                col = column_name_or_ref.col
+            assert col is not None
+        self._drop_index(col=col, idx_name=idx_name)
 
     def _drop_index(
-            self, *, column_name: Optional[Union[str, ColumnRef]] = None,
+            self, *, col: Optional[Column] = None,
             idx_name: Optional[str] = None,
             _idx_class: Optional[type[index.IndexBase]] = None
     ) -> None:
         if self._tbl_version_path.is_snapshot():
             raise excs.Error('Cannot drop an index from a snapshot')
         self._check_is_dropped()
-        if (column_name is None) == (idx_name is None):
-            raise excs.Error("Exactly one of 'column_name' or 'idx_name' must be provided")
+        if (col is None) == (idx_name is None):
+            raise excs.Error("Exactly one of 'column' or 'idx_name' must be provided")
 
         if idx_name is not None:
             if idx_name not in self._tbl_version.idxs_by_name:
                 raise excs.Error(f'Index {idx_name!r} does not exist')
             idx_id = self._tbl_version.idxs_by_name[idx_name].id
         else:
-            if isinstance(column_name, str):
-                cname = column_name
-            else:
-                cname = column_name.col.name
-            col = self._tbl_version_path.get_column(cname, include_bases=True)
-            if col is None:
-                raise excs.Error(f'Column {cname!r} unknown')
             if col.tbl.id != self._tbl_version.id:
                 raise excs.Error(
-                    f'Column {cname!r}: cannot drop index from column that belongs to base ({col.tbl.name}!r)')
+                    f'Column {col.name!r}: cannot drop index from column that belongs to base ({col.tbl.name}!r)')
             idx_info = [info for info in self._tbl_version.idxs_by_name.values() if info.col.id == col.id]
             if _idx_class is not None:
                 idx_info = [info for info in idx_info if isinstance(info.idx, _idx_class)]
             if len(idx_info) == 0:
-                raise excs.Error(f'Column {cname!r} does not have an index')
+                raise excs.Error(f'Column {col.name!r} does not have an index')
             if len(idx_info) > 1:
-                raise excs.Error(f"Column {cname!r} has multiple indices; specify 'idx_name' instead")
+                raise excs.Error(f"Column {col.name!r} has multiple indices; specify 'idx_name' instead")
             idx_id = idx_info[0].id
         self._tbl_version.drop_index(idx_id)
 

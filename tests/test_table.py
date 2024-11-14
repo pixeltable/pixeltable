@@ -381,40 +381,50 @@ class TestTable:
     def test_drop_table(self, test_tbl: pxt.Table) -> None:
         t = pxt.get_table('test_tbl')
         pxt.drop_table('test_tbl')
-        with pytest.raises(excs.Error):
+        with pytest.raises(excs.Error) as exc_info:
             _ = pxt.get_table('test_tbl')
-        with pytest.raises(excs.Error):
+        assert 'no such path: test_tbl' in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
             _ = t.show(1)
+        assert 'table test_tbl has been dropped' in str(exc_info.value).lower()
 
     def test_drop_table_via_handle(self, test_tbl: pxt.Table) -> None:
         t = pxt.create_table('test1', {'c1': pxt.String})
         pxt.drop_table(t)
-        with pytest.raises(excs.Error):
+        with pytest.raises(excs.Error) as exc_info:
             _ = pxt.get_table('test1')
-        with pytest.raises(excs.Error):
+        assert 'no such path: test1' in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
             _ = t.show(1)
+        assert 'table test1 has been dropped' in str(exc_info.value).lower()
         t = pxt.create_table('test2', {'c1': pxt.String})
         t = pxt.get_table('test2')
         pxt.drop_table(t)
-        with pytest.raises(excs.Error):
+        with pytest.raises(excs.Error) as exc_info:
             _ = pxt.get_table('test2')
-        with pytest.raises(excs.Error):
+        assert 'no such path: test2' in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
             _ = t.show(1)
+        assert 'table test2 has been dropped' in str(exc_info.value).lower()
         t = pxt.create_table('test3', {'c1': pxt.String})
         v = pxt.create_view('view3', t)
         pxt.drop_table(v)
-        with pytest.raises(excs.Error):
+        with pytest.raises(excs.Error) as exc_info:
             _ = pxt.get_table('view3')
-        with pytest.raises(excs.Error):
+        assert 'no such path: view3' in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
             _ = v.show(1)
+        assert 'view view3 has been dropped' in str(exc_info.value).lower()
         _ = pxt.get_table('test3')
         v = pxt.create_view('view4', t)
         v = pxt.get_table('view4')
         pxt.drop_table(v)
-        with pytest.raises(excs.Error):
+        with pytest.raises(excs.Error) as exc_info:
             _ = pxt.get_table('view4')
-        with pytest.raises(excs.Error):
+        assert 'no such path: view4' in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
             _ = v.show(1)
+        assert 'view view4 has been dropped' in str(exc_info.value).lower()
         _ = pxt.get_table('test3')
         pxt.drop_table(t)
 
@@ -443,30 +453,8 @@ class TestTable:
         assert len(pxt.list_tables()) == 4
         assert 'v2' not in pxt.list_tables()
         assert 'v4' not in pxt.list_tables()
-        pxt.drop_table('test_tbl', force=True)  # Drops everything else
+        pxt.drop_table(t, force=True)  # Drops everything else
         assert len(pxt.list_tables()) == 0
-
-    def test_drop_column_via_handle(self, reset_db) -> None:
-        t = pxt.create_table('test1', {'c1': pxt.String, 'c2': pxt.String})
-        t.insert([{'c1':'a1', 'c2':'b1'}, {'c1':'a2', 'c2':'b2'}])
-        assert 'c3' not in t.columns
-        with pytest.raises(excs.Error):
-            t.drop_column('c3')
-        assert 'c2' in t.columns
-        t.drop_column('c2')
-        with pytest.raises(AttributeError):
-            _ = t.c2
-        with pytest.raises(excs.Error):
-            _ = t.drop_column('c2')
-
-        t.add_column(c2=pxt.Int)
-        with pytest.raises(AttributeError):
-            t.drop_column(t.c3)
-        t.drop_column(t.c2)
-        with pytest.raises(AttributeError):
-            _ = t.c2
-        with pytest.raises(AttributeError):
-            _ = t.drop_column(t.c2)
 
 
     @pytest.mark.skip(reason='Skip until we figure out the right API for altering table attributes')
@@ -1551,9 +1539,21 @@ class TestTable:
         num_orig_cols = len(t.columns)
         t.drop_column('c1')
         assert len(t.columns) == num_orig_cols - 1
+        assert 'c1' not in t.columns
+        with pytest.raises(AttributeError) as exc_info:
+            _ = t.c1
+        assert 'column c1 unknown' in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.drop_column('c1')
+        assert "column 'c1' unknown" in str(exc_info.value).lower()
 
-        with pytest.raises(excs.Error):
+        assert 'unknown' not in t.columns
+        with pytest.raises(excs.Error) as exc_info:
             t.drop_column('unknown')
+        assert "column 'unknown' unknown" in str(exc_info.value).lower()
+        with pytest.raises(AttributeError) as exc_info:
+            t.drop_column(t.unknown)
+        assert 'column unknown unknown' in str(exc_info.value).lower()
 
         # make sure this is still true after reloading the metadata
         reload_catalog()
@@ -1563,11 +1563,41 @@ class TestTable:
         # revert() works
         t.revert()
         assert len(t.columns) == num_orig_cols
+        assert 'c1' in t.columns
+        _ = t.c1
 
         # make sure this is still true after reloading the metadata once more
         reload_catalog()
         t = pxt.get_table(t._name)
         assert len(t.columns) == num_orig_cols
+        assert 'c1' in t.columns
+        _ = t.c1
+
+    def test_drop_column_via_reference(self, reset_db) -> None:
+        t1 = pxt.create_table('test1', {'c1': pxt.String, 'c2': pxt.String})
+        t1.insert([{'c1': 'a1', 'c2': 'b1'}, {'c1': 'a2', 'c2': 'b2'}])
+        t2 = pxt.create_table('test2', {'c1': pxt.String, 'c2': pxt.String})
+
+        # cannot pass another table's column reference
+        with pytest.raises(excs.Error) as exc_info:
+            t1.drop_column(t2.c2)
+        assert 'unknown column: test2.c2' in str(exc_info.value).lower()
+        assert 'c2' in t1.columns
+        assert 'c2' in t2.columns
+        _ = t1.c2
+        _ = t2.c2
+
+        t1.drop_column(t1.c2)
+        assert 'c2' not in t1.columns
+        with pytest.raises(AttributeError) as exc_info:
+            _ = t1.c2
+        assert 'column c2 unknown' in str(exc_info.value).lower()
+        with pytest.raises(AttributeError) as exc_info:
+            t1.drop_column(t1.c2)
+        assert 'column c2 unknown' in str(exc_info.value).lower()
+        assert 'c2' in t2.columns
+        pxt.drop_table(t1)
+        pxt.drop_table(t2)
 
     def test_rename_column(self, test_tbl: catalog.Table) -> None:
         t = test_tbl

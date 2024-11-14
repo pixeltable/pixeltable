@@ -296,38 +296,42 @@ def move(path: str, new_path: str) -> None:
     obj._move(new_p.name, new_dir._id)
 
 
-def drop_table(path: Union[str,catalog.Table], force: bool = False, ignore_errors: bool = False) -> None:
+def drop_table(table_name_or_obj: Union[str, catalog.Table], force: bool = False, ignore_errors: bool = False) -> None:
     """Drop a table, view, or snapshot.
 
     Args:
-        path: Path to the [`Table`][pixeltable.Table].
+        table_name_or_obj: name or object of the [`Table`][pixeltable.Table] to be dropped.
         force: If `True`, will also drop all views and sub-views of this table.
         ignore_errors: If `True`, return silently if the table does not exist (without throwing an exception).
 
     Raises:
-        Error: If the path does not exist or does not designate a table object, and `ignore_errors=False`.
+        Error: If the name does not exist or does not designate a table object, and `ignore_errors=False`.
 
     Examples:
+        Drop a table by name
         >>> pxt.drop_table('my_table')
-        OR
-        >>> t = pxt.create_table('my_table') or t = pxt.get_handle('my_table')
-        >>> pxt.drop_table(t)
+
+        Drop a table by object
+        >>> t = pxt.get_handle('my_table')
+        ... pxt.drop_table(t)
+
     """
     cat = Catalog.get()
-    if isinstance(path, str):
-        tbl_path_obj = catalog.Path(path)
+    if isinstance(table_name_or_obj, str):
+        tbl_path_obj = catalog.Path(table_name_or_obj)
         try:
             cat.paths.check_is_valid(tbl_path_obj, expected=catalog.Table)
         except Exception as e:
             if ignore_errors or force:
-                _logger.info(f'Skipped table `{path}` (does not exist).')
+                _logger.info(f'Skipped table `{table_name_or_obj}` (does not exist).')
                 return
             else:
                 raise e
         tbl = cat.paths[tbl_path_obj]
     else:
-        tbl = path
+        tbl = table_name_or_obj
         tbl_path_obj = catalog.Path(tbl._path)
+
     assert isinstance(tbl, catalog.Table)
     if len(cat.tbl_dependents[tbl._id]) > 0:
         dependent_paths = [dep._path for dep in cat.tbl_dependents[tbl._id]]
@@ -335,7 +339,7 @@ def drop_table(path: Union[str,catalog.Table], force: bool = False, ignore_error
             for dependent_path in dependent_paths:
                 drop_table(dependent_path, force=True)
         else:
-            raise excs.Error(f'Table {path} has dependents: {", ".join(dependent_paths)}')
+            raise excs.Error(f'Table {tbl._path} has dependents: {", ".join(dependent_paths)}')
     tbl._drop()
     del cat.paths[tbl_path_obj]
     _logger.info(f'Dropped table `{tbl._path}`.')
