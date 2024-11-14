@@ -22,10 +22,11 @@ pandas = ">=2.0,<3.0"
 pillow = ">=9.3.0"
 tqdm = ">=4.64"
 toml = ">=0.10"
+jsonschema = ">=4.1.0"
 jmespath = "^1.0.1"
 more-itertools = "^10.2"
 cloudpickle = "^2.2.1"
-psycopg = { extras = ["binary"], version = "==3.1.18" }
+psycopg = { extras = ["binary"], version = ">=3.1.18" }
 psutil = "^5.9.5"
 sqlalchemy = "^2.0.23"
 pgvector = "^0.2.1"

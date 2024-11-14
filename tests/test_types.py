@@ -1,15 +1,62 @@
 import datetime
 from typing import Any, Dict, List, Optional
 
+import jsonschema.exceptions
 import numpy as np
 import PIL.Image
+import pydantic
+import pytest
 
 import pixeltable as pxt
 from pixeltable.type_system import *
 
 
 class TestTypes:
-    def test_infer(self) -> None:
+
+    json_schema_1 = {
+        'properties': {
+            'a': {'type': 'string'},  # required in 1 and 2
+            'b': {'type': 'integer'},  # required in 1, optional in 2
+            'c': {'type': 'number'},  # required in 2, optional in 1
+            'd': {'type': 'boolean'},  # optional in 1 and 2
+            'e': {'type': 'string'},  # required in 1, absent from 2
+            'g': {'anyOf': [{'type': 'string'}, {'type': 'null'}]},  # nullable in 1, non-nullable in 2
+            'h': {'anyOf': [{'type': 'string'}, {'type': 'null'}]},  # type conflict (string in 1, int in 2)
+        },
+        'required': ['a', 'b'],
+    }
+
+    json_schema_2 = {
+        'properties': {
+            'a': {'type': 'string'},
+            'b': {'type': 'integer'},
+            'c': {'type': 'number'},
+            'd': {'type': 'boolean'},
+            'f': {'type': 'string'},  # required in 2, absent from 1
+            'g': {'type': 'string'},
+            'h': {'anyOf': [{'type': 'integer'}, {'type': 'null'}]},
+        },
+        'required': ['a', 'c'],
+    }
+
+    json_schema_12 = {  # supertype of 1 + 2
+        'type': 'object',
+        'properties': {
+            'a': {'type': 'string'},
+            'b': {'type': 'integer'},
+            'c': {'type': 'number'},
+            'd': {'type': 'boolean'},
+            'e': {'type': 'string'},
+            'f': {'type': 'string'},
+            'g': {'anyOf': [{'type': 'string'}, {'type': 'null'}]},
+            'h': {},
+        },
+        'required': ['a'],
+    }
+
+    bad_json_schema = {'type': 'junk'}
+
+    def test_infer(self, init_env) -> None:
         test_cases: list[tuple[Any, ColumnType]] = [
             ('a', StringType()),
             (1, IntType()),
@@ -24,25 +71,7 @@ class TestTypes:
         for val, expected_type in test_cases:
             assert ColumnType.infer_literal_type(val) == expected_type, val
 
-    def test_serialize(self, init_env) -> None:
-        type_vals = [
-            InvalidType(), StringType(), IntType(), BoolType(), TimestampType(),
-            ImageType(height=100, width=200, mode='RGB'),
-            JsonType({
-                'a': StringType(), 'b': IntType(), 'c': FloatType(), 'd': BoolType(), 'e': TimestampType(),
-                'f': ImageType(height=100, width=200, mode='RGB'),
-                'g': JsonType({'f1': StringType(), 'f2': IntType()}),
-                'h': ArrayType((224, 224, 3), dtype=IntType()),
-            }),
-            ArrayType((224, 224, 3), dtype=IntType()),
-        ]
-
-        for t in type_vals:
-            t_serialized = t.serialize()
-            t_deserialized = ColumnType.deserialize(t_serialized)
-            assert t == t_deserialized
-
-    def test_from_python_type(self) -> None:
+    def test_from_python_type(self, init_env) -> None:
         # Test cases: map of python_type to expected (pxt_type, str(pxt_type))
         test_cases: dict[type, tuple[ColumnType, str]] = {
             # Builtin and standard types
@@ -104,7 +133,7 @@ class TestTypes:
             assert pxt_type._to_str(as_schema=True) == f'Required[{string}]'
             assert nullable_pxt_type._to_str(as_schema=True) == string
 
-    def test_supertype(self) -> None:
+    def test_supertype(self, init_env) -> None:
         test_cases = [
             (IntType(), FloatType(), FloatType()),
             (BoolType(), IntType(), IntType()),
@@ -121,9 +150,8 @@ class TestTypes:
             (ImageType(height=100, width=200, mode='RGB'), ImageType(height=300, width=400, mode='RGBA'), ImageType()),
             (ImageType(height=100, width=200, mode='RGB'), ImageType(), ImageType()),
             (JsonType(), JsonType(), JsonType()),
-            (JsonType(type_spec={'a': IntType()}), JsonType(), JsonType()),
-            (JsonType(type_spec={'a': IntType()}), JsonType(type_spec={'b': StringType()}), JsonType(type_spec={'a': IntType(), 'b': StringType()})),
-            (JsonType(type_spec={'a': IntType()}), JsonType(type_spec={'a': StringType()}), JsonType()),
+            (JsonType(json_schema=self.json_schema_1), JsonType(), JsonType()),
+            (JsonType(json_schema=self.json_schema_1), JsonType(json_schema=self.json_schema_2), JsonType(json_schema=self.json_schema_12)),
             (JsonType(), IntType(), None),
         ]
         for t1, t2, expected in test_cases:
@@ -134,3 +162,17 @@ class TestTypes:
                     expectedn = None if expected is None else expected.copy(nullable=(n1 or n2))
                     assert t1n.supertype(t2n) == expectedn
                     assert t2n.supertype(t1n) == expectedn
+
+    def test_json_schemas(self, init_env) -> None:
+        class SampleModel(pydantic.BaseModel):
+            a: str
+            b: int
+            c: Optional[bool]
+
+        json_type = ColumnType.from_python_type(Json[SampleModel.model_json_schema()])
+        assert isinstance(json_type, JsonType)
+        assert(str(json_type) == 'Json[SampleModel]')
+
+        with pytest.raises(jsonschema.exceptions.SchemaError) as exc_info:
+            Json[self.bad_json_schema]
+        assert "'junk' is not valid under any of the given schemas" in str(exc_info.value)
