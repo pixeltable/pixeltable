@@ -11,7 +11,7 @@ class MessageFormatter:
     RED = discord.Color.red()
     
     @staticmethod
-    def create_search_embed(results: List[Dict], query: str) -> discord.Embed:
+    def create_search_embed(results: list[dict], query: str) -> discord.Embed:
         """Create formatted embed for search results"""
         embed = discord.Embed(
             title=f"🔍 Search Results for: {query}",
@@ -34,7 +34,7 @@ class MessageFormatter:
         return embed
 
     @staticmethod
-    def create_chat_embed(question: str, response: str, context: List[Dict]) -> discord.Embed:
+    def create_chat_embed(question: str, response: str, context: list[dict]) -> discord.Embed:
         """Create formatted embed for chat responses with context"""
         embed = discord.Embed(
             title="💬 Chat Response",

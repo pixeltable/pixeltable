@@ -1,10 +1,13 @@
-import os
 import logging
+import os
 from datetime import datetime
-import numpy as np
-from dotenv import load_dotenv
+
 import discord
+import numpy as np
+from discord import app_commands
 from discord.ext import commands
+from dotenv import load_dotenv
+
 import pixeltable as pxt
 from pixeltable.functions import openai
 from pixeltable.functions.huggingface import sentence_transformer
@@ -22,13 +25,11 @@ class PixelTableBot:
         intents = discord.Intents.default()
         intents.message_content = True
         self.bot = commands.Bot(command_prefix="/", intents=intents)
-        
         self.logger = logging.getLogger("pixeltable-bot")
         self.messages_table = None
         self.messages_view = None 
         self.chat_table = None
         self.formatter = MessageFormatter()
-        
         self.setup_bot_events()
 
     @staticmethod
@@ -41,7 +42,7 @@ class PixelTableBot:
         """Initialize Pixeltable directory and tables"""
         try:            
             pxt.drop_dir('discord_bot', force=True)
-            pxt.create_dir('discord_bot', ignore_errors=True)
+            pxt.create_dir('discord_bot')
             
             # Create messages table
             self.messages_table = pxt.create_table(
@@ -99,7 +100,7 @@ class PixelTableBot:
                         username=self.messages_view.username,
                         sim=sim
                     )
-                    .limit(5)
+                    .limit(10)
                 )
 
             self.chat_table.add_computed_column(context=get_context(self.chat_table.question))
@@ -118,29 +119,28 @@ class PixelTableBot:
                 self.chat_table.context,
                 self.chat_table.question
             ))
+
+            system_prompt = '''You are a helpful personal assistant focused on natural conversation.
+                CORE PRINCIPLES:
+                - Maintain conversational context
+                - Remember user preferences and details
+                - Progress discussions naturally
+                - Be specific and actionable
+                - Stay on topic unless user changes it
+
+                CONVERSATION STYLE:
+                - Friendly and engaging
+                - Clear and concise
+                - Naturally incorporate context
+                - Ask relevant follow-up questions
+                - Provide practical suggestions'''
             
             # Add response column
             self.chat_table.add_computed_column(response=openai.chat_completions(
                 messages=[
                     {
                         "role": "system",
-                        "content": f'''
-                        You are a context-aware Discord bot assistant.
-                        MEMORY MANAGEMENT:
-                        You have access to conversation history through semantic search
-                        The context provided is retrieved based on relevance to the current question
-                        Consider both recent messages and historical context in your responses
-                        If context seems outdated or irrelevant, acknowledge this in your response
-
-                        RESPONSE GUIDELINES:
-                        Maintain awareness of the channel/conversation history referenced in context
-                        Keep responses concise and Discord-appropriate in tone
-
-                        IMPORTANT:
-                        If no relevant context is found, clearly state you don't have enough information
-                        Stay within the scope of provided context - don't make assumptions, but you can rely on training data if needed
-                        If context is conflicting, point this out and explain your reasoning
-                        '''
+                        "content": system_prompt
                     },
                     {
                         "role": "user",
@@ -148,7 +148,10 @@ class PixelTableBot:
                     }
                 ],
                 model='gpt-4o-mini',
-                max_tokens=300
+                temperature=0.7,
+                max_tokens=2000,
+                presence_penalty=0.7,
+                frequency_penalty=0.5
             ).choices[0].message.content)
             
         except Exception as e:
@@ -266,7 +269,7 @@ class PixelTableBot:
 
 def main():
     load_dotenv()
-    token = os.getenv('DISCORD_TOKEN', 'OPENAI_API_KEY')
+    token = os.getenv('DISCORD_TOKEN')
     if not token:
         raise ValueError("Missing key in environment")
 
