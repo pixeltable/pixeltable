@@ -875,9 +875,8 @@ class TestTable:
             t.insert(c5=np.ndarray((3, 2)))
         assert 'expected ndarray((2, 3)' in str(exc_info.value)
 
-        # test that insert skips expression evaluation and does not
-        # populate any columns when the table is empty, and for any
-        # columns that are not part of the current schema.
+        # test that insert skips expression evaluation for
+        # any columns that are not part of the current schema.
         @pxt.udf(_force_stored=True)
         def bad_udf(x: str) -> str:
             assert False
