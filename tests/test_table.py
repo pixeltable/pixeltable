@@ -875,9 +875,9 @@ class TestTable:
             t.insert(c5=np.ndarray((3, 2)))
         assert 'expected ndarray((2, 3)' in str(exc_info.value)
 
-        # test that insert with a bad column succeeds when the
-        # table is empty and after the bad column is dropped
-        # because expression evaluation is skipped
+        # test that insert skips expression evaluation and does not
+        # populate any columns when the table is empty, and for any
+        # columns that are not part of the current schema.
         @pxt.udf(_force_stored=True)
         def bad_udf(x: str) -> str:
             assert False
@@ -894,7 +894,6 @@ class TestTable:
         assert t.count() == 1
         for tup in t.collect():
             assert tup['c1'] == 'this is a python string'
-
 
     def test_query(self, reset_db) -> None:
         skip_test_if_not_installed('boto3')
