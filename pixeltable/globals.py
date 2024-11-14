@@ -296,11 +296,11 @@ def move(path: str, new_path: str) -> None:
     obj._move(new_p.name, new_dir._id)
 
 
-def drop_table(table_name_or_obj: Union[str, catalog.Table], force: bool = False, ignore_errors: bool = False) -> None:
+def drop_table(table: Union[str, catalog.Table], force: bool = False, ignore_errors: bool = False) -> None:
     """Drop a table, view, or snapshot.
 
     Args:
-        table_name_or_obj: name or object of the [`Table`][pixeltable.Table] to be dropped.
+        table: "name or [`Table`][pixeltable.Table]" object of the table to be dropped.
         force: If `True`, will also drop all views and sub-views of this table.
         ignore_errors: If `True`, return silently if the table does not exist (without throwing an exception).
 
@@ -308,28 +308,28 @@ def drop_table(table_name_or_obj: Union[str, catalog.Table], force: bool = False
         Error: If the name does not exist or does not designate a table object, and `ignore_errors=False`.
 
     Examples:
-        Drop a table by name
+        Drop a table by name:
         >>> pxt.drop_table('my_table')
 
-        Drop a table by object
-        >>> t = pxt.get_handle('my_table')
+        Drop a table by reference:
+        >>> t = pxt.get_table('my_table')
         ... pxt.drop_table(t)
 
     """
     cat = Catalog.get()
-    if isinstance(table_name_or_obj, str):
-        tbl_path_obj = catalog.Path(table_name_or_obj)
+    if isinstance(table, str):
+        tbl_path_obj = catalog.Path(table)
         try:
             cat.paths.check_is_valid(tbl_path_obj, expected=catalog.Table)
         except Exception as e:
             if ignore_errors or force:
-                _logger.info(f'Skipped table `{table_name_or_obj}` (does not exist).')
+                _logger.info(f'Skipped table `{table}` (does not exist).')
                 return
             else:
                 raise e
         tbl = cat.paths[tbl_path_obj]
     else:
-        tbl = table_name_or_obj
+        tbl = table
         tbl_path_obj = catalog.Path(tbl._path)
 
     assert isinstance(tbl, catalog.Table)
