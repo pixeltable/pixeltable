@@ -300,7 +300,7 @@ def drop_table(table: Union[str, catalog.Table], force: bool = False, ignore_err
     """Drop a table, view, or snapshot.
 
     Args:
-        table: "name or [`Table`][pixeltable.Table]" object of the table to be dropped.
+        table: name or [`Table`][pixeltable.Table] object of the table to be dropped.
         force: If `True`, will also drop all views and sub-views of this table.
         ignore_errors: If `True`, return silently if the table does not exist (without throwing an exception).
 
