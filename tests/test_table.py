@@ -875,6 +875,17 @@ class TestTable:
             t.insert(c5=np.ndarray((3, 2)))
         assert 'expected ndarray((2, 3)' in str(exc_info.value)
 
+        # test that insert skips expression evaluation for
+        # any columns that are not part of the current schema.
+        @pxt.udf(_force_stored=True)
+        def bad_udf(x: str) -> str:
+            assert False
+        t = pxt.create_table('test', {'str_col': pxt.String})
+        t.add_column(bad=bad_udf(t.str_col))  # Succeeds because the table has no data
+        t.drop_column('bad')
+        t.insert(str_col='Hello there.') # Succeeds because column 'bad' is dropped
+        pxt.drop_table('test')
+
     def test_insert_string_with_null(self, reset_db) -> None:
         t = pxt.create_table('test', {'c1': pxt.String})
 
