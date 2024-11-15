@@ -611,12 +611,14 @@ class TimestampType(ColumnType):
 class JsonType(ColumnType):
 
     json_schema: Optional[dict[str, Any]]
-    __validator: jsonschema.protocols.Validator
+    __validator: Optional[jsonschema.protocols.Validator]
 
     def __init__(self, json_schema: Optional[dict[str, Any]] = None, nullable: bool = False):
         super().__init__(self.Type.JSON, nullable=nullable)
         self.json_schema = json_schema
-        if json_schema is not None:
+        if json_schema is None:
+            self.__validator = None
+        else:
             validator_cls = jsonschema.validators.validator_for(json_schema)
             validator_cls.check_schema(json_schema)
             self.__validator = validator_cls(json_schema)
@@ -626,19 +628,6 @@ class JsonType(ColumnType):
 
     def matches(self, other: ColumnType) -> bool:
         return isinstance(other, JsonType) and self.json_schema == other.json_schema
-
-    def supertype(self, other: ColumnType) -> Optional[JsonType]:
-        if not isinstance(other, JsonType):
-            return None
-        if self.json_schema is None or other.json_schema is None:
-            return JsonType(nullable=(self.nullable or other.nullable))
-
-        return JsonType(nullable=(self.nullable or other.nullable))
-
-    def validate_against_schema(self, val: Any) -> None:
-        if self.json_schema is None:
-            return True
-        self.__validator.validate(val)
 
     def _as_dict(self) -> dict:
         result = super()._as_dict()
@@ -672,7 +661,8 @@ class JsonType(ColumnType):
             raise TypeError(f'Expected dict or list, got {val.__class__.__name__}')
         if not self.__is_valid_json(val):
             raise TypeError(f'That literal is not a valid Pixeltable JSON object: {val}')
-        self.validate_against_schema(val)
+        if self.__validator is not None:
+            self.__validator.validate(val)
 
     @classmethod
     def __is_valid_json(cls, val: Any) -> bool:
@@ -692,6 +682,8 @@ class JsonType(ColumnType):
     def supertype(self, other: ColumnType) -> Optional[JsonType]:
         basic_supertype = super().supertype(other)
         if basic_supertype is not None:
+            # This will be much faster when it works
+            assert isinstance(basic_supertype, JsonType)
             return basic_supertype
 
         if not isinstance(other, JsonType):
