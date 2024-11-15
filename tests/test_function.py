@@ -328,6 +328,10 @@ class TestFunction:
             self.binding_test_udf.using(p1=5)
         assert "Expected type `String` for parameter `p1`; got `Int`" in str(exc_info.value)
 
+        with pytest.raises(TypeError) as exc_info:
+            _ = pb1(p1='a')
+        assert 'missing a required argument' in str(exc_info.value).lower()
+
     @pxt.expr_udf
     def add1(x: int) -> int:
         return x + 1
