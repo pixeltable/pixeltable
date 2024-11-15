@@ -11,7 +11,7 @@
 <br>
 [![tests status](https://github.com/pixeltable/pixeltable/actions/workflows/pytest.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions/workflows/pytest.yml)
 [![tests status](https://github.com/pixeltable/pixeltable/actions/workflows/nightly.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions/workflows/nightly.yml)
-[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fpixeltable%2Fpixeltable.svg?type=shield&issueType=security)](https://app.fossa.com/projects/git%2Bgithub.com%2Fpixeltable%2Fpixeltable?ref=badge_shield&issueType=security)
+[![My Discord (1306431018890166272)](https://img.shields.io/badge/💬-Discord-%235865F2.svg)](https://discord.gg/QPyqFYx2UN)
 [![PyPI Package](https://img.shields.io/pypi/v/pixeltable?color=4D148C)](https://pypi.org/project/pixeltable/)
 <a target="_blank" href="https://huggingface.co/Pixeltable">
   <img src="https://img.shields.io/badge/🤗-HF Space-FF7D04" alt="Visit our Hugging Face space"/>
