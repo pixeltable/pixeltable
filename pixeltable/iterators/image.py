@@ -2,6 +2,7 @@ from typing import Any
 
 import PIL.Image
 
+import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable.iterators.base import ComponentIterator
 
@@ -14,6 +15,9 @@ class TileIterator(ComponentIterator):
         tile_size: tuple[int, int],
         overlap: tuple[int, int] = (0, 0),
     ):
+        if overlap[0] >= tile_size[0] or overlap[1] >= tile_size[1]:
+            raise excs.Error(f"overlap dimensions {overlap} are not strictly smaller than tile size {tile_size}")
+
         self.__image = image
         self.__image.load()
         self.__tile_size = tile_size
@@ -71,4 +75,4 @@ class TileIterator(ComponentIterator):
             'tile': ts.ImageType(),
             'tile_coord': ts.JsonType(),
             'tile_box': ts.JsonType(),
-        }, []
+        }, ['tile']
