@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Sequence
 
 import PIL.Image
 
@@ -8,12 +8,24 @@ from pixeltable.iterators.base import ComponentIterator
 
 
 class TileIterator(ComponentIterator):
+    """
+    Iterator over tiles of an image. Each image will be divided into tiles of size `tile_size`, and the tiles will be
+    iterated over in row-major order (left-to-right, then top-to-bottom). An optional `overlap` parameter may be
+    specified. If the tiles do not exactly cover the image, then the rightmost and bottommost tiles will be padded with
+    blackspace, so that the output images all have the exact size `tile_size`.
+
+        Args:
+            image: Image to split into tiles.
+            tile_size: Size of each tile, as a pair of integers `[width, height]`.
+            overlap: Amount of overlap between adjacent tiles, as a pair of integers `[width, height]`.
+    """
+
     def __init__(
         self,
         image: PIL.Image.Image,
         *,
-        tile_size: tuple[int, int],
-        overlap: tuple[int, int] = (0, 0),
+        tile_size: Sequence[int, int],
+        overlap: Sequence[int, int] = (0, 0),
     ):
         if overlap[0] >= tile_size[0] or overlap[1] >= tile_size[1]:
             raise excs.Error(f"overlap dimensions {overlap} are not strictly smaller than tile size {tile_size}")
