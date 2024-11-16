@@ -704,7 +704,7 @@ class Table(SchemaObject):
         of text over an image column.
 
         Args:
-            column: The name or reference of column to index; must be a `String` or `Image` column.
+            column: The name of, or reference to, the column to index; must be a `String` or `Image` column.
             idx_name: The name of index. If not specified, a name such as `'idx0'` will be generated automatically.
                 If specified, the name must be unique for this table.
             string_embed: A function to embed text; required if the column is a `String` column.
@@ -736,6 +736,8 @@ class Table(SchemaObject):
             ...     metric='ip'
             ... )
 
+            Alternatively:
+
             >>> tbl.add_embedding_index(
             ...     tbl.img,
             ...     idx_name='clip_idx',
@@ -747,7 +749,7 @@ class Table(SchemaObject):
         if self._tbl_version_path.is_snapshot():
             raise excs.Error('Cannot add an index to a snapshot')
         self._check_is_dropped()
-        col: Column = None
+        col: Column
         if isinstance(column, str):
             self.__check_column_name_exists(column, include_bases=True)
             col = self._tbl_version_path.get_column(column, include_bases=True)
@@ -775,8 +777,8 @@ class Table(SchemaObject):
         embedding index; otherwise the specific index name must be provided instead.
 
         Args:
-            column: The name or reference of the column from which to drop the index.
-                                The column must have only one embedding index.
+            column: The name of, or reference to, the column from which to drop the index.
+                    The column must have only one embedding index.
             idx_name: The name of the index to drop.
 
         Raises:
@@ -824,8 +826,8 @@ class Table(SchemaObject):
         otherwise the specific index name must be provided instead.
 
         Args:
-            column: The name or handle of the column from which to drop the index.
-                                The column must have only one embedding index.
+            column: The name of, or reference to, the column from which to drop the index.
+                    The column must have only one embedding index.
             idx_name: The name of the index to drop.
 
         Raises:
