@@ -24,8 +24,8 @@ class TileIterator(ComponentIterator):
         self,
         image: PIL.Image.Image,
         *,
-        tile_size: Sequence[int, int],
-        overlap: Sequence[int, int] = (0, 0),
+        tile_size: tuple[int, int],
+        overlap: tuple[int, int] = (0, 0),
     ):
         if overlap[0] >= tile_size[0] or overlap[1] >= tile_size[1]:
             raise excs.Error(f"overlap dimensions {overlap} are not strictly smaller than tile size {tile_size}")

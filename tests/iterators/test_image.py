@@ -1,6 +1,8 @@
 import PIL.Image
+import pytest
 
 import pixeltable as pxt
+import pixeltable.exceptions as excs
 
 from ..utils import SAMPLE_IMAGE_URL
 
@@ -27,3 +29,18 @@ class TestImage:
                 assert result['tile'].size == (100, 100)
                 tile = image.crop(box)
                 assert list(result['tile'].getdata()) == list(tile.getdata())
+
+    def test_tile_iterator_errors(self, reset_db):
+        t = pxt.create_table('test_tbl', {'image': pxt.Image})
+        t.insert(image=SAMPLE_IMAGE_URL)
+        for overlap in ((0, 100), (100, 0)):
+            with pytest.raises(excs.Error) as exc_info:
+                _ = pxt.create_view(
+                    'test_view',
+                    t,
+                    iterator=pxt.iterators.TileIterator.create(image=t.image, tile_size=(100, 100), overlap=overlap)
+                )
+        assert (
+            f'overlap dimensions {list(overlap)} are not strictly smaller than tile size [100, 100]'
+            in str(exc_info.value)
+        )
