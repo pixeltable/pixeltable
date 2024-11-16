@@ -258,7 +258,7 @@ class Planner:
         """Creates a plan for TableVersion.insert()"""
         assert not tbl.is_view()
         # stored_cols: all cols we need to store, incl computed cols (and indices)
-        stored_cols = [c for c in tbl.cols if c.is_stored]
+        stored_cols = [c for c in tbl.cols_by_id.values() if c.is_stored]
         assert len(stored_cols) > 0  # there needs to be something to store
         row_builder = exprs.RowBuilder([], stored_cols, [])
 

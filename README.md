@@ -3,7 +3,7 @@
      alt="Pixeltable" width="50%" />
 <br></br>
 
-<h2>AI Data Insfrastructure — Declarative, Multimodal, and Incremental</h2>
+<h2>AI Data Infrastructure — Declarative, Multimodal, and Incremental</h2>
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-0530AD.svg)](https://opensource.org/licenses/Apache-2.0)
 ![PyPI - Python Version](https://img.shields.io/pypi/pyversions/pixeltable?logo=python&logoColor=white&)
@@ -11,8 +11,8 @@
 <br>
 [![tests status](https://github.com/pixeltable/pixeltable/actions/workflows/pytest.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions/workflows/pytest.yml)
 [![tests status](https://github.com/pixeltable/pixeltable/actions/workflows/nightly.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions/workflows/nightly.yml)
-[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fpixeltable%2Fpixeltable.svg?type=shield&issueType=security)](https://app.fossa.com/projects/git%2Bgithub.com%2Fpixeltable%2Fpixeltable?ref=badge_shield&issueType=security)
 [![PyPI Package](https://img.shields.io/pypi/v/pixeltable?color=4D148C)](https://pypi.org/project/pixeltable/)
+[![My Discord (1306431018890166272)](https://img.shields.io/badge/💬-Discord-%235865F2.svg)](https://discord.gg/QPyqFYx2UN)
 <a target="_blank" href="https://huggingface.co/Pixeltable">
   <img src="https://img.shields.io/badge/🤗-HF Space-FF7D04" alt="Visit our Hugging Face space"/>
 </a>

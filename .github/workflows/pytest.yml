@@ -117,7 +117,11 @@ jobs:
         run: conda install -c conda-forge libiconv ffmpeg
       - name: Install ollama
         if: ${{ matrix.poetry-options != '' && matrix.os == 'ubuntu-22.04' }}
-        run: curl -fsSL https://ollama.com/install.sh | sh
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          sleep 10  # Wait for the ollama server to start
+          # Pull the model used for testing now, with retries, to safeguard against connection issues
+          ./scripts/retry.sh 3 30 ollama pull 'qwen2.5:0.5b'
       - name: Install poetry
         # setuptools >= 69.2 has been causing problems with github actions even when its
         # version is enforced in poetry. For now, explicitly revert to setuptools 69.1.1
@@ -138,24 +142,8 @@ jobs:
           key: venv-${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.poetry-options }}-${{
             hashFiles('.github/workflows/pytest.yml', 'poetry.lock', 'poetry.toml', 'pyproject.toml', 'Makefile') }}
       - name: Install the project dependencies
-        # Retry 3 times to be (hopefully) resilient against transient connection errors.
-        shell: bash -l {0}  # Don't use -e flag
-        run: |
-          set +e
-          RETRIES=3
-          while (( RETRIES-- > 0 )); do
-            poetry install ${{ matrix.poetry-options }}
-            RESULT="$?"
-            if [[ "$RESULT" == 0 ]]; then
-              break
-            fi
-            echo "Dependencies installation failed with exit code $RESULT; $RETRIES tries remaining."
-            sleep 60
-          done
-          if [[ "$RESULT" != 0 ]]; then
-            exit 1
-          fi
-          echo "Dependencies installation succeeded."
+        # Retry 3 times to be resilient against transient connectivity issues.
+        run: ./scripts/retry.sh 3 60 poetry install ${{ matrix.poetry-options }}
       - name: Install yolox
         # Yolox cannot be installed with poetry and only seems to work with python <= 3.10 and not on ubuntu-arm64
         if: ${{ matrix.poetry-options != '' && matrix.python-version == '3.9' && matrix.os == 'ubuntu-22.04' }}
