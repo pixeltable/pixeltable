@@ -270,7 +270,7 @@ class PixelTableBot:
 def main():
     load_dotenv()
     token = os.getenv('DISCORD_TOKEN')
-    if not token:
+    if token is None:
         raise ValueError("Missing key in environment")
 
     try:
