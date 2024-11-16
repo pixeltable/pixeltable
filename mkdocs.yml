@@ -27,6 +27,7 @@ nav:
       - ComponentIterator: api/iterators/component-iterator.md
       - DocumentSplitter: api/iterators/document-splitter.md
       - FrameIterator: api/iterators/frame-iterator.md
+      - TileIterator: api/iterators/tile-iterator.md
     - DataFrame: api/data-frame.md
     - Table: api/table.md
     - UpdateStatus: api/update-status.md

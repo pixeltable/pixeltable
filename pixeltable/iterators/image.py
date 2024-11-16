@@ -14,10 +14,10 @@ class TileIterator(ComponentIterator):
     specified. If the tiles do not exactly cover the image, then the rightmost and bottommost tiles will be padded with
     blackspace, so that the output images all have the exact size `tile_size`.
 
-        Args:
-            image: Image to split into tiles.
-            tile_size: Size of each tile, as a pair of integers `[width, height]`.
-            overlap: Amount of overlap between adjacent tiles, as a pair of integers `[width, height]`.
+    Args:
+        image: Image to split into tiles.
+        tile_size: Size of each tile, as a pair of integers `[width, height]`.
+        overlap: Amount of overlap between adjacent tiles, as a pair of integers `[width, height]`.
     """
 
     def __init__(
