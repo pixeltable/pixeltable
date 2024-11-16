@@ -732,7 +732,7 @@ class DataFrame:
         Env.get().require_package('torch')
         Env.get().require_package('torchvision')
 
-        from pixeltable.io.parquet import save_parquet
+        from pixeltable.io import export_parquet
         from pixeltable.utils.pytorch import PixeltablePytorchDataset
 
         cache_key = self._hash_result_set()
@@ -741,6 +741,6 @@ class DataFrame:
         if dest_path.exists():  # fast path: use cache
             assert dest_path.is_dir()
         else:
-            save_parquet(self, dest_path)
+            export_parquet(self, dest_path)
 
         return PixeltablePytorchDataset(path=dest_path, image_format=image_format)

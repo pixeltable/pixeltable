@@ -39,7 +39,7 @@ def _write_batch(value_batch: dict[str, deque], schema: pa.Schema, output_path: 
     parquet.write_table(tab, str(output_path))
 
 
-def save_parquet(df: pxt.DataFrame, dest_path: Path, partition_size_bytes: int = 100_000_000) -> None:
+def export_parquet(df: pxt.DataFrame, dest_path: Path, partition_size_bytes: int = 100_000_000) -> None:
     """
     Internal method to stream dataframe data to parquet format.
     Does not materialize the dataset to memory.
