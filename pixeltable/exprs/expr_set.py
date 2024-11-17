@@ -60,6 +60,14 @@ class ExprSet(Generic[T]):
     def __le__(self, other: ExprSet[T]) -> bool:
         return other.issuperset(self)
 
+    def union(self, *others: Iterable[T]) -> ExprSet[T]:
+        result = ExprSet(self.exprs.values())
+        result.update(*others)
+        return result
+
+    def __or__(self, other: ExprSet[T]) -> ExprSet[T]:
+        return self.union(other)
+
     def difference(self, *others: Iterable[T]) -> ExprSet[T]:
         id_diff = set(self.exprs.keys()).difference(e.id for other_set in others for e in other_set)
         return ExprSet(self.exprs[id] for id in id_diff)

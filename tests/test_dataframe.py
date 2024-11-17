@@ -101,11 +101,19 @@ class TestDataFrame:
         validate_update_status(t1.insert({'id': i, 'int_col': i} for i in range(num_rows)), expected_rows=num_rows)
         validate_update_status(
             t2.insert({'id': i, 'float_col': float(num_rows - i)} for i in range(num_rows)), expected_rows=num_rows)
-        df = t1.join(t2, on=t1.id, how='inner').select(t1.int_col, t2.float_col, t1.int_col + t2.float_col)
+        df = (
+            t1.join(t2, on=t1.id, how='inner')
+            .select(t1.int_col, t2.float_col, out=t1.int_col + t2.float_col)
+            .order_by(t2.float_col)
+        )
+        pd_df = df.collect().to_pandas()
+        assert pd_df.float_col.is_monotonic_increasing  # correct ordering
+        assert (pd_df.out == 1000.0).all()  # correct sum
 
         # select list contains invalid references
         with pytest.raises(excs.Error) as exc_info:
-            df = t1.select(t1.int_col, t2.float_col, t1.int_col + t2.float_col)
+            _ = t1.select(t1.int_col, t1.int_col + t2.float_col)
+        assert 'cannot be evaluated in the context' in str(exc_info.value)
 
     def test_result_set_iterator(self, test_tbl: catalog.Table) -> None:
         t = test_tbl

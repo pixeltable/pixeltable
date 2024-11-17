@@ -181,7 +181,7 @@ class Table(SchemaObject):
 
     def join(
             self, other: 'Table', *, on: Optional['exprs.Expr'] = None,
-            how: Optional[Literal['inner', 'left', 'right', 'full_outer', 'cross']] = None
+            how: Optional[Literal['inner', 'left', 'right', 'full_outer', 'cross']] = 'inner'
     ) -> 'pxt.DataFrame':
 
         """Return a [`DataFrame`][pixeltable.DataFrame] for this table."""

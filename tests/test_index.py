@@ -36,16 +36,22 @@ class TestIndex:
         for metric, is_asc in [('cosine', False), ('ip', False), ('l2', True)]:
             t.add_embedding_index('img', metric=metric, image_embed=clip_img_embed, string_embed=clip_text_embed)
 
-            res = t.select(img=t.img, sim=t.img.similarity(sample_img))\
-                .order_by(t.img.similarity(sample_img), asc=is_asc)\
-                .limit(1).collect()
+            res = (
+                t.select(img=t.img, sim=t.img.similarity(sample_img))
+                .order_by(t.img.similarity(sample_img), asc=is_asc)
+                .limit(1)
+                .collect()
+            )
             out_img = res[0, 'img']
             assert_img_eq(sample_img, out_img), f'{metric} failed'
 
             # TODO:  how to verify the output?
-            _ = t.select(path=t.img.localpath, sim=t.img.similarity('parachute')) \
-                .order_by(t.img.similarity('parachute'), asc=is_asc) \
-                .limit(1).collect()
+            _ = (
+                t.select(path=t.img.localpath, sim=t.img.similarity('parachute'))
+                .order_by(t.img.similarity('parachute'), asc=is_asc)
+                .limit(1)
+                .collect()
+            )
 
             # can also be used in a computed column
             validate_update_status(t.add_column(sim=t.img.similarity('parachute')))

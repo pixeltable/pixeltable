@@ -149,7 +149,9 @@ def create_view(
         tbl_version_path = base._tbl_version_path
     elif isinstance(base, DataFrame):
         base._validate_mutable('create_view')
-        tbl_version_path = base.tbl
+        if len(base._from_clause.tbls) > 1:
+            raise excs.Error('Cannot create a view of a join')
+        tbl_version_path = base._from_clause.tbls[0]
         where = base.where_clause
     else:
         raise excs.Error('`base` must be an instance of `Table` or `DataFrame`')

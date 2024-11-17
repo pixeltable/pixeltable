@@ -17,6 +17,10 @@ class SqlElementCache:
             for e, el in elements.items():
                 self.cache[e.id] = el
 
+    def extend(self, elements: ExprDict[sql.ColumnElement]):
+        for e, el in elements.items():
+            self.cache[e.id] = el
+
     def get(self, e: Expr) -> Optional[sql.ColumnElement]:
         """Returns the sql.ColumnElement for the given Expr, or None if Expr.to_sql() returns None."""
         try:

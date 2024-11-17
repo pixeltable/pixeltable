@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import builtins
 import copy
+import dataclasses
 import hashlib
 import json
 import logging
@@ -159,12 +160,9 @@ class DataFrame:
         else:
             self._from_clause = from_clause
 
-        # select list logic
-        DataFrame._select_list_check_rep(select_list)  # check select list without expansion
         # exprs contain execution state and therefore cannot be shared
         select_list = copy.deepcopy(select_list)
         select_list_exprs, column_names = DataFrame._normalize_select_list(self._from_clause.tbls, select_list)
-        DataFrame._select_list_check_rep(list(zip(select_list_exprs, column_names)))
         # check select list after expansion to catch early
         # the following two lists are always non empty, even if select list is None.
         assert len(column_names) == len(select_list_exprs)
@@ -178,24 +176,6 @@ class DataFrame:
         self.grouping_tbl = grouping_tbl
         self.order_by_clause = copy.deepcopy(order_by_clause)
         self.limit_val = limit
-
-    @classmethod
-    def _select_list_check_rep(
-        cls,
-        select_list: Optional[list[tuple[exprs.Expr, Optional[str]]]],
-    ) -> None:
-        """Validate basic select list types."""
-        if select_list is None:  # basic check for valid select list
-            return
-
-        assert len(select_list) > 0
-        for ent in select_list:
-            assert isinstance(ent, tuple)
-            assert len(ent) == 2
-            assert isinstance(ent[0], exprs.Expr)
-            assert ent[1] is None or isinstance(ent[1], str)
-            if isinstance(ent[1], str):
-                assert is_valid_identifier(ent[1])
 
     @classmethod
     def _normalize_select_list(
@@ -230,9 +210,6 @@ class DataFrame:
                     column_name = f'col_{i}'
             else:  # user provided name, no attempt to rename
                 column_name = name
-
-            if not expr.is_bound_by(tbls):
-                raise excs.Error(f'Expression cannot be evaluated: {expr}')
 
             out_exprs.append(expr)
             out_names.append(column_name)
@@ -313,7 +290,7 @@ class DataFrame:
             item.bind_rel_paths(None)
 
         return plan.Planner.create_query_plan(
-            self._from_clause.tbls[0],
+            self._from_clause,
             self._select_list_exprs,
             where_clause=self.where_clause,
             group_by_clause=group_by_clause,
@@ -496,7 +473,7 @@ class DataFrame:
             return self
 
         # analyze select list; wrap literals with the corresponding expressions
-        select_list = []
+        select_list: list[tuple[exprs.Expr, Optional[str]]] = []
         for raw_expr, name in base_list:
             if isinstance(raw_expr, exprs.Expr):
                 select_list.append((raw_expr, name))
@@ -509,9 +486,12 @@ class DataFrame:
             expr = select_list[-1][0]
             if expr.col_type.is_invalid_type():
                 raise excs.Error(f'Invalid type: {raw_expr}')
+            if not expr.is_bound_by(self._from_clause.tbls):
+                raise excs.Error(
+                    f"Expression '{expr}' cannot be evaluated in the context of this query's tables "
+                    f"({','.join(tbl.tbl_name() for tbl in self._from_clause.tbls)})")
 
-        # check user provided names do not conflict among themselves
-        # or with auto-generated ones
+        # check user provided names do not conflict among themselves or with auto-generated ones
         seen: set[str] = set()
         _, names = DataFrame._normalize_select_list(self._from_clause.tbls, select_list)
         for name in names:
@@ -620,10 +600,10 @@ class DataFrame:
 
     def join(
         self, other: catalog.Table,  *, on: Optional[exprs.Expr] = None,
-        how: Optional[JoinTypeLiterals] = None
+        how: Optional[JoinTypeLiterals] = 'inner'
     ) -> DataFrame:
         join_pred = self._create_join_predicate(other._tbl_version_path, on)
-        join_clause = plan.JoinClause(join_type=plan.JoinType.validated(how, "'how'"), join_pred=join_pred)
+        join_clause = plan.JoinClause(join_type=plan.JoinType.validated(how, "'how'"), join_predicate=join_pred)
         from_clause = plan.FromClause(
             tbls=[*self._from_clause.tbls, other._tbl_version_path],
             join_clauses=[*self._from_clause.join_clauses, join_clause])
@@ -739,7 +719,7 @@ class DataFrame:
             '_classname': 'DataFrame',
             'from_clause': {
                 'tbls': [tbl.as_dict() for tbl in self._from_clause.tbls],
-                'join_clauses': [clause.asdict() for clause in self._from_clause.join_clauses]
+                'join_clauses': [dataclasses.asdict(clause) for clause in self._from_clause.join_clauses]
             },
             'select_list':
                 [(e.as_dict(), name) for (e, name) in self.select_list] if self.select_list is not None else None,
@@ -755,7 +735,9 @@ class DataFrame:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> 'DataFrame':
-        tbl = catalog.TableVersionPath.from_dict(d['tbl'])
+        tbls = [catalog.TableVersionPath.from_dict(tbl_dict) for tbl_dict in d['from_clause']['tbls']]
+        join_clauses = [plan.JoinClause(**clause_dict) for clause_dict in d['from_clause']['join_clauses']]
+        from_clause = plan.FromClause(tbls=tbls, join_clauses=join_clauses)
         select_list = [(exprs.Expr.from_dict(e), name) for e, name in d['select_list']] \
             if d['select_list'] is not None else None
         where_clause = exprs.Expr.from_dict(d['where_clause']) \
@@ -768,8 +750,9 @@ class DataFrame:
             if d['order_by_clause'] is not None else None
         limit_val = d['limit_val']
         return DataFrame(
-            tbl, select_list=select_list, where_clause=where_clause, group_by_clause=group_by_clause,
-            grouping_tbl=grouping_tbl, order_by_clause=order_by_clause, limit=limit_val)
+            from_clause=from_clause, select_list=select_list, where_clause=where_clause,
+            group_by_clause=group_by_clause, grouping_tbl=grouping_tbl, order_by_clause=order_by_clause,
+            limit=limit_val)
 
     def _hash_result_set(self) -> str:
         """Return a hash that changes when the result set changes."""
