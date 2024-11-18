@@ -165,7 +165,7 @@ jobs:
       - name: Run the notebook tests
         if: ${{ matrix.test-category == 'ipynb' }}
         run: |
-          ./scripts/prepare-nb-tests.sh --no-pip docs/release tests
+          ./scripts/prepare-nb-tests.sh --no-pip docs/notebooks tests
           pytest -v -m '' --nbmake --nbmake-timeout=1800 target/nb-tests/*.ipynb
       - name: Type check
         if: ${{ matrix.test-category == 'lint' }}
@@ -173,6 +173,9 @@ jobs:
       - name: Validate docstrings
         if: ${{ matrix.test-category == 'lint' }}
         run: mkdocs build --strict
+      - name: Validate links in notebooks
+        if: ${{ matrix.test-category == 'lint' }}
+        run: ./scripts/lint-notebooks.sh
       - name: Print utilization info
         if: ${{ startsWith(matrix.os, 'ubuntu') }}
         run: |
