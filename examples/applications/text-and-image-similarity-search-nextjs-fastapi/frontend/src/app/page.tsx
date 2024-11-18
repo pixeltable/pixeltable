@@ -98,7 +98,7 @@ export default function VideoSearch() {
             // For image search, send the image file
             formData.append('query', imageQuery)
         }
-        
+
         formData.append('search_type', searchType)
         formData.append('num_results', numResults.toString())
 
@@ -113,7 +113,7 @@ export default function VideoSearch() {
         }
 
         const data = await response.json()
-        
+
         if (!data.success) {
             throw new Error(data.detail || 'Search failed')
         }
@@ -139,8 +139,8 @@ export default function VideoSearch() {
       <div className="max-w-7xl mx-auto p-6">
         {/* Header */}
         <div className="mb-8 text-center">
-          <img 
-            src="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/source/data/pixeltable-logo-large.png"
+          <img
+            src="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/pixeltable-logo-large.png"
             alt="Pixeltable"
             className="h-12 mb-4 mx-auto"
           />
@@ -156,7 +156,7 @@ export default function VideoSearch() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
           {/* How it Works */}
           <div className="bg-white rounded-xl shadow-md overflow-hidden">
-            <button 
+            <button
               onClick={() => setAccordionState(prev => ({
                 ...prev,
                 howItWorks: !prev.howItWorks
@@ -164,7 +164,7 @@ export default function VideoSearch() {
               className="w-full text-left px-6 py-4 flex justify-between items-center bg-gray-50 hover:bg-gray-100 transition-colors"
             >
               <h3 className="text-lg font-semibold text-gray-800">How It Works</h3>
-              <svg 
+              <svg
                 className={`w-5 h-5 transform transition-transform ${
                   accordionState.howItWorks ? 'rotate-180' : ''
                 }`}
@@ -197,7 +197,7 @@ export default function VideoSearch() {
 
           {/* What It Does */}
           <div className="bg-white rounded-xl shadow-md overflow-hidden">
-            <button 
+            <button
               onClick={() => setAccordionState(prev => ({
                 ...prev,
                 whatItDoes: !prev.whatItDoes
@@ -205,7 +205,7 @@ export default function VideoSearch() {
               className="w-full text-left px-6 py-4 flex justify-between items-center bg-gray-50 hover:bg-gray-100 transition-colors"
             >
               <h3 className="text-lg font-semibold text-gray-800">What It Does</h3>
-              <svg 
+              <svg
                 className={`w-5 h-5 transform transition-transform ${
                   accordionState.whatItDoes ? 'rotate-180' : ''
                 }`}
@@ -253,7 +253,7 @@ export default function VideoSearch() {
 
             {/* Video Upload Section */}
             <div className="space-y-4 mb-8">
-              <div 
+              <div
                 className="border-2 border-dashed border-gray-200 rounded-lg p-6 text-center
                   hover:border-blue-400 transition-colors cursor-pointer"
                 onClick={() => document.getElementById('video-upload')?.click()}
@@ -334,12 +334,12 @@ export default function VideoSearch() {
                       value={textQuery}
                       onChange={(e) => setTextQuery(e.target.value)}
                       placeholder="Describe what you're looking for..."
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2
                           focus:ring-blue-500 focus:border-blue-500"
                   />
               ) : (
                 <div className="space-y-4">
-            <div 
+            <div
                 className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center
                     hover:border-blue-500 transition-colors cursor-pointer"
                 onClick={() => document.getElementById('image-upload')?.click()}
@@ -353,8 +353,8 @@ export default function VideoSearch() {
                 />
                 {imageQuery ? (
                     <div className="space-y-2">
-                        <img 
-                            src={URL.createObjectURL(imageQuery)} 
+                        <img
+                            src={URL.createObjectURL(imageQuery)}
                             alt="Search reference"
                             className="max-h-32 mx-auto rounded-lg"
                         />
@@ -370,11 +370,11 @@ export default function VideoSearch() {
                             stroke="currentColor"
                             viewBox="0 0 24 24"
                         >
-                            <path 
-                                strokeLinecap="round" 
-                                strokeLinejoin="round" 
-                                strokeWidth={2} 
-                                d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" 
+                            <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
                             />
                         </svg>
                         <p className="text-sm text-gray-600">
@@ -428,7 +428,7 @@ export default function VideoSearch() {
             <div className="mb-6">
               <h2 className="text-xl font-semibold mb-2">Search Results</h2>
               <p className="text-gray-600 text-sm">
-                {results.length 
+                {results.length
                   ? `Found ${results.length} matching frames`
                   : 'Process a video and search to see results'}
               </p>
@@ -509,7 +509,7 @@ export default function VideoSearch() {
                 </a>
               </div>
             </div>
-            
+
             <div>
               <h3 className="text-sm font-semibold text-gray-400 tracking-wider uppercase">Resources</h3>
               <ul role="list" className="mt-4 space-y-4">
@@ -552,7 +552,7 @@ export default function VideoSearch() {
               </ul>
             </div>
           </div>
-          
+
           <div className="border-t border-gray-200 py-8">
             <p className="text-base text-gray-400 text-center">
               &copy; {new Date().getFullYear()} Pixeltable
