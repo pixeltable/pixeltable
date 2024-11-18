@@ -27,7 +27,7 @@ class TestIndex:
     def bad_embed2(x: str) -> pxt.Array[(None,), pxt.Float]:
         return np.zeros(10)
 
-    def test_similarity(self, small_img_tbl: pxt.Table, reload_test: ReloadTester) -> None:
+    def test_similarity(self, small_img_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
         skip_test_if_not_installed('transformers')
         t = small_img_tbl
         sample_img = t.select(t.img).head(1)[0, 'img']
@@ -41,7 +41,7 @@ class TestIndex:
                 .order_by(t.img.similarity(sample_img), asc=is_asc)
                 .limit(1)
             )
-            res = reload_test.run_query(df)
+            res = reload_tester.run_query(df)
             out_img = res[0, 'img']
             assert_img_eq(sample_img, out_img), f'{metric} failed'
 
@@ -51,13 +51,13 @@ class TestIndex:
                 .order_by(t.img.similarity('parachute'), asc=is_asc)
                 .limit(1)
             )
-            _ = reload_test.run_query(df)
+            _ = reload_tester.run_query(df)
 
             # can also be used in a computed column
             validate_update_status(t.add_column(sim=t.img.similarity('parachute')))
             t.drop_column('sim')
 
-            reload_test.run_test()
+            reload_tester.run_reload_test(clear=True)
 
             t.drop_embedding_index(column='img')
 

@@ -401,7 +401,7 @@ def assert_resultset_eq(r1: DataFrameResultSet, r2: DataFrameResultSet, compare_
     if compare_col_names:
         assert r1.schema.keys() == r2.schema.keys()
     for r1_col, r2_col in zip(r1.schema, r2.schema):
-        # only compare column values
+        # compare column values
         s1 = r1[r1_col]
         s2 = r2[r2_col]
         if r1.schema[r1_col].is_float_type():
@@ -536,9 +536,12 @@ SAMPLE_IMAGE_URL = (
 class ReloadTester:
     """Utility to verify that queries return identical results after a catalog reload"""
 
-    df_info: list[tuple[dict[str, Any], DataFrameResultSet]]
+    df_info: list[tuple[dict[str, Any], DataFrameResultSet]]  # list of (df.as_dict(), df.collect())
 
     def __init__(self):
+        self.df_info = []
+
+    def clear(self) -> None:
         self.df_info = []
 
     def run_query(self, df: pxt.DataFrame) -> DataFrameResultSet:
@@ -547,15 +550,15 @@ class ReloadTester:
         self.df_info.append((df_dict, result_set))
         return result_set
 
-    def run_test(self, clear: bool = True) -> None:
+    def run_reload_test(self, clear: bool = True) -> None:
         reload_catalog()
         for df_dict, result_set in self.df_info:
             df = pxt.DataFrame.from_dict(df_dict)
-            result_set = df.collect()
+            new_result_set = df.collect()
             try:
-                assert_resultset_eq(result_set, result_set, compare_col_names=True)
+                assert_resultset_eq(result_set, new_result_set, compare_col_names=True)
             except Exception as e:
                 s = f'Reload test failed for query:\n{df}\n{e}'
-                raise RuntimeError(s)
+                raise RuntimeError(s) from e
         if clear:
-            self.df_info = []
+            self.clear()

@@ -89,7 +89,7 @@ def test_tbl(reset_db) -> catalog.Table:
     return create_test_tbl()
 
 @pytest.fixture(scope='function')
-def reload_test(init_env) -> ReloadTester:
+def reload_tester(init_env) -> ReloadTester:
     return ReloadTester()
 
 @pytest.fixture(scope='function')
