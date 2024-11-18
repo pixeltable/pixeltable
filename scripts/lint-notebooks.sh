@@ -13,7 +13,6 @@ notebooks=$(find docs/notebooks -name '*.ipynb' | grep -v .ipynb_checkpoints)
 
 IFS=$'\n'
 for fn in $notebooks; do
-    echo ""
     echo "Linting $fn ..."
 
     colab_line=$(grep "colab.research.google.com" "$fn")
