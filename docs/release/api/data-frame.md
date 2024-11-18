@@ -1,10 +1,13 @@
 # DataFrame
 
 `DataFrame` represents a query against a specific table. Unlike computation container frameworks like pandas or Dask,
-Pixeltable dataframes do not hold data or allow you to update data (use [insert][pixeltable.Table.insert]/[update][pixeltable.Table.update]/[delete][pixeltable.Table.delete] for that purpose).
+Pixeltable dataframes do not hold data or allow you to update data
+(use [insert][pixeltable.Table.insert]/[update][pixeltable.Table.update]/[delete][pixeltable.Table.delete]
+for that purpose).
 Another difference to pandas is that query execution needs to be initiated explicitly in order to return results.
 
 ## Overview
+
 | Query Construction                          |                                                        |
 |---------------------------------------------|--------------------------------------------------------|
 | [`select`][pixeltable.DataFrame.select]     | Select output expressions                              |
@@ -26,6 +29,7 @@ Another difference to pandas is that query execution needs to be initiated expli
 | [`to_coco_dataset`][pixeltable.DataFrame.to_coco_dataset]       | Return the query result as a COCO dataset                                                                                            |
 
 ## ::: pixeltable.DataFrame
+
     options:
       members:
       - collect
