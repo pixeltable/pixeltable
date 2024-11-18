@@ -133,12 +133,6 @@ class TableVersionPath:
         else:
             return False
 
-    def has_column_ref(self, col_ref: exprs.ColumnRef, include_bases: bool = True) -> bool:
-        """Return True if this table has the given column reference.
-        """
-        assert col_ref is not None
-        return self.has_column(col_ref.col, include_bases)
-
     def as_dict(self) -> dict:
         return {
             'tbl_version': self.tbl_version.as_dict(),

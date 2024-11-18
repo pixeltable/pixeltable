@@ -610,7 +610,7 @@ class Table(SchemaObject):
             raise excs.Error(f'Column {column_name!r} unknown')
 
     def __check_column_ref_exists(self, col_ref: ColumnRef, include_bases: bool = False) -> None:
-        exists = self._tbl_version_path.has_column_ref(col_ref, include_bases)
+        exists = self._tbl_version_path.has_column(col_ref.col, include_bases)
         if not exists:
             raise excs.Error(f'Unknown column: {col_ref.col.qualified_name}')
 
