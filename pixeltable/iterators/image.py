@@ -20,6 +20,16 @@ class TileIterator(ComponentIterator):
         overlap: Amount of overlap between adjacent tiles, as a pair of integers `[width, height]`.
     """
 
+    __image: PIL.Image.Image
+    __tile_size: Sequence[int]
+    __overlap: Sequence[int]
+    __width: int
+    __height: int
+    __xlen: int
+    __ylen: int
+    __i: int
+    __j: int
+
     def __init__(
         self,
         image: PIL.Image.Image,
