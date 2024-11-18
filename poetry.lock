@@ -4245,13 +4245,13 @@ files = [
 
 [[package]]
 name = "mistralai"
-version = "1.1.0"
+version = "1.2.1"
 description = "Python Client SDK for the Mistral AI API."
 optional = false
 python-versions = "<4.0,>=3.8"
 files = [
-    {file = "mistralai-1.1.0-py3-none-any.whl", hash = "sha256:eea0938975195f331d0ded12d14e3c982f09f1b68210200ed4ff0c6b9b22d0fb"},
-    {file = "mistralai-1.1.0.tar.gz", hash = "sha256:9d1fe778e0e8c6ddab714e6a64c6096bd39cfe119ff38ceb5019d8e089df08ba"},
+    {file = "mistralai-1.2.1-py3-none-any.whl", hash = "sha256:ef24b8f26d045b40db685f256289cf7bd027419e201034cbf4552adfa333aa18"},
+    {file = "mistralai-1.2.1.tar.gz", hash = "sha256:6b6c3548a6079926fffb96e375afe1ee8d226adedb7bb69ef028695cd5860b4f"},
 ]
 
 [package.dependencies]
@@ -10383,4 +10383,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.9,<4.0"
-content-hash = "416af3401ff79ab7bca629230b13b2cbd287137ff3159e303dc25d9818009173"
+content-hash = "ca701aaa9f405f0b719c420ec8a2d9b83aa0236bd0d52b40b4368203d3d436fc"

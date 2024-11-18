@@ -58,6 +58,9 @@ class SimilarityExpr(Expr):
     def __str__(self) -> str:
         return f'{self.components[0]}.similarity({self.components[1]})'
 
+    def default_column_name(self) -> str:
+        return 'similarity'
+
     def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
         if not isinstance(self.components[1], Literal):
              raise excs.Error(f'similarity(): requires a string or a PIL.Image.Image object, not an expression')

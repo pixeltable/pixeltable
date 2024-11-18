@@ -296,6 +296,42 @@ class TestFunction:
             _ = t.queries.not_a_query
         assert "table 'test' has no query with that name: 'not_a_query'" in str(exc_info.value).lower()
 
+    @pxt.udf
+    def binding_test_udf(p1: str, p2: str, p3: str, p4: str = 'default') -> str:
+        return f'{p1} {p2} {p3} {p4}'
+
+    def test_partial_binding(self, reset_db) -> None:
+        pb1 = self.binding_test_udf.using(p2='y')
+        pb2 = self.binding_test_udf.using(p1='x', p3='z')
+        pb3 = self.binding_test_udf.using(p1='x', p2='y', p3='z')
+        assert pb1.arity == 3
+        assert pb2.arity == 2
+        assert pb3.arity == 1
+        assert len(pb1.signature.required_parameters) == 2
+        assert len(pb2.signature.required_parameters) == 1
+        assert len(pb3.signature.required_parameters) == 0
+        assert pb2.signature.required_parameters[0].name == 'p2'
+
+        t = pxt.create_table('test', {'c1': pxt.String, 'c2': pxt.String, 'c3': pxt.String})
+        t.insert(c1='a', c2='b', c3='c')
+        t.add_computed_column(pb1=pb1(t.c1, t.c3))
+        t.add_computed_column(pb2=pb2(t.c2))
+        t.add_computed_column(pb3=pb3(p4='changed'))
+        res = t.select(t.pb1, t.pb2, t.pb3).collect()
+        assert res[0] == {'pb1': 'a y c default', 'pb2': 'x b z default', 'pb3': 'x y z changed'}
+
+        with pytest.raises(excs.Error) as exc_info:
+            self.binding_test_udf.using(non_param='a')
+        assert 'Unknown parameter: non_param' in str(exc_info.value)
+
+        with pytest.raises(excs.Error) as exc_info:
+            self.binding_test_udf.using(p1=5)
+        assert "Expected type `String` for parameter `p1`; got `Int`" in str(exc_info.value)
+
+        with pytest.raises(TypeError) as exc_info:
+            _ = pb1(p1='a')
+        assert 'missing a required argument' in str(exc_info.value).lower()
+
     @pxt.expr_udf
     def add1(x: int) -> int:
         return x + 1
