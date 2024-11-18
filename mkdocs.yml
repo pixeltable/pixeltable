@@ -12,7 +12,6 @@ repo_name: pixeltable/pixeltable
 
 theme:
   name: material
-  custom_dir: docs/overrides
 
 extra_css:
   - css/mkdocstrings.css
