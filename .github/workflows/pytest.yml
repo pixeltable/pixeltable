@@ -173,6 +173,9 @@ jobs:
       - name: Validate docstrings
         if: ${{ matrix.test-category == 'lint' }}
         run: mkdocs build --strict
+      - name: Validate links in notebooks
+        if: ${{ matrix.test-category == 'lint' }}
+        run: ./scripts/lint-notebooks.sh
       - name: Print utilization info
         if: ${{ startsWith(matrix.os, 'ubuntu') }}
         run: |
