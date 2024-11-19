@@ -37,6 +37,7 @@ else
 endif
 
 YOLOX_OK := $(shell python -c "import sys; sys.stdout.write(str(sys.version_info[1] <= 10))")
+WHISPERX_OK := $(shell python -c "import sys; sys.stdout.write(str(sys.version_info[1] <= 12))")
 
 .make-install/poetry:
 	@echo "Installing poetry ..."
@@ -59,6 +60,14 @@ ifeq ($(YOLOX_OK), True)
 	@python -m pip install -q git+https://github.com/Megvii-BaseDetection/YOLOX@ac58e0a protobuf==5.27.0
 else
 	@echo "Python version is >= 3.11; skipping YOLOX installation."
+endif
+ifeq ($(WHISPERX_OK), True)
+	# WhisperX only works on python <= 3.12 and has overly specific version requirements
+	# that make it difficult to use with poetry
+	@echo "Installing WhisperX ..."
+	@python -m pip install -q git+https://github.com/m-bain/whisperX.git@f2da2f8 typer==0.9.0
+else
+	@echo "Python version is >= 3.13; skipping WhisperX installation."
 endif
 	@echo "Installing Jupyter kernel ..."
 	@python -m ipykernel install --user --name=$(KERNEL_NAME)
