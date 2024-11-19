@@ -4,11 +4,12 @@ from typing import Any, Dict, List, Optional
 import jsonschema.exceptions
 import numpy as np
 import PIL.Image
-import pydantic
 import pytest
 
 import pixeltable as pxt
 from pixeltable.type_system import *
+
+from .utils import skip_test_if_not_installed
 
 
 class TestTypes:
@@ -164,6 +165,9 @@ class TestTypes:
                     assert t2n.supertype(t1n) == expectedn
 
     def test_json_schemas(self, init_env) -> None:
+        skip_test_if_not_installed('pydantic')
+        import pydantic
+
         class SampleModel(pydantic.BaseModel):
             a: str
             b: int
