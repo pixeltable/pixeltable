@@ -41,7 +41,7 @@ YOLOX_OK := $(shell python -c "import sys; sys.stdout.write(str(sys.version_info
 .make-install/poetry:
 	@echo "Installing poetry ..."
 	@python -m pip install -qU pip
-	@python -m pip install -q poetry==1.8.2
+	@python -m pip install -q poetry==1.8.4
 	@poetry self add "poetry-dynamic-versioning[plugin]"
 	@touch .make-install/poetry
 
