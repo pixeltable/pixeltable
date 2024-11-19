@@ -115,10 +115,7 @@ psycopg = [
     { extras = ["binary"], version = ">=3.1.18,<3.2", python = "<3.13" },
     { extras = ["binary"], version = ">=3.2", python = ">=3.13" }
 ]
-av = [
-    { version = "==11.*", python = "<3.13" },
-    { version = ">=13.0.0", python = ">=3.13" }
-]
+av = ">=13.0.0"
 sqlalchemy = ">=2.0.36"
 pillow = ">=10.4.0"
 
