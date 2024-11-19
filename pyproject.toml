@@ -5,9 +5,17 @@ build-backend = "poetry_dynamic_versioning.backend"
 [tool.poetry]
 name = "pixeltable"
 version = "0.0.0"
-description = "Pixeltable: The Multimodal AI Data Plane"
+description = "AI Data Infrastructure: Declarative, Multimodal, and Incremental"
 authors = ["Pixeltable, Inc. <contact@pixeltable.com>"]
 readme = "README.md"
+classifiers = [
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
 exclude = [
     ".pytype",
     ".pytest_cache",
