@@ -352,7 +352,8 @@ class Planner:
             recomputed_cols = {c for c in recomputed_cols if c.is_stored}
         recomputed_base_cols = {col for col in recomputed_cols if col.tbl == target}
         copied_cols = [
-            col for col in target.cols if col.is_stored and not col in updated_cols and not col in recomputed_base_cols
+            col for col in target.cols_by_id.values()
+            if col.is_stored and not col in updated_cols and not col in recomputed_base_cols
         ]
         select_list: list[exprs.Expr] = [exprs.ColumnRef(col) for col in copied_cols]
         select_list.extend(update_targets.values())
@@ -409,7 +410,8 @@ class Planner:
         recomputed_cols = {c for c in recomputed_cols if c.is_stored}
         recomputed_base_cols = {col for col in recomputed_cols if col.tbl == target}
         copied_cols = [
-            col for col in target.cols if col.is_stored and not col in updated_cols and not col in recomputed_base_cols
+            col for col in target.cols_by_id.values()
+            if col.is_stored and not col in updated_cols and not col in recomputed_base_cols
         ]
         select_list: list[exprs.Expr] = [exprs.ColumnRef(col) for col in copied_cols]
         select_list.extend(exprs.ColumnRef(col) for col in updated_cols)
@@ -475,7 +477,7 @@ class Planner:
         target = view.tbl_version  # the one we need to update
         # retrieve all stored cols and all target exprs
         recomputed_cols = set(recompute_targets.copy())
-        copied_cols = [col for col in target.cols if col.is_stored and not col in recomputed_cols]
+        copied_cols = [col for col in target.cols_by_id.values() if col.is_stored and not col in recomputed_cols]
         select_list: list[exprs.Expr] = [exprs.ColumnRef(col) for col in copied_cols]
         # resolve recomputed exprs to stored columns in the base
         recomputed_exprs = \
@@ -496,7 +498,7 @@ class Planner:
 
     @classmethod
     def create_view_load_plan(
-            cls, view: catalog.TableVersionPath, propagates_insert: bool = False
+        cls, view: catalog.TableVersionPath, propagates_insert: bool = False
     ) -> tuple[exec.ExecNode, int]:
         """Creates a query plan for populating a view.
 
@@ -516,7 +518,7 @@ class Planner:
         # - we can ignore stored non-computed columns because they have a default value that is supplied directly by
         #   the store
         target = view.tbl_version  # the one we need to populate
-        stored_cols = [c for c in target.cols if c.is_stored]
+        stored_cols = [c for c in target.cols_by_id.values() if c.is_stored]
         # 2. for component views: iterator args
         iterator_args = [target.iterator_args] if target.iterator_args is not None else []
 
