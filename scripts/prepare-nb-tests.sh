@@ -26,13 +26,15 @@ fi
 echo
 echo "Copying notebooks to test folder ..."
 for notebook in $(find "$@" -name '*.ipynb' | grep -v .ipynb_checkpoints); do
-    echo "$notebook"
+    target="$TEST_PATH/$(basename "$notebook")"
+    echo "$notebook -> $target"
     if [[ $DO_PIP_INSTALL == true ]]; then
         # Just copy the notebook to the test directory
-        cp "$notebook" "$TEST_PATH"
+        cp "$notebook" "$target"
     else
-        # Scrub the %pip install lines from the notebook
-        sed -E 's/%pip install [^"]*//' "$notebook" > "$TEST_PATH/$(basename "$notebook")"
+        # 1. Scrub the %pip install lines from the notebook
+        # 2. Replace any `execute-only-with-pip` tags with `skip-execution`
+        sed -E 's/%pip install [^"]*//' "$notebook" | sed 's/execute-only-with-pip/skip-execution/g' > "$target"
     fi
 done
 
