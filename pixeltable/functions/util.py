@@ -1,13 +1,16 @@
 import PIL.Image
 
+from pixeltable.env import Env
 
-def resolve_torch_device(device: str) -> str:
+
+def resolve_torch_device(device: str, allow_mps: bool = True) -> str:
+    Env.get().require_package('torch')
     import torch
 
     if device == 'auto':
         if torch.cuda.is_available():
             return 'cuda'
-        if torch.backends.mps.is_available():
+        if allow_mps and torch.backends.mps.is_available():
             return 'mps'
         return 'cpu'
     return device

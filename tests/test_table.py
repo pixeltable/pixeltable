@@ -1,4 +1,5 @@
 import datetime
+import random
 import math
 import os
 import random
@@ -20,7 +21,7 @@ from pixeltable.utils.media_store import MediaStore
 
 from .utils import (assert_resultset_eq, create_table_data, get_audio_files, get_documents, get_image_files,
                     get_video_files, make_tbl, read_data_file, reload_catalog, skip_test_if_not_installed,
-                    validate_update_status)
+                    validate_update_status, get_multimedia_commons_video_uris)
 
 
 class TestTable:
@@ -114,13 +115,23 @@ class TestTable:
             _ = pxt.create_table('test', {'insert': pxt.Int})
         assert "'insert' is a reserved name in pixeltable" in str(exc_info.value).lower()
 
+    def test_columns(self, reset_db) -> None:  # noqa: PLR6301
+        schema = {
+            'c1': pxt.String,
+            'c2': pxt.Int,
+            'c3': pxt.Float,
+            'c4': pxt.Timestamp,
+        }
+        t = pxt.create_table('test', schema)
+        assert t.columns == ['c1', 'c2', 'c3', 'c4']
+
     def test_names(self, reset_db) -> None:
         pxt.create_dir('dir')
         pxt.create_dir('dir.subdir')
-        for tbl_path in ['test', 'dir.test', 'dir.subdir.test']:
-            tbl = pxt.create_table(tbl_path, {'col': pxt.String})
-            view = pxt.create_view(f'{tbl_path}_view', tbl)
-            snap = pxt.create_view(f'{tbl_path}_snap', tbl, is_snapshot=True)
+        for tbl_path, media_val in [('test', 'on_read'), ('dir.test', 'on_write'), ('dir.subdir.test', 'on_read')]:
+            tbl = pxt.create_table(tbl_path, {'col': pxt.String}, media_validation=media_val)
+            view = pxt.create_view(f'{tbl_path}_view', tbl, media_validation=media_val)
+            snap = pxt.create_snapshot(f'{tbl_path}_snap', tbl, media_validation=media_val)
             assert tbl._path == tbl_path
             assert tbl._name == tbl_path.split('.')[-1]
             assert tbl._parent._path == '.'.join(tbl_path.split('.')[:-1])
@@ -132,12 +143,120 @@ class TestTable:
                     'is_snapshot': t._tbl_version.is_snapshot,
                     'name': t._name,
                     'num_retained_versions': t._num_retained_versions,
+                    'media_validation': media_val,
                     'parent': t._parent._path,
                     'path': t._path,
                     'schema': t._schema,
                     'schema_version': t._tbl_version.schema_version,
                     'version': t._version,
                 }
+
+    def test_media_validation(self, reset_db) -> None:
+        tbl_schema = {
+            'img': {'type': pxt.Image, 'media_validation': 'on_write'},
+            'video': pxt.Video
+        }
+        t = pxt.create_table('test', tbl_schema, media_validation='on_read')
+        assert t.get_metadata()['media_validation'] == 'on_read'
+        assert t.img.col.media_validation == pxt.catalog.MediaValidation.ON_WRITE
+        # table default applies
+        assert t.video.col.media_validation == pxt.catalog.MediaValidation.ON_READ
+
+        v_schema = {
+            'doc': {'type': pxt.Document, 'media_validation': 'on_read'},
+            'audio': pxt.Audio
+        }
+        v = pxt.create_view('test_view', t, additional_columns=v_schema, media_validation='on_write')
+        assert v.get_metadata()['media_validation'] == 'on_write'
+        assert v.doc.col.media_validation == pxt.catalog.MediaValidation.ON_READ
+        # view default applies
+        assert v.audio.col.media_validation == pxt.catalog.MediaValidation.ON_WRITE
+        # flags for base still apply
+        assert v.img.col.media_validation == pxt.catalog.MediaValidation.ON_WRITE
+        assert v.video.col.media_validation == pxt.catalog.MediaValidation.ON_READ
+
+        with pytest.raises(excs.Error) as exc_info:
+            _ = pxt.create_table(
+                'validation_error', {'img': pxt.Image}, media_validation='wrong_value')
+        assert "media_validation must be one of: ['on_read', 'on_write']" in str(exc_info.value)
+
+        with pytest.raises(excs.Error) as exc_info:
+            _ = pxt.create_table(
+                'validation_error', {'img': {'type': pxt.Image, 'media_validation': 'wrong_value'}})
+        assert "media_validation must be one of: ['on_read', 'on_write']" in str(exc_info.value)
+
+    def test_validate_on_read(self, reset_db) -> None:
+        files = get_video_files(include_bad_video=True)
+        rows = [{'media': f, 'is_bad_media': f.endswith('bad_video.mp4')} for f in files]
+        schema = {'media': pxt.Video, 'is_bad_media': pxt.Bool}
+
+        on_read_tbl = pxt.create_table('read_validated', schema, media_validation='on_read')
+        validate_update_status(on_read_tbl.insert(rows), len(rows))
+        on_read_res = (
+            on_read_tbl.select(
+                on_read_tbl.media, on_read_tbl.media.localpath, on_read_tbl.media.errortype, on_read_tbl.media.errormsg,
+                on_read_tbl.is_bad_media
+            ).collect()
+        )
+
+        on_write_tbl = pxt.create_table('write_validated', schema, media_validation='on_write')
+        status = on_write_tbl.insert(rows, on_error='ignore')
+        assert status.num_excs == 2  # 1 row with exceptions in the media col and the index col
+        on_write_res = (
+            on_write_tbl.select(
+                on_write_tbl.media, on_write_tbl.media.localpath, on_write_tbl.media.errortype,
+                on_write_tbl.media.errormsg, on_write_tbl.is_bad_media
+            ).collect()
+        )
+        assert_resultset_eq(on_read_res, on_write_res)
+
+        reload_catalog()
+        on_read_tbl = pxt.get_table('read_validated')
+        on_read_res = (
+            on_read_tbl.select(
+                on_read_tbl.media, on_read_tbl.media.localpath, on_read_tbl.media.errortype, on_read_tbl.media.errormsg,
+                on_read_tbl.is_bad_media
+            ).collect()
+        )
+        assert_resultset_eq(on_read_res, on_write_res)
+
+    def test_validate_on_read_with_computed_col(self, reset_db) -> None:
+        files = get_video_files(include_bad_video=True)
+        rows = [{'media': f, 'is_bad_media': f.endswith('bad_video.mp4')} for f in files]
+        schema = {'media': pxt.Video, 'is_bad_media': pxt.Bool, 'stage': pxt.Required[pxt.Int]}
+
+        # we are testing a nonsensical scenario: a computed column that references a read-validated media column,
+        # which forces validation
+        on_read_tbl = pxt.create_table('read_validated', schema, media_validation='on_read')
+        on_read_tbl.add_column(md=on_read_tbl.media.get_metadata())
+        status = on_read_tbl.insert(({**r, 'stage': 0} for r in rows), on_error='ignore')
+        assert status.num_excs == 1
+        on_read_res_1 = (
+            on_read_tbl
+            .select(
+                on_read_tbl.media, on_read_tbl.media.localpath, on_read_tbl.media.errortype, on_read_tbl.media.errormsg,
+                on_read_tbl.is_bad_media, on_read_tbl.md
+            )
+            .order_by(on_read_tbl.media)
+            .collect()
+        )
+
+        reload_catalog()
+        on_read_tbl = pxt.get_table('read_validated')
+        # we can still insert into the table after a catalog reload, and the result is the same
+        status = on_read_tbl.insert(({**r, 'stage': 1} for r in rows), on_error='ignore')
+        assert status.num_excs == 1
+        on_read_res_2 = (
+            on_read_tbl
+            .where(on_read_tbl.stage == 1)
+            .select(
+                on_read_tbl.media, on_read_tbl.media.localpath, on_read_tbl.media.errortype, on_read_tbl.media.errormsg,
+                on_read_tbl.is_bad_media, on_read_tbl.md
+            )
+            .order_by(on_read_tbl.media)
+            .collect()
+        )
+        assert_resultset_eq(on_read_res_1, on_read_res_2)
 
     def test_create_from_df(self, test_tbl: pxt.Table) -> None:
         t = pxt.get_table('test_tbl')
@@ -262,10 +381,52 @@ class TestTable:
     def test_drop_table(self, test_tbl: pxt.Table) -> None:
         t = pxt.get_table('test_tbl')
         pxt.drop_table('test_tbl')
-        with pytest.raises(excs.Error):
+        with pytest.raises(excs.Error) as exc_info:
             _ = pxt.get_table('test_tbl')
-        with pytest.raises(excs.Error):
+        assert 'no such path: test_tbl' in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
             _ = t.show(1)
+        assert 'table test_tbl has been dropped' in str(exc_info.value).lower()
+
+    def test_drop_table_via_handle(self, test_tbl: pxt.Table) -> None:
+        t = pxt.create_table('test1', {'c1': pxt.String})
+        pxt.drop_table(t)
+        with pytest.raises(excs.Error) as exc_info:
+            _ = pxt.get_table('test1')
+        assert 'no such path: test1' in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.show(1)
+        assert 'table test1 has been dropped' in str(exc_info.value).lower()
+        t = pxt.create_table('test2', {'c1': pxt.String})
+        t = pxt.get_table('test2')
+        pxt.drop_table(t)
+        with pytest.raises(excs.Error) as exc_info:
+            _ = pxt.get_table('test2')
+        assert 'no such path: test2' in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.show(1)
+        assert 'table test2 has been dropped' in str(exc_info.value).lower()
+        t = pxt.create_table('test3', {'c1': pxt.String})
+        v = pxt.create_view('view3', t)
+        pxt.drop_table(v)
+        with pytest.raises(excs.Error) as exc_info:
+            _ = pxt.get_table('view3')
+        assert 'no such path: view3' in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
+            _ = v.show(1)
+        assert 'view view3 has been dropped' in str(exc_info.value).lower()
+        _ = pxt.get_table('test3')
+        v = pxt.create_view('view4', t)
+        v = pxt.get_table('view4')
+        pxt.drop_table(v)
+        with pytest.raises(excs.Error) as exc_info:
+            _ = pxt.get_table('view4')
+        assert 'no such path: view4' in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
+            _ = v.show(1)
+        assert 'view view4 has been dropped' in str(exc_info.value).lower()
+        _ = pxt.get_table('test3')
+        pxt.drop_table(t)
 
     def test_drop_table_force(self, test_tbl: pxt.Table) -> None:
         t = pxt.get_table('test_tbl')
@@ -279,6 +440,22 @@ class TestTable:
         assert len(pxt.list_tables()) == 4
         pxt.drop_table('test_tbl', force=True)  # Drops everything else
         assert len(pxt.list_tables()) == 0
+
+    def test_drop_table_force_via_handle(self, test_tbl: pxt.Table) -> None:
+        t = pxt.get_table('test_tbl')
+        v1 = pxt.create_view('v1', t)
+        v2 = pxt.create_view('v2', t)
+        v3 = pxt.create_view('v3', v1)
+        v4 = pxt.create_view('v4', v2)
+        v5 = pxt.create_view('v5', t)
+        assert len(pxt.list_tables()) == 6
+        pxt.drop_table(v2, force=True)  # Drops v2 and v4, but not the others
+        assert len(pxt.list_tables()) == 4
+        assert 'v2' not in pxt.list_tables()
+        assert 'v4' not in pxt.list_tables()
+        pxt.drop_table(t, force=True)  # Drops everything else
+        assert len(pxt.list_tables()) == 0
+
 
     @pytest.mark.skip(reason='Skip until we figure out the right API for altering table attributes')
     def test_table_attrs(self, reset_db) -> None:
@@ -353,7 +530,7 @@ class TestTable:
 
         with pytest.raises(excs.Error) as exc_info:
             pxt.create_table('test', {'c1': {}})
-        assert '"type" is required' in str(exc_info.value)
+        assert "'type' or 'value' must be specified" in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
             pxt.create_table('test', {'c1': {'xyz': pxt.Int}})
@@ -361,7 +538,7 @@ class TestTable:
 
         with pytest.raises(excs.Error) as exc_info:
             pxt.create_table('test', {'c1': {'stored': True}})
-        assert '"type" is required' in str(exc_info.value)
+        assert "'type' or 'value' must be specified" in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
             pxt.create_table('test', {'c1': {'type': 'string'}})
@@ -369,11 +546,11 @@ class TestTable:
 
         with pytest.raises(excs.Error) as exc_info:
             pxt.create_table('test', {'c1': {'value': 1, 'type': pxt.String}})
-        assert '"type" is redundant' in str(exc_info.value)
+        assert "'type' is redundant" in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
             pxt.create_table('test', {'c1': {'value': pytest}})
-        assert 'value needs to be either' in str(exc_info.value)
+        assert 'value must be a Pixeltable expression' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
 
@@ -381,7 +558,7 @@ class TestTable:
                 return 1.0
 
             pxt.create_table('test', {'c1': {'value': f}})
-        assert '"type" is required' in str(exc_info.value)
+        assert 'value must be a Pixeltable expression' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
             pxt.create_table('test', {'c1': {'type': pxt.String, 'stored': 'true'}})
@@ -407,6 +584,20 @@ class TestTable:
             pxt.create_table('test', {'c1': pxt.String}, primary_key='c1')
         assert 'cannot be nullable' in str(exc_info.value).lower()
 
+        for badtype, name, suggestion in [
+            (str, 'str', 'pxt.String'),
+            (int, 'int', 'pxt.Int'),
+            (float, 'float', 'pxt.Float'),
+            (bool, 'bool', 'pxt.Bool'),
+            (datetime.datetime, 'datetime.datetime', 'pxt.Timestamp'),
+            (list, 'list', 'pxt.Json'),
+            (dict, 'dict', 'pxt.Json'),
+            (PIL.Image.Image, 'PIL.Image.Image', 'pxt.Image'),
+        ]:
+            with pytest.raises(excs.Error) as exc_info:
+                pxt.create_table('test', {'c1': badtype})
+            assert f'Standard Python type `{name}` cannot be used here; use `{suggestion}` instead' in str(exc_info.value)
+
     def check_bad_media(
         self, rows: list[tuple[str, bool]], col_type: type, validate_local_path: bool = True
     ) -> None:
@@ -423,10 +614,10 @@ class TestTable:
         # Mode 1: Validation error on bad input (default)
         # we ignore the exact error here, because it depends on the media type
         with pytest.raises(excs.Error):
-            tbl.insert(rows, fail_on_exception=True)
+            tbl.insert(rows, on_error='abort')
 
         # Mode 2: ignore_errors=True, store error information in table
-        status = tbl.insert(rows, fail_on_exception=False)
+        status = tbl.insert(rows, on_error='ignore')
         _ = tbl.select(tbl.media, tbl.media.errormsg).show()
         assert status.num_rows == len(rows)
         assert status.num_excs >= total_bad_rows
@@ -513,7 +704,7 @@ class TestTable:
             's3://open-images-dataset/validation/3b07a2c0d5c0c789.jpg',
         ]
 
-        tbl.insert({'img': url} for url in urls)
+        validate_update_status(tbl.insert({'img': url} for url in urls), expected_rows=len(urls))
         # check that we populated the cache
         cache_stats = FileCache.get().stats()
         assert cache_stats.num_requests == len(urls), f'{str(cache_stats)} tbl_id={tbl._id}'
@@ -564,7 +755,7 @@ class TestTable:
         local_path = row['video_localpath']
         assert os.path.exists(local_path) and os.path.isfile(local_path)
         with av.open(local_path) as container:
-            assert container.streams.video[0].codec_context.name == 'h264'
+             assert container.streams.video[0].codec_context.name == 'h264'
 
     def test_create_video_table(self, reset_db) -> None:
         skip_test_if_not_installed('boto3')
@@ -618,6 +809,28 @@ class TestTable:
         pxt.drop_table('test_view')
         pxt.drop_table('test_tbl')
         assert MediaStore.count(view._id) == 0
+
+    def test_video_urls(self, reset_db) -> None:
+        skip_test_if_not_installed('boto3')
+        tbl = pxt.create_table('test', {'video': pxt.Video})
+
+        # create a list of uris with duplicates, to test the duplicate-handling logic of CachePrefetchNode
+        uris = get_multimedia_commons_video_uris(n=pxt.exec.CachePrefetchNode.BATCH_SIZE * 2)
+        uris = [uri for uri in uris for _ in range(10)]
+        random.seed(0)
+        random.shuffle(uris)
+
+        # clearing the file cache here makes the tests fail on Windows
+        # TODO: investigate why
+        #FileCache.get().clear()  # make sure we need to download the files
+        validate_update_status(tbl.insert({'video': uri} for uri in uris), expected_rows=len(uris))
+        row = tbl.select(tbl.video.fileurl, tbl.video.localpath).head(1)[0]
+        assert row['video_fileurl'] == uris[0]
+        # tbl.video.localpath contains valid path to an mp4 file
+        local_path = row['video_localpath']
+        assert os.path.exists(local_path) and os.path.isfile(local_path)
+        with av.open(local_path) as container:
+            assert container.streams.video[0].codec_context.name == 'h264'
 
     def test_insert_nulls(self, reset_db) -> None:
         schema = {
@@ -719,6 +932,17 @@ class TestTable:
         with pytest.raises(excs.Error) as exc_info:
             t.insert(c5=np.ndarray((3, 2)))
         assert 'expected ndarray((2, 3)' in str(exc_info.value)
+
+        # test that insert skips expression evaluation for
+        # any columns that are not part of the current schema.
+        @pxt.udf(_force_stored=True)
+        def bad_udf(x: str) -> str:
+            assert False
+        t = pxt.create_table('test', {'str_col': pxt.String})
+        t.add_column(bad=bad_udf(t.str_col))  # Succeeds because the table has no data
+        t.drop_column('bad')
+        t.insert(str_col='Hello there.') # Succeeds because column 'bad' is dropped
+        pxt.drop_table('test')
 
     def test_insert_string_with_null(self, reset_db) -> None:
         t = pxt.create_table('test', {'c1': pxt.String})
@@ -998,7 +1222,7 @@ class TestTable:
         assert status.num_excs == 0
         status = t.add_column(c8=t.c3.detections['*'].bounding_box)
         assert status.num_excs == 0
-        status = t.add_column(c9=lambda c2: math.sqrt(c2), type=pxt.Float)
+        status = t.add_column(c9=t.c2.apply(math.sqrt, col_type=pxt.Float))
         assert status.num_excs == 0
 
         # unstored cols that compute window functions aren't currently supported
@@ -1026,11 +1250,14 @@ class TestTable:
 
         # test loading from store
         reload_catalog()
-        t = pxt.get_table('test')
-        assert len(t.columns()) == len(t.columns())
-        for i in range(len(t.columns())):
-            if t.columns()[i].value_expr is not None:
-                assert t.columns()[i].value_expr.equals(t.columns()[i].value_expr)
+        t2 = pxt.get_table('test')
+        t2_columns = t2._tbl_version_path.columns()
+        assert len(t2_columns) == len(t2.columns)
+        t_columns = t._tbl_version_path.columns()
+        assert len(t_columns) == len(t2_columns)
+        for i in range(len(t_columns)):
+            if t_columns[i].value_expr is not None:
+                assert t_columns[i].value_expr.equals(t2_columns[i].value_expr)
 
         # make sure we can still insert data and that computed cols are still set correctly
         status = t.insert(rows)
@@ -1086,7 +1313,7 @@ class TestTable:
         t = pxt.create_table('test_insert', schema)
         status = t.add_column(add1=self.f2(self.f1(t.c2)))
         assert status.num_excs == 0
-        status = t.insert(rows, fail_on_exception=False)
+        status = t.insert(rows, on_error='ignore')
         assert status.num_excs >= 10
         assert 'test_insert.add1' in status.cols_with_excs
         assert t.where(t.add1.errortype != None).count() == 10
@@ -1126,10 +1353,13 @@ class TestTable:
         # test loading from store
         reload_catalog()
         t2 = pxt.get_table(t._name)
-        assert len(t.columns()) == len(t2.columns())
-        for i in range(len(t.columns())):
-            if t.columns()[i].value_expr is not None:
-                assert t.columns()[i].value_expr.equals(t2.columns()[i].value_expr)
+        assert len(t.columns) == len(t2.columns)
+        t_columns = t._tbl_version_path.columns()
+        t2_columns = t2._tbl_version_path.columns()
+        assert len(t_columns) == len(t2_columns)
+        for i in range(len(t_columns)):
+            if t_columns[i].value_expr is not None:
+                assert t_columns[i].value_expr.equals(t2_columns[i].value_expr)
 
         # make sure we can still insert data and that computed cols are still set correctly
         t2.insert(rows)
@@ -1164,7 +1394,7 @@ class TestTable:
         t.add_column(c3=self.img_fn_with_exc(t.img))
         rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
         rows = [{'img': r['img']} for r in rows[:20]]
-        t.insert(rows, fail_on_exception=False)
+        t.insert(rows, on_error='ignore')
         _ = t[t.c3.errortype].collect()
 
     def test_computed_window_fn(self, reset_db, test_tbl: catalog.Table) -> None:
@@ -1174,7 +1404,7 @@ class TestTable:
 
         schema = {'c2': pxt.Int, 'c3': pxt.Float, 'c4': pxt.Bool}
         new_t = pxt.create_table('insert_test', schema)
-        new_t.add_column(c5=lambda c2: c2 * c2, type=pxt.Int)
+        new_t.add_column(c5=t.c2.apply(lambda x: x * x, col_type=pxt.Int))
         new_t.add_column(c6=pxtf.sum(new_t.c5, group_by=new_t.c4, order_by=new_t.c3))
         rows = list(t.select(t.c2, t.c4, t.c3).collect())
         new_t.insert(rows)
@@ -1207,12 +1437,12 @@ class TestTable:
 
     def test_add_column(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
-        num_orig_cols = len(t.columns())
+        num_orig_cols = len(t.columns)
         t.add_column(add1=pxt.Int)
         # Make sure that `name` and `id` are allowed, i.e., not reserved as system names
         t.add_column(name=pxt.String)
         t.add_column(id=pxt.String)
-        assert len(t.columns()) == num_orig_cols + 3
+        assert len(t.columns) == num_orig_cols + 3
 
         with pytest.raises(excs.Error) as exc_info:
             _ = t.add_column(add2=pxt.Required[pxt.Int])
@@ -1235,14 +1465,6 @@ class TestTable:
         assert "'insert' is a reserved name in pixeltable" in str(excs_info.value).lower()
 
         with pytest.raises(excs.Error) as exc_info:
-            _ = t.add_column(add2=pxt.Int, type=pxt.String)
-        assert '"type" is redundant' in str(exc_info.value).lower()
-
-        with pytest.raises(excs.Error) as exc_info:
-            _ = t.add_column(add2=[[1.0, 2.0], [3.0, 4.0]], type=pxt.String)
-        assert '"type" is redundant' in str(exc_info.value).lower()
-
-        with pytest.raises(excs.Error) as exc_info:
             _ = t.add_column(add2=pxt.Int, stored=False)
         assert 'stored=false only applies' in str(exc_info.value).lower()
 
@@ -1262,26 +1484,26 @@ class TestTable:
         # make sure this is still true after reloading the metadata
         reload_catalog()
         t = pxt.get_table(t._name)
-        assert len(t.columns()) == num_orig_cols + 3
+        assert len(t.columns) == num_orig_cols + 3
 
         # revert() works
         t.revert()
         t.revert()
         t.revert()
-        assert len(t.columns()) == num_orig_cols
+        assert len(t.columns) == num_orig_cols
 
         # make sure this is still true after reloading the metadata once more
         reload_catalog()
         t = pxt.get_table(t._name)
-        assert len(t.columns()) == num_orig_cols
+        assert len(t.columns) == num_orig_cols
 
     def test_add_column_setitem(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
-        num_orig_cols = len(t.columns())
+        num_orig_cols = len(t.columns)
         t['add1'] = pxt.Int
-        assert len(t.columns()) == num_orig_cols + 1
+        assert len(t.columns) == num_orig_cols + 1
         t['computed1'] = t.c2 + 1
-        assert len(t.columns()) == num_orig_cols + 2
+        assert len(t.columns) == num_orig_cols + 2
 
         with pytest.raises(excs.Error) as exc_info:
             _ = t['pos'] = pxt.String
@@ -1311,46 +1533,88 @@ class TestTable:
         # make sure this is still true after reloading the metadata
         reload_catalog()
         t = pxt.get_table(t._name)
-        assert len(t.columns()) == num_orig_cols + 2
+        assert len(t.columns) == num_orig_cols + 2
 
         # revert() works
         t.revert()
         t.revert()
-        assert len(t.columns()) == num_orig_cols
+        assert len(t.columns) == num_orig_cols
 
         # make sure this is still true after reloading the metadata once more
         reload_catalog()
         t = pxt.get_table(t._name)
-        assert len(t.columns()) == num_orig_cols
+        assert len(t.columns) == num_orig_cols
 
     def test_drop_column(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
-        num_orig_cols = len(t.columns())
+        num_orig_cols = len(t.columns)
         t.drop_column('c1')
-        assert len(t.columns()) == num_orig_cols - 1
+        assert len(t.columns) == num_orig_cols - 1
+        assert 'c1' not in t.columns
+        with pytest.raises(AttributeError) as exc_info:
+            _ = t.c1
+        assert 'column c1 unknown' in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.drop_column('c1')
+        assert "column 'c1' unknown" in str(exc_info.value).lower()
 
-        with pytest.raises(excs.Error):
+        assert 'unknown' not in t.columns
+        with pytest.raises(excs.Error) as exc_info:
             t.drop_column('unknown')
+        assert "column 'unknown' unknown" in str(exc_info.value).lower()
+        with pytest.raises(AttributeError) as exc_info:
+            t.drop_column(t.unknown)
+        assert 'column unknown unknown' in str(exc_info.value).lower()
 
         # make sure this is still true after reloading the metadata
         reload_catalog()
         t = pxt.get_table(t._name)
-        assert len(t.columns()) == num_orig_cols - 1
+        assert len(t.columns) == num_orig_cols - 1
 
         # revert() works
         t.revert()
-        assert len(t.columns()) == num_orig_cols
+        assert len(t.columns) == num_orig_cols
+        assert 'c1' in t.columns
+        _ = t.c1
 
         # make sure this is still true after reloading the metadata once more
         reload_catalog()
         t = pxt.get_table(t._name)
-        assert len(t.columns()) == num_orig_cols
+        assert len(t.columns) == num_orig_cols
+        assert 'c1' in t.columns
+        _ = t.c1
+
+    def test_drop_column_via_reference(self, reset_db) -> None:
+        t1 = pxt.create_table('test1', {'c1': pxt.String, 'c2': pxt.String})
+        t1.insert([{'c1': 'a1', 'c2': 'b1'}, {'c1': 'a2', 'c2': 'b2'}])
+        t2 = pxt.create_table('test2', {'c1': pxt.String, 'c2': pxt.String})
+
+        # cannot pass another table's column reference
+        with pytest.raises(excs.Error) as exc_info:
+            t1.drop_column(t2.c2)
+        assert 'unknown column: test2.c2' in str(exc_info.value).lower()
+        assert 'c2' in t1.columns
+        assert 'c2' in t2.columns
+        _ = t1.c2
+        _ = t2.c2
+
+        t1.drop_column(t1.c2)
+        assert 'c2' not in t1.columns
+        with pytest.raises(AttributeError) as exc_info:
+            _ = t1.c2
+        assert 'column c2 unknown' in str(exc_info.value).lower()
+        with pytest.raises(AttributeError) as exc_info:
+            t1.drop_column(t1.c2)
+        assert 'column c2 unknown' in str(exc_info.value).lower()
+        assert 'c2' in t2.columns
+        pxt.drop_table(t1)
+        pxt.drop_table(t2)
 
     def test_rename_column(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
-        num_orig_cols = len(t.columns())
+        num_orig_cols = len(t.columns)
         t.rename_column('c1', 'c1_renamed')
-        assert len(t.columns()) == num_orig_cols
+        assert len(t.columns) == num_orig_cols
 
         def check_rename(t: pxt.Table, known: str, unknown: str) -> None:
             with pytest.raises(AttributeError) as exc_info:
@@ -1392,9 +1656,9 @@ class TestTable:
         assert status.num_excs == 0
         _ = t.show()
 
-        # with exception in SQL
-        with pytest.raises(excs.Error):
-            t.add_column(add2=(t.c2 - 10) / (t.c3 - 10))
+        # TODO(aaron-siegel): This has to be commented out. See explanation in test_exprs.py.
+        # with pytest.raises(excs.Error):
+        #     t.add_column(add2=(t.c2 - 10) / (t.c3 - 10))
 
         # with exception in Python for c6.f2 == 10
         status = t.add_column(add2=(t.c6.f2 - 10) / (t.c6.f2 - 10), on_error='ignore')
@@ -1408,10 +1672,38 @@ class TestTable:
         result = t.where(t.add3.errortype != None).select(t.c2, t.add3, t.add3.errortype, t.add3.errormsg).show()
         assert len(result) == 10
 
+    def test_computed_column_types(self, reset_db) -> None:
+        t = pxt.create_table(
+            'test',
+            {
+                'c1': pxt.Int,
+                'c1_r': pxt.Required[pxt.Int],
+                'c2': pxt.String,
+                'c2_r': pxt.Required[pxt.String],
+            }
+        )
+
+        # Ensure that arithmetic and (non-nullable) function call expressions inherit nullability from their arguments
+        t.add_column(arith=t.c1 + 1)
+        t.add_column(arith_r=t.c1_r + 1)
+        t.add_column(func=t.c2.upper())
+        t.add_column(func_r=t.c2_r.upper())
+
+        assert t.get_metadata()['schema'] == {
+            'c1': pxt.IntType(nullable=True),
+            'c1_r': pxt.IntType(nullable=False),
+            'c2': pxt.StringType(nullable=True),
+            'c2_r': pxt.StringType(nullable=False),
+            'arith': pxt.IntType(nullable=True),
+            'arith_r': pxt.IntType(nullable=False),
+            'func': pxt.StringType(nullable=True),
+            'func_r': pxt.StringType(nullable=False),
+        }
+
     def test_describe(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
-        fn = lambda c2: np.full((3, 4), c2)
-        t.add_column(computed1=fn, type=pxt.Array[(3, 4), pxt.Int])
+        fn = lambda x: np.full((3, 4), x)
+        t.add_column(computed1=t.c2.apply(fn, col_type=pxt.Array[(3, 4), pxt.Int]))
         t.describe()
 
         # TODO: how to you check the output of these?

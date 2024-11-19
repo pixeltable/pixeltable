@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import inspect
 import logging
-from typing import TYPE_CHECKING, Any, Iterable, Optional
+from typing import TYPE_CHECKING, Any, Iterable, Literal, Optional
 from uuid import UUID
 
 import sqlalchemy.orm as orm
@@ -16,7 +16,7 @@ from pixeltable.iterators import ComponentIterator
 
 from .catalog import Catalog
 from .column import Column
-from .globals import _POS_COLUMN_NAME, UpdateStatus
+from .globals import _POS_COLUMN_NAME, UpdateStatus, MediaValidation
 from .table import Table
 from .table_version import TableVersion
 from .table_version_path import TableVersionPath
@@ -51,6 +51,7 @@ class View(Table):
     def _create(
             cls, dir_id: UUID, name: str, base: TableVersionPath, additional_columns: dict[str, Any],
             predicate: Optional['pxt.exprs.Expr'], is_snapshot: bool, num_retained_versions: int, comment: str,
+            media_validation: MediaValidation,
             iterator_cls: Optional[type[ComponentIterator]], iterator_args: Optional[dict]
     ) -> View:
         columns = cls._create_columns(additional_columns)
@@ -139,7 +140,8 @@ class View(Table):
                 iterator_args=iterator_args_expr.as_dict() if iterator_args_expr is not None else None)
 
             id, tbl_version = TableVersion.create(
-                session, dir_id, name, columns, num_retained_versions, comment, base_path=base_version_path, view_md=view_md)
+                session, dir_id, name, columns, num_retained_versions, comment, media_validation=media_validation,
+                base_path=base_version_path, view_md=view_md)
             if tbl_version is None:
                 # this is purely a snapshot: we use the base's tbl version path
                 view = cls(id, dir_id, name, base_version_path, base.tbl_id(), snapshot_only=True)
@@ -192,6 +194,9 @@ class View(Table):
 
     def _drop(self) -> None:
         cat = catalog.Catalog.get()
+        # verify all dependents are deleted by now
+        for dep in cat.tbl_dependents[self._id]:
+            assert dep._is_dropped
         if self._snapshot_only:
             # there is not TableVersion to drop
             self._check_is_dropped()
@@ -214,7 +219,7 @@ class View(Table):
 
     def insert(
             self, rows: Optional[Iterable[dict[str, Any]]] = None, /, *, print_stats: bool = False,
-            fail_on_exception: bool = True, **kwargs: Any
+            on_error: Literal['abort', 'ignore'] = 'abort', **kwargs: Any
     ) -> UpdateStatus:
         raise excs.Error(f'{self._display_name()} {self._name!r}: cannot insert into view')
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Iterable, List, Optional, overload
+from typing import Any, Iterable, Literal, Optional, overload
 from uuid import UUID
 
 import sqlalchemy.orm as orm
@@ -13,7 +13,7 @@ from pixeltable.env import Env
 from pixeltable.utils.filecache import FileCache
 
 from .catalog import Catalog
-from .globals import UpdateStatus
+from .globals import MediaValidation, UpdateStatus
 from .table import Table
 from .table_version import TableVersion
 from .table_version_path import TableVersionPath
@@ -35,8 +35,8 @@ class InsertableTable(Table):
     # MODULE-LOCAL, NOT PUBLIC
     @classmethod
     def _create(
-            cls, dir_id: UUID, name: str, schema: dict[str, ts.ColumnType], df: Optional[pxt.DataFrame], primary_key: List[str],
-            num_retained_versions: int, comment: str
+        cls, dir_id: UUID, name: str, schema: dict[str, ts.ColumnType], df: Optional[pxt.DataFrame],
+        primary_key: list[str], num_retained_versions: int, comment: str, media_validation: MediaValidation
     ) -> InsertableTable:
         columns = cls._create_columns(schema)
         cls._verify_schema(columns)
@@ -50,7 +50,9 @@ class InsertableTable(Table):
             col.is_pk = True
 
         with orm.Session(Env.get().engine, future=True) as session:
-            _, tbl_version = TableVersion.create(session, dir_id, name, columns, num_retained_versions, comment)
+            _, tbl_version = TableVersion.create(
+                session, dir_id, name, columns, num_retained_versions=num_retained_versions, comment=comment,
+                media_validation=media_validation)
             tbl = cls(dir_id, tbl_version)
             # TODO We need to commit before doing the insertion, in order to avoid a primary key (version) collision
             #   when the table metadata gets updated. Once we have a notion of user-defined transactions in
@@ -77,15 +79,31 @@ class InsertableTable(Table):
 
     @overload
     def insert(
-            self, rows: Iterable[Dict[str, Any]], /, *, print_stats: bool = False, fail_on_exception: bool = True
+        self,
+        rows: Iterable[dict[str, Any]],
+        /,
+        *,
+        print_stats: bool = False,
+        on_error: Literal['abort', 'ignore'] = 'abort'
     ) -> UpdateStatus: ...
 
     @overload
-    def insert(self, *, print_stats: bool = False, fail_on_exception: bool = True, **kwargs: Any) -> UpdateStatus: ...
+    def insert(
+        self,
+        *,
+        print_stats: bool = False,
+        on_error: Literal['abort', 'ignore'] = 'abort',
+        **kwargs: Any
+    ) -> UpdateStatus: ...
 
     def insert(  # type: ignore[misc]
-            self, rows: Optional[Iterable[dict[str, Any]]] = None, /, *, print_stats: bool = False,
-            fail_on_exception: bool = True, **kwargs: Any
+        self,
+        rows: Optional[Iterable[dict[str, Any]]] = None,
+        /,
+        *,
+        print_stats: bool = False,
+        on_error: Literal['abort', 'ignore'] = 'abort',
+        **kwargs: Any
     ) -> UpdateStatus:
         if rows is None:
             rows = [kwargs]
@@ -93,6 +111,8 @@ class InsertableTable(Table):
             rows = list(rows)
             if len(kwargs) > 0:
                 raise excs.Error('`kwargs` cannot be specified unless `rows is None`.')
+
+        fail_on_exception = on_error == 'abort'
 
         if not isinstance(rows, list):
             raise excs.Error('rows must be a list of dictionaries')
@@ -119,7 +139,7 @@ class InsertableTable(Table):
         FileCache.get().emit_eviction_warnings()
         return status
 
-    def _validate_input_rows(self, rows: List[Dict[str, Any]]) -> None:
+    def _validate_input_rows(self, rows: list[dict[str, Any]]) -> None:
         """Verify that the input rows match the table schema"""
         valid_col_names = set(self._schema.keys())
         reqd_col_names = set(self._tbl_version_path.tbl_version.get_required_col_names())

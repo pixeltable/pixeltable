@@ -1,10 +1,11 @@
+import sysconfig
 from typing import Any
 
 import pytest
 
 import pixeltable as pxt
 
-from ..utils import (SAMPLE_IMAGE_URL, get_image_files, get_sentences, reload_catalog, skip_test_if_not_installed,
+from ..utils import (SAMPLE_IMAGE_URL, get_audio_files, get_image_files, get_sentences, reload_catalog, skip_test_if_not_installed,
                      validate_update_status)
 
 
@@ -33,6 +34,7 @@ class TestHuggingface:
         # TODO: is there some way to capture the output?
         t.describe()
 
+    @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Not supported on Linux ARM')
     def test_sentence_transformer(self, reset_db) -> None:
         skip_test_if_not_installed('sentence_transformers')
         t = pxt.create_table('test_tbl', {'input': pxt.String, 'input_list': pxt.Json})
@@ -52,7 +54,7 @@ class TestHuggingface:
             assert t._schema[col_name].is_array_type()
             list_col_name = f'embed_list{idx}'
             t[list_col_name] = sentence_transformer_list(t.input_list, model_id=model_id, normalize_embeddings=True)
-            assert t._schema[list_col_name] == pxt.JsonType()
+            assert t._schema[list_col_name] == pxt.JsonType(nullable=True)
 
         def verify_row(row: dict[str, Any]) -> None:
             for idx, (_, d) in enumerate(zip(model_ids, num_dims)):
@@ -70,6 +72,7 @@ class TestHuggingface:
         assert status.num_excs == 0
         verify_row(t.tail(1)[0])
 
+    @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Not supported on Linux ARM')
     def test_cross_encoder(self, reset_db) -> None:
         skip_test_if_not_installed('sentence_transformers')
         t = pxt.create_table('test_tbl', {'input': pxt.String, 'input_list': pxt.Json})
@@ -85,10 +88,10 @@ class TestHuggingface:
         for idx, model_id in enumerate(model_ids):
             col_name = f'embed{idx}'
             t[col_name] = cross_encoder(t.input, t.input, model_id=model_id)
-            assert t._schema[col_name] == pxt.FloatType()
+            assert t._schema[col_name] == pxt.FloatType(nullable=True)
             list_col_name = f'embed_list{idx}'
             t[list_col_name] = cross_encoder_list(t.input, t.input_list, model_id=model_id)
-            assert t._schema[list_col_name] == pxt.JsonType()
+            assert t._schema[list_col_name] == pxt.JsonType(nullable=True)
 
         def verify_row(row: dict[str, Any]) -> None:
             for i in range(len(model_ids)):
@@ -166,11 +169,25 @@ class TestHuggingface:
         from pixeltable.functions.huggingface import vit_for_image_classification
 
         t = pxt.create_table('test_tbl', {'img': pxt.Image})
-        t['img_class'] = vit_for_image_classification(t.img, model_id='google/vit-base-patch16-224')
+        t['img_class'] = vit_for_image_classification(t.img, model_id='google/vit-base-patch16-224', top_k=3)
         validate_update_status(t.insert(img=SAMPLE_IMAGE_URL), expected_rows=1)
         result = t.select(t.img_class).collect()[0]['img_class']
-        assert tuple((r['class'], r['label']) for r in result[:3]) == (
-            (962, 'meat loaf, meatloaf'),
-            (935, 'mashed potato'),
-            (937, 'broccoli'),
+        assert result['labels'] == [962, 935, 937]
+        assert result['label_text'] == ['meat loaf, meatloaf', 'mashed potato', 'broccoli']
+
+    def test_speech2text_for_conditional_generation(self, reset_db) -> None:
+        skip_test_if_not_installed('transformers')
+        from pixeltable.functions.huggingface import speech2text_for_conditional_generation
+
+        t = pxt.create_table('test_tbl', {'audio': pxt.Audio})
+        audio_file = next(
+            file for file in get_audio_files() if file.endswith('jfk_1961_0109_cityuponahill-excerpt.flac')
         )
+        t['transcription'] = speech2text_for_conditional_generation(t.audio, model_id='facebook/s2t-small-librispeech-asr')
+        t['translation'] = speech2text_for_conditional_generation(
+            t.audio, model_id='facebook/s2t-medium-mustc-multilingual-st', language='fr')
+
+        validate_update_status(t.insert(audio=audio_file), expected_rows=1)
+        result = t.collect()
+        assert 'administration' in result['transcription'][0]
+        assert 'construire' in result['translation'][0]

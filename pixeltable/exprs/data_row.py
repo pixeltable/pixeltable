@@ -92,24 +92,32 @@ class DataRow:
     def set_pk(self, pk: tuple[int, ...]) -> None:
         self.pk = pk
 
-    def has_exc(self, slot_idx: int) -> bool:
-        return self.excs[slot_idx] is not None
+    def has_exc(self, slot_idx: Optional[int] = None) -> bool:
+        """
+        Returns True if an exception has been set for the given slot index, or for any slot index if slot_idx is None
+        """
+        if slot_idx is not None:
+            return self.excs[slot_idx] is not None
+        return any(exc is not None for exc in self.excs)
 
-    def get_exc(self, slot_idx: int) -> Exception:
-        assert self.has_val[slot_idx] is False
-        assert self.excs[slot_idx] is not None
+    def get_exc(self, slot_idx: int) -> Optional[Exception]:
         return self.excs[slot_idx]
+
+    def get_first_exc(self) -> Optional[Exception]:
+        for exc in self.excs:
+            if exc is not None:
+                return exc
+        return None
 
     def set_exc(self, slot_idx: int, exc: Exception) -> None:
         assert self.excs[slot_idx] is None
         self.excs[slot_idx] = exc
 
-        if self.has_val[slot_idx]:
-            # eg. during validation, where contents of file is found invalid
-            self.has_val[slot_idx] = False
-            self.vals[slot_idx] = None
-            self.file_paths[slot_idx] = None
-            self.file_urls[slot_idx] = None
+        # an exception means the value is None
+        self.has_val[slot_idx] = True
+        self.vals[slot_idx] = None
+        self.file_paths[slot_idx] = None
+        self.file_urls[slot_idx] = None
 
     def __len__(self) -> int:
         return len(self.vals)

@@ -1,6 +1,6 @@
 import dataclasses
 import logging
-from typing import Any, Iterable, Optional, Union
+from typing import Any, Iterable, Optional, Union, Literal
 from uuid import UUID
 
 import pandas as pd
@@ -33,6 +33,7 @@ def create_table(
     primary_key: Optional[Union[str, list[str]]] = None,
     num_retained_versions: int = 10,
     comment: str = '',
+    media_validation: Literal['on_read', 'on_write'] = 'on_write'
 ) -> catalog.Table:
     """Create a new base table.
 
@@ -44,6 +45,9 @@ def create_table(
             table.
         num_retained_versions: Number of versions of the table to retain.
         comment: An optional comment; its meaning is user-defined.
+        media_validation: Media validation policy for the table.
+            - `'on_read'`: validate media files at query time
+            - `'on_write'`: validate media files during insert/update operations
 
     Returns:
         A handle to the newly created [`Table`][pixeltable.Table].
@@ -89,14 +93,8 @@ def create_table(
             raise excs.Error('primary_key must be a single column name or a list of column names')
 
     tbl = catalog.InsertableTable._create(
-        dir._id,
-        path.name,
-        schema,
-        df,
-        primary_key=primary_key,
-        num_retained_versions=num_retained_versions,
-        comment=comment,
-    )
+        dir._id, path.name, schema, df, primary_key=primary_key, num_retained_versions=num_retained_versions,
+        comment=comment, media_validation=catalog.MediaValidation.validated(media_validation, 'media_validation'))
     Catalog.get().paths[path] = tbl
 
     _logger.info(f'Created table `{path_str}`.')
@@ -112,6 +110,7 @@ def create_view(
     iterator: Optional[tuple[type[ComponentIterator], dict[str, Any]]] = None,
     num_retained_versions: int = 10,
     comment: str = '',
+    media_validation: Literal['on_read', 'on_write'] = 'on_write',
     ignore_errors: bool = False,
 ) -> Optional[catalog.Table]:
     """Create a view of an existing table object (which itself can be a view or a snapshot or a base table).
@@ -124,7 +123,8 @@ def create_view(
         additional_columns: If specified, will add these columns to the view once it is created. The format
             of the `additional_columns` parameter is identical to the format of the `schema_or_df` parameter in
             [`create_table`][pixeltable.create_table].
-        is_snapshot: Whether the view is a snapshot.
+        is_snapshot: Whether the view is a snapshot. Setting this to `True` is equivalent to calling
+            [`create_snapshot`][pixeltable.create_snapshot].
         iterator: The iterator to use for this view. If specified, then this view will be a one-to-many view of
             the base table.
         num_retained_versions: Number of versions of the view to retain.
@@ -143,11 +143,6 @@ def create_view(
 
         >>> tbl = pxt.get_table('my_table')
         ... view = pxt.create_view('my_view', tbl.where(tbl.col1 > 10))
-
-        Create a snapshot of `my_table`:
-
-        >>> tbl = pxt.get_table('my_table')
-        ... snapshot_view = pxt.create_view('my_snapshot_view', tbl, is_snapshot=True)
     """
     where: Optional[exprs.Expr] = None
     if isinstance(base, catalog.Table):
@@ -177,21 +172,67 @@ def create_view(
         iterator_class, iterator_args = iterator
 
     view = catalog.View._create(
-        dir._id,
-        path.name,
-        base=tbl_version_path,
-        additional_columns=additional_columns,
-        predicate=where,
-        is_snapshot=is_snapshot,
-        iterator_cls=iterator_class,
-        iterator_args=iterator_args,
-        num_retained_versions=num_retained_versions,
-        comment=comment,
-    )
+        dir._id, path.name, base=tbl_version_path, additional_columns=additional_columns, predicate=where,
+        is_snapshot=is_snapshot, iterator_cls=iterator_class, iterator_args=iterator_args,
+        num_retained_versions=num_retained_versions, comment=comment,
+        media_validation=catalog.MediaValidation.validated(media_validation, 'media_validation'))
     Catalog.get().paths[path] = view
     _logger.info(f'Created view `{path_str}`.')
     FileCache.get().emit_eviction_warnings()
     return view
+
+
+def create_snapshot(
+    path_str: str,
+    base: Union[catalog.Table, DataFrame],
+    *,
+    additional_columns: Optional[dict[str, Any]] = None,
+    iterator: Optional[tuple[type[ComponentIterator], dict[str, Any]]] = None,
+    num_retained_versions: int = 10,
+    comment: str = '',
+    media_validation: Literal['on_read', 'on_write'] = 'on_write',
+    ignore_errors: bool = False,
+) -> Optional[catalog.Table]:
+    """Create a snapshot of an existing table object (which itself can be a view or a snapshot or a base table).
+
+    Args:
+        path_str: A name for the snapshot; can be either a simple name such as `my_snapshot`, or a pathname such as
+            `dir1.my_snapshot`.
+        base: [`Table`][pixeltable.Table] (i.e., table or view or snapshot) or [`DataFrame`][pixeltable.DataFrame] to
+            base the snapshot on.
+        additional_columns: If specified, will add these columns to the snapshot once it is created. The format
+            of the `additional_columns` parameter is identical to the format of the `schema_or_df` parameter in
+            [`create_table`][pixeltable.create_table].
+        iterator: The iterator to use for this snapshot. If specified, then this snapshot will be a one-to-many view of
+            the base table.
+        num_retained_versions: Number of versions of the view to retain.
+        comment: Optional comment for the view.
+        ignore_errors: if True, fail silently if the path already exists or is invalid.
+
+    Returns:
+        A handle to the [`Table`][pixeltable.Table] representing the newly created snapshot. If the path already
+            exists or is invalid and `ignore_errors=True`, returns `None`.
+
+    Raises:
+        Error: if the path already exists or is invalid and `ignore_errors=False`.
+
+    Examples:
+        Create a snapshot of `my_table`:
+
+        >>> tbl = pxt.get_table('my_table')
+        ... snapshot = pxt.create_snapshot('my_snapshot', tbl)
+    """
+    return create_view(
+        path_str,
+        base,
+        additional_columns=additional_columns,
+        iterator=iterator,
+        is_snapshot=True,
+        num_retained_versions=num_retained_versions,
+        comment=comment,
+        media_validation=media_validation,
+        ignore_errors=ignore_errors,
+    )
 
 
 def get_table(path: str) -> catalog.Table:
@@ -255,31 +296,42 @@ def move(path: str, new_path: str) -> None:
     obj._move(new_p.name, new_dir._id)
 
 
-def drop_table(path: str, force: bool = False, ignore_errors: bool = False) -> None:
+def drop_table(table: Union[str, catalog.Table], force: bool = False, ignore_errors: bool = False) -> None:
     """Drop a table, view, or snapshot.
 
     Args:
-        path: Path to the [`Table`][pixeltable.Table].
+        table: Fully qualified name, or handle, of the table to be dropped.
         force: If `True`, will also drop all views and sub-views of this table.
         ignore_errors: If `True`, return silently if the table does not exist (without throwing an exception).
 
     Raises:
-        Error: If the path does not exist or does not designate a table object, and `ignore_errors=False`.
+        Error: If the name does not exist or does not designate a table object, and `ignore_errors=False`.
 
     Examples:
-        >>> pxt.drop_table('my_table')
+        Drop a table by its fully qualified name:
+        >>> pxt.drop_table('subdir.my_table')
+
+        Drop a table by its handle:
+        >>> t = pxt.get_table('subdir.my_table')
+        ... pxt.drop_table(t)
+
     """
     cat = Catalog.get()
-    path_obj = catalog.Path(path)
-    try:
-        cat.paths.check_is_valid(path_obj, expected=catalog.Table)
-    except Exception as e:
-        if ignore_errors or force:
-            _logger.info(f'Skipped table `{path}` (does not exist).')
-            return
-        else:
-            raise e
-    tbl = cat.paths[path_obj]
+    if isinstance(table, str):
+        tbl_path_obj = catalog.Path(table)
+        try:
+            cat.paths.check_is_valid(tbl_path_obj, expected=catalog.Table)
+        except Exception as e:
+            if ignore_errors or force:
+                _logger.info(f'Skipped table `{table}` (does not exist).')
+                return
+            else:
+                raise e
+        tbl = cat.paths[tbl_path_obj]
+    else:
+        tbl = table
+        tbl_path_obj = catalog.Path(tbl._path)
+
     assert isinstance(tbl, catalog.Table)
     if len(cat.tbl_dependents[tbl._id]) > 0:
         dependent_paths = [dep._path for dep in cat.tbl_dependents[tbl._id]]
@@ -287,10 +339,10 @@ def drop_table(path: str, force: bool = False, ignore_errors: bool = False) -> N
             for dependent_path in dependent_paths:
                 drop_table(dependent_path, force=True)
         else:
-            raise excs.Error(f'Table {path} has dependents: {", ".join(dependent_paths)}')
+            raise excs.Error(f'Table {tbl._path} has dependents: {", ".join(dependent_paths)}')
     tbl._drop()
-    del cat.paths[path_obj]
-    _logger.info(f'Dropped table `{path}`.')
+    del cat.paths[tbl_path_obj]
+    _logger.info(f'Dropped table `{tbl._path}`.')
 
 
 def list_tables(dir_path: str = '', recursive: bool = True) -> list[str]:

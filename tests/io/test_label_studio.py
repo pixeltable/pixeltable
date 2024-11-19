@@ -84,6 +84,7 @@ class TestLabelStudio:
     </View>
     """
 
+    @pytest.mark.xdist_group('label_studio')
     def test_label_studio_project(self, ls_image_table: pxt.InsertableTable) -> None:
         skip_test_if_not_installed('label_studio_sdk')
         t = ls_image_table
@@ -135,6 +136,7 @@ class TestLabelStudio:
 
     # Run the basic sync test four ways: with 'post' and 'file' import methods, and with
     # a stored and non-stored media column, in all combinations.
+    @pytest.mark.xdist_group('label_studio')
     @pytest.mark.parametrize(
         'media_import_method,sync_col',
         [('post', 'image_col'), ('file', 'image_col'), ('url', 'image_col'),
@@ -152,6 +154,7 @@ class TestLabelStudio:
         self.__test_label_studio_sync(ls_image_table, self.test_config_image, media_import_method, sync_col, 'image')
 
     # TODO(aaron-siegel): 'file' is not working for videos or audio yet.
+    @pytest.mark.xdist_group('label_studio')
     @pytest.mark.parametrize('media_import_method', ['post', 'url'])
     def test_label_studio_sync_videos(
             self,
@@ -161,6 +164,7 @@ class TestLabelStudio:
         skip_test_if_not_installed('label_studio_sdk')
         self.__test_label_studio_sync(ls_video_table, self.test_config_video, media_import_method, 'video_col', 'video')
 
+    @pytest.mark.xdist_group('label_studio')
     @pytest.mark.parametrize('media_import_method', ['post', 'url'])
     def test_label_studio_sync_audio(
             self,
@@ -274,6 +278,7 @@ class TestLabelStudio:
     def __is_expected_url(cls, url: str) -> bool:
         return url.startswith('file://') or url.startswith('https://') or url.startswith('s3://')
 
+    @pytest.mark.xdist_group('label_studio')
     def test_label_studio_sync_preannotations(self, ls_image_table: pxt.InsertableTable) -> None:
         skip_test_if_not_installed('label_studio_sdk')
         skip_test_if_not_installed('transformers')
@@ -315,6 +320,7 @@ class TestLabelStudio:
         # 'person' should be present ('knife' sometimes is too, but it's nondeterministic)
         assert 'person' in found_labels
 
+    @pytest.mark.xdist_group('label_studio')
     def test_label_studio_sync_to_base_table(self, ls_image_table: pxt.InsertableTable) -> None:
         skip_test_if_not_installed('label_studio_sdk')
         from pixeltable.io.label_studio import LabelStudioProject
@@ -353,6 +359,7 @@ class TestLabelStudio:
         assert len(annotations) == 5
         assert all(annotations[i][0]['result'][0]['image_class'] == 'Dog' for i in range(5)), annotations
 
+    @pytest.mark.xdist_group('label_studio')
     def test_label_studio_sync_complex(self, ls_video_table: pxt.InsertableTable) -> None:
         # Test a more complex label studio project, with multiple images and other fields
         skip_test_if_not_installed('label_studio_sdk')
@@ -403,6 +410,7 @@ class TestLabelStudio:
         sync_status = v.sync()  # Should have no further effect
         validate_sync_status(sync_status, 0, 0, 0, 0, 0)
 
+    @pytest.mark.xdist_group('label_studio')
     def test_label_studio_sync_errors(self, ls_image_table: pxt.InsertableTable) -> None:
         skip_test_if_not_installed('label_studio_sdk')
         from pixeltable.io.label_studio import LabelStudioProject

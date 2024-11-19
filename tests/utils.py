@@ -3,13 +3,14 @@ import glob
 import json
 import os
 import random
+import urllib.parse
 from pathlib import Path
 from typing import Any, Hashable, Optional
 
+import PIL.Image
 import more_itertools
 import numpy as np
 import pandas as pd
-import PIL.Image
 import pytest
 
 import pixeltable as pxt
@@ -21,6 +22,7 @@ from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
 from pixeltable.functions.huggingface import clip_image, clip_text, sentence_transformer
 from pixeltable.io import SyncStatus
+import pixeltable.utils.s3 as s3_util
 
 
 def make_default_type(t: pxt.ColumnType.Type) -> pxt.ColumnType:
@@ -93,7 +95,7 @@ def create_table_data(
     }
 
     if len(col_names) == 0:
-        col_names = [c.name for c in t.columns() if not c.is_computed]
+        col_names = [c.name for c in t._tbl_version_path.columns() if not c.is_computed]
 
     col_types = t._schema
     for col_name in col_names:
@@ -350,6 +352,25 @@ def __image_mode(path: str) -> str:
     finally:
         image.close()
 
+def get_multimedia_commons_video_uris(n: int = 10) -> list[str]:
+    uri = 's3://multimedia-commons/data/videos/mp4/'
+    parsed = urllib.parse.urlparse(uri)
+    bucket_name = parsed.netloc
+    prefix = parsed.path.lstrip('/')
+    s3_client = s3_util.get_client()
+    uris: list[str] = []
+    # Use paginator to handle more than 1000 objects
+    paginator = s3_client.get_paginator('list_objects_v2')
+
+    for page in paginator.paginate(Bucket=bucket_name, Prefix=prefix):
+        if 'Contents' not in page:
+            continue
+        for obj in page['Contents']:
+            if len(uris) >= n:
+                return uris
+            uri = f"s3://{bucket_name}/{obj['Key']}"
+            uris.append(uri)
+    return uris
 
 def get_audio_files(include_bad_audio: bool = False) -> list[str]:
     tests_dir = Path(os.path.dirname(__file__))
@@ -501,21 +522,11 @@ def reload_catalog() -> None:
     pxt.init()
 
 
-@pxt.expr_udf
-def clip_img_embed(img: PIL.Image.Image) -> exprs.Expr:
-    return clip_image(img, model_id='openai/clip-vit-base-patch32')
-
-
-@pxt.expr_udf
-def e5_embed(text: str) -> exprs.Expr:
-    return sentence_transformer(text, model_id='intfloat/e5-large-v2')
-
-
-@pxt.expr_udf
-def clip_text_embed(txt: str) -> exprs.Expr:
-    return clip_text(txt, model_id='openai/clip-vit-base-patch32')
+clip_img_embed = clip_image.using(model_id='openai/clip-vit-base-patch32')
+clip_text_embed = clip_text.using(model_id='openai/clip-vit-base-patch32')
+e5_embed = sentence_transformer.using(model_id='intfloat/e5-large-v2')
 
 
 SAMPLE_IMAGE_URL = (
-    'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/source/data/images/000000000009.jpg'
+    'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000009.jpg'
 )

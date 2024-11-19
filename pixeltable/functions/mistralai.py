@@ -36,7 +36,6 @@ def chat_completions(
     temperature: Optional[float] = 0.7,
     top_p: Optional[float] = 1.0,
     max_tokens: Optional[int] = None,
-    min_tokens: Optional[int] = None,
     stop: Optional[list[str]] = None,
     random_seed: Optional[int] = None,
     response_format: Optional[dict] = None,
@@ -75,7 +74,6 @@ def chat_completions(
         temperature=temperature,
         top_p=top_p,
         max_tokens=_opt(max_tokens),
-        min_tokens=_opt(min_tokens),
         stop=stop,
         random_seed=_opt(random_seed),
         response_format=response_format,  # type: ignore[arg-type]
@@ -141,7 +139,7 @@ _embedding_dimensions_cache: dict[str, int] = {
 
 
 @pxt.udf(batch_size=16)
-def embeddings(input: Batch[str], *, model: str) -> Batch[pxt.Array[(None,), float]]:
+def embeddings(input: Batch[str], *, model: str) -> Batch[pxt.Array[(None,), pxt.Float]]:
     """
     Embeddings API.
 

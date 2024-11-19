@@ -23,13 +23,13 @@ class FrameIterator(ComponentIterator):
     exact number of frames will be extracted. If neither is specified, then all frames will be extracted. The first
     frame of the video will always be extracted, and the remaining frames will be spaced as evenly as possible.
 
-        Args:
-            video: URL or path of the video to use for frame extraction.
-            fps: Number of frames to extract per second of video. This may be a fractional value, such as 0.5.
-                If omitted or set to 0.0, then the native framerate of the video will be used (all frames will be
-                extracted). If `fps` is greater than the frame rate of the video, an error will be raised.
-            num_frames: Exact number of frames to extract. The frames will be spaced as evenly as possible. If
-                `num_frames` is greater than the number of frames in the video, all frames will be extracted.
+    Args:
+        video: URL or path of the video to use for frame extraction.
+        fps: Number of frames to extract per second of video. This may be a fractional value, such as 0.5.
+            If omitted or set to 0.0, then the native framerate of the video will be used (all frames will be
+            extracted). If `fps` is greater than the frame rate of the video, an error will be raised.
+        num_frames: Exact number of frames to extract. The frames will be spaced as evenly as possible. If
+            `num_frames` is greater than the number of frames in the video, all frames will be extracted.
     """
 
     # Input parameters
@@ -180,7 +180,6 @@ class FrameIterator(ComponentIterator):
         self.container.close()
 
     def set_pos(self, pos: int) -> None:
-        """Seek to frame idx"""
         if pos == self.next_pos:
             return  # already there
 

@@ -76,7 +76,7 @@ def _lookup_local_model(model_path: str, n_gpu_layers: int) -> 'llama_cpp.Llama'
 
     key = (model_path, None, n_gpu_layers)
     if key not in _model_cache:
-        llm = llama_cpp.Llama(model_path, n_gpu_layers=n_gpu_layers)
+        llm = llama_cpp.Llama(model_path, n_gpu_layers=n_gpu_layers, verbose=False)
         _model_cache[key] = llm
     return _model_cache[key]
 
@@ -89,7 +89,8 @@ def _lookup_pretrained_model(repo_id: str, filename: Optional[str], n_gpu_layers
         llm = llama_cpp.Llama.from_pretrained(
             repo_id=repo_id,
             filename=filename,
-            n_gpu_layers=n_gpu_layers
+            n_gpu_layers=n_gpu_layers,
+            verbose=False,
         )
         _model_cache[key] = llm
     return _model_cache[key]

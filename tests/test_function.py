@@ -79,37 +79,37 @@ class TestFunction:
 
         r0 = t[t.c2, t.c3].collect().to_pandas()
         # positional params with default args
-        r1 = t[self.f1(t.c2, t.c3)].collect().to_pandas()['col_0']
+        r1 = t[self.f1(t.c2, t.c3)].collect().to_pandas()['f1']
         assert np.all(r1 == r0.c2 + r0.c3 + 1.0)
         # kw args only
-        r2 = t[self.f1(c=0.0, b=t.c3, a=t.c2)].collect().to_pandas()['col_0']
+        r2 = t[self.f1(c=0.0, b=t.c3, a=t.c2)].collect().to_pandas()['f1']
         assert np.all(r1 == r2)
         # overriding default args
-        r3 = t[self.f1(d=0.0, c=1.0, b=t.c3, a=t.c2)].collect().to_pandas()['col_0']
+        r3 = t[self.f1(d=0.0, c=1.0, b=t.c3, a=t.c2)].collect().to_pandas()['f1']
         assert np.all(r2 == r3)
         # overriding default with positional arg
-        r4 = t[self.f1(t.c2, t.c3, 0.0)].collect().to_pandas()['col_0']
+        r4 = t[self.f1(t.c2, t.c3, 0.0)].collect().to_pandas()['f1']
         assert np.all(r3 == r4)
         # overriding default with positional arg and kw arg
-        r5 = t[self.f1(t.c2, t.c3, 1.0, d=0.0)].collect().to_pandas()['col_0']
+        r5 = t[self.f1(t.c2, t.c3, 1.0, d=0.0)].collect().to_pandas()['f1']
         assert np.all(r4 == r5)
         # d is kwarg
-        r6 = t[self.f1(t.c2, d=1.0, b=t.c3)].collect().to_pandas()['col_0']
+        r6 = t[self.f1(t.c2, d=1.0, b=t.c3)].collect().to_pandas()['f1']
         assert np.all(r5 == r6)
         # d is Expr kwarg
-        r6 = t[self.f1(1, d=t.c3, b=t.c3)].collect().to_pandas()['col_0']
+        r6 = t[self.f1(1, d=t.c3, b=t.c3)].collect().to_pandas()['f1']
         assert np.all(r5 == r6)
 
         # test handling of Nones
-        r0 = t[self.f2(1, t.c3)].collect().to_pandas()['col_0']
-        r1 = t[self.f2(None, t.c3, 2.0)].collect().to_pandas()['col_0']
+        r0 = t[self.f2(1, t.c3)].collect().to_pandas()['f2']
+        r1 = t[self.f2(None, t.c3, 2.0)].collect().to_pandas()['f2']
         assert np.all(r0 == r1)
-        r2 = t[self.f2(2, t.c3, None)].collect().to_pandas()['col_0']
+        r2 = t[self.f2(2, t.c3, None)].collect().to_pandas()['f2']
         assert np.all(r1 == r2)
         # kwarg with None
-        r3 = t[self.f2(c=None, a=t.c2)].collect().to_pandas()['col_0']
+        r3 = t[self.f2(c=None, a=t.c2)].collect().to_pandas()['f2']
         # kwarg with Expr
-        r4 = t[self.f2(c=t.c3, a=None)].collect().to_pandas()['col_0']
+        r4 = t[self.f2(c=t.c3, a=None)].collect().to_pandas()['f2']
         assert np.all(r3 == r4)
 
         with pytest.raises(TypeError) as exc_info:
@@ -165,8 +165,8 @@ class TestFunction:
         validate_update_status(t.insert(rows))
         result = t.select(t.c2.increment(), t.c2.successor, t.c1.append('x')).collect()
         # properties have a default column name; methods do not
-        assert result[0] == {'col_0': 2, 'successor': 2, 'col_2': 'ax'}
-        assert result[1] == {'col_0': 3, 'successor': 3, 'col_2': 'bx'}
+        assert result[0] == {'increment': 2, 'successor': 2, 'append': 'ax'}
+        assert result[1] == {'increment': 3, 'successor': 3, 'append': 'bx'}
 
         with pytest.raises(excs.Error) as exc_info:
             @pxt.udf(is_method=True, is_property=True)
@@ -295,6 +295,42 @@ class TestFunction:
         with pytest.raises(AttributeError) as exc_info:
             _ = t.queries.not_a_query
         assert "table 'test' has no query with that name: 'not_a_query'" in str(exc_info.value).lower()
+
+    @pxt.udf
+    def binding_test_udf(p1: str, p2: str, p3: str, p4: str = 'default') -> str:
+        return f'{p1} {p2} {p3} {p4}'
+
+    def test_partial_binding(self, reset_db) -> None:
+        pb1 = self.binding_test_udf.using(p2='y')
+        pb2 = self.binding_test_udf.using(p1='x', p3='z')
+        pb3 = self.binding_test_udf.using(p1='x', p2='y', p3='z')
+        assert pb1.arity == 3
+        assert pb2.arity == 2
+        assert pb3.arity == 1
+        assert len(pb1.signature.required_parameters) == 2
+        assert len(pb2.signature.required_parameters) == 1
+        assert len(pb3.signature.required_parameters) == 0
+        assert pb2.signature.required_parameters[0].name == 'p2'
+
+        t = pxt.create_table('test', {'c1': pxt.String, 'c2': pxt.String, 'c3': pxt.String})
+        t.insert(c1='a', c2='b', c3='c')
+        t.add_computed_column(pb1=pb1(t.c1, t.c3))
+        t.add_computed_column(pb2=pb2(t.c2))
+        t.add_computed_column(pb3=pb3(p4='changed'))
+        res = t.select(t.pb1, t.pb2, t.pb3).collect()
+        assert res[0] == {'pb1': 'a y c default', 'pb2': 'x b z default', 'pb3': 'x y z changed'}
+
+        with pytest.raises(excs.Error) as exc_info:
+            self.binding_test_udf.using(non_param='a')
+        assert 'Unknown parameter: non_param' in str(exc_info.value)
+
+        with pytest.raises(excs.Error) as exc_info:
+            self.binding_test_udf.using(p1=5)
+        assert "Expected type `String` for parameter `p1`; got `Int`" in str(exc_info.value)
+
+        with pytest.raises(TypeError) as exc_info:
+            _ = pb1(p1='a')
+        assert 'missing a required argument' in str(exc_info.value).lower()
 
     @pxt.expr_udf
     def add1(x: int) -> int:

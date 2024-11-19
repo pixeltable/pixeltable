@@ -1,20 +1,20 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Callable, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional
 
 import sqlalchemy as sql
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable import exprs
-
-from .globals import is_valid_identifier
+from .globals import is_valid_identifier, MediaValidation
 
 if TYPE_CHECKING:
     from .table_version import TableVersion
 
 _logger = logging.getLogger('pixeltable')
+
 
 class Column:
     """Representation of a column in the schema of a Table/DataFrame.
@@ -22,10 +22,28 @@ class Column:
     A Column contains all the metadata necessary for executing queries and updates against a particular version of a
     table/view.
     """
+    name: str
+    id: Optional[int]
+    col_type: ts.ColumnType
+    stored: bool
+    is_pk: bool
+    _media_validation: Optional[MediaValidation]  # if not set, TableVersion.media_validation applies
+    schema_version_add: Optional[int]
+    schema_version_drop: Optional[int]
+    _records_errors: Optional[bool]
+    sa_col: Optional[sql.schema.Column]
+    sa_col_type: Optional[sql.sqltypes.TypeEngine]
+    sa_errormsg_col: Optional[sql.schema.Column]
+    sa_errortype_col: Optional[sql.schema.Column]
+    _value_expr: Optional[exprs.Expr]
+    value_expr_dict: Optional[dict[str, Any]]
+    dependent_cols: set[Column]
+    tbl: Optional[TableVersion]
+
     def __init__(
             self, name: Optional[str], col_type: Optional[ts.ColumnType] = None,
-            computed_with: Optional[Union[exprs.Expr, Callable]] = None,
-            is_pk: bool = False, stored: bool = True,
+            computed_with: Optional[exprs.Expr] = None,
+            is_pk: bool = False, stored: bool = True, media_validation: Optional[MediaValidation] = None,
             col_id: Optional[int] = None, schema_version_add: Optional[int] = None,
             schema_version_drop: Optional[int] = None, sa_col_type: Optional[sql.sqltypes.TypeEngine] = None,
             records_errors: Optional[bool] = None, value_expr_dict: Optional[dict[str, Any]] = None,
@@ -35,7 +53,7 @@ class Column:
         Args:
             name: column name; None for system columns (eg, index columns)
             col_type: column type; can be None if the type can be derived from ``computed_with``
-            computed_with: a callable or an Expr object that computes the column value
+            computed_with: an Expr that computes the column value
             is_pk: if True, this column is part of the primary key
             stored: determines whether a computed column is present in the stored table or recomputed on demand
             col_id: column ID (only used internally)
@@ -44,11 +62,6 @@ class Column:
         - when constructed by the user: ``computed_with`` was constructed explicitly and is passed in;
           col_type is None
         - when loaded from md store: ``computed_with`` is set and col_type is set
-
-        ``computed_with`` is a Callable:
-        - the callable's parameter names must correspond to existing columns in the table for which this Column
-          is being used
-        - ``col_type`` needs to be set to the callable's return type
 
         ``stored`` (only valid for computed image columns):
         - if True: the column is present in the stored table
@@ -62,21 +75,13 @@ class Column:
             raise excs.Error(f'Column `{name}`: col_type is required if computed_with is not specified')
 
         self._value_expr: Optional[exprs.Expr] = None
-        self.compute_func: Optional[Callable] = None
         self.value_expr_dict = value_expr_dict
         if computed_with is not None:
             value_expr = exprs.Expr.from_object(computed_with)
             if value_expr is None:
-                # computed_with needs to be a Callable
-                if not callable(computed_with):
-                    raise excs.Error(
-                        f'Column {name}: computed_with needs to be either a Pixeltable expression or a Callable, '
-                        f'but it is a {type(computed_with)}')
-                if col_type is None:
-                    raise excs.Error(f'Column {name}: col_type is required if computed_with is a Callable')
-                # we need to turn the computed_with function into an Expr, but this requires resolving
-                # column name references and for that we need to wait until we're assigned to a Table
-                self.compute_func = computed_with
+                raise excs.Error(
+                    f'Column {name}: computed_with needs to be a valid Pixeltable expression, '
+                    f'but it is a {type(computed_with)}')
             else:
                 self._value_expr = value_expr.copy()
                 self.col_type = self._value_expr.col_type
@@ -86,24 +91,24 @@ class Column:
         assert self.col_type is not None
 
         self.stored = stored
-        self.dependent_cols: set[Column] = set()  # cols with value_exprs that reference us; set by TableVersion
+        self.dependent_cols = set()  # cols with value_exprs that reference us; set by TableVersion
         self.id = col_id
         self.is_pk = is_pk
+        self._media_validation = media_validation
         self.schema_version_add = schema_version_add
         self.schema_version_drop = schema_version_drop
 
         self._records_errors = records_errors
 
         # column in the stored table for the values of this Column
-        self.sa_col: Optional[sql.schema.Column] = None
+        self.sa_col = None
         self.sa_col_type = sa_col_type
 
         # computed cols also have storage columns for the exception string and type
-        self.sa_errormsg_col: Optional[sql.schema.Column] = None
-        self.sa_errortype_col: Optional[sql.schema.Column] = None
+        self.sa_errormsg_col = None
+        self.sa_errortype_col = None
 
-        from .table_version import TableVersion
-        self.tbl: Optional[TableVersion] = None  # set by owning TableVersion
+        self.tbl = None  # set by owning TableVersion
 
     @property
     def value_expr(self) -> Optional[exprs.Expr]:
@@ -139,7 +144,7 @@ class Column:
 
     @property
     def is_computed(self) -> bool:
-        return self.compute_func is not None or self._value_expr is not None or self.value_expr_dict is not None
+        return self._value_expr is not None or self.value_expr_dict is not None
 
     @property
     def is_stored(self) -> bool:
@@ -159,6 +164,13 @@ class Column:
     def qualified_name(self) -> str:
         assert self.tbl is not None
         return f'{self.tbl.name}.{self.name}'
+
+    @property
+    def media_validation(self) -> MediaValidation:
+        if self._media_validation is not None:
+            return self._media_validation
+        assert self.tbl is not None
+        return self.tbl.media_validation
 
     def source(self) -> None:
         """

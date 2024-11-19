@@ -6,6 +6,7 @@ from ..utils import skip_test_if_no_client, skip_test_if_not_installed, validate
 
 
 @pytest.mark.remote_api
+@pytest.mark.flaky(reruns=3, reruns_delay=8)
 class TestMistral:
     def test_chat_completions(self, reset_db) -> None:
         from pixeltable.functions.mistralai import chat_completions
@@ -22,7 +23,6 @@ class TestMistral:
             temperature=0.8,
             top_p=0.95,
             max_tokens=300,
-            min_tokens=100,
             stop=['\n'],
             random_seed=4171780,
             response_format={'type': 'text'},
@@ -47,7 +47,6 @@ class TestMistral:
             temperature=0.8,
             top_p=0.95,
             max_tokens=300,
-            min_tokens=100,
             stop=['def'],
             random_seed=4171780,
             suffix=t.suffix

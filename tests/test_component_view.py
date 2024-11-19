@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -23,14 +23,14 @@ class ConstantImgIterator(ComponentIterator):
         self.pos_frame = 0.0
 
     @classmethod
-    def input_schema(cls) -> Dict[str, pxt.ColumnType]:
+    def input_schema(cls) -> dict[str, pxt.ColumnType]:
         return {
             'video': pxt.VideoType(nullable=False),
             'fps': pxt.FloatType()
         }
 
     @classmethod
-    def output_schema(cls, *args: Any, **kwargs: Any) -> Tuple[Dict[str, pxt.ColumnType], List[str]]:
+    def output_schema(cls, *args: Any, **kwargs: Any) -> tuple[dict[str, pxt.ColumnType], list[str]]:
         return {
             'frame_idx': pxt.IntType(),
             'pos_msec': pxt.FloatType(),
@@ -38,7 +38,7 @@ class ConstantImgIterator(ComponentIterator):
             'frame': pxt.ImageType(),
         }, ['frame']
 
-    def __next__(self) -> Dict[str, Any]:
+    def __next__(self) -> dict[str, Any]:
         while True:
             if self.next_frame_idx == self.num_frames:
                 raise StopIteration
@@ -233,7 +233,7 @@ class TestComponentView:
         # create snapshot of view
         query = view_t.where(view_t.frame_idx < 10) if has_filter else view_t
         schema = {'c1': view_t.cropped.width * view_t.cropped.height} if has_column else {}
-        snap_t = pxt.create_view(snap_path, query, additional_columns=schema, is_snapshot=True)
+        snap_t = pxt.create_snapshot(snap_path, query, additional_columns=schema)
         snap_cols = [snap_t.c1] if has_column else []
         snap_query = \
             snap_t.select(

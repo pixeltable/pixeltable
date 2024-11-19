@@ -115,6 +115,13 @@ jobs:
         # Needed for WhisperX
         if: ${{ matrix.poetry-options != '' }}
         run: conda install -c conda-forge libiconv ffmpeg
+      - name: Install ollama
+        if: ${{ matrix.poetry-options != '' && matrix.os == 'ubuntu-22.04' }}
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/ollama/ollama/4759d879f2376ffb9b82f296e442ec8ef137f27b/scripts/install.sh | sh
+          sleep 10  # Wait for the ollama server to start
+          # Pull the model used for testing now, with retries, to safeguard against connection issues
+          ./scripts/retry.sh 3 30 ollama pull 'qwen2.5:0.5b'
       - name: Install poetry
         # setuptools >= 69.2 has been causing problems with github actions even when its
         # version is enforced in poetry. For now, explicitly revert to setuptools 69.1.1
@@ -135,24 +142,8 @@ jobs:
           key: venv-${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.poetry-options }}-${{
             hashFiles('.github/workflows/pytest.yml', 'poetry.lock', 'poetry.toml', 'pyproject.toml', 'Makefile') }}
       - name: Install the project dependencies
-        # Retry 3 times to be (hopefully) resilient against transient connection errors.
-        shell: bash -l {0}  # Don't use -e flag
-        run: |
-          set +e
-          RETRIES=3
-          while (( RETRIES-- > 0 )); do
-            poetry install ${{ matrix.poetry-options }}
-            RESULT="$?"
-            if [[ "$RESULT" == 0 ]]; then
-              break
-            fi
-            echo "Dependencies installation failed with exit code $RESULT; $RETRIES tries remaining."
-            sleep 60
-          done
-          if [[ "$RESULT" != 0 ]]; then
-            exit 1
-          fi
-          echo "Dependencies installation succeeded."
+        # Retry 3 times to be resilient against transient connectivity issues.
+        run: ./scripts/retry.sh 3 60 poetry install ${{ matrix.poetry-options }}
       - name: Install yolox
         # Yolox cannot be installed with poetry and only seems to work with python <= 3.10 and not on ubuntu-arm64
         if: ${{ matrix.poetry-options != '' && matrix.python-version == '3.9' && matrix.os == 'ubuntu-22.04' }}
@@ -160,7 +151,7 @@ jobs:
       - name: Ensure pytest is installed
         # This is necessary for running the tests without --with dev
         if: ${{ matrix.poetry-options == '' }}
-        run: pip install pytest coverage
+        run: pip install pytest pytest-xdist pytest-rerunfailures coverage
       - name: Run the unit tests
         if: ${{ matrix.test-category == 'py' }}
         # Run the tests with the 'expensive' marker only once, on ubuntu-22.04 with Python 3.9. The other tests
@@ -174,7 +165,7 @@ jobs:
       - name: Run the notebook tests
         if: ${{ matrix.test-category == 'ipynb' }}
         run: |
-          ./scripts/prepare-nb-tests.sh --no-pip docs/release tests
+          ./scripts/prepare-nb-tests.sh --no-pip docs/notebooks tests
           pytest -v -m '' --nbmake --nbmake-timeout=1800 target/nb-tests/*.ipynb
       - name: Type check
         if: ${{ matrix.test-category == 'lint' }}
@@ -182,6 +173,9 @@ jobs:
       - name: Validate docstrings
         if: ${{ matrix.test-category == 'lint' }}
         run: mkdocs build --strict
+      - name: Validate links in notebooks
+        if: ${{ matrix.test-category == 'lint' }}
+        run: ./scripts/lint-notebooks.sh
       - name: Print utilization info
         if: ${{ startsWith(matrix.os, 'ubuntu') }}
         run: |

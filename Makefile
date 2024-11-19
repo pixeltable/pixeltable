@@ -6,18 +6,24 @@ KERNEL_NAME := $(shell basename `pwd`)
 help:
 	@echo "Usage: make <target>"
 	@echo "You must be in a conda environment to install the Pixeltable dev environment."
-	@echo "See: https://www.notion.so/Setting-up-a-dev-environment-83a1ca32de034f94bd7fee0ddb46fed8"
+	@echo "See: https://github.com/pixeltable/pixeltable/blob/main/CONTRIBUTING.md"
 	@echo ""
 	@echo "Targets:"
 	@echo "  install       Install the development environment"
-	@echo "  test          Run pytest"
-	@echo "  nbtest        Run notebook tests"
+	@echo "  test          Run pytest, typecheck, and docstest"
+	@echo "  fulltest      Run pytest, nbtest, typecheck, and docstest, including expensive tests"
+	@echo "  release       Create a pypi release and post to github"
+	@echo "  release-docs  Build and deploy API documentation (must be run from home repo, not a fork)"
+	@echo ""
+	@echo "Individual test targets:"
+	@echo "  clean         Remove generated files and temp files"
+	@echo "  pytest        Run pytest"
+	@echo "  fullpytest    Run pytest, including expensive tests"
 	@echo "  typecheck     Run mypy"
+	@echo "  docstest      Run mkdocs build --strict"
+	@echo "  nbtest        Run notebook tests"
 	@echo "  lint          Run linting tools against changed files"
 	@echo "  format        Format changed files with ruff (updates .py files in place)"
-	@echo "  release       Create a pypi release and post to github"
-	@echo "  release-docs  Build and deploy API documentation"
-	@echo "  clean         Remove generated files and temp files"
 
 .PHONY: setup-install
 setup-install:
@@ -41,6 +47,7 @@ YOLOX_OK := $(shell python -c "import sys; sys.stdout.write(str(sys.version_info
 
 .make-install/deps: poetry.lock
 	@echo "Installing dependencies from poetry ..."
+	@export CMAKE_ARGS='-DLLAVA_BUILD=OFF'
 	@poetry install --with dev
 	@touch .make-install/deps
 
@@ -61,9 +68,22 @@ endif
 install: setup-install .make-install/poetry .make-install/deps .make-install/others
 
 .PHONY: test
-test: install
+test: pytest typecheck docstest
+	@echo "All tests passed!"
+
+.PHONY: fulltest
+fulltest: fullpytest nbtest typecheck docstest
+	@echo "All tests passed!"
+
+.PHONY: pytest
+pytest: install
 	@echo "Running pytest ..."
-	@ulimit -n 4000; pytest -v
+	@ulimit -n 4000; pytest -v -n auto --dist loadgroup --maxprocesses 6 tests
+
+.PHONY: fullpytest
+fullpytest: install
+	@echo "Running pytest, including expensive tests ..."
+	@ulimit -n 4000; pytest -v -m '' -n auto --dist loadgroup --maxprocesses 6 tests
 
 NB_CELL_TIMEOUT := 3600
 # We ensure the TQDM progress bar is updated exactly once per cell execution, by setting the refresh rate equal
@@ -73,12 +93,18 @@ NB_CELL_TIMEOUT := 3600
 nbtest: install
 	@export TQDM_MININTERVAL=$(NB_CELL_TIMEOUT)
 	@echo "Running pytest on notebooks ..."
-	@scripts/prepare-nb-tests.sh --no-pip docs/release tests
+	@scripts/prepare-nb-tests.sh --no-pip docs/notebooks tests
 	@ulimit -n 4000; pytest -v --nbmake --nbmake-timeout=$(NB_CELL_TIMEOUT) --nbmake-kernel=$(KERNEL_NAME) target/nb-tests/*.ipynb
 
 .PHONY: typecheck
 typecheck: install
+	@echo "Running mypy ..."
 	@mypy pixeltable
+
+.PHONY: docstest
+docstest: install
+	@echo "Running mkdocs build --strict ..."
+	@mkdocs build --strict
 
 .PHONY: lint
 lint: install

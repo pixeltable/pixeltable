@@ -1,0 +1,6 @@
+discord.py>=2.0.0
+pixeltable>=0.2.24
+pillow>=9.0.0
+python-dotenv>=0.19.0
+aiohttp>=3.8.0
+numpy>=1.21.0

@@ -153,7 +153,7 @@ class Dumper:
         self.__add_expr_columns(v, 'view')
 
         # snapshot
-        _ = pxt.create_view('views.snapshot', t.where(t.c2 >= 75), is_snapshot=True)
+        _ = pxt.create_snapshot('views.snapshot', t.where(t.c2 >= 75))
 
         # view of views
         vv = pxt.create_view('views.view_of_views', v.where(t.c2 >= 25))
@@ -270,7 +270,10 @@ class Dumper:
         add_column('c6_to_string', t.c6.apply(json.dumps))
         add_column('c6_back_to_json', t[f'{col_prefix}_c6_to_string'].apply(json.loads))
 
-        t.add_embedding_index(f'{col_prefix}_function_call', string_embed=embed_udf.clip_text_embed)
+        t.add_embedding_index(
+            f'{col_prefix}_function_call',
+            string_embed=pxt.functions.huggingface.clip_text.using(model_id='openai/clip-vit-base-patch32')
+        )
 
         # query()
         @t.query

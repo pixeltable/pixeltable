@@ -138,11 +138,11 @@ class Formatter:
         assert isinstance(img, Image.Image), f'Wrong type: {type(img)}'
         # Try to make it look decent in a variety of display scenarios
         if self.__num_rows > 1:
-            width = 240  # Multiple rows: display small images
+            width = min(240, img.width)  # Multiple rows: display small images
         elif self.__num_cols > 1:
-            width = 480  # Multiple columns: display medium images
+            width = min(480, img.width)  # Multiple columns: display medium images
         else:
-            width = 640  # A single image: larger display
+            width = min(640, img.width)  # A single image: larger display
         with io.BytesIO() as buffer:
             img.save(buffer, 'webp')
             img_base64 = base64.b64encode(buffer.getvalue()).decode()
