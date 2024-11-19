@@ -39,7 +39,7 @@ tenacity = "^8.2"
 puremagic = ">=1.20"
 pymupdf = "^1.24.1"
 ftfy = "^6.2.0"
-pixeltable-pgserver = "==0.2.7"
+pixeltable-pgserver = "==0.2.8"
 
 [tool.poetry.group.dev]
 optional = true
@@ -120,6 +120,7 @@ av = [
     { version = ">=13.0.0", python = ">=3.13" }
 ]
 sqlalchemy = ">=2.0.36"
+pillow = ">=10.4.0"
 
 [tool.poetry.plugins."mkdocstrings.python.templates"]
 extension-name = "pixeltable.tool.doc_plugins.mkdocstrings:get_templates_path"
