@@ -67,6 +67,11 @@ jobs:
             python-version: "3.9"
             test-category: "py"
             poetry-options: ""
+          # Python 3.13 (minimal installation, without --with dev)
+          - os: ubuntu-22.04
+            python-version: "3.13"
+            test-category: "py"
+            poetry-options: ""
           # Notebook tests
           - os: ubuntu-22.04
             python-version: "3.9"

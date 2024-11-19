@@ -105,19 +105,10 @@ label-studio-sdk = "^0.0.32"
 fiftyone = "^1.0.0"
 ollama = ">=0.3.3"
 llama-cpp-python = ">=0.3.1"
-
-# force versions
-cffi = ">=1.17.1"
-rpds-py = ">=0.20.0"
-matplotlib = ">=3.9.2"
-jiter = ">=0.6.1"
-psycopg = [
-    { extras = ["binary"], version = ">=3.1.18,<3.2", python = "<3.13" },
-    { extras = ["binary"], version = ">=3.2", python = ">=3.13" }
+psycopg = [  # Lock psycopg versions in dev to ensure proper behavior with all Python versions
+    { extras = ["binary"], version = "==3.1.18", python = "<3.13" },
+    { extras = ["binary"], version = "==3.2.3", python = ">=3.13" }
 ]
-av = ">=13.0.0"
-sqlalchemy = ">=2.0.36"
-pillow = ">=10.4.0"
 
 [tool.poetry.plugins."mkdocstrings.python.templates"]
 extension-name = "pixeltable.tool.doc_plugins.mkdocstrings:get_templates_path"
