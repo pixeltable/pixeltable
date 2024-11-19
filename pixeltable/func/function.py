@@ -3,15 +3,19 @@ from __future__ import annotations
 import abc
 import importlib
 import inspect
-from typing import Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 import sqlalchemy as sql
 
 import pixeltable as pxt
+import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 
 from .globals import resolve_symbol
 from .signature import Signature
+
+if TYPE_CHECKING:
+    from .expr_template_function import ExprTemplateFunction
 
 
 class Function(abc.ABC):
@@ -98,6 +102,38 @@ class Function(abc.ABC):
                 raise ValueError(f'`conditional_return_type` has parameter `{param.name}` that is not in the signature')
         self._conditional_return_type = fn
         return fn
+
+    def using(self, **kwargs: Any) -> 'ExprTemplateFunction':
+        from pixeltable import exprs
+
+        from .expr_template_function import ExprTemplateFunction
+
+        # Resolve each kwarg into a parameter binding
+        bindings: dict[str, exprs.Expr] = {}
+        for k, v in kwargs.items():
+            if k not in self.signature.parameters:
+                raise excs.Error(f'Unknown parameter: {k}')
+            param = self.signature.parameters[k]
+            expr = exprs.Expr.from_object(v)
+            if not param.col_type.is_supertype_of(expr.col_type):
+                raise excs.Error(f'Expected type `{param.col_type}` for parameter `{k}`; got `{expr.col_type}`')
+            bindings[k] = v  # Use the original value, not the Expr (The Expr is only for validation)
+
+        residual_params = [
+            p for p in self.signature.parameters.values() if p.name not in bindings
+        ]
+
+        # Bind each remaining parameter to a like-named variable
+        for param in residual_params:
+            bindings[param.name] = exprs.Variable(param.name, param.col_type)
+
+        call = exprs.FunctionCall(self, bindings)
+
+        # Construct the (n-k)-ary signature of the new function. We use `call.col_type` for this, rather than
+        # `self.signature.return_type`, because the return type of the new function may be specialized via a
+        # conditional return type.
+        new_signature = Signature(call.col_type, residual_params, self.signature.is_batched)
+        return ExprTemplateFunction(call, new_signature)
 
     @abc.abstractmethod
     def exec(self, *args: Any, **kwargs: Any) -> Any:

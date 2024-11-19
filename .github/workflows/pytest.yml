@@ -118,7 +118,7 @@ jobs:
       - name: Install ollama
         if: ${{ matrix.poetry-options != '' && matrix.os == 'ubuntu-22.04' }}
         run: |
-          curl -fsSL https://ollama.com/install.sh | sh
+          curl -fsSL https://raw.githubusercontent.com/ollama/ollama/4759d879f2376ffb9b82f296e442ec8ef137f27b/scripts/install.sh | sh
           sleep 10  # Wait for the ollama server to start
           # Pull the model used for testing now, with retries, to safeguard against connection issues
           ./scripts/retry.sh 3 30 ollama pull 'qwen2.5:0.5b'
@@ -165,7 +165,7 @@ jobs:
       - name: Run the notebook tests
         if: ${{ matrix.test-category == 'ipynb' }}
         run: |
-          ./scripts/prepare-nb-tests.sh --no-pip docs/release tests
+          ./scripts/prepare-nb-tests.sh --no-pip docs/notebooks tests
           pytest -v -m '' --nbmake --nbmake-timeout=1800 target/nb-tests/*.ipynb
       - name: Type check
         if: ${{ matrix.test-category == 'lint' }}
@@ -173,6 +173,9 @@ jobs:
       - name: Validate docstrings
         if: ${{ matrix.test-category == 'lint' }}
         run: mkdocs build --strict
+      - name: Validate links in notebooks
+        if: ${{ matrix.test-category == 'lint' }}
+        run: ./scripts/lint-notebooks.sh
       - name: Print utilization info
         if: ${{ startsWith(matrix.os, 'ubuntu') }}
         run: |

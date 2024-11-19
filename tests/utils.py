@@ -520,21 +520,11 @@ def reload_catalog() -> None:
     pxt.init()
 
 
-@pxt.expr_udf
-def clip_img_embed(img: PIL.Image.Image) -> np.ndarray:
-    return clip_image(img, model_id='openai/clip-vit-base-patch32')
-
-
-@pxt.expr_udf
-def e5_embed(text: str) -> np.ndarray:
-    return sentence_transformer(text, model_id='intfloat/e5-large-v2')
-
-
-@pxt.expr_udf
-def clip_text_embed(txt: str) -> np.ndarray:
-    return clip_text(txt, model_id='openai/clip-vit-base-patch32')
+clip_img_embed = clip_image.using(model_id='openai/clip-vit-base-patch32')
+clip_text_embed = clip_text.using(model_id='openai/clip-vit-base-patch32')
+e5_embed = sentence_transformer.using(model_id='intfloat/e5-large-v2')
 
 
 SAMPLE_IMAGE_URL = (
-    'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/source/data/images/000000000009.jpg'
+    'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000009.jpg'
 )

@@ -769,16 +769,16 @@ class TestExprs:
     def test_ext_imgs(self, reset_db) -> None:
         t = pxt.create_table('img_test', {'img': pxt.ImageType()})
         img_urls = [
-            'https://raw.github.com/pixeltable/pixeltable/main/docs/source/data/images/000000000030.jpg',
-            'https://raw.github.com/pixeltable/pixeltable/main/docs/source/data/images/000000000034.jpg',
-            'https://raw.github.com/pixeltable/pixeltable/main/docs/source/data/images/000000000042.jpg',
-            'https://raw.github.com/pixeltable/pixeltable/main/docs/source/data/images/000000000049.jpg',
-            'https://raw.github.com/pixeltable/pixeltable/main/docs/source/data/images/000000000057.jpg',
-            'https://raw.github.com/pixeltable/pixeltable/main/docs/source/data/images/000000000061.jpg',
-            'https://raw.github.com/pixeltable/pixeltable/main/docs/source/data/images/000000000063.jpg',
-            'https://raw.github.com/pixeltable/pixeltable/main/docs/source/data/images/000000000064.jpg',
-            'https://raw.github.com/pixeltable/pixeltable/main/docs/source/data/images/000000000069.jpg',
-            'https://raw.github.com/pixeltable/pixeltable/main/docs/source/data/images/000000000071.jpg',
+            'https://raw.github.com/pixeltable/pixeltable/main/docs/resources/images/000000000030.jpg',
+            'https://raw.github.com/pixeltable/pixeltable/main/docs/resources/images/000000000034.jpg',
+            'https://raw.github.com/pixeltable/pixeltable/main/docs/resources/images/000000000042.jpg',
+            'https://raw.github.com/pixeltable/pixeltable/main/docs/resources/images/000000000049.jpg',
+            'https://raw.github.com/pixeltable/pixeltable/main/docs/resources/images/000000000057.jpg',
+            'https://raw.github.com/pixeltable/pixeltable/main/docs/resources/images/000000000061.jpg',
+            'https://raw.github.com/pixeltable/pixeltable/main/docs/resources/images/000000000063.jpg',
+            'https://raw.github.com/pixeltable/pixeltable/main/docs/resources/images/000000000064.jpg',
+            'https://raw.github.com/pixeltable/pixeltable/main/docs/resources/images/000000000069.jpg',
+            'https://raw.github.com/pixeltable/pixeltable/main/docs/resources/images/000000000071.jpg',
         ]
         t.insert({'img': url} for url in img_urls)
         # this fails with an assertion
