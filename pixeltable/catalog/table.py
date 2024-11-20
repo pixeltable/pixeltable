@@ -270,24 +270,24 @@ class Table(SchemaObject):
     def _media_validation(self) -> MediaValidation:
         return self._tbl_version.media_validation
 
-    def __descriptors(self) -> list[Union[str, pd.DataFrame]]:
+    def _descriptors(self) -> list[Union[str, pd.DataFrame]]:
         """
         Constructs a list of descriptors for this table that can be pretty-printed using
         __repr__() or _repr_html_().
         """
-        descriptors = [self.__title_descriptor()]
-        descriptors.append(self.__col_descriptor())
-        idxs = self.__index_descriptor()
+        descriptors: list[Union[str, pd.DataFrame]] = [self._title_descriptor()]
+        descriptors.append(self._col_descriptor())
+        idxs = self._index_descriptor()
         if not idxs.empty:
             descriptors.append(idxs)
-        stores = self.__external_store_descriptor()
+        stores = self._external_store_descriptor()
         if not stores.empty:
             descriptors.append(stores)
         if self._comment:
             descriptors.append(f'COMMENT: {self._comment}')
         return descriptors
 
-    def __title_descriptor(self) -> pd.DataFrame:
+    def _title_descriptor(self) -> str:
         title: str
         if self._base is None:
             title = f'Table\n{self._path!r}'
@@ -296,7 +296,7 @@ class Table(SchemaObject):
             title += f'\n(of {self.__bases_to_desc()})'
         return title
 
-    def __col_descriptor(self) -> pd.DataFrame:
+    def _col_descriptor(self) -> pd.DataFrame:
         return pd.DataFrame(
             {
                 'Column Name': col.name,
@@ -314,7 +314,7 @@ class Table(SchemaObject):
         else:
             return f'{bases[0]._path!r}, ..., {bases[-1]._path!r}'
 
-    def __index_descriptor(self) -> pd.DataFrame:
+    def _index_descriptor(self) -> pd.DataFrame:
         from pixeltable import index
 
         pd_rows = []
@@ -334,7 +334,7 @@ class Table(SchemaObject):
                 pd_rows.append(row)
         return pd.DataFrame(pd_rows)
 
-    def __external_store_descriptor(self) -> pd.DataFrame:
+    def _external_store_descriptor(self) -> pd.DataFrame:
         pd_rows = []
         for name, store in self._tbl_version.external_stores.items():
             row = {
@@ -344,30 +344,29 @@ class Table(SchemaObject):
             pd_rows.append(row)
         return pd.DataFrame(pd_rows)
 
+    def __style_descriptor(self, descriptor: Union[str, pd.DataFrame]) -> pandas.io.formats.style.Styler:
+        if isinstance(descriptor, str):
+            return (
+                pd.DataFrame([descriptor]).style
+                .set_properties(None, **{'white-space': 'pre-wrap', 'text-align': 'left', 'font-weight': 'bold'})
+                .hide(axis='index').hide(axis='columns')
+            )
+        else:
+            return (
+                descriptor.style
+                .set_properties(None, **{'white-space': 'pre-wrap', 'text-align': 'left'})
+                .set_table_styles([dict(selector='th', props=[('text-align', 'left')])])
+                .hide(axis='index')
+            )
+
     def __repr__(self) -> str:
-        blocks = [str(descriptor) for descriptor in self.__descriptors()]
+        blocks = [str(descriptor) for descriptor in self._descriptors()]
         return '\n\n'.join(blocks)
 
     def _repr_html_(self) -> str:
-        html_blocks = []
-        for descriptor in self.__descriptors():
-            if isinstance(descriptor, str):
-                styler = (
-                    pd.DataFrame([descriptor]).style
-                    .set_properties(None, **{'white-space': 'pre-wrap', 'text-align': 'left', 'font-weight': 'bold'})
-                    .hide(axis='index').hide(axis='columns')
-                )
-                html_blocks.append(f'{styler.to_html()}')
-            else:
-                styler = (
-                    # white-space: pre-wrap: print \n as newline
-                    # th: left-align headings
-                    descriptor.style
-                    .set_properties(None, **{'white-space': 'pre-wrap', 'text-align': 'left'})
-                    .set_table_styles([dict(selector='th', props=[('text-align', 'left')])])
-                    .hide(axis='index')
-                )
-                html_blocks.append(f'{styler.to_html()}')
+        html_blocks = [
+            self.__style_descriptor(descriptor).to_html() for descriptor in self._descriptors()
+        ]
         return '\n'.join(html_blocks)
 
     def describe(self) -> None:

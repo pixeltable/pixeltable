@@ -85,7 +85,9 @@ class FunctionCall(Expr):
         # we record the types of non-variable parameters for runtime type checks
         self.arg_types = []
         self.kwarg_types = {}
+
         # the prefix of parameters that are bound can be passed by position
+        processed_args: set[str] = set()
         for py_param in fn.signature.py_signature.parameters.values():
             if py_param.name not in bound_args or py_param.kind == inspect.Parameter.KEYWORD_ONLY:
                 break
@@ -97,18 +99,19 @@ class FunctionCall(Expr):
                 self.args.append((None, arg))
             if py_param.kind != inspect.Parameter.VAR_POSITIONAL and py_param.kind != inspect.Parameter.VAR_KEYWORD:
                 self.arg_types.append(signature.parameters[py_param.name].col_type)
+            processed_args.add(py_param.name)
 
         # the remaining args are passed as keywords
-        kw_param_names = set(bound_args.keys()) - set(list(fn.signature.py_signature.parameters.keys())[:len(self.args)])
-        for param_name in kw_param_names:
-            arg = bound_args[param_name]
-            if isinstance(arg, Expr):
-                self.kwargs[param_name] = (len(self.components), None)
-                self.components.append(arg.copy())
-            else:
-                self.kwargs[param_name] = (None, arg)
-            if fn.signature.py_signature.parameters[param_name].kind != inspect.Parameter.VAR_KEYWORD:
-                self.kwarg_types[param_name] = signature.parameters[param_name].col_type
+        for param_name in bound_args.keys():
+            if param_name not in processed_args:
+                arg = bound_args[param_name]
+                if isinstance(arg, Expr):
+                    self.kwargs[param_name] = (len(self.components), None)
+                    self.components.append(arg.copy())
+                else:
+                    self.kwargs[param_name] = (None, arg)
+                if fn.signature.py_signature.parameters[param_name].kind != inspect.Parameter.VAR_KEYWORD:
+                    self.kwarg_types[param_name] = signature.parameters[param_name].col_type
 
         # window function state:
         # self.components[self.group_by_start_idx:self.group_by_stop_idx] contains group_by exprs

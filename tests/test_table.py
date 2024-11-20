@@ -15,6 +15,7 @@ import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable import catalog
 from pixeltable import exceptions as excs
+from pixeltable.io.external_store import MockProject
 from pixeltable.iterators import FrameIterator
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.media_store import MediaStore
@@ -370,7 +371,7 @@ class TestTable:
             'Document',
             'Required[Document]',
         ]
-        df = t._description()
+        df = t._col_descriptor()
         assert list(df['Type']) == expected_strings + expected_strings
 
     def test_empty_table(self, reset_db) -> None:
@@ -1287,7 +1288,7 @@ class TestTable:
         assert status.num_excs == 0
 
         # TODO: how to verify the output?
-        describe_output = t.__repr__()
+        describe_output = repr(t)
         # 'add1' didn't get swallowed/the expr udf is still visible in the column definition
         assert 'add1' in describe_output
 
@@ -1700,15 +1701,51 @@ class TestTable:
             'func_r': pxt.StringType(nullable=False),
         }
 
-    def test_describe(self, test_tbl: catalog.Table) -> None:
-        t = test_tbl
-        fn = lambda x: np.full((3, 4), x)
-        t.add_column(computed1=t.c2.apply(fn, col_type=pxt.Array[(3, 4), pxt.Int]))
-        t.describe()
+    def test_repr(self, test_tbl: catalog.Table) -> None:
+        skip_test_if_not_installed('sentence_transformers')
 
-        # TODO: how to you check the output of these?
-        _ = repr(t)
-        _ = t._repr_html_()
+        v = pxt.create_view('test_view', test_tbl)
+        pxt.create_dir('test_dir')
+        v2 = pxt.create_view('test_subview', v, comment='This is an intriguing table comment.')
+        fn = lambda x: np.full((3, 4), x)
+        v2.add_column(computed1=v2.c2.apply(fn, col_type=pxt.Array[(3, 4), pxt.Int]))
+        v2.add_embedding_index(
+            'c1',
+            string_embed=pxt.functions.huggingface.sentence_transformer.using(model_id='all-mpnet-base-v2')
+        )
+        v2._link_external_store(MockProject.create(v2, 'project', {}, {}))
+        v2.describe()
+
+        r = repr(v2)
+        assert self.strip_lines(r) == self.strip_lines('''View
+            'test_subview'
+            (of 'test_view', 'test_tbl')
+
+              Column Name                          Type           Computed With
+            0   computed1  Required[Array[(3, 4), Int]]            <lambda>(c2)
+            1          c1              Required[String]
+            2         c1n                        String
+            3          c2                 Required[Int]
+            4          c3               Required[Float]
+            5          c4                Required[Bool]
+            6          c5           Required[Timestamp]
+            7          c6                Required[Json]
+            8          c7                Required[Json]
+            9          c8  Required[Array[(2, 3), Int]]  [[1, 2, 3], [4, 5, 6]]
+
+              Index Name Column  Metric                                          Embedding
+            0       idx0     c1  cosine  sentence_transformer(sentence, model_id='all-m...
+
+              External Store         Type
+            0        project  MockProject
+
+            COMMENT: This is an intriguing table comment.''')
+        _ = v2._repr_html_()
+
+    @classmethod
+    def strip_lines(cls, s: str) -> str:
+        lines = s.split('\n')
+        return '\n'.join(line.strip() for line in lines)
 
     def test_common_col_names(self, reset_db) -> None:
         """Make sure that commonly used column names don't collide with Table member vars"""
