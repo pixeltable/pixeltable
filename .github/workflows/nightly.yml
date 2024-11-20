@@ -111,13 +111,18 @@ jobs:
         with:
           ref: release
       - name: Delete unnecessary files
-        if: ${{ !startsWith(matrix.os, 'windows') }}
         run: |
           df -h
           sudo rm -rf /usr/share/dotnet
           sudo rm -rf "$AGENT_TOOLSDIRECTORY"
           sudo rm -rf /opt/hostedtoolcache
           df -h
+      - name: Install ollama
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/ollama/ollama/4759d879f2376ffb9b82f296e442ec8ef137f27b/scripts/install.sh | sh
+          sleep 10  # Wait for the ollama server to start
+          # Pull the model used for testing now, with retries, to safeguard against connection issues
+          ./scripts/retry.sh 3 30 ollama pull 'qwen2.5:0.5b'
       - name: Install conda
         uses: conda-incubator/setup-miniconda@v3
         with:

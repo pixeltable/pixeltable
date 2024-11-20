@@ -159,7 +159,7 @@ class StoreBase:
     def count(self, conn: Optional[sql.engine.Connection] = None) -> int:
         """Return the number of rows visible in self.tbl_version"""
         stmt = (
-            sql.select(sql.func.count('*'))  # type: ignore
+            sql.select(sql.func.count('*'))
             .select_from(self.sa_tbl)
             .where(self.v_min_col <= self.tbl_version.version)
             .where(self.v_max_col > self.tbl_version.version)
