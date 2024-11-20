@@ -8,7 +8,7 @@ from pyarrow import parquet
 from pixeltable import exceptions as excs
 from pixeltable.utils.arrow import iter_tuples
 
-from ..utils import make_test_arrow_table, skip_test_if_not_installed
+from ..utils import get_image_files, make_test_arrow_table, skip_test_if_not_installed
 
 
 class TestParquet:
@@ -44,14 +44,24 @@ class TestParquet:
                 else:
                     assert val == arrow_tup[col]
 
+    def _helper_rand_timezone(self) -> datetime.timezone:
+        import random
+        import pytz
+        return pytz.timezone(random.choice(pytz.all_timezones))
 
     def test_export_parquet_simple(self, reset_db, tmp_path: pathlib.Path) -> None:
         # RESOLVE: check if it is possible to do this at class level for all tests?
         skip_test_if_not_installed('pyarrow')
 
         t = pxt.create_table('test1', {'c1': pxt.Int, 'c2': pxt.String, 'c3': pxt.Timestamp})
-        t.insert([{'c1': 1, 'c2': 'row1', 'c3': datetime.datetime(2012, 1, 1, 12, 0, 0, 25)}])
-        t.insert([{'c1': 2, 'c2': 'row2', 'c3': datetime.datetime(2012, 2, 1, 12, 0, 0, 25)}])
+        tz =  self._helper_rand_timezone()
+        t.insert([  {'c1': 1, 'c2': 'row1', 'c3': datetime.datetime(2012, 1, 1, 12, 0, 0, 25, tz)},
+                    {'c1': 2, 'c2': 'row2', 'c3': datetime.datetime(2012, 2, 1, 12, 0, 0, 25, tz)}])
+
+        from pixeltable.env import Env
+        tz_default = Env().get().default_time_zone
+
+        print("test_export_parquet_simple with tz: ", tz, "and default tz: ", tz_default)
 
         export_file1 = tmp_path / 'test1.pq'
         pxt.io.export_parquet(t._df(), export_file1)
@@ -59,10 +69,11 @@ class TestParquet:
         ptest1 = parquet.read_table(str(export_file1))
         assert ptest1.num_rows == 2
         assert ptest1.column_names == ['c1', 'c2', 'c3']
+        assert ptest1.schema.types == [pa.int64(), pa.string(), pa.timestamp('us',tz=tz_default)]
         assert pa.array(ptest1.column('c1')).equals(pa.array([1, 2]))
         assert pa.array(ptest1.column('c2')).equals(pa.array(['row1', 'row2']))
-        # TODO: debug and fix?
-        # assert pa.array(ptest1.column('c3')).equals(pa.array([datetime.datetime(2012, 1, 1, 12, 0, 0, 25), datetime.datetime(2012, 2, 1, 12, 0, 0, 25)]))
+        assert pa.array(ptest1.column('c3')).equals(pa.array([datetime.datetime(2012, 1, 1, 12, 0, 0, 25, tz).astimezone(tz_default),
+                                                              datetime.datetime(2012, 2, 1, 12, 0, 0, 25, tz).astimezone(tz_default)]))
 
         export_file2 = tmp_path / 'test2.pq'
         pxt.io.export_parquet(t._df().select(t.c1, t.c2), export_file2)
@@ -81,16 +92,14 @@ class TestParquet:
         assert ptest3.column_names == ['c1', 'c2', 'c3']
         assert pa.array(ptest3.column('c1')).equals(pa.array([1]))
         assert pa.array(ptest3.column('c2')).equals(pa.array(['row1']))
-        # TODO: debug and fix?
-        # assert pa.array(ptest3.column('c3')).equals(pa.array([datetime.datetime(2012, 1, 1, 12, 0, 0, 25)])
+        assert pa.array(ptest3.column('c3')).equals(pa.array([datetime.datetime(2012, 1, 1, 12, 0, 0, 25,tz).astimezone(tz_default)]))
 
         it = pxt.io.import_parquet('imported_test1', parquet_path=str(export_file1))
         assert it.count() == t.count()
         assert it._schema == t._schema
         assert it.select(it.c1).collect() == t.select(t.c1).collect()
         assert it.select(it.c2).collect() == t.select(t.c2).collect()
-        # TODO: debug and fix?
-        # assert it.select(it.c3).collect() == t.select(t.c3).collect()
+        assert it.select(it.c3).collect() == t.select(t.c3).collect(), it.select(it.c3).collect()
 
         it = pxt.io.import_parquet('imported_test2', parquet_path=str(export_file2))
         assert it.count() == t.count()
@@ -106,7 +115,7 @@ class TestParquet:
         assert it._schema == t._schema
         assert it.select(it.c1).collect() == t.where(t.c1 == 1).select(t.c1).collect()
         assert it.select(it.c2).collect() == t.where(t.c1 == 1).select(t.c2).collect()
-        #assert it.select(it.c3).collect() == t.where(t.c1 == 1).select(t.c3).collect()
+        assert it.select(it.c3).collect() == t.where(t.c1 == 1).select(t.c3).collect()
 
 
     def test_export_parquet(self, reset_db, tmp_path: pathlib.Path) -> None:
@@ -128,21 +137,6 @@ class TestParquet:
         pxt.io.export_parquet(tab._df(), export_path)
         assert export_path.exists()
 
-        # verify the data is same by reading it back into pyarrow table
-        exported_arrow_tab: pa.Table = parquet.read_table(str(export_path))
-        orig_arrow_tab: pa.Table = parquet.read_table(orig_file_path)
-        assert exported_arrow_tab.num_rows == orig_arrow_tab.num_rows
-        assert exported_arrow_tab.column_names == orig_arrow_tab.column_names
-        # TODO: debug and fix?
-        # Doesn't work for the datetime column dont match
-        # assert exported_arrow_tab.equals(orig_arrow_tab)
-        #
-        # c_id read into orig_arrow_tab is DataType(int32) and
-        # c_id read into exported_arrow_tab is DataType(int64)
-        # so schema comparison fails below
-        #assert exported_arrow_tab.schema == orig_arrow_tab.schema
-
-
         # verify the data is same by reading it back into pixeltable
         exported_tab = pxt.io.import_parquet('exported', parquet_path=str(export_path))
         assert 'exported' in pxt.list_tables()
@@ -150,21 +144,53 @@ class TestParquet:
         assert tab.count() == exported_tab.count()
         assert tab._schema == exported_tab._schema
         result_after = exported_tab.order_by(exported_tab.c_id).collect()
-        # RESOLVE: we can simply do the following:
-        # assert result_before == result_after
-        # But right now they dont for the datetime  column so only
-        # verifying the rest of the columns explicitly
         for tup1, tup2 in zip(result_before, result_after):
             for (col1, val1), (col2, val2) in zip(tup1.items(), tup2.items()):
                 assert col1 == col2
-                if val1 is None:
-                    assert val2 is None
-                elif tab._schema[col1].is_timestamp_type():
-                    assert exported_tab._schema[col2].is_timestamp_type()
-                    # The timestamps are not exactly the same
-                    # and astimezone(None) does not seem to help
-                    # - export is already writing that value?
-                elif tab._schema[col1].is_array_type():
+                assert tab._schema[col1] == exported_tab._schema[col2]
+                if tab._schema[col1].is_array_type():
                     assert val1.all() == val2.all()
                 else:
                     assert val1 == val2
+                assert None == None
+
+        # verify the data is same by reading it back into pyarrow table
+        exported_arrow_tab: pa.Table = parquet.read_table(str(export_path))
+        orig_arrow_tab: pa.Table = parquet.read_table(orig_file_path)
+        assert exported_arrow_tab.num_rows == orig_arrow_tab.num_rows
+        assert exported_arrow_tab.column_names == orig_arrow_tab.column_names
+        # assert exported_arrow_tab.equals(orig_arrow_tab)
+        # and
+        # assert exported_arrow_tab.schema == orig_arrow_tab.schema
+        # Doesn't work because of two differences:
+        # - c_id and c_int32 is DataType(int32) in pyarrow which maps
+        #   to DataType(int64) in pixeltable (_pa_to_pt). So schema for
+        #   these columns differ (values dont).
+        # - c_timestamp has timezone=None. pyarrow interprets it as
+        #   DataType(timestamp(us)) whereas pixeltable interprets is
+        #   as DataType(timestamp(us, 'default timezone'))
+        #   So the schema and value of that column differ.
+        #
+
+    def test_export_parquet_image(self, reset_db, tmp_path: pathlib.Path) -> None:
+        skip_test_if_not_installed('pyarrow')
+        import numpy as np
+        import PIL.Image
+
+        tab = pxt.create_table('test_image', {'c1': pxt.Image})
+        #img = PIL.Image.new('RGB', (100, 100))
+        #img_data = np.array(img)
+        tab.insert([{'c1': get_image_files()[0]}])
+
+        export_path = tmp_path / 'exported_image.parquet'
+        with pytest.raises(excs.Error) as exc_info:
+            pxt.io.export_parquet(tab._df(), export_path)
+        assert 'Cannot export Dataframe with image columns' in str(exc_info.value)
+
+        pxt.io.export_parquet(tab._df(), export_path, inline_images=True)
+        assert export_path.exists()
+
+        # Right now we cannot import a table with inlined image back into pixeltable
+        with pytest.raises(excs.Error) as exc_info:
+            imported_tab = pxt.io.import_parquet('imported_image', parquet_path=str(export_path))
+        assert 'Could not infer pixeltable type for column c1 from parquet file' in str(exc_info.value)

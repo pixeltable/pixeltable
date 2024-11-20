@@ -741,6 +741,6 @@ class DataFrame:
         if dest_path.exists():  # fast path: use cache
             assert dest_path.is_dir()
         else:
-            export_parquet(self, dest_path)
+            export_parquet(self, dest_path, inline_images=True)
 
         return PixeltablePytorchDataset(path=dest_path, image_format=image_format)
