@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING, Any, Callable, Iterable, Literal, Optional, Se
 from uuid import UUID
 
 import pandas as pd
-import pandas.io.formats.style
 import sqlalchemy as sql
 
 import pixeltable as pxt
@@ -21,14 +20,15 @@ import pixeltable.exprs as exprs
 import pixeltable.index as index
 import pixeltable.metadata.schema as schema
 import pixeltable.type_system as ts
-from pixeltable.utils.filecache import FileCache
 
+from ..exprs import ColumnRef
+from ..utils.description_helper import DescriptionHelper
+from ..utils.filecache import FileCache
 from .column import Column
-from .globals import _ROWID_COLUMN_NAME, UpdateStatus, is_system_column_name, is_valid_identifier, MediaValidation
+from .globals import _ROWID_COLUMN_NAME, MediaValidation, UpdateStatus, is_system_column_name, is_valid_identifier
 from .schema_object import SchemaObject
 from .table_version import TableVersion
 from .table_version_path import TableVersionPath
-from ..exprs import ColumnRef
 
 if TYPE_CHECKING:
     import torch.utils.data
@@ -270,22 +270,28 @@ class Table(SchemaObject):
     def _media_validation(self) -> MediaValidation:
         return self._tbl_version.media_validation
 
-    def _descriptors(self) -> list[Union[str, pd.DataFrame]]:
+    def __repr__(self) -> str:
+        return self._descriptors().to_string()
+
+    def _repr_html_(self) -> str:
+        return self._descriptors().to_html()
+
+    def _descriptors(self) -> DescriptionHelper:
         """
-        Constructs a list of descriptors for this table that can be pretty-printed using
-        __repr__() or _repr_html_().
+        Constructs a list of descriptors for this table that can be pretty-printed.
         """
-        descriptors: list[Union[str, pd.DataFrame]] = [self._title_descriptor()]
-        descriptors.append(self._col_descriptor())
+        helper = DescriptionHelper()
+        helper.append(self._title_descriptor())
+        helper.append(self._col_descriptor())
         idxs = self._index_descriptor()
         if not idxs.empty:
-            descriptors.append(idxs)
+            helper.append(idxs)
         stores = self._external_store_descriptor()
         if not stores.empty:
-            descriptors.append(stores)
+            helper.append(stores)
         if self._comment:
-            descriptors.append(f'COMMENT: {self._comment}')
-        return descriptors
+            helper.append(f'COMMENT: {self._comment}')
+        return helper
 
     def _title_descriptor(self) -> str:
         title: str
@@ -343,31 +349,6 @@ class Table(SchemaObject):
             }
             pd_rows.append(row)
         return pd.DataFrame(pd_rows)
-
-    def __style_descriptor(self, descriptor: Union[str, pd.DataFrame]) -> pandas.io.formats.style.Styler:
-        if isinstance(descriptor, str):
-            return (
-                pd.DataFrame([descriptor]).style
-                .set_properties(None, **{'white-space': 'pre-wrap', 'text-align': 'left', 'font-weight': 'bold'})
-                .hide(axis='index').hide(axis='columns')
-            )
-        else:
-            return (
-                descriptor.style
-                .set_properties(None, **{'white-space': 'pre-wrap', 'text-align': 'left'})
-                .set_table_styles([dict(selector='th', props=[('text-align', 'left')])])
-                .hide(axis='index')
-            )
-
-    def __repr__(self) -> str:
-        blocks = [str(descriptor) for descriptor in self._descriptors()]
-        return '\n\n'.join(blocks)
-
-    def _repr_html_(self) -> str:
-        html_blocks = [
-            self.__style_descriptor(descriptor).to_html() for descriptor in self._descriptors()
-        ]
-        return '\n'.join(html_blocks)
 
     def describe(self) -> None:
         """
