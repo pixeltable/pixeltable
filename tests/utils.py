@@ -6,6 +6,7 @@ import random
 import urllib.parse
 from pathlib import Path
 from typing import Any, Optional
+import dataclasses
 
 import PIL.Image
 import more_itertools
@@ -393,12 +394,14 @@ def get_sentences(n: int = 100) -> list[str]:
     return [q['question'].replace("'", '') for q in questions_list[:n]]
 
 
-def assert_resultset_eq(r1: DataFrameResultSet, r2: DataFrameResultSet) -> None:
+def assert_resultset_eq(r1: DataFrameResultSet, r2: DataFrameResultSet, compare_col_names: bool = False) -> None:
     assert len(r1) == len(r2)
-    assert len(r1.schema) == len(r2.schema)  # we don't care about the actual column names
+    assert len(r1.schema) == len(r2.schema)
     assert all(type1.matches(type2) for type1, type2 in zip(r1.schema.values(), r2.schema.values()))
+    if compare_col_names:
+        assert r1.schema.keys() == r2.schema.keys()
     for r1_col, r2_col in zip(r1.schema, r2.schema):
-        # only compare column values
+        # compare column values
         s1 = r1[r1_col]
         s2 = r2[r2_col]
         if r1.schema[r1_col].is_float_type():
@@ -528,3 +531,34 @@ e5_embed = sentence_transformer.using(model_id='intfloat/e5-large-v2')
 SAMPLE_IMAGE_URL = (
     'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000009.jpg'
 )
+
+
+class ReloadTester:
+    """Utility to verify that queries return identical results after a catalog reload"""
+
+    df_info: list[tuple[dict[str, Any], DataFrameResultSet]]  # list of (df.as_dict(), df.collect())
+
+    def __init__(self):
+        self.df_info = []
+
+    def clear(self) -> None:
+        self.df_info = []
+
+    def run_query(self, df: pxt.DataFrame) -> DataFrameResultSet:
+        df_dict = df.as_dict()
+        result_set = df.collect()
+        self.df_info.append((df_dict, result_set))
+        return result_set
+
+    def run_reload_test(self, clear: bool = True) -> None:
+        reload_catalog()
+        for df_dict, result_set in self.df_info:
+            df = pxt.DataFrame.from_dict(df_dict)
+            new_result_set = df.collect()
+            try:
+                assert_resultset_eq(result_set, new_result_set, compare_col_names=True)
+            except Exception as e:
+                s = f'Reload test failed for query:\n{df}\n{e}'
+                raise RuntimeError(s) from e
+        if clear:
+            self.clear()
