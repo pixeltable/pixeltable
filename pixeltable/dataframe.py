@@ -549,7 +549,7 @@ class DataFrame:
         predicates: list[exprs.Expr] = []
         joined_tbls = self._from_clause.tbls + [other]
 
-        if not(isinstance(on, list) or isinstance(on, tuple)):
+        if not isinstance(on, Sequence):
             on = [on]
         for expr in on:
             if not isinstance(expr, exprs.Expr):
@@ -607,6 +607,52 @@ class DataFrame:
         self, other: catalog.Table,  *, on: Optional[Union[exprs.Expr, Sequence[exprs.Expr]]] = None,
         how: Optional[JoinTypeLiterals] = 'inner'
     ) -> DataFrame:
+        """
+        Join this DataFrame with a table.
+
+        Args:
+            other: the table to join with
+            on: the join condition, which can be either a) references to one or more columns or b) one or more boolean
+                expressions.
+
+                - column references: implies an equality predicate that matches columns in both this
+                    DataFrame and `other` by name.
+
+                    - column in `other`: A column with that same name must be present in this DataFrame, and **it must
+                        be unique** (otherwise the join is ambiguous).
+                    - column in this DataFrame: A column with that same name must be present in `other`.
+
+                - boolean expressions: The expressions must be valid in the context of the joined tables.
+            how: the type of join to perform.
+
+                - `'inner'`: only keep rows that have a match in both
+                - `'left'`: keep all rows from this DataFrame and only matching rows from the other table
+                - `'right'`: keep all rows from the other table and only matching rows from this DataFrame
+                - `'full'`: keep all rows from both this DataFrame and the other table
+                - `'cross'`: Cartesian product; no `on` condition allowed
+
+        Returns:
+            A new DataFrame.
+
+        Examples:
+            Perform an inner join between t1 and t2 on the column id:
+
+            >>> join1 = t1.join(t2, on=t2.id)
+
+            Perform a left outer join of join1 with t3, also on id (note that we can't specify `on=t3.id` here,
+            because that would be ambiguous):
+
+            >>> join2 = join1.join(t3, on=t2.id, how='left')
+
+            Do the same, but now with an explicit join predicate:
+
+            >>> join2 = join1.join(t3, on=t2.id == t3.id, how='left')
+
+            Join t with d, which has a composite primary key (columns pk1 and pk2, with corresponding foreign
+            key columns d1 and d2 in t):
+
+            >>> df = t.join(d, on=(t.d1 == d.pk1, t.d2 == d.pk2), how='left')
+        """
         join_pred: Optional[exprs.Expr]
         if how == 'cross':
             if on is not None:
@@ -628,7 +674,8 @@ class DataFrame:
         )
 
     def group_by(self, *grouping_items: Any) -> DataFrame:
-        """Add a group-by clause to this DataFrame.
+        """
+        Add a group-by clause to this DataFrame.
         Variants:
         - group_by(<base table>): group a component view by their respective base table rows
         - group_by(<expr>, ...): group by the given expressions
