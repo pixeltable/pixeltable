@@ -14,6 +14,9 @@ class _Descriptor:
 
 
 class DescriptionHelper:
+    """
+    Helper class for rendering long-form descriptions of Pixeltable objects.
+    """
     __descriptors: list[_Descriptor]
 
     def __init__(self) -> None:

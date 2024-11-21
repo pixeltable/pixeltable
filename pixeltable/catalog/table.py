@@ -302,7 +302,7 @@ class Table(SchemaObject):
             title += f'\n(of {self.__bases_to_desc()})'
         return title
 
-    def _col_descriptor(self) -> pd.DataFrame:
+    def _col_descriptor(self, columns: Optional[list[str]] = None) -> pd.DataFrame:
         return pd.DataFrame(
             {
                 'Column Name': col.name,
@@ -310,6 +310,7 @@ class Table(SchemaObject):
                 'Computed With': col.value_expr.display_str(inline=False) if col.value_expr is not None else ''
             }
             for col in self._tbl_version_path.columns()
+            if columns is None or col.name in columns
         )
 
     def __bases_to_desc(self) -> str:
@@ -320,12 +321,12 @@ class Table(SchemaObject):
         else:
             return f'{bases[0]._path!r}, ..., {bases[-1]._path!r}'
 
-    def _index_descriptor(self) -> pd.DataFrame:
+    def _index_descriptor(self, columns: Optional[list[str]] = None) -> pd.DataFrame:
         from pixeltable import index
 
         pd_rows = []
         for name, info in self._tbl_version.idxs_by_name.items():
-            if isinstance(info.idx, index.EmbeddingIndex):
+            if isinstance(info.idx, index.EmbeddingIndex) and (columns is None or info.col.name in columns):
                 display_embed = info.idx.string_embed if info.col.col_type.is_string_type() else info.idx.image_embed
                 if info.idx.string_embed is not None and info.idx.image_embed is not None:
                     embed_str = f'{display_embed} (+1)'

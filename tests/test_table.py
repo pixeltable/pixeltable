@@ -1744,6 +1744,17 @@ class TestTable:
         )
         _ = v2._repr_html_()  # TODO: Is there a good way to test this output?
 
+        c = repr(v2.c1)
+        assert strip_lines(c) == strip_lines(
+            '''Column
+            'c1'
+            (of table 'test_tbl')
+
+            Column Name             Type Computed With
+                     c1 Required[String]'''
+        )
+        _ = v2.c1._repr_html_()
+
     def test_common_col_names(self, reset_db) -> None:
         """Make sure that commonly used column names don't collide with Table member vars"""
         names = ['id', 'name', 'version', 'comment']
