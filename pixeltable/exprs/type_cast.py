@@ -51,5 +51,5 @@ class TypeCast(Expr):
         assert len(components) == 1
         return cls(components[0], ts.ColumnType.from_dict(d['new_type']))
 
-    def __str__(self) -> str:
+    def __repr__(self) -> str:
         return f'{self._underlying}.astype({self.col_type})'

@@ -55,7 +55,7 @@ class SimilarityExpr(Expr):
                 f'Embedding index {self.idx_info.name!r} on column {self.idx_info.col.name!r} was created without the '
                 f"'image_embed' parameter and does not support image queries")
 
-    def __str__(self) -> str:
+    def __repr__(self) -> str:
         return f'{self.components[0]}.similarity({self.components[1]})'
 
     def default_column_name(self) -> str:

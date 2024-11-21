@@ -49,7 +49,7 @@ class Comparison(Expr):
 
         self.id = self._create_id()
 
-    def __str__(self) -> str:
+    def __repr__(self) -> str:
         return f'{self._op1} {self.operator} {self._op2}'
 
     def _equals(self, other: Comparison) -> bool:

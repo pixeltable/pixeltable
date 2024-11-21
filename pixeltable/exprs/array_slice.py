@@ -23,7 +23,7 @@ class ArraySlice(Expr):
         self.index = index
         self.id = self._create_id()
 
-    def __str__(self) -> str:
+    def __repr__(self) -> str:
         index_strs: list[str] = []
         for el in self.index:
             if isinstance(el, int):

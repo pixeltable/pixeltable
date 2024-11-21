@@ -258,7 +258,7 @@ class FunctionCall(Expr):
             ('order_by_start_idx', self.order_by_start_idx)
         ]
 
-    def __str__(self) -> str:
+    def __repr__(self) -> str:
         return self.display_str()
 
     def display_str(self, inline: bool = True) -> str:
