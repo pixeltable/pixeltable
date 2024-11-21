@@ -129,7 +129,7 @@ class TestPandas:
         # Ensure valid mapping of 'NaT' -> None
         assert t5.collect()[43]['OrderDate'] is None
 
-        t6 = import_excel('questions', 'docs/source/data/rag-demo/Q-A-Rag.xlsx')
+        t6 = import_excel('questions', 'docs/resources/rag-demo/Q-A-Rag.xlsx')
         assert t6.count() == 8
         # Ensure that StringType is used when the column contains mixed types
         assert t6._schema['correct_answer'] == pxt.StringType(nullable=True)

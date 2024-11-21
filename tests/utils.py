@@ -529,7 +529,7 @@ e5_embed = sentence_transformer.using(model_id='intfloat/e5-large-v2')
 
 
 SAMPLE_IMAGE_URL = (
-    'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/source/data/images/000000000009.jpg'
+    'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000009.jpg'
 )
 
 

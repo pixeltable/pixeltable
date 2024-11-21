@@ -4,15 +4,14 @@ site_author: Pixeltable, Inc.
 copyright: |
   &copy; 2022 - 2024 <a href="https://github.com/pixeltable" target="_blank" rel="noopener">Pixeltable, Inc.</a> All rights reserved.
 
-docs_dir: docs/release
-site_dir: site
+docs_dir: docs/api
+site_dir: target/site
 
 repo_url: https://github.com/pixeltable/pixeltable
 repo_name: pixeltable/pixeltable
 
 theme:
   name: material
-  custom_dir: docs/overrides
 
 extra_css:
   - css/mkdocstrings.css
@@ -22,38 +21,39 @@ nav:
   - 'API Cheat Sheet': api-cheat-sheet.md
   - 'Configuration Options': config.md
   - 'API Reference':
-    - pixeltable: api/pixeltable.md
-    - pixeltable.io: api/io.md
+    - pixeltable: pixeltable/pixeltable.md
+    - pixeltable.io: pixeltable/io.md
     - pixeltable.iterators:
-      - ComponentIterator: api/iterators/component-iterator.md
-      - DocumentSplitter: api/iterators/document-splitter.md
-      - FrameIterator: api/iterators/frame-iterator.md
-    - DataFrame: api/data-frame.md
-    - Table: api/table.md
-    - UpdateStatus: api/update-status.md
+      - ComponentIterator: pixeltable/iterators/component-iterator.md
+      - DocumentSplitter: pixeltable/iterators/document-splitter.md
+      - FrameIterator: pixeltable/iterators/frame-iterator.md
+      - TileIterator: pixeltable/iterators/tile-iterator.md
+    - DataFrame: pixeltable/data-frame.md
+    - Table: pixeltable/table.md
+    - UpdateStatus: pixeltable/update-status.md
   - Built-in Functions and Operators:
-    - audio: api/functions/audio.md
-    - image: api/functions/image.md
-    - json: api/functions/json.md
-    - string: api/functions/string.md
-    - timestamp: api/functions/timestamp.md
-    - video: api/functions/video.md
+    - audio: pixeltable/functions/audio.md
+    - image: pixeltable/functions/image.md
+    - json: pixeltable/functions/json.md
+    - string: pixeltable/functions/string.md
+    - timestamp: pixeltable/functions/timestamp.md
+    - video: pixeltable/functions/video.md
   - Use Cases:
-    - Computer Vision: api/functions/vision.md
+    - Computer Vision: pixeltable/functions/vision.md
   - Model and Inference Functions:
-    - anthropic: api/functions/anthropic.md
-    - fireworks: api/functions/fireworks.md
-    - huggingface: api/functions/huggingface.md
-    - llama_cpp: api/functions/llama_cpp.md
-    - mistralai: api/functions/mistralai.md
-    - ollama: api/functions/ollama.md
-    - openai: api/functions/openai.md
-    - replicate: api/functions/replicate.md
-    - together: api/functions/together.md
-    - whisper: api/functions/whisper.md
+    - anthropic: pixeltable/functions/anthropic.md
+    - fireworks: pixeltable/functions/fireworks.md
+    - huggingface: pixeltable/functions/huggingface.md
+    - llama_cpp: pixeltable/functions/llama_cpp.md
+    - mistralai: pixeltable/functions/mistralai.md
+    - ollama: pixeltable/functions/ollama.md
+    - openai: pixeltable/functions/openai.md
+    - replicate: pixeltable/functions/replicate.md
+    - together: pixeltable/functions/together.md
+    - whisper: pixeltable/functions/whisper.md
   - Extended Model and Inference Functions:
-    - whisperx: api/ext/functions/whisperx.md
-    - yolox: api/ext/functions/yolox.md
+    - whisperx: pixeltable/ext/functions/whisperx.md
+    - yolox: pixeltable/ext/functions/yolox.md
 
 validation:
   omitted_files: warn

@@ -67,6 +67,11 @@ jobs:
             python-version: "3.9"
             test-category: "py"
             poetry-options: ""
+          # Python 3.13 (minimal installation, without --with dev)
+          - os: ubuntu-22.04
+            python-version: "3.13"
+            test-category: "py"
+            poetry-options: ""
           # Notebook tests
           - os: ubuntu-22.04
             python-version: "3.9"
@@ -118,7 +123,7 @@ jobs:
       - name: Install ollama
         if: ${{ matrix.poetry-options != '' && matrix.os == 'ubuntu-22.04' }}
         run: |
-          curl -fsSL https://ollama.com/install.sh | sh
+          curl -fsSL https://raw.githubusercontent.com/ollama/ollama/4759d879f2376ffb9b82f296e442ec8ef137f27b/scripts/install.sh | sh
           sleep 10  # Wait for the ollama server to start
           # Pull the model used for testing now, with retries, to safeguard against connection issues
           ./scripts/retry.sh 3 30 ollama pull 'qwen2.5:0.5b'
@@ -144,10 +149,13 @@ jobs:
       - name: Install the project dependencies
         # Retry 3 times to be resilient against transient connectivity issues.
         run: ./scripts/retry.sh 3 60 poetry install ${{ matrix.poetry-options }}
-      - name: Install yolox
+      - name: Install YOLOX
         # Yolox cannot be installed with poetry and only seems to work with python <= 3.10 and not on ubuntu-arm64
         if: ${{ matrix.poetry-options != '' && matrix.python-version == '3.9' && matrix.os == 'ubuntu-22.04' }}
-        run: python -m pip install git+https://github.com/Megvii-BaseDetection/YOLOX@ac58e0a
+        run: python -m pip install git+https://github.com/Megvii-BaseDetection/YOLOX@ac58e0a protobuf==5.27.0
+      - name: Install WhisperX
+        if: ${{ matrix.poetry-options != '' && matrix.python-version != '3.13' }}
+        run: python -m pip install git+https://github.com/m-bain/whisperX.git@f2da2f8 typer==0.9.0
       - name: Ensure pytest is installed
         # This is necessary for running the tests without --with dev
         if: ${{ matrix.poetry-options == '' }}
@@ -165,7 +173,7 @@ jobs:
       - name: Run the notebook tests
         if: ${{ matrix.test-category == 'ipynb' }}
         run: |
-          ./scripts/prepare-nb-tests.sh --no-pip docs/release tests
+          ./scripts/prepare-nb-tests.sh --no-pip docs/notebooks tests
           pytest -v -m '' --nbmake --nbmake-timeout=1800 target/nb-tests/*.ipynb
       - name: Type check
         if: ${{ matrix.test-category == 'lint' }}
@@ -173,6 +181,9 @@ jobs:
       - name: Validate docstrings
         if: ${{ matrix.test-category == 'lint' }}
         run: mkdocs build --strict
+      - name: Validate links in notebooks
+        if: ${{ matrix.test-category == 'lint' }}
+        run: ./scripts/lint-notebooks.sh
       - name: Print utilization info
         if: ${{ startsWith(matrix.os, 'ubuntu') }}
         run: |
