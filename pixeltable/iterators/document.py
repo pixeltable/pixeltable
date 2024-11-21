@@ -151,6 +151,11 @@ class DocumentSplitter(ComponentIterator):
         elif self._doc_handle.format == DocumentType.DocumentFormat.PDF:
             assert self._doc_handle.pdf_doc is not None
             self._sections = self._pdf_sections()
+        elif self._doc_handle.format == DocumentType.DocumentFormat.TXT:
+            assert self._doc_handle.pdf_doc is not None
+            assert self._doc_handle.is_txt
+            #self._sections = [DocumentSection(text=self._doc_handle.txt_doc)]
+            self._sections = self._pdf_sections()
         else:
             assert False, f'Unsupported document format: {self._doc_handle.format}'
 
@@ -348,7 +353,7 @@ class DocumentSplitter(ComponentIterator):
         yield from emit()
 
     def _pdf_sections(self) -> Iterator[DocumentSection]:
-        """Create DocumentSections reflecting the pdf-specific separators"""
+        """Create DocumentSections reflecting the pdf-specific or text separators"""
         import fitz  # type: ignore[import-untyped]
         doc: fitz.Document = self._doc_handle.pdf_doc
         assert doc is not None

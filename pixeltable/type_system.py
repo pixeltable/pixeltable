@@ -940,6 +940,7 @@ class DocumentType(ColumnType):
         MD = 1
         PDF = 2
         XML = 3
+        TXT = 4
 
     def __init__(self, nullable: bool = False, doc_formats: Optional[str] = None):
         super().__init__(self.Type.DOCUMENT, nullable=nullable)
