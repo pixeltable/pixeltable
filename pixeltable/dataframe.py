@@ -451,9 +451,9 @@ class DataFrame:
         """
         if getattr(builtins, '__IPYTHON__', False):
             from IPython.display import display
-            display(self._description_html())
+            display(self._repr_html_())
         else:
-            print(self.__repr__())
+            print(repr(self))
 
     def __repr__(self) -> str:
         return self._descriptors().to_string()
