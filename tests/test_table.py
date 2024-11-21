@@ -21,7 +21,7 @@ from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.media_store import MediaStore
 
 from .utils import (assert_resultset_eq, create_table_data, get_audio_files, get_documents, get_image_files,
-                    get_video_files, make_tbl, read_data_file, reload_catalog, skip_test_if_not_installed,
+                    get_video_files, make_tbl, read_data_file, reload_catalog, skip_test_if_not_installed, strip_lines,
                     validate_update_status, get_multimedia_commons_video_uris)
 
 
@@ -1717,35 +1717,32 @@ class TestTable:
         v2.describe()
 
         r = repr(v2)
-        assert self.strip_lines(r) == self.strip_lines('''View
+        assert strip_lines(r) == strip_lines(
+            '''View
             'test_subview'
             (of 'test_view', 'test_tbl')
 
-              Column Name                          Type           Computed With
-            0   computed1  Required[Array[(3, 4), Int]]            <lambda>(c2)
-            1          c1              Required[String]
-            2         c1n                        String
-            3          c2                 Required[Int]
-            4          c3               Required[Float]
-            5          c4                Required[Bool]
-            6          c5           Required[Timestamp]
-            7          c6                Required[Json]
-            8          c7                Required[Json]
-            9          c8  Required[Array[(2, 3), Int]]  [[1, 2, 3], [4, 5, 6]]
+            Column Name                         Type          Computed With
+              computed1 Required[Array[(3, 4), Int]]           <lambda>(c2)
+                     c1             Required[String]
+                    c1n                       String
+                     c2                Required[Int]
+                     c3              Required[Float]
+                     c4               Required[Bool]
+                     c5          Required[Timestamp]
+                     c6               Required[Json]
+                     c7               Required[Json]
+                     c8 Required[Array[(2, 3), Int]] [[1, 2, 3], [4, 5, 6]]
 
-              Index Name Column  Metric                                          Embedding
-            0       idx0     c1  cosine  sentence_transformer(sentence, model_id='all-m...
+            Index Name Column Metric                                         Embedding
+                  idx0     c1 cosine sentence_transformer(sentence, model_id='all-m...
 
-              External Store         Type
-            0        project  MockProject
+            External Store        Type
+                   project MockProject
 
-            COMMENT: This is an intriguing table comment.''')
-        _ = v2._repr_html_()
-
-    @classmethod
-    def strip_lines(cls, s: str) -> str:
-        lines = s.split('\n')
-        return '\n'.join(line.strip() for line in lines)
+            COMMENT: This is an intriguing table comment.'''
+        )
+        _ = v2._repr_html_()  # TODO: Is there a good way to test this output?
 
     def test_common_col_names(self, reset_db) -> None:
         """Make sure that commonly used column names don't collide with Table member vars"""

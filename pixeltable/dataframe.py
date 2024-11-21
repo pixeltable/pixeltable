@@ -5,7 +5,6 @@ import copy
 import hashlib
 import json
 import logging
-import mimetypes
 import traceback
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Hashable, Iterator, Optional, Sequence, Union
@@ -23,8 +22,8 @@ from pixeltable.catalog.globals import UpdateStatus
 from pixeltable.env import Env
 from pixeltable.plan import Planner
 from pixeltable.type_system import ColumnType
+from pixeltable.utils.description_helper import DescriptionHelper
 from pixeltable.utils.formatter import Formatter
-from pixeltable.utils.http_server import get_file_uri
 
 if TYPE_CHECKING:
     import torch
@@ -297,7 +296,6 @@ class DataFrame:
             limit=self.limit_val
         )
 
-
     def show(self, n: int = 20) -> DataFrameResultSet:
         assert n is not None
         return self.limit(n).collect()
@@ -401,22 +399,38 @@ class DataFrame:
             assert isinstance(result, int)
             return result
 
-    def _description(self) -> pd.DataFrame:
-        """see DataFrame.describe()"""
+    def _descriptors(self) -> DescriptionHelper:
+        helper = DescriptionHelper()
+        helper.append(self._title_descriptor())
+        helper.append(self._col_descriptor())
+        qd = self._query_descriptor()
+        if not qd.empty:
+            helper.append(qd, show_index=True, show_header=False)
+        return helper
+
+    def _title_descriptor(self) -> str:
+        return f'Select From {self.tbl.tbl_name()!r}'
+
+    def _col_descriptor(self) -> pd.DataFrame:
+        return pd.DataFrame([
+            {
+                'Name': name,
+                'Type': expr.col_type._to_str(as_schema=True),
+                'Expression': expr.display_str(inline=False),
+            }
+            for name, expr in zip(self.schema.keys(), self._select_list_exprs)
+        ])
+
+    def _query_descriptor(self) -> pd.DataFrame:
         heading_vals: list[str] = []
         info_vals: list[str] = []
-        if self.select_list is not None:
-            assert len(self.select_list) > 0
-            heading_vals.append('Select')
-            heading_vals.extend([''] * (len(self.select_list) - 1))
-            info_vals.extend(self.schema.keys())
         if self.where_clause is not None:
             heading_vals.append('Where')
             info_vals.append(self.where_clause.display_str(inline=False))
         if self.group_by_clause is not None:
             heading_vals.append('Group By')
             heading_vals.extend([''] * (len(self.group_by_clause) - 1))
-            info_vals.extend([e.display_str(inline=False) for e in self.group_by_clause])
+            info_vals.extend(e.display_str(inline=False) for e in self.group_by_clause)
         if self.order_by_clause is not None:
             heading_vals.append('Order By')
             heading_vals.extend([''] * (len(self.order_by_clause) - 1))
@@ -426,22 +440,8 @@ class DataFrame:
         if self.limit_val is not None:
             heading_vals.append('Limit')
             info_vals.append(str(self.limit_val))
-        assert len(heading_vals) > 0
-        assert len(info_vals) > 0
         assert len(heading_vals) == len(info_vals)
-        return pd.DataFrame({'Heading': heading_vals, 'Info': info_vals})
-
-    def _description_html(self) -> pandas.io.formats.style.Styler:
-        """Return the description in an ipython-friendly manner."""
-        pd_df = self._description()
-        # white-space: pre-wrap: print \n as newline
-        # th: center-align headings
-        return (
-            pd_df.style.set_properties(None, **{'white-space': 'pre-wrap', 'text-align': 'left'})
-            .set_table_styles([dict(selector='th', props=[('text-align', 'center')])])
-            .hide(axis='index')
-            .hide(axis='columns')
-        )
+        return pd.DataFrame(info_vals, index=heading_vals)
 
     def describe(self) -> None:
         """
@@ -456,10 +456,10 @@ class DataFrame:
             print(self.__repr__())
 
     def __repr__(self) -> str:
-        return self._description().to_string(header=False, index=False)
+        return self._descriptors().to_string()
 
     def _repr_html_(self) -> str:
-        return self._description_html()._repr_html_()  # type: ignore[attr-defined]
+        return self._descriptors().to_html()
 
     def select(self, *items: Any, **named_items: Any) -> DataFrame:
         if self.select_list is not None:
