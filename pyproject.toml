@@ -125,6 +125,10 @@ psycopg = [  # Lock psycopg versions in dev to ensure proper behavior with all P
     { extras = ["binary"], version = "==3.1.18", python = "<3.13" },
     { extras = ["binary"], version = "==3.2.3", python = ">=3.13" }
 ]
+av = [  # Lock av versions in dev
+    { version = "==11.0.0", python = "<3.13" },
+    { version = "==13.1.0", python = ">=3.13" }
+]
 
 [tool.poetry.plugins."mkdocstrings.python.templates"]
 extension-name = "pixeltable.tool.doc_plugins.mkdocstrings:get_templates_path"
