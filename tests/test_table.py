@@ -1833,10 +1833,10 @@ class TestTable:
             _ = t.add_embedding_index('c2', string_embed=str.split)
         assert expected_err_msg in str(exc_info.value).lower()
         with pytest.raises(excs.Error) as exc_info:
-            _ = t.drop_embedding_index(column_name='c2')
+            _ = t.drop_embedding_index(column='c2')
         assert expected_err_msg in str(exc_info.value).lower()
         with pytest.raises(excs.Error) as exc_info:
-            _ = t.drop_index(column_name='c2')
+            _ = t.drop_index(column='c2')
         assert expected_err_msg in str(exc_info.value).lower()
         with pytest.raises(excs.Error) as exc_info:
             _ = t.drop_column('c1')
