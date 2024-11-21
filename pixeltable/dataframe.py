@@ -299,6 +299,9 @@ class DataFrame:
         )
 
 
+    def _has_joins(self) -> bool:
+        return len(self._from_clause.join_clauses) > 0
+
     def show(self, n: int = 20) -> DataFrameResultSet:
         assert n is not None
         return self.limit(n).collect()
@@ -306,6 +309,8 @@ class DataFrame:
     def head(self, n: int = 10) -> DataFrameResultSet:
         if self.order_by_clause is not None:
             raise excs.Error(f'head() cannot be used with order_by()')
+        if self._has_joins():
+            raise excs.Error(f'head() not supported for joins')
         num_rowid_cols = len(self._first_tbl.tbl_version.store_tbl.rowid_columns())
         order_by_clause = [exprs.RowidRef(self._first_tbl.tbl_version, idx) for idx in range(num_rowid_cols)]
         return self.order_by(*order_by_clause, asc=True).limit(n).collect()
@@ -313,6 +318,8 @@ class DataFrame:
     def tail(self, n: int = 10) -> DataFrameResultSet:
         if self.order_by_clause is not None:
             raise excs.Error(f'tail() cannot be used with order_by()')
+        if self._has_joins():
+            raise excs.Error(f'tail() not supported for joins')
         num_rowid_cols = len(self._first_tbl.tbl_version.store_tbl.rowid_columns())
         order_by_clause = [exprs.RowidRef(self._first_tbl.tbl_version, idx) for idx in range(num_rowid_cols)]
         result = self.order_by(*order_by_clause, asc=False).limit(n).collect()
@@ -526,7 +533,9 @@ class DataFrame:
             limit=self.limit_val,
         )
 
-    def _create_join_predicate(self, other: catalog.TableVersionPath, on: exprs.Expr) -> exprs.Expr:
+    def _create_join_predicate(
+            self, other: catalog.TableVersionPath, on: Union[exprs.Expr, Sequence[exprs.Expr]]
+    ) -> exprs.Expr:
         """
         Converts user-specified join 'condition' into a join predicate.
 
@@ -540,36 +549,28 @@ class DataFrame:
         predicates: list[exprs.Expr] = []
         joined_tbls = self._from_clause.tbls + [other]
 
-        if isinstance(on, exprs.ColumnRef):
-            col_refs.append(on)
-        elif isinstance(on, exprs.Expr) and on.col_type.is_bool_type():
-            predicates.append(on)
-        elif isinstance(on, list) or isinstance(on, tuple):
-            for expr in on:
-                if not isinstance(expr, exprs.Expr):
-                    raise excs.Error(
-                        f"'on': must be a sequence of column references or a sequence of boolean expressions")
-                if isinstance(expr, exprs.ColumnRef):
-                    col_refs.append(expr)
-                    if len(predicates) > 0:
-                        raise excs.Error(f"'on': cannot mix column references and boolean expressions")
-                else:
-                    if not expr.col_type.is_bool_type():
-                        raise excs.Error(f"'on': boolean expression expected, but got {expr.col_type}: {expr}")
-                    if not expr.is_bound_by(joined_tbls):
-                        raise excs.Error(f"'on': expression must reference columns from joined tables: {expr}")
-                    predicates.append(expr)
-                    if len(col_refs) > 0:
-                        raise excs.Error(f"'on': cannot mix column references and boolean expressions")
-        assert len(col_refs) == 0 or len(predicates) == 0
+        if not(isinstance(on, list) or isinstance(on, tuple)):
+            on = [on]
+        for expr in on:
+            if not isinstance(expr, exprs.Expr):
+                raise excs.Error(
+                    f"'on': must be a sequence of column references or a sequence of boolean expressions")
+            if not expr.is_bound_by(joined_tbls):
+                raise excs.Error(f"'on': expression cannot be evaluated in the context of the joined tables: {expr}")
+            if isinstance(expr, exprs.ColumnRef):
+                col_refs.append(expr)
+            else:
+                if not expr.col_type.is_bool_type():
+                    raise excs.Error(f"'on': boolean expression expected, but got {expr.col_type}: {expr}")
+                predicates.append(expr)
+        if len(col_refs) > 0 and len(predicates) > 0:
+            raise excs.Error(f"'on': cannot mix column references and boolean expressions")
+        assert len(col_refs) > 0 or len(predicates) > 0
 
         if len(predicates) == 0:
             # turn ColumnRefs into equality predicates
             assert len(col_refs) > 0 and len(joined_tbls) >= 2
             for col_ref in col_refs:
-                if not col_ref.is_bound_by(joined_tbls):
-                    raise excs.Error(f"'on': can only reference columns from the joined tables: {col_ref}")
-
                 # identify the referenced column by name in 'other'
                 rhs_col = other.get_column(col_ref.col.name, include_bases=True)
                 if rhs_col is None:
@@ -582,13 +583,17 @@ class DataFrame:
                     lhs_col_ref = col_ref
                 else:
                     # col_ref comes from other, we need to look for a match in the existing from_clause by name
-                    for tbl in joined_tbls:
+                    for tbl in self._from_clause.tbls:
                         col = tbl.get_column(col_ref.col.name, include_bases=True)
                         if col is None:
                             continue
                         if lhs_col_ref is not None:
                             raise excs.Error(f"'on': ambiguous column reference: {col_ref.col.name!r}")
                         lhs_col_ref = exprs.ColumnRef(col)
+                    if lhs_col_ref is None:
+                        tbl_names = [tbl.tbl_name() for tbl in self._from_clause.tbls]
+                        raise excs.Error(
+                            f"'on': column {col_ref.col.name!r} not found in any of: {' '.join(tbl_names)}")
                 pred = exprs.Comparison(exprs.ComparisonOperator.EQ, lhs_col_ref, rhs_col_ref)
                 predicates.append(pred)
 
@@ -599,10 +604,18 @@ class DataFrame:
             return exprs.CompoundPredicate(operator=exprs.LogicalOperator.AND, operands=predicates)
 
     def join(
-        self, other: catalog.Table,  *, on: Optional[exprs.Expr] = None,
+        self, other: catalog.Table,  *, on: Optional[Union[exprs.Expr, Sequence[exprs.Expr]]] = None,
         how: Optional[JoinTypeLiterals] = 'inner'
     ) -> DataFrame:
-        join_pred = self._create_join_predicate(other._tbl_version_path, on)
+        join_pred: Optional[exprs.Expr]
+        if how == 'cross':
+            if on is not None:
+                raise excs.Error(f"'on' not allowed for cross join")
+            join_pred = None
+        else:
+            if on is None:
+                raise excs.Error(f"how={how!r} requires 'on'")
+            join_pred = self._create_join_predicate(other._tbl_version_path, on)
         join_clause = plan.JoinClause(join_type=plan.JoinType.validated(how, "'how'"), join_predicate=join_pred)
         from_clause = plan.FromClause(
             tbls=[*self._from_clause.tbls, other._tbl_version_path],
@@ -628,6 +641,8 @@ class DataFrame:
             if isinstance(item, catalog.Table):
                 if len(grouping_items) > 1:
                     raise excs.Error(f'group_by(): only one table can be specified')
+                if len(self._from_clause.tbls) > 1:
+                    raise excs.Error(f'group_by() with Table not supported for joins')
                 # we need to make sure that the grouping table is a base of self.tbl
                 base = self._first_tbl.find_tbl_version(item._tbl_version_path.tbl_id())
                 if base is None or base.id == self._first_tbl.tbl_id():

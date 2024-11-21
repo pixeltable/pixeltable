@@ -459,8 +459,12 @@ class SqlJoinNode(SqlNode):
         stmt = stmt.select_from(self.input_ctes[0])
         for i in range(len(self.join_clauses)):
             join_clause = self.join_clauses[i]
-            on_clause = self.sql_elements.get(join_clause.join_predicate)
+            on_clause = (
+                self.sql_elements.get(join_clause.join_predicate) if join_clause.join_type != plan.JoinType.CROSS
+                else sql.sql.expression.literal(True)
+            )
+            is_outer = join_clause.join_type == plan.JoinType.LEFT or join_clause.join_type == plan.JoinType.FULL_OUTER
             stmt = stmt.join(
-                self.input_ctes[i + 1], onclause=on_clause,
-                isouter=join_clause == plan.JoinType.LEFT, full=join_clause == plan.JoinType.FULL_OUTER)
+                self.input_ctes[i + 1], onclause=on_clause, isouter=is_outer,
+                full=join_clause == plan.JoinType.FULL_OUTER)
         return stmt

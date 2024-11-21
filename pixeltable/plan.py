@@ -122,8 +122,9 @@ class Analyzer:
 
         # all exprs that are evaluated in Python; not executable
         self.all_exprs = self.select_list.copy()
-        for join_clause in self.from_clause.join_clauses:
-            self.all_exprs.append(join_clause.join_predicate)
+        for join_clause in from_clause.join_clauses:
+            if join_clause.join_predicate is not None:
+                self.all_exprs.append(join_clause.join_predicate)
         if self.group_by_clause is not None:
             self.all_exprs.extend(self.group_by_clause)
         self.all_exprs.extend(e for e, _ in self.order_by_clause)
@@ -556,7 +557,7 @@ class Planner:
     def _verify_join_clauses(cls, analyzer: Analyzer) -> None:
         """Verify that join clauses are expressible in SQL"""
         for join_clause in analyzer.from_clause.join_clauses:
-            if analyzer.sql_elements.get(join_clause.join_predicate) is None:
+            if join_clause.join_predicate is not None and analyzer.sql_elements.get(join_clause.join_predicate) is None:
                 raise excs.Error(f'Join predicate {join_clause.join_predicate} not expressible in SQL')
 
     @classmethod
@@ -694,7 +695,10 @@ class Planner:
         sql_exprs = exprs.ExprSet(e for e in candidates if not isinstance(e, exprs.Literal))
 
         # create table scans; each scan produces subexprs of (sql_exprs + join clauses)
-        join_exprs = exprs.ExprSet(join_clause.join_predicate for join_clause in analyzer.from_clause.join_clauses)
+        join_exprs = exprs.ExprSet(
+            join_clause.join_predicate
+            for join_clause in analyzer.from_clause.join_clauses
+            if join_clause.join_predicate is not None)
         scan_target_exprs = sql_exprs | join_exprs
         tbl_scan_plans: list[exec.SqlScanNode] = []
         plan: exec.ExecNode
@@ -702,7 +706,9 @@ class Planner:
             # materialize all subexprs of scan_target_exprs that are bound by tbl
             tbl_scan_exprs = exprs.ExprSet(
                 exprs.Expr.list_subexprs(
-                    scan_target_exprs, filter=lambda e: e.is_bound_by([tbl]), traverse_matches=False))
+                    scan_target_exprs,
+                    filter=lambda e: e.is_bound_by([tbl]) and not isinstance(e, exprs.Literal),
+                    traverse_matches=False))
             plan = exec.SqlScanNode(
                 tbl, row_builder, select_list=tbl_scan_exprs,
                 set_pk=with_pk, exact_version_only=exact_version_only)

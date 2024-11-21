@@ -18,6 +18,23 @@ from .utils import get_audio_files, get_documents, get_video_files, skip_test_if
 
 
 class TestDataFrame:
+    def create_join_tbls(self, num_rows: int) -> tuple[catalog.Table, catalog.Table, catalog.Table]:
+        t1 = pxt.create_table(f't1_{num_rows}', {'id': pxt.Int, 'i': pxt.Int})
+        t2 = pxt.create_table(f't2_{num_rows}', {'id': pxt.Int, 'f': pxt.Float})
+        validate_update_status(t1.insert({'id': i, 'i': i} for i in range(num_rows)), expected_rows=num_rows)
+        # t2 has matching ids
+        validate_update_status(
+            t2.insert({'id': i, 'f': float(num_rows - i)} for i in range(num_rows)), expected_rows=num_rows)
+
+        # t3:
+        # - column i with a different type
+        # - only 10% of the ids overlap with t1 and t2
+        t3 = pxt.create_table(f't3_{num_rows}', {'id': pxt.Int, 'i': pxt.String, 'f': pxt.Float})
+        validate_update_status(
+            t3.insert({'id': i, 'i': str(i), 'f': float(num_rows - i)} for i in range(0, 10 * num_rows, 10)),
+            expected_rows=num_rows)
+
+        return t1, t2, t3
 
     def test_select_where(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
@@ -30,9 +47,6 @@ class TestDataFrame:
         assert len(res1) > 0 and res1 == res2
 
         res1 = t.where(t.c2 < 10).select(t.c1, t.c2, t.c3).collect()
-        # this is no longer supported; TODO: do we want this?
-        #res2 = t[t.c2 < 10][t.c1, t.c2, t.c3].collect()
-        #assert res1 == res2
 
         res3 = t.where(t.c2 < 10).select(c1=t.c1, c2=t.c2, c3=t.c3).collect()
         assert res1 == res3
@@ -94,26 +108,122 @@ class TestDataFrame:
             _ = t.select(t.c2+1, col_0=t.c2).collect()
         assert 'Repeated column name' in str(exc_info.value)
 
-    def test_join(self, reset_db) -> None:
-        t1 = pxt.create_table('t1', {'id': pxt.Int, 'int_col': pxt.Int})
-        t2 = pxt.create_table('t2', {'id': pxt.Int, 'float_col': pxt.Float})
-        num_rows = 1000
-        validate_update_status(t1.insert({'id': i, 'int_col': i} for i in range(num_rows)), expected_rows=num_rows)
-        validate_update_status(
-            t2.insert({'id': i, 'float_col': float(num_rows - i)} for i in range(num_rows)), expected_rows=num_rows)
-        df = (
-            t1.join(t2, on=t1.id, how='inner')
-            .select(t1.int_col, t2.float_col, out=t1.int_col + t2.float_col)
-            .order_by(t2.float_col)
-        )
-        pd_df = df.collect().to_pandas()
-        assert pd_df.float_col.is_monotonic_increasing  # correct ordering
-        assert (pd_df.out == 1000.0).all()  # correct sum
-
         # select list contains invalid references
         with pytest.raises(excs.Error) as exc_info:
-            _ = t1.select(t1.int_col, t1.int_col + t2.float_col)
+            t2 = pxt.create_table('t2', {'c1': pxt.Int})
+            _ = t.select(t.c1, t2.c1 + t.c2).collect()
         assert 'cannot be evaluated in the context' in str(exc_info.value)
+
+    def test_join(self, reset_db) -> None:
+        t1, t2, t3 = self.create_join_tbls(1000)
+        # inner join
+        df = (
+            t1.join(t2, on=t1.id, how='inner')
+            .select(t1.i, t2.f, out=t1.i + t2.f)
+            .order_by(t2.f)
+        )
+        pd_df = df.collect().to_pandas()
+        assert len(pd_df) == 1000
+        assert pd_df.f.is_monotonic_increasing  # correct ordering
+        assert (pd_df.out == 1000.0).all()  # correct sum
+
+        # the same inner join, but with redundant join predicates
+        df = (
+            t1.join(t2, on=(t1.id == t2.id, t1.i == t2.id), how='inner')
+            .select(t1.i, t2.f, out=t1.i + t2.f)
+            .order_by(t2.f)
+        )
+        pd_df2 = df.collect().to_pandas()
+        assert pd_df.equals(pd_df2)
+
+        # left outer join
+        df = (
+            t1.join(t3, on=t1.id, how='left')
+            .select(t1.i, t3.f, out=t1.i + t3.f)
+            .order_by(t1.i)
+        )
+        pd_df = df.collect().to_pandas()
+        assert len(pd_df) == 1000
+        assert len(pd_df[~pd_df.f.isnull()]) == 100  # correct number of nulls
+        assert (pd_df[~pd_df.f.isnull()].out == 1000.0).all()  # correct sum
+
+        # TODO: implement right outer join
+        # # right outer join
+        # df = (
+        #     t1.join(t3, on=t1.id, how='right')
+        #     .select(t1.i, t3.f, out=t1.i + t3.f)
+        #     .order_by(t1.i)
+        # )
+        # pd_df = df.collect().to_pandas()
+        # assert len(pd_df) == 1000
+        # assert len(pd_df[~pd_df.i.isnull()]) == 10  # correct number of nulls
+        # assert (pd_df[~pd_df.f.isnull()].out == 1000.0).all()  # correct sum
+
+        # cross join
+        small_t1, small_t2, _ = self.create_join_tbls(100)
+        df = small_t1.join(small_t2, how='cross').select(small_t1.i, small_t2.f, out=small_t1.i + small_t2.f)
+        res = df.collect()
+        # TODO: verify result
+
+        # inner join with aggregation and explicit join predicate
+        df = t1.join(t2, on=t1.id == t2.id).select(pxt.functions.sum(t1.i + t2.id))
+        res = df.collect()[0, 0]
+        assert res == sum(range(1000)) * 2
+
+        # inner join with grouping aggregation
+        df = (
+            t1.join(t2, on=t2.id).group_by(t2.id % 10).select(grp=t2.id % 10, val=pxt.functions.sum(t1.i + t2.id))
+        )
+        res = df.collect()
+        pd_df = res.to_pandas()
+        # TODO: verify result
+
+    def test_join_errors(self, reset_db) -> None:
+        t1, t2, t3 = self.create_join_tbls(1000)
+
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t1.join(t2, on=(t2.id, t2.id == t1.id)).collect()
+        assert "cannot mix column references and boolean expressions" in str(exc_info.value)
+
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t1.join(t2, how='cross', on=t2.id).collect()
+        assert "'on' not allowed for cross join" in str(exc_info.value)
+
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t1.join(t2).collect()
+        assert "how='inner' requires 'on'" in str(exc_info.value)
+
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t1.join(t2, on=t2.f).collect()
+        assert "'f' not found in any of: t1" in str(exc_info.value)
+
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t1.join(t2, on=t3.i).collect()
+        assert "expression cannot be evaluated in the context of the joined tables: i" in str(exc_info.value)
+
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t1.join(t2, on=t2.id + 1).collect()
+        assert "boolean expression expected, but got Optional[Int]: id + 1" in str(exc_info.value)
+
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t1.join(t2, on=t2.id).join(t3, on=t3.id).collect()
+        assert "ambiguous column reference: 'id'" in str(exc_info.value)
+
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t1.join(t2, on=t1.i).collect()
+        assert "column 'i' not found in joined table" in str(exc_info.value)
+
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t1.join(t2, on=(15, 27)).collect()
+        assert "must be a sequence of column references or a sequence of boolean expressions" in str(exc_info.value)
+
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t1.join(t2, on=t1.id, how='inner').head()
+        assert 'head() not supported for joins' in str(exc_info.value)
+
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t1.join(t2, on=t1.id, how='inner').tail()
+        assert 'tail() not supported for joins' in str(exc_info.value)
 
     def test_result_set_iterator(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
