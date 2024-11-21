@@ -6,9 +6,17 @@ build-backend = "poetry_dynamic_versioning.backend"
 name = "pixeltable"
 version = "0.0.0"
 description = "AI Data Infrastructure: Declarative, Multimodal, and Incremental"
-authors = ["Pixeltable, Inc. <contact@pixeltable.com>"]
 license = "Apache-2.0"
+authors = ["Pixeltable, Inc. <contact@pixeltable.com>"]
 readme = "README.md"
+homepage = "https://pixeltable.com/"
+repository = "https://github.com/pixeltable/pixeltable"
+documentation = "https://docs.pixeltable.com/"
+keywords = [
+    "data-science", "machine-learning", "database", "ai", "computer-vision",
+    "chatbot", "ml", "artificial-intelligence", "feature-engineering", "multimodal",
+    "mlops", "feature-store", "vector-database", "llm", "genai"
+]
 classifiers = [
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
