@@ -32,6 +32,7 @@ from ..exprs import ColumnRef
 
 if TYPE_CHECKING:
     import torch.utils.data
+    import pixeltable.plan
 
 _logger = logging.getLogger('pixeltable')
 
@@ -182,9 +183,8 @@ class Table(SchemaObject):
 
     def join(
             self, other: 'Table', *, on: Optional['exprs.Expr'] = None,
-            how: Optional[Literal['inner', 'left', 'right', 'full_outer', 'cross']] = 'inner'
+            how: 'pixeltable.plan.JoinType.LiteralType' = 'inner'
     ) -> 'pxt.DataFrame':
-
         """Return a [`DataFrame`][pixeltable.DataFrame] for this table."""
         return self._df().join(other, on=on, how=how)
 

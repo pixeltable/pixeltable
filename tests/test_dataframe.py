@@ -129,7 +129,7 @@ class TestDataFrame:
 
         # the same inner join, but with redundant join predicates
         df = (
-            t1.join(t2, on=(t1.id == t2.id, t1.i == t2.id), how='inner')
+            t1.join(t2, on=(t1.id == t2.id) & (t1.i == t2.id), how='inner')
             .select(t1.i, t2.f, out=t1.i + t2.f)
             .order_by(t2.f)
         )
@@ -182,8 +182,12 @@ class TestDataFrame:
         t1, t2, t3 = self.create_join_tbls(1000)
 
         with pytest.raises(excs.Error) as exc_info:
-            _ = t1.join(t2, on=(t2.id, t2.id == t1.id)).collect()
-        assert "cannot mix column references and boolean expressions" in str(exc_info.value)
+            _ = t1.join(t2, on=(t2.id, 17)).collect()
+        assert "must be a sequence of column references or a boolean expression" in str(exc_info.value)
+
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t1.join(t2, on=(15, 27)).collect()
+        assert "must be a sequence of column references or a boolean expression" in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
             _ = t1.join(t2, how='cross', on=t2.id).collect()
@@ -212,10 +216,6 @@ class TestDataFrame:
         with pytest.raises(excs.Error) as exc_info:
             _ = t1.join(t2, on=t1.i).collect()
         assert "column 'i' not found in joined table" in str(exc_info.value)
-
-        with pytest.raises(excs.Error) as exc_info:
-            _ = t1.join(t2, on=(15, 27)).collect()
-        assert "must be a sequence of column references or a sequence of boolean expressions" in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
             _ = t1.join(t2, on=t1.id, how='inner').head()

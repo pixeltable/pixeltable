@@ -69,8 +69,8 @@ class SqlNode(ExecNode):
     select_list: exprs.ExprSet
     set_pk: bool
     num_pk_cols: int
-    filter: Optional[exprs.Expr]
-    filter_eval_ctx: Optional[exprs.RowBuilder.EvalCtx]
+    py_filter: Optional[exprs.Expr]  # a predicate that can only be run in Python
+    py_filter_eval_ctx: Optional[exprs.RowBuilder.EvalCtx]
     cte: Optional[sql.CTE]
     sql_elements: exprs.SqlElementCache
 
@@ -120,8 +120,8 @@ class SqlNode(ExecNode):
         # additional state
         self.result_cursor = None
         # the filter is provided by the subclass
-        self.filter = None
-        self.filter_eval_ctx = None
+        self.py_filter = None
+        self.py_filter_eval_ctx = None
         self.cte = None
         self.limit = None
         self.where_clause = None
@@ -134,6 +134,7 @@ class SqlNode(ExecNode):
         assert self.sql_elements.contains_all(self.select_list)
         sql_select_list = [self.sql_elements.get(e) for e in self.select_list]
         if self.set_pk:
+            assert self.tbl is not None
             sql_select_list += self.tbl.tbl_version.store_tbl.pk_columns()
         stmt = sql.select(*sql_select_list)
 
@@ -151,7 +152,7 @@ class SqlNode(ExecNode):
                 order_by_clause.append(self.sql_elements.get(e).desc() if asc is False else self.sql_elements.get(e))
         stmt = stmt.order_by(*order_by_clause)
 
-        if self.filter is None and self.limit is not None:
+        if self.py_filter is None and self.limit is not None:
             # if we don't have a Python filter, we can apply the limit to stmt
             stmt = stmt.limit(self.limit)
 
@@ -167,7 +168,7 @@ class SqlNode(ExecNode):
         Returns:
             (CTE, dict from Expr to output column)
         """
-        if self.filter is not None:
+        if self.py_filter is not None:
             # the filter needs to run in Python
             return None
         self.set_pk = False  # we don't need the PK if we use this SqlNode as a CTE
@@ -235,13 +236,13 @@ class SqlNode(ExecNode):
         assert self.where_clause_element is None
         self.where_clause = where_clause
 
-    def set_filter(self, filter: exprs.Expr) -> None:
-        assert self.filter is None
-        self.filter = filter
-        self.filter_eval_ctx = self.row_builder.create_eval_ctx([filter], exclude=self.select_list)
+    def set_py_filter(self, py_filter: exprs.Expr) -> None:
+        assert self.py_filter is None
+        self.py_filter = py_filter
+        self.py_filter_eval_ctx = self.row_builder.create_eval_ctx([py_filter], exclude=self.select_list)
 
     def set_order_by(self, ordering: OrderByClause) -> None:
-        """Add Order By clause to stmt"""
+        """Add Order By clause"""
         if self.tbl is not None:
             # change rowid refs against a base table to rowid refs against the target table, so that we minimize
             # the number of tables that need to be joined to the target table
@@ -305,10 +306,10 @@ class SqlNode(ExecNode):
                 else:
                     output_row[slot_idx] = sql_row[i]
 
-            if self.filter is not None:
+            if self.py_filter is not None:
                 # evaluate filter
-                self.row_builder.eval(output_row, self.filter_eval_ctx, profile=self.ctx.profile)
-            if self.filter is not None and not output_row[self.filter.slot_idx]:
+                self.row_builder.eval(output_row, self.py_filter_eval_ctx, profile=self.ctx.profile)
+            if self.py_filter is not None and not output_row[self.py_filter.slot_idx]:
                 # we re-use this row for the next sql row since it didn't pass the filter
                 output_row = output_batch.pop_row()
                 output_row.clear()

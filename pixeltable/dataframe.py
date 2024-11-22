@@ -141,8 +141,6 @@ class DataFrame:
     order_by_clause: Optional[list[tuple[exprs.Expr, bool]]]
     limit_val: Optional[int]
 
-    JoinTypeLiterals = Literal['inner', 'left', 'right', 'full_outer', 'cross']
-
     def __init__(
         self,
         tbl: Optional[catalog.TableVersionPath] = None,
@@ -534,68 +532,63 @@ class DataFrame:
         )
 
     def _create_join_predicate(
-            self, other: catalog.TableVersionPath, on: Union[exprs.Expr, Sequence[exprs.Expr]]
+            self, other: catalog.TableVersionPath, on: Union[exprs.Expr, Sequence[exprs.ColumnRef]]
     ) -> exprs.Expr:
-        """
-        Converts user-specified join 'condition' into a join predicate.
-
-        Also checks that user-specified join condition is one of:
-        - single ColumnRef
-        - sequence of ColumnRefs
-        - single predicate
-        - sequence of predicates
-        """
+        """Verifies user-specified 'on' argument and converts it into a join predicate."""
         col_refs: list[exprs.ColumnRef] = []
-        predicates: list[exprs.Expr] = []
         joined_tbls = self._from_clause.tbls + [other]
 
-        if not isinstance(on, Sequence):
+        if isinstance(on, exprs.ColumnRef):
             on = [on]
-        for expr in on:
-            if not isinstance(expr, exprs.Expr):
+        elif isinstance(on, exprs.Expr):
+            if not on.is_bound_by(joined_tbls):
+                raise excs.Error(f"'on': expression cannot be evaluated in the context of the joined tables: {on}")
+            if not on.col_type.is_bool_type():
+                raise excs.Error(f"'on': boolean expression expected, but got {on.col_type}: {on}")
+            return on
+        else:
+            if not isinstance(on, Sequence) or len(on) == 0:
                 raise excs.Error(
-                    f"'on': must be a sequence of column references or a sequence of boolean expressions")
-            if not expr.is_bound_by(joined_tbls):
-                raise excs.Error(f"'on': expression cannot be evaluated in the context of the joined tables: {expr}")
-            if isinstance(expr, exprs.ColumnRef):
-                col_refs.append(expr)
+                    f"'on': must be a sequence of column references or a boolean expression")
+
+        assert isinstance(on, Sequence)
+        for col_ref in on:
+            if not isinstance(col_ref, exprs.ColumnRef):
+                raise excs.Error(
+                    f"'on': must be a sequence of column references or a boolean expression")
+            if not col_ref.is_bound_by(joined_tbls):
+                raise excs.Error(f"'on': expression cannot be evaluated in the context of the joined tables: {col_ref}")
+            col_refs.append(col_ref)
+
+        predicates: list[exprs.Expr] = []
+        # try to turn ColumnRefs into equality predicates
+        assert len(col_refs) > 0 and len(joined_tbls) >= 2
+        for col_ref in col_refs:
+            # identify the referenced column by name in 'other'
+            rhs_col = other.get_column(col_ref.col.name, include_bases=True)
+            if rhs_col is None:
+                raise excs.Error(f"'on': column {col_ref.col.name!r} not found in joined table")
+            rhs_col_ref = exprs.ColumnRef(rhs_col)
+
+            lhs_col_ref: Optional[exprs.ColumnRef] = None
+            if any(tbl.has_column(col_ref.col, include_bases=True) for tbl in self._from_clause.tbls):
+                # col_ref comes from the existing from_clause, we use that directly
+                lhs_col_ref = col_ref
             else:
-                if not expr.col_type.is_bool_type():
-                    raise excs.Error(f"'on': boolean expression expected, but got {expr.col_type}: {expr}")
-                predicates.append(expr)
-        if len(col_refs) > 0 and len(predicates) > 0:
-            raise excs.Error(f"'on': cannot mix column references and boolean expressions")
-        assert len(col_refs) > 0 or len(predicates) > 0
-
-        if len(predicates) == 0:
-            # turn ColumnRefs into equality predicates
-            assert len(col_refs) > 0 and len(joined_tbls) >= 2
-            for col_ref in col_refs:
-                # identify the referenced column by name in 'other'
-                rhs_col = other.get_column(col_ref.col.name, include_bases=True)
-                if rhs_col is None:
-                    raise excs.Error(f"'on': column {col_ref.col.name!r} not found in joined table")
-                rhs_col_ref = exprs.ColumnRef(rhs_col)
-
-                lhs_col_ref: Optional[exprs.ColumnRef] = None
-                if any(tbl.has_column(col_ref.col, include_bases=True) for tbl in self._from_clause.tbls):
-                    # col_ref comes from the existing from_clause, we use that directly
-                    lhs_col_ref = col_ref
-                else:
-                    # col_ref comes from other, we need to look for a match in the existing from_clause by name
-                    for tbl in self._from_clause.tbls:
-                        col = tbl.get_column(col_ref.col.name, include_bases=True)
-                        if col is None:
-                            continue
-                        if lhs_col_ref is not None:
-                            raise excs.Error(f"'on': ambiguous column reference: {col_ref.col.name!r}")
-                        lhs_col_ref = exprs.ColumnRef(col)
-                    if lhs_col_ref is None:
-                        tbl_names = [tbl.tbl_name() for tbl in self._from_clause.tbls]
-                        raise excs.Error(
-                            f"'on': column {col_ref.col.name!r} not found in any of: {' '.join(tbl_names)}")
-                pred = exprs.Comparison(exprs.ComparisonOperator.EQ, lhs_col_ref, rhs_col_ref)
-                predicates.append(pred)
+                # col_ref comes from other, we need to look for a match in the existing from_clause by name
+                for tbl in self._from_clause.tbls:
+                    col = tbl.get_column(col_ref.col.name, include_bases=True)
+                    if col is None:
+                        continue
+                    if lhs_col_ref is not None:
+                        raise excs.Error(f"'on': ambiguous column reference: {col_ref.col.name!r}")
+                    lhs_col_ref = exprs.ColumnRef(col)
+                if lhs_col_ref is None:
+                    tbl_names = [tbl.tbl_name() for tbl in self._from_clause.tbls]
+                    raise excs.Error(
+                        f"'on': column {col_ref.col.name!r} not found in any of: {' '.join(tbl_names)}")
+            pred = exprs.Comparison(exprs.ComparisonOperator.EQ, lhs_col_ref, rhs_col_ref)
+            predicates.append(pred)
 
         assert len(predicates) > 0
         if len(predicates) == 1:
@@ -604,16 +597,16 @@ class DataFrame:
             return exprs.CompoundPredicate(operator=exprs.LogicalOperator.AND, operands=predicates)
 
     def join(
-        self, other: catalog.Table,  *, on: Optional[Union[exprs.Expr, Sequence[exprs.Expr]]] = None,
-        how: Optional[JoinTypeLiterals] = 'inner'
+        self, other: catalog.Table,  on: Optional[Union[exprs.Expr, Sequence[exprs.ColumnRef]]] = None,
+        how: plan.JoinType.LiteralType = 'inner'
     ) -> DataFrame:
         """
         Join this DataFrame with a table.
 
         Args:
             other: the table to join with
-            on: the join condition, which can be either a) references to one or more columns or b) one or more boolean
-                expressions.
+            on: the join condition, which can be either a) references to one or more columns or b) a boolean
+                expression.
 
                 - column references: implies an equality predicate that matches columns in both this
                     DataFrame and `other` by name.
@@ -622,13 +615,13 @@ class DataFrame:
                         be unique** (otherwise the join is ambiguous).
                     - column in this DataFrame: A column with that same name must be present in `other`.
 
-                - boolean expressions: The expressions must be valid in the context of the joined tables.
+                - boolean expression: The expressions must be valid in the context of the joined tables.
             how: the type of join to perform.
 
                 - `'inner'`: only keep rows that have a match in both
                 - `'left'`: keep all rows from this DataFrame and only matching rows from the other table
                 - `'right'`: keep all rows from the other table and only matching rows from this DataFrame
-                - `'full'`: keep all rows from both this DataFrame and the other table
+                - `'full_outer'`: keep all rows from both this DataFrame and the other table
                 - `'cross'`: Cartesian product; no `on` condition allowed
 
         Returns:
@@ -640,7 +633,7 @@ class DataFrame:
             >>> join1 = t1.join(t2, on=t2.id)
 
             Perform a left outer join of join1 with t3, also on id (note that we can't specify `on=t3.id` here,
-            because that would be ambiguous):
+            because that would be ambiguous, since both t1 and t2 have a column named id):
 
             >>> join2 = join1.join(t3, on=t2.id, how='left')
 
@@ -651,7 +644,7 @@ class DataFrame:
             Join t with d, which has a composite primary key (columns pk1 and pk2, with corresponding foreign
             key columns d1 and d2 in t):
 
-            >>> df = t.join(d, on=(t.d1 == d.pk1, t.d2 == d.pk2), how='left')
+            >>> df = t.join(d, on=(t.d1 == d.pk1) & (t.d2 == d.pk2), how='left')
         """
         join_pred: Optional[exprs.Expr]
         if how == 'cross':

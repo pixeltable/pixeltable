@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import enum
-from typing import Any, Iterable, Optional, Sequence, cast
+from typing import Any, Iterable, Optional, Sequence, Literal, ClassVar
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -45,9 +45,12 @@ def _get_combined_ordering(
 class JoinType(enum.Enum):
     INNER = 0
     LEFT = 1
-    RIGHT = 2
+    # TODO: implement
+    # RIGHT = 2
     FULL_OUTER = 3
     CROSS = 4
+
+    LiteralType: ClassVar[Any]
 
     @classmethod
     def validated(cls, name: str, error_prefix: str) -> JoinType:
@@ -56,6 +59,8 @@ class JoinType(enum.Enum):
         except KeyError:
             val_strs = ', '.join(f'{s.lower()!r}' for s in cls.__members__.keys())
             raise excs.Error(f'{error_prefix} must be one of: [{val_strs}]')
+
+JoinType.LiteralType = Literal[tuple(e.name.lower() for e in JoinType)]
 
 
 @dataclasses.dataclass
@@ -724,7 +729,7 @@ class Planner:
         if analyzer.sql_where_clause is not None:
             plan.set_where(analyzer.sql_where_clause)
         if analyzer.filter is not None:
-            plan.set_filter(analyzer.filter)
+            plan.set_py_filter(analyzer.filter)
         if len(analyzer.window_fn_calls) > 0:
             # we need to order the input for window functions
             plan.set_order_by(analyzer.get_window_fn_ob_clause())
