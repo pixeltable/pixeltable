@@ -14,11 +14,11 @@ class TestTogether:
         t = pxt.create_table('test_tbl', {'input': pxt.String})
         from pixeltable.functions.together import completions
 
-        t.add_column(output=completions(prompt=t.input, model='mistralai/Mixtral-8x7B-v0.1', stop=['\n']))
+        t.add_column(output=completions(prompt=t.input, model='meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo', stop=['\n']))
         t.add_column(
             output_2=completions(
                 prompt=t.input,
-                model='mistralai/Mixtral-8x7B-v0.1',
+                model='meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo',
                 max_tokens=300,
                 stop=['\n'],
                 temperature=0.7,
@@ -45,11 +45,11 @@ class TestTogether:
         messages = [{'role': 'user', 'content': t.input}]
         from pixeltable.functions.together import chat_completions
 
-        t.add_column(output=chat_completions(messages=messages, model='mistralai/Mixtral-8x7B-v0.1', stop=['\n']))
+        t.add_column(output=chat_completions(messages=messages, model='meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo', stop=['\n']))
         t.add_column(
             output_2=chat_completions(
                 messages=messages,
-                model='mistralai/Mixtral-8x7B-Instruct-v0.1',
+                model='meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo',
                 max_tokens=300,
                 stop=['\n'],
                 temperature=0.7,
@@ -57,7 +57,7 @@ class TestTogether:
                 top_k=40,
                 repetition_penalty=1.1,
                 logprobs=1,
-                echo=True,
+                # echo=True,
                 n=3,
                 safety_model='Meta-Llama/Llama-Guard-7b',
                 response_format={'type': 'json_object'},
