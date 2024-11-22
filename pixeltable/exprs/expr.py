@@ -450,7 +450,13 @@ class Expr(abc.ABC):
 
     def astype(self, new_type: Union[ts.ColumnType, type, _AnnotatedAlias]) -> 'exprs.TypeCast':
         from pixeltable.exprs import TypeCast
-        return TypeCast(self, ts.ColumnType.normalize_type(new_type))
+        # Interpret the type argument the same way we would if given in a schema
+        col_type = ts.ColumnType.normalize_type(new_type, nullable_default=True, allow_builtin_types=False)
+        if not self.col_type.nullable:
+            # This expression is non-nullable; we can prove that the output is non-nullable, regardless of
+            # whether new_type is given as nullable.
+            col_type = col_type.copy(nullable=False)
+        return TypeCast(self, col_type)
 
     def apply(self, fn: Callable, *, col_type: Union[ts.ColumnType, type, _AnnotatedAlias, None] = None) -> 'exprs.FunctionCall':
         if col_type is not None:
