@@ -401,15 +401,11 @@ class DataFrame:
 
     def _descriptors(self) -> DescriptionHelper:
         helper = DescriptionHelper()
-        helper.append(self._title_descriptor())
         helper.append(self._col_descriptor())
         qd = self._query_descriptor()
         if not qd.empty:
             helper.append(qd, show_index=True, show_header=False)
         return helper
-
-    def _title_descriptor(self) -> str:
-        return f'Select From {self.tbl.tbl_name()!r}'
 
     def _col_descriptor(self) -> pd.DataFrame:
         return pd.DataFrame([
@@ -424,6 +420,8 @@ class DataFrame:
     def _query_descriptor(self) -> pd.DataFrame:
         heading_vals: list[str] = []
         info_vals: list[str] = []
+        heading_vals.append('From')
+        info_vals.append(self.tbl.tbl_name())
         if self.where_clause is not None:
             heading_vals.append('Where')
             info_vals.append(self.where_clause.display_str(inline=False))

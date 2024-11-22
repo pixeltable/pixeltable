@@ -183,17 +183,16 @@ class TestDataFrame:
 
         r = df.__repr__()
         assert strip_lines(r) == strip_lines(
-            '''Select From 'test_tbl'
-
-             Name              Type  Expression
+            '''Name              Type  Expression
                c1  Required[String]          c1
             upper  Required[String]  c1.upper()
             col_2     Required[Int]      c2 + 5
 
-            Where     c2 < 10
-            Group By       c1
-            Order By   c3 asc
-            Limit          10'''
+            From      test_tbl
+            Where      c2 < 10
+            Group By        c1
+            Order By    c3 asc
+            Limit           10'''
         )
         _ = df._repr_html_()  # TODO: Is there a good way to test this output?
 
