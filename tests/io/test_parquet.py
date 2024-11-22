@@ -1,12 +1,10 @@
 import datetime
 import pathlib
 import pytest
-import pyarrow as pa
 import pixeltable as pxt
 
-from pyarrow import parquet
+from pixeltable.env import Env
 from pixeltable import exceptions as excs
-from pixeltable.utils.arrow import iter_tuples
 
 from ..utils import get_image_files, make_test_arrow_table, skip_test_if_not_installed
 
@@ -14,6 +12,9 @@ from ..utils import get_image_files, make_test_arrow_table, skip_test_if_not_ins
 class TestParquet:
     def test_import_parquet(self, reset_db, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('pyarrow')
+        import pyarrow as pa
+        from pyarrow import parquet
+        from pixeltable.utils.arrow import iter_tuples
 
         parquet_dir = tmp_path / 'test_data'
         parquet_dir.mkdir()
@@ -44,39 +45,35 @@ class TestParquet:
                 else:
                     assert val == arrow_tup[col]
 
-    def _helper_rand_timezone(self) -> datetime.timezone:
-        import random
-        import pytz
-        return pytz.timezone(random.choice(pytz.all_timezones))
-
     def test_export_parquet_simple(self, reset_db, tmp_path: pathlib.Path) -> None:
-        # RESOLVE: check if it is possible to do this at class level for all tests?
         skip_test_if_not_installed('pyarrow')
+        import pyarrow as pa
+        from pyarrow import parquet
 
         t = pxt.create_table('test1', {'c1': pxt.Int, 'c2': pxt.String, 'c3': pxt.Timestamp})
-        tz =  self._helper_rand_timezone()
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo('America/Anchorage')
         t.insert([  {'c1': 1, 'c2': 'row1', 'c3': datetime.datetime(2012, 1, 1, 12, 0, 0, 25, tz)},
                     {'c1': 2, 'c2': 'row2', 'c3': datetime.datetime(2012, 2, 1, 12, 0, 0, 25, tz)}])
 
-        from pixeltable.env import Env
         tz_default = Env().get().default_time_zone
 
         print("test_export_parquet_simple with tz: ", tz, "and default tz: ", tz_default)
 
         export_file1 = tmp_path / 'test1.pq'
-        pxt.io.export_parquet(t._df(), export_file1)
+        pxt.io.export_parquet(t, export_file1)
         assert export_file1.exists()
         ptest1 = parquet.read_table(str(export_file1))
         assert ptest1.num_rows == 2
         assert ptest1.column_names == ['c1', 'c2', 'c3']
-        assert ptest1.schema.types == [pa.int64(), pa.string(), pa.timestamp('us',tz=tz_default)]
+        assert ptest1.schema.types == [pa.int64(), pa.string(), pa.timestamp('us', tz=datetime.timezone.utc)]
         assert pa.array(ptest1.column('c1')).equals(pa.array([1, 2]))
         assert pa.array(ptest1.column('c2')).equals(pa.array(['row1', 'row2']))
-        assert pa.array(ptest1.column('c3')).equals(pa.array([datetime.datetime(2012, 1, 1, 12, 0, 0, 25, tz).astimezone(tz_default),
-                                                              datetime.datetime(2012, 2, 1, 12, 0, 0, 25, tz).astimezone(tz_default)]))
+        assert pa.array(ptest1.column('c3')).equals(pa.array([datetime.datetime(2012, 1, 1, 12, 0, 0, 25, tz).astimezone(datetime.timezone.utc),
+                                                              datetime.datetime(2012, 2, 1, 12, 0, 0, 25, tz).astimezone(datetime.timezone.utc)]))
 
         export_file2 = tmp_path / 'test2.pq'
-        pxt.io.export_parquet(t._df().select(t.c1, t.c2), export_file2)
+        pxt.io.export_parquet(t.select(t.c1, t.c2), export_file2)
         assert export_file2.exists()
         ptest2 = parquet.read_table(str(export_file2))
         assert ptest2.num_rows == 2
@@ -85,14 +82,14 @@ class TestParquet:
         assert pa.array(ptest2.column('c2')).equals(pa.array(['row1', 'row2']))
 
         export_file3 = tmp_path / 'test3.pq'
-        pxt.io.export_parquet(t._df().select().where(t.c1 == 1), export_file3)
+        pxt.io.export_parquet(t.where(t.c1 == 1), export_file3)
         assert export_file3.exists()
         ptest3 = parquet.read_table(str(export_file3))
         assert ptest3.num_rows == 1
         assert ptest3.column_names == ['c1', 'c2', 'c3']
         assert pa.array(ptest3.column('c1')).equals(pa.array([1]))
         assert pa.array(ptest3.column('c2')).equals(pa.array(['row1']))
-        assert pa.array(ptest3.column('c3')).equals(pa.array([datetime.datetime(2012, 1, 1, 12, 0, 0, 25,tz).astimezone(tz_default)]))
+        assert pa.array(ptest3.column('c3')).equals(pa.array([datetime.datetime(2012, 1, 1, 12, 0, 0, 25, tz).astimezone(datetime.timezone.utc)]))
 
         it = pxt.io.import_parquet('imported_test1', parquet_path=str(export_file1))
         assert it.count() == t.count()
@@ -122,7 +119,6 @@ class TestParquet:
         skip_test_if_not_installed('pyarrow')
         import pyarrow as pa
         from pyarrow import parquet
-        from pixeltable.utils.arrow import iter_tuples
 
         parquet_dir = tmp_path / 'test_data'
         parquet_dir.mkdir()
@@ -134,7 +130,7 @@ class TestParquet:
         result_before = tab.order_by(tab.c_id).collect()
 
         export_path = tmp_path / 'exported.parquet'
-        pxt.io.export_parquet(tab._df(), export_path)
+        pxt.io.export_parquet(tab.select(), export_path)
         assert export_path.exists()
 
         # verify the data is same by reading it back into pixeltable
@@ -174,12 +170,8 @@ class TestParquet:
 
     def test_export_parquet_image(self, reset_db, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('pyarrow')
-        import numpy as np
-        import PIL.Image
 
         tab = pxt.create_table('test_image', {'c1': pxt.Image})
-        #img = PIL.Image.new('RGB', (100, 100))
-        #img_data = np.array(img)
         tab.insert([{'c1': get_image_files()[0]}])
 
         export_path = tmp_path / 'exported_image.parquet'

@@ -7,11 +7,13 @@ import random
 import typing
 from collections import deque
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 import numpy as np
 import PIL.Image
+import datetime
 
+import pixeltable as pxt
 from pixeltable.env import Env
 import pixeltable.exceptions as exc
 import pixeltable.type_system as ts
@@ -41,7 +43,7 @@ def _write_batch(value_batch: dict[str, deque], schema: pa.Schema, output_path: 
 
 
 def export_parquet(
-            df: pxt.DataFrame,
+            table_or_df: Union[pxt.Table, pxt.DataFrame],
             parquet_path: Path,
             partition_size_bytes: int = 100_000_000,
             inline_images: bool = False
@@ -53,7 +55,7 @@ def export_parquet(
     not be available in the parquet format.
 
     Args:
-        df : Dataframe to export.
+        table_or_df : Table or Dataframe to export.
         parquet_path : Path to directory to write the parquet files to.
         partition_size_bytes : The maximum target size for each chunk. Default 100_000_000 bytes.
         inline_images : If True, images are stored inline in the parquet file. This is useful
@@ -63,6 +65,12 @@ def export_parquet(
                         Default False.
     """
     from pixeltable.utils.arrow import to_arrow_schema
+
+    df: pxt.DataFrame
+    if isinstance(table_or_df, pxt.catalog.Table):
+        df = table_or_df._df()
+    else:
+        df = table_or_df
 
     type_dict = {k: v.as_dict() for k, v in df.schema.items()}
     arrow_schema = to_arrow_schema(df.schema)
@@ -122,6 +130,7 @@ def export_parquet(
                 elif col_type.is_bool_type():
                     length = 1
                 elif col_type.is_timestamp_type():
+                    val = val.astimezone(datetime.timezone.utc)
                     length = 8
                 else:
                     assert False, f'unknown type {col_type} for {col_name}'
@@ -196,7 +205,6 @@ def import_parquet(
         for fragment in parquet_dataset.fragments:  # type: ignore[attr-defined]
             for batch in fragment.to_batches():
                 dict_batch = list(iter_tuples(batch))
-                print("DEBUG_A import dict_batch: ", dict_batch)
                 tab.insert(dict_batch)
     except Exception as e:
         _logger.error(f'Error while inserting Parquet file into table: {e}')
