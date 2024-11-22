@@ -14,7 +14,7 @@ from pixeltable import catalog
 from pixeltable import exceptions as excs
 from pixeltable.iterators import FrameIterator
 
-from .utils import get_audio_files, get_documents, get_video_files, skip_test_if_not_installed, validate_update_status
+from .utils import get_audio_files, get_documents, get_video_files, skip_test_if_not_installed, strip_lines, validate_update_status
 
 
 class TestDataFrame:
@@ -170,14 +170,31 @@ class TestDataFrame:
             _ = t.order_by(t.c2).tail(10)
         assert 'cannot be used with order_by' in str(exc_info.value)
 
-    def test_describe(self, test_tbl: catalog.Table) -> None:
+    def test_repr(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
-        df = t.select(t.c1).where(t.c2 < 10).limit(10)
+        df = (
+            t.select(t.c1, t.c1.upper(), t.c2 + 5)
+            .where(t.c2 < 10)
+            .group_by(t.c1)
+            .order_by(t.c3)
+            .limit(10)
+        )
         df.describe()
 
-        # TODO: how to you check the output of these?
-        _ = df.__repr__()
-        _ = df._repr_html_()
+        r = df.__repr__()
+        assert strip_lines(r) == strip_lines(
+            '''Name              Type  Expression
+               c1  Required[String]          c1
+            upper  Required[String]  c1.upper()
+            col_2     Required[Int]      c2 + 5
+
+            From      test_tbl
+            Where      c2 < 10
+            Group By        c1
+            Order By    c3 asc
+            Limit           10'''
+        )
+        _ = df._repr_html_()  # TODO: Is there a good way to test this output?
 
     def test_count(self, test_tbl: catalog.Table, small_img_tbl) -> None:
         t = test_tbl

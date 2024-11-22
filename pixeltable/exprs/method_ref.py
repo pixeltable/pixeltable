@@ -60,5 +60,5 @@ class MethodRef(Expr):
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         assert False, 'MethodRef cannot be evaluated directly'
 
-    def __str__(self) -> str:
+    def __repr__(self) -> str:
         return f'{self.base_expr}.{self.method_name}'

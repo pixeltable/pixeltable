@@ -412,6 +412,11 @@ def assert_resultset_eq(r1: DataFrameResultSet, r2: DataFrameResultSet, compare_
             assert s1 == s2
 
 
+def strip_lines(s: str) -> str:
+    lines = s.split('\n')
+    return '\n'.join(line.strip() for line in lines)
+
+
 def skip_test_if_not_installed(package) -> None:
     if not Env.get().is_installed_package(package):
         pytest.skip(f'Package `{package}` is not installed.')

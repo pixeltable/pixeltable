@@ -22,7 +22,7 @@ from pixeltable.exprs import ColumnRef, Expr
 from pixeltable.functions import cast
 from pixeltable.iterators import FrameIterator
 
-from .utils import (create_scalars_tbl, get_image_files, reload_catalog, skip_test_if_not_installed,
+from .utils import (create_all_datatypes_tbl, create_scalars_tbl, get_image_files, reload_catalog, skip_test_if_not_installed,
                     validate_update_status)
 
 
@@ -1202,3 +1202,50 @@ class TestExprs:
                 def value(self) -> int:
                     return self.val
         assert 'group_by is reserved' in str(exc_info.value).lower()
+
+    def test_repr(self, reset_db) -> None:
+        t = create_all_datatypes_tbl()
+        instances: list[tuple[exprs.Expr, str]] = [
+            # ArithmeticExpr
+            (t.c_int + 5, 'c_int + 5'),
+            (t.c_int - 5, 'c_int - 5'),
+            (t.c_int * 5, 'c_int * 5'),
+            (t.c_int / 5, 'c_int / 5'),
+            (t.c_int % 5, 'c_int % 5'),
+            (t.c_int // (t.c_int - 5), 'c_int // (c_int - 5)'),
+            # ArraySlice
+            (t.c_array[:5, 2], 'c_array[:5, 2]'),
+            # ColumnPropertyRef
+            (t.c_image.errormsg, 'c_image.errormsg'),
+            # Comparison
+            (t.c_int == 5, 'c_int == 5'),
+            (t.c_int != 5, 'c_int != 5'),
+            (t.c_int < 5, 'c_int < 5'),
+            (t.c_int <= 5, 'c_int <= 5'),
+            (t.c_int > 5, 'c_int > 5'),
+            (t.c_int >= 5, 'c_int >= 5'),
+            # CompoundPredicate
+            ((t.c_int == 5) & (t.c_float > 5), '(c_int == 5) & (c_float > 5)'),
+            ((t.c_int == 5) | (t.c_float > 5), '(c_int == 5) | (c_float > 5)'),
+            (~(t.c_int == 5), '~(c_int == 5)'),
+            # FunctionCall
+            (pxtf.string.lower(t.c_string), 'lower(c_string)'),
+            (pxtf.image.quantize(t.c_image, kmeans=5), 'quantize(c_image, kmeans=5)'),
+            # InPredicate
+            (t.c_int.isin([1, 2, 3]), 'c_int.isin([1, 2, 3])'),
+            # InlineDict/List
+            (pxtf.openai.chat_completions([{'system': t.c_string}], model='test'),
+                "chat_completions([{'system': c_string}], model='test')"),
+            # InlineArray
+            (pxt.array([1, 2, t.c_int]), "[1, 2, c_int]"),
+            # IsNull
+            (t.c_int == None, 'c_int == None'),
+            # JsonPath
+            (t.c_json.f2.f5[2:4][3], 'c_json.f2.f5[2:4][3]'),
+            # MethodRef
+            (t.c_image.resize((100, 100)), 'c_image.resize([100, 100])'),
+            # TypeCast
+            (t.c_int.astype(pxt.Float), 'c_int.astype(Float)'),
+        ]
+        for e, expected_repr in instances:
+            assert repr(e) == expected_repr
