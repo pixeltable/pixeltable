@@ -455,7 +455,7 @@ def validate_sync_status(
         assert status.num_excs == expected_num_excs, status
 
 
-def make_test_arrow_table(output_path: Path) -> None:
+def make_test_arrow_table(output_path: Path) -> str:
     import pyarrow as pa
     from pyarrow import parquet
 
@@ -514,6 +514,13 @@ def make_test_arrow_table(output_path: Path) -> None:
 
     test_table = pa.Table.from_pydict(value_dict, schema=schema)
     parquet.write_table(test_table, str(output_path / 'test.parquet'))
+    # read it back and verify the tables match
+    read_table = parquet.read_table(str(output_path / 'test.parquet'))
+    assert read_table.num_rows == test_table.num_rows
+    assert set(read_table.column_names) == set(test_table.column_names)
+    assert read_table.schema.equals(test_table.schema)
+    assert read_table.equals(test_table)
+    return str(output_path / 'test.parquet')
 
 
 def assert_img_eq(img1: PIL.Image.Image, img2: PIL.Image.Image) -> None:
