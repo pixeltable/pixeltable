@@ -116,8 +116,13 @@ class Table(SchemaObject):
     @property
     def _tbl_version(self) -> TableVersion:
         """Return TableVersion for just this table."""
+        return self.tbl_version_path.tbl_version
+
+    @property
+    def tbl_version_path(self) -> TableVersionPath:
+        """Return TableVersionPath for just this table."""
         self._check_is_dropped()
-        return self._tbl_version_path.tbl_version
+        return self._tbl_version_path
 
     def __hash__(self) -> int:
         return hash(self._tbl_version.id)
@@ -170,9 +175,8 @@ class Table(SchemaObject):
     def _df(self) -> 'pxt.dataframe.DataFrame':
         """Return a DataFrame for this table.
         """
-        self._check_is_dropped()
         # local import: avoid circular imports
-        return pxt.DataFrame(self._tbl_version_path)
+        return pxt.DataFrame(self.tbl_version_path)
 
     @property
     def queries(self) -> 'Table.QueryScope':
@@ -206,7 +210,6 @@ class Table(SchemaObject):
     ) -> 'pxt.dataframe.DataFrameResultSet':
         """Return rows from this table.
         """
-        self._check_is_dropped()
         return self._df().show(*args, **kwargs)
 
     def head(
@@ -228,15 +231,13 @@ class Table(SchemaObject):
     @property
     def columns(self) -> list[str]:
         """Return the names of the columns in this table. """
-        self._check_is_dropped()
-        cols = self._tbl_version_path.columns()
+        cols = self.tbl_version_path.columns()
         return [c.name for c in cols]
 
     @property
     def _schema(self) -> dict[str, ts.ColumnType]:
         """Return the schema (column names and column types) of this table."""
-        self._check_is_dropped()
-        return {c.name: c.col_type for c in self._tbl_version_path.columns()}
+        return {c.name: c.col_type for c in self.tbl_version_path.columns()}
 
     @property
     def _query_names(self) -> list[str]:
@@ -249,10 +250,9 @@ class Table(SchemaObject):
         The base table of this `Table`. If this table is a view, returns the `Table`
         from which it was derived. Otherwise, returns `None`.
         """
-        self._check_is_dropped()
-        if self._tbl_version_path.base is None:
+        if self.tbl_version_path.base is None:
             return None
-        base_id = self._tbl_version_path.base.tbl_version.id
+        base_id = self.tbl_version_path.base.tbl_version.id
         return catalog.Catalog.get().tbls[base_id]
 
     @property
@@ -678,12 +678,12 @@ class Table(SchemaObject):
             column_names.add(col.name)
 
     def __check_column_name_exists(self, column_name: str, include_bases: bool = False) -> None:
-        col = self._tbl_version_path.get_column(column_name, include_bases)
+        col = self.tbl_version_path.get_column(column_name, include_bases)
         if col is None:
             raise excs.Error(f'Column {column_name!r} unknown')
 
     def __check_column_ref_exists(self, col_ref: ColumnRef, include_bases: bool = False) -> None:
-        exists = self._tbl_version_path.has_column(col_ref.col, include_bases)
+        exists = self.tbl_version_path.has_column(col_ref.col, include_bases)
         if not exists:
             raise excs.Error(f'Unknown column: {col_ref.col.qualified_name}')
 
@@ -759,7 +759,6 @@ class Table(SchemaObject):
             >>> tbl = pxt.get_table('my_table')
             ... tbl.rename_column('col1', 'col2')
         """
-        self._check_is_dropped()
         self._tbl_version.rename_column(old_name, new_name)
 
     def add_embedding_index(
@@ -819,13 +818,12 @@ class Table(SchemaObject):
             ...     metric='ip'
             ... )
         """
-        self._check_is_dropped()
-        if self._tbl_version_path.is_snapshot():
+        if self.tbl_version_path.is_snapshot():
             raise excs.Error('Cannot add an index to a snapshot')
         col: Column
         if isinstance(column, str):
             self.__check_column_name_exists(column, include_bases=True)
-            col = self._tbl_version_path.get_column(column, include_bases=True)
+            col = self.tbl_version_path.get_column(column, include_bases=True)
         else:
             self.__check_column_ref_exists(column, include_bases=True)
             col = column.col
@@ -882,7 +880,7 @@ class Table(SchemaObject):
         if idx_name is None:
             if isinstance(column, str):
                 self.__check_column_name_exists(column, include_bases=True)
-                col = self._tbl_version_path.get_column(column, include_bases=True)
+                col = self.tbl_version_path.get_column(column, include_bases=True)
             else:
                 self.__check_column_ref_exists(column, include_bases=True)
                 col = column.col
@@ -931,7 +929,7 @@ class Table(SchemaObject):
         if idx_name is None:
             if isinstance(column, str):
                 self.__check_column_name_exists(column, include_bases=True)
-                col = self._tbl_version_path.get_column(column, include_bases=True)
+                col = self.tbl_version_path.get_column(column, include_bases=True)
             else:
                 self.__check_column_ref_exists(column, include_bases=True)
                 col = column.col
@@ -943,8 +941,7 @@ class Table(SchemaObject):
             idx_name: Optional[str] = None,
             _idx_class: Optional[type[index.IndexBase]] = None
     ) -> None:
-        self._check_is_dropped()
-        if self._tbl_version_path.is_snapshot():
+        if self.tbl_version_path.is_snapshot():
             raise excs.Error('Cannot drop an index from a snapshot')
         assert (col is None) != (idx_name is None)
 
@@ -1082,7 +1079,6 @@ class Table(SchemaObject):
 
             >>> tbl.update({'int_col': tbl.int_col + 1}, where=tbl.int_col == 0)
         """
-        self._check_is_dropped()
         status = self._tbl_version.update(value_spec, where, cascade)
         FileCache.get().emit_eviction_warnings()
         return status
@@ -1116,8 +1112,7 @@ class Table(SchemaObject):
                 [{'id': 1, 'name': 'Alice', 'age': 30}, {'id': 3, 'name': 'Bob', 'age': 40}],
                 if_not_exists='insert')
         """
-        self._check_is_dropped()
-        if self._tbl_version_path.is_snapshot():
+        if self.tbl_version_path.is_snapshot():
             raise excs.Error('Cannot update a snapshot')
         rows = list(rows)
 
@@ -1171,7 +1166,7 @@ class Table(SchemaObject):
         .. warning::
             This operation is irreversible.
         """
-        if self._tbl_version_path.is_snapshot():
+        if self.tbl_version_path.is_snapshot():
             raise excs.Error('Cannot revert a snapshot')
         self._tbl_version.revert()
 
