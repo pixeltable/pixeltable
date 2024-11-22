@@ -1722,23 +1722,23 @@ class TestTable:
             'test_subview'
             (of 'test_view', 'test_tbl')
 
-            Column Name                         Type          Computed With
-              computed1 Required[Array[(3, 4), Int]]           <lambda>(c2)
-                     c1             Required[String]
-                    c1n                       String
-                     c2                Required[Int]
-                     c3              Required[Float]
-                     c4               Required[Bool]
-                     c5          Required[Timestamp]
-                     c6               Required[Json]
-                     c7               Required[Json]
-                     c8 Required[Array[(2, 3), Int]] [[1, 2, 3], [4, 5, 6]]
+            Column Name                          Type           Computed With
+              computed1  Required[Array[(3, 4), Int]]            <lambda>(c2)
+                     c1              Required[String]
+                    c1n                        String
+                     c2                 Required[Int]
+                     c3               Required[Float]
+                     c4                Required[Bool]
+                     c5           Required[Timestamp]
+                     c6                Required[Json]
+                     c7                Required[Json]
+                     c8  Required[Array[(2, 3), Int]]  [[1, 2, 3], [4, 5, 6]]
 
-            Index Name Column Metric                                         Embedding
-                  idx0     c1 cosine sentence_transformer(sentence, model_id='all-m...
+            Index Name Column  Metric                                          Embedding
+                  idx0     c1  cosine  sentence_transformer(sentence, model_id='all-m...
 
-            External Store        Type
-                   project MockProject
+            External Store         Type
+                   project  MockProject
 
             COMMENT: This is an intriguing table comment.'''
         )
@@ -1750,8 +1750,8 @@ class TestTable:
             'c1'
             (of table 'test_tbl')
 
-            Column Name             Type Computed With
-                     c1 Required[String]'''
+            Column Name              Type Computed With
+                     c1  Required[String]'''
         )
         _ = v2.c1._repr_html_()
 

@@ -185,10 +185,10 @@ class TestDataFrame:
         assert strip_lines(r) == strip_lines(
             '''Select From 'test_tbl'
 
-             Name             Type Expression
-               c1 Required[String]         c1
-            upper Required[String] c1.upper()
-            col_2    Required[Int]     c2 + 5
+             Name              Type  Expression
+               c1  Required[String]          c1
+            upper  Required[String]  c1.upper()
+            col_2     Required[Int]      c2 + 5
 
             Where     c2 < 10
             Group By       c1

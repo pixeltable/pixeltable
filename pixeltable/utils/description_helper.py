@@ -40,17 +40,28 @@ class DescriptionHelper:
         self.__descriptors.append(_Descriptor(descriptor, show_index, show_header, styler))
 
     def to_string(self) -> str:
-        blocks = [
-            descriptor.body if isinstance(descriptor.body, str)
-            # max_colwidth=49 is the identical default that Pandas uses for a DataFrame's __repr__() output.
-            else descriptor.body.to_string(index=descriptor.show_index, header=descriptor.show_header, max_colwidth=49)
-            for descriptor in self.__descriptors
-        ]
+        blocks = [self.__render_text(descriptor) for descriptor in self.__descriptors]
         return '\n\n'.join(blocks)
 
     def to_html(self) -> str:
         html_blocks = [self.__apply_styles(descriptor).to_html() for descriptor in self.__descriptors]
         return '\n'.join(html_blocks)
+
+    @classmethod
+    def __render_text(cls, descriptor: _Descriptor) -> str:
+        if isinstance(descriptor.body, str):
+            return descriptor.body
+        else:
+            # If `show_index=False`, we get cleaner output (better intercolumn spacing) by setting the index to a
+            # list of empty strings than by setting `index=False` in the call to `df.to_string()`. It's pretty silly
+            # that `index=False` has side effects in Pandas that go beyond simply not displaying the index, but it
+            # is what it is.
+            df = descriptor.body
+            if not descriptor.show_index:
+                df = df.copy()
+                df.index = [''] * len(df)
+            # max_colwidth=50 is the identical default that Pandas uses for a DataFrame's __repr__() output.
+            return df.to_string(header=descriptor.show_header, max_colwidth=50)
 
     @classmethod
     def __apply_styles(cls, descriptor: _Descriptor) -> Styler:
