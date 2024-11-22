@@ -52,4 +52,4 @@ class TypeCast(Expr):
         return cls(components[0], ts.ColumnType.from_dict(d['new_type']))
 
     def __repr__(self) -> str:
-        return f'{self._underlying}.astype({self.col_type})'
+        return f'{self._underlying}.astype({self.col_type._to_str(as_schema=True)})'
