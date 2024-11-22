@@ -5,7 +5,7 @@ first `pip install google-generativeai` and configure your Gemini credentials, a
 the [Working with Gemini](https://pixeltable.readme.io/docs/working-with-gemini) tutorial.
 """
 
-from typing import TYPE_CHECKING, Optional
+from typing import Optional
 
 import pixeltable as pxt
 from pixeltable import env
@@ -13,7 +13,7 @@ from pixeltable import env
 
 @env.register_client('gemini')
 def _(api_key: str) -> None:
-    import google.generativeai as genai
+    import google.generativeai as genai  # type: ignore[import-untyped]
     genai.configure(api_key=api_key)
 
 
@@ -32,7 +32,6 @@ def generate_content(
     temperature: Optional[float] = None,
     top_p: Optional[float] = None,
     top_k: Optional[int] = None,
-    seed: Optional[int] = None,
     response_mime_type: Optional[str] = None,
     response_schema: Optional[dict] = None,
     presence_penalty: Optional[float] = None,
@@ -40,6 +39,29 @@ def generate_content(
     response_logprobs: Optional[bool] = None,
     logprobs: Optional[int] = None,
 ) -> dict:
+    """
+    Generate content from the specified model. For additional details, see:
+    <https://ai.google.dev/gemini-api/docs>
+
+    __Requirements:__
+
+    - `pip install google-generativeai`
+
+    Args:
+        contents: The input content to generate from.
+        model_name: The name of the model to use.
+
+    For details on the other parameters, see: <https://ai.google.dev/gemini-api/docs>
+
+    Returns:
+        A dictionary containing the response and other metadata.
+
+    Examples:
+        Add a computed column that applies the model `gemini-1.5-flash`
+        to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
+
+        >>> tbl['response'] = generate_content(tbl.prompt, model_name='gemini-1.5-flash')
+    """
     env.Env.get().require_package('google.generativeai')
     _ensure_loaded()
     import google.generativeai as genai
@@ -52,7 +74,6 @@ def generate_content(
         temperature=temperature,
         top_p=top_p,
         top_k=top_k,
-        seed=seed,
         response_mime_type=response_mime_type,
         response_schema=response_schema,
         presence_penalty=presence_penalty,
@@ -61,4 +82,4 @@ def generate_content(
         logprobs=logprobs,
     )
     response = model.generate_content(contents, generation_config=gc)
-    return response.dict()
+    return response.to_dict()
