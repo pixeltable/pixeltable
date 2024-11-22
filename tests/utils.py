@@ -21,7 +21,6 @@ from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
 from pixeltable.functions.huggingface import clip_image, clip_text, sentence_transformer
 from pixeltable.io import SyncStatus
-from pixeltable.utils.arrow import iter_tuples
 import pixeltable.utils.s3 as s3_util
 
 
