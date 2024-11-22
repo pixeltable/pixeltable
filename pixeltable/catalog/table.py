@@ -1220,7 +1220,6 @@ class Table(SchemaObject):
         """
         Links the specified `ExternalStore` to this table.
         """
-        self._check_is_dropped()
         if self._tbl_version.is_snapshot:
             raise excs.Error(f'Table `{self._name}` is a snapshot, so it cannot be linked to an external store.')
         if store.name in self.external_stores:
