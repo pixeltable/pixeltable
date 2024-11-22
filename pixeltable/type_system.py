@@ -166,7 +166,7 @@ class ColumnType:
         if t == cls.Type.DOCUMENT:
             return DocumentType()
 
-    def __str__(self) -> str:
+    def __repr__(self) -> str:
         return self._to_str(as_schema=False)
 
     def _to_str(self, as_schema: bool) -> str:

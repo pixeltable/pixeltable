@@ -569,24 +569,46 @@ class TestExprs:
 
     def test_astype(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
+
         # Convert int to float
-        status = t.add_column(c2_as_float=t.c2.astype(float))
-        assert status.num_excs == 0
+        validate_update_status(t.add_column(c2_as_float=t.c2.astype(pxt.Float)))
+        assert t.c2_as_float.col_type == pxt.FloatType(nullable=False)
         data = t.select(t.c2, t.c2_as_float).collect()
         for row in data:
             assert isinstance(row['c2'], int)
             assert isinstance(row['c2_as_float'], float)
             assert row['c2'] == row['c2_as_float']
+
         # Compound expression
-        status = t.add_column(compound_as_float=(t.c2 + 1).astype(float))
-        assert status.num_excs == 0
+        validate_update_status(t.add_column(compound_as_float=(t.c2 + 1).astype(pxt.Float)))
+        assert t.compound_as_float.col_type == pxt.FloatType(nullable=False)
         data = t.select(t.c2, t.compound_as_float).collect()
         for row in data:
             assert isinstance(row['compound_as_float'], float)
             assert row['c2'] + 1 == row['compound_as_float']
+
         # Type conversion error
-        status = t.add_column(c2_as_string=t.c2.astype(str), on_error='ignore')
+        status = t.add_column(c2_as_string=t.c2.astype(pxt.String), on_error='ignore')
         assert status.num_excs == t.count()
+        errormsgs = t.select(out=t.c2_as_string.errormsg).collect()['out']
+        assert all('Expected string, got int' in msg for msg in errormsgs), errormsgs
+
+        # Convert a nullable column
+        validate_update_status(t.add_column(c2n=pxt.Int))
+        t.where(t.c2 % 2 == 0).update({'c2n': t.c2})  # set even values; keep odd values as None
+        validate_update_status(t.add_column(c2n_as_float=t.c2n.astype(pxt.Float)))
+        assert t.c2n_as_float.col_type == pxt.FloatType(nullable=True)
+
+        # Cast nullable to required
+        status = t.add_column(c2n_as_req_float=t.c2n.astype(pxt.Required[pxt.Float]), on_error='ignore')
+        assert t.c2n_as_req_float.col_type == pxt.FloatType(nullable=False)
+        assert status.num_excs == t.count() // 2  # Just the odd values should error out
+        errormsgs = [
+            msg for msg in t.select(out=t.c2n_as_req_float.errormsg).collect()['out']
+            if msg is not None
+        ]
+        assert len(errormsgs) == t.count() // 2
+        assert all('Expected non-None value' in msg for msg in errormsgs), errormsgs
 
     def test_astype_str_to_img(self, reset_db) -> None:
         img_files = get_image_files()
