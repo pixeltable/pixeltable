@@ -9,8 +9,8 @@ import pixeltable as pxt
 import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
 import pixeltable.iterators as iters
-from pixeltable.utils.description_helper import DescriptionHelper
 
+from ..utils.description_helper import DescriptionHelper
 from .data_row import DataRow
 from .expr import Expr
 from .row_builder import RowBuilder
@@ -131,9 +131,6 @@ class ColumnRef(Expr):
     def _df(self) -> 'pxt.dataframe.DataFrame':
         tbl = catalog.Catalog.get().tbls[self.col.tbl.id]
         return tbl.select(self)
-
-    def collect(self) -> 'pxt.dataframe.DataFrameResultSet':
-        return self._df().collect()
 
     def show(self, *args, **kwargs) -> 'pxt.dataframe.DataFrameResultSet':
         return self._df().show(*args, **kwargs)

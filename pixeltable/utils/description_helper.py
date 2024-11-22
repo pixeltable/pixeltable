@@ -8,6 +8,7 @@ from pandas.io.formats.style import Styler
 @dataclasses.dataclass
 class _Descriptor:
     body: Union[str, pd.DataFrame]
+    # The remaining fields only affect the behavior if `body` is a pd.DataFrame.
     show_index: bool
     show_header: bool
     styler: Optional[Styler] = None
@@ -16,6 +17,13 @@ class _Descriptor:
 class DescriptionHelper:
     """
     Helper class for rendering long-form descriptions of Pixeltable objects.
+
+    The output is specified as a list of "descriptors", each of which can be either a string or a Pandas DataFrame,
+    in any combination. The descriptors will be rendered in sequence. This is useful for long-form descriptions that
+    include tables with differing schemas or formatting, and/or a combination of tables and text.
+
+    DescriptionHelper can convert a list of descriptors into either HTML or plaintext and do something reasonable
+    in each case.
     """
     __descriptors: list[_Descriptor]
 
@@ -34,6 +42,7 @@ class DescriptionHelper:
     def to_string(self) -> str:
         blocks = [
             descriptor.body if isinstance(descriptor.body, str)
+            # max_colwidth=49 is the identical default that Pandas uses for a DataFrame's __repr__() output.
             else descriptor.body.to_string(index=descriptor.show_index, header=descriptor.show_header, max_colwidth=49)
             for descriptor in self.__descriptors
         ]
@@ -44,9 +53,11 @@ class DescriptionHelper:
         return '\n'.join(html_blocks)
 
     @classmethod
-    def __apply_styles(self, descriptor: _Descriptor) -> Styler:
+    def __apply_styles(cls, descriptor: _Descriptor) -> Styler:
         if isinstance(descriptor.body, str):
             return (
+                # Render the string as a single-cell DataFrame. This will ensure a consistent style of output in
+                # cases where strings appear alongside DataFrames in the same DescriptionHelper.
                 pd.DataFrame([descriptor.body]).style
                 .set_properties(None, **{'white-space': 'pre-wrap', 'text-align': 'left', 'font-weight': 'bold'})
                 .hide(axis='index').hide(axis='columns')
