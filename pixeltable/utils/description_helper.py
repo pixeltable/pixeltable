@@ -59,7 +59,7 @@ class DescriptionHelper:
             df = descriptor.body
             if not descriptor.show_index:
                 df = df.copy()
-                df.index = [''] * len(df)
+                df.index = [''] * len(df)  # type: ignore[assignment]
             # max_colwidth=50 is the identical default that Pandas uses for a DataFrame's __repr__() output.
             return df.to_string(header=descriptor.show_header, max_colwidth=50)
 
