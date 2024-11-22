@@ -521,8 +521,14 @@ class Env:
         self.__register_package('yolox', library_name='git+https://github.com/Megvii-BaseDetection/YOLOX@ac58e0a')
 
     def __register_package(self, package_name: str, library_name: Optional[str] = None) -> None:
+        is_installed: bool
+        try:
+            is_installed = importlib.util.find_spec(package_name) is not None
+        except ModuleNotFoundError:
+            # This can happen if the parent of `package_name` is not installed.
+            is_installed = False
         self.__optional_packages[package_name] = PackageInfo(
-            is_installed=importlib.util.find_spec(package_name) is not None,
+            is_installed=is_installed,
             library_name=library_name or package_name  # defaults to package_name unless specified otherwise
         )
 
