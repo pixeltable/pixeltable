@@ -33,6 +33,9 @@ class Variable(Expr):
     def __str__(self) -> str:
         return self.name
 
+    def __repr__(self) -> str:
+        return f"Variable('{self.name}')"
+
     def sql_expr(self, _: SqlElementCache) -> NoReturn:
         raise NotImplementedError()
 

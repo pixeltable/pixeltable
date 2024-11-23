@@ -35,7 +35,7 @@ class ArithmeticExpr(Expr):
 
         self.id = self._create_id()
 
-    def __str__(self) -> str:
+    def __repr__(self) -> str:
         # add parentheses around operands that are ArithmeticExprs to express precedence
         op1_str = f'({self._op1})' if isinstance(self._op1, ArithmeticExpr) else str(self._op1)
         op2_str = f'({self._op2})' if isinstance(self._op2, ArithmeticExpr) else str(self._op2)

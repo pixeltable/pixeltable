@@ -3,14 +3,17 @@ from typing import Any, Iterator, Optional, Union
 
 import numpy as np
 import pyarrow as pa
+import datetime
 
 import pixeltable.type_system as ts
+from pixeltable.env import Env
+
+_tz_def = Env().get().default_time_zone
 
 _logger = logging.getLogger(__name__)
 
 _pa_to_pt: dict[pa.DataType, ts.ColumnType] = {
     pa.string(): ts.StringType(nullable=True),
-    pa.timestamp('us'): ts.TimestampType(nullable=True),
     pa.bool_(): ts.BoolType(nullable=True),
     pa.uint8(): ts.IntType(nullable=True),
     pa.int8(): ts.IntType(nullable=True),
@@ -23,7 +26,7 @@ _pa_to_pt: dict[pa.DataType, ts.ColumnType] = {
 
 _pt_to_pa: dict[type[ts.ColumnType], pa.DataType] = {
     ts.StringType: pa.string(),
-    ts.TimestampType: pa.timestamp('us'),  # postgres timestamp is microseconds
+    ts.TimestampType: pa.timestamp('us', tz=datetime.timezone.utc),  # postgres timestamp is microseconds
     ts.BoolType: pa.bool_(),
     ts.IntType: pa.int64(),
     ts.FloatType: pa.float32(),
@@ -39,7 +42,9 @@ def to_pixeltable_type(arrow_type: pa.DataType) -> Optional[ts.ColumnType]:
     """Convert a pyarrow DataType to a pixeltable ColumnType if one is defined.
     Returns None if no conversion is currently implemented.
     """
-    if arrow_type in _pa_to_pt:
+    if isinstance(arrow_type, pa.TimestampType):
+        return ts.TimestampType(nullable=True)
+    elif arrow_type in _pa_to_pt:
         return _pa_to_pt[arrow_type]
     elif isinstance(arrow_type, pa.FixedShapeTensorType):
         dtype = to_pixeltable_type(arrow_type.value_type)

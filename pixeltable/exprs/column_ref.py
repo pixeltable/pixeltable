@@ -5,10 +5,12 @@ from uuid import UUID
 
 import sqlalchemy as sql
 
+import pixeltable as pxt
 import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
 import pixeltable.iterators as iters
 
+from ..utils.description_helper import DescriptionHelper
 from .data_row import DataRow
 from .expr import Expr
 from .row_builder import RowBuilder
@@ -126,6 +128,22 @@ class ColumnRef(Expr):
     def _equals(self, other: ColumnRef) -> bool:
         return self.col == other.col and self.perform_validation == other.perform_validation
 
+    def _df(self) -> 'pxt.dataframe.DataFrame':
+        tbl = catalog.Catalog.get().tbls[self.col.tbl.id]
+        return tbl.select(self)
+
+    def show(self, *args, **kwargs) -> 'pxt.dataframe.DataFrameResultSet':
+        return self._df().show(*args, **kwargs)
+
+    def head(self, *args, **kwargs) -> 'pxt.dataframe.DataFrameResultSet':
+        return self._df().head(*args, **kwargs)
+
+    def tail(self, *args, **kwargs) -> 'pxt.dataframe.DataFrameResultSet':
+        return self._df().tail(*args, **kwargs)
+
+    def count(self) -> int:
+        return self._df().count()
+
     def __str__(self) -> str:
         if self.col.name is None:
             return f'<unnamed column {self.col.id}>'
@@ -133,11 +151,20 @@ class ColumnRef(Expr):
             return self.col.name
 
     def __repr__(self) -> str:
-        return f'ColumnRef({self.col!r})'
+        return self._descriptors().to_string()
 
     def _repr_html_(self) -> str:
+        return self._descriptors().to_html()
+
+    def _descriptors(self) -> DescriptionHelper:
         tbl = catalog.Catalog.get().tbls[self.col.tbl.id]
-        return tbl._description_html(cols=[self.col])._repr_html_()  # type: ignore[attr-defined]
+        helper = DescriptionHelper()
+        helper.append(f'Column\n{self.col.name!r}\n(of table {tbl._path!r})')
+        helper.append(tbl._col_descriptor([self.col.name]))
+        idxs = tbl._index_descriptor([self.col.name])
+        if len(idxs) > 0:
+            helper.append(idxs)
+        return helper
 
     def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
         return None if self.perform_validation else self.col.sa_col

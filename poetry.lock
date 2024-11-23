@@ -4896,17 +4896,18 @@ files = [
 
 [[package]]
 name = "ollama"
-version = "0.3.3"
+version = "0.4.0"
 description = "The official Python client for Ollama."
 optional = false
 python-versions = "<4.0,>=3.8"
 files = [
-    {file = "ollama-0.3.3-py3-none-any.whl", hash = "sha256:ca6242ce78ab34758082b7392df3f9f6c2cb1d070a9dede1a4c545c929e16dba"},
-    {file = "ollama-0.3.3.tar.gz", hash = "sha256:f90a6d61803117f40b0e8ff17465cab5e1eb24758a473cfe8101aff38bc13b51"},
+    {file = "ollama-0.4.0-py3-none-any.whl", hash = "sha256:b47df2619503677c18bcee85ba76269270ff61eae727750d2a093413fc30cde8"},
+    {file = "ollama-0.4.0.tar.gz", hash = "sha256:2992242a4639e18e50254b87c45314813b61912c19b7635a2e93937b58f70c46"},
 ]
 
 [package.dependencies]
 httpx = ">=0.27.0,<0.28.0"
+pydantic = ">=2.9.0,<3.0.0"
 
 [[package]]
 name = "openai"
@@ -9550,4 +9551,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.9,<4.0"
-content-hash = "06d1b81c18ead43f693d34ad85d9e13bf5a9cdd9d0ccdab2b75a240013926bca"
+content-hash = "06210e921c4fa8741eeee592202234cfcf4dafb0c8260b01fffb3d29486eaab3"

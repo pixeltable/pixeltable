@@ -69,7 +69,7 @@ class JsonMapper(Expr):
             return False
         return self._src_expr.equals(other._src_expr) and self._target_expr.equals(other._target_expr)
 
-    def __str__(self) -> str:
+    def __repr__(self) -> str:
         return f'{str(self._src_expr)} >> {str(self._target_expr)}'
 
     @property

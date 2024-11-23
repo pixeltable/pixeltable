@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING, Any, Callable, Iterable, Literal, Optional, Se
 from uuid import UUID
 
 import pandas as pd
-import pandas.io.formats.style
 import sqlalchemy as sql
 
 import pixeltable as pxt
@@ -21,14 +20,15 @@ import pixeltable.exprs as exprs
 import pixeltable.index as index
 import pixeltable.metadata.schema as schema
 import pixeltable.type_system as ts
-from pixeltable.utils.filecache import FileCache
 
+from ..exprs import ColumnRef
+from ..utils.description_helper import DescriptionHelper
+from ..utils.filecache import FileCache
 from .column import Column
-from .globals import _ROWID_COLUMN_NAME, UpdateStatus, is_system_column_name, is_valid_identifier, MediaValidation
+from .globals import _ROWID_COLUMN_NAME, MediaValidation, UpdateStatus, is_system_column_name, is_valid_identifier
 from .schema_object import SchemaObject
 from .table_version import TableVersion
 from .table_version_path import TableVersionPath
-from ..exprs import ColumnRef
 
 if TYPE_CHECKING:
     import torch.utils.data
@@ -255,6 +255,18 @@ class Table(SchemaObject):
         return catalog.Catalog.get().tbls[base_id]
 
     @property
+    def _bases(self) -> list['Table']:
+        """
+        The ancestor list of bases of this table, starting with its immediate base.
+        """
+        bases = []
+        base = self._base
+        while base is not None:
+            bases.append(base)
+            base = base._base
+        return bases
+
+    @property
     def _comment(self) -> str:
         return self._tbl_version.comment
 
@@ -266,24 +278,86 @@ class Table(SchemaObject):
     def _media_validation(self) -> MediaValidation:
         return self._tbl_version.media_validation
 
-    def _description(self, cols: Optional[Iterable[Column]] = None) -> pd.DataFrame:
-        cols = self._tbl_version_path.columns()
-        df = pd.DataFrame({
-            'Column Name': [c.name for c in cols],
-            'Type': [c.col_type._to_str(as_schema=True) for c in cols],
-            'Computed With': [c.value_expr.display_str(inline=False) if c.value_expr is not None else '' for c in cols],
-        })
-        return df
+    def __repr__(self) -> str:
+        return self._descriptors().to_string()
 
-    def _description_html(self, cols: Optional[Iterable[Column]] = None) -> pandas.io.formats.style.Styler:
-        pd_df = self._description(cols)
-        # white-space: pre-wrap: print \n as newline
-        # th: center-align headings
-        return (
-            pd_df.style.set_properties(None, **{'white-space': 'pre-wrap', 'text-align': 'left'})
-            .set_table_styles([dict(selector='th', props=[('text-align', 'center')])])
-            .hide(axis='index')
+    def _repr_html_(self) -> str:
+        return self._descriptors().to_html()
+
+    def _descriptors(self) -> DescriptionHelper:
+        """
+        Constructs a list of descriptors for this table that can be pretty-printed.
+        """
+        helper = DescriptionHelper()
+        helper.append(self._title_descriptor())
+        helper.append(self._col_descriptor())
+        idxs = self._index_descriptor()
+        if not idxs.empty:
+            helper.append(idxs)
+        stores = self._external_store_descriptor()
+        if not stores.empty:
+            helper.append(stores)
+        if self._comment:
+            helper.append(f'COMMENT: {self._comment}')
+        return helper
+
+    def _title_descriptor(self) -> str:
+        title: str
+        if self._base is None:
+            title = f'Table\n{self._path!r}'
+        else:
+            title = f'View\n{self._path!r}'
+            title += f'\n(of {self.__bases_to_desc()})'
+        return title
+
+    def _col_descriptor(self, columns: Optional[list[str]] = None) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                'Column Name': col.name,
+                'Type': col.col_type._to_str(as_schema=True),
+                'Computed With': col.value_expr.display_str(inline=False) if col.value_expr is not None else ''
+            }
+            for col in self._tbl_version_path.columns()
+            if columns is None or col.name in columns
         )
+
+    def __bases_to_desc(self) -> str:
+        bases = self._bases
+        assert len(bases) >= 1
+        if len(bases) <= 2:
+            return ', '.join(repr(b._path) for b in bases)
+        else:
+            return f'{bases[0]._path!r}, ..., {bases[-1]._path!r}'
+
+    def _index_descriptor(self, columns: Optional[list[str]] = None) -> pd.DataFrame:
+        from pixeltable import index
+
+        pd_rows = []
+        for name, info in self._tbl_version.idxs_by_name.items():
+            if isinstance(info.idx, index.EmbeddingIndex) and (columns is None or info.col.name in columns):
+                display_embed = info.idx.string_embed if info.col.col_type.is_string_type() else info.idx.image_embed
+                if info.idx.string_embed is not None and info.idx.image_embed is not None:
+                    embed_str = f'{display_embed} (+1)'
+                else:
+                    embed_str = str(display_embed)
+                row = {
+                    'Index Name': name,
+                    'Column': info.col.name,
+                    'Metric': str(info.idx.metric.name.lower()),
+                    'Embedding': embed_str,
+                }
+                pd_rows.append(row)
+        return pd.DataFrame(pd_rows)
+
+    def _external_store_descriptor(self) -> pd.DataFrame:
+        pd_rows = []
+        for name, store in self._tbl_version.external_stores.items():
+            row = {
+                'External Store': name,
+                'Type': type(store).__name__,
+            }
+            pd_rows.append(row)
+        return pd.DataFrame(pd_rows)
 
     def describe(self) -> None:
         """
@@ -291,21 +365,9 @@ class Table(SchemaObject):
         """
         if getattr(builtins, '__IPYTHON__', False):
             from IPython.display import display
-            display(self._description_html())
+            display(self._repr_html_())
         else:
             print(repr(self))
-
-    # TODO: Display comments in _repr_html()
-    def __repr__(self) -> str:
-        description_str = self._description().to_string(index=False)
-        if self._comment is None:
-            comment = ''
-        else:
-            comment = f'{self._comment}\n'
-        return f'{self._display_name()} \'{self._name}\'\n{comment}{description_str}'
-
-    def _repr_html_(self) -> str:
-        return self._description_html()._repr_html_()  # type: ignore[attr-defined]
 
     def _drop(self) -> None:
         cat = catalog.Catalog.get()
