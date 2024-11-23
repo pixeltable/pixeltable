@@ -55,7 +55,7 @@ class TestTable:
     def add1(a: int) -> int:
         return a + 1
 
-    def test_create(self, reset_db) -> None:
+    def test_create(self, reset_db: None) -> None:
         pxt.create_dir('dir1')
         schema = {
             'c1': pxt.String,
@@ -116,7 +116,7 @@ class TestTable:
             _ = pxt.create_table('test', {'insert': pxt.Int})
         assert "'insert' is a reserved name in pixeltable" in str(exc_info.value).lower()
 
-    def test_columns(self, reset_db) -> None:  # noqa: PLR6301
+    def test_columns(self, reset_db: None) -> None:  # noqa: PLR6301
         schema = {
             'c1': pxt.String,
             'c2': pxt.Int,
@@ -126,7 +126,7 @@ class TestTable:
         t = pxt.create_table('test', schema)
         assert t.columns == ['c1', 'c2', 'c3', 'c4']
 
-    def test_names(self, reset_db) -> None:
+    def test_names(self, reset_db: None) -> None:
         pxt.create_dir('dir')
         pxt.create_dir('dir.subdir')
         for tbl_path, media_val in [('test', 'on_read'), ('dir.test', 'on_write'), ('dir.subdir.test', 'on_read')]:
@@ -152,7 +152,7 @@ class TestTable:
                     'version': t._version,
                 }
 
-    def test_media_validation(self, reset_db) -> None:
+    def test_media_validation(self, reset_db: None) -> None:
         tbl_schema = {
             'img': {'type': pxt.Image, 'media_validation': 'on_write'},
             'video': pxt.Video
@@ -186,7 +186,7 @@ class TestTable:
                 'validation_error', {'img': {'type': pxt.Image, 'media_validation': 'wrong_value'}})
         assert "media_validation must be one of: ['on_read', 'on_write']" in str(exc_info.value)
 
-    def test_validate_on_read(self, reset_db) -> None:
+    def test_validate_on_read(self, reset_db: None) -> None:
         files = get_video_files(include_bad_video=True)
         rows = [{'media': f, 'is_bad_media': f.endswith('bad_video.mp4')} for f in files]
         schema = {'media': pxt.Video, 'is_bad_media': pxt.Bool}
@@ -221,7 +221,7 @@ class TestTable:
         )
         assert_resultset_eq(on_read_res, on_write_res)
 
-    def test_validate_on_read_with_computed_col(self, reset_db) -> None:
+    def test_validate_on_read_with_computed_col(self, reset_db: None) -> None:
         files = get_video_files(include_bad_video=True)
         rows = [{'media': f, 'is_bad_media': f.endswith('bad_video.mp4')} for f in files]
         schema = {'media': pxt.Video, 'is_bad_media': pxt.Bool, 'stage': pxt.Required[pxt.Int]}
@@ -279,7 +279,7 @@ class TestTable:
 
     # Test the various combinations of type hints available in schema definitions and validate that they map to the
     # correct ColumnType instances.
-    def test_schema_types(self, reset_db) -> None:
+    def test_schema_types(self, reset_db: None) -> None:
         test_columns: dict[str, Union[type, _GenericAlias]] = {
             'str_col': pxt.String,
             'req_str_col': pxt.Required[pxt.String],
@@ -374,7 +374,7 @@ class TestTable:
         df = t._col_descriptor()
         assert list(df['Type']) == expected_strings + expected_strings
 
-    def test_empty_table(self, reset_db) -> None:
+    def test_empty_table(self, reset_db: None) -> None:
         with pytest.raises(excs.Error) as exc_info:
             pxt.create_table('empty_table', {})
         assert 'Table schema is empty' in str(exc_info.value)
@@ -459,7 +459,7 @@ class TestTable:
 
 
     @pytest.mark.skip(reason='Skip until we figure out the right API for altering table attributes')
-    def test_table_attrs(self, reset_db) -> None:
+    def test_table_attrs(self, reset_db: None) -> None:
         schema = {'c': pxt.String}
         num_retained_versions = 20
         comment = 'This is a table.'
@@ -477,7 +477,7 @@ class TestTable:
         tbl.revert()
         assert tbl._num_retained_versions == num_retained_versions
 
-    def test_image_table(self, reset_db) -> None:
+    def test_image_table(self, reset_db: None) -> None:
         n_sample_rows = 20
         schema = {
             'img': pxt.Image,
@@ -524,7 +524,7 @@ class TestTable:
         pxt.drop_table('test')
         assert MediaStore.count(tbl._id) == 0
 
-    def test_schema_spec(self, reset_db) -> None:
+    def test_schema_spec(self, reset_db: None) -> None:
         with pytest.raises(excs.Error) as exc_info:
             pxt.create_table('test', {'c 1': pxt.Int})
         assert 'invalid column name' in str(exc_info.value).lower()
@@ -643,22 +643,22 @@ class TestTable:
             for path in paths:
                 assert os.path.exists(path) and os.path.isfile(path)
 
-    def test_validate_image(self, reset_db) -> None:
+    def test_validate_image(self, reset_db: None) -> None:
         rows = read_data_file('imagenette2-160', 'manifest_bad.csv', ['img'])
         rows = [{'media': r['img'], 'is_bad_media': r['is_bad_image']} for r in rows]
         self.check_bad_media(rows, pxt.Image, validate_local_path=False)
 
-    def test_validate_video(self, reset_db) -> None:
+    def test_validate_video(self, reset_db: None) -> None:
         files = get_video_files(include_bad_video=True)
         rows = [{'media': f, 'is_bad_media': f.endswith('bad_video.mp4')} for f in files]
         self.check_bad_media(rows, pxt.Video)
 
-    def test_validate_audio(self, reset_db) -> None:
+    def test_validate_audio(self, reset_db: None) -> None:
         files = get_audio_files(include_bad_audio=True)
         rows = [{'media': f, 'is_bad_media': f.endswith('bad_audio.mp3')} for f in files]
         self.check_bad_media(rows, pxt.Audio)
 
-    def test_validate_docs(self, reset_db) -> None:
+    def test_validate_docs(self, reset_db: None) -> None:
         skip_test_if_not_installed('mistune')
         valid_doc_paths = get_documents()
         invalid_doc_paths = [get_video_files()[0], get_audio_files()[0], get_image_files()[0]]
@@ -667,7 +667,7 @@ class TestTable:
         rows = [{'media': f, 'is_bad_media': not is_valid} for f, is_valid in zip(doc_paths, is_valid)]
         self.check_bad_media(rows, pxt.Document)
 
-    def test_validate_external_url(self, reset_db) -> None:
+    def test_validate_external_url(self, reset_db: None) -> None:
         skip_test_if_not_installed('boto3')
         rows = [
             {'media': 's3://open-images-dataset/validation/doesnotexist.jpg', 'is_bad_media': True},
@@ -686,7 +686,7 @@ class TestTable:
         ]
         self.check_bad_media(rows, pxt.Video)
 
-    def test_create_s3_image_table(self, reset_db) -> None:
+    def test_create_s3_image_table(self, reset_db: None) -> None:
         skip_test_if_not_installed('boto3')
         tbl = pxt.create_table('test', {'img': pxt.Image})
         # this is needed because reload_db() doesn't call TableVersion.drop(), which would
@@ -741,7 +741,7 @@ class TestTable:
         cache_stats = FileCache.get().stats()
         assert cache_stats.total_size == 0
 
-    def test_video_url(self, reset_db) -> None:
+    def test_video_url(self, reset_db: None) -> None:
         skip_test_if_not_installed('boto3')
         schema = {
             'payload': pxt.Int,
@@ -758,7 +758,7 @@ class TestTable:
         with av.open(local_path) as container:
              assert container.streams.video[0].codec_context.name == 'h264'
 
-    def test_create_video_table(self, reset_db) -> None:
+    def test_create_video_table(self, reset_db: None) -> None:
         skip_test_if_not_installed('boto3')
         tbl = pxt.create_table('test_tbl', {'payload': pxt.Int, 'video': pxt.Video})
         args = {'video': tbl.video, 'fps': 0}
@@ -811,7 +811,7 @@ class TestTable:
         pxt.drop_table('test_tbl')
         assert MediaStore.count(view._id) == 0
 
-    def test_video_urls(self, reset_db) -> None:
+    def test_video_urls(self, reset_db: None) -> None:
         skip_test_if_not_installed('boto3')
         tbl = pxt.create_table('test', {'video': pxt.Video})
 
@@ -833,7 +833,7 @@ class TestTable:
         with av.open(local_path) as container:
             assert container.streams.video[0].codec_context.name == 'h264'
 
-    def test_insert_nulls(self, reset_db) -> None:
+    def test_insert_nulls(self, reset_db: None) -> None:
         schema = {
             'c1': pxt.String,
             'c2': pxt.Int,
@@ -849,7 +849,7 @@ class TestTable:
         assert status.num_rows == 1
         assert status.num_excs == 0
 
-    def test_insert(self, reset_db) -> None:
+    def test_insert(self, reset_db: None) -> None:
         schema = {
             'c1': pxt.Required[pxt.String],
             'c2': pxt.Required[pxt.Int],
@@ -953,7 +953,7 @@ class TestTable:
         for tup in t.collect():
             assert tup['c1'] == 'this is a python string'
 
-    def test_query(self, reset_db) -> None:
+    def test_query(self, reset_db: None) -> None:
         skip_test_if_not_installed('boto3')
         col_names = ['c1', 'c2', 'c3', 'c4', 'c5']
         t = make_tbl('test', col_names)
@@ -1049,7 +1049,7 @@ class TestTable:
             # some rows are missing rowids
             _ = t2.batch_update([{'c1': 'one', '_rowid': (1,)}, {'c1': 'two'}])
 
-    def test_update(self, test_tbl: pxt.Table, small_img_tbl) -> None:
+    def test_update(self, test_tbl: pxt.Table, small_img_tbl: pxt.Table) -> None:
         t = test_tbl
         # update every type with a literal
         test_cases = [
@@ -1175,7 +1175,7 @@ class TestTable:
         r2 = t.where(t.c2 < 5).select(t.c3, t.c10, t.d1, t.d2).order_by(t.c2).collect()
         assert_resultset_eq(r1, r2)
 
-    def test_delete(self, test_tbl: pxt.Table, small_img_tbl) -> None:
+    def test_delete(self, test_tbl: pxt.Table, small_img_tbl: pxt.Table) -> None:
         t = test_tbl
 
         cnt = t.where(t.c3 < 10.0).count()
@@ -1210,7 +1210,7 @@ class TestTable:
             img_t.delete(where=img_t.img.width > 100)
         assert 'not expressible' in str(excinfo.value)
 
-    def test_computed_cols(self, reset_db) -> None:
+    def test_computed_cols(self, reset_db: None) -> None:
         schema = {'c1': pxt.Int, 'c2': pxt.Float, 'c3': pxt.Json}
         t: pxt.InsertableTable = pxt.create_table('test', schema)
         status = t.add_column(c4=t.c1 + 1)
@@ -1273,7 +1273,7 @@ class TestTable:
         # now it works
         t.drop_column('c4')
 
-    def test_expr_udf_computed_cols(self, reset_db) -> None:
+    def test_expr_udf_computed_cols(self, reset_db: None) -> None:
         t = pxt.create_table('test', {'c1': pxt.Int})
         rows = [{'c1': i} for i in range(100)]
         status = t.insert(rows)
@@ -1307,7 +1307,7 @@ class TestTable:
         assert status.num_excs == 0
         check(t)
 
-    def test_computed_col_exceptions(self, reset_db, test_tbl: catalog.Table) -> None:
+    def test_computed_col_exceptions(self, reset_db: None, test_tbl: catalog.Table) -> None:
         # exception during insert()
         schema = {'c2': pxt.Int}
         rows = list(test_tbl.select(test_tbl.c2).collect())
@@ -1376,7 +1376,7 @@ class TestTable:
     def img_fn_with_exc(img: PIL.Image.Image) -> PIL.Image.Image:
         raise RuntimeError
 
-    def test_computed_img_cols(self, reset_db) -> None:
+    def test_computed_img_cols(self, reset_db: None) -> None:
         schema = {'img': pxt.Image}
         t = pxt.create_table('test', schema)
         t.add_column(c2=t.img.width)
@@ -1398,7 +1398,7 @@ class TestTable:
         t.insert(rows, on_error='ignore')
         _ = t[t.c3.errortype].collect()
 
-    def test_computed_window_fn(self, reset_db, test_tbl: catalog.Table) -> None:
+    def test_computed_window_fn(self, reset_db: None, test_tbl: catalog.Table) -> None:
         t = test_tbl
         # backfill
         t.add_column(c9=pxtf.sum(t.c2, group_by=t.c4, order_by=t.c3))
@@ -1411,7 +1411,7 @@ class TestTable:
         new_t.insert(rows)
         _ = new_t.collect()
 
-    def test_revert(self, reset_db) -> None:
+    def test_revert(self, reset_db: None) -> None:
         t1 = make_tbl('test1', ['c1', 'c2'])
         assert t1._version == 0
         rows1 = create_table_data(t1)
@@ -1673,7 +1673,7 @@ class TestTable:
         result = t.where(t.add3.errortype != None).select(t.c2, t.add3, t.add3.errortype, t.add3.errormsg).show()
         assert len(result) == 10
 
-    def test_computed_column_types(self, reset_db) -> None:
+    def test_computed_column_types(self, reset_db: None) -> None:
         t = pxt.create_table(
             'test',
             {
@@ -1755,7 +1755,7 @@ class TestTable:
         )
         _ = v2.c1._repr_html_()
 
-    def test_common_col_names(self, reset_db) -> None:
+    def test_common_col_names(self, reset_db: None) -> None:
         """Make sure that commonly used column names don't collide with Table member vars"""
         names = ['id', 'name', 'version', 'comment']
         schema = {name: pxt.Int for name in names}
@@ -1766,3 +1766,165 @@ class TestTable:
         assert tbl.count() == 10
         # we can create references to those column via __getattr__
         _ = tbl.select(tbl.id, tbl._name).collect()
+
+    def test_table_api_on_dropped_table(self, reset_db: None) -> None:
+        t = pxt.create_table('test', {'c1': pxt.Int, 'c2': pxt.String})
+        pxt.drop_table('test')
+
+        # confirm the _check_is_dropped() method raises the expected exception
+        with pytest.raises(excs.Error) as exc_info:
+            t._check_is_dropped()
+        assert 'table test has been dropped' in str(exc_info.value).lower()
+        expected_err_msg = 'table test has been dropped'
+
+        # verify that all the user facing APIs acting on a table handle
+        # of a dropped table, raised the above exception gracefully
+        # before SQL execution.
+
+        # verify basic table properties/methods.
+        # A _check_is_dropped() call in these helps to catch the error
+        # for many other user facing APIs that go via them to SQL execution.
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.columns
+        assert expected_err_msg in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t._df()
+        assert expected_err_msg in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t._schema
+        assert expected_err_msg in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t._tbl_version
+        assert expected_err_msg in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t._version
+        assert expected_err_msg in str(exc_info.value).lower()
+        # earlier this returned the column reference object
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.c1
+        assert expected_err_msg in str(exc_info.value).lower()
+
+        # verify DML APIs. These were failing with error during
+        # SQL execution before.
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.delete(t.c1 > 3)
+        assert expected_err_msg in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.insert([{'c1': 1, 'c2': 'abc'}])
+        assert expected_err_msg in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.update({'c1': 2})
+        assert expected_err_msg in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.batch_update([{'c1': 2, 'c2': 'f'}])
+        assert expected_err_msg in str(exc_info.value).lower()
+
+        # verify DDL APIs. Most of these already had the check.
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.add_column(c2=pxt.Int)
+        assert expected_err_msg in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.add_columns({'c2': pxt.Int})
+        assert expected_err_msg in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.add_computed_column(c3=t.c1 +10)
+        assert expected_err_msg in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.add_embedding_index('c2', string_embed=str.split)
+        assert expected_err_msg in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.drop_embedding_index(column='c2')
+        assert expected_err_msg in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.drop_index(column='c2')
+        assert expected_err_msg in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.drop_column('c1')
+        assert expected_err_msg in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.rename_column('c1', 'c1_renamed')
+        assert expected_err_msg in str(exc_info.value).lower()
+
+        # verify df/query APIs. Most of these won't fail until
+        # materialized via collect/show/count before, and
+        # were failing with error during SQL execution.
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.group_by(t.c1)
+        assert expected_err_msg in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.select(t.c1)
+        assert expected_err_msg in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.where(t.c1 > 3)
+        assert expected_err_msg in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.order_by(t.c1)
+        assert expected_err_msg in str(exc_info.value).lower()
+        # RESOLVE: the t.queries and t.query() APIs dont seem to work.
+        # hits an assrtion failure in the code.
+        #t.query('select c1 from test')
+        #t.queries(['select c1 from test', 'select c2 from test'])
+
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.collect()
+        assert expected_err_msg in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.count()
+        assert expected_err_msg in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.head()
+        assert expected_err_msg in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.limit(1)
+        assert expected_err_msg in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.tail()
+        assert expected_err_msg in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.show()
+        assert expected_err_msg in str(exc_info.value).lower()
+
+        # verify metadata-ish APIs. Many of these would return
+        # results and not error out before. Some of these were
+        # failing with error during SQL execution.
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.describe()
+        assert expected_err_msg in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.get_metadata()
+        assert expected_err_msg in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.list_views()
+        assert expected_err_msg in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.__repr__()
+        assert expected_err_msg in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t._repr_html_()
+        assert expected_err_msg in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.external_stores()
+        assert expected_err_msg in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.unlink_external_stores()
+        assert expected_err_msg in str(exc_info.value).lower()
+
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.sync()
+        assert expected_err_msg in str(exc_info.value).lower()
+
+        # verify dataset APIs. These were failing with error during
+        # SQL execution before.
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.to_coco_dataset()
+        assert expected_err_msg in str(exc_info.value).lower()
+        # Earlier raised a psycopg.errors.UndefinedTable exception
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.to_pytorch_dataset()
+        assert expected_err_msg in str(exc_info.value).lower()
+
+        # verify transaction APIs. We cannot revert a drop table operation.
+        with pytest.raises(excs.Error) as exc_info:
+            t.revert()
+        assert expected_err_msg in str(exc_info.value).lower()
+

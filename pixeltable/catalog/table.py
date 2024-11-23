@@ -46,7 +46,7 @@ class Table(SchemaObject):
     def __init__(self, id: UUID, dir_id: UUID, name: str, tbl_version_path: TableVersionPath):
         super().__init__(id, name, dir_id)
         self._is_dropped = False
-        self._tbl_version_path = tbl_version_path
+        self.__tbl_version_path = tbl_version_path
         self.__query_scope = self.QueryScope(self)
 
     class QueryScope:
@@ -63,6 +63,7 @@ class Table(SchemaObject):
             raise AttributeError(f'Table {self.__table._name!r} has no query with that name: {name!r}')
 
     def _move(self, new_name: str, new_dir_id: UUID) -> None:
+        self._check_is_dropped()
         super()._move(new_name, new_dir_id)
         with env.Env.get().engine.begin() as conn:
             stmt = sql.text((
@@ -96,6 +97,7 @@ class Table(SchemaObject):
                 }
                 ```
         """
+        self._check_is_dropped()
         md = super().get_metadata()
         md['base'] = self._base._path if self._base is not None else None
         md['schema'] = self._schema
@@ -115,6 +117,12 @@ class Table(SchemaObject):
     def _tbl_version(self) -> TableVersion:
         """Return TableVersion for just this table."""
         return self._tbl_version_path.tbl_version
+
+    @property
+    def _tbl_version_path(self) -> TableVersionPath:
+        """Return TableVersionPath for just this table."""
+        self._check_is_dropped()
+        return self.__tbl_version_path
 
     def __hash__(self) -> int:
         return hash(self._tbl_version.id)
@@ -153,6 +161,7 @@ class Table(SchemaObject):
         Returns:
             A list of view paths.
         """
+        self._check_is_dropped()
         return [t._path for t in self._get_views(recursive=recursive)]
 
     def _get_views(self, *, recursive: bool = True) -> list['Table']:
@@ -200,7 +209,6 @@ class Table(SchemaObject):
     ) -> 'pxt.dataframe.DataFrameResultSet':
         """Return rows from this table.
         """
-        self._check_is_dropped()
         return self._df().show(*args, **kwargs)
 
     def head(
@@ -309,7 +317,7 @@ class Table(SchemaObject):
                 'Type': col.col_type._to_str(as_schema=True),
                 'Computed With': col.value_expr.display_str(inline=False) if col.value_expr is not None else ''
             }
-            for col in self._tbl_version_path.columns()
+            for col in self.__tbl_version_path.columns()
             if columns is None or col.name in columns
         )
 
@@ -355,6 +363,7 @@ class Table(SchemaObject):
         """
         Print the table schema.
         """
+        self._check_is_dropped()
         if getattr(builtins, '__IPYTHON__', False):
             from IPython.display import display
             display(self._repr_html_())
@@ -399,6 +408,7 @@ class Table(SchemaObject):
 
         For details, see the documentation for [`add_column()`][pixeltable.catalog.Table.add_column].
         """
+        self._check_is_dropped()
         if not isinstance(col_name, str):
             raise excs.Error(f'Column name must be a string, got {type(col_name)}')
         if not isinstance(spec, (ts.ColumnType, exprs.Expr, type, _GenericAlias)):
@@ -748,7 +758,6 @@ class Table(SchemaObject):
             >>> tbl = pxt.get_table('my_table')
             ... tbl.rename_column('col1', 'col2')
         """
-        self._check_is_dropped()
         self._tbl_version.rename_column(old_name, new_name)
 
     def add_embedding_index(
@@ -810,7 +819,6 @@ class Table(SchemaObject):
         """
         if self._tbl_version_path.is_snapshot():
             raise excs.Error('Cannot add an index to a snapshot')
-        self._check_is_dropped()
         col: Column
         if isinstance(column, str):
             self.__check_column_name_exists(column, include_bases=True)
@@ -934,7 +942,6 @@ class Table(SchemaObject):
     ) -> None:
         if self._tbl_version_path.is_snapshot():
             raise excs.Error('Cannot drop an index from a snapshot')
-        self._check_is_dropped()
         assert (col is None) != (idx_name is None)
 
         if idx_name is not None:
@@ -1071,7 +1078,6 @@ class Table(SchemaObject):
 
             >>> tbl.update({'int_col': tbl.int_col + 1}, where=tbl.int_col == 0)
         """
-        self._check_is_dropped()
         status = self._tbl_version.update(value_spec, where, cascade)
         FileCache.get().emit_eviction_warnings()
         return status
@@ -1107,7 +1113,6 @@ class Table(SchemaObject):
         """
         if self._tbl_version_path.is_snapshot():
             raise excs.Error('Cannot update a snapshot')
-        self._check_is_dropped()
         rows = list(rows)
 
         row_updates: list[dict[Column, exprs.Expr]] = []
@@ -1162,7 +1167,6 @@ class Table(SchemaObject):
         """
         if self._tbl_version_path.is_snapshot():
             raise excs.Error('Cannot revert a snapshot')
-        self._check_is_dropped()
         self._tbl_version.revert()
 
     @overload
@@ -1212,7 +1216,6 @@ class Table(SchemaObject):
         """
         if self._tbl_version.is_snapshot:
             raise excs.Error(f'Table `{self._name}` is a snapshot, so it cannot be linked to an external store.')
-        self._check_is_dropped()
         if store.name in self.external_stores:
             raise excs.Error(f'Table `{self._name}` already has an external store with that name: {store.name}')
         _logger.info(f'Linking external store `{store.name}` to table `{self._name}`')
