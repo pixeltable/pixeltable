@@ -1,0 +1,2554 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+        <meta name="author" content="Pixeltable, Inc.">
+      
+      
+      
+        <link rel="prev" href="../audio/">
+      
+      
+        <link rel="next" href="../json/">
+      
+      
+      <link rel="icon" href="../../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.0, mkdocs-material-9.5.23">
+    
+    
+      
+        <title>image - Pixeltable API</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../../assets/stylesheets/main.6543a935.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../../assets/_mkdocstrings.css">
+    
+      <link rel="stylesheet" href="../../../css/mkdocstrings.css">
+    
+    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce((e,_)=>(e<<5)-e+_.charCodeAt(0),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#pixeltable.functions.image" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../../.." title="Pixeltable API" class="md-header__button md-logo" aria-label="Pixeltable API" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54Z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3V6m0 5h18v2H3v-2m0 5h18v2H3v-2Z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Pixeltable API
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              image
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var media,input,key,value,palette=__md_get("__palette");if(palette&&palette.color){"(prefers-color-scheme)"===palette.color.media&&(media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']"),palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent"));for([key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      <label class="md-header__button md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.516 6.516 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5Z"/></svg>
+      </label>
+      <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.516 6.516 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5Z"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11h12Z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41Z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/pixeltable/pixeltable" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.5.2 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M439.55 236.05 244 40.45a28.87 28.87 0 0 0-40.81 0l-40.66 40.63 51.52 51.52c27.06-9.14 52.68 16.77 43.39 43.68l49.66 49.66c34.23-11.8 61.18 31 35.47 56.69-26.49 26.49-70.21-2.87-56-37.34L240.22 199v121.85c25.3 12.54 22.26 41.85 9.08 55a34.34 34.34 0 0 1-48.55 0c-17.57-17.6-11.07-46.91 11.25-56v-123c-20.8-8.51-24.6-30.74-18.64-45L142.57 101 8.45 235.14a28.86 28.86 0 0 0 0 40.81l195.61 195.6a28.86 28.86 0 0 0 40.8 0l194.69-194.69a28.86 28.86 0 0 0 0-40.81z"/></svg>
+  </div>
+  <div class="md-source__repository">
+    pixeltable/pixeltable
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../../.." title="Pixeltable API" class="md-nav__button md-logo" aria-label="Pixeltable API" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54Z"/></svg>
+
+    </a>
+    Pixeltable API
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/pixeltable/pixeltable" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.5.2 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M439.55 236.05 244 40.45a28.87 28.87 0 0 0-40.81 0l-40.66 40.63 51.52 51.52c27.06-9.14 52.68 16.77 43.39 43.68l49.66 49.66c34.23-11.8 61.18 31 35.47 56.69-26.49 26.49-70.21-2.87-56-37.34L240.22 199v121.85c25.3 12.54 22.26 41.85 9.08 55a34.34 34.34 0 0 1-48.55 0c-17.57-17.6-11.07-46.91 11.25-56v-123c-20.8-8.51-24.6-30.74-18.64-45L142.57 101 8.45 235.14a28.86 28.86 0 0 0 0 40.81l195.61 195.6a28.86 28.86 0 0 0 40.8 0l194.69-194.69a28.86 28.86 0 0 0 0-40.81z"/></svg>
+  </div>
+  <div class="md-source__repository">
+    pixeltable/pixeltable
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../.." class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Home
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../api-cheat-sheet/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    API Cheat Sheet
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../../config/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Configuration Options
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  <span class="md-ellipsis">
+    API Reference
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            API Reference
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../pixeltable/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    pixeltable
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../io/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    pixeltable.io
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_3" id="__nav_4_3_label" tabindex="0">
+            
+  
+  <span class="md-ellipsis">
+    pixeltable.iterators
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_3">
+            <span class="md-nav__icon md-icon"></span>
+            pixeltable.iterators
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../iterators/component-iterator/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    ComponentIterator
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../iterators/document-splitter/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    DocumentSplitter
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../iterators/frame-iterator/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    FrameIterator
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../iterators/tile-iterator/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    TileIterator
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../data-frame/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    DataFrame
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../table/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Table
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../update-status/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    UpdateStatus
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  <span class="md-ellipsis">
+    Built-in Functions and Operators
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            Built-in Functions and Operators
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../audio/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    audio
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  <span class="md-ellipsis">
+    image
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  <span class="md-ellipsis">
+    image
+  </span>
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#pixeltable.functions.image" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-module"></code>&nbsp;image
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label=" image">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.alpha_composite" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;alpha_composite
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.b64_encode" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;b64_encode
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.blend" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;blend
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.composite" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;composite
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.convert" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;convert
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.crop" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;crop
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.effect_spread" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;effect_spread
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.entropy" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;entropy
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.get_metadata" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;get_metadata
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.getbands" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;getbands
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.getbbox" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;getbbox
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.getchannel" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;getchannel
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.getcolors" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;getcolors
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.getextrema" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;getextrema
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.getpalette" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;getpalette
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.getpixel" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;getpixel
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.getprojection" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;getprojection
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.histogram" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;histogram
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.point" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;point
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.quantize" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;quantize
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.reduce" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;reduce
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.resize" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;resize
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.rotate" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;rotate
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.transpose" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;transpose
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../json/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    json
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../string/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    string
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../timestamp/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    timestamp
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../video/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    video
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  <span class="md-ellipsis">
+    Use Cases
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            Use Cases
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../vision/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Computer Vision
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  <span class="md-ellipsis">
+    Model and Inference Functions
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            Model and Inference Functions
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../anthropic/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    anthropic
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../fireworks/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    fireworks
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../huggingface/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    huggingface
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../llama_cpp/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    llama_cpp
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mistralai/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    mistralai
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ollama/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    ollama
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../openai/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    openai
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../replicate/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    replicate
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../together/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    together
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../whisper/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    whisper
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  <span class="md-ellipsis">
+    Extended Model and Inference Functions
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            Extended Model and Inference Functions
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../ext/functions/whisperx/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    whisperx
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../ext/functions/yolox/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    yolox
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#pixeltable.functions.image" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-module"></code>&nbsp;image
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label=" image">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.alpha_composite" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;alpha_composite
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.b64_encode" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;b64_encode
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.blend" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;blend
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.composite" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;composite
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.convert" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;convert
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.crop" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;crop
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.effect_spread" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;effect_spread
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.entropy" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;entropy
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.get_metadata" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;get_metadata
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.getbands" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;getbands
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.getbbox" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;getbbox
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.getchannel" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;getchannel
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.getcolors" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;getcolors
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.getextrema" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;getextrema
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.getpalette" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;getpalette
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.getpixel" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;getpixel
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.getprojection" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;getprojection
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.histogram" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;histogram
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.point" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;point
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.quantize" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;quantize
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.reduce" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;reduce
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.resize" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;resize
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.rotate" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;rotate
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.image.transpose" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;transpose
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+  
+  
+
+
+  <h1>image</h1>
+
+<div class="doc doc-object doc-module">
+
+
+
+<h2 id="pixeltable.functions.image" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-module"></code>            <span class="doc doc-object-name doc-module-name">pixeltable.functions.image</span>
+
+
+</h2>
+
+    <div class="doc doc-contents first">
+
+      <p>Pixeltable <a href="https://pixeltable.readme.io/docs/user-defined-functions-udfs">UDFs</a> for <code>ImageType</code>.</p>
+<p>Example:</p>
+<pre><code class="language-python">import pixeltable as pxt
+
+t = pxt.get_table(...)
+t.select(t.img_col.convert('L')).collect()
+</code></pre>
+
+
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.image.alpha_composite" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">alpha_composite</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">alpha_composite</span><span class="p">(</span><span class="n">im1</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">im2</span><span class="p">:</span> <span class="n">Image</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Image</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Alpha composite <code>im2</code> over <code>im1</code>.</p>
+<p>Equivalent to <a href="https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.alpha_composite"><code>PIL.Image.alpha_composite()</code></a></p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.image.b64_encode" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">b64_encode</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">b64_encode</span><span class="p">(</span><span class="n">img</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">image_format</span><span class="p">:</span> <span class="n">String</span> <span class="o">=</span> <span class="s1">&#39;png&#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">String</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Convert image to a base64-encoded string.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>img</code></b>
+              (<code>Image</code>)
+          –
+          <div class="doc-md-description">
+            <p>image</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>image_format</code></b>
+              (<code>String</code>, default:
+                  <code>&#39;png&#39;</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>image format <a href="https://pillow.readthedocs.io/en/stable/handbook/image-file-formats.html#fully-supported-formats">supported by PIL</a></p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.image.blend" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">blend</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">blend</span><span class="p">(</span><span class="n">im1</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">im2</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">alpha</span><span class="p">:</span> <span class="n">Float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Image</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return a new image by interpolating between two input images, using a constant alpha.</p>
+<p>Equivalent to <a href="https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.blend"><code>PIL.Image.blend()</code></a></p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.image.composite" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">composite</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">composite</span><span class="p">(</span><span class="n">image1</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">image2</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">mask</span><span class="p">:</span> <span class="n">Image</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Image</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return a composite image by blending two images using a mask.</p>
+<p>Equivalent to <a href="https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.composite"><code>PIL.Image.composite()</code></a></p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.image.convert" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">convert</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">convert</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">mode</span><span class="p">:</span> <span class="n">String</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Image</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Convert the image to a different mode.</p>
+<p>Equivalent to
+<a href="https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.convert"><code>PIL.Image.Image.convert()</code></a>.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>mode</code></b>
+              (<code>String</code>)
+          –
+          <div class="doc-md-description">
+            <p>The mode to convert to. See the <a href="https://pillow.readthedocs.io/en/stable/handbook/concepts.html#concept-modes">Pillow documentation</a> for a list of supported modes.</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.image.crop" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">crop</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">crop</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">box</span><span class="p">:</span> <span class="n">Json</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Image</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return a rectangular region from the image. The box is a 4-tuple defining the left, upper, right, and lower pixel
+coordinates.</p>
+<p>Equivalent to
+<a href="https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.crop"><code>PIL.Image.Image.crop()</code></a></p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.image.effect_spread" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">effect_spread</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">effect_spread</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">distance</span><span class="p">:</span> <span class="n">Int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Image</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Randomly spread pixels in an image.</p>
+<p>Equivalent to
+<a href="https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.effect_spread"><code>PIL.Image.Image.effect_spread()</code></a></p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>distance</code></b>
+              (<code>Int</code>)
+          –
+          <div class="doc-md-description">
+            <p>The distance to spread pixels.</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.image.entropy" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">entropy</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">entropy</span><span class="p">(</span>
+    <span class="bp">self</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">mask</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Image</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">extrema</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Float</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Returns the entropy of the image, optionally using a mask and extrema.</p>
+<p>Equivalent to
+<a href="https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.entropy"><code>PIL.Image.Image.entropy()</code></a></p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>mask</code></b>
+              (<code>Optional[Image]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>An optional mask image.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>extrema</code></b>
+              (<code>Optional[Json]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>An optional list of extrema.</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.image.get_metadata" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">get_metadata</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_metadata</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Image</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return metadata for the image.</p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.image.getbands" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">getbands</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">getbands</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Image</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return a tuple containing the names of the image bands.</p>
+<p>Equivalent to
+<a href="https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.getbands"><code>PIL.Image.Image.getbands()</code></a></p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.image.getbbox" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">getbbox</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">getbbox</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">alpha_only</span><span class="p">:</span> <span class="n">Bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return a bounding box for the non-zero regions of the image.</p>
+<p>Equivalent to <a href="https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.getbbox"><code>PIL.Image.Image.getbbox()</code></a></p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>alpha_only</code></b>
+              (<code>Bool</code>, default:
+                  <code>True</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>If <code>True</code>, and the image has an alpha channel, trim transparent pixels. Otherwise, trim pixels when all channels are zero.</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.image.getchannel" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">getchannel</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">getchannel</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">channel</span><span class="p">:</span> <span class="n">Int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Image</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return an L-mode image containing a single channel of the original image.</p>
+<p>Equivalent to
+<a href="https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.getchannel"><code>PIL.Image.Image.getchannel()</code></a></p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>channel</code></b>
+              (<code>Int</code>)
+          –
+          <div class="doc-md-description">
+            <p>The channel to extract. This is a 0-based index.</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.image.getcolors" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">getcolors</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">getcolors</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">maxcolors</span><span class="p">:</span> <span class="n">Int</span> <span class="o">=</span> <span class="mi">256</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return a list of colors used in the image, up to a maximum of <code>maxcolors</code>.</p>
+<p>Equivalent to
+<a href="https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.getcolors"><code>PIL.Image.Image.getcolors()</code></a></p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>maxcolors</code></b>
+              (<code>Int</code>, default:
+                  <code>256</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>The maximum number of colors to return.</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.image.getextrema" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">getextrema</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">getextrema</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Image</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return a 2-tuple containing the minimum and maximum pixel values of the image.</p>
+<p>Equivalent to
+<a href="https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.getextrema"><code>PIL.Image.Image.getextrema()</code></a></p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.image.getpalette" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">getpalette</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">getpalette</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">mode</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return the palette of the image, optionally converting it to a different mode.</p>
+<p>Equivalent to
+<a href="https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.getpalette"><code>PIL.Image.Image.getpalette()</code></a></p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>mode</code></b>
+              (<code>Optional[String]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>The mode to convert the palette to.</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.image.getpixel" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">getpixel</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">getpixel</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">xy</span><span class="p">:</span> <span class="n">Json</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return the pixel value at the given position. The position <code>xy</code> is a tuple containing the x and y coordinates.</p>
+<p>Equivalent to
+<a href="https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.getpixel"><code>PIL.Image.Image.getpixel()</code></a></p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>xy</code></b>
+              (<code>Json</code>)
+          –
+          <div class="doc-md-description">
+            <p>The coordinates, given as (x, y).</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.image.getprojection" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">getprojection</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">getprojection</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Image</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return two sequences representing the horizontal and vertical projection of the image.</p>
+<p>Equivalent to
+<a href="https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.getprojection"><code>PIL.Image.Image.getprojection()</code></a></p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.image.histogram" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">histogram</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">histogram</span><span class="p">(</span>
+    <span class="bp">self</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">mask</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Image</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">extrema</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return a histogram for the image.</p>
+<p>Equivalent to
+<a href="https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.histogram"><code>PIL.Image.Image.histogram()</code></a></p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>mask</code></b>
+              (<code>Optional[Image]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>An optional mask image.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>extrema</code></b>
+              (<code>Optional[Json]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>An optional list of extrema.</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.image.point" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">point</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">point</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">lut</span><span class="p">:</span> <span class="n">Json</span><span class="p">,</span> <span class="n">mode</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Image</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Map image pixels through a lookup table.</p>
+<p>Equivalent to
+<a href="https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.point"><code>PIL.Image.Image.point()</code></a></p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>lut</code></b>
+              (<code>Json</code>)
+          –
+          <div class="doc-md-description">
+            <p>A lookup table.</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.image.quantize" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">quantize</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">quantize</span><span class="p">(</span>
+    <span class="bp">self</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span>
+    <span class="n">colors</span><span class="p">:</span> <span class="n">Int</span> <span class="o">=</span> <span class="mi">256</span><span class="p">,</span>
+    <span class="n">method</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">kmeans</span><span class="p">:</span> <span class="n">Int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+    <span class="n">palette</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">dither</span><span class="p">:</span> <span class="n">Int</span> <span class="o">=</span> <span class="n">PIL</span><span class="o">.</span><span class="n">Image</span><span class="o">.</span><span class="n">Dither</span><span class="o">.</span><span class="n">FLOYDSTEINBERG</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Image</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Convert the image to 'P' mode with the specified number of colors.</p>
+<p>Equivalent to
+ <a href="https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.quantize"><code>PIL.Image.Image.quantize()</code></a></p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>colors</code></b>
+              (<code>Int</code>, default:
+                  <code>256</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>The number of colors to quantize to.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>method</code></b>
+              (<code>Optional[Int]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>The quantization method. See the <a href="https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.quantize">Pillow documentation</a> for a list of supported methods.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>kmeans</code></b>
+              (<code>Int</code>, default:
+                  <code>0</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>The number of k-means clusters to use.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>palette</code></b>
+              (<code>Optional[Int]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>The palette to use.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>dither</code></b>
+              (<code>Int</code>, default:
+                  <code><span title="PIL.Image.Dither.FLOYDSTEINBERG">FLOYDSTEINBERG</span></code>
+)
+          –
+          <div class="doc-md-description">
+            <p>The dithering method. See the <a href="https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.quantize">Pillow documentation</a> for a list of supported methods.</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.image.reduce" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">reduce</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">reduce</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">factor</span><span class="p">:</span> <span class="n">Int</span><span class="p">,</span> <span class="n">box</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Image</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Reduce the image by the given factor.</p>
+<p>Equivalent to
+<a href="https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.reduce"><code>PIL.Image.Image.reduce()</code></a></p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>factor</code></b>
+              (<code>Int</code>)
+          –
+          <div class="doc-md-description">
+            <p>The reduction factor.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>box</code></b>
+              (<code>Optional[Json]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>An optional 4-tuple of ints providing the source image region to be reduced. The values must be within (0, 0, width, height) rectangle. If omitted or None, the entire source is used.</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.image.resize" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">resize</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">resize</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">size</span><span class="p">:</span> <span class="n">Json</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Image</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return a resized copy of the image. The size parameter is a tuple containing the width and height of the new image.</p>
+<p>Equivalent to
+<a href="https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.resize"><code>PIL.Image.Image.resize()</code></a></p>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.image.rotate" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">rotate</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">rotate</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">angle</span><span class="p">:</span> <span class="n">Int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Image</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Return a copy of the image rotated by the given angle.</p>
+<p>Equivalent to
+<a href="https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.rotate"><code>PIL.Image.Image.rotate()</code></a></p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>angle</code></b>
+              (<code>Int</code>)
+          –
+          <div class="doc-md-description">
+            <p>The angle to rotate the image, in degrees. Positive angles are counter-clockwise.</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.image.transpose" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">transpose</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">transpose</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">method</span><span class="p">:</span> <span class="n">Int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Image</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Transpose the image.</p>
+<p>Equivalent to
+<a href="https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.transpose"><code>PIL.Image.Image.transpose()</code></a></p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>method</code></b>
+              (<code>Int</code>)
+          –
+          <div class="doc-md-description">
+            <p>The transpose method. See the <a href="https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.transpose">Pillow documentation</a> for a list of supported methods.</p>
+          </div>
+        </li>
+    </ul>
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      &copy; 2022 - 2024 <a href="https://github.com/pixeltable" target="_blank" rel="noopener">Pixeltable, Inc.</a> All rights reserved.
+
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    <script id="__config" type="application/json">{"base": "../../..", "features": [], "search": "../../../assets/javascripts/workers/search.b8dbb3d2.min.js", "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}}</script>
+    
+    
+      <script src="../../../assets/javascripts/bundle.ebd0bdb7.min.js"></script>
+      
+    
+  </body>
+</html>
