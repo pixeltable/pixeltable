@@ -216,12 +216,12 @@ class Expr(abc.ABC):
                 return result
             result = result.substitute({ref: ref.col.value_expr for ref in target_col_refs})
 
-    def is_bound_by(self, tbl: catalog.TableVersionPath) -> bool:
-        """Returns True if this expr can be evaluated in the context of tbl."""
+    def is_bound_by(self, tbls: list[catalog.TableVersionPath]) -> bool:
+        """Returns True if this expr can be evaluated in the context of tbls."""
         from .column_ref import ColumnRef
         col_refs = self.subexprs(ColumnRef)
         for col_ref in col_refs:
-            if not tbl.has_column(col_ref.col):
+            if not any(tbl.has_column(col_ref.col) for tbl in tbls):
                 return False
         return True
 

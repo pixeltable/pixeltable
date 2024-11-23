@@ -32,6 +32,7 @@ from .table_version_path import TableVersionPath
 
 if TYPE_CHECKING:
     import torch.utils.data
+    import pixeltable.plan
 
 _logger = logging.getLogger('pixeltable')
 
@@ -175,7 +176,8 @@ class Table(SchemaObject):
         """Return a DataFrame for this table.
         """
         # local import: avoid circular imports
-        return pxt.DataFrame(self._tbl_version_path)
+        from pixeltable.plan import FromClause
+        return pxt.DataFrame(FromClause(tbls=[self._tbl_version_path]))
 
     @property
     def queries(self) -> 'Table.QueryScope':
@@ -188,6 +190,13 @@ class Table(SchemaObject):
     def where(self, pred: 'exprs.Expr') -> 'pxt.DataFrame':
         """Return a [`DataFrame`][pixeltable.DataFrame] for this table."""
         return self._df().where(pred)
+
+    def join(
+            self, other: 'Table', *, on: Optional['exprs.Expr'] = None,
+            how: 'pixeltable.plan.JoinType.LiteralType' = 'inner'
+    ) -> 'pxt.DataFrame':
+        """Return a [`DataFrame`][pixeltable.DataFrame] for this table."""
+        return self._df().join(other, on=on, how=how)
 
     def order_by(self, *items: 'exprs.Expr', asc: bool = True) -> 'pxt.DataFrame':
         """Return a [`DataFrame`][pixeltable.DataFrame] for this table."""

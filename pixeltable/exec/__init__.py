@@ -7,4 +7,4 @@ from .exec_node import ExecNode
 from .expr_eval_node import ExprEvalNode
 from .in_memory_data_node import InMemoryDataNode
 from .row_update_node import RowUpdateNode
-from .sql_node import SqlLookupNode, SqlScanNode, SqlAggregationNode, SqlNode
+from .sql_node import SqlLookupNode, SqlScanNode, SqlAggregationNode, SqlNode, SqlJoinNode

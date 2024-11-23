@@ -59,7 +59,7 @@ class View(Table):
 
         # verify that filter can be evaluated in the context of the base
         if predicate is not None:
-            if not predicate.is_bound_by(base):
+            if not predicate.is_bound_by([base]):
                 raise excs.Error(f'Filter cannot be computed in the context of the base {base.tbl_name()}')
             # create a copy that we can modify and store
             predicate = predicate.copy()
@@ -69,7 +69,7 @@ class View(Table):
             if not col.is_computed:
                 continue
             # make sure that the value can be computed in the context of the base
-            if col.value_expr is not None and not col.value_expr.is_bound_by(base):
+            if col.value_expr is not None and not col.value_expr.is_bound_by([base]):
                 raise excs.Error(
                     f'Column {col.name}: value expression cannot be computed in the context of the base {base.tbl_name()}')
 
