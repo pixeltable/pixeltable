@@ -80,8 +80,7 @@ class TestDocument:
                 assert handle.bs_doc is not None, path
             elif extension == 'txt':
                 assert handle.format == pxt.DocumentType.DocumentFormat.TXT, path
-                assert handle.pdf_doc is not None, path
-                assert handle.is_txt, path
+                assert handle.txt_doc is not None, path
             else:
                 assert False, f'Unexpected extension {extension}, add corresponding check'
 
@@ -258,49 +257,55 @@ class TestDocument:
         chunks_t = pxt.create_view(
                 'chunks', doc_t,
                 iterator=DocumentSplitter.create(document=doc_t.doc,
+                                                 separators='',
+                                                 metadata='page'))
+        res = chunks_t.order_by(chunks_t.doc, chunks_t.pos).collect()
+        assert len(res) == 1
+        assert len(res[0]['text']) == 2793
+        assert str(res[0]['text']).startswith('Pixeltable Briefing Doc\nSource: GitHub Repository: pixeltable/pixeltable\n')
+        assert res[0]['page'] == None
+
+        pxt.drop_table('chunks')
+        chunks_t = pxt.create_view(
+                'chunks', doc_t,
+                iterator=DocumentSplitter.create(document=doc_t.doc,
                                                  separators='paragraph',
                                                  metadata='page'))
         res = chunks_t.order_by(chunks_t.doc, chunks_t.pos).collect()
-        assert len(res) == 12
-        assert res[0]['text'] == 'Pixeltable Briefing Doc\nSource: GitHub Repository: pixeltable/pixeltable\n'
-        assert res[0]['page'] == 0
-        assert res[2]['text'] == 'AI Data Infrastructure: Pixeltable is a Python\nlibrary designed to simplify the management and\nprocessing of multimodal data for machine learning\nworkflows.\nDeclarative and Incremental Approach: It provides a\ndeclarative interface for data operations and\nemphasizes incremental updates to avoid redundant\ncomputations.\nMultimodal Support: Pixeltable handles various data\ntypes like text, images, audio, and video, making it\nsuitable for diverse AI applications.\n'
-        assert res[8]['text'] == 'Use Cases:\n'
-        assert res[8]['page'] == 1
+        assert len(res) == 1
+        assert len(res[0]['text']) == 2793
+        assert str(res[0]['text']).startswith('Pixeltable Briefing Doc\nSource: GitHub Repository: pixeltable/pixeltable\n')
 
         pxt.drop_table('chunks')
         chunks_t = pxt.create_view(
                 'chunks', doc_t,
                 iterator=DocumentSplitter.create(document=doc_t.doc,
-                                                 separators='paragraph, sentence',
+                                                 separators='sentence',
                                                  metadata='page'))
         res = chunks_t.order_by(chunks_t.doc, chunks_t.pos).collect()
-        assert len(res) == 31
-        assert res[0]['text'] == 'Pixeltable Briefing Doc\nSource: GitHub Repository: pixeltable/pixeltable\n'
-        assert res[2]['text'] == 'AI Data Infrastructure: Pixeltable is a Python\nlibrary designed to simplify the management and\nprocessing of multimodal data for machine learning\nworkflows.\n'
-        assert res[2]['page'] == 0
-        assert res[22]['text'] == 'Use Cases:\n'
-        assert res[22]['page'] == 1
+        assert len(res) == 23
+        assert res[0]['text'] == 'Pixeltable Briefing Doc\nSource: GitHub Repository: pixeltable/pixeltable\n\nMain Themes:\n\nAI Data Infrastructure: Pixeltable is a Python library designed to simplify the management and processing of multimodal data for machine learning workflows.\n'
+        assert len(res[0]['text']) == 245
+        assert res[22]['text'] == 'Its declarative approach, incremental updates, and seamless Python integration make it a valuable tool for streamlining AI development and enhancing productivity.\n'
+        assert len(res[22]['text']) == 163
 
         pxt.drop_table('chunks')
         chunks_t = pxt.create_view(
                 'chunks', doc_t,
                 iterator=DocumentSplitter.create(document=doc_t.doc,
-                                                 separators='paragraph, sentence, char_limit',
+                                                 separators='sentence, char_limit',
                                                  limit=50, overlap=0,
                                                  metadata='title,heading,sourceline,page,bounding_box'))
         res = chunks_t.order_by(chunks_t.doc, chunks_t.pos).collect()
-        assert len(res) == 74
+        assert len(res) == 67
         assert res[0]['text'] == 'Pixeltable Briefing Doc\nSource: GitHub Repository:'
-        assert res[0]['page'] == 0
-        assert res[70]['text'] == 'Its declarative approach, incremental\nupdates, and'
-        assert res[70]['page'] == 1
+        assert res[63]['text'] == 'Its declarative approach, incremental updates, and'
         for r in res:
             assert len(r['text']) <= 50
             assert r['title'] == ''
             assert r['heading'] == None
             assert r['sourceline'] == None
-            assert r['page'] == 0 or r['page'] == 1
+            assert r['page'] == None
             assert r['doc'].endswith('pxtbrief.txt')
 
         pxt.drop_table('chunks')

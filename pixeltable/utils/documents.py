@@ -15,7 +15,7 @@ class DocumentHandle:
     bs_doc: Optional[bs4.BeautifulSoup] = None
     md_ast: Optional[dict] = None
     pdf_doc: Optional[fitz.Document] = None
-    is_txt: Optional[bool] = False
+    txt_doc: Optional[str] = None
 
 
 def get_document_handle(path: str) -> Optional[DocumentHandle]:
@@ -44,7 +44,7 @@ def get_document_handle(path: str) -> Optional[DocumentHandle]:
     if doc_format == '.txt':
         txt_doc = get_txt_handle(path)
         if txt_doc is not None:
-            return DocumentHandle(format=ts.DocumentType.DocumentFormat.TXT, pdf_doc=txt_doc, is_txt=True)
+            return DocumentHandle(format=ts.DocumentType.DocumentFormat.TXT, txt_doc=txt_doc)
 
     return None
 
@@ -91,11 +91,10 @@ def get_markdown_handle(path: str) -> Optional[dict]:
     except Exception:
         return None
 
-def get_txt_handle(path: str) -> Optional[fitz.Document]:
+def get_txt_handle(path: str) -> Optional[str]:
     try:
-        doc = fitz.open(path)
-        # try to read one page
-        next(page for page in doc)
-        return doc
+        with open(path, "r") as f:
+            doc = f.read()
+        return doc if doc is not '' else None
     except Exception:
         return None
