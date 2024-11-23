@@ -144,7 +144,6 @@ class DataFrame:
 
     def __init__(
         self,
-        tbl: Optional[catalog.TableVersionPath] = None,
         from_clause: Optional[plan.FromClause] = None,
         select_list: Optional[list[tuple[exprs.Expr, Optional[str]]]] = None,
         where_clause: Optional[exprs.Expr] = None,
@@ -153,11 +152,7 @@ class DataFrame:
         order_by_clause: Optional[list[tuple[exprs.Expr, bool]]] = None,  # list[(expr, asc)]
         limit: Optional[int] = None,
     ):
-        assert (from_clause is None) != (tbl is None)
-        if tbl is not None:
-            self._from_clause = plan.FromClause(tbls=[tbl], join_clauses=[])
-        else:
-            self._from_clause = from_clause
+        self._from_clause = from_clause
 
         # exprs contain execution state and therefore cannot be shared
         select_list = copy.deepcopy(select_list)
@@ -429,7 +424,7 @@ class DataFrame:
         heading_vals: list[str] = []
         info_vals: list[str] = []
         heading_vals.append('From')
-        info_vals.append(self.tbl.tbl_name())
+        info_vals.extend(tbl.tbl_name() for tbl in self._from_clause.tbls)
         if self.where_clause is not None:
             heading_vals.append('Where')
             info_vals.append(self.where_clause.display_str(inline=False))
@@ -660,7 +655,7 @@ class DataFrame:
             tbls=[*self._from_clause.tbls, other._tbl_version_path],
             join_clauses=[*self._from_clause.join_clauses, join_clause])
         return DataFrame(
-            tbl=None, from_clause=from_clause,
+            from_clause=from_clause,
             select_list=self.select_list, where_clause=self.where_clause,
             group_by_clause=self.group_by_clause, grouping_tbl=self.grouping_tbl,
             order_by_clause=self.order_by_clause, limit=self.limit_val,

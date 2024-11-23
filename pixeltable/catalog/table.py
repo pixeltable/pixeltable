@@ -167,7 +167,8 @@ class Table(SchemaObject):
         """Return a DataFrame for this table.
         """
         # local import: avoid circular imports
-        return pxt.DataFrame(self._tbl_version_path)
+        from pixeltable.plan import FromClause
+        return pxt.DataFrame(FromClause(tbls=[self._tbl_version_path]))
 
     @property
     def queries(self) -> 'Table.QueryScope':

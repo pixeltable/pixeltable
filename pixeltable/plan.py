@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import enum
-from typing import Any, Iterable, Optional, Sequence, Literal, ClassVar
+from typing import Any, Iterable, Optional, Sequence, Literal
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -50,7 +50,7 @@ class JoinType(enum.Enum):
     FULL_OUTER = 3
     CROSS = 4
 
-    LiteralType: ClassVar[Any]
+    LiteralType = Literal['inner', 'left', 'full_outer', 'cross']
 
     @classmethod
     def validated(cls, name: str, error_prefix: str) -> JoinType:
@@ -59,8 +59,6 @@ class JoinType(enum.Enum):
         except KeyError:
             val_strs = ', '.join(f'{s.lower()!r}' for s in cls.__members__.keys())
             raise excs.Error(f'{error_prefix} must be one of: [{val_strs}]')
-
-JoinType.LiteralType = Literal[tuple(e.name.lower() for e in JoinType)]
 
 
 @dataclasses.dataclass
