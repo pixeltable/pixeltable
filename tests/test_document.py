@@ -230,8 +230,10 @@ class TestDocument:
         for md_str in [','.join(t) for t in md_tuples]:
             print(f'{md_str=}')
             chunks_t = pxt.create_view(
-                'chunks', doc_t,
-                iterator=DocumentSplitter.create(document=doc_t.doc, separators='sentence', metadata=md_str))
+                            'chunks', doc_t,
+                            iterator=DocumentSplitter.create(document=doc_t.doc,
+                                                             separators='sentence',
+                                                             metadata=md_str))
             res = chunks_t.order_by(chunks_t.doc, chunks_t.pos).collect()
             requested_md_elements = set(md_str.split(','))
             for md_element in md_elements:
@@ -258,10 +260,10 @@ class TestDocument:
         encoding = tiktoken.get_encoding('cl100k_base')
 
         chunks_t = pxt.create_view(
-                'chunks', doc_t,
-                iterator=DocumentSplitter.create(document=doc_t.doc,
-                                                 separators='',
-                                                 metadata='page'))
+                        'chunks', doc_t,
+                        iterator=DocumentSplitter.create(document=doc_t.doc,
+                                                        separators='',
+                                                        metadata='page'))
         res = chunks_t.order_by(chunks_t.doc, chunks_t.pos).collect()
         assert len(res) == 1
         assert len(res[0]['text']) == 2793
@@ -270,10 +272,10 @@ class TestDocument:
 
         pxt.drop_table('chunks')
         chunks_t = pxt.create_view(
-                'chunks', doc_t,
-                iterator=DocumentSplitter.create(document=doc_t.doc,
-                                                 separators='paragraph',
-                                                 metadata='page'))
+                        'chunks', doc_t,
+                        iterator=DocumentSplitter.create(document=doc_t.doc,
+                                                        separators='paragraph',
+                                                        metadata='page'))
         res = chunks_t.order_by(chunks_t.doc, chunks_t.pos).collect()
         assert len(res) == 1
         assert len(res[0]['text']) == 2793
@@ -281,10 +283,10 @@ class TestDocument:
 
         pxt.drop_table('chunks')
         chunks_t = pxt.create_view(
-                'chunks', doc_t,
-                iterator=DocumentSplitter.create(document=doc_t.doc,
-                                                 separators='sentence',
-                                                 metadata='page'))
+                        'chunks', doc_t,
+                        iterator=DocumentSplitter.create(document=doc_t.doc,
+                                                        separators='sentence',
+                                                        metadata='page'))
         res = chunks_t.order_by(chunks_t.doc, chunks_t.pos).collect()
         assert len(res) == 23
         assert res[0]['text'] == 'Pixeltable Briefing Doc\nSource: GitHub Repository: pixeltable/pixeltable\n\nMain Themes:\n\nAI Data Infrastructure: Pixeltable is a Python library designed to simplify the management and processing of multimodal data for machine learning workflows.\n'
@@ -294,11 +296,11 @@ class TestDocument:
 
         pxt.drop_table('chunks')
         chunks_t = pxt.create_view(
-                'chunks', doc_t,
-                iterator=DocumentSplitter.create(document=doc_t.doc,
-                                                 separators='sentence, char_limit',
-                                                 limit=50, overlap=0,
-                                                 metadata='title,heading,sourceline,page,bounding_box'))
+                        'chunks', doc_t,
+                        iterator=DocumentSplitter.create(document=doc_t.doc,
+                                                        separators='sentence, char_limit',
+                                                        limit=50, overlap=0,
+                                                        metadata='title,heading,sourceline,page,bounding_box'))
         res = chunks_t.order_by(chunks_t.doc, chunks_t.pos).collect()
         assert len(res) == 67
         assert res[0]['text'] == 'Pixeltable Briefing Doc\nSource: GitHub Repository:'
