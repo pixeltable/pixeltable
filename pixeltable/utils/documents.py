@@ -42,7 +42,7 @@ def get_document_handle(path: str) -> Optional[DocumentHandle]:
             return DocumentHandle(format=ts.DocumentType.DocumentFormat.XML, bs_doc=bs_doc)
 
     if doc_format == '.txt':
-        txt_doc = get_txt_handle(path)
+        txt_doc = get_txt(path)
         if txt_doc is not None:
             return DocumentHandle(format=ts.DocumentType.DocumentFormat.TXT, txt_doc=txt_doc)
 
@@ -91,7 +91,7 @@ def get_markdown_handle(path: str) -> Optional[dict]:
     except Exception:
         return None
 
-def get_txt_handle(path: str) -> Optional[str]:
+def get_txt(path: str) -> Optional[str]:
     try:
         with open(path, "r") as f:
             doc = f.read()

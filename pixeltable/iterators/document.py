@@ -154,7 +154,6 @@ class DocumentSplitter(ComponentIterator):
         elif self._doc_handle.format == DocumentType.DocumentFormat.TXT:
             assert self._doc_handle.txt_doc is not None
             self._sections = self._txt_sections()
-            #self._sections = self._pdf_sections()
         else:
             assert False, f'Unsupported document format: {self._doc_handle.format}'
 
@@ -352,7 +351,7 @@ class DocumentSplitter(ComponentIterator):
         yield from emit()
 
     def _pdf_sections(self) -> Iterator[DocumentSection]:
-        """Create DocumentSections reflecting the pdf-specific or text separators"""
+        """Create DocumentSections reflecting the pdf-specific separators"""
         import fitz  # type: ignore[import-untyped]
         doc: fitz.Document = self._doc_handle.pdf_doc
         assert doc is not None
@@ -394,7 +393,11 @@ class DocumentSplitter(ComponentIterator):
             yield DocumentSection(text=_emit_text(), metadata=DocumentSectionMetadata())
 
     def _txt_sections(self) -> Iterator[DocumentSection]:
-        """Create DocumentSections for text files."""
+        """Create DocumentSections for text files.
+
+        Currently, it returns the entire text as a single section.
+        TODO: Add support for paragraphs.
+        """
         assert self._doc_handle.txt_doc is not None
         yield DocumentSection(text=ftfy.fix_text(self._doc_handle.txt_doc), metadata=DocumentSectionMetadata())
 

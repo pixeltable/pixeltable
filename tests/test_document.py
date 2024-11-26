@@ -242,6 +242,9 @@ class TestDocument:
                         _ = res[md_element]
             pxt.drop_table('chunks')
 
+    # test_doc_splitter above already tests the behaviour
+    # common for all document types. This tests adds specific
+    # verification for .txt file with specific content.
     def test_doc_splitter_txt(self, reset_db) -> None:
         skip_test_if_not_installed('tiktoken')
         skip_test_if_not_installed('spacy')
