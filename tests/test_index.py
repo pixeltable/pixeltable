@@ -425,3 +425,47 @@ class TestIndex:
         delta_secs = int(delta.total_seconds())
         data = [start + timedelta(seconds=random.randint(0, int(delta_secs))) for _ in range(self.BTREE_TEST_NUM_ROWS)]
         self.run_btree_test(data, pxt.Timestamp)
+
+    def test_embedding_index_reload_table(self, reset_db, reload_tester: ReloadTester) -> None:
+        skip_test_if_not_installed('transformers')
+        t = pxt.create_table('t', {'s': pxt.String})
+        t.add_embedding_index('s', string_embed=pxt.functions.huggingface.sentence_transformer.using(model_id='all-mpnet-base-v2'))
+        df = t.select()
+        _ = reload_tester.run_query(df)
+
+        # ... restart python session ...
+        _ = reload_tester.run_reload_test(df)
+
+    def test_embedding_computedcol_reload_table(self, reset_db, reload_tester: ReloadTester) -> None:
+        skip_test_if_not_installed('transformers')
+        t = pxt.create_table('t', {'s': pxt.String})
+        t.add_computed_column(s2=pxt.functions.huggingface.sentence_transformer(t.s, model_id='all-mpnet-base-v2'))
+        df = t.select()
+        _ = reload_tester.run_query(df)
+
+        # ... restart python session ...
+        _ = reload_tester.run_reload_test(df)
+
+    def test_embedding_index_reload_view(self, reset_db, reload_tester: ReloadTester) -> None:
+        skip_test_if_not_installed('transformers')
+        t = pxt.create_table('t', {'s': pxt.String})
+        v = pxt.create_view('v', t)
+        v.add_embedding_index('s', string_embed=pxt.functions.huggingface.sentence_transformer.using(model_id='all-mpnet-base-v2'))
+        df = v.select()
+        _ = reload_tester.run_query(df)
+
+        # ... restart python session ...
+        with pytest.raises(pxt.Error) as exc_info:
+            _ = reload_tester.run_reload_test(df)
+        assert 'Embedding index requires string or image column' in str(exc_info.value)
+
+    def test_embedding_computedcol_reload_view(self, reset_db, reload_tester: ReloadTester) -> None:
+        skip_test_if_not_installed('transformers')
+        t = pxt.create_table('t', {'s': pxt.String})
+        v = pxt.create_view('v', t)
+        v.add_computed_column(s2=pxt.functions.huggingface.sentence_transformer(t.s, model_id='all-mpnet-base-v2'))
+        df = v.select()
+        _ = reload_tester.run_query(df)
+
+        # ... restart python session ...
+        _ = reload_tester.run_reload_test(df)
