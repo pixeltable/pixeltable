@@ -300,6 +300,14 @@ class DataFrame:
         return self.limit(n).collect()
 
     def head(self, n: int = 10) -> DataFrameResultSet:
+        '''Get the first n rows of the DataFrame.
+
+        Args:
+            n: Number of rows to select. Default is 10.
+
+        Returns:
+            A DataFrameResultSet with the first n rows of the DataFrame.
+        '''
         if self.order_by_clause is not None:
             raise excs.Error(f'head() cannot be used with order_by()')
         if self._has_joins():
@@ -309,6 +317,14 @@ class DataFrame:
         return self.order_by(*order_by_clause, asc=True).limit(n).collect()
 
     def tail(self, n: int = 10) -> DataFrameResultSet:
+        '''Get the last n rows of the DataFrame.
+
+        Args:
+            n: Number of rows to select. Default is 10.
+
+        Returns:
+            A DataFrameResultSet with the last n rows of the DataFrame.
+        '''
         if self.order_by_clause is not None:
             raise excs.Error(f'tail() cannot be used with order_by()')
         if self._has_joins():
@@ -321,6 +337,11 @@ class DataFrame:
 
     @property
     def schema(self) -> dict[str, ColumnType]:
+        '''Get the dictionary representation of the schema of the DataFrame.
+
+        Returns:
+            A dictionary with column names as keys and column types as values.
+        '''
         return self._schema
 
     def bind(self, args: dict[str, Any]) -> DataFrame:
@@ -394,6 +415,11 @@ class DataFrame:
         return DataFrameResultSet(list(self._output_row_iterator(conn)), self.schema)
 
     def count(self) -> int:
+        """Get the number of rows in the DataFrame.
+
+        Returns:
+            The number of rows in the DataFrame.
+        """
         from pixeltable.plan import Planner
 
         stmt = Planner.create_count_stmt(self._first_tbl, self.where_clause)
@@ -463,6 +489,22 @@ class DataFrame:
         return self._descriptors().to_html()
 
     def select(self, *items: Any, **named_items: Any) -> DataFrame:
+        """ Select columns or expressions from the DataFrame.
+
+        Error is raised if the select list is already specified, or if the expression is invalid.
+
+        Args:
+            items: expressions to be selected
+            named_items: named expressions to be selected
+
+        Returns:
+            A new DataFrame with the specified select list.
+
+        Examples:
+            Select the columns 'name' and 'age' from the DataFrame df:
+
+            >>> df = df.select('name', 'age')
+        """
         if self.select_list is not None:
             raise excs.Error(f'Select list already specified')
         for name, _ in named_items.items():
@@ -512,6 +554,21 @@ class DataFrame:
         )
 
     def where(self, pred: exprs.Expr) -> DataFrame:
+        """Filter rows based on a predicate.
+
+        Error is raised if the predicate is not a Pixeltable expression or if it does not return a boolean.
+
+        Args:
+            pred: the predicate to filter rows
+
+        Returns:
+            A new DataFrame with the spefied predicates added to the where-clause.
+
+        Examples:
+            Filter the DataFrame df to only include rows where the column 'age' is greater than 30:
+
+            >>> df = df.where(df.age > 30)
+        """
         if not isinstance(pred, exprs.Expr):
             raise excs.Error(f'Where() requires a Pixeltable expression, but instead got {type(pred)}')
         if not pred.col_type.is_bool_type():
@@ -662,11 +719,24 @@ class DataFrame:
         )
 
     def group_by(self, *grouping_items: Any) -> DataFrame:
-        """
-        Add a group-by clause to this DataFrame.
+        """ Add a group-by clause to this DataFrame.
+
+        Error is raised if the group-by clause is already specified, or if the expression is invalid.
+
         Variants:
         - group_by(<base table>): group a component view by their respective base table rows
         - group_by(<expr>, ...): group by the given expressions
+
+        Args:
+            grouping_items: expressions to group by
+
+        Returns:
+            A new DataFrame with the specified group-by clause.
+
+        Examples:
+            Group a DataFrame book by the 'genre' column:
+
+            >>> df = book.group_by(genre)
         """
         if self.group_by_clause is not None:
             raise excs.Error(f'Group-by already specified')
@@ -699,6 +769,23 @@ class DataFrame:
         )
 
     def order_by(self, *expr_list: exprs.Expr, asc: bool = True) -> DataFrame:
+        """ Add an order-by clause to this DataFrame.
+
+        Error is raised if the order-by clause is already specified, or if the expression is invalid.
+
+        Args:
+            expr_list: expressions to order by
+            asc: whether to order in ascending order (True) or descending order (False).
+                Default is True.
+
+        Returns:
+            A new DataFrame with the specified order-by clause.
+
+        Examples:
+            Order a DataFrame book by two columns (price, pages) in descending order:
+
+            >>> df = book.order_by(price, pages, asc=False)
+        """
         for e in expr_list:
             if not isinstance(e, exprs.Expr):
                 raise excs.Error(f'Invalid expression in order_by(): {e}')
@@ -715,6 +802,14 @@ class DataFrame:
         )
 
     def limit(self, n: int) -> DataFrame:
+        '''Limit the number of rows in the DataFrame.
+
+        Args:
+            n: Number of rows to select.
+
+        Returns:
+            A new DataFrame with the specified limited rows.
+        '''
         # TODO: allow n to be a Variable that can be substituted in bind()
         assert n is not None and isinstance(n, int)
         return DataFrame(
@@ -728,10 +823,28 @@ class DataFrame:
         )
 
     def update(self, value_spec: dict[str, Any], cascade: bool = True) -> UpdateStatus:
+        ''' Update rows in the DataFrame.
+
+        Update rows in the DataFrame with the specified value_spec.
+
+        Args:
+            value_spec: a dict of column names to update and the new value to update it to.
+            cascade: if True, also update all computed columns that transitively depend
+                    on the updated columns, including within views. Default is True.
+
+        Returns:
+            UpdateStatus: the status of the update operation.
+
+        '''
         self._validate_mutable('update')
         return self._first_tbl.tbl_version.update(value_spec, where=self.where_clause, cascade=cascade)
 
     def delete(self) -> UpdateStatus:
+        ''' Delete rows in the DataFrame.
+
+        Returns:
+            UpdateStatus: the status of the delete operation.
+        '''
         self._validate_mutable('delete')
         if not self._first_tbl.is_insertable():
             raise excs.Error(f'Cannot delete from view')
@@ -785,6 +898,33 @@ class DataFrame:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> 'DataFrame':
+        """ Create a DataFrame from a property specification.
+
+        Args:
+            d: the dictionary that specifies the properties of the DataFrame.
+                Some of the properties are: from_clause, select_list, where_clause etc
+
+        Returns:
+            A new DataFrame constructed from the specification.
+
+        Examples:
+            Create a DataFrame from a dictionary:
+
+            TODO: verify the following example is correct
+            >>> df = DataFrame.from_dict({
+            ...     'from_clause': {
+            ...         'tbls': [{'tbl_id': 1, 'version': 0}],
+            ...         'join_clauses': []
+            ...     },
+            ...     'select_list': [(ColumnRef('name'), 'name')],
+            ...     'where_clause': None,
+            ...     'group_by_clause': None,
+            ...     'grouping_tbl': None,
+            ...     'order_by_clause': [],
+            ...     'limit_val': None
+            ... })
+
+        """
         tbls = [catalog.TableVersionPath.from_dict(tbl_dict) for tbl_dict in d['from_clause']['tbls']]
         join_clauses = [plan.JoinClause(**clause_dict) for clause_dict in d['from_clause']['join_clauses']]
         from_clause = plan.FromClause(tbls=tbls, join_clauses=join_clauses)
