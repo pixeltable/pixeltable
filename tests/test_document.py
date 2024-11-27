@@ -242,14 +242,16 @@ class TestDocument:
                         _ = res[md_element]
             pxt.drop_table('chunks')
 
-    # test_doc_splitter above already tests the behaviour
-    # common for all document types. This tests adds specific
-    # verification for .txt file with specific content.
     def test_doc_splitter_txt(self, reset_db) -> None:
+        ''' Test the DocumentSplitter with a .txt file
+
+        test_doc_splitter above already tests the behaviour
+        common for all document types. This test adds specific
+        verification for a .txt file with specific content.
+        '''
         skip_test_if_not_installed('tiktoken')
         skip_test_if_not_installed('spacy')
 
-        # DocumentSplitter does not support XML
         file_paths = [path for path in self.valid_doc_paths() if path.endswith('pxtbrief.txt')]
         doc_t = pxt.create_table('docs', {'doc': pxt.Document})
         status = doc_t.insert({'doc': p} for p in file_paths)
@@ -265,6 +267,9 @@ class TestDocument:
         assert str(res[0]['text']).startswith('Pixeltable Briefing Doc\nSource: GitHub Repository: pixeltable/pixeltable\n')
         assert res[0]['page'] is None
 
+        # test with different separators.
+        # Until we add support to split text into paragraphs,
+        # the 'paragraph' separator is ignored and has no effect.
         pxt.drop_table('chunks')
         chunks_t = pxt.create_view(
             'chunks', doc_t,
@@ -275,6 +280,8 @@ class TestDocument:
         assert len(res[0]['text']) == 2793
         assert str(res[0]['text']).startswith('Pixeltable Briefing Doc\nSource: GitHub Repository: pixeltable/pixeltable\n')
 
+        # test with 'sentence' separator
+        # The text is split into 23 sentences.
         pxt.drop_table('chunks')
         chunks_t = pxt.create_view(
             'chunks', doc_t,
@@ -287,6 +294,8 @@ class TestDocument:
         assert res[22]['text'] == 'Its declarative approach, incremental updates, and seamless Python integration make it a valuable tool for streamlining AI development and enhancing productivity.\n'
         assert len(res[22]['text']) == 163
 
+        # test with 'char_limit' separator
+        # The text is split into 67 chunks, each with a maximum of 50 characters.
         pxt.drop_table('chunks')
         chunks_t = pxt.create_view(
             'chunks', doc_t,
