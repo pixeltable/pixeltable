@@ -42,7 +42,7 @@ class JsonPath(Expr):
         # this is not a problem, because _create_id() shouldn't be called after init()
         self.id = self._create_id()
 
-    def __str__(self) -> str:
+    def __repr__(self) -> str:
         # else "R": the anchor is RELATIVE_PATH_ROOT
         return (f'{str(self._anchor) if self._anchor is not None else "R"}'
             f'{"." if isinstance(self.path_elements[0], str) else ""}{self._json_path()}')

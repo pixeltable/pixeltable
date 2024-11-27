@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING, Any, Callable, Iterable, Literal, Optional, Se
 from uuid import UUID
 
 import pandas as pd
-import pandas.io.formats.style
 import sqlalchemy as sql
 
 import pixeltable as pxt
@@ -21,17 +20,19 @@ import pixeltable.exprs as exprs
 import pixeltable.index as index
 import pixeltable.metadata.schema as schema
 import pixeltable.type_system as ts
-from pixeltable.utils.filecache import FileCache
 
+from ..exprs import ColumnRef
+from ..utils.description_helper import DescriptionHelper
+from ..utils.filecache import FileCache
 from .column import Column
-from .globals import _ROWID_COLUMN_NAME, UpdateStatus, is_system_column_name, is_valid_identifier, MediaValidation
+from .globals import _ROWID_COLUMN_NAME, MediaValidation, UpdateStatus, is_system_column_name, is_valid_identifier
 from .schema_object import SchemaObject
 from .table_version import TableVersion
 from .table_version_path import TableVersionPath
-from ..exprs import ColumnRef
 
 if TYPE_CHECKING:
     import torch.utils.data
+    import pixeltable.plan
 
 _logger = logging.getLogger('pixeltable')
 
@@ -46,7 +47,7 @@ class Table(SchemaObject):
     def __init__(self, id: UUID, dir_id: UUID, name: str, tbl_version_path: TableVersionPath):
         super().__init__(id, name, dir_id)
         self._is_dropped = False
-        self._tbl_version_path = tbl_version_path
+        self.__tbl_version_path = tbl_version_path
         self.__query_scope = self.QueryScope(self)
 
     class QueryScope:
@@ -63,6 +64,7 @@ class Table(SchemaObject):
             raise AttributeError(f'Table {self.__table._name!r} has no query with that name: {name!r}')
 
     def _move(self, new_name: str, new_dir_id: UUID) -> None:
+        self._check_is_dropped()
         super()._move(new_name, new_dir_id)
         with env.Env.get().engine.begin() as conn:
             stmt = sql.text((
@@ -96,6 +98,7 @@ class Table(SchemaObject):
                 }
                 ```
         """
+        self._check_is_dropped()
         md = super().get_metadata()
         md['base'] = self._base._path if self._base is not None else None
         md['schema'] = self._schema
@@ -115,6 +118,12 @@ class Table(SchemaObject):
     def _tbl_version(self) -> TableVersion:
         """Return TableVersion for just this table."""
         return self._tbl_version_path.tbl_version
+
+    @property
+    def _tbl_version_path(self) -> TableVersionPath:
+        """Return TableVersionPath for just this table."""
+        self._check_is_dropped()
+        return self.__tbl_version_path
 
     def __hash__(self) -> int:
         return hash(self._tbl_version.id)
@@ -153,6 +162,7 @@ class Table(SchemaObject):
         Returns:
             A list of view paths.
         """
+        self._check_is_dropped()
         return [t._path for t in self._get_views(recursive=recursive)]
 
     def _get_views(self, *, recursive: bool = True) -> list['Table']:
@@ -166,7 +176,8 @@ class Table(SchemaObject):
         """Return a DataFrame for this table.
         """
         # local import: avoid circular imports
-        return pxt.DataFrame(self._tbl_version_path)
+        from pixeltable.plan import FromClause
+        return pxt.DataFrame(FromClause(tbls=[self._tbl_version_path]))
 
     @property
     def queries(self) -> 'Table.QueryScope':
@@ -179,6 +190,13 @@ class Table(SchemaObject):
     def where(self, pred: 'exprs.Expr') -> 'pxt.DataFrame':
         """Return a [`DataFrame`][pixeltable.DataFrame] for this table."""
         return self._df().where(pred)
+
+    def join(
+            self, other: 'Table', *, on: Optional['exprs.Expr'] = None,
+            how: 'pixeltable.plan.JoinType.LiteralType' = 'inner'
+    ) -> 'pxt.DataFrame':
+        """Return a [`DataFrame`][pixeltable.DataFrame] for this table."""
+        return self._df().join(other, on=on, how=how)
 
     def order_by(self, *items: 'exprs.Expr', asc: bool = True) -> 'pxt.DataFrame':
         """Return a [`DataFrame`][pixeltable.DataFrame] for this table."""
@@ -200,7 +218,6 @@ class Table(SchemaObject):
     ) -> 'pxt.dataframe.DataFrameResultSet':
         """Return rows from this table.
         """
-        self._check_is_dropped()
         return self._df().show(*args, **kwargs)
 
     def head(
@@ -247,6 +264,18 @@ class Table(SchemaObject):
         return catalog.Catalog.get().tbls[base_id]
 
     @property
+    def _bases(self) -> list['Table']:
+        """
+        The ancestor list of bases of this table, starting with its immediate base.
+        """
+        bases = []
+        base = self._base
+        while base is not None:
+            bases.append(base)
+            base = base._base
+        return bases
+
+    @property
     def _comment(self) -> str:
         return self._tbl_version.comment
 
@@ -258,46 +287,97 @@ class Table(SchemaObject):
     def _media_validation(self) -> MediaValidation:
         return self._tbl_version.media_validation
 
-    def _description(self, cols: Optional[Iterable[Column]] = None) -> pd.DataFrame:
-        cols = self._tbl_version_path.columns()
-        df = pd.DataFrame({
-            'Column Name': [c.name for c in cols],
-            'Type': [c.col_type._to_str(as_schema=True) for c in cols],
-            'Computed With': [c.value_expr.display_str(inline=False) if c.value_expr is not None else '' for c in cols],
-        })
-        return df
+    def __repr__(self) -> str:
+        return self._descriptors().to_string()
 
-    def _description_html(self, cols: Optional[Iterable[Column]] = None) -> pandas.io.formats.style.Styler:
-        pd_df = self._description(cols)
-        # white-space: pre-wrap: print \n as newline
-        # th: center-align headings
-        return (
-            pd_df.style.set_properties(None, **{'white-space': 'pre-wrap', 'text-align': 'left'})
-            .set_table_styles([dict(selector='th', props=[('text-align', 'center')])])
-            .hide(axis='index')
+    def _repr_html_(self) -> str:
+        return self._descriptors().to_html()
+
+    def _descriptors(self) -> DescriptionHelper:
+        """
+        Constructs a list of descriptors for this table that can be pretty-printed.
+        """
+        helper = DescriptionHelper()
+        helper.append(self._title_descriptor())
+        helper.append(self._col_descriptor())
+        idxs = self._index_descriptor()
+        if not idxs.empty:
+            helper.append(idxs)
+        stores = self._external_store_descriptor()
+        if not stores.empty:
+            helper.append(stores)
+        if self._comment:
+            helper.append(f'COMMENT: {self._comment}')
+        return helper
+
+    def _title_descriptor(self) -> str:
+        title: str
+        if self._base is None:
+            title = f'Table\n{self._path!r}'
+        else:
+            title = f'View\n{self._path!r}'
+            title += f'\n(of {self.__bases_to_desc()})'
+        return title
+
+    def _col_descriptor(self, columns: Optional[list[str]] = None) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                'Column Name': col.name,
+                'Type': col.col_type._to_str(as_schema=True),
+                'Computed With': col.value_expr.display_str(inline=False) if col.value_expr is not None else ''
+            }
+            for col in self.__tbl_version_path.columns()
+            if columns is None or col.name in columns
         )
+
+    def __bases_to_desc(self) -> str:
+        bases = self._bases
+        assert len(bases) >= 1
+        if len(bases) <= 2:
+            return ', '.join(repr(b._path) for b in bases)
+        else:
+            return f'{bases[0]._path!r}, ..., {bases[-1]._path!r}'
+
+    def _index_descriptor(self, columns: Optional[list[str]] = None) -> pd.DataFrame:
+        from pixeltable import index
+
+        pd_rows = []
+        for name, info in self._tbl_version.idxs_by_name.items():
+            if isinstance(info.idx, index.EmbeddingIndex) and (columns is None or info.col.name in columns):
+                display_embed = info.idx.string_embed if info.col.col_type.is_string_type() else info.idx.image_embed
+                if info.idx.string_embed is not None and info.idx.image_embed is not None:
+                    embed_str = f'{display_embed} (+1)'
+                else:
+                    embed_str = str(display_embed)
+                row = {
+                    'Index Name': name,
+                    'Column': info.col.name,
+                    'Metric': str(info.idx.metric.name.lower()),
+                    'Embedding': embed_str,
+                }
+                pd_rows.append(row)
+        return pd.DataFrame(pd_rows)
+
+    def _external_store_descriptor(self) -> pd.DataFrame:
+        pd_rows = []
+        for name, store in self._tbl_version.external_stores.items():
+            row = {
+                'External Store': name,
+                'Type': type(store).__name__,
+            }
+            pd_rows.append(row)
+        return pd.DataFrame(pd_rows)
 
     def describe(self) -> None:
         """
         Print the table schema.
         """
+        self._check_is_dropped()
         if getattr(builtins, '__IPYTHON__', False):
             from IPython.display import display
-            display(self._description_html())
+            display(self._repr_html_())
         else:
             print(repr(self))
-
-    # TODO: Display comments in _repr_html()
-    def __repr__(self) -> str:
-        description_str = self._description().to_string(index=False)
-        if self._comment is None:
-            comment = ''
-        else:
-            comment = f'{self._comment}\n'
-        return f'{self._display_name()} \'{self._name}\'\n{comment}{description_str}'
-
-    def _repr_html_(self) -> str:
-        return self._description_html()._repr_html_()  # type: ignore[attr-defined]
 
     def _drop(self) -> None:
         cat = catalog.Catalog.get()
@@ -337,6 +417,7 @@ class Table(SchemaObject):
 
         For details, see the documentation for [`add_column()`][pixeltable.catalog.Table.add_column].
         """
+        self._check_is_dropped()
         if not isinstance(col_name, str):
             raise excs.Error(f'Column name must be a string, got {type(col_name)}')
         if not isinstance(spec, (ts.ColumnType, exprs.Expr, type, _GenericAlias)):
@@ -686,7 +767,6 @@ class Table(SchemaObject):
             >>> tbl = pxt.get_table('my_table')
             ... tbl.rename_column('col1', 'col2')
         """
-        self._check_is_dropped()
         self._tbl_version.rename_column(old_name, new_name)
 
     def add_embedding_index(
@@ -748,7 +828,6 @@ class Table(SchemaObject):
         """
         if self._tbl_version_path.is_snapshot():
             raise excs.Error('Cannot add an index to a snapshot')
-        self._check_is_dropped()
         col: Column
         if isinstance(column, str):
             self.__check_column_name_exists(column, include_bases=True)
@@ -872,7 +951,6 @@ class Table(SchemaObject):
     ) -> None:
         if self._tbl_version_path.is_snapshot():
             raise excs.Error('Cannot drop an index from a snapshot')
-        self._check_is_dropped()
         assert (col is None) != (idx_name is None)
 
         if idx_name is not None:
@@ -1009,7 +1087,6 @@ class Table(SchemaObject):
 
             >>> tbl.update({'int_col': tbl.int_col + 1}, where=tbl.int_col == 0)
         """
-        self._check_is_dropped()
         status = self._tbl_version.update(value_spec, where, cascade)
         FileCache.get().emit_eviction_warnings()
         return status
@@ -1045,7 +1122,6 @@ class Table(SchemaObject):
         """
         if self._tbl_version_path.is_snapshot():
             raise excs.Error('Cannot update a snapshot')
-        self._check_is_dropped()
         rows = list(rows)
 
         row_updates: list[dict[Column, exprs.Expr]] = []
@@ -1100,7 +1176,6 @@ class Table(SchemaObject):
         """
         if self._tbl_version_path.is_snapshot():
             raise excs.Error('Cannot revert a snapshot')
-        self._check_is_dropped()
         self._tbl_version.revert()
 
     @overload
@@ -1150,7 +1225,6 @@ class Table(SchemaObject):
         """
         if self._tbl_version.is_snapshot:
             raise excs.Error(f'Table `{self._name}` is a snapshot, so it cannot be linked to an external store.')
-        self._check_is_dropped()
         if store.name in self.external_stores:
             raise excs.Error(f'Table `{self._name}` already has an external store with that name: {store.name}')
         _logger.info(f'Linking external store `{store.name}` to table `{self._name}`')

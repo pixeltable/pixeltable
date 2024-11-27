@@ -10,7 +10,7 @@ import sqlalchemy.orm as orm
 from .schema import SystemInfo, SystemInfoMd
 
 # current version of the metadata; this is incremented whenever the metadata schema changes
-VERSION = 22
+VERSION = 23
 
 
 def create_system_info(engine: sql.engine.Engine) -> None:

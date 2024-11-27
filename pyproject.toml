@@ -6,9 +6,17 @@ build-backend = "poetry_dynamic_versioning.backend"
 name = "pixeltable"
 version = "0.0.0"
 description = "AI Data Infrastructure: Declarative, Multimodal, and Incremental"
-authors = ["Pixeltable, Inc. <contact@pixeltable.com>"]
 license = "Apache-2.0"
+authors = ["Pixeltable, Inc. <contact@pixeltable.com>"]
 readme = "README.md"
+homepage = "https://pixeltable.com/"
+repository = "https://github.com/pixeltable/pixeltable"
+documentation = "https://docs.pixeltable.com/"
+keywords = [
+    "data-science", "machine-learning", "database", "ai", "computer-vision",
+    "chatbot", "ml", "artificial-intelligence", "feature-engineering", "multimodal",
+    "mlops", "feature-store", "vector-database", "llm", "genai"
+]
 classifiers = [
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
@@ -108,6 +116,7 @@ together = "^1.3.1"
 fireworks-ai = "^0.13.0"
 mistralai = "^1.2.1"
 replicate = "^1.0.2"
+google-generativeai = "^0.8.3"
 boto3 = "==1.35.5"  # Locking a specific version of boto3 dramatically improves `poetry lock` runtimes
 spacy = ">=3.7"
 pydantic = ">=2.7.4"  # Required minimum version to work with spacy + python 3.12
@@ -121,7 +130,7 @@ openpyxl = ">=3.1"  # Excel (.xlsx) support
 openai-whisper = ">=20240930"
 label-studio-sdk = "^0.0.32"
 fiftyone = "^1.0.0"
-ollama = ">=0.3.3"
+ollama = ">=0.4.0"
 llama-cpp-python = ">=0.3.1"
 psycopg = [  # Lock psycopg versions in dev to ensure proper behavior with all Python versions
     { extras = ["binary"], version = "==3.1.18", python = "<3.13" },

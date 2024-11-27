@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import builtins
 import copy
+import dataclasses
 import hashlib
 import json
 import logging
-import mimetypes
 import traceback
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Hashable, Iterator, Optional, Sequence, Union
+from typing import TYPE_CHECKING, Any, Callable, Hashable, Iterator, Optional, Sequence, Union, Literal
 
 import pandas as pd
 import pandas.io.formats.style
@@ -17,14 +17,15 @@ import sqlalchemy as sql
 import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
 import pixeltable.exprs as exprs
+import pixeltable.type_system as ts
 from pixeltable import exec
+from pixeltable import plan
 from pixeltable.catalog import is_valid_identifier
 from pixeltable.catalog.globals import UpdateStatus
 from pixeltable.env import Env
-from pixeltable.plan import Planner
 from pixeltable.type_system import ColumnType
+from pixeltable.utils.description_helper import DescriptionHelper
 from pixeltable.utils.formatter import Formatter
-from pixeltable.utils.http_server import get_file_uri
 
 if TYPE_CHECKING:
     import torch
@@ -131,9 +132,19 @@ class DataFrameResultSet:
 
 
 class DataFrame:
+    _from_clause: plan.FromClause
+    _select_list_exprs: list[exprs.Expr]
+    _schema: dict[str, ts.ColumnType]
+    select_list: Optional[list[tuple[exprs.Expr, Optional[str]]]]
+    where_clause: Optional[exprs.Expr]
+    group_by_clause: Optional[list[exprs.Expr]]
+    grouping_tbl: Optional[catalog.TableVersion]
+    order_by_clause: Optional[list[tuple[exprs.Expr, bool]]]
+    limit_val: Optional[int]
+
     def __init__(
         self,
-        tbl: catalog.TableVersionPath,
+        from_clause: Optional[plan.FromClause] = None,
         select_list: Optional[list[tuple[exprs.Expr, Optional[str]]]] = None,
         where_clause: Optional[exprs.Expr] = None,
         group_by_clause: Optional[list[exprs.Expr]] = None,
@@ -141,14 +152,11 @@ class DataFrame:
         order_by_clause: Optional[list[tuple[exprs.Expr, bool]]] = None,  # list[(expr, asc)]
         limit: Optional[int] = None,
     ):
-        self.tbl = tbl
+        self._from_clause = from_clause
 
-        # select list logic
-        DataFrame._select_list_check_rep(select_list)  # check select list without expansion
         # exprs contain execution state and therefore cannot be shared
         select_list = copy.deepcopy(select_list)
-        select_list_exprs, column_names = DataFrame._normalize_select_list(tbl, select_list)
-        DataFrame._select_list_check_rep(list(zip(select_list_exprs, column_names)))
+        select_list_exprs, column_names = DataFrame._normalize_select_list(self._from_clause.tbls, select_list)
         # check select list after expansion to catch early
         # the following two lists are always non empty, even if select list is None.
         assert len(column_names) == len(select_list_exprs)
@@ -164,27 +172,9 @@ class DataFrame:
         self.limit_val = limit
 
     @classmethod
-    def _select_list_check_rep(
-        cls,
-        select_list: Optional[list[tuple[exprs.Expr, Optional[str]]]],
-    ) -> None:
-        """Validate basic select list types."""
-        if select_list is None:  # basic check for valid select list
-            return
-
-        assert len(select_list) > 0
-        for ent in select_list:
-            assert isinstance(ent, tuple)
-            assert len(ent) == 2
-            assert isinstance(ent[0], exprs.Expr)
-            assert ent[1] is None or isinstance(ent[1], str)
-            if isinstance(ent[1], str):
-                assert is_valid_identifier(ent[1])
-
-    @classmethod
     def _normalize_select_list(
         cls,
-        tbl: catalog.TableVersionPath,
+        tbls: list[catalog.TableVersionPath],
         select_list: Optional[list[tuple[exprs.Expr, Optional[str]]]],
     ) -> tuple[list[exprs.Expr], list[str]]:
         """
@@ -193,7 +183,7 @@ class DataFrame:
             a pair composed of the list of expressions and the list of corresponding names
         """
         if select_list is None:
-            select_list = [(exprs.ColumnRef(col), None) for col in tbl.columns()]
+            select_list = [(exprs.ColumnRef(col), None) for tbl in tbls for col in tbl.columns()]
 
         out_exprs: list[exprs.Expr] = []
         out_names: list[str] = []  # keep track of order
@@ -221,6 +211,11 @@ class DataFrame:
         assert len(out_exprs) == len(out_names)
         assert set(out_names) == seen_out_names
         return out_exprs, out_names
+
+    @property
+    def _first_tbl(self) -> catalog.TableVersionPath:
+        assert len(self._from_clause.tbls) == 1
+        return self._from_clause.tbls[0]
 
     def _vars(self) -> dict[str, exprs.Variable]:
         """
@@ -280,16 +275,16 @@ class DataFrame:
             assert self.group_by_clause is None
             num_rowid_cols = len(self.grouping_tbl.store_tbl.rowid_columns())
             # the grouping table must be a base of self.tbl
-            assert num_rowid_cols <= len(self.tbl.tbl_version.store_tbl.rowid_columns())
-            group_by_clause = [exprs.RowidRef(self.tbl.tbl_version, idx) for idx in range(num_rowid_cols)]
+            assert num_rowid_cols <= len(self._first_tbl.tbl_version.store_tbl.rowid_columns())
+            group_by_clause = [exprs.RowidRef(self._first_tbl.tbl_version, idx) for idx in range(num_rowid_cols)]
         elif self.group_by_clause is not None:
             group_by_clause = self.group_by_clause
 
         for item in self._select_list_exprs:
             item.bind_rel_paths(None)
 
-        return Planner.create_query_plan(
-            self.tbl,
+        return plan.Planner.create_query_plan(
+            self._from_clause,
             self._select_list_exprs,
             where_clause=self.where_clause,
             group_by_clause=group_by_clause,
@@ -297,6 +292,8 @@ class DataFrame:
             limit=self.limit_val
         )
 
+    def _has_joins(self) -> bool:
+        return len(self._from_clause.join_clauses) > 0
 
     def show(self, n: int = 20) -> DataFrameResultSet:
         assert n is not None
@@ -305,15 +302,19 @@ class DataFrame:
     def head(self, n: int = 10) -> DataFrameResultSet:
         if self.order_by_clause is not None:
             raise excs.Error(f'head() cannot be used with order_by()')
-        num_rowid_cols = len(self.tbl.tbl_version.store_tbl.rowid_columns())
-        order_by_clause = [exprs.RowidRef(self.tbl.tbl_version, idx) for idx in range(num_rowid_cols)]
+        if self._has_joins():
+            raise excs.Error(f'head() not supported for joins')
+        num_rowid_cols = len(self._first_tbl.tbl_version.store_tbl.rowid_columns())
+        order_by_clause = [exprs.RowidRef(self._first_tbl.tbl_version, idx) for idx in range(num_rowid_cols)]
         return self.order_by(*order_by_clause, asc=True).limit(n).collect()
 
     def tail(self, n: int = 10) -> DataFrameResultSet:
         if self.order_by_clause is not None:
             raise excs.Error(f'tail() cannot be used with order_by()')
-        num_rowid_cols = len(self.tbl.tbl_version.store_tbl.rowid_columns())
-        order_by_clause = [exprs.RowidRef(self.tbl.tbl_version, idx) for idx in range(num_rowid_cols)]
+        if self._has_joins():
+            raise excs.Error(f'tail() not supported for joins')
+        num_rowid_cols = len(self._first_tbl.tbl_version.store_tbl.rowid_columns())
+        order_by_clause = [exprs.RowidRef(self._first_tbl.tbl_version, idx) for idx in range(num_rowid_cols)]
         result = self.order_by(*order_by_clause, asc=False).limit(n).collect()
         result._reverse()
         return result
@@ -359,7 +360,7 @@ class DataFrame:
             ]
 
         return DataFrame(
-            self.tbl, select_list=select_list, where_clause=where_clause,
+            from_clause=self._from_clause, select_list=select_list, where_clause=where_clause,
             group_by_clause=group_by_clause, grouping_tbl=self.grouping_tbl,
             order_by_clause=order_by_clause, limit=self.limit_val)
 
@@ -395,28 +396,42 @@ class DataFrame:
     def count(self) -> int:
         from pixeltable.plan import Planner
 
-        stmt = Planner.create_count_stmt(self.tbl, self.where_clause)
+        stmt = Planner.create_count_stmt(self._first_tbl, self.where_clause)
         with Env.get().engine.connect() as conn:
             result: int = conn.execute(stmt).scalar_one()
             assert isinstance(result, int)
             return result
 
-    def _description(self) -> pd.DataFrame:
-        """see DataFrame.describe()"""
+    def _descriptors(self) -> DescriptionHelper:
+        helper = DescriptionHelper()
+        helper.append(self._col_descriptor())
+        qd = self._query_descriptor()
+        if not qd.empty:
+            helper.append(qd, show_index=True, show_header=False)
+        return helper
+
+    def _col_descriptor(self) -> pd.DataFrame:
+        return pd.DataFrame([
+            {
+                'Name': name,
+                'Type': expr.col_type._to_str(as_schema=True),
+                'Expression': expr.display_str(inline=False),
+            }
+            for name, expr in zip(self.schema.keys(), self._select_list_exprs)
+        ])
+
+    def _query_descriptor(self) -> pd.DataFrame:
         heading_vals: list[str] = []
         info_vals: list[str] = []
-        if self.select_list is not None:
-            assert len(self.select_list) > 0
-            heading_vals.append('Select')
-            heading_vals.extend([''] * (len(self.select_list) - 1))
-            info_vals.extend(self.schema.keys())
+        heading_vals.append('From')
+        info_vals.extend(tbl.tbl_name() for tbl in self._from_clause.tbls)
         if self.where_clause is not None:
             heading_vals.append('Where')
             info_vals.append(self.where_clause.display_str(inline=False))
         if self.group_by_clause is not None:
             heading_vals.append('Group By')
             heading_vals.extend([''] * (len(self.group_by_clause) - 1))
-            info_vals.extend([e.display_str(inline=False) for e in self.group_by_clause])
+            info_vals.extend(e.display_str(inline=False) for e in self.group_by_clause)
         if self.order_by_clause is not None:
             heading_vals.append('Order By')
             heading_vals.extend([''] * (len(self.order_by_clause) - 1))
@@ -426,22 +441,8 @@ class DataFrame:
         if self.limit_val is not None:
             heading_vals.append('Limit')
             info_vals.append(str(self.limit_val))
-        assert len(heading_vals) > 0
-        assert len(info_vals) > 0
         assert len(heading_vals) == len(info_vals)
-        return pd.DataFrame({'Heading': heading_vals, 'Info': info_vals})
-
-    def _description_html(self) -> pandas.io.formats.style.Styler:
-        """Return the description in an ipython-friendly manner."""
-        pd_df = self._description()
-        # white-space: pre-wrap: print \n as newline
-        # th: center-align headings
-        return (
-            pd_df.style.set_properties(None, **{'white-space': 'pre-wrap', 'text-align': 'left'})
-            .set_table_styles([dict(selector='th', props=[('text-align', 'center')])])
-            .hide(axis='index')
-            .hide(axis='columns')
-        )
+        return pd.DataFrame(info_vals, index=heading_vals)
 
     def describe(self) -> None:
         """
@@ -451,15 +452,15 @@ class DataFrame:
         """
         if getattr(builtins, '__IPYTHON__', False):
             from IPython.display import display
-            display(self._description_html())
+            display(self._repr_html_())
         else:
-            print(self.__repr__())
+            print(repr(self))
 
     def __repr__(self) -> str:
-        return self._description().to_string(header=False, index=False)
+        return self._descriptors().to_string()
 
     def _repr_html_(self) -> str:
-        return self._description_html()._repr_html_()  # type: ignore[attr-defined]
+        return self._descriptors().to_html()
 
     def select(self, *items: Any, **named_items: Any) -> DataFrame:
         if self.select_list is not None:
@@ -472,7 +473,7 @@ class DataFrame:
             return self
 
         # analyze select list; wrap literals with the corresponding expressions
-        select_list = []
+        select_list: list[tuple[exprs.Expr, Optional[str]]] = []
         for raw_expr, name in base_list:
             if isinstance(raw_expr, exprs.Expr):
                 select_list.append((raw_expr, name))
@@ -485,12 +486,14 @@ class DataFrame:
             expr = select_list[-1][0]
             if expr.col_type.is_invalid_type():
                 raise excs.Error(f'Invalid type: {raw_expr}')
-            # TODO: check that ColumnRefs in expr refer to self.tbl
+            if not expr.is_bound_by(self._from_clause.tbls):
+                raise excs.Error(
+                    f"Expression '{expr}' cannot be evaluated in the context of this query's tables "
+                    f"({','.join(tbl.tbl_name() for tbl in self._from_clause.tbls)})")
 
-        # check user provided names do not conflict among themselves
-        # or with auto-generated ones
+        # check user provided names do not conflict among themselves or with auto-generated ones
         seen: set[str] = set()
-        _, names = DataFrame._normalize_select_list(self.tbl, select_list)
+        _, names = DataFrame._normalize_select_list(self._from_clause.tbls, select_list)
         for name in names:
             if name in seen:
                 repeated_names = [j for j, x in enumerate(names) if x == name]
@@ -499,7 +502,7 @@ class DataFrame:
             seen.add(name)
 
         return DataFrame(
-            self.tbl,
+            from_clause=self._from_clause,
             select_list=select_list,
             where_clause=self.where_clause,
             group_by_clause=self.group_by_clause,
@@ -514,7 +517,7 @@ class DataFrame:
         if not pred.col_type.is_bool_type():
             raise excs.Error(f'Where(): expression needs to return bool, but instead returns {pred.col_type}')
         return DataFrame(
-            self.tbl,
+            from_clause=self._from_clause,
             select_list=self.select_list,
             where_clause=pred,
             group_by_clause=self.group_by_clause,
@@ -523,8 +526,144 @@ class DataFrame:
             limit=self.limit_val,
         )
 
+    def _create_join_predicate(
+            self, other: catalog.TableVersionPath, on: Union[exprs.Expr, Sequence[exprs.ColumnRef]]
+    ) -> exprs.Expr:
+        """Verifies user-specified 'on' argument and converts it into a join predicate."""
+        col_refs: list[exprs.ColumnRef] = []
+        joined_tbls = self._from_clause.tbls + [other]
+
+        if isinstance(on, exprs.ColumnRef):
+            on = [on]
+        elif isinstance(on, exprs.Expr):
+            if not on.is_bound_by(joined_tbls):
+                raise excs.Error(f"'on': expression cannot be evaluated in the context of the joined tables: {on}")
+            if not on.col_type.is_bool_type():
+                raise excs.Error(f"'on': boolean expression expected, but got {on.col_type}: {on}")
+            return on
+        else:
+            if not isinstance(on, Sequence) or len(on) == 0:
+                raise excs.Error(
+                    f"'on': must be a sequence of column references or a boolean expression")
+
+        assert isinstance(on, Sequence)
+        for col_ref in on:
+            if not isinstance(col_ref, exprs.ColumnRef):
+                raise excs.Error(
+                    f"'on': must be a sequence of column references or a boolean expression")
+            if not col_ref.is_bound_by(joined_tbls):
+                raise excs.Error(f"'on': expression cannot be evaluated in the context of the joined tables: {col_ref}")
+            col_refs.append(col_ref)
+
+        predicates: list[exprs.Expr] = []
+        # try to turn ColumnRefs into equality predicates
+        assert len(col_refs) > 0 and len(joined_tbls) >= 2
+        for col_ref in col_refs:
+            # identify the referenced column by name in 'other'
+            rhs_col = other.get_column(col_ref.col.name, include_bases=True)
+            if rhs_col is None:
+                raise excs.Error(f"'on': column {col_ref.col.name!r} not found in joined table")
+            rhs_col_ref = exprs.ColumnRef(rhs_col)
+
+            lhs_col_ref: Optional[exprs.ColumnRef] = None
+            if any(tbl.has_column(col_ref.col, include_bases=True) for tbl in self._from_clause.tbls):
+                # col_ref comes from the existing from_clause, we use that directly
+                lhs_col_ref = col_ref
+            else:
+                # col_ref comes from other, we need to look for a match in the existing from_clause by name
+                for tbl in self._from_clause.tbls:
+                    col = tbl.get_column(col_ref.col.name, include_bases=True)
+                    if col is None:
+                        continue
+                    if lhs_col_ref is not None:
+                        raise excs.Error(f"'on': ambiguous column reference: {col_ref.col.name!r}")
+                    lhs_col_ref = exprs.ColumnRef(col)
+                if lhs_col_ref is None:
+                    tbl_names = [tbl.tbl_name() for tbl in self._from_clause.tbls]
+                    raise excs.Error(
+                        f"'on': column {col_ref.col.name!r} not found in any of: {' '.join(tbl_names)}")
+            pred = exprs.Comparison(exprs.ComparisonOperator.EQ, lhs_col_ref, rhs_col_ref)
+            predicates.append(pred)
+
+        assert len(predicates) > 0
+        if len(predicates) == 1:
+            return predicates[0]
+        else:
+            return exprs.CompoundPredicate(operator=exprs.LogicalOperator.AND, operands=predicates)
+
+    def join(
+        self, other: catalog.Table,  on: Optional[Union[exprs.Expr, Sequence[exprs.ColumnRef]]] = None,
+        how: plan.JoinType.LiteralType = 'inner'
+    ) -> DataFrame:
+        """
+        Join this DataFrame with a table.
+
+        Args:
+            other: the table to join with
+            on: the join condition, which can be either a) references to one or more columns or b) a boolean
+                expression.
+
+                - column references: implies an equality predicate that matches columns in both this
+                    DataFrame and `other` by name.
+
+                    - column in `other`: A column with that same name must be present in this DataFrame, and **it must
+                        be unique** (otherwise the join is ambiguous).
+                    - column in this DataFrame: A column with that same name must be present in `other`.
+
+                - boolean expression: The expressions must be valid in the context of the joined tables.
+            how: the type of join to perform.
+
+                - `'inner'`: only keep rows that have a match in both
+                - `'left'`: keep all rows from this DataFrame and only matching rows from the other table
+                - `'right'`: keep all rows from the other table and only matching rows from this DataFrame
+                - `'full_outer'`: keep all rows from both this DataFrame and the other table
+                - `'cross'`: Cartesian product; no `on` condition allowed
+
+        Returns:
+            A new DataFrame.
+
+        Examples:
+            Perform an inner join between t1 and t2 on the column id:
+
+            >>> join1 = t1.join(t2, on=t2.id)
+
+            Perform a left outer join of join1 with t3, also on id (note that we can't specify `on=t3.id` here,
+            because that would be ambiguous, since both t1 and t2 have a column named id):
+
+            >>> join2 = join1.join(t3, on=t2.id, how='left')
+
+            Do the same, but now with an explicit join predicate:
+
+            >>> join2 = join1.join(t3, on=t2.id == t3.id, how='left')
+
+            Join t with d, which has a composite primary key (columns pk1 and pk2, with corresponding foreign
+            key columns d1 and d2 in t):
+
+            >>> df = t.join(d, on=(t.d1 == d.pk1) & (t.d2 == d.pk2), how='left')
+        """
+        join_pred: Optional[exprs.Expr]
+        if how == 'cross':
+            if on is not None:
+                raise excs.Error(f"'on' not allowed for cross join")
+            join_pred = None
+        else:
+            if on is None:
+                raise excs.Error(f"how={how!r} requires 'on'")
+            join_pred = self._create_join_predicate(other._tbl_version_path, on)
+        join_clause = plan.JoinClause(join_type=plan.JoinType.validated(how, "'how'"), join_predicate=join_pred)
+        from_clause = plan.FromClause(
+            tbls=[*self._from_clause.tbls, other._tbl_version_path],
+            join_clauses=[*self._from_clause.join_clauses, join_clause])
+        return DataFrame(
+            from_clause=from_clause,
+            select_list=self.select_list, where_clause=self.where_clause,
+            group_by_clause=self.group_by_clause, grouping_tbl=self.grouping_tbl,
+            order_by_clause=self.order_by_clause, limit=self.limit_val,
+        )
+
     def group_by(self, *grouping_items: Any) -> DataFrame:
-        """Add a group-by clause to this DataFrame.
+        """
+        Add a group-by clause to this DataFrame.
         Variants:
         - group_by(<base table>): group a component view by their respective base table rows
         - group_by(<expr>, ...): group by the given expressions
@@ -537,10 +676,12 @@ class DataFrame:
             if isinstance(item, catalog.Table):
                 if len(grouping_items) > 1:
                     raise excs.Error(f'group_by(): only one table can be specified')
+                if len(self._from_clause.tbls) > 1:
+                    raise excs.Error(f'group_by() with Table not supported for joins')
                 # we need to make sure that the grouping table is a base of self.tbl
-                base = self.tbl.find_tbl_version(item._tbl_version_path.tbl_id())
-                if base is None or base.id == self.tbl.tbl_id():
-                    raise excs.Error(f'group_by(): {item._name} is not a base table of {self.tbl.tbl_name()}')
+                base = self._first_tbl.find_tbl_version(item._tbl_version_path.tbl_id())
+                if base is None or base.id == self._first_tbl.tbl_id():
+                    raise excs.Error(f'group_by(): {item._name} is not a base table of {self._first_tbl.tbl_name()}')
                 grouping_tbl = item._tbl_version_path.tbl_version
                 break
             if not isinstance(item, exprs.Expr):
@@ -548,7 +689,7 @@ class DataFrame:
         if grouping_tbl is None:
             group_by_clause = list(grouping_items)
         return DataFrame(
-            self.tbl,
+            from_clause=self._from_clause,
             select_list=self.select_list,
             where_clause=self.where_clause,
             group_by_clause=group_by_clause,
@@ -564,7 +705,7 @@ class DataFrame:
         order_by_clause = self.order_by_clause if self.order_by_clause is not None else []
         order_by_clause.extend([(e.copy(), asc) for e in expr_list])
         return DataFrame(
-            self.tbl,
+            from_clause=self._from_clause,
             select_list=self.select_list,
             where_clause=self.where_clause,
             group_by_clause=self.group_by_clause,
@@ -577,7 +718,7 @@ class DataFrame:
         # TODO: allow n to be a Variable that can be substituted in bind()
         assert n is not None and isinstance(n, int)
         return DataFrame(
-            self.tbl,
+            from_clause=self._from_clause,
             select_list=self.select_list,
             where_clause=self.where_clause,
             group_by_clause=self.group_by_clause,
@@ -588,13 +729,13 @@ class DataFrame:
 
     def update(self, value_spec: dict[str, Any], cascade: bool = True) -> UpdateStatus:
         self._validate_mutable('update')
-        return self.tbl.tbl_version.update(value_spec, where=self.where_clause, cascade=cascade)
+        return self._first_tbl.tbl_version.update(value_spec, where=self.where_clause, cascade=cascade)
 
     def delete(self) -> UpdateStatus:
         self._validate_mutable('delete')
-        if not self.tbl.is_insertable():
+        if not self._first_tbl.is_insertable():
             raise excs.Error(f'Cannot delete from view')
-        return self.tbl.tbl_version.delete(where=self.where_clause)
+        return self._first_tbl.tbl_version.delete(where=self.where_clause)
 
     def _validate_mutable(self, op_name: str) -> None:
         """Tests whether this `DataFrame` can be mutated (such as by an update operation)."""
@@ -624,10 +765,12 @@ class DataFrame:
         Returns:
             Dictionary representing this dataframe.
         """
-        tbl_versions = self.tbl.get_tbl_versions()
         d = {
             '_classname': 'DataFrame',
-            'tbl': self.tbl.as_dict(),
+            'from_clause': {
+                'tbls': [tbl.as_dict() for tbl in self._from_clause.tbls],
+                'join_clauses': [dataclasses.asdict(clause) for clause in self._from_clause.join_clauses]
+            },
             'select_list':
                 [(e.as_dict(), name) for (e, name) in self.select_list] if self.select_list is not None else None,
             'where_clause': self.where_clause.as_dict() if self.where_clause is not None else None,
@@ -642,7 +785,9 @@ class DataFrame:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> 'DataFrame':
-        tbl = catalog.TableVersionPath.from_dict(d['tbl'])
+        tbls = [catalog.TableVersionPath.from_dict(tbl_dict) for tbl_dict in d['from_clause']['tbls']]
+        join_clauses = [plan.JoinClause(**clause_dict) for clause_dict in d['from_clause']['join_clauses']]
+        from_clause = plan.FromClause(tbls=tbls, join_clauses=join_clauses)
         select_list = [(exprs.Expr.from_dict(e), name) for e, name in d['select_list']] \
             if d['select_list'] is not None else None
         where_clause = exprs.Expr.from_dict(d['where_clause']) \
@@ -655,15 +800,18 @@ class DataFrame:
             if d['order_by_clause'] is not None else None
         limit_val = d['limit_val']
         return DataFrame(
-            tbl, select_list=select_list, where_clause=where_clause, group_by_clause=group_by_clause,
-            grouping_tbl=grouping_tbl, order_by_clause=order_by_clause, limit=limit_val)
+            from_clause=from_clause, select_list=select_list, where_clause=where_clause,
+            group_by_clause=group_by_clause, grouping_tbl=grouping_tbl, order_by_clause=order_by_clause,
+            limit=limit_val)
 
     def _hash_result_set(self) -> str:
         """Return a hash that changes when the result set changes."""
         d = self.as_dict()
         # add list of referenced table versions (the actual versions, not the effective ones) in order to force cache
         # invalidation when any of the referenced tables changes
-        d['tbl_versions'] = [tbl_version.version for tbl_version in self.tbl.get_tbl_versions()]
+        d['tbl_versions'] = [
+            tbl_version.version for tbl in self._from_clause.tbls for tbl_version in tbl.get_tbl_versions()
+        ]
         summary_string = json.dumps(d)
         return hashlib.sha256(summary_string.encode()).hexdigest()
 
@@ -732,7 +880,7 @@ class DataFrame:
         Env.get().require_package('torch')
         Env.get().require_package('torchvision')
 
-        from pixeltable.io.parquet import save_parquet
+        from pixeltable.io import export_parquet
         from pixeltable.utils.pytorch import PixeltablePytorchDataset
 
         cache_key = self._hash_result_set()
@@ -741,6 +889,6 @@ class DataFrame:
         if dest_path.exists():  # fast path: use cache
             assert dest_path.is_dir()
         else:
-            save_parquet(self, dest_path)
+            export_parquet(self, dest_path, inline_images=True)
 
         return PixeltablePytorchDataset(path=dest_path, image_format=image_format)

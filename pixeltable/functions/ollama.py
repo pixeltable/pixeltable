@@ -68,7 +68,7 @@ def generate(
         raw=raw,
         format=format,
         options=options,
-    )  # type: ignore[call-overload]
+    ).dict()  # type: ignore[call-overload]
 
 
 @pxt.udf
@@ -103,7 +103,7 @@ def chat(
         tools=tools,
         format=format,
         options=options,
-    )  # type: ignore[call-overload]
+    ).dict()  # type: ignore[call-overload]
 
 
 @pxt.udf(batch_size=16)
@@ -135,8 +135,8 @@ def embed(
         model=model,
         input=input,
         truncate=truncate,
-        options=options,  # type: ignore[arg-type]
-    )
+        options=options,
+    ).dict()
     return [np.array(data, dtype=np.float64) for data in results['embeddings']]
 
 

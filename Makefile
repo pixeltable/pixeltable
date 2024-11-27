@@ -57,7 +57,7 @@ ifeq ($(YOLOX_OK), True)
 	# YOLOX only works on python <= 3.10 and cannot be installed via poetry
 	@echo "Installing YOLOX ..."
 	# We have to include protobuf in the `pip install` or else YOLOX will downgrade it
-	@python -m pip install -q git+https://github.com/Megvii-BaseDetection/YOLOX@ac58e0a protobuf==5.27.0
+	@python -m pip install -q git+https://github.com/Megvii-BaseDetection/YOLOX@ac58e0a protobuf==5.28.3
 else
 	@echo "Python version is >= 3.11; skipping YOLOX installation."
 endif

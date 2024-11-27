@@ -56,7 +56,7 @@ class InlineArray(Expr):
         self.components.extend(exprs)
         self.id = self._create_id()
 
-    def __str__(self) -> str:
+    def __repr__(self) -> str:
         elem_strs = [str(expr) for expr in self.components]
         return f'[{", ".join(elem_strs)}]'
 
@@ -111,7 +111,7 @@ class InlineList(Expr):
         self.components.extend(exprs)
         self.id = self._create_id()
 
-    def __str__(self) -> str:
+    def __repr__(self) -> str:
         elem_strs = [str(expr) for expr in self.components]
         return f'[{", ".join(elem_strs)}]'
 
@@ -173,7 +173,7 @@ class InlineDict(Expr):
         self.components.extend(exprs)
         self.id = self._create_id()
 
-    def __str__(self) -> str:
+    def __repr__(self) -> str:
         item_strs = list(f"'{key}': {str(expr)}" for key, expr in zip(self.keys, self.components))
         return '{' + ', '.join(item_strs) + '}'
 

@@ -1,7 +1,18 @@
-# Pixeltable API
+# Pixeltable API Reference
 
-This is the API documentation for Pixeltable.
+[API Cheat Sheet](https://pixeltable.github.io/pixeltable/api-cheat-sheet/) 
+  
+## Content
 
-Main Pixeltable documentation: [https://pixeltable.readme.io/](https://pixeltable.readme.io/)
+- [pixeltable](https://pixeltable.github.io/pixeltable/pixeltable/pixeltable/): Core package with table operations and type system
+- [pixeltable.io](https://pixeltable.github.io/pixeltable/pixeltable/io/): Data import/export utilities
+- [pixeltable.iterators](https://pixeltable.github.io/pixeltable/pixeltable/iterators/document-splitter/): Built-in iterators for data transformation
+- [pixeltable.functions](https://pixeltable.github.io/pixeltable/pixeltable/functions/audio/): Pre-built functions for common operations
+- [pixeltable.config](https://pixeltable.github.io/pixeltable/config/): Most options can be specified either as an environment variable or in config.toml
+  
+## Resources
 
-Pixeltable github project: [https://github.com/pixeltable/pixeltable/](https://github.com/pixeltable/pixeltable/)
+- [Documentation](https://docs.pixeltable.com/)
+- [GitHub](https://github.com/pixeltable/pixeltable)
+- [Discord](https://discord.gg/QPyqFYx2UN)
+- [Website](https://pixeltable.com/)

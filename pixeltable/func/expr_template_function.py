@@ -78,6 +78,9 @@ class ExprTemplateFunction(Function):
     def name(self) -> str:
         return self.self_name
 
+    def __str__(self) -> str:
+        return str(self.expr)
+
     def _as_dict(self) -> dict:
         if self.self_path is not None:
             return super()._as_dict()

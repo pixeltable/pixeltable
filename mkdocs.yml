@@ -43,6 +43,7 @@ nav:
   - Model and Inference Functions:
     - anthropic: pixeltable/functions/anthropic.md
     - fireworks: pixeltable/functions/fireworks.md
+    - gemini: pixeltable/functions/gemini.md
     - huggingface: pixeltable/functions/huggingface.md
     - llama_cpp: pixeltable/functions/llama_cpp.md
     - mistralai: pixeltable/functions/mistralai.md
