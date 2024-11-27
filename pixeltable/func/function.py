@@ -26,7 +26,7 @@ class Function(abc.ABC):
     via the member self_path.
     """
 
-    signature: Signature
+    signatures: list[Signature]
     self_path: Optional[str]
     is_method: bool
     is_property: bool
@@ -39,11 +39,15 @@ class Function(abc.ABC):
 
 
     def __init__(
-        self, signature: Signature, self_path: Optional[str] = None, is_method: bool = False, is_property: bool = False
+        self,
+        signatures: list[Signature],
+        self_path: Optional[str] = None,
+        is_method: bool = False,
+        is_property: bool = False
     ):
         # Check that stored functions cannot be declared using `is_method` or `is_property`:
         assert not ((is_method or is_property) and self_path is None)
-        self.signature = signature
+        self.signatures = signatures
         self.self_path = self_path  # fully-qualified path to self
         self.is_method = is_method
         self.is_property = is_property
@@ -66,16 +70,43 @@ class Function(abc.ABC):
 
     @property
     def arity(self) -> int:
-        return len(self.signature.parameters)
+        return len(self.signatures[0].parameters)
 
     def help_str(self) -> str:
         return self.display_name + str(self.signature)
 
     def __call__(self, *args: Any, **kwargs: Any) -> 'pxt.exprs.FunctionCall':
         from pixeltable import exprs
-        bound_args = self.signature.py_signature.bind(*args, **kwargs)
-        self.validate_call(bound_args.arguments)
-        return exprs.FunctionCall(self, bound_args.arguments)
+
+        signature: Optional[Signature] = None
+        bound_args: Optional[dict[str, Any]] = None
+        if len(self.signatures) == 1:
+            signature = self.signatures[0]
+            bound_args = self._bind_to_signature(signature, args, kwargs)
+        else:
+            for sig in self.signatures:
+                try:
+                    bound_args = self._bind_to_signature(sig, args, kwargs)
+                except (TypeError, excs.Error):
+                    continue
+                signature = sig
+                break
+            if signature is None:
+                raise excs.Error(f'Function {self.name!r} has no matching signature for arguments')
+            assert bound_args is not None
+        return exprs.FunctionCall(self, signature, bound_args)
+
+    def _bind_to_signature(
+        self,
+        signature: Signature,
+        args: tuple[Any],
+        kwargs: dict[str, Any],
+    ) -> dict[str, Any]:
+        from pixeltable import exprs
+        bound_args = signature.py_signature.bind(*args, **kwargs).arguments
+        self.validate_call(bound_args)
+        exprs.FunctionCall.normalize_args(self.name, signature, bound_args)
+        return bound_args
 
     def validate_call(self, bound_args: dict[str, Any]) -> None:
         """Override this to do custom validation of the arguments"""
@@ -128,7 +159,7 @@ class Function(abc.ABC):
             bindings[param.name] = exprs.Variable(param.name, param.col_type)
 
         call = exprs.FunctionCall(self, bindings)
-
+    
         # Construct the (n-k)-ary signature of the new function. We use `call.col_type` for this, rather than
         # `self.signature.return_type`, because the return type of the new function may be specialized via a
         # conditional return type.

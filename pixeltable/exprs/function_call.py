@@ -23,6 +23,7 @@ from .sql_element_cache import SqlElementCache
 class FunctionCall(Expr):
 
     fn: func.Function
+    signature: func.Signature
     is_method_call: bool
     agg_init_args: dict[str, Any]
 
@@ -43,17 +44,24 @@ class FunctionCall(Expr):
     current_partition_vals: Optional[list[Any]]
 
     def __init__(
-            self, fn: func.Function, bound_args: dict[str, Any], order_by_clause: Optional[list[Any]] = None,
-            group_by_clause: Optional[list[Any]] = None, is_method_call: bool = False):
+        self,
+        fn: func.Function,
+        signature: func.Signature,
+        bound_args: dict[str, Any],
+        order_by_clause: Optional[list[Any]] = None,
+        group_by_clause: Optional[list[Any]] = None,
+        is_method_call: bool = False
+    ):
         if order_by_clause is None:
             order_by_clause = []
         if group_by_clause is None:
             group_by_clause = []
-        signature = fn.signature
-        return_type = fn.call_return_type(bound_args)
+
         self.fn = fn
+        self.signature = signature
         self.is_method_call = is_method_call
-        self.normalize_args(fn.name, signature, bound_args)
+
+        return_type = fn.call_return_type(bound_args)
 
         # If `return_type` is non-nullable, but the function call has a nullable input to any of its non-nullable
         # parameters, then we need to make it nullable. This is because Pixeltable defaults a function output to
@@ -88,7 +96,7 @@ class FunctionCall(Expr):
 
         # the prefix of parameters that are bound can be passed by position
         processed_args: set[str] = set()
-        for py_param in fn.signature.py_signature.parameters.values():
+        for py_param in signature.py_signature.parameters.values():
             if py_param.name not in bound_args or py_param.kind == inspect.Parameter.KEYWORD_ONLY:
                 break
             arg = bound_args[py_param.name]
@@ -110,7 +118,7 @@ class FunctionCall(Expr):
                     self.components.append(arg.copy())
                 else:
                     self.kwargs[param_name] = (None, arg)
-                if fn.signature.py_signature.parameters[param_name].kind != inspect.Parameter.VAR_KEYWORD:
+                if signature.py_signature.parameters[param_name].kind != inspect.Parameter.VAR_KEYWORD:
                     self.kwarg_types[param_name] = signature.parameters[param_name].col_type
 
         # window function state:
@@ -332,7 +340,7 @@ class FunctionCall(Expr):
         # try to construct args and kwargs to call self.fn._to_sql()
         kwargs: dict[str, sql.ColumnElement] = {}
         for param_name, (component_idx, arg) in self.kwargs.items():
-            param = self.fn.signature.parameters[param_name]
+            param = self.signature.parameters[param_name]
             assert param.kind != inspect.Parameter.VAR_POSITIONAL and param.kind != inspect.Parameter.VAR_KEYWORD
             if component_idx is None:
                 kwargs[param_name] = sql.literal(arg)
@@ -375,7 +383,7 @@ class FunctionCall(Expr):
         kwargs: dict[str, Any] = {}
         for param_name, (component_idx, arg) in self.kwargs.items():
             val = arg if component_idx is None else data_row[self.components[component_idx].slot_idx]
-            param = self.fn.signature.parameters[param_name]
+            param = self.signature.parameters[param_name]
             if param.kind == inspect.Parameter.VAR_KEYWORD:
                 # expand **kwargs parameter
                 kwargs.update(val)
@@ -386,7 +394,7 @@ class FunctionCall(Expr):
         args: list[Any] = []
         for param_idx, (component_idx, arg) in enumerate(self.args):
             val = arg if component_idx is None else data_row[self.components[component_idx].slot_idx]
-            param = self.fn.signature.parameters_by_pos[param_idx]
+            param = self.signature.parameters_by_pos[param_idx]
             if param.kind == inspect.Parameter.VAR_POSITIONAL:
                 # expand *args parameter
                 assert isinstance(val, list)
@@ -413,7 +421,7 @@ class FunctionCall(Expr):
             return
 
         args, kwargs = self._make_args(data_row)
-        signature = self.fn.signature
+        signature = self.signature
         if signature.parameters is not None:
             # check for nulls
             for i in range(len(self.arg_types)):
@@ -449,27 +457,33 @@ class FunctionCall(Expr):
 
     def _as_dict(self) -> dict:
         result = {
-            'fn': self.fn.as_dict(), 'args': self.args, 'kwargs': self.kwargs,
-            'group_by_start_idx': self.group_by_start_idx, 'group_by_stop_idx': self.group_by_stop_idx,
+            'fn': self.fn.as_dict(),
+            'signature': self.signature,
+            'args': self.args,
+            'kwargs': self.kwargs,
+            'group_by_start_idx': self.group_by_start_idx,
+            'group_by_stop_idx': self.group_by_stop_idx,
             'order_by_start_idx': self.order_by_start_idx,
-            **super()._as_dict()
+            **super()._as_dict(),
         }
         return result
 
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr]) -> FunctionCall:
         assert 'fn' in d
+        assert 'signature' in d
         assert 'args' in d
         assert 'kwargs' in d
         # reassemble bound args
         fn = func.Function.from_dict(d['fn'])
-        param_names = list(fn.signature.parameters.keys())
+        signature = func.Signature.from_dict(d['signature'])
+        param_names = list(signature.parameters.keys())
         bound_args = {param_names[i]: arg if idx is None else components[idx] for i, (idx, arg) in enumerate(d['args'])}
         bound_args.update(
             {param_name: val if idx is None else components[idx] for param_name, (idx, val) in d['kwargs'].items()})
         group_by_exprs = components[d['group_by_start_idx']:d['group_by_stop_idx']]
         order_by_exprs = components[d['order_by_start_idx']:]
         fn_call = cls(
-            func.Function.from_dict(d['fn']), bound_args, group_by_clause=group_by_exprs,
+            fn, signature, bound_args, group_by_clause=group_by_exprs,
             order_by_clause=order_by_exprs)
         return fn_call
