@@ -34,9 +34,12 @@ class DataRow:
     - VideoType: local path if available, otherwise url
     """
 
+    #vals: np.ndarray  # of object
     vals: list[Any]
-    has_val: list[bool]
+    has_val: np.ndarray  # of bool
+    #has_val: list[bool]
     excs: list[Optional[Exception]]
+    missing_dependencies: np.ndarray  # of int
 
     # control structures that are shared across all DataRows in a batch
     img_slot_idxs: list[int]
@@ -59,8 +62,10 @@ class DataRow:
 
     def __init__(self, size: int, img_slot_idxs: list[int], media_slot_idxs: list[int], array_slot_idxs: list[int]):
         self.vals = [None] * size
-        self.has_val = [False] * size
+        self.has_val = np.zeros(size, dtype=bool)
+        #self.has_val = [False] * size
         self.excs = [None] * size
+        self.missing_dependencies = np.zeros(size, dtype=int)
         self.img_slot_idxs = img_slot_idxs
         self.media_slot_idxs = media_slot_idxs
         self.array_slot_idxs = array_slot_idxs
@@ -71,7 +76,8 @@ class DataRow:
     def clear(self) -> None:
         size = len(self.vals)
         self.vals = [None] * size
-        self.has_val = [False] * size
+        self.has_val = np.zeros(size, dtype=bool)
+        #self.has_val = [False] * size
         self.excs = [None] * size
         self.pk = None
         self.file_urls = [None] * size

@@ -7,6 +7,7 @@ from typing import Any, Iterable, Optional, Sequence
 from uuid import UUID
 
 import sqlalchemy as sql
+import numpy as np
 
 import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
@@ -67,6 +68,10 @@ class RowBuilder:
     # _exc_dependents[i]
     # (list of set of slot_idxs, indexed by slot_idx)
     _exc_dependents: list[set[int]]
+
+    # dependents[i] = direct dependents of expr with slot idx i; dependents[i, j] == 1: expr j depends on expr i
+    dependents: np.ndarray
+    dependencies: np.ndarray
 
     # records the output_expr that a subexpr belongs to
     # (a subexpr can be shared across multiple output exprs)
@@ -176,6 +181,8 @@ class RowBuilder:
 
         # determine transitive dependencies for the purpose of exception propagation
         # (list of set of slot_idxs, indexed by slot_idx)
+        self.dependents = np.zeros((self.num_materialized, self.num_materialized), dtype=int)
+        self.dependencies = np.zeros((self.num_materialized, self.num_materialized), dtype=int)
         exc_dependencies: list[set[int]] = [set() for _ in range(self.num_materialized)]
         from .column_property_ref import ColumnPropertyRef
         for expr in self.unique_exprs:
@@ -185,9 +192,13 @@ class RowBuilder:
             # error properties don't have exceptions themselves
             if isinstance(expr, ColumnPropertyRef) and expr.is_error_prop():
                 continue
+            dependency_idxs = [d.slot_idx for d in expr.dependencies()]
+            self.dependencies[expr.slot_idx, dependency_idxs] = 1
             for d in expr.dependencies():
                 exc_dependencies[expr.slot_idx].add(d.slot_idx)
                 exc_dependencies[expr.slot_idx].update(exc_dependencies[d.slot_idx])
+                #self.dependents[d.slot_idx, expr.slot_idx] = 1
+        self.dependents = self.dependencies.T
 
         self._exc_dependents = [set() for _ in range(self.num_materialized)]
         for expr in self.unique_exprs:

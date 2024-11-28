@@ -271,6 +271,12 @@ class TestExprs:
         assert result['c4'] == [2.0, 1.0, None, None]
         assert result['c5'] == [2.0, 1.0, 1.0, None]
 
+    def test_x(self, reset_db) -> None:
+        t = pxt.create_table('test', {'i': pxt.Int, 's': pxt.String})
+        validate_update_status(t.insert({'i': i, 's': f'Line {i}'} for i in range(100)))
+        _ = t.select(t.i, t.s, pxtf.string.repeat(t.s, t.i)).collect()
+        pass
+
     def test_arithmetic_exprs(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
 
