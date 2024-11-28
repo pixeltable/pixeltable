@@ -2,6 +2,7 @@
 # rather than as a comment, so that the existence of a description can be enforced by
 # the unit tests when new versions are added.
 VERSION_NOTES = {
+    24: 'Added indexed column table id to the TableMd/IndexMd',
     23: 'DataFrame.from_clause',
     22: 'TableMd/ColumnMd.media_validation',
     21: 'Separate InlineArray and InlineList',

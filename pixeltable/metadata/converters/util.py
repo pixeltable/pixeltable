@@ -1,6 +1,7 @@
 import copy
 import logging
 from typing import Any, Callable, Optional
+from uuid import UUID
 
 import sqlalchemy as sql
 
@@ -11,7 +12,7 @@ __logger = logging.getLogger('pixeltable')
 
 def convert_table_md(
     engine: sql.engine.Engine,
-    table_md_updater: Optional[Callable[[dict], None]] = None,
+    table_md_updater: Optional[Callable[[dict, UUID], None]] = None,
     column_md_updater: Optional[Callable[[dict], None]] = None,
     external_store_md_updater: Optional[Callable[[dict], None]] = None,
     substitution_fn: Optional[Callable[[Optional[str], Any], Optional[tuple[Optional[str], Any]]]] = None
@@ -37,7 +38,7 @@ def convert_table_md(
             assert isinstance(table_md, dict)
             updated_table_md = copy.deepcopy(table_md)
             if table_md_updater is not None:
-                table_md_updater(updated_table_md)
+                table_md_updater(updated_table_md, id)
             if column_md_updater is not None:
                 __update_column_md(updated_table_md, column_md_updater)
             if external_store_md_updater is not None:

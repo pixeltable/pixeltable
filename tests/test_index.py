@@ -455,9 +455,23 @@ class TestIndex:
         _ = reload_tester.run_query(df)
 
         # ... restart python session ...
-        #with pytest.raises(pxt.Error) as exc_info:
         _ = reload_tester.run_reload_test(df)
-        #assert 'Embedding index requires string or image column' in str(exc_info.value)
+
+        # should work irrespective of whether the column is passed by name or reference
+        v.add_embedding_index(v.s, string_embed=pxt.functions.huggingface.sentence_transformer.using(model_id='all-mpnet-base-v2'))
+        df = v.select()
+        _ = reload_tester.run_query(df)
+
+        # ... restart python session ...
+        _ = reload_tester.run_reload_test(df)
+
+        v.add_embedding_index(t.s, string_embed=pxt.functions.huggingface.sentence_transformer.using(model_id='all-mpnet-base-v2'))
+        df = v.select()
+        _ = reload_tester.run_query(df)
+
+        # ... restart python session ...
+        _ = reload_tester.run_reload_test(df)
+
 
     def test_embedding_computedcol_reload_view(self, reset_db, reload_tester: ReloadTester) -> None:
         skip_test_if_not_installed('transformers')
