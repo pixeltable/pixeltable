@@ -95,6 +95,6 @@ def get_txt(path: str) -> Optional[str]:
     try:
         with open(path, "r") as f:
             doc = f.read()
-        return doc if doc is not '' else None
+        return doc if doc != '' else None
     except Exception:
         return None
