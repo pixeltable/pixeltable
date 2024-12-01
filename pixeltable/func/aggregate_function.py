@@ -69,7 +69,7 @@ class AggregateFunction(Function):
         params = update_params + init_params  # init_params are keyword-only and come last
 
         signature = Signature(value_type, params)
-        super().__init__(signature, self_path=self_path)
+        super().__init__([signature], self_path=self_path)
         self.init_param_names = [p.name for p in init_params]
 
         # make sure the signature doesn't contain reserved parameter names;
@@ -121,14 +121,14 @@ class AggregateFunction(Function):
                     f'{self.display_name}(): group_by invalid with an aggregate function that does not allow windows')
             group_by_clause = kwargs.pop(self.GROUP_BY_PARAM)
 
-        bound_args = self.signature.py_signature.bind(*args, **kwargs)
+        bound_args = self.signatures[0].py_signature.bind(*args, **kwargs)
         self.validate_call(bound_args.arguments)
         return exprs.FunctionCall(
             self, bound_args.arguments,
             order_by_clause=[order_by_clause] if order_by_clause is not None else [],
             group_by_clause=[group_by_clause] if group_by_clause is not None else [])
 
-    def validate_call(self, bound_args: dict[str, Any]) -> None:
+    def validate_call(self, signature: Signature, bound_args: dict[str, Any]) -> None:
         # check that init parameters are not Exprs
         # TODO: do this in the planner (check that init parameters are either constants or only refer to grouping exprs)
         import pixeltable.exprs as exprs

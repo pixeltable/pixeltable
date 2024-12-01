@@ -61,7 +61,7 @@ class FunctionCall(Expr):
         self.signature = signature
         self.is_method_call = is_method_call
 
-        return_type = fn.call_return_type(bound_args)
+        return_type = fn.call_return_type(signature, bound_args)
 
         # If `return_type` is non-nullable, but the function call has a nullable input to any of its non-nullable
         # parameters, then we need to make it nullable. This is because Pixeltable defaults a function output to

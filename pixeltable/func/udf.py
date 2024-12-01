@@ -132,8 +132,8 @@ def make_function(
         py_fn = substitute_fn
 
     result = CallableFunction(
-        signature=sig,
-        py_fn=py_fn,
+        signatures=[sig],
+        py_fns=[py_fn],
         self_path=function_path,
         self_name=function_name,
         batch_size=batch_size,
