@@ -78,6 +78,9 @@ class TestDocument:
             elif extension == 'xml':
                 assert handle.format == pxt.DocumentType.DocumentFormat.XML, path
                 assert handle.bs_doc is not None, path
+            elif extension == 'txt':
+                assert handle.format == pxt.DocumentType.DocumentFormat.TXT, path
+                assert handle.txt_doc is not None, path
             else:
                 assert False, f'Unexpected extension {extension}, add corresponding check'
 
@@ -215,7 +218,7 @@ class TestDocument:
 
     def test_doc_splitter_headings(self, reset_db) -> None:
         skip_test_if_not_installed('spacy')
-        file_paths = [p for p in self.valid_doc_paths() if not (p.endswith('.pdf') or p.endswith('.xml'))]
+        file_paths = [p for p in self.valid_doc_paths() if not (p.endswith('.pdf') or p.endswith('.xml') or p.endswith('.txt'))]
         doc_t = pxt.create_table('docs', {'doc': pxt.Document})
         status = doc_t.insert({'doc': p} for p in file_paths)
         assert status.num_excs == 0
@@ -238,3 +241,78 @@ class TestDocument:
                     with pytest.raises(pxt.Error):
                         _ = res[md_element]
             pxt.drop_table('chunks')
+
+    def test_doc_splitter_txt(self, reset_db) -> None:
+        """ Test the DocumentSplitter with a .txt file
+
+        test_doc_splitter above already tests the behaviour
+        common for all document types. This test adds specific
+        verification for a .txt file with specific content.
+        """
+        skip_test_if_not_installed('tiktoken')
+        skip_test_if_not_installed('spacy')
+
+        file_paths = [path for path in self.valid_doc_paths() if path.endswith('pxtbrief.txt')]
+        doc_t = pxt.create_table('docs', {'doc': pxt.Document})
+        status = doc_t.insert({'doc': p} for p in file_paths)
+        assert status.num_excs == 0
+
+        chunks_t = pxt.create_view(
+            'chunks', doc_t,
+            iterator=DocumentSplitter.create(document=doc_t.doc,
+                separators='', metadata='page'))
+        res = chunks_t.order_by(chunks_t.doc, chunks_t.pos).collect()
+        assert len(res) == 1
+        assert len(res[0]['text']) == 2793
+        assert str(res[0]['text']).startswith('Pixeltable Briefing Doc\nSource: GitHub Repository: pixeltable/pixeltable\n')
+        assert res[0]['page'] is None
+
+        # test with different separators.
+        # Until we add support to split text into paragraphs,
+        # the 'paragraph' separator is ignored and has no effect.
+        pxt.drop_table('chunks')
+        chunks_t = pxt.create_view(
+            'chunks', doc_t,
+            iterator=DocumentSplitter.create(document=doc_t.doc,
+                separators='paragraph', metadata='page'))
+        res = chunks_t.order_by(chunks_t.doc, chunks_t.pos).collect()
+        assert len(res) == 1
+        assert len(res[0]['text']) == 2793
+        assert str(res[0]['text']).startswith('Pixeltable Briefing Doc\nSource: GitHub Repository: pixeltable/pixeltable\n')
+
+        # test with 'sentence' separator
+        # The text is split into 23 sentences.
+        pxt.drop_table('chunks')
+        chunks_t = pxt.create_view(
+            'chunks', doc_t,
+            iterator=DocumentSplitter.create(document=doc_t.doc,
+                separators='sentence', metadata='page'))
+        res = chunks_t.order_by(chunks_t.doc, chunks_t.pos).collect()
+        assert len(res) == 23
+        assert res[0]['text'] == 'Pixeltable Briefing Doc\nSource: GitHub Repository: pixeltable/pixeltable\n\nMain Themes:\n\nAI Data Infrastructure: Pixeltable is a Python library designed to simplify the management and processing of multimodal data for machine learning workflows.\n'
+        assert len(res[0]['text']) == 245
+        assert res[22]['text'] == 'Its declarative approach, incremental updates, and seamless Python integration make it a valuable tool for streamlining AI development and enhancing productivity.\n'
+        assert len(res[22]['text']) == 163
+
+        # test with 'char_limit' separator
+        # The text is split into 67 chunks, each with a maximum of 50 characters.
+        pxt.drop_table('chunks')
+        chunks_t = pxt.create_view(
+            'chunks', doc_t,
+            iterator=DocumentSplitter.create(document=doc_t.doc,
+                separators='sentence, char_limit',
+                limit=50, overlap=0,
+                metadata='title,heading,sourceline,page,bounding_box'))
+        res = chunks_t.order_by(chunks_t.doc, chunks_t.pos).collect()
+        assert len(res) == 67
+        assert res[0]['text'] == 'Pixeltable Briefing Doc\nSource: GitHub Repository:'
+        assert res[63]['text'] == 'Its declarative approach, incremental updates, and'
+        for r in res:
+            assert len(r['text']) <= 50
+            assert r['title'] == ''
+            assert r['heading'] is None
+            assert r['sourceline'] is None
+            assert r['page']is None
+            assert r['doc'].endswith('pxtbrief.txt')
+
+        pxt.drop_table('chunks')

@@ -151,6 +151,9 @@ class DocumentSplitter(ComponentIterator):
         elif self._doc_handle.format == DocumentType.DocumentFormat.PDF:
             assert self._doc_handle.pdf_doc is not None
             self._sections = self._pdf_sections()
+        elif self._doc_handle.format == DocumentType.DocumentFormat.TXT:
+            assert self._doc_handle.txt_doc is not None
+            self._sections = self._txt_sections()
         else:
             assert False, f'Unsupported document format: {self._doc_handle.format}'
 
@@ -388,6 +391,15 @@ class DocumentSplitter(ComponentIterator):
 
         if accumulated_text and not emit_on_page:
             yield DocumentSection(text=_emit_text(), metadata=DocumentSectionMetadata())
+
+    def _txt_sections(self) -> Iterator[DocumentSection]:
+        """Create DocumentSections for text files.
+
+        Currently, it returns the entire text as a single section.
+        TODO: Add support for paragraphs.
+        """
+        assert self._doc_handle.txt_doc is not None
+        yield DocumentSection(text=ftfy.fix_text(self._doc_handle.txt_doc), metadata=DocumentSectionMetadata())
 
     def _sentence_sections(self, input_sections: Iterable[DocumentSection]) -> Iterator[DocumentSection]:
         """Split the input sections into sentences"""
