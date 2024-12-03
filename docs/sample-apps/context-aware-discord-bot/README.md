@@ -1,4 +1,4 @@
-# 🤖 Context-Aware Discord Bot: Incremental RAG with Auto-Indexing Memory
+# 🤖 Context-Aware Discord Bot: Incremental RAG
 [![Python Version](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/downloads/) [![Discord.py Version](https://img.shields.io/badge/discord.py-2.0%2B-blue.svg)](https://github.com/Rapptz/discord.py) [![PyPI Package](https://img.shields.io/pypi/v/pixeltable?color=4D148C)](https://pypi.org/project/pixeltable/)
 
 A Discord bot that remembers and learns from conversations using [Pixeltable](https://github.com/pixeltable/pixeltable) for semantic search and context awareness.
