@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import inspect
-from typing import Any, Callable, Iterable, Optional
+from typing import Any, Callable, Iterable, Optional, Sequence
 from uuid import UUID
 
 import cloudpickle  # type: ignore[import-untyped]
@@ -39,7 +39,7 @@ class CallableFunction(Function):
     def is_batched(self) -> bool:
         return self.batch_size is not None
 
-    def exec(self, sig_idx: int, args: list[Any], kwargs: dict[str, Any]) -> Any:
+    def exec(self, sig_idx: int, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:
         signature = self.signatures[sig_idx]
         py_fn = self.py_fns[sig_idx]
         if self.is_batched:
@@ -55,7 +55,7 @@ class CallableFunction(Function):
         else:
             return py_fn(*args, **kwargs)
 
-    def exec_batch(self, sig_idx: int, args: list[Any], **kwargs: dict[str, Any]) -> list:
+    def exec_batch(self, sig_idx: int, args: list[Any], kwargs: dict[str, Any]) -> list:
         """Execute the function with the given arguments and return the result.
         The arguments are expected to be batched: if the corresponding parameter has type T,
         then the argument should have type T if it's a constant parameter, or list[T] if it's

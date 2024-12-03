@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import inspect
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Sequence
 
 import sqlalchemy as sql
 
@@ -33,10 +33,11 @@ class QueryTemplateFunction(Function):
         return QueryTemplateFunction(template_df, sig, path=path, name=name)
 
     def __init__(
-            self, template_df: Optional['pxt.DataFrame'], sig: Optional[Signature], path: Optional[str] = None,
+            self, template_df: Optional['pxt.DataFrame'], sig: Signature, path: Optional[str] = None,
             name: Optional[str] = None,
     ):
-        super().__init__(sig, self_path=path)
+        assert sig is not None
+        super().__init__([sig], self_path=path)
         self.self_name = name
         self.template_df = template_df
 
@@ -48,7 +49,7 @@ class QueryTemplateFunction(Function):
         # convert defaults to Literals
         self.defaults: dict[str, exprs.Literal] = {}  # key: param name, value: default value converted to a Literal
         param_types = self.template_df.parameters()
-        for param in [p for p in self.signature.parameters.values() if p.has_default()]:
+        for param in [p for p in sig.parameters.values() if p.has_default()]:
             assert param.name in param_types
             param_type = param_types[param.name]
             literal_default = exprs.Literal(param.default, col_type=param_type)
@@ -57,8 +58,9 @@ class QueryTemplateFunction(Function):
     def set_conn(self, conn: Optional[sql.engine.Connection]) -> None:
         self.conn = conn
 
-    def exec(self, *args: Any, **kwargs: Any) -> Any:
-        bound_args = self.signature.py_signature.bind(*args, **kwargs).arguments
+    def exec(self, signature_idx: int, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:
+        assert signature_idx == 0
+        bound_args = self.signatures[0].py_signature.bind(*args, **kwargs).arguments
         # apply defaults, otherwise we might have Parameters left over
         bound_args.update(
             {param_name: default for param_name, default in self.defaults.items() if param_name not in bound_args})
@@ -75,7 +77,7 @@ class QueryTemplateFunction(Function):
         return self.self_name
 
     def _as_dict(self) -> dict:
-        return {'name': self.name, 'signature': self.signature.as_dict(), 'df': self.template_df.as_dict()}
+        return {'name': self.name, 'signature': self.signatures[0].as_dict(), 'df': self.template_df.as_dict()}
 
     @classmethod
     def _from_dict(cls, d: dict) -> Function:

@@ -3,7 +3,7 @@ from __future__ import annotations
 import abc
 import importlib
 import inspect
-from typing import TYPE_CHECKING, Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional, Sequence
 
 import sqlalchemy as sql
 
@@ -46,6 +46,7 @@ class Function(abc.ABC):
     ):
         # Check that stored functions cannot be declared using `is_method` or `is_property`:
         assert not ((is_method or is_property) and self_path is None)
+        assert isinstance(signatures, list)
         self.signatures = signatures
         self.self_path = self_path  # fully-qualified path to self
         self.is_method = is_method
@@ -77,28 +78,34 @@ class Function(abc.ABC):
     def __call__(self, *args: Any, **kwargs: Any) -> 'pxt.exprs.FunctionCall':
         from pixeltable import exprs
 
-        signature: Optional[Signature] = None
+        signature_idx, bound_args = self._bind_to_matching_signature(args, kwargs)
+        return_type = self.call_return_type(signature_idx, args, kwargs)
+        return exprs.FunctionCall(self, signature_idx, bound_args, return_type)
+
+    def _bind_to_matching_signature(self, args: Sequence[Any], kwargs: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+        result: int = -1
         bound_args: Optional[dict[str, Any]] = None
         if len(self.signatures) == 1:
-            signature = self.signatures[0]
-            bound_args = self._bind_to_signature(signature, args, kwargs)
+            result = 0
+            bound_args = self._bind_to_signature(self.signatures[0], args, kwargs)
         else:
-            for sig in self.signatures:
+            for i, sig in enumerate(self.signatures):
                 try:
                     bound_args = self._bind_to_signature(sig, args, kwargs)
                 except (TypeError, excs.Error):
                     continue
-                signature = sig
+                result = i
                 break
-            if signature is None:
+            if result == -1:
                 raise excs.Error(f'Function {self.name!r} has no matching signature for arguments')
-            assert bound_args is not None
-        return exprs.FunctionCall(self, signature, bound_args)
+        assert result >= 0
+        assert bound_args is not None
+        return result, bound_args
 
     def _bind_to_signature(
         self,
         signature: Signature,
-        args: tuple[Any],
+        args: Sequence[Any],
         kwargs: dict[str, Any],
     ) -> dict[str, Any]:
         from pixeltable import exprs
@@ -111,26 +118,29 @@ class Function(abc.ABC):
         """Override this to do custom validation of the arguments"""
         pass
 
-    def call_return_type(self, signature: Signature, kwargs: dict[str, Any]) -> ts.ColumnType:
+    def call_return_type(self, signature_idx: int, args: Sequence[Any], kwargs: dict[str, Any]) -> ts.ColumnType:
         """Return the type of the value returned by calling this function with the given arguments"""
-        assert signature in self.signatures
+        assert 0 <= signature_idx < len(self.signatures)
+        signature = self.signatures[signature_idx]
         if self._conditional_return_type is None:
             return signature.return_type
-        bound_args = signature.py_signature.bind(**kwargs)
+        bound_args = signature.py_signature.bind(*args, **kwargs).arguments
         kw_args: dict[str, Any] = {}
         sig = inspect.signature(self._conditional_return_type)
         for param in sig.parameters.values():
-            if param.name in bound_args.arguments:
-                kw_args[param.name] = bound_args.arguments[param.name]
+            if param.name in bound_args:
+                kw_args[param.name] = bound_args[param.name]
         return self._conditional_return_type(**kw_args)
 
     def conditional_return_type(self, fn: Callable[..., ts.ColumnType]) -> Callable[..., ts.ColumnType]:
         """Instance decorator for specifying a conditional return type for this function"""
+        if len(self.signatures) > 1:
+            raise excs.Error('`conditional_return_type` is not supported for functions with multiple signatures')
         # verify that call_return_type only has parameters that are also present in the signature
-        # sig = inspect.signature(fn)
-        # for param in sig.parameters.values():
-        #     if param.name not in self.signature.parameters:
-        #         raise ValueError(f'`conditional_return_type` has parameter `{param.name}` that is not in the signature')
+        sig = inspect.signature(fn)
+        for param in sig.parameters.values():
+            if param.name not in self.signatures[0].parameters:
+                raise ValueError(f'`conditional_return_type` has parameter `{param.name}` that is not in the signature')
         self._conditional_return_type = fn
         return fn
 
@@ -161,7 +171,8 @@ class Function(abc.ABC):
         for param in residual_params:
             bindings[param.name] = exprs.Variable(param.name, param.col_type)
 
-        call = exprs.FunctionCall(self, signature, bindings)
+        return_type = self.call_return_type(0, [], bindings)
+        call = exprs.FunctionCall(self, 0, bindings, return_type)
 
         # Construct the (n-k)-ary signature of the new function. We use `call.col_type` for this, rather than
         # `self.signature.return_type`, because the return type of the new function may be specialized via a
@@ -170,7 +181,7 @@ class Function(abc.ABC):
         return ExprTemplateFunction(call, new_signature)
 
     @abc.abstractmethod
-    def exec(self, *args: Any, **kwargs: Any) -> Any:
+    def exec(self, signature_idx: int, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:
         """Execute the function with the given arguments and return the result."""
         pass
 

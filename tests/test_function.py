@@ -36,8 +36,9 @@ class TestFunction:
         d = self.func.as_dict()
         FunctionRegistry.get().clear_cache()
         deserialized = Function.from_dict(d)
+        assert isinstance(deserialized, func.CallableFunction)
         # TODO: add Function.exec() and then use that
-        assert deserialized.py_fn(1) == 2
+        assert deserialized.py_fns[0](1) == 2
 
     def test_list(self, reset_db) -> None:
         _ = FunctionRegistry.get().list_functions()
@@ -307,10 +308,10 @@ class TestFunction:
         assert pb1.arity == 3
         assert pb2.arity == 2
         assert pb3.arity == 1
-        assert len(pb1.signature.required_parameters) == 2
-        assert len(pb2.signature.required_parameters) == 1
-        assert len(pb3.signature.required_parameters) == 0
-        assert pb2.signature.required_parameters[0].name == 'p2'
+        assert len(pb1.signatures[0].required_parameters) == 2
+        assert len(pb2.signatures[0].required_parameters) == 1
+        assert len(pb3.signatures[0].required_parameters) == 0
+        assert pb2.signatures[0].required_parameters[0].name == 'p2'
 
         t = pxt.create_table('test', {'c1': pxt.String, 'c2': pxt.String, 'c3': pxt.String})
         t.insert(c1='a', c2='b', c3='c')

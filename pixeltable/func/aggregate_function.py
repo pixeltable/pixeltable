@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import abc
 import inspect
-from typing import TYPE_CHECKING, Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional, Sequence
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
@@ -78,7 +78,7 @@ class AggregateFunction(Function):
             if param.lower() in self.RESERVED_PARAMS:
                 raise excs.Error(f'{self.name}(): parameter name {param} is reserved')
 
-    def exec(self, *args: Any, **kwargs: Any) -> Any:
+    def exec(self, signature_idx: int, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:
         raise NotImplementedError
 
     def help_str(self) -> str:
@@ -122,9 +122,10 @@ class AggregateFunction(Function):
             group_by_clause = kwargs.pop(self.GROUP_BY_PARAM)
 
         bound_args = self.signatures[0].py_signature.bind(*args, **kwargs)
-        self.validate_call(bound_args.arguments)
+        self.validate_call(self.signatures[0], bound_args.arguments)
+        return_type = self.call_return_type(0, args, kwargs)
         return exprs.FunctionCall(
-            self, bound_args.arguments,
+            self, 0, bound_args.arguments, return_type,
             order_by_clause=[order_by_clause] if order_by_clause is not None else [],
             group_by_clause=[group_by_clause] if group_by_clause is not None else [])
 

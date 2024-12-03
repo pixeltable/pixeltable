@@ -91,10 +91,10 @@ class EmbeddingIndex(IndexBase):
         assert isinstance(item, (str, PIL.Image.Image))
         if isinstance(item, str):
             assert self.string_embed is not None
-            embedding = self.string_embed.exec(item)
+            embedding = self.string_embed.exec(0, [item], {})  # TODO eliminate hardcoded signature idx
         if isinstance(item, PIL.Image.Image):
             assert self.image_embed is not None
-            embedding = self.image_embed.exec(item)
+            embedding = self.image_embed.exec(0, [item], {})  # TODO eliminate hardcoded signature idx
 
         if self.metric == self.Metric.COSINE:
             return val_column.sa_col.cosine_distance(embedding) * -1 + 1
@@ -110,10 +110,10 @@ class EmbeddingIndex(IndexBase):
         embedding: Optional[np.ndarray] = None
         if isinstance(item, str):
             assert self.string_embed is not None
-            embedding = self.string_embed.exec(item)
+            embedding = self.string_embed.exec(0, [item], {})
         if isinstance(item, PIL.Image.Image):
             assert self.image_embed is not None
-            embedding = self.image_embed.exec(item)
+            embedding = self.image_embed.exec(0, [item], {})
         assert embedding is not None
 
         if self.metric == self.Metric.COSINE:
@@ -135,7 +135,8 @@ class EmbeddingIndex(IndexBase):
     def _validate_embedding_fn(cls, embed_fn: func.Function, name: str, expected_type: ts.ColumnType.Type) -> None:
         """Validate the signature"""
         assert isinstance(embed_fn, func.Function)
-        sig = embed_fn.signature
+        assert len(embed_fn.signatures) == 1  # TODO: support multiple signatures
+        sig = embed_fn.signatures[0]
 
         # The embedding function must be a 1-ary function of the correct type. But it's ok if the function signature
         # has more than one parameter, as long as it has at most one *required* parameter.
@@ -148,11 +149,11 @@ class EmbeddingIndex(IndexBase):
         # validate return type
         param_name = sig.parameters_by_pos[0].name
         if expected_type == ts.ColumnType.Type.STRING:
-            return_type = embed_fn.call_return_type({param_name: 'dummy'})
+            return_type = embed_fn.call_return_type(0, [], {param_name: 'dummy'})  # TODO: replace "0" with correct signature
         else:
             assert expected_type == ts.ColumnType.Type.IMAGE
             img = PIL.Image.new('RGB', (512, 512))
-            return_type = embed_fn.call_return_type({param_name: img})
+            return_type = embed_fn.call_return_type(0, [], {param_name: img})  # TODO: replace "0" with correct signature
         assert return_type is not None
         if not isinstance(return_type, ts.ArrayType):
             raise excs.Error(f'{name} must return an array, but returns {return_type}')

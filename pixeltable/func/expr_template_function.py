@@ -1,5 +1,5 @@
 import inspect
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 import pixeltable
 import pixeltable.exceptions as excs
@@ -35,10 +35,10 @@ class ExprTemplateFunction(Function):
                 msg = str(e)
                 raise excs.Error(f"Default value for parameter '{param.name}': {msg[0].lower() + msg[1:]}")
 
-        super().__init__(signature, self_path=self_path)
+        super().__init__([signature], self_path=self_path)
 
     def instantiate(self, *args: object, **kwargs: object) -> 'pixeltable.exprs.Expr':
-        bound_args = self.signature.py_signature.bind(*args, **kwargs).arguments
+        bound_args = self.signatures[0].py_signature.bind(*args, **kwargs).arguments
         # apply defaults, otherwise we might have Parameters left over
         bound_args.update(
             {param_name: default for param_name, default in self.defaults.items() if param_name not in bound_args})
@@ -60,7 +60,7 @@ class ExprTemplateFunction(Function):
         assert not result._contains(exprs.Variable)
         return result
 
-    def exec(self, *args: Any, **kwargs: Any) -> Any:
+    def exec(self, signature_idx: int, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:
         expr = self.instantiate(*args, **kwargs)
         import pixeltable.exprs as exprs
         row_builder = exprs.RowBuilder(output_exprs=[expr], columns=[], input_exprs=[])
@@ -86,7 +86,7 @@ class ExprTemplateFunction(Function):
             return super()._as_dict()
         return {
             'expr': self.expr.as_dict(),
-            'signature': self.signature.as_dict(),
+            'signature': self.signatures[0].as_dict(),
             'name': self.name,
         }
 

@@ -23,7 +23,7 @@ from .sql_element_cache import SqlElementCache
 class FunctionCall(Expr):
 
     fn: func.Function
-    signature: func.Signature
+    signature_idx: int
     is_method_call: bool
     agg_init_args: dict[str, Any]
 
@@ -35,6 +35,7 @@ class FunctionCall(Expr):
 
     arg_types: list[ts.ColumnType]
     kwarg_types: dict[str, ts.ColumnType]
+    return_type: ts.ColumnType
     group_by_start_idx: int
     group_by_stop_idx: int
     fn_expr_idx: int
@@ -46,8 +47,9 @@ class FunctionCall(Expr):
     def __init__(
         self,
         fn: func.Function,
-        signature: func.Signature,
+        signature_idx: int,
         bound_args: dict[str, Any],
+        return_type: ts.ColumnType,
         order_by_clause: Optional[list[Any]] = None,
         group_by_clause: Optional[list[Any]] = None,
         is_method_call: bool = False
@@ -58,10 +60,12 @@ class FunctionCall(Expr):
             group_by_clause = []
 
         self.fn = fn
-        self.signature = signature
+        self.signature_idx = signature_idx
         self.is_method_call = is_method_call
 
-        return_type = fn.call_return_type(signature, bound_args)
+        assert isinstance(signature_idx, int)
+
+        signature = fn.signatures[signature_idx]
 
         # If `return_type` is non-nullable, but the function call has a nullable input to any of its non-nullable
         # parameters, then we need to make it nullable. This is because Pixeltable defaults a function output to
@@ -74,6 +78,8 @@ class FunctionCall(Expr):
             ):
                 return_type = return_type.copy(nullable=True)
                 break
+
+        self.return_type = return_type
 
         super().__init__(return_type)
 
@@ -340,7 +346,7 @@ class FunctionCall(Expr):
         # try to construct args and kwargs to call self.fn._to_sql()
         kwargs: dict[str, sql.ColumnElement] = {}
         for param_name, (component_idx, arg) in self.kwargs.items():
-            param = self.signature.parameters[param_name]
+            param = self.fn.signatures[self.signature_idx].parameters[param_name]
             assert param.kind != inspect.Parameter.VAR_POSITIONAL and param.kind != inspect.Parameter.VAR_KEYWORD
             if component_idx is None:
                 kwargs[param_name] = sql.literal(arg)
@@ -383,7 +389,7 @@ class FunctionCall(Expr):
         kwargs: dict[str, Any] = {}
         for param_name, (component_idx, arg) in self.kwargs.items():
             val = arg if component_idx is None else data_row[self.components[component_idx].slot_idx]
-            param = self.signature.parameters[param_name]
+            param = self.fn.signatures[self.signature_idx].parameters[param_name]
             if param.kind == inspect.Parameter.VAR_KEYWORD:
                 # expand **kwargs parameter
                 kwargs.update(val)
@@ -394,7 +400,7 @@ class FunctionCall(Expr):
         args: list[Any] = []
         for param_idx, (component_idx, arg) in enumerate(self.args):
             val = arg if component_idx is None else data_row[self.components[component_idx].slot_idx]
-            param = self.signature.parameters_by_pos[param_idx]
+            param = self.fn.signatures[self.signature_idx].parameters_by_pos[param_idx]
             if param.kind == inspect.Parameter.VAR_POSITIONAL:
                 # expand *args parameter
                 assert isinstance(val, list)
@@ -421,7 +427,7 @@ class FunctionCall(Expr):
             return
 
         args, kwargs = self._make_args(data_row)
-        signature = self.signature
+        signature = self.fn.signatures[self.signature_idx]
         if signature.parameters is not None:
             # check for nulls
             for i in range(len(self.arg_types)):
@@ -437,7 +443,7 @@ class FunctionCall(Expr):
 
         if isinstance(self.fn, func.CallableFunction) and not self.fn.is_batched:
             # optimization: avoid additional level of indirection we'd get from calling Function.exec()
-            data_row[self.slot_idx] = self.fn.py_fn(*args, **kwargs)
+            data_row[self.slot_idx] = self.fn.py_fns[self.signature_idx](*args, **kwargs)
         elif self.is_window_fn_call:
             assert isinstance(self.fn, func.AggregateFunction)
             if self.has_group_by():
@@ -453,14 +459,15 @@ class FunctionCall(Expr):
             self.aggregator.update(*args)
             data_row[self.slot_idx] = self.aggregator.value()
         else:
-            data_row[self.slot_idx] = self.fn.exec(*args, **kwargs)
+            data_row[self.slot_idx] = self.fn.exec(self.signature_idx, args, kwargs)
 
     def _as_dict(self) -> dict:
         result = {
             'fn': self.fn.as_dict(),
-            'signature': self.signature,
             'args': self.args,
             'kwargs': self.kwargs,
+            'signature': self.signature_idx,
+            'return_type': self.return_type.as_dict(),
             'group_by_start_idx': self.group_by_start_idx,
             'group_by_stop_idx': self.group_by_stop_idx,
             'order_by_start_idx': self.order_by_start_idx,
@@ -471,19 +478,26 @@ class FunctionCall(Expr):
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr]) -> FunctionCall:
         assert 'fn' in d
-        assert 'signature' in d
         assert 'args' in d
         assert 'kwargs' in d
         # reassemble bound args
         fn = func.Function.from_dict(d['fn'])
-        signature = func.Signature.from_dict(d['signature'])
+        signature_idx = d['signature']  # TODO infer signature on reload
+        signature = fn.signatures[signature_idx]
+        return_type = ts.ColumnType.from_dict(d['return_type'])
         param_names = list(signature.parameters.keys())
         bound_args = {param_names[i]: arg if idx is None else components[idx] for i, (idx, arg) in enumerate(d['args'])}
         bound_args.update(
             {param_name: val if idx is None else components[idx] for param_name, (idx, val) in d['kwargs'].items()})
+        # signature_idx, bound_args = fn._bind_to_matching_signature(d['args'], d['kwargs'])
         group_by_exprs = components[d['group_by_start_idx']:d['group_by_stop_idx']]
         order_by_exprs = components[d['order_by_start_idx']:]
         fn_call = cls(
-            fn, signature, bound_args, group_by_clause=group_by_exprs,
-            order_by_clause=order_by_exprs)
+            fn,
+            signature_idx,
+            bound_args,
+            return_type,
+            group_by_clause=group_by_exprs,
+            order_by_clause=order_by_exprs
+        )
         return fn_call
