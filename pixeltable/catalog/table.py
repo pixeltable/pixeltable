@@ -184,26 +184,26 @@ class Table(SchemaObject):
         return self.__query_scope
 
     def select(self, *items: Any, **named_items: Any) -> 'pxt.DataFrame':
-        """Return a [`DataFrame`][pixeltable.DataFrame] for this table."""
+        """ Select columns or expressions from this table."""
         return self._df().select(*items, **named_items)
 
     def where(self, pred: 'exprs.Expr') -> 'pxt.DataFrame':
-        """Return a [`DataFrame`][pixeltable.DataFrame] for this table."""
+        """Filter rows from this table based on the expression."""
         return self._df().where(pred)
 
     def join(
             self, other: 'Table', *, on: Optional['exprs.Expr'] = None,
             how: 'pixeltable.plan.JoinType.LiteralType' = 'inner'
     ) -> 'pxt.DataFrame':
-        """Return a [`DataFrame`][pixeltable.DataFrame] for this table."""
+        """Join this table with another table."""
         return self._df().join(other, on=on, how=how)
 
     def order_by(self, *items: 'exprs.Expr', asc: bool = True) -> 'pxt.DataFrame':
-        """Return a [`DataFrame`][pixeltable.DataFrame] for this table."""
+        """Order the rows of this table based on the expression."""
         return self._df().order_by(*items, asc=asc)
 
     def group_by(self, *items: 'exprs.Expr') -> 'pxt.DataFrame':
-        """Return a [`DataFrame`][pixeltable.DataFrame] for this table."""
+        """Group the rows of this table based on the expression."""
         return self._df().group_by(*items)
 
     def limit(self, n: int) -> 'pxt.DataFrame':
