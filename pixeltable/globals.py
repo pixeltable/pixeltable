@@ -376,16 +376,35 @@ def list_tables(dir_path: str = '', recursive: bool = True) -> list[str]:
     Catalog.get().paths.check_is_valid(path, expected=catalog.Dir)
     return [str(p) for p in Catalog.get().paths.get_children(path, child_type=catalog.Table, recursive=recursive)]
 
+def _verify_param_if_exists(if_exists: str) -> None:
+    """Verify the value of the `if_exists` parameter.
 
-def create_dir(path_str: str, ignore_errors: bool = False) -> Optional[catalog.Dir]:
+    The value must be one of the following: 'error', 'ignore', 'replace', 'replace_force'.
+
+    Args:
+        if_exists: Value of the `if_exists` parameter.
+
+    Raises:
+        Error: If the value is invalid.
+    """
+    if if_exists not in ['error', 'ignore', 'replace', 'replace_force']:
+        raise excs.Error(f'Invalid value for `if_exists`: {if_exists}. It must be one of: error, ignore, replace, replace_force.')
+
+def create_dir(path_str: str, if_exists: str = 'error') -> Optional[catalog.Dir]:
     """Create a directory.
 
     Args:
         path_str: Path to the directory.
-        ignore_errors: if `True`, will return silently instead of throwing an exception if an error occurs.
+        if_exists: Directive on how to handle the scenario where the directory already exists.
+            Must be one of the following:
+            'error' => raise an error
+            'ignore' => return and do nothing
+            'replace', or 'replace_force' =>  drop the existing directory and create a new one
+            Default is 'error'.
 
     Raises:
-        Error: If the path already exists or the parent is not a directory, and `ignore_errors=False`.
+        Error: If the path already exists and if_exists is 'error'
+            or other error conditions like invalid path, store errors etc.
 
     Examples:
         >>> pxt.create_dir('my_dir')
@@ -393,31 +412,49 @@ def create_dir(path_str: str, ignore_errors: bool = False) -> Optional[catalog.D
         Create a subdirectory:
 
         >>> pxt.create_dir('my_dir.sub_dir')
+
+        Create a subdirectory only if does not already exist:
+
+        >>> pxt.create_dir('my_dir.sub_dir', if_exists='ignore')
+
+        Create a directory and replace if it already exists:
+
+        >>> pxt.create_dir('my_dir', if_exists='replace')
     """
+    _verify_param_if_exists(if_exists)
+
+    path = catalog.Path(path_str)
+
     try:
-        path = catalog.Path(path_str)
         Catalog.get().paths.check_is_valid(path, expected=None)
-        parent = Catalog.get().paths[path.parent]
-        assert parent is not None
-        with orm.Session(Env.get().engine, future=True) as session:
-            dir_md = schema.DirMd(name=path.name)
-            dir_record = schema.Dir(parent_id=parent._id, md=dataclasses.asdict(dir_md))
-            session.add(dir_record)
-            session.flush()
-            assert dir_record.id is not None
-            assert isinstance(dir_record.id, UUID)
-            dir = catalog.Dir(dir_record.id, parent._id, path.name)
-            Catalog.get().paths[path] = dir
-            session.commit()
-            _logger.info(f'Created directory `{path_str}`.')
-            print(f'Created directory `{path_str}`.')
-            return dir
     except excs.Error as e:
-        if ignore_errors:
-            return None
-        else:
+        if 'already exists' not in str(e) or if_exists == 'error':
             raise e
 
+        # The directory already exists. Handle per user directive.
+        if if_exists == 'replace' or if_exists == 'replace_force':
+            # Drop the existing directory so it can be replaced.
+            # Any error from drop here will not be ignored.
+            _logger.info(f'Dropping and recreating directory `{path_str}`.')
+            drop_dir(path_str, force=True, ignore_errors=False)
+        elif if_exists == 'ignore':
+            return None
+
+    parent = Catalog.get().paths[path.parent]
+    assert parent is not None
+    with orm.Session(Env.get().engine, future=True) as session:
+        dir_md = schema.DirMd(name=path.name)
+        dir_record = schema.Dir(parent_id=parent._id, md=dataclasses.asdict(dir_md))
+        session.add(dir_record)
+        session.flush()
+        assert dir_record.id is not None
+        assert isinstance(dir_record.id, UUID)
+        dir = catalog.Dir(dir_record.id, parent._id, path.name)
+        Catalog.get().paths[path] = dir
+        session.commit()
+        _logger.info(f'Created directory `{path_str}`.')
+        print(f'Created directory `{path_str}`.')
+        return dir
 
 def drop_dir(path_str: str, force: bool = False, ignore_errors: bool = False) -> None:
     """Remove a directory.
