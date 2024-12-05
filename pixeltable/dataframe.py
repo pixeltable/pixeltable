@@ -300,7 +300,7 @@ class DataFrame:
         return self.limit(n).collect()
 
     def head(self, n: int = 10) -> DataFrameResultSet:
-        """Return the first n rows (based on position) of the DataFrame.
+        """Return the first n rows of the DataFrame, in insertion order of the underlying Table.
 
         head() is not supported for joins.
 
@@ -323,7 +323,7 @@ class DataFrame:
         return self.order_by(*order_by_clause, asc=True).limit(n).collect()
 
     def tail(self, n: int = 10) -> DataFrameResultSet:
-        """Return the last n rows (based on position) of the DataFrame.
+        """Return the last n rows of the DataFrame, in insertion order of the underlying Table.
 
         tail() is not supported for joins.
 
@@ -516,10 +516,10 @@ class DataFrame:
             >>> df = person.select(t.name, t.age)
 
             Select the columns 'name' (referenced in table t) from the DataFrame person,
-            and a named column 'is_adult' from the expression 'age' >= 18 where 'age' is
+            and a named column 'is_adult' from the expression `age >= 18` where 'age' is
             another column in table t:
 
-            >>> df = person.select(t.name, is_adult=t.age>=18)
+            >>> df = person.select(t.name, is_adult=(t.age >= 18))
 
         """
         if self.select_list is not None:
@@ -580,8 +580,8 @@ class DataFrame:
             A new DataFrame with the specified predicates replacing the where-clause.
 
         Raises:
-            Error: If the predicate is not a Pixeltable expression
-                or if it does not return a boolean value
+            Error: If the predicate is not a Pixeltable expression,
+                or if it does not return a boolean value,
                 or refers to tables not in the DataFrame.
 
         Examples:
@@ -757,8 +757,8 @@ class DataFrame:
 
         Raises:
             Error: If the group-by clause is already specified,
-                or if the specified expression is invalid
-                or refer to tables not in the DataFrame
+                or if the specified expression is invalid,
+                or refer to tables not in the DataFrame,
                 or if the DataFrame is a result of a join.
 
         Examples:
@@ -819,7 +819,7 @@ class DataFrame:
 
         Raises:
             Error: If the order-by clause is already specified,
-                or if the specified expression is invalid
+                or if the specified expression is invalid,
                 or refer to tables not in the DataFrame.
 
         Examples:
