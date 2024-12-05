@@ -22,7 +22,7 @@ from pixeltable.utils.media_store import MediaStore
 
 from .utils import (assert_resultset_eq, create_table_data, get_audio_files, get_documents, get_image_files,
                     get_video_files, make_tbl, read_data_file, reload_catalog, skip_test_if_not_installed, strip_lines,
-                    validate_update_status, get_multimedia_commons_video_uris)
+                    validate_update_status, get_multimedia_commons_video_uris, ReloadTester)
 
 
 class TestTable:
@@ -1498,8 +1498,8 @@ class TestTable:
         t = pxt.get_table(t._name)
         assert len(t.columns) == num_orig_cols
 
-    def test_bool_column(self, reset_db: None) -> None:
-        # test adding a bool column with default value
+    def test_bool_column(self, reset_db: None, reload_tester: ReloadTester) -> None:
+        # test adding a bool column with constant value
         t = pxt.create_table('test', {'c1': pxt.Int})
         t.insert([{'c1': 1}, {'c1': 2}])
         assert t.count() == 2
@@ -1512,11 +1512,10 @@ class TestTable:
         res = t.collect()
         assert res['bool_const'] == [False, False, False, False]
 
-        # test adding a bool column with default value to a view
+        # test adding a bool column with constant value to a view
         pxt.drop_table(t)
         t = pxt.create_table('test', {'c1': pxt.Int})
-        t.insert([{'c1': 1}, {'c1': 2}])
-        assert t.count() == 2
+        validate_update_status(t.insert([{'c1': 1}, {'c1': 2}]), expected_rows=2)
         v = pxt.create_view('test_view', t)
         assert v.count() == 2
         v.add_column(bool_const=True)
@@ -1529,23 +1528,28 @@ class TestTable:
         assert res['bool_const'] == [True, True, True, True]
 
         # test using the bool column in a conditional expression
-        res = v[(v.c1 > 1) & v.bool_const].collect()
+        res = v.select((v.c1 > 1) & v.bool_const).collect()
         assert len(res) == 4
         assert res['col_0'] == [False, True, True, True]
         # reversing the condition order should not affect the result
-        res = v[v.bool_const & (v.c1 > 1)].collect()
+        res = v.select(v.bool_const & (v.c1 > 1)).collect()
         assert len(res) == 4
         assert res['col_0'] == [False, True, True, True]
 
         # sanity test persistence
-        reload_catalog()
+        df = v.select()
+        _ = reload_tester.run_query(df)
+
+        # ... restart python session ...
+        _ = reload_tester.run_reload_test(df)
+
         t = pxt.get_table('test')
         v = pxt.get_table('test_view')
         assert t.count() == 4
         assert v.count() == 4
         res = v.collect()
         assert res['bool_const'] == [True, True, True, True]
-        res = v[v.bool_const & (v.c1 > 1)].collect()
+        res = v.select(v.bool_const & (v.c1 > 1)).collect()
         assert res['col_0'] == [False, True, True, True]
 
         pxt.drop_table(v)
