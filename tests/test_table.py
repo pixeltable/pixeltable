@@ -66,22 +66,28 @@ class TestTable:
         tbl = pxt.create_table('test', schema)
         _ = pxt.create_table('dir1.test', schema)
 
-        with pytest.raises(excs.Error):
+        with pytest.raises(excs.Error) as exc_info:
             _ = pxt.create_table('1test', schema)
-        with pytest.raises(excs.Error):
+        assert 'Invalid path format' in str(exc_info.value)
+        with pytest.raises(excs.Error) as exc_info:
             _ = pxt.create_table('bad name', {'c1': pxt.String})
-        with pytest.raises(excs.Error):
+        assert 'Invalid path format' in str(exc_info.value)
+        with pytest.raises(excs.Error) as exc_info:
             _ = pxt.create_table('test', schema)
-        with pytest.raises(excs.Error):
+        assert 'already exists' in str(exc_info.value)
+        with pytest.raises(excs.Error) as exc_info:
             _ = pxt.create_table('dir2.test2', schema)
+        assert 'No such path' in str(exc_info.value)
 
         _ = pxt.list_tables()
         _ = pxt.list_tables('dir1')
 
-        with pytest.raises(excs.Error):
+        with pytest.raises(excs.Error) as exc_info:
             _ = pxt.list_tables('1dir')
-        with pytest.raises(excs.Error):
+        assert 'Invalid path format' in str(exc_info.value)
+        with pytest.raises(excs.Error) as exc_info:
             _ = pxt.list_tables('dir2')
+        assert 'No such path' in str(exc_info.value)
 
         # test loading with new client
         reload_catalog()
@@ -97,12 +103,15 @@ class TestTable:
         pxt.drop_table('test2')
         pxt.drop_table('dir1.test')
 
-        with pytest.raises(excs.Error):
+        with pytest.raises(excs.Error) as exc_info:
             pxt.drop_table('test')
-        with pytest.raises(excs.Error):
+        assert 'no such path: test' in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
             pxt.drop_table('dir1.test2')
-        with pytest.raises(excs.Error):
+        assert 'no such path: dir1.test2' in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
             pxt.drop_table('.test2')
+        assert 'invalid path format' in str(exc_info.value).lower()
 
         with pytest.raises(excs.Error) as exc_info:
             _ = pxt.create_table('bad_col_name', {'pos': pxt.Int})
@@ -115,6 +124,92 @@ class TestTable:
         with pytest.raises(excs.Error) as exc_info:
             _ = pxt.create_table('test', {'insert': pxt.Int})
         assert "'insert' is a reserved name in pixeltable" in str(exc_info.value).lower()
+
+    def test_create_if_exists(self, reset_db: None) -> None:
+        """ Test the if_exists parameter of create_table """
+        schema = {
+            'c1': pxt.String,
+            'c2': pxt.Int,
+            'c3': pxt.Float,
+            'c4': pxt.Timestamp,
+        }
+        tbl = pxt.create_table('test', schema)
+        tbl.insert(create_table_data(tbl, num_rows=5))
+        id_before = tbl._id
+        res_before = tbl.select().collect()
+        assert len(res_before) == 5
+
+        # scenario 1: a table exists at the path already
+        with pytest.raises(excs.Error) as exc_info:
+            _ = pxt.create_table('test', schema)
+        assert 'already exists' in str(exc_info.value)
+        assert len(tbl.select().collect()) == 5
+        # if_exists='ignore' should return the existing table
+        tbl2 = pxt.create_table('test', schema, if_exists='ignore')
+        assert tbl2 == tbl
+        assert tbl2._id == id_before
+        res_after = tbl2.select().collect()
+        assert_resultset_eq(res_before, res_after)
+        # if_exists='replace' should drop the existing table
+        tbl3 = pxt.create_table('test', schema, if_exists='replace')
+        assert tbl3 != tbl
+        assert tbl3._id != id_before
+        res_after = tbl3.select().collect()
+        assert len(res_after) == 0
+        id_before = tbl3._id
+
+        reload_catalog()
+
+        tbl = pxt.get_table('test')
+        assert tbl._id == id_before
+        assert len(tbl.select().collect()) == 0
+        tbl.insert(create_table_data(tbl, num_rows=3))
+        assert len(tbl.select().collect()) == 3
+        view = pxt.create_view('test_view', tbl)
+        assert len(view.select().collect()) == 3
+
+        # scenario 2: a table exists at the path, but has dependency
+        with pytest.raises(excs.Error) as exc_info:
+            _ = pxt.create_table('test', schema)
+        assert 'already exists' in str(exc_info.value)
+        assert len(tbl.select().collect()) == 3
+        # if_exists='ignore' should return the existing table
+        tbl2 = pxt.create_table('test', schema, if_exists='ignore')
+        assert tbl2 == tbl
+        assert tbl2._id == id_before
+        assert len(tbl2.select().collect()) == 3
+        # if_exists='replace' cannot drop a table with a dependent view.
+        # it should raise an error and recommend using 'replace_force'
+        with pytest.raises(excs.Error) as exc_info:
+            _ = pxt.create_table('test', schema, if_exists='replace')
+        assert ('already exists' in str(exc_info.value)
+            and 'has dependents' in str(exc_info.value)
+            and 'replace_force' in str(exc_info.value))
+        # if_exists='replace_force' should drop the existing table
+        # and its dependent view.
+        tbl = pxt.create_table('test', schema, if_exists='replace_force')
+        assert tbl._id != id_before
+        assert len(tbl.select().collect()) == 0
+        assert view._is_dropped
+        assert 'test_view' not in pxt.list_tables()
+
+        tbl.insert(create_table_data(tbl, num_rows=1))
+
+        pxt.create_dir('dir1')
+
+        # scenario 3: path exists but is not a table
+        with pytest.raises(excs.Error) as exc_info:
+            _ = pxt.create_table('dir1', schema)
+        assert 'already exists' in str(exc_info.value)
+        assert len(tbl.select().collect()) == 1
+
+        for _ie in ['ignore', 'replace', 'replace_force']:
+            with pytest.raises(excs.Error) as exc_info:
+                _ = pxt.create_table('dir1', schema, if_exists=_ie)
+            assert ('already exists' in str(exc_info.value)
+                and 'is not a Table' in str(exc_info.value))
+            assert len(tbl.select().collect()) == 1, f"with if_exists={_ie}"
+            assert 'dir1' in pxt.list_dirs(), f"with if_exists={_ie}"
 
     def test_columns(self, reset_db: None) -> None:  # noqa: PLR6301
         schema = {
