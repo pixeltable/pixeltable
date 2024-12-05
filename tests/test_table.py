@@ -22,7 +22,7 @@ from pixeltable.utils.media_store import MediaStore
 
 from .utils import (assert_resultset_eq, create_table_data, get_audio_files, get_documents, get_image_files,
                     get_video_files, make_tbl, read_data_file, reload_catalog, skip_test_if_not_installed, strip_lines,
-                    validate_update_status, get_multimedia_commons_video_uris)
+                    validate_update_status, get_multimedia_commons_video_uris, ReloadTester)
 
 
 class TestTable:
@@ -1497,6 +1497,101 @@ class TestTable:
         reload_catalog()
         t = pxt.get_table(t._name)
         assert len(t.columns) == num_orig_cols
+
+    def test_bool_column(self, reset_db: None, reload_tester: ReloadTester) -> None:
+        # test adding a bool column with constant value
+        t = pxt.create_table('test', {'c1': pxt.Int})
+        t.insert([{'c1': 1}, {'c1': 2}])
+        assert t.count() == 2
+        t.add_column(bool_const=False)
+        assert t.where(~t.bool_const).count() == 2
+        res = t.collect()
+        assert res['bool_const'] == [False, False]
+        t.insert([{'c1': 3}, {'c1': 4}])
+        assert t.where(~t.bool_const).count() == 4
+        res = t.collect()
+        assert res['bool_const'] == [False, False, False, False]
+
+        # test adding a bool column with constant value to a view
+        pxt.drop_table(t)
+        t = pxt.create_table('test', {'c1': pxt.Int})
+        validate_update_status(t.insert([{'c1': 1}, {'c1': 2}]), expected_rows=2)
+        v = pxt.create_view('test_view', t)
+        assert v.count() == 2
+        v.add_column(bool_const=True)
+        assert v.where(v.bool_const).count() == 2
+        res = v.collect()
+        assert res['bool_const'] == [True, True]
+        t.insert([{'c1': 3}, {'c1': 4}])
+        assert v.where(v.bool_const).count() == 4
+        res = v.collect()
+        assert res['bool_const'] == [True, True, True, True]
+
+        # test using the bool column in a conditional expression
+        res = v.select((v.c1 > 1) & v.bool_const).collect()
+        assert len(res) == 4
+        assert res['col_0'] == [False, True, True, True]
+        # reversing the condition order should not affect the result
+        res = v.select(v.bool_const & (v.c1 > 1)).collect()
+        assert len(res) == 4
+        assert res['col_0'] == [False, True, True, True]
+
+        # sanity test persistence
+        df = v.select()
+        _ = reload_tester.run_query(df)
+
+        # ... restart python session ...
+        _ = reload_tester.run_reload_test(df)
+
+        t = pxt.get_table('test')
+        v = pxt.get_table('test_view')
+        assert t.count() == 4
+        assert v.count() == 4
+        res = v.collect()
+        assert res['bool_const'] == [True, True, True, True]
+        res = v.select(v.bool_const & (v.c1 > 1)).collect()
+        assert res['col_0'] == [False, True, True, True]
+
+        pxt.drop_table(v)
+        pxt.drop_table(t)
+
+        t = pxt.create_table('test', {'c1': pxt.Int, 'c2': pxt.Bool})
+        t.insert([{'c1': 1, 'c2': True}, {'c1': 2, 'c2': False}])
+        assert t.count() == 2
+
+        # bool columns accept int values that can be cast to bool.
+        t.insert(c2=3)
+        res = t.select(t.c2).collect()
+        assert res['c2'] == [True, False, True]
+        t.insert(c2=0)
+        res = t.select(t.c2).collect()
+        assert res['c2'] == [True, False, True, False]
+        t.insert(c2=-1)
+        res = t.select(t.c2).collect()
+        assert res['c2'] == [True, False, True, False, True]
+
+        # bool columns do not accept other types that cannot
+        # be cast to bool.
+        with pytest.raises(excs.Error) as exc_info:
+            t.insert(c2='T')
+        assert 'error in column c2: expected bool, got str' in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
+            t.insert(c2=4.5)
+        assert 'error in column c2: expected bool, got float' in str(exc_info.value).lower()
+
+        # test that int columns only accept int values, not bool
+        with pytest.raises(excs.Error) as exc_info:
+            t.insert(c1=True)
+        assert 'error in column c1: expected int, got bool' in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
+            t.insert(c1=False)
+        assert 'error in column c1: expected int, got bool' in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
+            t.insert(c1='T')
+        assert 'error in column c1: expected int, got str' in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
+            t.insert(c1=4.5)
+        assert 'error in column c1: expected int, got float' in str(exc_info.value).lower()
 
     def test_add_column_setitem(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
