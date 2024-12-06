@@ -1,3 +1,4 @@
+from uuid import UUID
 import sqlalchemy as sql
 
 from pixeltable.metadata import register_converter
@@ -12,7 +13,7 @@ def _(engine: sql.engine.Engine) -> None:
     )
 
 
-def __update_table_md(table_md: dict) -> None:
+def __update_table_md(table_md: dict, table_id: UUID) -> None:
     # key changes in IndexMd.init_args: img_embed -> image_embed, txt_embed -> string_embed
     if len(table_md['index_md']) == 0:
         return

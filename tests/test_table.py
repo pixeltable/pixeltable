@@ -22,7 +22,7 @@ from pixeltable.utils.media_store import MediaStore
 
 from .utils import (assert_resultset_eq, create_table_data, get_audio_files, get_documents, get_image_files,
                     get_video_files, make_tbl, read_data_file, reload_catalog, skip_test_if_not_installed, strip_lines,
-                    validate_update_status, get_multimedia_commons_video_uris)
+                    validate_update_status, get_multimedia_commons_video_uris, ReloadTester)
 
 
 class TestTable:
@@ -1672,6 +1672,20 @@ class TestTable:
         assert status.num_excs == 10
         result = t.where(t.add3.errortype != None).select(t.c2, t.add3, t.add3.errortype, t.add3.errormsg).show()
         assert len(result) == 10
+
+    def test_add_embedding_as_computed_column(self, reload_tester: ReloadTester) -> None:
+        skip_test_if_not_installed('transformers')
+        t = pxt.create_table('t', {'s': pxt.String})
+        t.add_computed_column(s2=pxt.functions.huggingface.sentence_transformer(t.s, model_id='all-mpnet-base-v2'))
+        df = t.select()
+        _ = reload_tester.run_query(df)
+        _ = reload_tester.run_reload_test(df)
+
+        v = pxt.create_view('v', t)
+        v.add_computed_column(s3=pxt.functions.huggingface.sentence_transformer(t.s, model_id='all-mpnet-base-v2'))
+        df = v.select()
+        _ = reload_tester.run_query(df)
+        _ = reload_tester.run_reload_test(df)
 
     def test_computed_column_types(self, reset_db: None) -> None:
         t = pxt.create_table(
