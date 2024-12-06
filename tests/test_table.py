@@ -22,7 +22,7 @@ from pixeltable.utils.media_store import MediaStore
 
 from .utils import (assert_resultset_eq, create_table_data, get_audio_files, get_documents, get_image_files,
                     get_video_files, make_tbl, read_data_file, reload_catalog, skip_test_if_not_installed, strip_lines,
-                    validate_update_status, get_multimedia_commons_video_uris)
+                    validate_update_status, get_multimedia_commons_video_uris, ReloadTester)
 
 
 class TestTable:
@@ -55,7 +55,7 @@ class TestTable:
     def add1(a: int) -> int:
         return a + 1
 
-    def test_create(self, reset_db: None) -> None:
+    def test_create(self, reset_db: None, reload_tester: ReloadTester) -> None:
         pxt.create_dir('dir1')
         schema = {
             'c1': pxt.String,
@@ -90,7 +90,9 @@ class TestTable:
         assert 'No such path' in str(exc_info.value)
 
         # test loading with new client
-        reload_catalog()
+        df = tbl.select()
+        _ = reload_tester.run_query(df)
+        _ = reload_tester.run_reload_test(clear=True)
 
         tbl = pxt.get_table('test')
         assert isinstance(tbl, catalog.InsertableTable)
@@ -125,7 +127,7 @@ class TestTable:
             _ = pxt.create_table('test', {'insert': pxt.Int})
         assert "'insert' is a reserved name in pixeltable" in str(exc_info.value).lower()
 
-    def test_create_if_exists(self, reset_db: None) -> None:
+    def test_create_if_exists(self, reset_db: None, reload_tester: ReloadTester) -> None:
         """ Test the if_exists parameter of create_table """
         schema = {
             'c1': pxt.String,
@@ -138,6 +140,11 @@ class TestTable:
         id_before = tbl._id
         res_before = tbl.select().collect()
         assert len(res_before) == 5
+
+        # invalid if_exists value is rejected
+        with pytest.raises(excs.Error) as exc_info:
+            _ = pxt.create_table('test', schema, if_exists='invalid')
+        assert "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']" in str(exc_info.value)
 
         # scenario 1: a table exists at the path already
         with pytest.raises(excs.Error) as exc_info:
@@ -158,7 +165,9 @@ class TestTable:
         assert len(res_after) == 0
         id_before = tbl3._id
 
-        reload_catalog()
+        df = tbl3.select()
+        _ = reload_tester.run_query(df)
+        _ = reload_tester.run_reload_test(clear=True)
 
         tbl = pxt.get_table('test')
         assert tbl._id == id_before
@@ -210,6 +219,10 @@ class TestTable:
                 and 'is not a Table' in str(exc_info.value))
             assert len(tbl.select().collect()) == 1, f"with if_exists={_ie}"
             assert 'dir1' in pxt.list_dirs(), f"with if_exists={_ie}"
+
+        df = tbl.select()
+        _ = reload_tester.run_query(df)
+        _ = reload_tester.run_reload_test(clear=True)
 
     def test_columns(self, reset_db: None) -> None:  # noqa: PLR6301
         schema = {

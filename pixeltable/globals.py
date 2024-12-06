@@ -2,6 +2,7 @@ import dataclasses
 import logging
 from typing import Any, Iterable, Optional, Union, Literal
 from uuid import UUID
+from enum import Enum
 
 import pandas as pd
 import sqlalchemy as sql
@@ -20,25 +21,25 @@ from pixeltable.utils.filecache import FileCache
 
 _logger = logging.getLogger('pixeltable')
 
-__valid_if_exists_values = ['error', 'ignore', 'replace', 'replace_force']
-
 def init() -> None:
     """Initializes the Pixeltable environment."""
     _ = Catalog.get()
 
-def _verify_param_if_exists(if_exists: str) -> None:
-    """Verify the value of the `if_exists` parameter.
+class IfExistsParam(Enum):
+    ERROR = 'error'
+    IGNORE = 'ignore'
+    REPLACE = 'replace'
+    REPLACE_FORCE = 'replace_force'
 
-    The value must be one of the following: 'error', 'ignore', 'replace', 'replace_force'.
+    @classmethod
+    def validated(cls, name: str, error_prefix: str) -> 'IfExistsParam':
+        try:
+            return cls[name.upper()]
+        except KeyError:
+            raise excs.Error(f'{error_prefix} must be one of: {[e.value for e in cls]}')
 
-    Args:
-        if_exists: Value of the `if_exists` parameter.
-
-    Raises:
-        Error: If the value is invalid.
-    """
-    if if_exists not in __valid_if_exists_values:
-        raise excs.Error(f'Invalid value for `if_exists`: {if_exists}. It must be one of: {__valid_if_exists_values}.')
+    def valid_values(cls) -> list[str]:
+        return [e.value for e in cls]
 
 def create_table(
     path_str: str,
@@ -48,7 +49,7 @@ def create_table(
     num_retained_versions: int = 10,
     comment: str = '',
     media_validation: Literal['on_read', 'on_write'] = 'on_write',
-    if_exists: str = 'error'
+    if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error'
 ) -> catalog.Table:
     """Create a new base table.
 
@@ -65,11 +66,11 @@ def create_table(
             - `'on_write'`: validate media files during insert/update operations
         if_exists: Directive regarding how to handle the path already exists.
             Must be one of the following:
-            - 'error': raise an error
-            - 'ignore': do nothing and return the existing table handle
-            - 'replace': if the existing table has no views, drop it and create a new one
-            - 'replace_force': drop the existing table and all its views, and create a new one
-            Default is 'error'.
+            - `'error'`: raise an error
+            - `'ignore'`: do nothing and return the existing table handle
+            - `'replace'`: if the existing table has no views, drop and replace it with a new one
+            - `'replace_force'`: drop the existing table and all its views, and create a new one
+            Default is `'error'`.
 
     Returns:
         A handle to the newly created table, or to an already existing table at the path when `if_exists='ignore'`.
@@ -94,18 +95,17 @@ def create_table(
 
         >>> tbl = pxt.create_table('my_table', schema={'col1': pxt.Int, 'col2': pxt.String}, if_exists='ignore')
 
-        Create a table with an int and a float column, and drop and replace, if it already exists:
+        Create a table with an int and a float column, and replace if 'my_table' already exists:
 
         >>> tbl = pxt.create_table('my_table', schema={'col1': pxt.Int, 'col2': pxt.Float}, if_exists='replace')
     """
-    if_exists = if_exists.lower()
-    _verify_param_if_exists(if_exists)
+    if_exists = IfExistsParam.validated(if_exists, 'if_exists')
     path = catalog.Path(path_str)
     cat = Catalog.get()
     try:
         cat.paths.check_is_valid(path, expected=None)
     except excs.Error as check_error:
-        if 'already exists' not in str(check_error) or if_exists == 'error':
+        if 'already exists' not in str(check_error) or if_exists == IfExistsParam.ERROR:
             raise check_error
         # The table already exists. Handle it as per user directive.
         existing_table = cat.paths[path]
@@ -115,14 +115,14 @@ def create_table(
 
         assert is_table
 
-        if if_exists == 'ignore':
+        if if_exists == IfExistsParam.IGNORE:
             return existing_table
 
         has_dependents = len(cat.tbl_dependents[existing_table._id]) > 0
-        if if_exists == 'replace' and has_dependents:
+        if if_exists == IfExistsParam.REPLACE and has_dependents:
             raise excs.Error(f'Table `{path_str}` already exists and has dependents. Use if_exists="replace_force" to replace it.')
         else:
-            assert if_exists == 'replace_force' or (is_table and not has_dependents)
+            assert if_exists == IfExistsParam.REPLACE_FORCE or (is_table and not has_dependents)
             # Drop the existing table so it can be replaced.
             # Any error from drop_table will not be ignored.
             _logger.info(f'Dropping and recreating table `{path_str}`.')
@@ -435,24 +435,24 @@ def list_tables(dir_path: str = '', recursive: bool = True) -> list[str]:
     Catalog.get().paths.check_is_valid(path, expected=catalog.Dir)
     return [str(p) for p in Catalog.get().paths.get_children(path, child_type=catalog.Table, recursive=recursive)]
 
-def create_dir(path_str: str, if_exists: str = 'error') -> Optional[catalog.Dir]:
+def create_dir(path_str: str, if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error') -> Optional[catalog.Dir]:
     """Create a directory.
 
     Args:
         path_str: Path to the directory.
         if_exists: Directive regarding how to handle if the path already exists.
             Must be one of the following:
-            - 'error': raise an error
-            - 'ignore': do nothing and return the existing directory handle
-            - 'replace': if the existing directory is empty, drop it and create a new one
-            - 'replace_force': drop the existing table and all its children, and create a new one
-            Default is 'error'.
+            - `'error'`: raise an error
+            - `'ignore'`: do nothing and return the existing directory handle
+            - `'replace'`: if the existing directory is empty, drop it and create a new one
+            - `'replace_force'`: drop the existing table and all its children, and create a new one
+            Default is `'error'`.
 
     Returns:
         A handle to the newly created directory, or to an already existing directory at the path when `if_exists='ignore'`.
 
     Raises:
-        Error: If the path already exists and if_exists is 'error'
+        Error: If the path already exists and if_exists is `'error'`,
             or if the path already exists and is not a directory,
             or other error conditions like invalid path, store errors etc.
 
@@ -471,8 +471,7 @@ def create_dir(path_str: str, if_exists: str = 'error') -> Optional[catalog.Dir]
 
         >>> pxt.create_dir('my_dir', if_exists='replace')
     """
-    if_exists = if_exists.lower()
-    _verify_param_if_exists(if_exists)
+    if_exists = IfExistsParam.validated(if_exists, 'if_exists')
 
     path = catalog.Path(path_str)
     cat = Catalog.get()
@@ -480,7 +479,7 @@ def create_dir(path_str: str, if_exists: str = 'error') -> Optional[catalog.Dir]
     try:
         cat.paths.check_is_valid(path, expected=None)
     except excs.Error as check_error:
-        if 'already exists' not in str(check_error) or if_exists == 'error':
+        if 'already exists' not in str(check_error) or if_exists == IfExistsParam.ERROR:
             raise check_error
         # The directory already exists. Handle it as per user directive.
         existing_dir = cat.paths[path]
@@ -489,14 +488,14 @@ def create_dir(path_str: str, if_exists: str = 'error') -> Optional[catalog.Dir]
             raise excs.Error(f'Path `{path_str}` already exists but is not a Dir. Cannot {if_exists} it.')
 
         assert is_dir
-        if if_exists == 'ignore':
+        if if_exists == IfExistsParam.IGNORE:
             return existing_dir
 
         has_children = len(cat.paths.get_children(path, child_type=None, recursive=False)) > 0
-        if if_exists == 'replace' and has_children:
+        if if_exists == IfExistsParam.REPLACE and has_children:
             raise excs.Error(f'Directory `{path_str}` already exists and is not empty. Use if_exists="replace_force" to replace it.')
         else:
-            assert if_exists == 'replace_force' or (is_dir and not has_children)
+            assert if_exists == IfExistsParam.REPLACE_FORCE or (is_dir and not has_children)
             # Drop the existing directory so it can be replaced.
             # Any error from drop_dir will not be ignored.
             _logger.info(f'Dropping and recreating directory `{path_str}`.')
