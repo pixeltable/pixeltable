@@ -872,7 +872,6 @@ class DataFrame:
         """ Update rows in the underlying table of the DataFrame.
 
         Update rows in the table with the specified value_spec.
-        The update operation is only allowed for DataFrames on base tables.
 
         Args:
             value_spec: a dict of column names to update and the new value to update it to.
@@ -881,6 +880,15 @@ class DataFrame:
 
         Returns:
             UpdateStatus: the status of the update operation.
+
+        Example:
+            Update the column 'city' to 'Oakland' and 'state' to 'CA' in the DataFrame person:
+
+            >>> df = person.update({'city': 'Oakland', 'state': 'CA'})
+
+            Update the column 'age' to 30 for any rows where 'year' is 2014 in the DataFrame person:
+
+            >>> df = person.where(t.year == 2014).update({'age': 30})
         """
         self._validate_mutable('update')
         return self._first_tbl.tbl_version.update(value_spec, where=self.where_clause, cascade=cascade)
@@ -892,6 +900,11 @@ class DataFrame:
 
         Returns:
             UpdateStatus: the status of the delete operation.
+
+        Example:
+            Delete all rows from the DataFrame person where the column 'age' is less than 18:
+
+            >>> df = person.where(t.age < 18).delete()
         """
         self._validate_mutable('delete')
         if not self._first_tbl.is_insertable():

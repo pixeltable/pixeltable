@@ -184,11 +184,17 @@ class Table(SchemaObject):
         return self.__query_scope
 
     def select(self, *items: Any, **named_items: Any) -> 'pxt.DataFrame':
-        """ Select columns or expressions from this table."""
+        """ Select columns or expressions from this table.
+
+        See [`DataFrame.select`][pixeltable.DataFrame.select] for more details.
+        """
         return self._df().select(*items, **named_items)
 
     def where(self, pred: 'exprs.Expr') -> 'pxt.DataFrame':
-        """Filter rows from this table based on the expression."""
+        """Filter rows from this table based on the expression.
+
+        See [`DataFrame.where`][pixeltable.DataFrame.where] for more details.
+        """
         return self._df().where(pred)
 
     def join(
@@ -199,11 +205,17 @@ class Table(SchemaObject):
         return self._df().join(other, on=on, how=how)
 
     def order_by(self, *items: 'exprs.Expr', asc: bool = True) -> 'pxt.DataFrame':
-        """Order the rows of this table based on the expression."""
+        """Order the rows of this table based on the expression.
+
+        See [`DataFrame.order_by`][pixeltable.DataFrame.order_by] for more details.
+        """
         return self._df().order_by(*items, asc=asc)
 
     def group_by(self, *items: 'exprs.Expr') -> 'pxt.DataFrame':
-        """Group the rows of this table based on the expression."""
+        """Group the rows of this table based on the expression.
+
+        See [`DataFrame.group_by`][pixeltable.DataFrame.group_by] for more details.
+        """
         return self._df().group_by(*items)
 
     def limit(self, n: int) -> 'pxt.DataFrame':
