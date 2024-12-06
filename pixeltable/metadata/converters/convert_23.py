@@ -20,7 +20,7 @@ def __update_table_md(table_md: dict, table_id: UUID) -> None:
     """update the index metadata to add indexed_col_tbl_id column if it is missing
 
     Args:
-        table_md (dict): copt if the original table metadata. this gets updated in place.
+        table_md (dict): copy of the original table metadata. this gets updated in place.
         table_id (UUID): the table id
 
     """

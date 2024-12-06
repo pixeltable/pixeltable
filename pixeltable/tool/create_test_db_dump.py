@@ -275,6 +275,13 @@ class Dumper:
             string_embed=pxt.functions.huggingface.clip_text.using(model_id='openai/clip-vit-base-patch32')
         )
 
+        if col_prefix == 'view':
+            # Add an embedding index to the view that is on a column in the base table
+            t.add_embedding_index(
+                'base_table_function_call',
+                string_embed=pxt.functions.huggingface.clip_text.using(model_id='openai/clip-vit-base-patch32')
+            )
+
         # query()
         @t.query
         def q1(i: int):

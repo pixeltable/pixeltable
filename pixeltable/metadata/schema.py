@@ -112,8 +112,8 @@ class IndexMd:
     """
     id: int
     name: str
+    indexed_col_tbl_id: str  # UUID of the table (as string) that contains column being indexed
     indexed_col_id: int  # column being indexed
-    indexed_col_tbl_id: str  # table containing the indexed column
     index_val_col_id: int  # column holding the values to be indexed
     index_val_undo_col_id: int  # column holding index values for deleted rows
     schema_version_add: int

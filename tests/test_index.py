@@ -149,7 +149,7 @@ class TestIndex:
             _ = t.order_by(t.split.similarity(sample_img)).limit(1).collect()
         assert "was created without the 'image_embed' parameter" in str(exc_info.value).lower()
 
-    def test_embedding_basic(self, img_tbl: pxt.Table, test_tbl: pxt.Table) -> None:
+    def test_embedding_basic(self, img_tbl: pxt.Table, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
         skip_test_if_not_installed('transformers')
         img_t = img_tbl
         rows = list(img_t.select(img=img_t.img.fileurl, category=img_t.category, split=img_t.split).collect())
@@ -209,7 +209,9 @@ class TestIndex:
         img_t.revert()
 
         # make sure we can still do DML after reloading the metadata
-        reload_catalog()
+        df = img_t.select()
+        _ = reload_tester.run_query(df)
+        _ = reload_tester.run_reload_test(clear=True)
         img_t = pxt.get_table(tbl_name)
         status = img_t.insert(rows)
         assert status.num_excs == 0
@@ -273,6 +275,28 @@ class TestIndex:
         with pytest.raises(pxt.Error) as exc_info:
             img_t.drop_embedding_index(idx_name='idx0')
         assert 'does not exist' in str(exc_info.value).lower()
+
+        df = img_t.select()
+        _ = reload_tester.run_query(df)
+        _ = reload_tester.run_reload_test(clear=True)
+
+        # test that a table with an embedding index can be reloaded
+        t = pxt.create_table('t1', {'s': pxt.String})
+        t.add_embedding_index('s', string_embed=pxt.functions.huggingface.sentence_transformer.using(model_id='all-mpnet-base-v2'))
+        df = t.select()
+        _ = reload_tester.run_query(df)
+        _ = reload_tester.run_reload_test(clear=True)
+
+        # test that a view with an embedding index on a base table column can be reloaded
+        t = pxt.create_table('t2', {'s': pxt.String})
+        v = pxt.create_view('v', t)
+        v.add_embedding_index('s', string_embed=pxt.functions.huggingface.sentence_transformer.using(model_id='all-mpnet-base-v2'))
+        # should work irrespective of whether the column is passed by name or reference
+        v.add_embedding_index(v.s, string_embed=pxt.functions.huggingface.sentence_transformer.using(model_id='all-mpnet-base-v2'))
+        v.add_embedding_index(t.s, string_embed=pxt.functions.huggingface.sentence_transformer.using(model_id='all-mpnet-base-v2'))
+        df = v.select()
+        _ = reload_tester.run_query(df)
+        _ = reload_tester.run_reload_test(df)
 
     def test_embedding_errors(self, small_img_tbl: pxt.Table, test_tbl: pxt.Table) -> None:
         skip_test_if_not_installed('transformers')
@@ -425,61 +449,3 @@ class TestIndex:
         delta_secs = int(delta.total_seconds())
         data = [start + timedelta(seconds=random.randint(0, int(delta_secs))) for _ in range(self.BTREE_TEST_NUM_ROWS)]
         self.run_btree_test(data, pxt.Timestamp)
-
-    def test_embedding_index_reload_table(self, reset_db, reload_tester: ReloadTester) -> None:
-        skip_test_if_not_installed('transformers')
-        t = pxt.create_table('t', {'s': pxt.String})
-        t.add_embedding_index('s', string_embed=pxt.functions.huggingface.sentence_transformer.using(model_id='all-mpnet-base-v2'))
-        df = t.select()
-        _ = reload_tester.run_query(df)
-
-        # ... restart python session ...
-        _ = reload_tester.run_reload_test(df)
-
-    def test_embedding_computedcol_reload_table(self, reset_db, reload_tester: ReloadTester) -> None:
-        skip_test_if_not_installed('transformers')
-        t = pxt.create_table('t', {'s': pxt.String})
-        t.add_computed_column(s2=pxt.functions.huggingface.sentence_transformer(t.s, model_id='all-mpnet-base-v2'))
-        df = t.select()
-        _ = reload_tester.run_query(df)
-
-        # ... restart python session ...
-        _ = reload_tester.run_reload_test(df)
-
-    def test_embedding_index_reload_view(self, reset_db, reload_tester: ReloadTester) -> None:
-        skip_test_if_not_installed('transformers')
-        t = pxt.create_table('t', {'s': pxt.String})
-        v = pxt.create_view('v', t)
-        v.add_embedding_index('s', string_embed=pxt.functions.huggingface.sentence_transformer.using(model_id='all-mpnet-base-v2'))
-        df = v.select()
-        _ = reload_tester.run_query(df)
-
-        # ... restart python session ...
-        _ = reload_tester.run_reload_test(df)
-
-        # should work irrespective of whether the column is passed by name or reference
-        v.add_embedding_index(v.s, string_embed=pxt.functions.huggingface.sentence_transformer.using(model_id='all-mpnet-base-v2'))
-        df = v.select()
-        _ = reload_tester.run_query(df)
-
-        # ... restart python session ...
-        _ = reload_tester.run_reload_test(df)
-
-        v.add_embedding_index(t.s, string_embed=pxt.functions.huggingface.sentence_transformer.using(model_id='all-mpnet-base-v2'))
-        df = v.select()
-        _ = reload_tester.run_query(df)
-
-        # ... restart python session ...
-        _ = reload_tester.run_reload_test(df)
-
-
-    def test_embedding_computedcol_reload_view(self, reset_db, reload_tester: ReloadTester) -> None:
-        skip_test_if_not_installed('transformers')
-        t = pxt.create_table('t', {'s': pxt.String})
-        v = pxt.create_view('v', t)
-        v.add_computed_column(s2=pxt.functions.huggingface.sentence_transformer(t.s, model_id='all-mpnet-base-v2'))
-        df = v.select()
-        _ = reload_tester.run_query(df)
-
-        # ... restart python session ...
-        _ = reload_tester.run_reload_test(df)

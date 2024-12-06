@@ -23,6 +23,7 @@ def convert_table_md(
     Args:
         engine: The SQLAlchemy engine.
         table_md_updater: A function that updates schema.TableMd dicts in place.
+            It takes two arguments: the metadata dict (new values) and the table id.
         column_md_updater: A function that updates schema.ColumnMd dicts in place.
         external_store_md_updater: A function that updates the external store metadata in place.
         substitution_fn: A function that substitutes metadata values. If specified, all metadata will be traversed

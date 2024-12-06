@@ -173,13 +173,13 @@ class TableVersion:
     def __hash__(self) -> int:
         return hash(self.id)
 
-    def _get_column(self, col_id: int, tbl_id: UUID) -> Column:
+    def _get_column(self, tbl_id: UUID, col_id: int) -> Column:
         if self.id == tbl_id:
             return self.cols_by_id[col_id]
         else:
             if self.base is None:
                 raise excs.Error(f'Unknown table id: {tbl_id}')
-            return self.base._get_column(col_id, tbl_id)
+            return self.base._get_column(tbl_id, col_id)
 
     def create_snapshot_copy(self) -> TableVersion:
         """Create a snapshot copy of this TableVersion"""
@@ -343,7 +343,7 @@ class TableVersion:
             # instantiate index object
             cls_name = md.class_fqn.rsplit('.', 1)[-1]
             cls = getattr(index_module, cls_name)
-            idx_col = self._get_column(md.indexed_col_id, UUID(md.indexed_col_tbl_id)) #self.cols_by_id[md.indexed_col_id]
+            idx_col = self._get_column(UUID(md.indexed_col_tbl_id), md.indexed_col_id)
             idx = cls.from_dict(idx_col, md.init_args)
 
             # fix up the sa column type of the index value and undo columns
