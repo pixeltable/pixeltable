@@ -1,0 +1,30 @@
+Pixeltable FAQ
+What is Pixeltable?
+Pixeltable is a Python library designed to simplify the management and processing of multimodal data (text, images, audio, video) for machine learning workflows. It offers a declarative, table-like interface for data storage, transformation, indexing, and retrieval. Key features include built-in versioning, lineage tracking, and incremental updates, making it easier to maintain and iterate on data throughout the ML lifecycle.
+
+What are the key benefits of using Pixeltable?
+Transparency and Reproducibility: All data transformations and generated outputs are automatically tracked and versioned, ensuring transparency and reproducibility of experiments. This eliminates the risk of losing track of data lineage and facilitates collaboration.
+Cost Savings: Pixeltable's incremental update mechanism ensures that only modified data is processed, saving computational resources and time compared to re-running entire pipelines from scratch.
+Integration with Existing Tools: Pixeltable is designed to seamlessly integrate with existing Python libraries and tools. You can leverage your preferred models, frameworks, and AI practices while Pixeltable handles the underlying data infrastructure and orchestration.
+How does Pixeltable handle data transformations and model inference?
+Pixeltable employs a concept called "computed columns" to represent data transformations, model inference, and custom logic. These computed columns are defined declaratively, allowing you to express complex data manipulation steps in a concise and readable manner. Pixeltable automatically manages the execution and caching of these operations, optimizing performance and simplifying your workflow.
+
+What types of data can I work with in Pixeltable?
+Pixeltable supports a wide range of data types, including text, images, audio, and video. It allows you to interact with video data at the frame level and documents at the chunk level. Additionally, Pixeltable is data format agnostic and can access tables as Parquet files, PyTorch datasets, or COCO annotations.
+
+Can I use Pixeltable for multimodal workflows?
+Yes, Pixeltable is specifically designed to handle multimodal workflows. It provides a unified table interface for managing and processing different data types, simplifying cross-modal search and analysis tasks. Pixeltable's native support for similarity search and embedding indexes further enhances its capabilities in this area.
+
+How does Pixeltable compare to traditional approaches for computer vision and LLM workflows?
+Pixeltable simplifies various aspects of computer vision and LLM workflows compared to traditional approaches. For instance, it automates tasks like frame extraction, object detection, video indexing, and document chunking, eliminating the need for custom code and complex pipelines. Moreover, Pixeltable provides built-in support for embedding generation, vector search, and prompt management, streamlining these critical components of LLM applications.
+
+Is Pixeltable a low-code platform or a replacement for existing AI tools?
+Pixeltable is not a low-code platform or a replacement for existing AI tools. It aims to enhance your current toolkit by streamlining the data infrastructure and orchestration layers. It empowers you to leverage your preferred frameworks and techniques while providing a robust and efficient foundation for data management and processing.
+
+How can I contribute to Pixeltable?
+There are several ways to contribute to Pixeltable:
+
+Report Issues: If you encounter bugs or issues, open an issue on the GitHub repository with detailed information for reproduction.
+Submit Changes: Contribute code by forking the repository, creating a feature branch, and submitting a pull request.
+Join the Discussion: Participate in discussions, share your Pixeltable projects and use cases, and help other community members.
+Improve Documentation: Suggest examples, propose improvements, or contribute to tutorials.

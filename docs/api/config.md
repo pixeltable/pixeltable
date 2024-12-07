@@ -42,6 +42,7 @@ the environment variable will be used preferentially.
 |-|-|-|
 | ANTHROPIC_API_KEY | [anthropic]<br>api_key | (string) API key to use for Anthropic services |
 | FIREWORKS_API_KEY | [fireworks]<br>api_key | (string) API key to use for Fireworks AI services |
+| GEMINI_API_KEY | [gemini]<br>api_key | (string) API key to use for Google Gemini services |
 | LABEL_STUDIO_API_KEY | [label_studio]<br>api_key | (string) API key to use for Label Studio |
 | LABEL_STUDIO_URL | [label_studio]<br>url | (string) URL of the Label Studio server to use |
 | MISTRAL_API_KEY | [mistral]<br>api_key | (string) API key to use for Mistral AI services |
