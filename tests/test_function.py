@@ -21,7 +21,7 @@ class TestFunction:
         """A UDF."""
         return x + 1
 
-    @pxt.uda(value_type=pxt.IntType(), update_types=[pxt.IntType()])
+    @pxt.uda()
     class agg:
         """An aggregator."""
         def __init__(self):

@@ -16,9 +16,7 @@ def cast(expr: exprs.Expr, target_type: Union[ts.ColumnType, type, _GenericAlias
     return expr
 
 
-@func.uda(
-    update_types=[ts.IntType(nullable=True)], value_type=ts.IntType(nullable=False),
-    allows_window=True, requires_order_by=False)
+@func.uda(allows_window=True, requires_order_by=False)
 class sum(func.Aggregator):
     """Sums the selected integers or floats."""
     def __init__(self):
@@ -32,7 +30,7 @@ class sum(func.Aggregator):
         else:
             self.sum += val
 
-    def value(self) -> Union[int, float]:
+    def value(self) -> Optional[int]:
         return self.sum
 
 
@@ -43,7 +41,7 @@ def _(val: sql.ColumnElement) -> Optional[sql.ColumnElement]:
     return sql.sql.func.sum(val)
 
 
-@func.uda(update_types=[ts.IntType(nullable=True)], value_type=ts.IntType(), allows_window=True, requires_order_by=False)
+@func.uda(allows_window=True, requires_order_by=False)
 class count(func.Aggregator):
     def __init__(self):
         self.count = 0
@@ -61,9 +59,7 @@ def _(val: sql.ColumnElement) -> Optional[sql.ColumnElement]:
     return sql.sql.func.count(val)
 
 
-@func.uda(
-    update_types=[ts.IntType(nullable=True)], value_type=ts.IntType(nullable=True), allows_window=True,
-    requires_order_by=False)
+@func.uda(allows_window=True, requires_order_by=False)
 class min(func.Aggregator):
     def __init__(self):
         self.val: Optional[int] = None
@@ -85,9 +81,7 @@ def _(val: sql.ColumnElement) -> Optional[sql.ColumnElement]:
     return sql.sql.func.min(val)
 
 
-@func.uda(
-    update_types=[ts.IntType(nullable=True)], value_type=ts.IntType(nullable=True), allows_window=True,
-    requires_order_by=False)
+@func.uda(allows_window=True, requires_order_by=False)
 class max(func.Aggregator):
     def __init__(self):
         self.val: Optional[int] = None
@@ -109,9 +103,7 @@ def _(val: sql.ColumnElement) -> Optional[sql.ColumnElement]:
     return sql.sql.func.max(val)
 
 
-@func.uda(
-    update_types=[ts.IntType(nullable=True)], value_type=ts.FloatType(nullable=True), allows_window=False,
-    requires_order_by=False)
+@func.uda(allows_window=False, requires_order_by=False)
 class mean(func.Aggregator):
     def __init__(self):
         self.sum: Optional[int] = None

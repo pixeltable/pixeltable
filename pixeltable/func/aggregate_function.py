@@ -145,11 +145,7 @@ class AggregateFunction(Function):
 
 
 def uda(
-        *,
-        value_type: ts.ColumnType,
-        update_types: list[ts.ColumnType],
-        init_types: Optional[list[ts.ColumnType]] = None,
-        requires_order_by: bool = False, allows_std_agg: bool = True, allows_window: bool = False,
+    *, requires_order_by: bool = False, allows_std_agg: bool = True, allows_window: bool = False,
 ) -> Callable[[type[Aggregator]], AggregateFunction]:
     """Decorator for user-defined aggregate functions.
 
@@ -169,23 +165,19 @@ def uda(
     - allows_std_agg: if True, the function can be used as a standard aggregate function w/o a window
     - allows_window: if True, the function can be used with a window
     """
-    if init_types is None:
-        init_types = []
-
     def decorator(cls: type[Aggregator]) -> AggregateFunction:
-        # validate type parameters
-        num_init_params = len(inspect.signature(cls.__init__).parameters) - 1
-        if num_init_params > 0:
-            if len(init_types) != num_init_params:
-                raise excs.Error(
-                    f'init_types must be a list of {num_init_params} types, one for each parameter of __init__()')
-        num_update_params = len(inspect.signature(cls.update).parameters) - 1
-        if num_update_params == 0:
-            raise excs.Error('update() must have at least one parameter')
-        if len(update_types) != num_update_params:
-            raise excs.Error(
-                f'update_types must be a list of {num_update_params} types, one for each parameter of update()')
+        # infer type parameters; set return_type=InvalidType() because it has no meaning here
+        init_sig = Signature.create(py_fn=cls.__init__, return_type=ts.InvalidType(), is_cls_method=True)
+        update_sig = Signature.create(py_fn=cls.update, return_type=ts.InvalidType(), is_cls_method=True)
+        value_sig = Signature.create(py_fn=cls.value, is_cls_method=True)
+
+        init_types = [p.col_type for p in init_sig.parameters.values()]
+        update_types = [p.col_type for p in update_sig.parameters.values()]
+        value_type = value_sig.return_type
         assert value_type is not None
+
+        if len(update_types) == 0:
+            raise excs.Error('update() must have at least one parameter')
 
         # the AggregateFunction instance resides in the same module as cls
         class_path = f'{cls.__module__}.{cls.__qualname__}'

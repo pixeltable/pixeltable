@@ -220,7 +220,7 @@ def eval_detections(
     return result
 
 
-@pxt.uda(update_types=[pxt.JsonType()], value_type=pxt.JsonType(), allows_std_agg=True, allows_window=False)
+@pxt.uda(allows_std_agg=True, allows_window=False)
 class mean_ap(pxt.Aggregator):
     """
     Calculates the mean average precision (mAP) over

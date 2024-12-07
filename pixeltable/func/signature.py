@@ -156,8 +156,11 @@ class Signature:
 
     @classmethod
     def create_parameters(
-            cls, py_fn: Optional[Callable] = None, py_params: Optional[list[inspect.Parameter]] = None,
-            param_types: Optional[list[ts.ColumnType]] = None
+        cls,
+        py_fn: Optional[Callable] = None,
+        py_params: Optional[list[inspect.Parameter]] = None,
+        param_types: Optional[list[ts.ColumnType]] = None,
+        is_cls_method: bool = False
     ) -> list[Parameter]:
         assert (py_fn is None) != (py_params is None)
         if py_fn is not None:
@@ -166,6 +169,8 @@ class Signature:
         parameters: list[Parameter] = []
 
         for idx, param in enumerate(py_params):
+            if is_cls_method and idx == 0:
+                continue  # skip 'self' or 'cls' parameter
             if param.name in cls.SPECIAL_PARAM_NAMES:
                 raise excs.Error(f"'{param.name}' is a reserved parameter name")
             if param.kind == inspect.Parameter.VAR_POSITIONAL or param.kind == inspect.Parameter.VAR_KEYWORD:
@@ -190,15 +195,17 @@ class Signature:
 
     @classmethod
     def create(
-        cls, py_fn: Callable,
+        cls,
+        py_fn: Callable,
         param_types: Optional[list[ts.ColumnType]] = None,
-        return_type: Optional[ts.ColumnType] = None
+        return_type: Optional[ts.ColumnType] = None,
+        is_cls_method: bool = False
     ) -> Signature:
         """Create a signature for the given Callable.
         Infer the parameter and return types, if none are specified.
         Raises an exception if the types cannot be inferred.
         """
-        parameters = cls.create_parameters(py_fn=py_fn, param_types=param_types)
+        parameters = cls.create_parameters(py_fn=py_fn, param_types=param_types, is_cls_method=is_cls_method)
         sig = inspect.signature(py_fn)
         if return_type is None:
             return_type, return_is_batched = cls._infer_type(sig.return_annotation)
