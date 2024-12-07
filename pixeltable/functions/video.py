@@ -47,7 +47,7 @@ _format_defaults = {  # format -> (codec, ext)
 #         output_container.mux(packet)
 
 
-@pxt.uda(requires_order_by=True, allows_window=False)
+@pxt.uda(requires_order_by=True)
 class make_video(pxt.Aggregator):
     """
     Aggregator that creates a video from a sequence of images.

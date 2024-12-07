@@ -54,7 +54,7 @@ class TestExprs:
         return a + b
 
     # error in agg.init()
-    @pxt.uda()
+    @pxt.uda
     class init_exc(pxt.Aggregator):
         def __init__(self) -> None:
             self.sum = 1 / 0
@@ -64,7 +64,7 @@ class TestExprs:
             return 1
 
     # error in agg.update()
-    @pxt.uda()
+    @pxt.uda
     class update_exc(pxt.Aggregator):
         def __init__(self) -> None:
             self.sum = 0
@@ -74,7 +74,7 @@ class TestExprs:
             return 1
 
     # error in agg.value()
-    @pxt.uda()
+    @pxt.uda
     class value_exc(pxt.Aggregator):
         def __init__(self):
             self.sum = 0
@@ -1127,7 +1127,7 @@ class TestExprs:
 
         with pytest.raises(excs.Error) as exc_info:
             # missing update parameter
-            @pxt.uda()
+            @pxt.uda
             class WindowAgg:
                 def __init__(self, val: int = 0):
                     self.val = val
@@ -1139,7 +1139,7 @@ class TestExprs:
 
         with pytest.raises(excs.Error) as exc_info:
             # duplicate parameter names
-            @pxt.uda()
+            @pxt.uda
             class WindowAgg:
                 def __init__(self, val: int = 0):
                     self.val = val
@@ -1151,7 +1151,7 @@ class TestExprs:
 
         with pytest.raises(excs.Error) as exc_info:
             # reserved parameter name
-            @pxt.uda()
+            @pxt.uda
             class WindowAgg:
                 def __init__(self, val: int = 0):
                     self.val = val
@@ -1163,7 +1163,7 @@ class TestExprs:
 
         with pytest.raises(excs.Error) as exc_info:
             # reserved parameter name
-            @pxt.uda()
+            @pxt.uda
             class WindowAgg:
                 def __init__(self, val: int = 0):
                     self.val = val

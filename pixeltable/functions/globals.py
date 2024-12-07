@@ -16,7 +16,7 @@ def cast(expr: exprs.Expr, target_type: Union[ts.ColumnType, type, _GenericAlias
     return expr
 
 
-@func.uda(allows_window=True, requires_order_by=False)
+@func.uda(allows_window=True)
 class sum(func.Aggregator):
     """Sums the selected integers or floats."""
     def __init__(self):
@@ -41,7 +41,7 @@ def _(val: sql.ColumnElement) -> Optional[sql.ColumnElement]:
     return sql.sql.func.sum(val)
 
 
-@func.uda(allows_window=True, requires_order_by=False)
+@func.uda(allows_window=True)
 class count(func.Aggregator):
     def __init__(self):
         self.count = 0
@@ -59,7 +59,7 @@ def _(val: sql.ColumnElement) -> Optional[sql.ColumnElement]:
     return sql.sql.func.count(val)
 
 
-@func.uda(allows_window=True, requires_order_by=False)
+@func.uda(allows_window=True)
 class min(func.Aggregator):
     def __init__(self):
         self.val: Optional[int] = None
@@ -81,7 +81,7 @@ def _(val: sql.ColumnElement) -> Optional[sql.ColumnElement]:
     return sql.sql.func.min(val)
 
 
-@func.uda(allows_window=True, requires_order_by=False)
+@func.uda(allows_window=True)
 class max(func.Aggregator):
     def __init__(self):
         self.val: Optional[int] = None
@@ -103,7 +103,7 @@ def _(val: sql.ColumnElement) -> Optional[sql.ColumnElement]:
     return sql.sql.func.max(val)
 
 
-@func.uda(allows_window=False, requires_order_by=False)
+@func.uda
 class mean(func.Aggregator):
     def __init__(self):
         self.sum: Optional[int] = None

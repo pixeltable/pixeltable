@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import abc
 import inspect
-from typing import TYPE_CHECKING, Any, Callable, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Optional, Sequence, overload
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
@@ -144,9 +144,22 @@ class AggregateFunction(Function):
         return f'<Pixeltable Aggregator {self.name}>'
 
 
+# Decorator invoked without parentheses: @pxt.uda
+@overload
+def uda(decorated_fn: Callable) -> AggregateFunction: ...
+
+
+# Decorator schema invoked with parentheses: @pxt.uda(**kwargs)
+@overload
 def uda(
-    *, requires_order_by: bool = False, allows_std_agg: bool = True, allows_window: bool = False,
-) -> Callable[[type[Aggregator]], AggregateFunction]:
+    *,
+    requires_order_by: bool = False,
+    allows_std_agg: bool = True,
+    allows_window: bool = False
+) -> Callable[[type[Aggregator]], AggregateFunction]: ...
+
+
+def uda(*args, **kwargs) -> Callable[[type[Aggregator]], AggregateFunction]:
     """Decorator for user-defined aggregate functions.
 
     The decorated class must inherit from Aggregator and implement the following methods:
@@ -158,42 +171,71 @@ def uda(
     to the module where the class is defined.
 
     Parameters:
-    - init_types: list of types for the __init__() parameters; must match the number of parameters
-    - update_types: list of types for the update() parameters; must match the number of parameters
-    - value_type: return type of the aggregator
     - requires_order_by: if True, the first parameter to the function is the order-by expression
     - allows_std_agg: if True, the function can be used as a standard aggregate function w/o a window
     - allows_window: if True, the function can be used with a window
     """
-    def decorator(cls: type[Aggregator]) -> AggregateFunction:
-        # infer type parameters; set return_type=InvalidType() because it has no meaning here
-        init_sig = Signature.create(py_fn=cls.__init__, return_type=ts.InvalidType(), is_cls_method=True)
-        update_sig = Signature.create(py_fn=cls.update, return_type=ts.InvalidType(), is_cls_method=True)
-        value_sig = Signature.create(py_fn=cls.value, is_cls_method=True)
+    if len(args) == 1 and len(kwargs) == 0 and callable(args[0]):
 
-        init_types = [p.col_type for p in init_sig.parameters.values()]
-        update_types = [p.col_type for p in update_sig.parameters.values()]
-        value_type = value_sig.return_type
-        assert value_type is not None
+        # Decorator invoked without parentheses: @pxt.uda
+        # Simply call make_aggregator with defaults.
+        return make_aggregator(cls=args[0])
 
-        if len(update_types) == 0:
-            raise excs.Error('update() must have at least one parameter')
+    else:
 
-        # the AggregateFunction instance resides in the same module as cls
-        class_path = f'{cls.__module__}.{cls.__qualname__}'
-        # nonlocal name
-        # name = name or cls.__name__
-        # instance_path_elements = class_path.split('.')[:-1] + [name]
-        # instance_path = '.'.join(instance_path_elements)
+        # Decorator schema invoked with parentheses: @pxt.uda(**kwargs)
+        # Create a decorator for the specified schema.
+        requires_order_by = kwargs.pop('requires_order_by', False)
+        allows_std_agg = kwargs.pop('allows_std_agg', True)
+        allows_window = kwargs.pop('allows_window', False)
+        if len(kwargs) > 0:
+            raise excs.Error(f'Invalid @uda decorator kwargs: {", ".join(kwargs.keys())}')
+        if len(args) > 0:
+            raise excs.Error('Unexpected @uda decorator arguments.')
 
-        # create the corresponding AggregateFunction instance
-        instance = AggregateFunction(
-            cls, class_path, init_types, update_types, value_type, requires_order_by, allows_std_agg, allows_window)
-        # do the path validation at the very end, in order to be able to write tests for the other failure cases
-        validate_symbol_path(class_path)
-        #module = importlib.import_module(cls.__module__)
-        #setattr(module, name, instance)
+        def decorator(cls: type[Aggregator]) -> AggregateFunction:
+            return make_aggregator(
+                cls,
+                requires_order_by=requires_order_by,
+                allows_std_agg=allows_std_agg,
+                allows_window=allows_window
+            )
 
-        return instance
+        return decorator
 
-    return decorator
+
+def make_aggregator(
+    cls: type[Aggregator],
+    requires_order_by: bool = False,
+    allows_std_agg: bool = True,
+    allows_window: bool = False
+) -> AggregateFunction:
+    # infer type parameters; set return_type=InvalidType() because it has no meaning here
+    init_sig = Signature.create(py_fn=cls.__init__, return_type=ts.InvalidType(), is_cls_method=True)
+    update_sig = Signature.create(py_fn=cls.update, return_type=ts.InvalidType(), is_cls_method=True)
+    value_sig = Signature.create(py_fn=cls.value, is_cls_method=True)
+
+    init_types = [p.col_type for p in init_sig.parameters.values()]
+    update_types = [p.col_type for p in update_sig.parameters.values()]
+    value_type = value_sig.return_type
+    assert value_type is not None
+
+    if len(update_types) == 0:
+        raise excs.Error('update() must have at least one parameter')
+
+    # the AggregateFunction instance resides in the same module as cls
+    class_path = f'{cls.__module__}.{cls.__qualname__}'
+    # nonlocal name
+    # name = name or cls.__name__
+    # instance_path_elements = class_path.split('.')[:-1] + [name]
+    # instance_path = '.'.join(instance_path_elements)
+
+    # create the corresponding AggregateFunction instance
+    instance = AggregateFunction(
+        cls, class_path, init_types, update_types, value_type, requires_order_by, allows_std_agg, allows_window)
+    # do the path validation at the very end, in order to be able to write tests for the other failure cases
+    validate_symbol_path(class_path)
+    #module = importlib.import_module(cls.__module__)
+    #setattr(module, name, instance)
+
+    return instance

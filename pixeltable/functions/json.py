@@ -16,7 +16,7 @@ import pixeltable as pxt
 from pixeltable.utils.code import local_public_names
 
 
-@pxt.uda(requires_order_by=False, allows_window=False)
+@pxt.uda
 class make_list(pxt.Aggregator):
     """
     Collects arguments into a list.
