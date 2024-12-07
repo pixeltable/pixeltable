@@ -440,11 +440,11 @@ class TestFunction:
 
     @overloaded_udf.overload
     def overloaded_udf(x: int, y: int, z: str = 'a') -> int:
-        return x - y
+        return x + y + 1
 
     @overloaded_udf.overload
     def overloaded_udf(x: float, y: float) -> float:
-        return x * y
+        return x + y + 2.0
 
     def test_overloaded_udf(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
@@ -465,12 +465,28 @@ class TestFunction:
 
         # Check that the correct Python function is invoked for each signature
         res = t.select(fc_str, fc_int, fc_float).collect()
-        res_direct = t.select(format('{0}{1}', t.c1, t.c1), t.c2 - t.c2, t.c3 * t.c3).collect()
+        res_direct = t.select(format('{0}{1}', t.c1, t.c1), t.c2 + t.c2 + 1, t.c3 + t.c3 + 2.0).collect()
         assert_resultset_eq(res, res_direct)
 
         # Check that .using() works correctly with overloaded UDFs: it should keep only the
         # signatures for which the substitution is valid
-        # fn = self.overloaded_udf.using(z='b')
+        fn = self.overloaded_udf.using(z='b')
+        fc_str2 = fn(t.c1, t.c1)
+        fc_int2 = fn(t.c2, t.c2)
+
+        assert len(fn.signatures) == 2
+        assert fc_str2.signature_idx == 0
+        assert fc_str2.col_type.is_string_type()
+        assert fc_int2.signature_idx == 1
+        assert fc_int2.col_type.is_int_type()
+
+        with pytest.raises(excs.Error) as exc_info:
+            fn(t.c3, t.c3)
+        assert 'has no matching signature' in str(exc_info.value)
+
+        res = t.select(fc_str2, fc_int2).collect()
+        res_direct = t.select(format('{0}{1}', t.c1, t.c1), t.c2 + t.c2 + 1).collect()
+        assert_resultset_eq(res, res_direct)
 
 
 @pxt.udf

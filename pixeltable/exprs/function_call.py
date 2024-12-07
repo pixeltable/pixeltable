@@ -143,7 +143,7 @@ class FunctionCall(Expr):
 
         if isinstance(self.fn, func.ExprTemplateFunction):
             # we instantiate the template to create an Expr that can be evaluated and record that as a component
-            fn_expr = self.fn.instantiate(**bound_args)
+            fn_expr = self.fn.instantiate(self.signature_idx, [], bound_args)
             self.components.append(fn_expr)
             self.fn_expr_idx = len(self.components) - 1
         else:

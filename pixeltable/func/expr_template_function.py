@@ -8,15 +8,16 @@ from .function import Function
 from .signature import Signature
 
 
-class ExprTemplateFunction(Function):
-    """A parameterized expression from which an executable Expr is created with a function call."""
+class Template:
+    expr: 'pixeltable.exprs.Expr'
+    signature: Signature
 
-    def __init__(
-            self, expr: 'pixeltable.exprs.Expr', signature: Signature, self_path: Optional[str] = None,
-            name: Optional[str] = None):
-        import pixeltable.exprs as exprs
+    def __init__(self, expr: 'pixeltable.exprs.Expr', signature: Signature):
+        from pixeltable import exprs
+
         self.expr = expr
-        self.self_name = name
+        self.signature = signature
+
         self.param_exprs = list(set(expr.subexprs(expr_class=exprs.Variable)))
         # make sure there are no duplicate names
         assert len(self.param_exprs) == len(set(p.name for p in self.param_exprs))
@@ -35,18 +36,44 @@ class ExprTemplateFunction(Function):
                 msg = str(e)
                 raise excs.Error(f"Default value for parameter '{param.name}': {msg[0].lower() + msg[1:]}")
 
-        super().__init__([signature], self_path=self_path)
+    def as_dict(self) -> dict:
+        return {
+            'expr': self.expr.as_dict(),
+            'signature': self.signature.as_dict(),
+        }
 
-    def instantiate(self, *args: object, **kwargs: object) -> 'pixeltable.exprs.Expr':
-        bound_args = self.signatures[0].py_signature.bind(*args, **kwargs).arguments
+    @classmethod
+    def from_dict(cls, d: dict) -> 'Template':
+        from pixeltable import exprs
+
+        assert 'expr' in d and 'signature' in d
+        expr = exprs.Expr.from_dict(d['expr'])
+        signature = Signature.from_dict(d['signature'])
+        return cls(expr, signature)
+
+
+class ExprTemplateFunction(Function):
+    """A parameterized expression from which an executable Expr is created with a function call."""
+
+    def __init__(self, templates: list[Template], self_path: Optional[str] = None, name: Optional[str] = None):
+        self.templates = templates
+        self.self_name = name
+
+        super().__init__([t.signature for t in templates], self_path=self_path)
+
+    def instantiate(self, signature_idx: int, args: Sequence[Any], kwargs: dict[str, Any]) -> 'pixeltable.exprs.Expr':
+        from pixeltable import exprs
+
+        template = self.templates[signature_idx]
+        signature = self.signatures[signature_idx]
+        bound_args = signature.py_signature.bind(*args, **kwargs).arguments
         # apply defaults, otherwise we might have Parameters left over
         bound_args.update(
-            {param_name: default for param_name, default in self.defaults.items() if param_name not in bound_args})
-        result = self.expr.copy()
-        import pixeltable.exprs as exprs
+            {param_name: default for param_name, default in template.defaults.items() if param_name not in bound_args})
+        result = template.expr.copy()
         arg_exprs: dict[exprs.Expr, exprs.Expr] = {}
         for param_name, arg in bound_args.items():
-            param_expr = self.param_exprs_by_name[param_name]
+            param_expr = template.param_exprs_by_name[param_name]
             if not isinstance(arg, exprs.Expr):
                 # TODO: use the available param_expr.col_type
                 arg_expr = exprs.Expr.from_object(arg)
@@ -56,15 +83,14 @@ class ExprTemplateFunction(Function):
                 arg_expr = arg
             arg_exprs[param_expr] = arg_expr
         result = result.substitute(arg_exprs)
-        import pixeltable.exprs as exprs
         assert not result._contains(exprs.Variable)
         return result
 
     def exec(self, signature_idx: int, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:
-        expr = self.instantiate(*args, **kwargs)
-        import pixeltable.exprs as exprs
+        from pixeltable import exec, exprs
+
+        expr = self.instantiate(signature_idx, args, kwargs)
         row_builder = exprs.RowBuilder(output_exprs=[expr], columns=[], input_exprs=[])
-        import pixeltable.exec as exec
         row_batch = exec.DataRowBatch(tbl=None, row_builder=row_builder, len=1)
         row = row_batch[0]
         row_builder.eval(row, ctx=row_builder.default_eval_ctx)
@@ -79,21 +105,20 @@ class ExprTemplateFunction(Function):
         return self.self_name
 
     def __str__(self) -> str:
-        return str(self.expr)
+        return str(self.templates[0].expr)
 
     def _as_dict(self) -> dict:
         if self.self_path is not None:
             return super()._as_dict()
         return {
-            'expr': self.expr.as_dict(),
-            'signature': self.signatures[0].as_dict(),
+            'templates': [t.as_dict() for t in self.templates],
             'name': self.name,
         }
 
     @classmethod
     def _from_dict(cls, d: dict) -> Function:
-        if 'expr' not in d:
+        if 'templates' not in d:
             return super()._from_dict(d)
-        assert 'signature' in d and 'name' in d
-        import pixeltable.exprs as exprs
-        return cls(exprs.Expr.from_dict(d['expr']), Signature.from_dict(d['signature']), name=d['name'])
+        assert 'templates' in d
+        templates = [Template.from_dict(t) for t in d['templates']]
+        return cls(templates, name=d['name'])

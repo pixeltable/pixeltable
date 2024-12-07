@@ -6,7 +6,7 @@ import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 
 from .callable_function import CallableFunction
-from .expr_template_function import ExprTemplateFunction
+from .expr_template_function import ExprTemplateFunction, Template
 from .function import Function
 from .function_registry import FunctionRegistry
 from .globals import validate_symbol_path
@@ -171,12 +171,12 @@ def expr_udf(*args: Any, **kwargs: Any) -> Any:
         import pixeltable.exprs as exprs
         var_exprs = [exprs.Variable(param.name, param.col_type) for param in sig.parameters.values()]
         # call the function with the parameter expressions to construct an Expr with parameters
-        template = py_fn(*var_exprs)
-        assert isinstance(template, exprs.Expr)
-        sig.return_type = template.col_type
+        expr = py_fn(*var_exprs)
+        assert isinstance(expr, exprs.Expr)
+        sig.return_type = expr.col_type
         if function_path is not None:
             validate_symbol_path(function_path)
-        return ExprTemplateFunction(template, sig, self_path=function_path, name=py_fn.__name__)
+        return ExprTemplateFunction([Template(expr, sig)], self_path=function_path, name=py_fn.__name__)
 
     if len(args) == 1:
         assert len(kwargs) == 0 and callable(args[0])
