@@ -89,13 +89,13 @@ class Function(abc.ABC):
         if len(self.signatures) == 1:
             # Only one signature: call _bind_to_signature() and surface any errors directly
             result = 0
-            bound_args = self._bind_to_signature(self.signatures[0], args, kwargs)
+            bound_args = self._bind_to_signature(0, args, kwargs)
         else:
             # Multiple signatures: try each signature in declaration order and trap any errors.
             # If none of them succeed, raise a generic error message.
-            for i, sig in enumerate(self.signatures):
+            for i in range(len(self.signatures)):
                 try:
-                    bound_args = self._bind_to_signature(sig, args, kwargs)
+                    bound_args = self._bind_to_signature(i, args, kwargs)
                 except (TypeError, excs.Error):
                     continue
                 result = i
@@ -106,14 +106,16 @@ class Function(abc.ABC):
         assert bound_args is not None
         return result, bound_args
 
-    def _bind_to_signature(self, signature: Signature, args: Sequence[Any], kwargs: dict[str, Any]) -> dict[str, Any]:
+    def _bind_to_signature(self, signature_idx: int, args: Sequence[Any], kwargs: dict[str, Any]) -> dict[str, Any]:
         from pixeltable import exprs
+
+        signature = self.signatures[signature_idx]
         bound_args = signature.py_signature.bind(*args, **kwargs).arguments
-        self.validate_call(signature, bound_args)
+        self.validate_call(signature_idx, bound_args)
         exprs.FunctionCall.normalize_args(self.name, signature, bound_args)
         return bound_args
 
-    def validate_call(self, signature: Signature, bound_args: dict[str, Any]) -> None:
+    def validate_call(self, signature_idx: int, bound_args: dict[str, Any]) -> None:
         """Override this to do custom validation of the arguments"""
         pass
 

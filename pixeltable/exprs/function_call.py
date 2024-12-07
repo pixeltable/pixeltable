@@ -88,9 +88,9 @@ class FunctionCall(Expr):
             # we separate out the init args for the aggregator
             assert isinstance(fn, func.AggregateFunction)
             self.agg_init_args = {
-                arg_name: arg for arg_name, arg in bound_args.items() if arg_name in fn.init_param_names
+                arg_name: arg for arg_name, arg in bound_args.items() if arg_name in fn.init_param_names[self.signature_idx]
             }
-            bound_args = {arg_name: arg for arg_name, arg in bound_args.items() if arg_name not in fn.init_param_names}
+            bound_args = {arg_name: arg for arg_name, arg in bound_args.items() if arg_name not in fn.init_param_names[self.signature_idx]}
 
         # construct components, args, kwargs
         self.args = []
@@ -374,7 +374,7 @@ class FunctionCall(Expr):
         """
         assert self.is_agg_fn_call
         assert isinstance(self.fn, func.AggregateFunction)
-        self.aggregator = self.fn.agg_cls(**self.agg_init_args)
+        self.aggregator = self.fn.agg_classes[self.signature_idx](**self.agg_init_args)
 
     def update(self, data_row: DataRow) -> None:
         """
@@ -445,6 +445,7 @@ class FunctionCall(Expr):
             # optimization: avoid additional level of indirection we'd get from calling Function.exec()
             data_row[self.slot_idx] = self.fn.py_fns[self.signature_idx](*args, **kwargs)
         elif self.is_window_fn_call:
+            agg_cls = self.fn.agg_classes[self.signature_idx]
             assert isinstance(self.fn, func.AggregateFunction)
             if self.has_group_by():
                 if self.current_partition_vals is None:
@@ -452,10 +453,10 @@ class FunctionCall(Expr):
                 partition_vals = [data_row[e.slot_idx] for e in self.group_by]
                 if partition_vals != self.current_partition_vals:
                     # new partition
-                    self.aggregator = self.fn.agg_cls(**self.agg_init_args)
+                    self.aggregator = agg_cls(**self.agg_init_args)
                     self.current_partition_vals = partition_vals
             elif self.aggregator is None:
-                self.aggregator = self.fn.agg_cls(**self.agg_init_args)
+                self.aggregator = agg_cls(**self.agg_init_args)
             self.aggregator.update(*args)
             data_row[self.slot_idx] = self.aggregator.value()
         else:

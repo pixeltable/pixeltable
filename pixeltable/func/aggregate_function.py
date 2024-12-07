@@ -35,26 +35,60 @@ class AggregateFunction(Function):
     GROUP_BY_PARAM = 'group_by'
     RESERVED_PARAMS = {ORDER_BY_PARAM, GROUP_BY_PARAM}
 
+    agg_classes: list[type[Aggregator]]  # classes for each signature, in signature order
+    init_param_names: list[list[str]]  # names of the __init__ parameters for each signature
+
     def __init__(
-            self, aggregator_class: type[Aggregator], self_path: str,
-            init_types: list[ts.ColumnType], update_types: list[ts.ColumnType], value_type: ts.ColumnType,
-            requires_order_by: bool, allows_std_agg: bool, allows_window: bool):
-        self.agg_cls = aggregator_class
+        self,
+        agg_classes: list[type[Aggregator]],
+        self_path: str,
+        requires_order_by: bool,
+        allows_std_agg: bool,
+        allows_window: bool
+    ) -> None:
+        assert len(agg_classes) > 0
+        self.agg_classes = agg_classes
+        self.init_param_names = []
         self.requires_order_by = requires_order_by
         self.allows_std_agg = allows_std_agg
         self.allows_window = allows_window
-        self.__doc__ = aggregator_class.__doc__
+        self.__doc__ = agg_classes[0].__doc__
+
+        signatures: list[Signature] = []
+        for cls in agg_classes:
+            signature, init_param_names = self.__cls_to_signature(cls)
+            signatures.append(signature)
+            self.init_param_names.append(init_param_names)
+
+        super().__init__(signatures, self_path=self_path)
+
+    def __cls_to_signature(self, cls: type[Aggregator]) -> tuple[Signature, list[str]]:
+        """Inspects the Aggregator class to infer the corresponding function signature. Returns the
+        inferred signature along with the list of init_param_names (for downstream error handling).
+        """
+        # infer type parameters; set return_type=InvalidType() because it has no meaning here
+        init_sig = Signature.create(py_fn=cls.__init__, return_type=ts.InvalidType(), is_cls_method=True)
+        update_sig = Signature.create(py_fn=cls.update, return_type=ts.InvalidType(), is_cls_method=True)
+        value_sig = Signature.create(py_fn=cls.value, is_cls_method=True)
+
+        init_types = [p.col_type for p in init_sig.parameters.values()]
+        update_types = [p.col_type for p in update_sig.parameters.values()]
+        value_type = value_sig.return_type
+        assert value_type is not None
+
+        if len(update_types) == 0:
+            raise excs.Error('update() must have at least one parameter')
 
         # our signature is the signature of 'update', but without self,
         # plus the parameters of 'init' as keyword-only parameters
-        py_update_params = list(inspect.signature(self.agg_cls.update).parameters.values())[1:]  # leave out self
+        py_update_params = list(inspect.signature(cls.update).parameters.values())[1:]  # leave out self
         assert len(py_update_params) == len(update_types)
         update_params = [
             Parameter(p.name, col_type=update_types[i], kind=p.kind, default=p.default)
             for i, p in enumerate(py_update_params)
         ]
         # starting at 1: leave out self
-        py_init_params = list(inspect.signature(self.agg_cls.__init__).parameters.values())[1:]
+        py_init_params = list(inspect.signature(cls.__init__).parameters.values())[1:]
         assert len(py_init_params) == len(init_types)
         init_params = [
             Parameter(p.name, col_type=init_types[i], kind=inspect.Parameter.KEYWORD_ONLY, default=p.default)
@@ -67,23 +101,25 @@ class AggregateFunction(Function):
                 f'{", ".join(duplicate_params)}'
             )
         params = update_params + init_params  # init_params are keyword-only and come last
+        init_param_names = [p.name for p in init_params]
 
-        signature = Signature(value_type, params)
-        super().__init__([signature], self_path=self_path)
-        self.init_param_names = [p.name for p in init_params]
-
-        # make sure the signature doesn't contain reserved parameter names;
-        # do this after super().__init__(), otherwise self.name is invalid
-        for param in signature.parameters:
-            if param.lower() in self.RESERVED_PARAMS:
-                raise excs.Error(f'{self.name}(): parameter name {param} is reserved')
+        return Signature(value_type, params), init_param_names
 
     def exec(self, signature_idx: int, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:
         raise NotImplementedError
 
+    def overload(self, cls: Callable) -> AggregateFunction:
+        if not isinstance(cls, type) or not issubclass(cls, Aggregator):
+            raise excs.Error(f'Invalid argument to @overload decorator: {cls}')
+        sig, init_param_names = self.__cls_to_signature(cls)
+        self.signatures.append(sig)
+        self.agg_classes.append(cls)
+        self.init_param_names.append(init_param_names)
+        return self
+
     def help_str(self) -> str:
         res = super().help_str()
-        res += '\n\n' + inspect.getdoc(self.agg_cls.update)
+        res += '\n\n' + inspect.getdoc(self.agg_classes[0].update)
         return res
 
     def __call__(self, *args: object, **kwargs: object) -> 'pixeltable.exprs.FunctionCall':
@@ -121,19 +157,23 @@ class AggregateFunction(Function):
                     f'{self.display_name}(): group_by invalid with an aggregate function that does not allow windows')
             group_by_clause = kwargs.pop(self.GROUP_BY_PARAM)
 
-        bound_args = self.signatures[0].py_signature.bind(*args, **kwargs)
-        self.validate_call(self.signatures[0], bound_args.arguments)
-        return_type = self.call_return_type(0, args, kwargs)
+        signature_idx, bound_args = self._bind_to_matching_signature(args, kwargs)
+        return_type = self.call_return_type(signature_idx, args, kwargs)
         return exprs.FunctionCall(
-            self, 0, bound_args.arguments, return_type,
+            self,
+            signature_idx,
+            bound_args,
+            return_type,
             order_by_clause=[order_by_clause] if order_by_clause is not None else [],
-            group_by_clause=[group_by_clause] if group_by_clause is not None else [])
+            group_by_clause=[group_by_clause] if group_by_clause is not None else []
+        )
 
-    def validate_call(self, signature: Signature, bound_args: dict[str, Any]) -> None:
+    def validate_call(self, signature_idx: int, bound_args: dict[str, Any]) -> None:
         # check that init parameters are not Exprs
         # TODO: do this in the planner (check that init parameters are either constants or only refer to grouping exprs)
-        import pixeltable.exprs as exprs
-        for param_name in self.init_param_names:
+        from pixeltable import exprs
+
+        for param_name in self.init_param_names[signature_idx]:
             if param_name in bound_args and isinstance(bound_args[param_name], exprs.Expr):
                 raise excs.Error(
                     f'{self.display_name}(): init() parameter {param_name} needs to be a constant, not a Pixeltable '
@@ -159,7 +199,7 @@ def uda(
 ) -> Callable[[type[Aggregator]], AggregateFunction]: ...
 
 
-def uda(*args, **kwargs) -> Callable[[type[Aggregator]], AggregateFunction]:
+def uda(*args, **kwargs):
     """Decorator for user-defined aggregate functions.
 
     The decorated class must inherit from Aggregator and implement the following methods:
@@ -210,32 +250,8 @@ def make_aggregator(
     allows_std_agg: bool = True,
     allows_window: bool = False
 ) -> AggregateFunction:
-    # infer type parameters; set return_type=InvalidType() because it has no meaning here
-    init_sig = Signature.create(py_fn=cls.__init__, return_type=ts.InvalidType(), is_cls_method=True)
-    update_sig = Signature.create(py_fn=cls.update, return_type=ts.InvalidType(), is_cls_method=True)
-    value_sig = Signature.create(py_fn=cls.value, is_cls_method=True)
-
-    init_types = [p.col_type for p in init_sig.parameters.values()]
-    update_types = [p.col_type for p in update_sig.parameters.values()]
-    value_type = value_sig.return_type
-    assert value_type is not None
-
-    if len(update_types) == 0:
-        raise excs.Error('update() must have at least one parameter')
-
-    # the AggregateFunction instance resides in the same module as cls
     class_path = f'{cls.__module__}.{cls.__qualname__}'
-    # nonlocal name
-    # name = name or cls.__name__
-    # instance_path_elements = class_path.split('.')[:-1] + [name]
-    # instance_path = '.'.join(instance_path_elements)
-
-    # create the corresponding AggregateFunction instance
-    instance = AggregateFunction(
-        cls, class_path, init_types, update_types, value_type, requires_order_by, allows_std_agg, allows_window)
+    instance = AggregateFunction([cls], class_path, requires_order_by, allows_std_agg, allows_window)
     # do the path validation at the very end, in order to be able to write tests for the other failure cases
     validate_symbol_path(class_path)
-    #module = importlib.import_module(cls.__module__)
-    #setattr(module, name, instance)
-
     return instance

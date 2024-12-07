@@ -125,9 +125,11 @@ class CallableFunction(Function):
         batch_size = md['batch_size']
         return CallableFunction(sigs, py_fns, self_name=name, batch_size=batch_size)
 
-    def validate_call(self, signature: Signature, bound_args: dict[str, Any]) -> None:
-        import pixeltable.exprs as exprs
+    def validate_call(self, signature_idx: int, bound_args: dict[str, Any]) -> None:
+        from pixeltable import exprs
+
         if self.is_batched:
+            signature = self.signatures[signature_idx]
             for param in signature.constant_parameters:
                 if param.name in bound_args and isinstance(bound_args[param.name], exprs.Expr):
                     raise ValueError(

@@ -439,12 +439,45 @@ class TestFunction:
         return x + y
 
     @overloaded_udf.overload
-    def overloaded_udf(x: int, y: int, z: str = 'a') -> int:
+    def _(x: int, y: int, z: str = 'a') -> int:
         return x + y + 1
 
     @overloaded_udf.overload
-    def overloaded_udf(x: float, y: float) -> float:
+    def _(x: float, y: float) -> float:
         return x + y + 2.0
+
+    @pxt.uda
+    class overloaded_uda(pxt.Aggregator):
+        def __init__(self) -> None:
+            self.sum = ''
+
+        def update(self, x: str) -> None:
+            self.sum += x
+
+        def value(self) -> str:
+            return self.sum
+
+    @overloaded_uda.overload
+    class _(pxt.Aggregator):
+        def __init__(self) -> None:
+            self.sum = 0
+
+        def update(self, x: int) -> None:
+            self.sum += x + 1
+
+        def value(self) -> int:
+            return self.sum
+
+    @overloaded_uda.overload
+    class _(pxt.Aggregator):
+        def __init__(self) -> None:
+            self.sum = 0.0
+
+        def update(self, x: float) -> None:
+            self.sum += x + 2.0
+
+        def value(self) -> float:
+            return self.sum
 
     def test_overloaded_udf(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
@@ -487,6 +520,30 @@ class TestFunction:
         res = t.select(fc_str2, fc_int2).collect()
         res_direct = t.select(format('{0}{1}', t.c1, t.c1), t.c2 + t.c2 + 1).collect()
         assert_resultset_eq(res, res_direct)
+
+    def test_overloaded_uda(self, test_tbl: pxt.Table) -> None:
+        t = test_tbl
+        fc_str = self.overloaded_uda(t.c1)
+        fc_int = self.overloaded_uda(t.c2)
+        fc_float = self.overloaded_uda(t.c3)
+
+        # Check that the correct signature is selected for various argument types
+        assert len(self.overloaded_uda.signatures) == 3
+        assert fc_str.signature_idx == 0
+        assert fc_str.col_type.is_string_type()
+        assert fc_int.signature_idx == 1
+        assert fc_int.col_type.is_int_type()
+        assert fc_float.signature_idx == 2
+        assert fc_float.col_type.is_float_type()
+
+        res = t.order_by(t.c2).select(c1=fc_str, c2=fc_int, c3=fc_float).collect()
+        res_direct = t.order_by(t.c2).select(t.c1, t.c2, t.c3).collect()
+        assert len(res) == 1
+        assert res[0] == {
+            'c1': ''.join(res_direct['c1']),
+            'c2': sum(res_direct['c2']) + len(res_direct['c2']),
+            'c3': sum(res_direct['c3']) + 2.0 * len(res_direct['c3']),
+        }
 
 
 @pxt.udf
