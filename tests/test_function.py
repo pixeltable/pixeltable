@@ -434,6 +434,44 @@ class TestFunction:
         assert self.func.__doc__ == "A UDF."
         assert self.agg.__doc__ == "An aggregator."
 
+    @pxt.udf
+    def overloaded_udf(x: str, y: str, z: str = 'a') -> str:
+        return x + y
+
+    @overloaded_udf.overload
+    def overloaded_udf(x: int, y: int, z: str = 'a') -> int:
+        return x - y
+
+    @overloaded_udf.overload
+    def overloaded_udf(x: float, y: float) -> float:
+        return x * y
+
+    def test_overloaded_udf(self, test_tbl: pxt.Table) -> None:
+        t = test_tbl
+        fc_str = self.overloaded_udf(t.c1, t.c1)
+        fc_int = self.overloaded_udf(t.c2, t.c2)
+        fc_float = self.overloaded_udf(t.c3, t.c3)
+
+        # Check that the correct signature is selected for various argument types
+        assert len(self.overloaded_udf.signatures) == 3
+        assert fc_str.signature_idx == 0
+        assert fc_str.col_type.is_string_type()
+        assert fc_int.signature_idx == 1
+        assert fc_int.col_type.is_int_type()
+        assert fc_float.signature_idx == 2
+        assert fc_float.col_type.is_float_type()
+
+        from pixeltable.functions.string import format
+
+        # Check that the correct Python function is invoked for each signature
+        res = t.select(fc_str, fc_int, fc_float).collect()
+        res_direct = t.select(format('{0}{1}', t.c1, t.c1), t.c2 - t.c2, t.c3 * t.c3).collect()
+        assert_resultset_eq(res, res_direct)
+
+        # Check that .using() works correctly with overloaded UDFs: it should keep only the
+        # signatures for which the substitution is valid
+        # fn = self.overloaded_udf.using(z='b')
+
 
 @pxt.udf
 def udf6(name: str) -> str:

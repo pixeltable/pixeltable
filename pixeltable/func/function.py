@@ -144,6 +144,9 @@ class Function(abc.ABC):
         self._conditional_return_type = fn
         return fn
 
+    def overload(self, fn: Callable) -> Function:
+        raise NotImplementedError(f'Function of type {type(self)} does not support overloading')
+
     def using(self, **kwargs: Any) -> 'ExprTemplateFunction':
         from pixeltable import exprs
 

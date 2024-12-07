@@ -82,6 +82,12 @@ class CallableFunction(Function):
     def name(self) -> str:
         return self.self_name
 
+    def overload(self, fn: Callable) -> CallableFunction:
+        sig = Signature.create(fn)
+        self.signatures.append(sig)
+        self.py_fns.append(fn)
+        return self
+
     def help_str(self) -> str:
         res = super().help_str()
         res += '\n\n' + inspect.getdoc(self.py_fn)
