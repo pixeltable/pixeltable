@@ -450,7 +450,7 @@ class TestFunction:
     def _(x: float, y: float) -> float:
         return x + y + 2.0
 
-    @pxt.udf(type_substitutions=[{T: str}, {T: int}, {T: float}])
+    @pxt.udf(type_substitutions=({T: str}, {T: int}, {T: float}))
     def typevar_udf(x: T, y: T, z: str = 'a') -> T:
         return x + y
 
@@ -545,7 +545,7 @@ class TestFunction:
         def value(self) -> float:
             return self.sum
 
-    @pxt.uda(type_substitutions=[{T: str}, {T: int}, {T: float}])
+    @pxt.uda(type_substitutions=({T: str}, {T: int}, {T: float}))
     class typevar_uda(pxt.Aggregator, typing.Generic[T]):
         def __init__(self) -> None:
             self.max = None

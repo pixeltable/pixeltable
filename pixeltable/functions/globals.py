@@ -1,6 +1,7 @@
 import builtins
 from typing import _GenericAlias  # type: ignore[attr-defined]
 from typing import Optional, Union
+import typing
 
 import sqlalchemy as sql
 
@@ -16,13 +17,16 @@ def cast(expr: exprs.Expr, target_type: Union[ts.ColumnType, type, _GenericAlias
     return expr
 
 
-@func.uda(allows_window=True)
-class sum(func.Aggregator):
+T = typing.TypeVar('T')
+
+
+@func.uda(allows_window=True, type_substitutions=({T: Optional[int]}, {T: Optional[float]}))
+class sum(func.Aggregator, typing.Generic[T]):
     """Sums the selected integers or floats."""
     def __init__(self):
-        self.sum: Optional[int] = None
+        self.sum: T = None
 
-    def update(self, val: Optional[int]) -> None:
+    def update(self, val: T) -> None:
         if val is None:
             return
         if self.sum is None:
@@ -30,7 +34,7 @@ class sum(func.Aggregator):
         else:
             self.sum += val
 
-    def value(self) -> Optional[int]:
+    def value(self) -> T:
         return self.sum
 
 
@@ -41,12 +45,18 @@ def _(val: sql.ColumnElement) -> Optional[sql.ColumnElement]:
     return sql.sql.func.sum(val)
 
 
-@func.uda(allows_window=True)
-class count(func.Aggregator):
+@func.uda(
+    allows_window=True,
+    # Allow counting non-null values of any type
+    # TODO: I couldn't include "Array" because we don't have a way to represent a generic array (of arbitrary dimension).
+    # TODO: should we have an "Any" type that can be used here?
+    type_substitutions=tuple({T: Optional[t]} for t in (str, int, float, bool, ts.Timestamp, ts.Json, ts.Image, ts.Video, ts.Audio, ts.Document)),
+)
+class count(func.Aggregator, typing.Generic[T]):
     def __init__(self):
         self.count = 0
 
-    def update(self, val: Optional[int]) -> None:
+    def update(self, val: T) -> None:
         if val is not None:
             self.count += 1
 
@@ -59,12 +69,12 @@ def _(val: sql.ColumnElement) -> Optional[sql.ColumnElement]:
     return sql.sql.func.count(val)
 
 
-@func.uda(allows_window=True)
-class min(func.Aggregator):
+@func.uda(allows_window=True, type_substitutions=tuple({T: Optional[t]} for t in (str, int, float, bool, ts.Timestamp)))
+class min(func.Aggregator, typing.Generic[T]):
     def __init__(self):
-        self.val: Optional[int] = None
+        self.val: T = None
 
-    def update(self, val: Optional[int]) -> None:
+    def update(self, val: T) -> None:
         if val is None:
             return
         if self.val is None:
@@ -72,21 +82,26 @@ class min(func.Aggregator):
         else:
             self.val = builtins.min(self.val, val)
 
-    def value(self) -> Optional[int]:
+    def value(self) -> T:
         return self.val
 
 
 @min.to_sql
 def _(val: sql.ColumnElement) -> Optional[sql.ColumnElement]:
+    if val.type.python_type == bool:
+        # TODO: min/max aggregation of booleans is not supported in Postgres (but it is in Python).
+        # Right now we simply force the computation to be done in Python; we might consider implementing an alternate
+        # way of doing it in SQL. (min/max of booleans is simply logical and/or, respectively.)
+        return None
     return sql.sql.func.min(val)
 
 
-@func.uda(allows_window=True)
-class max(func.Aggregator):
+@func.uda(allows_window=True, type_substitutions=tuple({T: Optional[t]} for t in (str, int, float, bool, ts.Timestamp)))
+class max(func.Aggregator, typing.Generic[T]):
     def __init__(self):
-        self.val: Optional[int] = None
+        self.val: T = None
 
-    def update(self, val: Optional[int]) -> None:
+    def update(self, val: T) -> None:
         if val is None:
             return
         if self.val is None:
@@ -94,22 +109,25 @@ class max(func.Aggregator):
         else:
             self.val = builtins.max(self.val, val)
 
-    def value(self) -> Optional[int]:
+    def value(self) -> T:
         return self.val
 
 
 @max.to_sql
 def _(val: sql.ColumnElement) -> Optional[sql.ColumnElement]:
+    if val.type.python_type == bool:
+        # TODO: see comment in @min.to_sql.
+        return None
     return sql.sql.func.max(val)
 
 
-@func.uda
-class mean(func.Aggregator):
+@func.uda(type_substitutions=({T: Optional[int]}, {T: Optional[float]}))
+class mean(func.Aggregator, typing.Generic[T]):
     def __init__(self):
-        self.sum: Optional[int] = None
+        self.sum: T = None
         self.count = 0
 
-    def update(self, val: Optional[int]) -> None:
+    def update(self, val: T) -> None:
         if val is None:
             return
         if self.sum is None:
@@ -118,7 +136,7 @@ class mean(func.Aggregator):
             self.sum += val
         self.count += 1
 
-    def value(self) -> Optional[float]:
+    def value(self) -> Optional[float]:  # Always a float
         if self.count == 0:
             return None
         return self.sum / self.count

@@ -41,7 +41,7 @@ class AggregateFunction(Function):
     def __init__(
         self,
         agg_class: type[Aggregator],
-        type_substitutions: Optional[list[dict[type, type]]],
+        type_substitutions: Optional[Sequence[dict[type, type]]],
         self_path: str,
         requires_order_by: bool,
         allows_std_agg: bool,
@@ -204,7 +204,7 @@ def uda(
     requires_order_by: bool = False,
     allows_std_agg: bool = True,
     allows_window: bool = False,
-    type_substitutions: Optional[list[dict[type, type]]] = None
+    type_substitutions: Optional[Sequence[dict[type, type]]] = None
 ) -> Callable[[type[Aggregator]], AggregateFunction]: ...
 
 
@@ -260,7 +260,7 @@ def make_aggregator(
     requires_order_by: bool = False,
     allows_std_agg: bool = True,
     allows_window: bool = False,
-    type_substitutions: Optional[list[dict[type, type]]] = None
+    type_substitutions: Optional[Sequence[dict[type, type]]] = None
 ) -> AggregateFunction:
     class_path = f'{cls.__module__}.{cls.__qualname__}'
     instance = AggregateFunction(cls, type_substitutions, class_path, requires_order_by, allows_std_agg, allows_window)
