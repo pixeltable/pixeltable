@@ -525,7 +525,9 @@ class IntType(ColumnType):
         return sql.BigInteger()
 
     def _validate_literal(self, val: Any) -> None:
-        if not isinstance(val, int):
+        # bool is a subclass of int, so we need to check for it
+        # explicitly first
+        if isinstance(val, bool) or not isinstance(val, int):
             raise TypeError(f'Expected int, got {val.__class__.__name__}')
 
 
