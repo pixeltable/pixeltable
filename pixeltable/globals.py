@@ -38,8 +38,6 @@ class IfExistsParam(Enum):
         except KeyError:
             raise excs.Error(f'{error_prefix} must be one of: {[e.value for e in cls]}')
 
-    def valid_values(cls) -> list[str]:
-        return [e.value for e in cls]
 
 def create_table(
     path_str: str,
@@ -102,12 +100,11 @@ def create_table(
     if_exists = IfExistsParam.validated(if_exists, 'if_exists')
     path = catalog.Path(path_str)
     cat = Catalog.get()
-    try:
-        cat.paths.check_is_valid(path, expected=None)
-    except excs.Error as check_error:
-        if 'already exists' not in str(check_error) or if_exists == IfExistsParam.ERROR:
-            raise check_error
+
+    if cat.paths.check_if_exists(path) is not None:
         # The table already exists. Handle it as per user directive.
+        if if_exists == IfExistsParam.ERROR:
+            raise excs.Error(f'Path `{path_str}` already exists.')
         existing_table = cat.paths[path]
         is_table = isinstance(existing_table, catalog.Table)
         if not is_table:
@@ -476,12 +473,10 @@ def create_dir(path_str: str, if_exists: Literal['error', 'ignore', 'replace', '
     path = catalog.Path(path_str)
     cat = Catalog.get()
 
-    try:
-        cat.paths.check_is_valid(path, expected=None)
-    except excs.Error as check_error:
-        if 'already exists' not in str(check_error) or if_exists == IfExistsParam.ERROR:
-            raise check_error
+    if cat.paths.check_if_exists(path):
         # The directory already exists. Handle it as per user directive.
+        if if_exists == IfExistsParam.ERROR:
+            raise excs.Error(f'Path `{path_str}` already exists.')
         existing_dir = cat.paths[path]
         is_dir = isinstance(existing_dir, catalog.Dir)
         if not is_dir:
