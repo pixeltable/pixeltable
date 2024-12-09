@@ -168,7 +168,7 @@ def create_view(
     num_retained_versions: int = 10,
     comment: str = '',
     media_validation: Literal['on_read', 'on_write'] = 'on_write',
-    ignore_errors: bool = False,
+    if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
 ) -> Optional[catalog.Table]:
     """Create a view of an existing table object (which itself can be a view or a snapshot or a base table).
 
@@ -186,20 +186,40 @@ def create_view(
             the base table.
         num_retained_versions: Number of versions of the view to retain.
         comment: Optional comment for the view.
-        ignore_errors: if True, fail silently if the path already exists or is invalid.
+        if_exists: Directive regarding how to handle if the path already exists.
+            Must be one of the following:
+            - `'error'`: raise an error
+            - `'ignore'`: do nothing and return the existing view handle
+            - `'replace'`: if the existing view has no dependents, drop and replace it with a new one
+            - `'replace_force'`: drop the existing view and all its dependents, and create a new one
+            Default is `'error'`.
 
     Returns:
         A handle to the [`Table`][pixeltable.Table] representing the newly created view. If the path already
-            exists or is invalid and `ignore_errors=True`, returns `None`.
+            exists and `if_exists='ignore'`, returns a handle to the existing view.
 
     Raises:
-        Error: if the path already exists or is invalid and `ignore_errors=False`.
+        Error: if the path already exists and `if_exists` is 'error',
+            or if the path alredy exists and is not a view,
+            or other error conditons like invalid path, connection error etc.
 
     Examples:
         Create a view `my_view` of an existing table `my_table`, filtering on rows where `col1` is greater than 10:
 
         >>> tbl = pxt.get_table('my_table')
         ... view = pxt.create_view('my_view', tbl.where(tbl.col1 > 10))
+
+        Create a view `my_view` of an existing table `my_table`, filtering on rows where `col1` is greater than 10,
+        if it does not already exist, otherwise get the existing view:
+
+        >>> tbl = pxt.get_table('my_table')
+        ... view = pxt.create_view('my_view', tbl.where(tbl.col1 > 10), if_exists='ignore')
+
+        Create a view `my_view` of an existing table `my_table`, filtering on rows where `col1` is greater than 100,
+        and replace if `my_view` already exists:
+
+        >>> tbl = pxt.get_table('my_table')
+        ... view = pxt.create_view('my_view', tbl.where(tbl.col1 > 100), if_exists='replace_force')
     """
     where: Optional[exprs.Expr] = None
     if isinstance(base, catalog.Table):
@@ -213,14 +233,32 @@ def create_view(
     else:
         raise excs.Error('`base` must be an instance of `Table` or `DataFrame`')
     assert isinstance(base, catalog.Table) or isinstance(base, DataFrame)
+
+    if_exists = IfExistsParam.validated(if_exists, 'if_exists')
     path = catalog.Path(path_str)
-    try:
-        Catalog.get().paths.check_is_valid(path, expected=None)
-    except Exception as e:
-        if ignore_errors:
-            return None
+    cat = Catalog.get()
+
+    if cat.paths.check_if_exists(path) is not None:
+        # The view already exists. Handle it as per user directive.
+        if if_exists == IfExistsParam.ERROR:
+            raise excs.Error(f'Path `{path_str}` already exists.')
+        existing_view = cat.paths[path]
+        if not isinstance(existing_view, catalog.View):
+            raise excs.Error(f'Path `{path_str}` already exists but is not a View. Cannot {if_exists} it.')
+
+        if if_exists == IfExistsParam.IGNORE:
+            return existing_view
+
+        has_dependents = len(cat.tbl_dependents[existing_view._id]) > 0
+        if if_exists == IfExistsParam.REPLACE and has_dependents:
+            raise excs.Error(f'View `{path_str}` already exists and has dependents. Use if_exists="replace_force" to replace it.')
         else:
-            raise e
+            assert if_exists == IfExistsParam.REPLACE_FORCE or not has_dependents
+            # Drop the existing table so it can be replaced.
+            # Any error from drop_table will not be ignored.
+            _logger.info(f'Dropping and recreating view `{path_str}`.')
+            drop_table(path_str, force=True, ignore_errors=False)
+
     dir = Catalog.get().paths[path.parent]
 
     if additional_columns is None:
@@ -250,7 +288,6 @@ def create_snapshot(
     num_retained_versions: int = 10,
     comment: str = '',
     media_validation: Literal['on_read', 'on_write'] = 'on_write',
-    ignore_errors: bool = False,
 ) -> Optional[catalog.Table]:
     """Create a snapshot of an existing table object (which itself can be a view or a snapshot or a base table).
 
@@ -266,14 +303,12 @@ def create_snapshot(
             the base table.
         num_retained_versions: Number of versions of the view to retain.
         comment: Optional comment for the view.
-        ignore_errors: if True, fail silently if the path already exists or is invalid.
 
     Returns:
-        A handle to the [`Table`][pixeltable.Table] representing the newly created snapshot. If the path already
-            exists or is invalid and `ignore_errors=True`, returns `None`.
+        A handle to the [`Table`][pixeltable.Table] representing the newly created snapshot.
 
     Raises:
-        Error: if the path already exists or is invalid and `ignore_errors=False`.
+        Error: if the path already exists or is invalid.
 
     Examples:
         Create a snapshot of `my_table`:
@@ -290,7 +325,6 @@ def create_snapshot(
         num_retained_versions=num_retained_versions,
         comment=comment,
         media_validation=media_validation,
-        ignore_errors=ignore_errors,
     )
 
 
