@@ -300,7 +300,7 @@ class TestIndex:
         with pytest.raises(pxt.Error) as exc_info:
             # wrong signature
             img_t.add_embedding_index('img', image_embed=clip_image)
-        assert 'but has signature' in str(exc_info.value).lower()
+        assert 'must take a single image parameter' in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error) as exc_info:
             # missing embedding function
@@ -310,7 +310,7 @@ class TestIndex:
         with pytest.raises(pxt.Error) as exc_info:
             # wrong signature
             img_t.add_embedding_index('category', string_embed=clip_text)
-        assert 'but has signature' in str(exc_info.value).lower()
+        assert 'must take a single string parameter' in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error) as exc_info:
             img_t.add_embedding_index('category', string_embed=self.bad_embed)
