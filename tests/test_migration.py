@@ -95,6 +95,9 @@ class TestMigration:
             if old_version >= 19:
                 self._run_v19_tests()
 
+
+            self._verify_v24(old_version)
+
         _logger.info(f'Verified DB dumps with versions: {versions_found}')
         assert VERSION in versions_found, (
             f'No DB dump found for current schema version {VERSION}. You can generate one with:\n'
@@ -103,6 +106,23 @@ class TestMigration:
         assert VERSION in VERSION_NOTES, (
             f'No version notes found for current schema version {VERSION}. '
             f'Please add them to pixeltable/metadata/notes.py.')
+
+    @classmethod
+    def _verify_v24(cls, upgraded_from: int) -> None:
+        """Verify the conversion to version 24."""
+        for t in pxt.list_tables():
+            tbl = pxt.get_table(t)
+            assert tbl is not None
+            tbl_id = tbl._tbl_version.id
+            for idx in tbl._tbl_version.idx_md.values():
+                # Verify that indexed_col_tbl_id is set for all indexes
+                # from version 24 onwards.
+                assert idx.indexed_col_tbl_id is not None
+                # Any version before 24 would be missing indexed_col_tbl_id.
+                # Verify that indexed_col_tbl_id is set to the table id after
+                # upgrade in that case.
+                if upgraded_from < 24:
+                    assert idx.indexed_col_tbl_id == str(tbl_id)
 
     @classmethod
     def _run_v12_tests(cls) -> None:
