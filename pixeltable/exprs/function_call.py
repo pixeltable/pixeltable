@@ -23,6 +23,7 @@ from .sql_element_cache import SqlElementCache
 class FunctionCall(Expr):
 
     fn: func.Function
+    signature_idx: int
     is_method_call: bool
     agg_init_args: dict[str, Any]
 
@@ -34,6 +35,7 @@ class FunctionCall(Expr):
 
     arg_types: list[ts.ColumnType]
     kwarg_types: dict[str, ts.ColumnType]
+    return_type: ts.ColumnType
     group_by_start_idx: int
     group_by_stop_idx: int
     fn_expr_idx: int
@@ -43,17 +45,27 @@ class FunctionCall(Expr):
     current_partition_vals: Optional[list[Any]]
 
     def __init__(
-            self, fn: func.Function, bound_args: dict[str, Any], order_by_clause: Optional[list[Any]] = None,
-            group_by_clause: Optional[list[Any]] = None, is_method_call: bool = False):
+        self,
+        fn: func.Function,
+        signature_idx: int,
+        bound_args: dict[str, Any],
+        return_type: ts.ColumnType,
+        order_by_clause: Optional[list[Any]] = None,
+        group_by_clause: Optional[list[Any]] = None,
+        is_method_call: bool = False
+    ):
         if order_by_clause is None:
             order_by_clause = []
         if group_by_clause is None:
             group_by_clause = []
-        signature = fn.signature
-        return_type = fn.call_return_type(bound_args)
+
         self.fn = fn
+        self.signature_idx = signature_idx
         self.is_method_call = is_method_call
-        self.normalize_args(fn.name, signature, bound_args)
+
+        assert isinstance(signature_idx, int)
+
+        signature = fn.signatures[signature_idx]
 
         # If `return_type` is non-nullable, but the function call has a nullable input to any of its non-nullable
         # parameters, then we need to make it nullable. This is because Pixeltable defaults a function output to
@@ -67,6 +79,8 @@ class FunctionCall(Expr):
                 return_type = return_type.copy(nullable=True)
                 break
 
+        self.return_type = return_type
+
         super().__init__(return_type)
 
         self.agg_init_args = {}
@@ -74,9 +88,9 @@ class FunctionCall(Expr):
             # we separate out the init args for the aggregator
             assert isinstance(fn, func.AggregateFunction)
             self.agg_init_args = {
-                arg_name: arg for arg_name, arg in bound_args.items() if arg_name in fn.init_param_names
+                arg_name: arg for arg_name, arg in bound_args.items() if arg_name in fn.init_param_names[self.signature_idx]
             }
-            bound_args = {arg_name: arg for arg_name, arg in bound_args.items() if arg_name not in fn.init_param_names}
+            bound_args = {arg_name: arg for arg_name, arg in bound_args.items() if arg_name not in fn.init_param_names[self.signature_idx]}
 
         # construct components, args, kwargs
         self.args = []
@@ -88,7 +102,7 @@ class FunctionCall(Expr):
 
         # the prefix of parameters that are bound can be passed by position
         processed_args: set[str] = set()
-        for py_param in fn.signature.py_signature.parameters.values():
+        for py_param in signature.py_signature.parameters.values():
             if py_param.name not in bound_args or py_param.kind == inspect.Parameter.KEYWORD_ONLY:
                 break
             arg = bound_args[py_param.name]
@@ -110,7 +124,7 @@ class FunctionCall(Expr):
                     self.components.append(arg.copy())
                 else:
                     self.kwargs[param_name] = (None, arg)
-                if fn.signature.py_signature.parameters[param_name].kind != inspect.Parameter.VAR_KEYWORD:
+                if signature.py_signature.parameters[param_name].kind != inspect.Parameter.VAR_KEYWORD:
                     self.kwarg_types[param_name] = signature.parameters[param_name].col_type
 
         # window function state:
@@ -129,7 +143,7 @@ class FunctionCall(Expr):
 
         if isinstance(self.fn, func.ExprTemplateFunction):
             # we instantiate the template to create an Expr that can be evaluated and record that as a component
-            fn_expr = self.fn.instantiate(**bound_args)
+            fn_expr = self.fn.instantiate(self.signature_idx, [], bound_args)
             self.components.append(fn_expr)
             self.fn_expr_idx = len(self.components) - 1
         else:
@@ -251,6 +265,7 @@ class FunctionCall(Expr):
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return super()._id_attrs() + [
             ('fn', id(self.fn)),  # use the function pointer, not the fqn, which isn't set for lambdas
+            ('signature_idx', self.signature_idx),
             ('args', self.args),
             ('kwargs', self.kwargs),
             ('group_by_start_idx', self.group_by_start_idx),
@@ -332,7 +347,7 @@ class FunctionCall(Expr):
         # try to construct args and kwargs to call self.fn._to_sql()
         kwargs: dict[str, sql.ColumnElement] = {}
         for param_name, (component_idx, arg) in self.kwargs.items():
-            param = self.fn.signature.parameters[param_name]
+            param = self.fn.signatures[self.signature_idx].parameters[param_name]
             assert param.kind != inspect.Parameter.VAR_POSITIONAL and param.kind != inspect.Parameter.VAR_KEYWORD
             if component_idx is None:
                 kwargs[param_name] = sql.literal(arg)
@@ -360,7 +375,7 @@ class FunctionCall(Expr):
         """
         assert self.is_agg_fn_call
         assert isinstance(self.fn, func.AggregateFunction)
-        self.aggregator = self.fn.agg_cls(**self.agg_init_args)
+        self.aggregator = self.fn.agg_classes[self.signature_idx](**self.agg_init_args)
 
     def update(self, data_row: DataRow) -> None:
         """
@@ -375,7 +390,7 @@ class FunctionCall(Expr):
         kwargs: dict[str, Any] = {}
         for param_name, (component_idx, arg) in self.kwargs.items():
             val = arg if component_idx is None else data_row[self.components[component_idx].slot_idx]
-            param = self.fn.signature.parameters[param_name]
+            param = self.fn.signatures[self.signature_idx].parameters[param_name]
             if param.kind == inspect.Parameter.VAR_KEYWORD:
                 # expand **kwargs parameter
                 kwargs.update(val)
@@ -386,7 +401,7 @@ class FunctionCall(Expr):
         args: list[Any] = []
         for param_idx, (component_idx, arg) in enumerate(self.args):
             val = arg if component_idx is None else data_row[self.components[component_idx].slot_idx]
-            param = self.fn.signature.parameters_by_pos[param_idx]
+            param = self.fn.signatures[self.signature_idx].parameters_by_pos[param_idx]
             if param.kind == inspect.Parameter.VAR_POSITIONAL:
                 # expand *args parameter
                 assert isinstance(val, list)
@@ -413,7 +428,7 @@ class FunctionCall(Expr):
             return
 
         args, kwargs = self._make_args(data_row)
-        signature = self.fn.signature
+        signature = self.fn.signatures[self.signature_idx]
         if signature.parameters is not None:
             # check for nulls
             for i in range(len(self.arg_types)):
@@ -429,30 +444,36 @@ class FunctionCall(Expr):
 
         if isinstance(self.fn, func.CallableFunction) and not self.fn.is_batched:
             # optimization: avoid additional level of indirection we'd get from calling Function.exec()
-            data_row[self.slot_idx] = self.fn.py_fn(*args, **kwargs)
+            data_row[self.slot_idx] = self.fn.py_fns[self.signature_idx](*args, **kwargs)
         elif self.is_window_fn_call:
             assert isinstance(self.fn, func.AggregateFunction)
+            agg_cls = self.fn.agg_classes[self.signature_idx]
             if self.has_group_by():
                 if self.current_partition_vals is None:
                     self.current_partition_vals = [None] * len(self.group_by)
                 partition_vals = [data_row[e.slot_idx] for e in self.group_by]
                 if partition_vals != self.current_partition_vals:
                     # new partition
-                    self.aggregator = self.fn.agg_cls(**self.agg_init_args)
+                    self.aggregator = agg_cls(**self.agg_init_args)
                     self.current_partition_vals = partition_vals
             elif self.aggregator is None:
-                self.aggregator = self.fn.agg_cls(**self.agg_init_args)
+                self.aggregator = agg_cls(**self.agg_init_args)
             self.aggregator.update(*args)
             data_row[self.slot_idx] = self.aggregator.value()
         else:
-            data_row[self.slot_idx] = self.fn.exec(*args, **kwargs)
+            data_row[self.slot_idx] = self.fn.exec(self.signature_idx, args, kwargs)
 
     def _as_dict(self) -> dict:
         result = {
-            'fn': self.fn.as_dict(), 'args': self.args, 'kwargs': self.kwargs,
-            'group_by_start_idx': self.group_by_start_idx, 'group_by_stop_idx': self.group_by_stop_idx,
+            'fn': self.fn.as_dict(),
+            'args': self.args,
+            'kwargs': self.kwargs,
+            'signature': self.signature_idx,
+            'return_type': self.return_type.as_dict(),
+            'group_by_start_idx': self.group_by_start_idx,
+            'group_by_stop_idx': self.group_by_stop_idx,
             'order_by_start_idx': self.order_by_start_idx,
-            **super()._as_dict()
+            **super()._as_dict(),
         }
         return result
 
@@ -463,13 +484,22 @@ class FunctionCall(Expr):
         assert 'kwargs' in d
         # reassemble bound args
         fn = func.Function.from_dict(d['fn'])
-        param_names = list(fn.signature.parameters.keys())
+        signature_idx = d['signature']  # TODO infer signature on reload
+        signature = fn.signatures[signature_idx]
+        return_type = ts.ColumnType.from_dict(d['return_type'])
+        param_names = list(signature.parameters.keys())
         bound_args = {param_names[i]: arg if idx is None else components[idx] for i, (idx, arg) in enumerate(d['args'])}
         bound_args.update(
             {param_name: val if idx is None else components[idx] for param_name, (idx, val) in d['kwargs'].items()})
+        # signature_idx, bound_args = fn._bind_to_matching_signature(d['args'], d['kwargs'])
         group_by_exprs = components[d['group_by_start_idx']:d['group_by_stop_idx']]
         order_by_exprs = components[d['order_by_start_idx']:]
         fn_call = cls(
-            func.Function.from_dict(d['fn']), bound_args, group_by_clause=group_by_exprs,
-            order_by_clause=order_by_exprs)
+            fn,
+            signature_idx,
+            bound_args,
+            return_type,
+            group_by_clause=group_by_exprs,
+            order_by_clause=order_by_exprs
+        )
         return fn_call

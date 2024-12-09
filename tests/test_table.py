@@ -40,7 +40,7 @@ class TestTable:
     def add1(a: int) -> int:
         return a + 1
 
-    @pxt.uda(update_types=[pxt.IntType()], value_type=pxt.IntType(), requires_order_by=True, allows_window=True)
+    @pxt.uda(requires_order_by=True, allows_window=True)
     class window_fn:
         def __init__(self):
             pass
