@@ -1,4 +1,5 @@
 from typing import Optional
+import typing
 
 import numpy as np
 import pytest
@@ -14,6 +15,9 @@ from .utils import assert_resultset_eq, reload_catalog, validate_update_status
 
 def dummy_fn(i: int) -> int:
     return i
+
+
+T = typing.TypeVar('T')
 
 class TestFunction:
     @pxt.udf
@@ -446,38 +450,9 @@ class TestFunction:
     def _(x: float, y: float) -> float:
         return x + y + 2.0
 
-    @pxt.uda
-    class overloaded_uda(pxt.Aggregator):
-        def __init__(self) -> None:
-            self.sum = ''
-
-        def update(self, x: str) -> None:
-            self.sum += x
-
-        def value(self) -> str:
-            return self.sum
-
-    @overloaded_uda.overload
-    class _(pxt.Aggregator):
-        def __init__(self) -> None:
-            self.sum = 0
-
-        def update(self, x: int) -> None:
-            self.sum += x + 1
-
-        def value(self) -> int:
-            return self.sum
-
-    @overloaded_uda.overload
-    class _(pxt.Aggregator):
-        def __init__(self) -> None:
-            self.sum = 0.0
-
-        def update(self, x: float) -> None:
-            self.sum += x + 2.0
-
-        def value(self) -> float:
-            return self.sum
+    @pxt.udf(type_substitutions=[{T: str}, {T: int}, {T: float}])
+    def typevar_udf(x: T, y: T, z: str = 'a') -> T:
+        return x + y
 
     def test_overloaded_udf(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
@@ -521,6 +496,67 @@ class TestFunction:
         res_direct = t.select(format('{0}{1}', t.c1, t.c1), t.c2 + t.c2 + 1).collect()
         assert_resultset_eq(res, res_direct)
 
+        fc_str3 = self.typevar_udf(t.c1, t.c1)
+        fc_int3 = self.typevar_udf(t.c2, t.c2)
+        fc_float3 = self.typevar_udf(t.c3, t.c3)
+
+        assert len(self.typevar_udf.signatures) == 3
+        assert fc_str3.signature_idx == 0
+        assert fc_str3.col_type.is_string_type()
+        assert fc_int3.signature_idx == 1
+        assert fc_int3.col_type.is_int_type()
+        assert fc_float3.signature_idx == 2
+        assert fc_float3.col_type.is_float_type()
+
+        res = t.select(fc_str3, fc_int3, fc_float3).collect()
+        res_direct = t.select(format('{0}{1}', t.c1, t.c1), t.c2 + t.c2, t.c3 + t.c3).collect()
+        assert_resultset_eq(res, res_direct)
+
+    @pxt.uda
+    class overloaded_uda(pxt.Aggregator):
+        def __init__(self) -> None:
+            self.sum = ''
+
+        def update(self, x: str) -> None:
+            self.sum += x
+
+        def value(self) -> str:
+            return self.sum
+
+    @overloaded_uda.overload
+    class _(pxt.Aggregator):
+        def __init__(self) -> None:
+            self.sum = 0
+
+        def update(self, x: int) -> None:
+            self.sum += x + 1
+
+        def value(self) -> int:
+            return self.sum
+
+    @overloaded_uda.overload
+    class _(pxt.Aggregator):
+        def __init__(self) -> None:
+            self.sum = 0.0
+
+        def update(self, x: float) -> None:
+            self.sum += x + 2.0
+
+        def value(self) -> float:
+            return self.sum
+
+    @pxt.uda(type_substitutions=[{T: str}, {T: int}, {T: float}])
+    class typevar_uda(pxt.Aggregator, typing.Generic[T]):
+        def __init__(self) -> None:
+            self.max = None
+
+        def update(self, x: T) -> None:
+            if self.max is None or x > self.max:
+                self.max = x
+
+        def value(self) -> T:
+            return self.max
+
     def test_overloaded_uda(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         fc_str = self.overloaded_uda(t.c1)
@@ -543,6 +579,27 @@ class TestFunction:
             'c1': ''.join(res_direct['c1']),
             'c2': sum(res_direct['c2']) + len(res_direct['c2']),
             'c3': sum(res_direct['c3']) + 2.0 * len(res_direct['c3']),
+        }
+
+        fc_str2 = self.typevar_uda(t.c1)
+        fc_int2 = self.typevar_uda(t.c2)
+        fc_float2 = self.typevar_uda(t.c3)
+
+        assert len(self.typevar_uda.signatures) == 3
+        assert fc_str2.signature_idx == 0
+        assert fc_str2.col_type.is_string_type()
+        assert fc_int2.signature_idx == 1
+        assert fc_int2.col_type.is_int_type()
+        assert fc_float2.signature_idx == 2
+        assert fc_float2.col_type.is_float_type()
+
+        res = t.order_by(t.c2).select(c1=fc_str2, c2=fc_int2, c3=fc_float2).collect()
+        res_direct = t.order_by(t.c2).select(t.c1, t.c2, t.c3).collect()
+        assert len(res) == 1
+        assert res[0] == {
+            'c1': max(res_direct['c1']),
+            'c2': max(res_direct['c2']),
+            'c3': max(res_direct['c3']),
         }
 
 

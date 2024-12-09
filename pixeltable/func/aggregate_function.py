@@ -40,36 +40,44 @@ class AggregateFunction(Function):
 
     def __init__(
         self,
-        agg_classes: list[type[Aggregator]],
+        agg_class: type[Aggregator],
+        type_substitutions: Optional[list[dict[type, type]]],
         self_path: str,
         requires_order_by: bool,
         allows_std_agg: bool,
         allows_window: bool
     ) -> None:
-        assert len(agg_classes) > 0
-        self.agg_classes = agg_classes
+        if type_substitutions is None:
+            self.agg_classes = [agg_class]
+        else:
+            self.agg_classes = [agg_class] * len(type_substitutions)
         self.init_param_names = []
         self.requires_order_by = requires_order_by
         self.allows_std_agg = allows_std_agg
         self.allows_window = allows_window
-        self.__doc__ = agg_classes[0].__doc__
+        self.__doc__ = agg_class.__doc__
 
         signatures: list[Signature] = []
-        for cls in agg_classes:
-            signature, init_param_names = self.__cls_to_signature(cls)
+
+        # If type_substitutions is None, construct a single signature for the class.
+        # Otherwise, construct one signature for each type substitution instance.
+        for subst in ([None] if type_substitutions is None else type_substitutions):
+            signature, init_param_names = self.__cls_to_signature(agg_class, subst)
             signatures.append(signature)
             self.init_param_names.append(init_param_names)
 
         super().__init__(signatures, self_path=self_path)
 
-    def __cls_to_signature(self, cls: type[Aggregator]) -> tuple[Signature, list[str]]:
+    def __cls_to_signature(
+        self, cls: type[Aggregator], type_substitutions: Optional[dict[type, type]] = None
+    ) -> tuple[Signature, list[str]]:
         """Inspects the Aggregator class to infer the corresponding function signature. Returns the
         inferred signature along with the list of init_param_names (for downstream error handling).
         """
         # infer type parameters; set return_type=InvalidType() because it has no meaning here
-        init_sig = Signature.create(py_fn=cls.__init__, return_type=ts.InvalidType(), is_cls_method=True)
-        update_sig = Signature.create(py_fn=cls.update, return_type=ts.InvalidType(), is_cls_method=True)
-        value_sig = Signature.create(py_fn=cls.value, is_cls_method=True)
+        init_sig = Signature.create(py_fn=cls.__init__, return_type=ts.InvalidType(), is_cls_method=True, type_substitutions=type_substitutions)
+        update_sig = Signature.create(py_fn=cls.update, return_type=ts.InvalidType(), is_cls_method=True, type_substitutions=type_substitutions)
+        value_sig = Signature.create(py_fn=cls.value, is_cls_method=True, type_substitutions=type_substitutions)
 
         init_types = [p.col_type for p in init_sig.parameters.values()]
         update_types = [p.col_type for p in update_sig.parameters.values()]
@@ -195,7 +203,8 @@ def uda(
     *,
     requires_order_by: bool = False,
     allows_std_agg: bool = True,
-    allows_window: bool = False
+    allows_window: bool = False,
+    type_substitutions: Optional[list[dict[type, type]]] = None
 ) -> Callable[[type[Aggregator]], AggregateFunction]: ...
 
 
@@ -228,6 +237,7 @@ def uda(*args, **kwargs):
         requires_order_by = kwargs.pop('requires_order_by', False)
         allows_std_agg = kwargs.pop('allows_std_agg', True)
         allows_window = kwargs.pop('allows_window', False)
+        type_substitutions = kwargs.pop('type_substitutions', None)
         if len(kwargs) > 0:
             raise excs.Error(f'Invalid @uda decorator kwargs: {", ".join(kwargs.keys())}')
         if len(args) > 0:
@@ -238,7 +248,8 @@ def uda(*args, **kwargs):
                 cls,
                 requires_order_by=requires_order_by,
                 allows_std_agg=allows_std_agg,
-                allows_window=allows_window
+                allows_window=allows_window,
+                type_substitutions=type_substitutions
             )
 
         return decorator
@@ -248,10 +259,11 @@ def make_aggregator(
     cls: type[Aggregator],
     requires_order_by: bool = False,
     allows_std_agg: bool = True,
-    allows_window: bool = False
+    allows_window: bool = False,
+    type_substitutions: Optional[list[dict[type, type]]] = None
 ) -> AggregateFunction:
     class_path = f'{cls.__module__}.{cls.__qualname__}'
-    instance = AggregateFunction([cls], class_path, requires_order_by, allows_std_agg, allows_window)
+    instance = AggregateFunction(cls, type_substitutions, class_path, requires_order_by, allows_std_agg, allows_window)
     # do the path validation at the very end, in order to be able to write tests for the other failure cases
     validate_symbol_path(class_path)
     return instance

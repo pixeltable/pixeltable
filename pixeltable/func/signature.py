@@ -160,6 +160,7 @@ class Signature:
         py_fn: Optional[Callable] = None,
         py_params: Optional[list[inspect.Parameter]] = None,
         param_types: Optional[list[ts.ColumnType]] = None,
+        type_substitutions: Optional[dict[type, type]] = None,
         is_cls_method: bool = False
     ) -> list[Parameter]:
         assert (py_fn is None) != (py_params is None)
@@ -167,6 +168,9 @@ class Signature:
             sig = inspect.signature(py_fn)
             py_params = list(sig.parameters.values())
         parameters: list[Parameter] = []
+
+        if type_substitutions is None:
+            type_substitutions = {}
 
         for idx, param in enumerate(py_params):
             if is_cls_method and idx == 0:
@@ -184,7 +188,12 @@ class Signature:
                 param_type = param_types[idx]
                 is_batched = False
             else:
-                param_type, is_batched = cls._infer_type(param.annotation)
+                py_type: Optional[type]
+                if param.annotation in type_substitutions:
+                    py_type = type_substitutions[param.annotation]
+                else:
+                    py_type = param.annotation
+                param_type, is_batched = cls._infer_type(py_type)
                 if param_type is None:
                     raise excs.Error(f'Cannot infer pixeltable type for parameter {param.name}')
 
@@ -199,16 +208,25 @@ class Signature:
         py_fn: Callable,
         param_types: Optional[list[ts.ColumnType]] = None,
         return_type: Optional[ts.ColumnType] = None,
+        type_substitutions: Optional[dict[type, type]] = None,
         is_cls_method: bool = False
     ) -> Signature:
         """Create a signature for the given Callable.
         Infer the parameter and return types, if none are specified.
         Raises an exception if the types cannot be inferred.
         """
-        parameters = cls.create_parameters(py_fn=py_fn, param_types=param_types, is_cls_method=is_cls_method)
+        if type_substitutions is None:
+            type_substitutions = {}
+            
+        parameters = cls.create_parameters(py_fn=py_fn, param_types=param_types, is_cls_method=is_cls_method, type_substitutions=type_substitutions)
         sig = inspect.signature(py_fn)
         if return_type is None:
-            return_type, return_is_batched = cls._infer_type(sig.return_annotation)
+            py_type: Optional[type]
+            if sig.return_annotation in type_substitutions:
+                py_type = type_substitutions[sig.return_annotation]
+            else:
+                py_type = sig.return_annotation
+            return_type, return_is_batched = cls._infer_type(py_type)
             if return_type is None:
                 raise excs.Error('Cannot infer pixeltable return type')
         else:
