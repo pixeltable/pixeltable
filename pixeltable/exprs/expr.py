@@ -190,6 +190,7 @@ class Expr(abc.ABC):
                 return new.copy()
         for i in range(len(self.components)):
             self.components[i] = self.components[i].substitute(spec)
+        self.id = self._create_id()
         return self
 
     @classmethod

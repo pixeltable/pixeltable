@@ -346,6 +346,7 @@ class TestFunction:
 
     def test_expr_udf(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
+        t.add_computed_column(other_int=t.c2 + 5)
 
         res1 = t.select(out=self.add1(t.c2)).order_by(t.c2).collect()
         res2 = t.select(t.c2 + 1).order_by(t.c2).collect()
@@ -354,6 +355,11 @@ class TestFunction:
         # return type inferred from expression
         res1 = t.select(out=self.add2(t.c2, t.c2)).order_by(t.c2).collect()
         res2 = t.select(t.c2 * 2).order_by(t.c2).collect()
+        assert_resultset_eq(res1, res2)
+
+        # multiple evaluations of the same expr_udf in the same computation
+        res1 = t.select(out1=self.add1(t.c2), out2=self.add1(t.other_int)).order_by(t.c2).collect()
+        res2 = t.select(t.c2 + 1, t.other_int + 1).order_by(t.c2).collect()
         assert_resultset_eq(res1, res2)
 
         with pytest.raises(TypeError) as exc_info:
