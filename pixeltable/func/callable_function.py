@@ -90,7 +90,7 @@ class CallableFunction(Function):
 
     def help_str(self) -> str:
         res = super().help_str()
-        res += '\n\n' + inspect.getdoc(self.py_fn)
+        res += '\n\n' + inspect.getdoc(self.py_fns[0])
         return res
 
     def _as_dict(self) -> dict:

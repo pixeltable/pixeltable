@@ -73,7 +73,7 @@ class Function(abc.ABC):
         return len(self.signatures[0].parameters)
 
     def help_str(self) -> str:
-        return self.display_name + str(self.signature)
+        return self.display_name + str(self.signatures[0])
 
     def __call__(self, *args: Any, **kwargs: Any) -> 'pxt.exprs.FunctionCall':
         from pixeltable import exprs

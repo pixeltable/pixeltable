@@ -160,7 +160,7 @@ class Signature:
         py_fn: Optional[Callable] = None,
         py_params: Optional[list[inspect.Parameter]] = None,
         param_types: Optional[list[ts.ColumnType]] = None,
-        type_substitutions: Optional[dict[type, type]] = None,
+        type_substitutions: Optional[dict] = None,
         is_cls_method: bool = False
     ) -> list[Parameter]:
         assert (py_fn is None) != (py_params is None)
@@ -208,7 +208,7 @@ class Signature:
         py_fn: Callable,
         param_types: Optional[list[ts.ColumnType]] = None,
         return_type: Optional[ts.ColumnType] = None,
-        type_substitutions: Optional[dict[type, type]] = None,
+        type_substitutions: Optional[dict] = None,
         is_cls_method: bool = False
     ) -> Signature:
         """Create a signature for the given Callable.
@@ -217,7 +217,7 @@ class Signature:
         """
         if type_substitutions is None:
             type_substitutions = {}
-            
+
         parameters = cls.create_parameters(py_fn=py_fn, param_types=param_types, is_cls_method=is_cls_method, type_substitutions=type_substitutions)
         sig = inspect.signature(py_fn)
         if return_type is None:

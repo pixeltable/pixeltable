@@ -446,8 +446,8 @@ class FunctionCall(Expr):
             # optimization: avoid additional level of indirection we'd get from calling Function.exec()
             data_row[self.slot_idx] = self.fn.py_fns[self.signature_idx](*args, **kwargs)
         elif self.is_window_fn_call:
-            agg_cls = self.fn.agg_classes[self.signature_idx]
             assert isinstance(self.fn, func.AggregateFunction)
+            agg_cls = self.fn.agg_classes[self.signature_idx]
             if self.has_group_by():
                 if self.current_partition_vals is None:
                     self.current_partition_vals = [None] * len(self.group_by)

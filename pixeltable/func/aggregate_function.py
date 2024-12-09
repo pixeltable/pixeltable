@@ -41,7 +41,7 @@ class AggregateFunction(Function):
     def __init__(
         self,
         agg_class: type[Aggregator],
-        type_substitutions: Optional[Sequence[dict[type, type]]],
+        type_substitutions: Optional[Sequence[dict]],
         self_path: str,
         requires_order_by: bool,
         allows_std_agg: bool,
@@ -69,7 +69,7 @@ class AggregateFunction(Function):
         super().__init__(signatures, self_path=self_path)
 
     def __cls_to_signature(
-        self, cls: type[Aggregator], type_substitutions: Optional[dict[type, type]] = None
+        self, cls: type[Aggregator], type_substitutions: Optional[dict] = None
     ) -> tuple[Signature, list[str]]:
         """Inspects the Aggregator class to infer the corresponding function signature. Returns the
         inferred signature along with the list of init_param_names (for downstream error handling).
@@ -204,7 +204,7 @@ def uda(
     requires_order_by: bool = False,
     allows_std_agg: bool = True,
     allows_window: bool = False,
-    type_substitutions: Optional[Sequence[dict[type, type]]] = None
+    type_substitutions: Optional[Sequence[dict]] = None
 ) -> Callable[[type[Aggregator]], AggregateFunction]: ...
 
 
@@ -260,7 +260,7 @@ def make_aggregator(
     requires_order_by: bool = False,
     allows_std_agg: bool = True,
     allows_window: bool = False,
-    type_substitutions: Optional[Sequence[dict[type, type]]] = None
+    type_substitutions: Optional[Sequence[dict]] = None
 ) -> AggregateFunction:
     class_path = f'{cls.__module__}.{cls.__qualname__}'
     instance = AggregateFunction(cls, type_substitutions, class_path, requires_order_by, allows_std_agg, allows_window)

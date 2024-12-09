@@ -26,7 +26,7 @@ def udf(
     substitute_fn: Optional[Callable] = None,
     is_method: bool = False,
     is_property: bool = False,
-    type_substitutions: Optional[Sequence[dict[type, type]]] = None,
+    type_substitutions: Optional[Sequence[dict]] = None,
     _force_stored: bool = False
 ) -> Callable[[Callable], Function]: ...
 
@@ -82,7 +82,7 @@ def make_function(
     substitute_fn: Optional[Callable] = None,
     is_method: bool = False,
     is_property: bool = False,
-    type_substitutions: Optional[Sequence[dict[type, type]]] = None,
+    type_substitutions: Optional[Sequence[dict]] = None,
     function_name: Optional[str] = None,
     force_stored: bool = False
 ) -> Function:
