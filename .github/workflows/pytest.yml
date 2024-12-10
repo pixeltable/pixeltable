@@ -105,9 +105,11 @@ jobs:
       - name: Create user runtime dir
         if: ${{ matrix.os == 'ubuntu-arm64' || matrix.os == 'ubuntu-x64-t4' }}
         # pgserver needs this dir, and it doesn't seem to exist on ubuntu-arm64 or t4 instances for some reason.
+        # We also set permissions for both /run/user/1000 and /run/user/1001, which are sometimes privileged by
+        # default on these instances.
         run: |
           sudo mkdir -p /run/user/1001
-          sudo chmod a+rwx /run/user/1001
+          sudo chmod a+rwx /run/user/100?
       - name: Install conda
         uses: conda-incubator/setup-miniconda@v3
         with:
