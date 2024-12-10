@@ -38,7 +38,7 @@ sequenceDiagram
 
 ### Prerequisites
 
-- (Node.js)[https://nodejs.org/en]
+- [Node.js](https://nodejs.org/en)
 - Python 3.8+
 - OpenAI API Key
 
