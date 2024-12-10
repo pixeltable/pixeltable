@@ -1535,23 +1535,18 @@ class TestTable:
         assert len(res) == 4
         assert res['col_0'] == [False, True, True, True]
 
+        # test adding a bool column with a computed value
+        t1.add_column(bool_computed=t1.c1 > 1)
+        res = t1.collect()
+        assert res['bool_computed'] == [False, True, True, True]
+
         # sanity test persistence
         _ = reload_tester.run_query(t1.select())
         _ = reload_tester.run_query(t2.select())
         _ = reload_tester.run_query(v.select())
-
-        # ... restart python session ...
-        _ = reload_tester.run_reload_test(clear=True)
-
-        t1 = pxt.get_table('test1')
-        t2 = pxt.get_table('test2')
-        v = pxt.get_table('test_view')
-        assert t2.count() == 4
-        assert v.count() == 4
-        res = v.collect()
-        assert res['bool_const'] == [True, True, True, True]
-        res = v.select(v.bool_const & (v.c1 > 1)).collect()
-        assert res['col_0'] == [False, True, True, True]
+        _ = reload_tester.run_query(v.select((v.c1 > 1) & v.bool_const))
+        _ = reload_tester.run_query(v.select(v.bool_const & (v.c1 > 1)))
+        _ = reload_tester.run_reload_test()
 
         t3 = pxt.create_table('test3', {'c1': pxt.Int, 'c2': pxt.Bool})
         t3.insert([{'c1': 1, 'c2': True}, {'c1': 2, 'c2': False}])
@@ -1589,11 +1584,6 @@ class TestTable:
         with pytest.raises(excs.Error) as exc_info:
             t3.insert(c1=4.5)
         assert 'error in column c1: expected int, got float' in str(exc_info.value).lower()
-
-        pxt.drop_table(t1)
-        pxt.drop_table(v)
-        pxt.drop_table(t2)
-        pxt.drop_table(t3)
 
     def test_add_column_setitem(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
