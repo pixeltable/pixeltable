@@ -498,11 +498,11 @@ class FunctionCall(Expr):
         # on fn._bind_to_matching_signature to find an appropriate signature.
 
         args = [
-            expr if idx is None or idx == -1 else components[idx]
+            expr if idx is None else components[idx]
             for idx, expr in d['args']
         ]
         kwargs = {
-            param_name: (expr if idx is None or idx == -1 else components[idx])
+            param_name: (expr if idx is None else components[idx])
             for param_name, (idx, expr) in d['kwargs'].items()
         }
         signature_idx = cls.__find_matching_signature(fn, args, kwargs)

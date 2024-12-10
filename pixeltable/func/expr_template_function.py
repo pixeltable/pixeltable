@@ -119,6 +119,5 @@ class ExprTemplateFunction(Function):
     def _from_dict(cls, d: dict) -> Function:
         if 'templates' not in d:
             return super()._from_dict(d)
-        assert 'templates' in d
         templates = [Template.from_dict(t) for t in d['templates']]
         return cls(templates, name=d['name'])
