@@ -15,6 +15,7 @@ import pixeltable.type_system as ts
 from .data_row import DataRow
 from .expr import Expr
 from .inline_expr import InlineDict, InlineList
+from .literal import Literal
 from .row_builder import RowBuilder
 from .rowid_ref import RowidRef
 from .sql_element_cache import SqlElementCache
@@ -468,7 +469,6 @@ class FunctionCall(Expr):
             'fn': self.fn.as_dict(),
             'args': self.args,
             'kwargs': self.kwargs,
-            'signature': self.signature_idx,
             'return_type': self.return_type.as_dict(),
             'group_by_start_idx': self.group_by_start_idx,
             'group_by_stop_idx': self.group_by_stop_idx,
@@ -482,18 +482,66 @@ class FunctionCall(Expr):
         assert 'fn' in d
         assert 'args' in d
         assert 'kwargs' in d
-        # reassemble bound args
+
         fn = func.Function.from_dict(d['fn'])
-        signature_idx = d['signature']  # TODO infer signature on reload
-        signature = fn.signatures[signature_idx]
-        return_type = ts.ColumnType.from_dict(d['return_type'])
-        param_names = list(signature.parameters.keys())
-        bound_args = {param_names[i]: arg if idx is None else components[idx] for i, (idx, arg) in enumerate(d['args'])}
-        bound_args.update(
-            {param_name: val if idx is None else components[idx] for param_name, (idx, val) in d['kwargs'].items()})
-        # signature_idx, bound_args = fn._bind_to_matching_signature(d['args'], d['kwargs'])
+        return_type = ts.ColumnType.from_dict(d['return_type']) if 'return_type' in d else None
         group_by_exprs = components[d['group_by_start_idx']:d['group_by_stop_idx']]
         order_by_exprs = components[d['order_by_start_idx']:]
+
+        # Try to find a function signature that matches the types of the args and kwargs in the dict. We do it this
+        # way, rather than simply serializing signature_idx, in order to ensure we do the right thing after a
+        # backward-compatible change to the UDF signature (for example, re-ordering the @fn.overload declarations,
+        # widening the type of a parameter, or introducing a new optional parameter).
+
+        # Note that args and kwargs represent "already bound arguments": they are not bindable in the Python sense,
+        # because variable args (such as *args and **kwargs) have already been condensed. Therefore we cannot rely
+        # on fn._bind_to_matching_signature to find an appropriate signature.
+
+        args = [expr if idx is None else components[idx] for idx, expr in d['args']]
+        kwargs = {
+            param_name: (expr if idx is None else components[idx])
+            for param_name, (idx, expr) in d['kwargs'].items()
+        }
+        signature_idx = cls.__find_matching_signature(fn, args, kwargs)
+        if signature_idx is None:
+            # No signature matches; this means there has been a backward-incompatible code change to the UDF.
+            # TODO: Handle this more gracefully (instead of failing the DB load, allow the DB load to succeed, but
+            #       mark this FunctionCall as unusable). It's the same issue as dealing with a renamed UDF.
+            raise excs.Error(f'UDF call arguments no longer match UDF signature (code has changed?): {fn}')
+
+        # Reassemble bound_args
+        param_names = list(fn.signatures[signature_idx].parameters.keys())
+        bound_args = {param_names[i]: arg for i, arg in enumerate(args)}
+        bound_args.update(kwargs.items())
+
+        # TODO: In order to properly invoke call_return_type, we need to ensure that any InlineLists or InlineDicts
+        # in bound_args are unpacked into Python lists/dicts. There is an open task to ensure this is true in general;
+        # for now, as a hack, we do the unpacking here for the specific case of an InlineList of Literals (the only
+        # case where this is necessary to support existing conditional_return_type implementations). Once the general
+        # pattern is implemented, we can remove this hack.
+        unpacked_bound_args = {
+            param_name: cls.__unpack_bound_arg(arg) for param_name, arg in bound_args.items()
+        }
+
+        # Evaluate the call_return_type as defined in the current codebase.
+        call_return_type = fn.call_return_type(signature_idx, [], unpacked_bound_args)
+
+        if return_type is None:
+            # Schema versions prior to 24 did not store the return_type in metadata, and there is no obvious way to
+            # infer it during DB migration, so we might encounter a stored return_type of None. In that case, we use
+            # the call_return_type that we just inferred (which matches the deserialization behavior prior to
+            # version 24).
+            return_type = call_return_type
+        else:
+            # There is a return_type stored in metadata (schema version >= 24).
+            # Check that the stored return_type of the UDF call matches the column type of the FunctionCall, and
+            # fail-fast if it doesn't (otherwise we risk getting downstream database errors).
+            if not return_type.is_supertype_of(call_return_type, ignore_nullable=True):
+                raise excs.Error(
+                    f'UDF call return type `{fn.signatures[signature_idx].return_type}` no longer matches '
+                    f'column type `{return_type}` (code has changed?): {fn}'
+                )
+
         fn_call = cls(
             fn,
             signature_idx,
@@ -503,3 +551,41 @@ class FunctionCall(Expr):
             order_by_clause=order_by_exprs
         )
         return fn_call
+
+    @classmethod
+    def __find_matching_signature(cls, fn: func.Function, args: list[Any], kwargs: dict[str, Any]) -> Optional[int]:
+        for idx, sig in enumerate(fn.signatures):
+            if cls.__signature_matches(sig, args, kwargs):
+                return idx
+        return None
+
+    @classmethod
+    def __signature_matches(cls, sig: func.Signature, args: list[Any], kwargs: dict[str, Any]) -> bool:
+        unbound_parameters = set(sig.parameters.keys())
+        for i, arg in enumerate(args):
+            if i >= len(sig.parameters_by_pos):
+                return False
+            param = sig.parameters_by_pos[i]
+            arg_type = arg.col_type if isinstance(arg, Expr) else ts.ColumnType.infer_literal_type(arg)
+            if param.col_type is not None and not param.col_type.is_supertype_of(arg_type, ignore_nullable=True):
+                return False
+            unbound_parameters.remove(param.name)
+        for param_name, arg in kwargs.items():
+            if param_name not in unbound_parameters:
+                return False
+            param = sig.parameters[param_name]
+            arg_type = arg.col_type if isinstance(arg, Expr) else ts.ColumnType.infer_literal_type(arg)
+            if param.col_type is not None and not param.col_type.is_supertype_of(arg_type, ignore_nullable=True):
+                return False
+            unbound_parameters.remove(param_name)
+        for param_name in unbound_parameters:
+            param = sig.parameters[param_name]
+            if not param.has_default:
+                return False
+        return True
+
+    @classmethod
+    def __unpack_bound_arg(cls, arg: Any) -> Any:
+        if isinstance(arg, InlineList) and all(isinstance(el, Literal) for el in arg.components):
+            return [el.val for el in arg.components]
+        return arg
