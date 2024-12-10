@@ -38,7 +38,7 @@ sequenceDiagram
 
 ### Prerequisites
 
-- Node.js
+- (Node.js)[https://nodejs.org/en]
 - Python 3.8+
 - OpenAI API Key
 
@@ -47,8 +47,8 @@ sequenceDiagram
 1. **Clone the repository:**
 
 ```bash
-git clone https://github.com/yourusername/pixelchat.git
-cd pixelchat
+git clone https://github.com/pixeltable/pixeltable/tree/main/docs/sample-apps/local_multimodal_rag_application.git
+cd local_multimodal_rag_application
 ```
 
 2. **Install frontend dependencies:**
@@ -62,12 +62,28 @@ npm install
 
 ```bash
 cd ../backend
+
+# Using pip and requirements.txt
 pip install -r requirements.txt
+
+# Alternatively, using Poetry
+poetry install
+
+# Or, you can set up and activate a virtual environment, then install dependencies
+# Using venv
+python -m venv venv
+source venv/bin/activate  # On Windows use: venv\Scripts\activate
+pip install -r requirements.txt
+
+# Using Pipenv
+pip install pipenv
+pipenv install
+pipenv shell
 ```
 
 4. **Set up environment variables:**
 
-Create a .env file in the backend directory with your OpenAI API key:
+Update the .env file in the backend directory with your OpenAI API key:
 
 ```bash
 OPENAI_API_KEY=your_openai_api_key
