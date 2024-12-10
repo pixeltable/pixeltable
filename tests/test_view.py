@@ -200,6 +200,11 @@ class TestView:
                 and 'is not a View' in str(exc_info.value))
             assert 'not_view' in pxt.list_tables(), f"with if_exists={_ie}"
 
+        # sanity check persistence
+        _ = reload_tester.run_query(t.select())
+        _ = reload_tester.run_query(v3.select())
+        reload_tester.run_reload_test()
+
     def test_from_dataframe(self, reset_db) -> None:
         t = self.create_tbl()
 

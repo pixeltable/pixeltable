@@ -38,6 +38,65 @@ class IfExistsParam(Enum):
         except KeyError:
             raise excs.Error(f'{error_prefix} must be one of: {[e.value for e in cls]}')
 
+class CreateTableType(Enum):
+    TABLE = 'table'
+    VIEW = 'view'
+    SNAPSHOT = 'snapshot'
+
+def _handle_existing_table(path_str: str, caller_context: CreateTableType, if_exists: IfExistsParam) -> Optional[catalog.SchemaObject]:
+    """Handle existing table, view, or snapshot, during create call as per user directive.
+
+    Args:
+        path_str: And existing and valid path to the table, view, or snapshot.
+        caller_context: Whether the caller of this function is creating a table or view or snapshot at the existing path.
+        if_exists: Directive regarding how to handle the existing path.
+            Must be one of the following:
+            - `'error'`: raise an error
+            - `'ignore'`: do nothing and return the existing table/view/snapshot handle
+            - `'replace'`: if the existing table/view/snapshot has no dependents, drop it
+            - `'replace_force'`: drop the existing table/view/snapshot and all its dependents
+
+    Returns:
+        The existing table, view, or snapshot if `if_exists='ignore'`, otherwise `None`.
+
+    Raises:
+        Error: If the existing path is not of the expected type, or if the existing path has dependents and
+            `if_exists='replace'` or `if_exists='replace_force'`.
+    """
+    cat = Catalog.get()
+    path = catalog.Path(path_str)
+    assert cat.paths.check_if_exists(path) is not None
+
+    if if_exists == IfExistsParam.ERROR:
+        raise excs.Error(f'Path `{path_str}` already exists.')
+
+    existing_path = cat.paths[path]
+    expected_obj_type = catalog.Table if caller_context == CreateTableType.TABLE else catalog.View
+    obj_type_str = 'Snapshot' if caller_context == CreateTableType.SNAPSHOT else 'View' if caller_context == CreateTableType.VIEW else 'Table'
+    existing_path_is_snapshot = expected_obj_type == catalog.View and existing_path.get_metadata()['is_snapshot']
+    # Check if the existing path is of expected type of table.
+    if (not isinstance(existing_path, expected_obj_type)
+        or (caller_context == CreateTableType.SNAPSHOT and not existing_path_is_snapshot)):
+            raise excs.Error(f'Path `{path_str}` already exists but is not a {obj_type_str}. Cannot {if_exists} it.')
+
+    # if_exists='ignore' return the handle to the existing object.
+    assert isinstance(existing_path, expected_obj_type)
+    if if_exists == IfExistsParam.IGNORE:
+        return existing_path
+
+    # Check if the existing object has dependents. If so, cannot replace it
+    # unless if_exists='replace_force'.
+    has_dependents = len(cat.tbl_dependents[existing_path._id]) > 0
+    if if_exists == IfExistsParam.REPLACE and has_dependents:
+        raise excs.Error(f'Path `{path_str}` already exists and has dependents. Use if_exists="replace_force" to replace it.')
+    else:
+        assert if_exists == IfExistsParam.REPLACE_FORCE or not has_dependents
+        # Drop the existing table so it can be replaced.
+        # Any error from drop_table will not be ignored.
+        _logger.info(f"Dropping and recreating {obj_type_str} `{path_str}`.")
+        drop_table(path_str, force=True, ignore_errors=False)
+
+    return None
 
 def create_table(
     path_str: str,
@@ -103,24 +162,10 @@ def create_table(
 
     if cat.paths.check_if_exists(path) is not None:
         # The table already exists. Handle it as per user directive.
-        if if_exists == IfExistsParam.ERROR:
-            raise excs.Error(f'Path `{path_str}` already exists.')
-        existing_table = cat.paths[path]
-        if not isinstance(existing_table, catalog.Table):
-            raise excs.Error(f'Path `{path_str}` already exists but is not a Table. Cannot {if_exists} it.')
-
-        if if_exists == IfExistsParam.IGNORE:
+        existing_table = _handle_existing_table(path_str, CreateTableType.TABLE, if_exists)
+        if existing_table is not None:
+            assert isinstance(existing_table, catalog.Table)
             return existing_table
-
-        has_dependents = len(cat.tbl_dependents[existing_table._id]) > 0
-        if if_exists == IfExistsParam.REPLACE and has_dependents:
-            raise excs.Error(f'Table `{path_str}` already exists and has dependents. Use if_exists="replace_force" to replace it.')
-        else:
-            assert if_exists == IfExistsParam.REPLACE_FORCE or not has_dependents
-            # Drop the existing table so it can be replaced.
-            # Any error from drop_table will not be ignored.
-            _logger.info(f'Dropping and recreating table `{path_str}`.')
-            drop_table(path_str, force=True, ignore_errors=False)
 
     dir = cat.paths[path.parent]
 
@@ -183,6 +228,9 @@ def create_view(
             the base table.
         num_retained_versions: Number of versions of the view to retain.
         comment: Optional comment for the view.
+        media_validation: Media validation policy for the view.
+            - `'on_read'`: validate media files at query time
+            - `'on_write'`: validate media files during insert/update operations
         if_exists: Directive regarding how to handle if the path already exists.
             Must be one of the following:
             - `'error'`: raise an error
@@ -237,24 +285,11 @@ def create_view(
 
     if cat.paths.check_if_exists(path) is not None:
         # The view already exists. Handle it as per user directive.
-        if if_exists == IfExistsParam.ERROR:
-            raise excs.Error(f'Path `{path_str}` already exists.')
-        existing_view = cat.paths[path]
-        if not isinstance(existing_view, catalog.View):
-            raise excs.Error(f'Path `{path_str}` already exists but is not a View. Cannot {if_exists} it.')
-
-        if if_exists == IfExistsParam.IGNORE:
-            return existing_view
-
-        has_dependents = len(cat.tbl_dependents[existing_view._id]) > 0
-        if if_exists == IfExistsParam.REPLACE and has_dependents:
-            raise excs.Error(f'View `{path_str}` already exists and has dependents. Use if_exists="replace_force" to replace it.')
-        else:
-            assert if_exists == IfExistsParam.REPLACE_FORCE or not has_dependents
-            # Drop the existing table so it can be replaced.
-            # Any error from drop_table will not be ignored.
-            _logger.info(f'Dropping and recreating view `{path_str}`.')
-            drop_table(path_str, force=True, ignore_errors=False)
+        curr_context = CreateTableType.SNAPSHOT if is_snapshot else CreateTableType.VIEW
+        existing_path = _handle_existing_table(path_str, curr_context, if_exists)
+        if existing_path is not None:
+            assert isinstance(existing_path, catalog.View)
+            return existing_path
 
     dir = Catalog.get().paths[path.parent]
 
@@ -285,6 +320,7 @@ def create_snapshot(
     num_retained_versions: int = 10,
     comment: str = '',
     media_validation: Literal['on_read', 'on_write'] = 'on_write',
+    if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
 ) -> Optional[catalog.Table]:
     """Create a snapshot of an existing table object (which itself can be a view or a snapshot or a base table).
 
@@ -299,7 +335,17 @@ def create_snapshot(
         iterator: The iterator to use for this snapshot. If specified, then this snapshot will be a one-to-many view of
             the base table.
         num_retained_versions: Number of versions of the view to retain.
-        comment: Optional comment for the view.
+        comment: Optional comment for the snapshot.
+        media_validation: Media validation policy for the snapshot.
+            - `'on_read'`: validate media files at query time
+            - `'on_write'`: validate media files during insert/update operations
+        if_exists: Directive regarding how to handle if the path already exists.
+            Must be one of the following:
+            - `'error'`: raise an error
+            - `'ignore'`: do nothing and return the existing snapshot handle
+            - `'replace'`: if the existing snapshot has no dependents, drop and replace it with a new one
+            - `'replace_force'`: drop the existing snapshot and all its dependents, and create a new one
+            Default is `'error'`.
 
     Returns:
         A handle to the [`Table`][pixeltable.Table] representing the newly created snapshot.
@@ -308,10 +354,21 @@ def create_snapshot(
         Error: if the path already exists or is invalid.
 
     Examples:
-        Create a snapshot of `my_table`:
+        Create a snapshot on a table `my_table`:
 
         >>> tbl = pxt.get_table('my_table')
         ... snapshot = pxt.create_snapshot('my_snapshot', tbl)
+
+        Create a snapshot on view `my_view` with additional int column `col3`,
+        if it does not already exist:
+
+        >>> view = pxt.get_table('my_view')
+        ... snapshot = pxt.create_snapshot('my_snapshot', view, additional_columns={'col3': pxt.Int}, if_exists='ignore')
+
+        Create a snapshot on a table `my_table`, and replace if `my_snapshot` already exists:
+
+        >>> tbl = pxt.get_table('my_table')
+        ... snapshot = pxt.create_snapshot('my_snapshot', tbl, if_exists='replace_force')
     """
     return create_view(
         path_str,
@@ -322,6 +379,7 @@ def create_snapshot(
         num_retained_versions=num_retained_versions,
         comment=comment,
         media_validation=media_validation,
+        if_exists=if_exists,
     )
 
 
