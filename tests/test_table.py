@@ -1676,12 +1676,14 @@ class TestTable:
         # test case: add computed column on a view that refers to a base table column
         v = pxt.create_view('test_view', t)
         v.add_computed_column(add4=v.c2 + 10)
+        v.add_computed_column(add5=t.c2 + 10)
         _ = v.show()
 
         # sanity check persistence
-        #  TODO: debug and fix. t.select commented out because some columns are not reloading.
+        #  TODO: debug and fix. PXT-372 tracks this.
+        # t.select commented out because some columns (add2, add3) do not reload successfully.
         #_ = reload_tester.run_query(t.select())
-        _ = reload_tester.run_query(v.select(v.add4))
+        _ = reload_tester.run_query(v.select(v.add4, v.add5))
 
         _ = reload_tester.run_reload_test()
 

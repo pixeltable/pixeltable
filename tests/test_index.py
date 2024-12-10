@@ -303,7 +303,7 @@ class TestIndex:
         # and
         # _ = reload_tester.run_query(df)
         #
-        # But found a bug, instead.
+        # But found a bug, instead. PXT-371 tracks this.
         # RCA: The indexes above are on the view, not the base table.
         # Since they are on a column of the base table, the code
         # initializing the SimilarityExpr is looking for the index in
