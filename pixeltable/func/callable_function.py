@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import inspect
-from typing import Any, Callable, Iterable, Optional, Sequence
+from typing import Any, Callable, Optional, Sequence
 from uuid import UUID
 
 import cloudpickle  # type: ignore[import-untyped]
+
+import pixeltable.exceptions as excs
 
 from .function import Function
 from .signature import Signature
@@ -28,7 +30,10 @@ class CallableFunction(Function):
         is_method: bool = False,
         is_property: bool = False
     ):
-        assert len(py_fns) > 0
+        assert len(signatures) > 0
+        assert len(signatures) == len(py_fns)
+        if self_path is None and len(signatures) > 1:
+            raise excs.Error('Multiple signatures are only allowed for module UDFs (not locally defined UDFs)')
         self.py_fns = py_fns
         self.self_name = self_name
         self.batch_size = batch_size
@@ -83,6 +88,8 @@ class CallableFunction(Function):
         return self.self_name
 
     def overload(self, fn: Callable) -> CallableFunction:
+        if self.self_path is None:
+            raise excs.Error('@overload can only be used with module UDFs (not locally defined UDFs)')
         sig = Signature.create(fn)
         self.signatures.append(sig)
         self.py_fns.append(fn)
@@ -110,20 +117,20 @@ class CallableFunction(Function):
         return super()._from_dict(d)
 
     def to_store(self) -> tuple[dict, bytes]:
+        assert len(self.signatures) == 1  # multi-signature UDFs not allowed for stored fns
         md = {
-            'signatures': [signature.as_dict() for signature in self.signatures],
+            'signature': self.signatures[0].to_dict(),
             'batch_size': self.batch_size,
         }
-        return md, cloudpickle.dumps(self.py_fns)
+        return md, cloudpickle.dumps(self.py_fns[0])
 
     @classmethod
     def from_store(cls, name: Optional[str], md: dict, binary_obj: bytes) -> Function:
-        py_fns = cloudpickle.loads(binary_obj)
-        assert isinstance(py_fns, list)
-        assert all(callable(fn) for fn in py_fns)
-        sigs = [Signature.from_dict(sig_md) for sig_md in md['signatures']]
+        py_fn = cloudpickle.loads(binary_obj)
+        assert callable(py_fn)
+        sig = Signature.from_dict(md['signature'])
         batch_size = md['batch_size']
-        return CallableFunction(sigs, py_fns, self_name=name, batch_size=batch_size)
+        return CallableFunction([sig], [py_fn], self_name=name, batch_size=batch_size)
 
     def validate_call(self, signature_idx: int, bound_args: dict[str, Any]) -> None:
         from pixeltable import exprs
