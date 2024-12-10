@@ -497,9 +497,12 @@ class FunctionCall(Expr):
         # because variable args (such as *args and **kwargs) have already been condensed. Therefore we cannot rely
         # on fn._bind_to_matching_signature to find an appropriate signature.
 
-        args = [expr if idx is None else components[idx] for idx, expr in d['args']]
+        args = [
+            expr if idx is None or idx == -1 else components[idx]
+            for idx, expr in d['args']
+        ]
         kwargs = {
-            param_name: (expr if idx is None else components[idx])
+            param_name: (expr if idx is None or idx == -1 else components[idx])
             for param_name, (idx, expr) in d['kwargs'].items()
         }
         signature_idx = cls.__find_matching_signature(fn, args, kwargs)
@@ -538,7 +541,7 @@ class FunctionCall(Expr):
             # fail-fast if it doesn't (otherwise we risk getting downstream database errors).
             if not return_type.is_supertype_of(call_return_type, ignore_nullable=True):
                 raise excs.Error(
-                    f'UDF call return type `{fn.signatures[signature_idx].return_type}` no longer matches '
+                    f'UDF call return type `{call_return_type}` no longer matches '
                     f'column type `{return_type}` (code has changed?): {fn}'
                 )
 

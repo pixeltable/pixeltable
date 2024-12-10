@@ -119,7 +119,7 @@ class CallableFunction(Function):
     def to_store(self) -> tuple[dict, bytes]:
         assert len(self.signatures) == 1  # multi-signature UDFs not allowed for stored fns
         md = {
-            'signature': self.signatures[0].to_dict(),
+            'signature': self.signatures[0].as_dict(),
             'batch_size': self.batch_size,
         }
         return md, cloudpickle.dumps(self.py_fns[0])
