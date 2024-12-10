@@ -106,11 +106,8 @@ def create_table(
         if if_exists == IfExistsParam.ERROR:
             raise excs.Error(f'Path `{path_str}` already exists.')
         existing_table = cat.paths[path]
-        is_table = isinstance(existing_table, catalog.Table)
-        if not is_table:
+        if not isinstance(existing_table, catalog.Table):
             raise excs.Error(f'Path `{path_str}` already exists but is not a Table. Cannot {if_exists} it.')
-
-        assert is_table
 
         if if_exists == IfExistsParam.IGNORE:
             return existing_table
@@ -119,7 +116,7 @@ def create_table(
         if if_exists == IfExistsParam.REPLACE and has_dependents:
             raise excs.Error(f'Table `{path_str}` already exists and has dependents. Use if_exists="replace_force" to replace it.')
         else:
-            assert if_exists == IfExistsParam.REPLACE_FORCE or (is_table and not has_dependents)
+            assert if_exists == IfExistsParam.REPLACE_FORCE or not has_dependents
             # Drop the existing table so it can be replaced.
             # Any error from drop_table will not be ignored.
             _logger.info(f'Dropping and recreating table `{path_str}`.')
@@ -512,11 +509,9 @@ def create_dir(path_str: str, if_exists: Literal['error', 'ignore', 'replace', '
         if if_exists == IfExistsParam.ERROR:
             raise excs.Error(f'Path `{path_str}` already exists.')
         existing_dir = cat.paths[path]
-        is_dir = isinstance(existing_dir, catalog.Dir)
-        if not is_dir:
+        if not isinstance(existing_dir, catalog.Dir):
             raise excs.Error(f'Path `{path_str}` already exists but is not a Dir. Cannot {if_exists} it.')
 
-        assert is_dir
         if if_exists == IfExistsParam.IGNORE:
             return existing_dir
 
@@ -524,7 +519,7 @@ def create_dir(path_str: str, if_exists: Literal['error', 'ignore', 'replace', '
         if if_exists == IfExistsParam.REPLACE and has_children:
             raise excs.Error(f'Directory `{path_str}` already exists and is not empty. Use if_exists="replace_force" to replace it.')
         else:
-            assert if_exists == IfExistsParam.REPLACE_FORCE or (is_dir and not has_children)
+            assert if_exists == IfExistsParam.REPLACE_FORCE or not has_children
             # Drop the existing directory so it can be replaced.
             # Any error from drop_dir will not be ignored.
             _logger.info(f'Dropping and recreating directory `{path_str}`.')
