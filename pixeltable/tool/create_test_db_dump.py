@@ -5,6 +5,7 @@ import os
 import pathlib
 import subprocess
 import sys
+import time
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -65,6 +66,9 @@ class Dumper:
                 stdout=dump,
                 check=True
             )
+            if pg_dump_process.poll() != 0:
+                # wait for a 2s before checking again & raising error
+                time.sleep(2)
             if pg_dump_process.poll() != 0:
                 raise RuntimeError(f'pg_dump failed with return code {pg_dump_process.returncode}')
         info_file = self.output_dir / f'pixeltable-v{md_version:03d}-test-info.toml'
@@ -274,6 +278,13 @@ class Dumper:
             f'{col_prefix}_function_call',
             string_embed=pxt.functions.huggingface.clip_text.using(model_id='openai/clip-vit-base-patch32')
         )
+
+        if t.get_metadata()['is_view']:
+            # Add an embedding index to the view that is on a column in the base table
+            t.add_embedding_index(
+                'base_table_function_call',
+                string_embed=pxt.functions.huggingface.clip_text.using(model_id='openai/clip-vit-base-patch32')
+            )
 
         # query()
         @t.query

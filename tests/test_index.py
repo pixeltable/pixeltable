@@ -12,7 +12,7 @@ import pixeltable as pxt
 from pixeltable.functions.huggingface import clip_image, clip_text
 
 from .utils import (assert_img_eq, clip_img_embed, clip_text_embed, e5_embed, reload_catalog,
-                    skip_test_if_not_installed, validate_update_status, ReloadTester)
+                    skip_test_if_not_installed, validate_update_status, ReloadTester, get_sentences, assert_resultset_eq)
 
 
 class TestIndex:
@@ -149,7 +149,7 @@ class TestIndex:
             _ = t.order_by(t.split.similarity(sample_img)).limit(1).collect()
         assert "was created without the 'image_embed' parameter" in str(exc_info.value).lower()
 
-    def test_embedding_basic(self, img_tbl: pxt.Table, test_tbl: pxt.Table) -> None:
+    def test_embedding_basic(self, img_tbl: pxt.Table, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
         skip_test_if_not_installed('transformers')
         img_t = img_tbl
         rows = list(img_t.select(img=img_t.img.fileurl, category=img_t.category, split=img_t.split).collect())
@@ -209,7 +209,9 @@ class TestIndex:
         img_t.revert()
 
         # make sure we can still do DML after reloading the metadata
-        reload_catalog()
+        df = img_t.select()
+        _ = reload_tester.run_query(df)
+        _ = reload_tester.run_reload_test(clear=True)
         img_t = pxt.get_table(tbl_name)
         status = img_t.insert(rows)
         assert status.num_excs == 0
@@ -273,6 +275,47 @@ class TestIndex:
         with pytest.raises(pxt.Error) as exc_info:
             img_t.drop_embedding_index(idx_name='idx0')
         assert 'does not exist' in str(exc_info.value).lower()
+
+        _ = reload_tester.run_query(img_t.select())
+
+        # test that a table with an embedding index can be reloaded
+        t = pxt.create_table('t1', {'s': pxt.String})
+        sents = get_sentences(3)
+        status = t.insert({'s': s} for s in sents)
+        t.add_embedding_index('s', string_embed=pxt.functions.huggingface.sentence_transformer.using(model_id='all-mpnet-base-v2'))
+        df = t.select(sim=t.s.similarity(sents[1]))
+        res1 = df.collect()
+        _ = reload_tester.run_query(t.select())
+        _ = reload_tester.run_query(df)
+
+        # test that a view with an embedding index on a base table column can be reloaded
+        t = pxt.create_table('t2', {'s': pxt.String})
+        status = t.insert({'s': s} for s in sents)
+        v = pxt.create_view('v', t)
+        v.add_embedding_index('s', string_embed=pxt.functions.huggingface.sentence_transformer.using(model_id='all-mpnet-base-v2'))
+        # should work irrespective of whether the column is passed by name or reference
+        v.add_embedding_index(v.s, string_embed=pxt.functions.huggingface.sentence_transformer.using(model_id='all-mpnet-base-v2'))
+        v.add_embedding_index(t.s, string_embed=pxt.functions.huggingface.sentence_transformer.using(model_id='all-mpnet-base-v2'))
+        # Expected to verify the following:
+        # df = v.select(sim=v.s.similarity(sents[1]))
+        # res2 = df.collect()
+        # assert_resultset_eq(res1, res2)
+        # and
+        # _ = reload_tester.run_query(df)
+        #
+        # But found a bug, instead. PXT-371 tracks this.
+        # RCA: The indexes above are on the view, not the base table.
+        # Since they are on a column of the base table, the code
+        # initializing the SimilarityExpr is looking for the index in
+        # the table in the ColumnRef, which is the base table.
+        # So it raises error that there's no index.
+        # Fix needs discussion.
+        with pytest.raises(pxt.Error) as exc_info:
+            df = v.select(sim=v.s.similarity(sents[1]))
+        assert 'no index found for column' in str(exc_info.value).lower()
+        _ = reload_tester.run_query(v.select())
+
+        _ = reload_tester.run_reload_test()
 
     def test_embedding_errors(self, small_img_tbl: pxt.Table, test_tbl: pxt.Table) -> None:
         skip_test_if_not_installed('transformers')

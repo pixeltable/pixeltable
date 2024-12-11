@@ -6,7 +6,7 @@ import pytest
 import pixeltable as pxt
 
 from ..utils import (SAMPLE_IMAGE_URL, get_audio_files, get_image_files, get_sentences, reload_catalog, skip_test_if_not_installed,
-                     validate_update_status)
+                     validate_update_status, ReloadTester)
 
 
 class TestHuggingface:
@@ -35,7 +35,7 @@ class TestHuggingface:
         t.describe()
 
     @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Not supported on Linux ARM')
-    def test_sentence_transformer(self, reset_db) -> None:
+    def test_sentence_transformer(self, reset_db, reload_tester: ReloadTester) -> None:
         skip_test_if_not_installed('sentence_transformers')
         t = pxt.create_table('test_tbl', {'input': pxt.String, 'input_list': pxt.Json})
         sents = get_sentences(10)
@@ -65,7 +65,9 @@ class TestHuggingface:
         verify_row(t.tail(1)[0])
 
         # execution still works after reload
-        reload_catalog()
+        _ = reload_tester.run_query(t.select())
+        _ = reload_tester.run_reload_test()
+
         t = pxt.get_table('test_tbl')
         status = t.insert({'input': s, 'input_list': sents} for s in sents)
         assert status.num_rows == len(sents)

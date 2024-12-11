@@ -22,7 +22,7 @@ from pixeltable.utils.media_store import MediaStore
 
 from .utils import (assert_resultset_eq, create_table_data, get_audio_files, get_documents, get_image_files,
                     get_video_files, make_tbl, read_data_file, reload_catalog, skip_test_if_not_installed, strip_lines,
-                    validate_update_status, get_multimedia_commons_video_uris)
+                    validate_update_status, get_multimedia_commons_video_uris, ReloadTester)
 
 
 class TestTable:
@@ -1651,7 +1651,7 @@ class TestTable:
         t = pxt.get_table(t._name)
         check_rename(t, 'c1', 'c1_renamed')
 
-    def test_add_computed_column(self, test_tbl: catalog.Table) -> None:
+    def test_add_computed_column(self, test_tbl: catalog.Table, reload_tester: ReloadTester) -> None:
         t = test_tbl
         status = t.add_column(add1=t.c2 + 10)
         assert status.num_excs == 0
@@ -1672,6 +1672,20 @@ class TestTable:
         assert status.num_excs == 10
         result = t.where(t.add3.errortype != None).select(t.c2, t.add3, t.add3.errortype, t.add3.errormsg).show()
         assert len(result) == 10
+
+        # test case: add computed column on a view that refers to a base table column
+        v = pxt.create_view('test_view', t)
+        v.add_computed_column(add4=v.c2 + 10)
+        v.add_computed_column(add5=t.c2 + 10)
+        _ = v.show()
+
+        # sanity check persistence
+        #  TODO: debug and fix. PXT-372 tracks this.
+        # t.select commented out because some columns (add2, add3) do not reload successfully.
+        #_ = reload_tester.run_query(t.select())
+        _ = reload_tester.run_query(v.select(v.add4, v.add5))
+
+        _ = reload_tester.run_reload_test()
 
     def test_computed_column_types(self, reset_db: None) -> None:
         t = pxt.create_table(
