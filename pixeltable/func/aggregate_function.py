@@ -68,6 +68,10 @@ class AggregateFunction(Function):
 
         super().__init__(signatures, self_path=self_path)
 
+    def _update_as_monomorphic(self, signature_idx: int) -> None:
+        self.agg_classes = [self.agg_classes[signature_idx]]
+        self.init_param_names = [self.init_param_names[signature_idx]]
+
     def __cls_to_signature(
         self, cls: type[Aggregator], type_substitutions: Optional[dict] = None
     ) -> tuple[Signature, list[str]]:
@@ -113,7 +117,7 @@ class AggregateFunction(Function):
 
         return Signature(value_type, params), init_param_names
 
-    def exec(self, signature_idx: int, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:
+    def exec(self, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:
         raise NotImplementedError
 
     def overload(self, cls: Callable) -> AggregateFunction:
@@ -165,23 +169,24 @@ class AggregateFunction(Function):
                     f'{self.display_name}(): group_by invalid with an aggregate function that does not allow windows')
             group_by_clause = kwargs.pop(self.GROUP_BY_PARAM)
 
-        signature_idx, bound_args = self._bind_to_matching_signature(args, kwargs)
-        return_type = self.call_return_type(signature_idx, args, kwargs)
+        mono_fn, bound_args = self._bind_to_matching_signature(args, kwargs)
+        return_type = mono_fn.call_return_type(args, kwargs)
         return exprs.FunctionCall(
-            self,
-            signature_idx,
+            mono_fn,
             bound_args,
             return_type,
             order_by_clause=[order_by_clause] if order_by_clause is not None else [],
             group_by_clause=[group_by_clause] if group_by_clause is not None else []
         )
 
-    def validate_call(self, signature_idx: int, bound_args: dict[str, Any]) -> None:
+    def validate_call(self, bound_args: dict[str, Any]) -> None:
         # check that init parameters are not Exprs
         # TODO: do this in the planner (check that init parameters are either constants or only refer to grouping exprs)
         from pixeltable import exprs
 
-        for param_name in self.init_param_names[signature_idx]:
+        assert self.is_monomorphic
+
+        for param_name in self.init_param_names[0]:
             if param_name in bound_args and isinstance(bound_args[param_name], exprs.Expr):
                 raise excs.Error(
                     f'{self.display_name}(): init() parameter {param_name} needs to be a constant, not a Pixeltable '

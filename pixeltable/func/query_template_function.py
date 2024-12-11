@@ -55,11 +55,14 @@ class QueryTemplateFunction(Function):
             literal_default = exprs.Literal(param.default, col_type=param_type)
             self.defaults[param.name] = literal_default
 
+    def _update_as_monomorphic(self, signature_idx: int) -> None:
+        pass  # only one signature supported for QueryTemplateFunction
+
     def set_conn(self, conn: Optional[sql.engine.Connection]) -> None:
         self.conn = conn
 
-    def exec(self, signature_idx: int, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:
-        assert signature_idx == 0
+    def exec(self, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:
+        assert self.is_monomorphic
         bound_args = self.signatures[0].py_signature.bind(*args, **kwargs).arguments
         # apply defaults, otherwise we might have Parameters left over
         bound_args.update(

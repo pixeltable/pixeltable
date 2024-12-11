@@ -61,11 +61,15 @@ class ExprTemplateFunction(Function):
 
         super().__init__([t.signature for t in templates], self_path=self_path)
 
-    def instantiate(self, signature_idx: int, args: Sequence[Any], kwargs: dict[str, Any]) -> 'pixeltable.exprs.Expr':
+    def _update_as_monomorphic(self, signature_idx: int) -> None:
+        self.templates = [self.templates[signature_idx]]
+
+    def instantiate(self, args: Sequence[Any], kwargs: dict[str, Any]) -> 'pixeltable.exprs.Expr':
         from pixeltable import exprs
 
-        template = self.templates[signature_idx]
-        signature = self.signatures[signature_idx]
+        assert self.is_monomorphic
+        template = self.templates[0]
+        signature = self.signatures[0]
         bound_args = signature.py_signature.bind(*args, **kwargs).arguments
         # apply defaults, otherwise we might have Parameters left over
         bound_args.update(
@@ -86,10 +90,11 @@ class ExprTemplateFunction(Function):
         assert not result._contains(exprs.Variable)
         return result
 
-    def exec(self, signature_idx: int, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:
+    def exec(self, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:
         from pixeltable import exec, exprs
 
-        expr = self.instantiate(signature_idx, args, kwargs)
+        assert self.is_monomorphic
+        expr = self.instantiate(args, kwargs)
         row_builder = exprs.RowBuilder(output_exprs=[expr], columns=[], input_exprs=[])
         row_batch = exec.DataRowBatch(tbl=None, row_builder=row_builder, len=1)
         row = row_batch[0]

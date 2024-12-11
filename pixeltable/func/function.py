@@ -3,6 +3,7 @@ from __future__ import annotations
 import abc
 import importlib
 import inspect
+from copy import copy
 from typing import TYPE_CHECKING, Any, Callable, Optional, Sequence
 
 import sqlalchemy as sql
@@ -30,6 +31,7 @@ class Function(abc.ABC):
     self_path: Optional[str]
     is_method: bool
     is_property: bool
+    __mono_fns: list[Function]  # Monomorphic (one-signature) specializations of this function
     _conditional_return_type: Optional[Callable[..., ts.ColumnType]]
 
     # Translates a call to this function with the given arguments to its SQLAlchemy equivalent.
@@ -47,12 +49,18 @@ class Function(abc.ABC):
         # Check that stored functions cannot be declared using `is_method` or `is_property`:
         assert not ((is_method or is_property) and self_path is None)
         assert isinstance(signatures, list)
+        assert len(signatures) > 0
         self.signatures = signatures
         self.self_path = self_path  # fully-qualified path to self
         self.is_method = is_method
         self.is_property = is_property
         self._conditional_return_type = None
         self._to_sql = self.__default_to_sql
+
+        self.__mono_fns = []
+
+    def _update_as_monomorphic(self, signature_idx: int) -> None:
+        raise NotImplementedError()
 
     @property
     def name(self) -> str:
@@ -69,8 +77,31 @@ class Function(abc.ABC):
         return self.self_path
 
     @property
+    def is_monomorphic(self) -> bool:
+        return len(self.signatures) == 1
+
+    @property
+    def signature(self) -> Signature:
+        assert self.is_monomorphic
+        return self.signatures[0]
+
+    @property
     def arity(self) -> int:
+        assert self.is_monomorphic
         return len(self.signatures[0].parameters)
+
+    def mono_fn(self, signature_idx: int) -> Function:
+        """Return a new  `Function` that retains just the single signature at index `signature_idx`, and is otherwise
+        identical to this `Function`.
+        """
+        assert 0 <= signature_idx < len(self.signatures)
+        while len(self.__mono_fns) <= signature_idx:
+            idx = len(self.__mono_fns)
+            mono_fn = copy(self)
+            mono_fn.signatures = [self.signatures[idx]]
+            mono_fn._update_as_monomorphic(idx)
+            self.__mono_fns.append(mono_fn)
+        return self.__mono_fns[signature_idx]
 
     def help_str(self) -> str:
         return self.display_name + str(self.signatures[0])
@@ -78,11 +109,11 @@ class Function(abc.ABC):
     def __call__(self, *args: Any, **kwargs: Any) -> 'pxt.exprs.FunctionCall':
         from pixeltable import exprs
 
-        signature_idx, bound_args = self._bind_to_matching_signature(args, kwargs)
-        return_type = self.call_return_type(signature_idx, args, kwargs)
-        return exprs.FunctionCall(self, signature_idx, bound_args, return_type)
+        mono_fn, bound_args = self._bind_to_matching_signature(args, kwargs)
+        return_type = mono_fn.call_return_type(args, kwargs)
+        return exprs.FunctionCall(mono_fn, bound_args, return_type)
 
-    def _bind_to_matching_signature(self, args: Sequence[Any], kwargs: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+    def _bind_to_matching_signature(self, args: Sequence[Any], kwargs: dict[str, Any]) -> tuple[Function, dict[str, Any]]:
         result: int = -1
         bound_args: Optional[dict[str, Any]] = None
         assert len(self.signatures) > 0
@@ -104,25 +135,25 @@ class Function(abc.ABC):
                 raise excs.Error(f'Function {self.name!r} has no matching signature for arguments')
         assert result >= 0
         assert bound_args is not None
-        return result, bound_args
+        return self.mono_fn(result), bound_args
 
     def _bind_to_signature(self, signature_idx: int, args: Sequence[Any], kwargs: dict[str, Any]) -> dict[str, Any]:
         from pixeltable import exprs
 
         signature = self.signatures[signature_idx]
         bound_args = signature.py_signature.bind(*args, **kwargs).arguments
-        self.validate_call(signature_idx, bound_args)
+        self.mono_fn(signature_idx).validate_call(bound_args)
         exprs.FunctionCall.normalize_args(self.name, signature, bound_args)
         return bound_args
 
-    def validate_call(self, signature_idx: int, bound_args: dict[str, Any]) -> None:
+    def validate_call(self, bound_args: dict[str, Any]) -> None:
         """Override this to do custom validation of the arguments"""
-        pass
+        assert self.is_monomorphic
 
-    def call_return_type(self, signature_idx: int, args: Sequence[Any], kwargs: dict[str, Any]) -> ts.ColumnType:
+    def call_return_type(self, args: Sequence[Any], kwargs: dict[str, Any]) -> ts.ColumnType:
         """Return the type of the value returned by calling this function with the given arguments"""
-        assert 0 <= signature_idx < len(self.signatures)
-        signature = self.signatures[signature_idx]
+        assert self.is_monomorphic
+        signature = self.signatures[0]
         if self._conditional_return_type is None:
             return signature.return_type
         bound_args = signature.py_signature.bind(*args, **kwargs).arguments
@@ -149,13 +180,12 @@ class Function(abc.ABC):
         raise NotImplementedError(f'Function of type {type(self)} does not support overloading')
 
     def using(self, **kwargs: Any) -> 'ExprTemplateFunction':
-        from pixeltable import exprs
         from .expr_template_function import ExprTemplateFunction, Template
 
         assert len(self.signatures) > 0
         if len(self.signatures) == 1:
             # Only one signature: call _bind_to_template() and surface any errors directly
-            template = self._bind_to_template(0, kwargs)
+            template = self._bind_to_template(kwargs)
             return ExprTemplateFunction([template])
         else:
             # Multiple signatures: iterate over each signature and generate a template for each
@@ -163,9 +193,9 @@ class Function(abc.ABC):
             # (Note that the resulting ExprTemplateFunction may have strictly fewer signatures than
             # this Function, in the event that only some of the signatures are successfully bound.)
             templates: list[Template] = []
-            for idx in range(len(self.signatures)):
+            for mono_fn in self.__mono_fns:
                 try:
-                    template = self._bind_to_template(idx, kwargs)
+                    template = mono_fn._bind_to_template(kwargs)
                     templates.append(template)
                 except (TypeError, excs.Error):
                     continue
@@ -173,12 +203,15 @@ class Function(abc.ABC):
                 raise excs.Error(f'Function {self.name!r} has no matching signature for arguments')
             return ExprTemplateFunction(templates)
 
-    def _bind_to_template(self, signature_idx: int, kwargs: dict[str, Any]) -> 'Template':
+    def _bind_to_template(self, kwargs: dict[str, Any]) -> 'Template':
         from pixeltable import exprs
+
         from .expr_template_function import Template
 
+        assert self.is_monomorphic
+
         # Resolve each kwarg into a parameter binding
-        signature = self.signatures[signature_idx]
+        signature = self.signatures[0]
         bindings: dict[str, exprs.Expr] = {}
         for k, v in kwargs.items():
             if k not in signature.parameters:
@@ -197,8 +230,8 @@ class Function(abc.ABC):
         for param in residual_params:
             bindings[param.name] = exprs.Variable(param.name, param.col_type)
 
-        return_type = self.call_return_type(signature_idx, [], bindings)
-        call = exprs.FunctionCall(self, signature_idx, bindings, return_type)
+        return_type = self.call_return_type([], bindings)
+        call = exprs.FunctionCall(self, bindings, return_type)
 
         # Construct the (n-k)-ary signature of the new function. We use `call.col_type` for this, rather than
         # `self.signature.return_type`, because the return type of the new function may be specialized via a
@@ -208,7 +241,7 @@ class Function(abc.ABC):
         return Template(call, new_signature)
 
     @abc.abstractmethod
-    def exec(self, signature_idx: int, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:
+    def exec(self, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:
         """Execute the function with the given arguments and return the result."""
         pass
 

@@ -468,11 +468,11 @@ class TestFunction:
 
         # Check that the correct signature is selected for various argument types
         assert len(self.overloaded_udf.signatures) == 3
-        assert fc_str.signature_idx == 0
+        assert fc_str.fn.signature == self.overloaded_udf.signatures[0]
         assert fc_str.col_type.is_string_type()
-        assert fc_int.signature_idx == 1
+        assert fc_int.fn.signature == self.overloaded_udf.signatures[1]
         assert fc_int.col_type.is_int_type()
-        assert fc_float.signature_idx == 2
+        assert fc_float.fn.signature == self.overloaded_udf.signatures[2]
         assert fc_float.col_type.is_float_type()
 
         from pixeltable.functions.string import format
@@ -489,9 +489,9 @@ class TestFunction:
         fc_int2 = fn(t.c2, t.c2)
 
         assert len(fn.signatures) == 2
-        assert fc_str2.signature_idx == 0
+        assert fc_str2.fn.signature == fn.signatures[0]
         assert fc_str2.col_type.is_string_type()
-        assert fc_int2.signature_idx == 1
+        assert fc_int2.fn.signature == fn.signatures[1]
         assert fc_int2.col_type.is_int_type()
 
         with pytest.raises(excs.Error) as exc_info:
@@ -507,11 +507,11 @@ class TestFunction:
         fc_float3 = self.typevar_udf(t.c3, t.c3)
 
         assert len(self.typevar_udf.signatures) == 3
-        assert fc_str3.signature_idx == 0
+        assert fc_str3.fn.signature == self.typevar_udf.signatures[0]
         assert fc_str3.col_type.is_string_type()
-        assert fc_int3.signature_idx == 1
+        assert fc_int3.fn.signature == self.typevar_udf.signatures[1]
         assert fc_int3.col_type.is_int_type()
-        assert fc_float3.signature_idx == 2
+        assert fc_float3.fn.signature == self.typevar_udf.signatures[2]
         assert fc_float3.col_type.is_float_type()
 
         res = t.select(fc_str3, fc_int3, fc_float3).collect()
@@ -571,11 +571,11 @@ class TestFunction:
 
         # Check that the correct signature is selected for various argument types
         assert len(self.overloaded_uda.signatures) == 3
-        assert fc_str.signature_idx == 0
+        assert fc_str.fn.signature == self.overloaded_uda.signatures[0]
         assert fc_str.col_type.is_string_type()
-        assert fc_int.signature_idx == 1
+        assert fc_int.fn.signature == self.overloaded_uda.signatures[1]
         assert fc_int.col_type.is_int_type()
-        assert fc_float.signature_idx == 2
+        assert fc_float.fn.signature == self.overloaded_uda.signatures[2]
         assert fc_float.col_type.is_float_type()
 
         res = t.order_by(t.c2).select(c1=fc_str, c2=fc_int, c3=fc_float).collect()
@@ -592,11 +592,11 @@ class TestFunction:
         fc_float2 = self.typevar_uda(t.c3)
 
         assert len(self.typevar_uda.signatures) == 3
-        assert fc_str2.signature_idx == 0
+        assert fc_str2.fn.signature == self.typevar_uda.signatures[0]
         assert fc_str2.col_type.is_string_type()
-        assert fc_int2.signature_idx == 1
+        assert fc_int2.fn.signature == self.typevar_uda.signatures[1]
         assert fc_int2.col_type.is_int_type()
-        assert fc_float2.signature_idx == 2
+        assert fc_float2.fn.signature == self.typevar_uda.signatures[2]
         assert fc_float2.col_type.is_float_type()
 
         res = t.order_by(t.c2).select(c1=fc_str2, c2=fc_int2, c3=fc_float2).collect()

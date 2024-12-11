@@ -24,7 +24,6 @@ from .sql_element_cache import SqlElementCache
 class FunctionCall(Expr):
 
     fn: func.Function
-    signature_idx: int
     is_method_call: bool
     agg_init_args: dict[str, Any]
 
@@ -48,7 +47,6 @@ class FunctionCall(Expr):
     def __init__(
         self,
         fn: func.Function,
-        signature_idx: int,
         bound_args: dict[str, Any],
         return_type: ts.ColumnType,
         order_by_clause: Optional[list[Any]] = None,
@@ -60,13 +58,12 @@ class FunctionCall(Expr):
         if group_by_clause is None:
             group_by_clause = []
 
+        assert fn.is_monomorphic
+
         self.fn = fn
-        self.signature_idx = signature_idx
         self.is_method_call = is_method_call
 
-        assert isinstance(signature_idx, int)
-
-        signature = fn.signatures[signature_idx]
+        signature = fn.signature
 
         # If `return_type` is non-nullable, but the function call has a nullable input to any of its non-nullable
         # parameters, then we need to make it nullable. This is because Pixeltable defaults a function output to
@@ -89,9 +86,9 @@ class FunctionCall(Expr):
             # we separate out the init args for the aggregator
             assert isinstance(fn, func.AggregateFunction)
             self.agg_init_args = {
-                arg_name: arg for arg_name, arg in bound_args.items() if arg_name in fn.init_param_names[self.signature_idx]
+                arg_name: arg for arg_name, arg in bound_args.items() if arg_name in fn.init_param_names[0]
             }
-            bound_args = {arg_name: arg for arg_name, arg in bound_args.items() if arg_name not in fn.init_param_names[self.signature_idx]}
+            bound_args = {arg_name: arg for arg_name, arg in bound_args.items() if arg_name not in fn.init_param_names[0]}
 
         # construct components, args, kwargs
         self.args = []
@@ -144,7 +141,7 @@ class FunctionCall(Expr):
 
         if isinstance(self.fn, func.ExprTemplateFunction):
             # we instantiate the template to create an Expr that can be evaluated and record that as a component
-            fn_expr = self.fn.instantiate(self.signature_idx, [], bound_args)
+            fn_expr = self.fn.instantiate([], bound_args)
             self.components.append(fn_expr)
             self.fn_expr_idx = len(self.components) - 1
         else:
@@ -266,7 +263,6 @@ class FunctionCall(Expr):
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return super()._id_attrs() + [
             ('fn', id(self.fn)),  # use the function pointer, not the fqn, which isn't set for lambdas
-            ('signature_idx', self.signature_idx),
             ('args', self.args),
             ('kwargs', self.kwargs),
             ('group_by_start_idx', self.group_by_start_idx),
@@ -348,7 +344,7 @@ class FunctionCall(Expr):
         # try to construct args and kwargs to call self.fn._to_sql()
         kwargs: dict[str, sql.ColumnElement] = {}
         for param_name, (component_idx, arg) in self.kwargs.items():
-            param = self.fn.signatures[self.signature_idx].parameters[param_name]
+            param = self.fn.signature.parameters[param_name]
             assert param.kind != inspect.Parameter.VAR_POSITIONAL and param.kind != inspect.Parameter.VAR_KEYWORD
             if component_idx is None:
                 kwargs[param_name] = sql.literal(arg)
@@ -376,7 +372,7 @@ class FunctionCall(Expr):
         """
         assert self.is_agg_fn_call
         assert isinstance(self.fn, func.AggregateFunction)
-        self.aggregator = self.fn.agg_classes[self.signature_idx](**self.agg_init_args)
+        self.aggregator = self.fn.agg_classes[0](**self.agg_init_args)
 
     def update(self, data_row: DataRow) -> None:
         """
@@ -391,7 +387,7 @@ class FunctionCall(Expr):
         kwargs: dict[str, Any] = {}
         for param_name, (component_idx, arg) in self.kwargs.items():
             val = arg if component_idx is None else data_row[self.components[component_idx].slot_idx]
-            param = self.fn.signatures[self.signature_idx].parameters[param_name]
+            param = self.fn.signature.parameters[param_name]
             if param.kind == inspect.Parameter.VAR_KEYWORD:
                 # expand **kwargs parameter
                 kwargs.update(val)
@@ -402,7 +398,7 @@ class FunctionCall(Expr):
         args: list[Any] = []
         for param_idx, (component_idx, arg) in enumerate(self.args):
             val = arg if component_idx is None else data_row[self.components[component_idx].slot_idx]
-            param = self.fn.signatures[self.signature_idx].parameters_by_pos[param_idx]
+            param = self.fn.signature.parameters_by_pos[param_idx]
             if param.kind == inspect.Parameter.VAR_POSITIONAL:
                 # expand *args parameter
                 assert isinstance(val, list)
@@ -429,7 +425,7 @@ class FunctionCall(Expr):
             return
 
         args, kwargs = self._make_args(data_row)
-        signature = self.fn.signatures[self.signature_idx]
+        signature = self.fn.signature
         if signature.parameters is not None:
             # check for nulls
             for i in range(len(self.arg_types)):
@@ -445,10 +441,10 @@ class FunctionCall(Expr):
 
         if isinstance(self.fn, func.CallableFunction) and not self.fn.is_batched:
             # optimization: avoid additional level of indirection we'd get from calling Function.exec()
-            data_row[self.slot_idx] = self.fn.py_fns[self.signature_idx](*args, **kwargs)
+            data_row[self.slot_idx] = self.fn.py_fns[0](*args, **kwargs)
         elif self.is_window_fn_call:
             assert isinstance(self.fn, func.AggregateFunction)
-            agg_cls = self.fn.agg_classes[self.signature_idx]
+            agg_cls = self.fn.agg_classes[0]
             if self.has_group_by():
                 if self.current_partition_vals is None:
                     self.current_partition_vals = [None] * len(self.group_by)
@@ -462,7 +458,7 @@ class FunctionCall(Expr):
             self.aggregator.update(*args)
             data_row[self.slot_idx] = self.aggregator.value()
         else:
-            data_row[self.slot_idx] = self.fn.exec(self.signature_idx, args, kwargs)
+            data_row[self.slot_idx] = self.fn.exec(args, kwargs)
 
     def _as_dict(self) -> dict:
         result = {
@@ -512,8 +508,10 @@ class FunctionCall(Expr):
             #       mark this FunctionCall as unusable). It's the same issue as dealing with a renamed UDF.
             raise excs.Error(f'UDF call arguments no longer match UDF signature (code has changed?): {fn}')
 
+        mono_fn = fn.mono_fn(signature_idx)
+
         # Reassemble bound_args
-        param_names = list(fn.signatures[signature_idx].parameters.keys())
+        param_names = list(mono_fn.signature.parameters.keys())
         bound_args = {param_names[i]: arg for i, arg in enumerate(args)}
         bound_args.update(kwargs.items())
 
@@ -527,7 +525,7 @@ class FunctionCall(Expr):
         }
 
         # Evaluate the call_return_type as defined in the current codebase.
-        call_return_type = fn.call_return_type(signature_idx, [], unpacked_bound_args)
+        call_return_type = mono_fn.call_return_type([], unpacked_bound_args)
 
         if return_type is None:
             # Schema versions prior to 24 did not store the return_type in metadata, and there is no obvious way to
@@ -546,8 +544,7 @@ class FunctionCall(Expr):
                 )
 
         fn_call = cls(
-            fn,
-            signature_idx,
+            mono_fn,
             bound_args,
             return_type,
             group_by_clause=group_by_exprs,

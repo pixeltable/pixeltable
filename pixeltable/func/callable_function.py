@@ -40,15 +40,19 @@ class CallableFunction(Function):
         self.__doc__ = py_fns[0].__doc__
         super().__init__(signatures, self_path=self_path, is_method=is_method, is_property=is_property)
 
+    def _update_as_monomorphic(self, signature_idx: int) -> None:
+        assert len(self.py_fns) > signature_idx
+        self.py_fns = [self.py_fns[signature_idx]]
+
     @property
     def is_batched(self) -> bool:
         return self.batch_size is not None
 
-    def exec(self, sig_idx: int, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:
-        signature = self.signatures[sig_idx]
-        py_fn = self.py_fns[sig_idx]
+    def exec(self, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:
+        assert self.is_monomorphic
+        signature = self.signatures[0]
+        py_fn = self.py_fns[0]
         if self.is_batched:
-            assert signature in self.signatures
             # Pack the batched parameters into singleton lists
             constant_param_names = [p.name for p in signature.constant_parameters]
             batched_args = [[arg] for arg in args]
@@ -60,15 +64,16 @@ class CallableFunction(Function):
         else:
             return py_fn(*args, **kwargs)
 
-    def exec_batch(self, sig_idx: int, args: list[Any], kwargs: dict[str, Any]) -> list:
+    def exec_batch(self, args: list[Any], kwargs: dict[str, Any]) -> list:
         """Execute the function with the given arguments and return the result.
         The arguments are expected to be batched: if the corresponding parameter has type T,
         then the argument should have type T if it's a constant parameter, or list[T] if it's
         a batched parameter.
         """
         assert self.is_batched
-        signature = self.signatures[sig_idx]
-        py_fn = self.py_fns[sig_idx]
+        assert self.is_monomorphic
+        signature = self.signatures[0]
+        py_fn = self.py_fns[0]
         # Unpack the constant parameters
         constant_param_names = [p.name for p in signature.constant_parameters]
         constant_kwargs = {k: v[0] for k, v in kwargs.items() if k in constant_param_names}
@@ -132,11 +137,12 @@ class CallableFunction(Function):
         batch_size = md['batch_size']
         return CallableFunction([sig], [py_fn], self_name=name, batch_size=batch_size)
 
-    def validate_call(self, signature_idx: int, bound_args: dict[str, Any]) -> None:
+    def validate_call(self, bound_args: dict[str, Any]) -> None:
         from pixeltable import exprs
 
+        assert self.is_monomorphic
         if self.is_batched:
-            signature = self.signatures[signature_idx]
+            signature = self.signatures[0]
             for param in signature.constant_parameters:
                 if param.name in bound_args and isinstance(bound_args[param.name], exprs.Expr):
                     raise ValueError(
