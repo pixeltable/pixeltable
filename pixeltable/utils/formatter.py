@@ -1,6 +1,7 @@
 import base64
 import html
 import io
+import re
 import json
 import logging
 import mimetypes
@@ -75,9 +76,10 @@ class Formatter:
 
     @classmethod
     def __escape(cls, val: str) -> str:
-        # HTML-escape the specified string, then escape $ signs to suppress MathJax formatting
-        # TODO(aaron-siegel): The '$' escaping isn't perfect; it will fail on '$' that are already escaped
-        return html.escape(val).replace('$', r'\$')
+        # First HTML-escape the string
+        escaped = html.escape(val)
+        # Then handle $ signs: replace unescaped $ with \$ while preserving already escaped ones
+        return re.sub(r'(?<!\\)\$', r'\\$', escaped)
 
     @classmethod
     def format_float(cls, val: float) -> str:
