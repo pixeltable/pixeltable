@@ -9,6 +9,11 @@ from .signature import Signature
 
 
 class Template:
+    """
+    Encapsulates a single signature of an `ExprTemplateFunction` and its associated parameterized expression,
+    along with various precomputed metadata. (This is analogous to a `Callable`-`Signature` pair in a
+    `CallableFunction`.)
+    """
     expr: 'pixeltable.exprs.Expr'
     signature: Signature
 
@@ -61,7 +66,7 @@ class ExprTemplateFunction(Function):
 
         super().__init__([t.signature for t in templates], self_path=self_path)
 
-    def _update_as_monomorphic(self, signature_idx: int) -> None:
+    def _update_as_projection(self, signature_idx: int) -> None:
         self.templates = [self.templates[signature_idx]]
 
     def instantiate(self, args: Sequence[Any], kwargs: dict[str, Any]) -> 'pixeltable.exprs.Expr':

@@ -48,6 +48,7 @@ class AggregateFunction(Function):
         allows_window: bool
     ) -> None:
         if type_substitutions is None:
+            type_substitutions = [None]  # single signature with no substitutions
             self.agg_classes = [agg_class]
         else:
             self.agg_classes = [agg_class] * len(type_substitutions)
@@ -59,16 +60,16 @@ class AggregateFunction(Function):
 
         signatures: list[Signature] = []
 
-        # If type_substitutions is None, construct a single signature for the class.
+        # If no type_substitutions were provided, construct a single signature for the class.
         # Otherwise, construct one signature for each type substitution instance.
-        for subst in ([None] if type_substitutions is None else type_substitutions):
+        for subst in type_substitutions:
             signature, init_param_names = self.__cls_to_signature(agg_class, subst)
             signatures.append(signature)
             self.init_param_names.append(init_param_names)
 
         super().__init__(signatures, self_path=self_path)
 
-    def _update_as_monomorphic(self, signature_idx: int) -> None:
+    def _update_as_projection(self, signature_idx: int) -> None:
         self.agg_classes = [self.agg_classes[signature_idx]]
         self.init_param_names = [self.init_param_names[signature_idx]]
 

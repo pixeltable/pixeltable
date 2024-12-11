@@ -31,8 +31,8 @@ class Function(abc.ABC):
     self_path: Optional[str]
     is_method: bool
     is_property: bool
-    __mono_fns: list[Function]  # Monomorphic (one-signature) specializations of this function
     _conditional_return_type: Optional[Callable[..., ts.ColumnType]]
+    __projections: list[Function]  # Cached monomorphic (one-signature) projections of this function
 
     # Translates a call to this function with the given arguments to its SQLAlchemy equivalent.
     # Overriden for specific Function instances via the to_sql() decorator. The override must accept the same
@@ -57,10 +57,7 @@ class Function(abc.ABC):
         self._conditional_return_type = None
         self._to_sql = self.__default_to_sql
 
-        self.__mono_fns = []
-
-    def _update_as_monomorphic(self, signature_idx: int) -> None:
-        raise NotImplementedError()
+        self.__projections = []
 
     @property
     def name(self) -> str:
@@ -90,18 +87,35 @@ class Function(abc.ABC):
         assert self.is_monomorphic
         return len(self.signatures[0].parameters)
 
-    def mono_fn(self, signature_idx: int) -> Function:
-        """Return a new  `Function` that retains just the single signature at index `signature_idx`, and is otherwise
+    def project(self, signature_idx: int) -> Function:
+        """
+        Return a new  `Function` that retains just the single signature at index `signature_idx`, and is otherwise
         identical to this `Function`.
         """
         assert 0 <= signature_idx < len(self.signatures)
-        while len(self.__mono_fns) <= signature_idx:
-            idx = len(self.__mono_fns)
+
+        # We cache the projections in self.__projections. This ensures that each projection is represented globally
+        # by a single Python object. We do this dynamically rather than pre-constructing them in order to avoid
+        # circular complexity in the `Function` initialization logic.
+
+        # Note that it is necessary to create a projection even if this Function has only one signature, because
+        # there is no guarantee we have seen all the Function's @overload declarations at the time this is called.
+
+        while len(self.__projections) <= signature_idx:
+            idx = len(self.__projections)
             mono_fn = copy(self)
             mono_fn.signatures = [self.signatures[idx]]
-            mono_fn._update_as_monomorphic(idx)
-            self.__mono_fns.append(mono_fn)
-        return self.__mono_fns[signature_idx]
+            mono_fn._update_as_projection(idx)
+            self.__projections.append(mono_fn)
+
+        return self.__projections[signature_idx]
+
+    def _update_as_projection(self, signature_idx: int) -> None:
+        """
+        Subclasses must implement this in order to do any additional work when creating a projection, beyond
+        simply updating `self.signatures`.
+        """
+        raise NotImplementedError()
 
     def help_str(self) -> str:
         return self.display_name + str(self.signatures[0])
@@ -135,14 +149,14 @@ class Function(abc.ABC):
                 raise excs.Error(f'Function {self.name!r} has no matching signature for arguments')
         assert result >= 0
         assert bound_args is not None
-        return self.mono_fn(result), bound_args
+        return self.project(result), bound_args
 
     def _bind_to_signature(self, signature_idx: int, args: Sequence[Any], kwargs: dict[str, Any]) -> dict[str, Any]:
         from pixeltable import exprs
 
         signature = self.signatures[signature_idx]
         bound_args = signature.py_signature.bind(*args, **kwargs).arguments
-        self.mono_fn(signature_idx).validate_call(bound_args)
+        self.project(signature_idx).validate_call(bound_args)
         exprs.FunctionCall.normalize_args(self.name, signature, bound_args)
         return bound_args
 
@@ -193,7 +207,7 @@ class Function(abc.ABC):
             # (Note that the resulting ExprTemplateFunction may have strictly fewer signatures than
             # this Function, in the event that only some of the signatures are successfully bound.)
             templates: list[Template] = []
-            for mono_fn in self.__mono_fns:
+            for mono_fn in self.__projections:
                 try:
                     template = mono_fn._bind_to_template(kwargs)
                     templates.append(template)

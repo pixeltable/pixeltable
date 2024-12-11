@@ -55,7 +55,7 @@ class QueryTemplateFunction(Function):
             literal_default = exprs.Literal(param.default, col_type=param_type)
             self.defaults[param.name] = literal_default
 
-    def _update_as_monomorphic(self, signature_idx: int) -> None:
+    def _update_as_projection(self, signature_idx: int) -> None:
         pass  # only one signature supported for QueryTemplateFunction
 
     def set_conn(self, conn: Optional[sql.engine.Connection]) -> None:
