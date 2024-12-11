@@ -208,7 +208,7 @@ class ExprEvalNode(ExecNode):
                         }
                         start_ts = time.perf_counter()
                         assert isinstance(fn_call.fn, CallableFunction)
-                        result_batch = fn_call.fn.exec_batch(*call_args, **call_kwargs)
+                        result_batch = fn_call.fn.exec_batch(fn_call.signature_idx, call_args, call_kwargs)
                         self.ctx.profile.eval_time[fn_call.slot_idx] += time.perf_counter() - start_ts
                         self.ctx.profile.eval_count[fn_call.slot_idx] += num_ext_batch_rows
 

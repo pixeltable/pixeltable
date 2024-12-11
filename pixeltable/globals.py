@@ -510,7 +510,7 @@ def list_functions() -> Styler:
     paths = ['.'.join(f.self_path.split('.')[:-1]) for f in functions]
     names = [f.name for f in functions]
     params = [
-        ', '.join([param_name + ': ' + str(param_type) for param_name, param_type in f.signature.parameters.items()])
+        ', '.join([param_name + ': ' + str(param_type) for param_name, param_type in f.signatures[0].parameters.items()])
         for f in functions
     ]
     pd_df = pd.DataFrame(
@@ -518,7 +518,7 @@ def list_functions() -> Styler:
             'Path': paths,
             'Function Name': names,
             'Parameters': params,
-            'Return Type': [str(f.signature.get_return_type()) for f in functions],
+            'Return Type': [str(f.signatures[0].get_return_type()) for f in functions],
         }
     )
     pd_df = pd_df.style.set_properties(None, **{'text-align': 'left'}).set_table_styles(
