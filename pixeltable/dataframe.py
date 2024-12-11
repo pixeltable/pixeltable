@@ -511,6 +511,10 @@ class DataFrame:
                 or refer to tables not in the DataFrame.
 
         Examples:
+            Given the DataFrame person from a table t with all its columns and rows:
+
+            >>> person = t.select()
+
             Select the columns 'name' and 'age' (referenced in table t) from the DataFrame person:
 
             >>> df = person.select(t.name, t.age)
@@ -585,7 +589,11 @@ class DataFrame:
                 or refers to tables not in the DataFrame.
 
         Examples:
-            Filter the DataFrame person to only include rows where the column 'age'
+            Given the DataFrame person from a table t with all its columns and rows:
+
+            >>> person = t.select()
+
+            Filter the above DataFrame person to only include rows where the column 'age'
             (referenced in table t) is greater than 30:
 
             >>> df = person.where(t.age > 30)
@@ -762,7 +770,11 @@ class DataFrame:
                 or if the DataFrame is a result of a join.
 
         Examples:
-            Group a DataFrame book by the 'genre' column (referenced in table t):
+            Given the DataFrame book from a table t with all its columns and rows:
+
+            >>> book = t.select()
+
+            Group the above DataFrame book by the 'genre' column (referenced in table t):
 
             >>> df = book.group_by(t.genre)
 
@@ -823,11 +835,15 @@ class DataFrame:
                 or refer to tables not in the DataFrame.
 
         Examples:
-            Order a DataFrame book by two columns (price, pages) in descending order:
+            Given the DataFrame book from a table t with all its columns and rows:
+
+            >>> book = t.select()
+
+            Order the above DataFrame book by two columns (price, pages) in descending order:
 
             >>> df = book.order_by(t.price, t.pages, asc=False)
 
-            Order a DataFrame book by price in descending order, but order the pages
+            Order the above DataFrame book by price in descending order, but order the pages
             in ascending order:
 
             >>> df = book.order_by(t.price, asc=False).order_by(t.pages)
@@ -882,11 +898,15 @@ class DataFrame:
             UpdateStatus: the status of the update operation.
 
         Example:
-            Update the column 'city' to 'Oakland' and 'state' to 'CA' in the DataFrame person:
+            Given the DataFrame person from a table t with all its columns and rows:
+
+            >>> person = t.select()
+
+            Via the above DataFrame person, update the column 'city' to 'Oakland' and 'state' to 'CA' in the table t:
 
             >>> df = person.update({'city': 'Oakland', 'state': 'CA'})
 
-            Update the column 'age' to 30 for any rows where 'year' is 2014 in the DataFrame person:
+            Via the above DataFrame person, update the column 'age' to 30 for any rows where 'year' is 2014 in the table t:
 
             >>> df = person.where(t.year == 2014).update({'age': 30})
         """
@@ -902,7 +922,11 @@ class DataFrame:
             UpdateStatus: the status of the delete operation.
 
         Example:
-            Delete all rows from the DataFrame person where the column 'age' is less than 18:
+            Given the DataFrame person from a table t with all its columns and rows:
+
+            >>> person = t.select()
+
+            Via the above DataFrame person, delete all rows from the table t where the column 'age' is less than 18:
 
             >>> df = person.where(t.age < 18).delete()
         """
