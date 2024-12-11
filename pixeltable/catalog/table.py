@@ -842,9 +842,14 @@ class Table(SchemaObject):
 
         # create the EmbeddingIndex instance to verify args
         idx = EmbeddingIndex(col, metric=metric, string_embed=string_embed, image_embed=image_embed)
-        status = self._tbl_version.add_index(col, idx_name=idx_name, idx=idx)
-        # TODO: how to deal with exceptions here? drop the index and raise?
-        FileCache.get().emit_eviction_warnings()
+        try:
+            status = self._tbl_version.add_index(col, idx_name=idx_name, idx=idx)
+            FileCache.get().emit_eviction_warnings()
+        except Exception as e:
+            # If anything goes wrong, drop the index and re-raise the exception
+            if idx_name is not None and idx_name in self._tbl_version.idxs_by_name:
+                self._drop_index(col=col, idx_name=idx_name, _idx_class=EmbeddingIndex)
+            raise e
 
     def drop_embedding_index(
             self, *,
