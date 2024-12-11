@@ -25,25 +25,11 @@ def init() -> None:
     """Initializes the Pixeltable environment."""
     _ = Catalog.get()
 
-class IfExistsParam(Enum):
-    ERROR = 'error'
-    IGNORE = 'ignore'
-    REPLACE = 'replace'
-    REPLACE_FORCE = 'replace_force'
-
-    @classmethod
-    def validated(cls, name: str, error_prefix: str) -> 'IfExistsParam':
-        try:
-            return cls[name.upper()]
-        except KeyError:
-            raise excs.Error(f'{error_prefix} must be one of: {[e.value for e in cls]}')
-
-class CreateTableType(Enum):
-    TABLE = 'table'
-    VIEW = 'view'
-    SNAPSHOT = 'snapshot'
-
-def _handle_existing_table(path_str: str, caller_context: CreateTableType, if_exists: IfExistsParam) -> Optional[catalog.SchemaObject]:
+def _handle_existing_table(
+    path_str: str,
+    caller_context: catalog.CreateTableType,
+    if_exists: catalog.IfExistsParam
+) -> Optional[catalog.SchemaObject]:
     """Handle existing table, view, or snapshot, during create call as per user directive.
 
     Args:
@@ -52,12 +38,12 @@ def _handle_existing_table(path_str: str, caller_context: CreateTableType, if_ex
         if_exists: Directive regarding how to handle the existing path.
             Must be one of the following:
             - `'error'`: raise an error
-            - `'ignore'`: do nothing and return the existing table/view/snapshot handle
-            - `'replace'`: if the existing table/view/snapshot has no dependents, drop it
-            - `'replace_force'`: drop the existing table/view/snapshot and all its dependents
+            - `'ignore'`: do nothing and return a handle to the existing table, view, or snapshot
+            - `'replace'`: if the existing table, view, or snapshot, has no dependents, drop it
+            - `'replace_force'`: drop the existing table, view, or snapshot, and all its dependents
 
     Returns:
-        The existing table, view, or snapshot if `if_exists='ignore'`, otherwise `None`.
+        A handle to the existing table, view, or snapshot, if `if_exists='ignore'`, otherwise `None`.
 
     Raises:
         Error: If the existing path is not of the expected type, or if the existing path has dependents and
@@ -67,30 +53,30 @@ def _handle_existing_table(path_str: str, caller_context: CreateTableType, if_ex
     path = catalog.Path(path_str)
     assert cat.paths.check_if_exists(path) is not None
 
-    if if_exists == IfExistsParam.ERROR:
+    if if_exists == catalog.IfExistsParam.ERROR:
         raise excs.Error(f'Path `{path_str}` already exists.')
 
     existing_path = cat.paths[path]
-    expected_obj_type = catalog.Table if caller_context == CreateTableType.TABLE else catalog.View
-    obj_type_str = 'Snapshot' if caller_context == CreateTableType.SNAPSHOT else 'View' if caller_context == CreateTableType.VIEW else 'Table'
+    expected_obj_type = catalog.Table if caller_context == catalog.CreateTableType.TABLE else catalog.View
+    obj_type_str = caller_context.value.capitalize()
     existing_path_is_snapshot = expected_obj_type == catalog.View and existing_path.get_metadata()['is_snapshot']
     # Check if the existing path is of expected type of table.
     if (not isinstance(existing_path, expected_obj_type)
-        or (caller_context == CreateTableType.SNAPSHOT and not existing_path_is_snapshot)):
+        or (caller_context == catalog.CreateTableType.SNAPSHOT and not existing_path_is_snapshot)):
             raise excs.Error(f'Path `{path_str}` already exists but is not a {obj_type_str}. Cannot {if_exists.value} it.')
 
     # if_exists='ignore' return the handle to the existing object.
     assert isinstance(existing_path, expected_obj_type)
-    if if_exists == IfExistsParam.IGNORE:
+    if if_exists == catalog.IfExistsParam.IGNORE:
         return existing_path
 
     # Check if the existing object has dependents. If so, cannot replace it
     # unless if_exists='replace_force'.
     has_dependents = len(cat.tbl_dependents[existing_path._id]) > 0
-    if if_exists == IfExistsParam.REPLACE and has_dependents:
+    if if_exists == catalog.IfExistsParam.REPLACE and has_dependents:
         raise excs.Error(f"Path `{path_str}` already exists and has dependents. Use `if_exists='replace_force'` to replace it.")
     else:
-        assert if_exists == IfExistsParam.REPLACE_FORCE or not has_dependents
+        assert if_exists == catalog.IfExistsParam.REPLACE_FORCE or not has_dependents
         # Drop the existing table so it can be replaced.
         # Any error from drop_table will not be ignored.
         _logger.info(f"Dropping and recreating {obj_type_str} `{path_str}`.")
@@ -157,13 +143,13 @@ def create_table(
 
         >>> tbl = pxt.create_table('my_table', schema={'col1': pxt.Int, 'col2': pxt.Float}, if_exists='replace')
     """
-    if_exists = IfExistsParam.validated(if_exists, 'if_exists')
+    if_exists = catalog.IfExistsParam.validated(if_exists, 'if_exists')
     path = catalog.Path(path_str)
     cat = Catalog.get()
 
     if cat.paths.check_if_exists(path) is not None:
         # The table already exists. Handle it as per user directive.
-        existing_table = _handle_existing_table(path_str, CreateTableType.TABLE, if_exists)
+        existing_table = _handle_existing_table(path_str, catalog.CreateTableType.TABLE, if_exists)
         if existing_table is not None:
             assert isinstance(existing_table, catalog.Table)
             return existing_table
@@ -281,13 +267,13 @@ def create_view(
         raise excs.Error('`base` must be an instance of `Table` or `DataFrame`')
     assert isinstance(base, catalog.Table) or isinstance(base, DataFrame)
 
-    if_exists = IfExistsParam.validated(if_exists, 'if_exists')
+    if_exists = catalog.IfExistsParam.validated(if_exists, 'if_exists')
     path = catalog.Path(path_str)
     cat = Catalog.get()
 
     if cat.paths.check_if_exists(path) is not None:
         # The view already exists. Handle it as per user directive.
-        curr_context = CreateTableType.SNAPSHOT if is_snapshot else CreateTableType.VIEW
+        curr_context = catalog.CreateTableType.SNAPSHOT if is_snapshot else catalog.CreateTableType.VIEW
         existing_path = _handle_existing_table(path_str, curr_context, if_exists)
         if existing_path is not None:
             assert isinstance(existing_path, catalog.View)
@@ -561,27 +547,27 @@ def create_dir(path_str: str, if_exists: Literal['error', 'ignore', 'replace', '
 
         >>> pxt.create_dir('my_dir', if_exists='replace_force')
     """
-    if_exists = IfExistsParam.validated(if_exists, 'if_exists')
+    if_exists = catalog.IfExistsParam.validated(if_exists, 'if_exists')
 
     path = catalog.Path(path_str)
     cat = Catalog.get()
 
     if cat.paths.check_if_exists(path):
         # The directory already exists. Handle it as per user directive.
-        if if_exists == IfExistsParam.ERROR:
+        if if_exists == catalog.IfExistsParam.ERROR:
             raise excs.Error(f'Path `{path_str}` already exists.')
         existing_dir = cat.paths[path]
         if not isinstance(existing_dir, catalog.Dir):
             raise excs.Error(f'Path `{path_str}` already exists but is not a Dir. Cannot {if_exists.value} it.')
 
-        if if_exists == IfExistsParam.IGNORE:
+        if if_exists == catalog.IfExistsParam.IGNORE:
             return existing_dir
 
         has_children = len(cat.paths.get_children(path, child_type=None, recursive=False)) > 0
-        if if_exists == IfExistsParam.REPLACE and has_children:
+        if if_exists == catalog.IfExistsParam.REPLACE and has_children:
             raise excs.Error(f"Directory `{path_str}` already exists and is not empty. Use `if_exists='replace_force'` to replace it.")
         else:
-            assert if_exists == IfExistsParam.REPLACE_FORCE or not has_children
+            assert if_exists == catalog.IfExistsParam.REPLACE_FORCE or not has_children
             # Drop the existing directory so it can be replaced.
             # Any error from drop_dir will not be ignored.
             _logger.info(f'Dropping and recreating directory `{path_str}`.')

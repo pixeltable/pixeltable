@@ -51,6 +51,23 @@ class MediaValidation(enum.Enum):
             val_strs = ', '.join(f'{s.lower()!r}' for s in cls.__members__.keys())
             raise excs.Error(f'{error_prefix} must be one of: [{val_strs}]')
 
+class IfExistsParam(enum.Enum):
+    ERROR = 'error'
+    IGNORE = 'ignore'
+    REPLACE = 'replace'
+    REPLACE_FORCE = 'replace_force'
+
+    @classmethod
+    def validated(cls, param_val: str, param_name: str) -> 'IfExistsParam':
+        try:
+            return cls[param_val.upper()]
+        except KeyError:
+            raise excs.Error(f'{param_name} must be one of: {[e.value for e in cls]}')
+
+class CreateTableType(enum.Enum):
+    TABLE = 'table'
+    VIEW = 'view'
+    SNAPSHOT = 'snapshot'
 
 def is_valid_identifier(name: str) -> bool:
     return name.isidentifier() and not name.startswith('_')
