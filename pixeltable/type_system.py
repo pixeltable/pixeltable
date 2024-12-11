@@ -902,7 +902,7 @@ class VideoType(ColumnType):
                 if num_decoded < 2:
                     # this is most likely an image file
                     raise excs.Error(f'Not a valid video: {val}')
-        except av.AVError:
+        except av.FFmpegError:
             raise excs.Error(f'Not a valid video: {val}') from None
 
 
@@ -929,7 +929,7 @@ class AudioType(ColumnType):
                 for packet in container.demux(audio_stream):
                     for _ in packet.decode():
                         pass
-        except av.AVError as e:
+        except av.FFmpegError as e:
             raise excs.Error(f'Not a valid audio file: {val}\n{e}') from None
 
 
