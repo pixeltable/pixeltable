@@ -162,12 +162,12 @@ class TestView:
         assert v2._id != id_before
         id_before = v2._id
 
-        # scenario 2: a table exists at the path, but has dependency
+        # scenario 2: a view exists at the path, but has dependency
         v_on_v = pxt.create_view('test_view_on_view', v2)
         with pytest.raises(excs.Error) as exc_info:
             pxt.create_view('test_view', t)
         assert 'already exists' in str(exc_info.value)
-        # if_exists='ignore' should return the existing table
+        # if_exists='ignore' should return the existing view
         v3 = pxt.create_view('test_view', t, if_exists='ignore')
         assert v3 == v2
         assert v3._id == id_before
@@ -181,7 +181,7 @@ class TestView:
             and 'replace_force' in str(exc_info.value))
         assert 'test_view_on_view' in pxt.list_tables()
         # if_exists='replace_force' should drop the existing view and
-        # its dependents views and create a new one
+        # its dependent views and create a new one
         v3 = pxt.create_view('test_view', t, if_exists='replace_force')
         assert v3 != v2
         assert v3._id != id_before

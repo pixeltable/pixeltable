@@ -90,9 +90,8 @@ class TestTable:
         assert 'No such path' in str(exc_info.value)
 
         # test loading with new client
-        df = tbl.select()
-        _ = reload_tester.run_query(df)
-        _ = reload_tester.run_reload_test(clear=True)
+        _ = reload_tester.run_query(tbl.select())
+        _ = reload_tester.run_reload_test()
 
         tbl = pxt.get_table('test')
         assert isinstance(tbl, catalog.InsertableTable)
@@ -165,13 +164,13 @@ class TestTable:
         assert len(res_after) == 0
         id_before = tbl3._id
 
-        df = tbl3.select()
-        _ = reload_tester.run_query(df)
-        _ = reload_tester.run_reload_test(clear=True)
+        # sanity check persistence
+        _ = reload_tester.run_query(tbl3.select())
+        _ = reload_tester.run_reload_test()
 
         tbl = pxt.get_table('test')
         assert tbl._id == id_before
-        assert len(tbl.select().collect()) == 0
+
         tbl.insert(create_table_data(tbl, num_rows=3))
         assert len(tbl.select().collect()) == 3
         view = pxt.create_view('test_view', tbl)
@@ -198,6 +197,7 @@ class TestTable:
         # and its dependent view.
         tbl = pxt.create_table('test', schema, if_exists='replace_force')
         assert tbl._id != id_before
+        id_before = tbl._id
         assert len(tbl.select().collect()) == 0
         assert view._is_dropped
         assert 'test_view' not in pxt.list_tables()
@@ -205,13 +205,11 @@ class TestTable:
         tbl.insert(create_table_data(tbl, num_rows=1))
 
         pxt.create_dir('dir1')
-
         # scenario 3: path exists but is not a table
         with pytest.raises(excs.Error) as exc_info:
             _ = pxt.create_table('dir1', schema)
         assert 'already exists' in str(exc_info.value)
         assert len(tbl.select().collect()) == 1
-
         for _ie in ['ignore', 'replace', 'replace_force']:
             with pytest.raises(excs.Error) as exc_info:
                 _ = pxt.create_table('dir1', schema, if_exists=_ie)
@@ -220,9 +218,12 @@ class TestTable:
             assert len(tbl.select().collect()) == 1, f"with if_exists={_ie}"
             assert 'dir1' in pxt.list_dirs(), f"with if_exists={_ie}"
 
-        df = tbl.select()
-        _ = reload_tester.run_query(df)
-        _ = reload_tester.run_reload_test(clear=True)
+        # sanity check persistence
+        _ = reload_tester.run_query(tbl.select())
+        _ = reload_tester.run_reload_test()
+
+        tbl = pxt.get_table('test')
+        assert tbl._id == id_before
 
     def test_columns(self, reset_db: None) -> None:  # noqa: PLR6301
         schema = {
