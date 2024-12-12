@@ -118,6 +118,11 @@ class AggregateFunction(Function):
 
         return Signature(value_type, params), init_param_names
 
+    @property
+    def agg_class(self) -> type[Aggregator]:
+        assert not self.is_polymorphic
+        return self.agg_classes[0]
+
     def exec(self, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:
         raise NotImplementedError
 
@@ -185,7 +190,7 @@ class AggregateFunction(Function):
         # TODO: do this in the planner (check that init parameters are either constants or only refer to grouping exprs)
         from pixeltable import exprs
 
-        assert self.is_monomorphic
+        assert not self.is_polymorphic
 
         for param_name in self.init_param_names[0]:
             if param_name in bound_args and isinstance(bound_args[param_name], exprs.Expr):

@@ -62,8 +62,8 @@ class QueryTemplateFunction(Function):
         self.conn = conn
 
     def exec(self, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:
-        assert self.is_monomorphic
-        bound_args = self.signatures[0].py_signature.bind(*args, **kwargs).arguments
+        assert not self.is_polymorphic
+        bound_args = self.signature.py_signature.bind(*args, **kwargs).arguments
         # apply defaults, otherwise we might have Parameters left over
         bound_args.update(
             {param_name: default for param_name, default in self.defaults.items() if param_name not in bound_args})

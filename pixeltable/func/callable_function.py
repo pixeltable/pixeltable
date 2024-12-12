@@ -49,7 +49,7 @@ class CallableFunction(Function):
         return self.batch_size is not None
 
     def exec(self, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:
-        assert self.is_monomorphic
+        assert not self.is_polymorphic
         signature = self.signatures[0]
         py_fn = self.py_fns[0]
         if self.is_batched:
@@ -71,7 +71,7 @@ class CallableFunction(Function):
         a batched parameter.
         """
         assert self.is_batched
-        assert self.is_monomorphic
+        assert not self.is_polymorphic
         signature = self.signatures[0]
         py_fn = self.py_fns[0]
         # Unpack the constant parameters
@@ -140,7 +140,7 @@ class CallableFunction(Function):
     def validate_call(self, bound_args: dict[str, Any]) -> None:
         from pixeltable import exprs
 
-        assert self.is_monomorphic
+        assert not self.is_polymorphic
         if self.is_batched:
             signature = self.signatures[0]
             for param in signature.constant_parameters:

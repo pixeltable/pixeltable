@@ -72,7 +72,7 @@ class ExprTemplateFunction(Function):
     def instantiate(self, args: Sequence[Any], kwargs: dict[str, Any]) -> 'pixeltable.exprs.Expr':
         from pixeltable import exprs
 
-        assert self.is_monomorphic
+        assert not self.is_polymorphic
         template = self.templates[0]
         signature = self.signatures[0]
         bound_args = signature.py_signature.bind(*args, **kwargs).arguments
@@ -98,7 +98,7 @@ class ExprTemplateFunction(Function):
     def exec(self, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:
         from pixeltable import exec, exprs
 
-        assert self.is_monomorphic
+        assert not self.is_polymorphic
         expr = self.instantiate(args, kwargs)
         row_builder = exprs.RowBuilder(output_exprs=[expr], columns=[], input_exprs=[])
         row_batch = exec.DataRowBatch(tbl=None, row_builder=row_builder, len=1)

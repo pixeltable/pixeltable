@@ -58,7 +58,7 @@ class FunctionCall(Expr):
         if group_by_clause is None:
             group_by_clause = []
 
-        assert fn.is_monomorphic
+        assert not fn.is_polymorphic
 
         self.fn = fn
         self.is_method_call = is_method_call
@@ -372,7 +372,7 @@ class FunctionCall(Expr):
         """
         assert self.is_agg_fn_call
         assert isinstance(self.fn, func.AggregateFunction)
-        self.aggregator = self.fn.agg_classes[0](**self.agg_init_args)
+        self.aggregator = self.fn.agg_class(**self.agg_init_args)
 
     def update(self, data_row: DataRow) -> None:
         """
@@ -444,7 +444,7 @@ class FunctionCall(Expr):
             data_row[self.slot_idx] = self.fn.py_fns[0](*args, **kwargs)
         elif self.is_window_fn_call:
             assert isinstance(self.fn, func.AggregateFunction)
-            agg_cls = self.fn.agg_classes[0]
+            agg_cls = self.fn.agg_class
             if self.has_group_by():
                 if self.current_partition_vals is None:
                     self.current_partition_vals = [None] * len(self.group_by)

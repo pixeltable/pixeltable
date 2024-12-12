@@ -74,17 +74,17 @@ class Function(abc.ABC):
         return self.self_path
 
     @property
-    def is_monomorphic(self) -> bool:
-        return len(self.signatures) == 1
+    def is_polymorphic(self) -> bool:
+        return len(self.signatures) > 1
 
     @property
     def signature(self) -> Signature:
-        assert self.is_monomorphic
+        assert not self.is_polymorphic
         return self.signatures[0]
 
     @property
     def arity(self) -> int:
-        assert self.is_monomorphic
+        assert not self.is_polymorphic
         return len(self.signatures[0].parameters)
 
     def project(self, signature_idx: int) -> Function:
@@ -162,11 +162,11 @@ class Function(abc.ABC):
 
     def validate_call(self, bound_args: dict[str, Any]) -> None:
         """Override this to do custom validation of the arguments"""
-        assert self.is_monomorphic
+        assert not self.is_polymorphic
 
     def call_return_type(self, args: Sequence[Any], kwargs: dict[str, Any]) -> ts.ColumnType:
         """Return the type of the value returned by calling this function with the given arguments"""
-        assert self.is_monomorphic
+        assert not self.is_polymorphic
         signature = self.signatures[0]
         if self._conditional_return_type is None:
             return signature.return_type
@@ -222,7 +222,7 @@ class Function(abc.ABC):
 
         from .expr_template_function import Template
 
-        assert self.is_monomorphic
+        assert not self.is_polymorphic
 
         # Resolve each kwarg into a parameter binding
         signature = self.signatures[0]
