@@ -25,7 +25,7 @@ from ..exprs import ColumnRef
 from ..utils.description_helper import DescriptionHelper
 from ..utils.filecache import FileCache
 from .column import Column
-from .globals import _ROWID_COLUMN_NAME, MediaValidation, UpdateStatus, is_system_column_name, is_valid_identifier
+from .globals import _ROWID_COLUMN_NAME, MediaValidation, UpdateStatus, is_system_column_name, is_valid_identifier, IfExistsParam
 from .schema_object import SchemaObject
 from .table_version import TableVersion
 from .table_version_path import TableVersionPath
@@ -786,10 +786,29 @@ class Table(SchemaObject):
         """
         self._tbl_version.rename_column(old_name, new_name)
 
+    def _list_indexinfo_for_test(self) -> list[dict[str, Any]]:
+        """
+        Returns list of all the indexes on this table. Used for testing.
+
+        Returns:
+            A list of index information, each containing the index's
+            id, name, and the name of the column it indexes.
+        """
+        assert not self._is_dropped
+        index_info = []
+        for idx_name, idx in self._tbl_version.idxs_by_name.items():
+            index_info.append({
+                '_id': idx.id,
+                '_name': idx_name,
+                '_column': idx.col.name
+            })
+        return index_info
+
     def add_embedding_index(
             self, column: Union[str, ColumnRef], *, idx_name: Optional[str] = None,
             string_embed: Optional[pxt.Function] = None, image_embed: Optional[pxt.Function] = None,
-            metric: str = 'cosine'
+            metric: str = 'cosine',
+            if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error'
     ) -> None:
         """
         Add an embedding index to the table. Once the index is added, it will be automatically kept up to data as new
@@ -808,9 +827,14 @@ class Table(SchemaObject):
             image_embed: A function to embed images; required if the column is an `Image` column.
             metric: Distance metric to use for the index; one of `'cosine'`, `'ip'`, or `'l2'`;
                 the default is `'cosine'`.
+            if_exists: Directive for handling an existing index with the same name. Must be one of the following:
+                - `'error'`: raise an error if an index with the same name already exists.
+                - `'ignore'`: do nothing if an index with the same name already exists.
+                - `'replace'` or `'replace_force'`: replace the existing index with the new one.
+                Defaults to `'error'`.
 
         Raises:
-            Error: If an index with that name already exists for the table, or if the specified column does not exist.
+            Error: If an index with that name already exists for the table and if_exists='error', or if the specified column does not exist.
 
         Examples:
             Add an index to the `img` column of the table `my_table` by column name:
@@ -854,7 +878,18 @@ class Table(SchemaObject):
             col = column.col
 
         if idx_name is not None and idx_name in self._tbl_version.idxs_by_name:
-            raise excs.Error(f'Duplicate index name: {idx_name}')
+            _if_exists = IfExistsParam.validated(if_exists, 'if_exists')
+            # An index with the same name already exists.
+            # Handle it according to if_exists.
+            if _if_exists == IfExistsParam.ERROR:
+                raise excs.Error(f'Duplicate index name: {idx_name}')
+            if not isinstance(self._tbl_version.idxs_by_name[idx_name].idx, index.EmbeddingIndex):
+                raise excs.Error(f'Index `{idx_name}` is not an embedding index. Cannot {_if_exists.value} it.')
+            if _if_exists == IfExistsParam.IGNORE:
+                return
+            assert _if_exists == IfExistsParam.REPLACE or _if_exists == IfExistsParam.REPLACE_FORCE
+            self.drop_index(idx_name=idx_name)
+            assert idx_name not in self._tbl_version.idxs_by_name
         from pixeltable.index import EmbeddingIndex
 
         # create the EmbeddingIndex instance to verify args
