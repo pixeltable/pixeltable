@@ -495,6 +495,7 @@ class TableVersion:
         assert idx_md.name in self.idxs_by_name
         idx_info = self.idxs_by_name[idx_md.name]
         del self.idxs_by_name[idx_md.name]
+        del self.idx_md[idx_id]
 
         with Env.get().engine.begin() as conn:
             self._drop_columns([idx_info.val_col, idx_info.undo_col])
