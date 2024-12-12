@@ -531,10 +531,10 @@ class FunctionCall(Expr):
             # Schema versions prior to 24 did not store the return_type in metadata, and there is no obvious way to
             # infer it during DB migration, so we might encounter a stored return_type of None. In that case, we use
             # the call_return_type that we just inferred (which matches the deserialization behavior prior to
-            # version 24).
+            # version 25).
             return_type = call_return_type
         else:
-            # There is a return_type stored in metadata (schema version >= 24).
+            # There is a return_type stored in metadata (schema version >= 25).
             # Check that the stored return_type of the UDF call matches the column type of the FunctionCall, and
             # fail-fast if it doesn't (otherwise we risk getting downstream database errors).
             if not return_type.is_supertype_of(call_return_type, ignore_nullable=True):

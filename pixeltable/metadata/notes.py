@@ -3,6 +3,7 @@
 # the unit tests when new versions are added.
 VERSION_NOTES = {
     25: 'Functions with multiple signatures',
+    24: 'Added TableMd/IndexMd.indexed_col_tbl_id',
     23: 'DataFrame.from_clause',
     22: 'TableMd/ColumnMd.media_validation',
     21: 'Separate InlineArray and InlineList',

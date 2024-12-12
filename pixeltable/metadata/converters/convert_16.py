@@ -1,3 +1,4 @@
+from uuid import UUID
 import sqlalchemy as sql
 
 from pixeltable.metadata import register_converter
@@ -12,7 +13,7 @@ def _(engine: sql.engine.Engine) -> None:
     )
 
 
-def __update_table_md(table_md: dict) -> None:
+def __update_table_md(table_md: dict, table_id: UUID) -> None:
     # External stores are not migratable; just drop them
     del table_md['remotes']
     table_md['external_stores'] = {}
