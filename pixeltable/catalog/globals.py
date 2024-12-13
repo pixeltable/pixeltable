@@ -64,7 +64,8 @@ class IfExistsParam(enum.Enum):
         except KeyError:
             raise excs.Error(f'{param_name} must be one of: {[e.value for e in cls]}')
 
-class CreateTableType(enum.Enum):
+class CreateType(enum.Enum):
+    DIR = 'directory'
     TABLE = 'table'
     VIEW = 'view'
     SNAPSHOT = 'snapshot'

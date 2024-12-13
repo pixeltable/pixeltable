@@ -116,13 +116,15 @@ class TestDirs:
         with pytest.raises(excs.Error) as exc_info:
             _ = pxt.create_dir('dir1.sub1', if_exists='replace')
         assert ('already exists' in str(exc_info.value)
-            and 'not empty' in str(exc_info.value))
+            and 'has dependents' in str(exc_info.value)
+            and 'replace_force' in str(exc_info.value))
         listing = pxt.list_dirs(recursive=True)
         assert listing == dirs
         with pytest.raises(excs.Error) as exc_info:
             _ = pxt.create_dir('dir1', if_exists='replace')
         assert ('already exists' in str(exc_info.value)
-            and 'not empty' in str(exc_info.value))
+            and 'has dependents' in str(exc_info.value)
+            and 'replace_force' in str(exc_info.value))
         listing = pxt.list_dirs(recursive=True)
         assert listing == dirs
 

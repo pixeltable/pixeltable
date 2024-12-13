@@ -25,22 +25,62 @@ def init() -> None:
     """Initializes the Pixeltable environment."""
     _ = Catalog.get()
 
-def _handle_existing_table(
+def _drop_existing_path_and_dependents(
     path_str: str,
-    caller_context: catalog.CreateTableType,
-    if_exists: catalog.IfExistsParam
-) -> Optional[catalog.SchemaObject]:
-    """Handle existing table, view, or snapshot, during create call as per user directive.
+    obj: catalog.SchemaObject
+) -> None:
+    """Drop an existing object and all its dependents.
+
+    Any error from drop API will not be ignored.
 
     Args:
-        path_str: An existing and valid path to the table, view, or snapshot.
-        caller_context: Whether the caller of this function is creating a table, view, or snapshot, at the existing path.
+        path_str: A valid path to the existing object.
+        obj: the object at the path. Must be one of: dir, table, view, or snapshot.
+    """
+    assert isinstance(obj, catalog.Dir) or isinstance(obj, catalog.Table) or isinstance(obj, catalog.View)
+    if isinstance(obj, catalog.Dir):
+        drop_dir(path_str, force=True, ignore_errors=False)
+    else:
+        drop_table(path_str, force=True, ignore_errors=False)
+
+def _obj_has_dependents(cat: Catalog, obj: catalog.SchemaObject) -> bool:
+    """Check if the object has dependents.
+
+    For a directory, dependents => children.
+    For a table, view, or snapshot, dependents => views/snapshots.
+
+    Args:
+        cat: The catalog object.
+        obj: A valid existing object to check for dependents.
+
+    Returns:
+        `True` if the object is directory and has children,
+        or if the object is table, view, or snapshot, and has dependents.
+        `False` otherwise.
+    """
+    assert isinstance(obj, catalog.Dir) or isinstance(obj, catalog.Table) or isinstance(obj, catalog.View)
+    if isinstance(obj, catalog.Dir):
+        return len(cat.paths.get_children(catalog.Path(obj._path), child_type=None, recursive=False)) > 0
+    else:
+        return len(cat.tbl_dependents[obj._id]) > 0
+
+def _handle_existing_path(
+    path_str: str,
+    caller_context: catalog.CreateType,
+    if_exists: catalog.IfExistsParam
+) -> Optional[catalog.SchemaObject]:
+    """Handle existing dir, table, view, or snapshot, during create call as per user directive.
+
+    Args:
+        path_str: An existing and valid path to the dir, table, view, or snapshot.
+        caller_context: Whether the caller of this function is creating a dir, table, view, or snapshot, at the existing path.
         if_exists: Directive regarding how to handle the existing path.
             Must be one of the following:
             - `'error'`: raise an error
-            - `'ignore'`: do nothing and return a handle to the existing table, view, or snapshot
-            - `'replace'`: if the existing table, view, or snapshot, has no dependents, drop it
-            - `'replace_force'`: drop the existing table, view, or snapshot, and all its dependents
+            - `'ignore'`: do nothing and return a handle to the existing dir, table, view, or snapshot
+            - `'replace'`: if the existing dir, table, view, or snapshot, has no dependents, drop it
+            - `'replace_force'`: drop the existing dir, table, view, or snapshot, and all its dependents
+        For a dir, dependents = children; for a table, view, or snapshot, dependents = views/snapshots.
 
     Returns:
         A handle to the existing table, view, or snapshot, if `if_exists='ignore'`, otherwise `None`.
@@ -57,12 +97,13 @@ def _handle_existing_table(
         raise excs.Error(f'Path `{path_str}` already exists.')
 
     existing_path = cat.paths[path]
-    expected_obj_type = catalog.Table if caller_context == catalog.CreateTableType.TABLE else catalog.View
+    expected_obj_type = catalog.Dir if caller_context == catalog.CreateType.DIR else \
+        catalog.Table if caller_context == catalog.CreateType.TABLE else catalog.View
     obj_type_str = caller_context.value.capitalize()
     existing_path_is_snapshot = expected_obj_type == catalog.View and existing_path.get_metadata()['is_snapshot']
-    # Check if the existing path is of expected type of table.
+    # Check if the existing path is of expected type.
     if (not isinstance(existing_path, expected_obj_type)
-        or (caller_context == catalog.CreateTableType.SNAPSHOT and not existing_path_is_snapshot)):
+        or (caller_context == catalog.CreateType.SNAPSHOT and not existing_path_is_snapshot)):
             raise excs.Error(f'Path `{path_str}` already exists but is not a {obj_type_str}. Cannot {if_exists.value} it.')
 
     # if_exists='ignore' return the handle to the existing object.
@@ -72,15 +113,15 @@ def _handle_existing_table(
 
     # Check if the existing object has dependents. If so, cannot replace it
     # unless if_exists='replace_force'.
-    has_dependents = len(cat.tbl_dependents[existing_path._id]) > 0
+    has_dependents = _obj_has_dependents(cat, existing_path)
     if if_exists == catalog.IfExistsParam.REPLACE and has_dependents:
-        raise excs.Error(f"Path `{path_str}` already exists and has dependents. Use `if_exists='replace_force'` to replace it.")
+        raise excs.Error(f"{obj_type_str} `{path_str}` already exists and has dependents. Use `if_exists='replace_force'` to replace it.")
     else:
         assert if_exists == catalog.IfExistsParam.REPLACE_FORCE or not has_dependents
-        # Drop the existing table so it can be replaced.
-        # Any error from drop_table will not be ignored.
+        # Drop the existing path so it can be replaced.
         _logger.info(f"Dropping and recreating {obj_type_str} `{path_str}`.")
-        drop_table(path_str, force=True, ignore_errors=False)
+        _drop_existing_path_and_dependents(path_str, existing_path)
+        assert cat.paths.check_if_exists(path) is None
 
     return None
 
@@ -149,7 +190,7 @@ def create_table(
 
     if cat.paths.check_if_exists(path) is not None:
         # The table already exists. Handle it as per user directive.
-        existing_table = _handle_existing_table(path_str, catalog.CreateTableType.TABLE, if_exists)
+        existing_table = _handle_existing_path(path_str, catalog.CreateType.TABLE, if_exists)
         if existing_table is not None:
             assert isinstance(existing_table, catalog.Table)
             return existing_table
@@ -273,8 +314,8 @@ def create_view(
 
     if cat.paths.check_if_exists(path) is not None:
         # The view already exists. Handle it as per user directive.
-        curr_context = catalog.CreateTableType.SNAPSHOT if is_snapshot else catalog.CreateTableType.VIEW
-        existing_path = _handle_existing_table(path_str, curr_context, if_exists)
+        curr_context = catalog.CreateType.SNAPSHOT if is_snapshot else catalog.CreateType.VIEW
+        existing_path = _handle_existing_path(path_str, curr_context, if_exists)
         if existing_path is not None:
             assert isinstance(existing_path, catalog.View)
             return existing_path
@@ -554,24 +595,10 @@ def create_dir(path_str: str, if_exists: Literal['error', 'ignore', 'replace', '
 
     if cat.paths.check_if_exists(path):
         # The directory already exists. Handle it as per user directive.
-        if if_exists == catalog.IfExistsParam.ERROR:
-            raise excs.Error(f'Path `{path_str}` already exists.')
-        existing_dir = cat.paths[path]
-        if not isinstance(existing_dir, catalog.Dir):
-            raise excs.Error(f'Path `{path_str}` already exists but is not a Dir. Cannot {if_exists.value} it.')
-
-        if if_exists == catalog.IfExistsParam.IGNORE:
-            return existing_dir
-
-        has_children = len(cat.paths.get_children(path, child_type=None, recursive=False)) > 0
-        if if_exists == catalog.IfExistsParam.REPLACE and has_children:
-            raise excs.Error(f"Directory `{path_str}` already exists and is not empty. Use `if_exists='replace_force'` to replace it.")
-        else:
-            assert if_exists == catalog.IfExistsParam.REPLACE_FORCE or not has_children
-            # Drop the existing directory so it can be replaced.
-            # Any error from drop_dir will not be ignored.
-            _logger.info(f'Dropping and recreating directory `{path_str}`.')
-            drop_dir(path_str, force=True, ignore_errors=False)
+        existing_path = _handle_existing_path(path_str, catalog.CreateType.DIR, if_exists)
+        if existing_path is not None:
+            assert isinstance(existing_path, catalog.Dir)
+            return existing_path
 
     parent = cat.paths[path.parent]
     assert parent is not None
