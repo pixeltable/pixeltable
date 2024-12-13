@@ -47,6 +47,9 @@ class View(Table):
     def _display_name(cls) -> str:
         return 'view'
 
+    def _has_dependents(self) -> bool:
+        return len(Catalog.get().tbl_dependents[self._id]) > 0
+
     @classmethod
     def _create(
             cls, dir_id: UUID, name: str, base: TableVersionPath, additional_columns: dict[str, Any],

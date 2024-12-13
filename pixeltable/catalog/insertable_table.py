@@ -32,6 +32,9 @@ class InsertableTable(Table):
     def _display_name(cls) -> str:
         return 'table'
 
+    def _has_dependents(self) -> bool:
+        return len(Catalog.get().tbl_dependents[self._id]) > 0
+
     # MODULE-LOCAL, NOT PUBLIC
     @classmethod
     def _create(

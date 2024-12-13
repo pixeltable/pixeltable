@@ -70,3 +70,8 @@ class SchemaObject:
         """Subclasses need to override this to make the change persistent"""
         self.__name = new_name
         self.__dir_id = new_dir_id
+
+    @abstractmethod
+    def _has_dependents(self) -> bool:
+        """Returns True if this object has dependents (e.g., children, views)"""
+        pass

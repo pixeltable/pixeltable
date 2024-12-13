@@ -43,27 +43,6 @@ def _drop_existing_path_and_dependents(
     else:
         drop_table(path_str, force=True, ignore_errors=False)
 
-def _obj_has_dependents(cat: Catalog, obj: catalog.SchemaObject) -> bool:
-    """Check if the object has dependents.
-
-    For a directory, dependents => children.
-    For a table, view, or snapshot, dependents => views/snapshots.
-
-    Args:
-        cat: The catalog object.
-        obj: A valid existing object to check for dependents.
-
-    Returns:
-        `True` if the object is directory and has children,
-        or if the object is table, view, or snapshot, and has dependents.
-        `False` otherwise.
-    """
-    assert isinstance(obj, catalog.Dir) or isinstance(obj, catalog.Table) or isinstance(obj, catalog.View)
-    if isinstance(obj, catalog.Dir):
-        return len(cat.paths.get_children(catalog.Path(obj._path), child_type=None, recursive=False)) > 0
-    else:
-        return len(cat.tbl_dependents[obj._id]) > 0
-
 def _handle_existing_path(
     path_str: str,
     caller_context: catalog.CreateType,
@@ -113,7 +92,7 @@ def _handle_existing_path(
 
     # Check if the existing object has dependents. If so, cannot replace it
     # unless if_exists='replace_force'.
-    has_dependents = _obj_has_dependents(cat, existing_path)
+    has_dependents = existing_path._has_dependents()
     if if_exists == catalog.IfExistsParam.REPLACE and has_dependents:
         raise excs.Error(f"{obj_type_str} `{path_str}` already exists and has dependents. Use `if_exists='replace_force'` to replace it.")
     else:
