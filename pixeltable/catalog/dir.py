@@ -21,7 +21,9 @@ class Dir(SchemaObject):
     def _display_name(cls) -> str:
         return 'directory'
 
+    @property
     def _has_dependents(self) -> bool:
+        """ Returns True if this directory has any children. """
         from pixeltable.catalog import Catalog, Path
         return len(Catalog.get().paths.get_children(Path(self._path), child_type=None, recursive=False)) > 0
 

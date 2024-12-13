@@ -2,7 +2,6 @@ import dataclasses
 import logging
 from typing import Any, Iterable, Optional, Union, Literal
 from uuid import UUID
-from enum import Enum
 
 import pandas as pd
 import sqlalchemy as sql
@@ -25,25 +24,7 @@ def init() -> None:
     """Initializes the Pixeltable environment."""
     _ = Catalog.get()
 
-def _drop_existing_path_and_dependents(
-    path_str: str,
-    obj: catalog.SchemaObject
-) -> None:
-    """Drop an existing object and all its dependents.
-
-    Any error from drop API will not be ignored.
-
-    Args:
-        path_str: A valid path to the existing object.
-        obj: the object at the path. Must be one of: dir, table, view, or snapshot.
-    """
-    assert isinstance(obj, catalog.Dir) or isinstance(obj, catalog.Table) or isinstance(obj, catalog.View)
-    if isinstance(obj, catalog.Dir):
-        drop_dir(path_str, force=True, ignore_errors=False)
-    else:
-        drop_table(path_str, force=True, ignore_errors=False)
-
-def _handle_existing_path(
+def _get_or_drop_existing_path(
     path_str: str,
     caller_context: catalog.CreateType,
     if_exists: catalog.IfExistsParam
@@ -92,14 +73,18 @@ def _handle_existing_path(
 
     # Check if the existing object has dependents. If so, cannot replace it
     # unless if_exists='replace_force'.
-    has_dependents = existing_path._has_dependents()
+    has_dependents = existing_path._has_dependents
     if if_exists == catalog.IfExistsParam.REPLACE and has_dependents:
         raise excs.Error(f"{obj_type_str} `{path_str}` already exists and has dependents. Use `if_exists='replace_force'` to replace it.")
     else:
         assert if_exists == catalog.IfExistsParam.REPLACE_FORCE or not has_dependents
         # Drop the existing path so it can be replaced.
+        # Any errors during drop will be raised.
         _logger.info(f"Dropping and recreating {obj_type_str} `{path_str}`.")
-        _drop_existing_path_and_dependents(path_str, existing_path)
+        if isinstance(existing_path, catalog.Dir):
+            drop_dir(path_str, force=True, ignore_errors=False)
+        else:
+            drop_table(path_str, force=True, ignore_errors=False)
         assert cat.paths.check_if_exists(path) is None
 
     return None
@@ -169,7 +154,7 @@ def create_table(
 
     if cat.paths.check_if_exists(path) is not None:
         # The table already exists. Handle it as per user directive.
-        existing_table = _handle_existing_path(path_str, catalog.CreateType.TABLE, if_exists)
+        existing_table = _get_or_drop_existing_path(path_str, catalog.CreateType.TABLE, if_exists)
         if existing_table is not None:
             assert isinstance(existing_table, catalog.Table)
             return existing_table
@@ -294,7 +279,7 @@ def create_view(
     if cat.paths.check_if_exists(path) is not None:
         # The view already exists. Handle it as per user directive.
         curr_context = catalog.CreateType.SNAPSHOT if is_snapshot else catalog.CreateType.VIEW
-        existing_path = _handle_existing_path(path_str, curr_context, if_exists)
+        existing_path = _get_or_drop_existing_path(path_str, curr_context, if_exists)
         if existing_path is not None:
             assert isinstance(existing_path, catalog.View)
             return existing_path
@@ -574,7 +559,7 @@ def create_dir(path_str: str, if_exists: Literal['error', 'ignore', 'replace', '
 
     if cat.paths.check_if_exists(path):
         # The directory already exists. Handle it as per user directive.
-        existing_path = _handle_existing_path(path_str, catalog.CreateType.DIR, if_exists)
+        existing_path = _get_or_drop_existing_path(path_str, catalog.CreateType.DIR, if_exists)
         if existing_path is not None:
             assert isinstance(existing_path, catalog.Dir)
             return existing_path

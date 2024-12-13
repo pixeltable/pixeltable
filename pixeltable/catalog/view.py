@@ -47,7 +47,9 @@ class View(Table):
     def _display_name(cls) -> str:
         return 'view'
 
+    @property
     def _has_dependents(self) -> bool:
+        """Returns True if this view has any dependent views, or snapshots."""
         return len(Catalog.get().tbl_dependents[self._id]) > 0
 
     @classmethod

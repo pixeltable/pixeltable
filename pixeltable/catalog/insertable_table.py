@@ -32,7 +32,9 @@ class InsertableTable(Table):
     def _display_name(cls) -> str:
         return 'table'
 
+    @property
     def _has_dependents(self) -> bool:
+        """Returns True if this table has any dependent views, or snapshots."""
         return len(Catalog.get().tbl_dependents[self._id]) > 0
 
     # MODULE-LOCAL, NOT PUBLIC

@@ -25,6 +25,7 @@ class NamedFunction(SchemaObject):
     def _display_name(cls) -> str:
         return 'function'
 
+    @property
     def _has_dependents(self) -> bool:
         return False
 

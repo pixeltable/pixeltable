@@ -58,7 +58,7 @@ class IfExistsParam(enum.Enum):
     REPLACE_FORCE = 'replace_force'
 
     @classmethod
-    def validated(cls, param_val: str, param_name: str) -> 'IfExistsParam':
+    def validated(cls, param_val: str, param_name: str) -> IfExistsParam:
         try:
             return cls[param_val.upper()]
         except KeyError:
