@@ -2,11 +2,33 @@
 ifeq ($(OS),Windows_NT)
     SHELL := pwsh.exe
     # PowerShell command to get directory name
-    KERNEL_NAME := $(shell (Get-Item .).Name)
+    # Define Windows-specific commands
+    SHELL_PREFIX := pwsh.exe
+    MKDIR := powershell -Command New-Item -ItemType Directory -Path
+    TOUCH := powershell -Command New-Item -ItemType File -Path
+    RM := powershell -Command Remove-Item -Force
+    RMDIR := powershell -Command Remove-Item -Force -Recurse
+    SET_ENV := set
+    DIR_SEP := \\
+    KERNEL_NAME := $(shell powershell -Command "(Get-Item .).Name")
+    ULIMIT_CMD :=
 else
     SHELL := /bin/bash
+    # Define Unix-specific commands
+    SHELL_PREFIX :=
+    MKDIR := mkdir -p
+    TOUCH := touch
+    RM := rm -f
+    RMDIR := rm -rf
+    SET_ENV := export
+    DIR_SEP := /
     KERNEL_NAME := $(shell basename `pwd`)
+    ULIMIT_CMD := ulimit -n 4000;
 endif
+
+# Common test parameters
+PYTEST_COMMON_ARGS := -v -n auto --dist loadgroup --maxprocesses 6 tests
+NB_CELL_TIMEOUT := 3600
 
 .DEFAULT_GOAL := help
 
@@ -36,9 +58,9 @@ help:
 .PHONY: setup-install
 setup-install:
 ifeq ($(OS),Windows_NT)
-	@if (-not (Test-Path .make-install)) { New-Item -ItemType Directory -Path .make-install }
+	@powershell -Command "if (-not (Test-Path '.make-install')) { New-Item -ItemType Directory -Path '.make-install' }"
 else
-	@mkdir -p .make-install
+	@if [ ! -d ".make-install" ]; then $(MKDIR) .make-install; fi
 endif
 ifdef CONDA_DEFAULT_ENV
 ifeq ($(CONDA_DEFAULT_ENV),base)
@@ -56,21 +78,13 @@ WHISPERX_OK := $(shell python -c "import sys; sys.stdout.write(str(sys.version_i
 	@python -m pip install -qU pip
 	@python -m pip install -q poetry==1.8.4
 	@poetry self add "poetry-dynamic-versioning[plugin]"
-ifeq ($(OS),Windows_NT)
-	@New-Item -ItemType File -Path .make-install/poetry -Force
-else
-	@touch .make-install/poetry
-endif
+	@$(TOUCH) .make-install$(DIR_SEP)poetry -Force
 
 .make-install/deps: poetry.lock
 	@echo "Installing dependencies from poetry ..."
-	@set CMAKE_ARGS='-DLLAVA_BUILD=OFF'
+	@$(SET_ENV) CMAKE_ARGS='-DLLAVA_BUILD=OFF'
 	@poetry install --with dev
-ifeq ($(OS),Windows_NT)
-	@New-Item -ItemType File -Path .make-install/deps -Force
-else
-	@touch .make-install/deps
-endif
+	@$(TOUCH) .make-install$(DIR_SEP)deps -Force
 
 .make-install/others:
 ifeq ($(YOLOX_OK), True)
@@ -91,11 +105,7 @@ else
 endif
 	@echo "Installing Jupyter kernel ..."
 	@python -m ipykernel install --user --name=$(KERNEL_NAME)
-ifeq ($(OS),Windows_NT)
-	@New-Item -ItemType File -Path .make-install/others -Force
-else
-	@touch .make-install/others
-endif
+	@$(TOUCH) .make-install$(DIR_SEP)others -Force
 
 .PHONY: install
 install: setup-install .make-install/poetry .make-install/deps .make-install/others
@@ -111,40 +121,19 @@ fulltest: fullpytest nbtest typecheck docstest
 .PHONY: pytest
 pytest: install
 	@echo "Running pytest ..."
-ifeq ($(OS),Windows_NT)
-	@pytest -v -n auto --dist loadgroup --maxprocesses 6 tests
-else
-	@ulimit -n 4000; pytest -v -n auto --dist loadgroup --maxprocesses 6 tests
-endif
+	@$(ULIMIT_CMD) pytest $(PYTEST_COMMON_ARGS)
 
 .PHONY: fullpytest
 fullpytest: install
 	@echo "Running pytest, including expensive tests ..."
-ifeq ($(OS),Windows_NT)
-	@pytest -v -m '' -n auto --dist loadgroup --maxprocesses 6 tests
-else
-	@ulimit -n 4000; pytest -v -m '' -n auto --dist loadgroup --maxprocesses 6 tests
-endif
+	@$(ULIMIT_CMD) pytest -v -m '' -n auto --dist loadgroup --maxprocesses 6 tests
 
-NB_CELL_TIMEOUT := 3600
-# We ensure the TQDM progress bar is updated exactly once per cell execution, by setting the refresh rate equal
-# to the timeout. This ensures it will pretty-print if --overwrite is set on nbmake.
-# see: https://github.com/tqdm/tqdm?tab=readme-ov-file#faq-and-known-issues
 .PHONY: nbtest
 nbtest: install
-ifeq ($(OS),Windows_NT)
-	@set TQDM_MININTERVAL=$(NB_CELL_TIMEOUT)
-else
-	@export TQDM_MININTERVAL=$(NB_CELL_TIMEOUT)
-endif
+	@$(SET_ENV) TQDM_MININTERVAL=$(NB_CELL_TIMEOUT)
 	@echo "Running pytest on notebooks ..."
-ifeq ($(OS),Windows_NT)
-	@pwsh.exe scripts/prepare-nb-tests.sh --no-pip docs/notebooks tests
-	@pytest -v --nbmake --nbmake-timeout=$(NB_CELL_TIMEOUT) --nbmake-kernel=$(KERNEL_NAME) target/nb-tests/*.ipynb
-else
-	@scripts/prepare-nb-tests.sh --no-pip docs/notebooks tests
-	@ulimit -n 4000; pytest -v --nbmake --nbmake-timeout=$(NB_CELL_TIMEOUT) --nbmake-kernel=$(KERNEL_NAME) target/nb-tests/*.ipynb
-endif
+	@$(SHELL_PREFIX) scripts/prepare-nb-tests.sh --no-pip docs/notebooks tests
+	@$(ULIMIT_CMD) pytest -v --nbmake --nbmake-timeout=$(NB_CELL_TIMEOUT) --nbmake-kernel=$(KERNEL_NAME) target/nb-tests/*.ipynb
 
 .PHONY: typecheck
 typecheck: install
@@ -158,27 +147,15 @@ docstest: install
 
 .PHONY: lint
 lint: install
-ifeq ($(OS),Windows_NT)
-	@pwsh.exe scripts/lint-changed-files.sh
-else
-	@scripts/lint-changed-files.sh
-endif
+	@$(SHELL_PREFIX) scripts/lint-changed-files.sh
 
 .PHONY: format
 format: install
-ifeq ($(OS),Windows_NT)
-	@pwsh.exe scripts/format-changed-files.sh
-else
-	@scripts/format-changed-files.sh
-endif
+	@$(SHELL_PREFIX) scripts/format-changed-files.sh
 
 .PHONY: release
 release: install
-ifeq ($(OS),Windows_NT)
-	@pwsh.exe scripts/release.sh
-else
-	@scripts/release.sh
-endif
+	@$(SHELL_PREFIX) scripts/release.sh
 
 .PHONY: release-docs
 release-docs: install
@@ -186,15 +163,7 @@ release-docs: install
 
 .PHONY: clean
 clean:
-ifeq ($(OS),Windows_NT)
-	@if exist "*.mp4" del /Q "*.mp4"
-	@if exist "docs\source\tutorials\*.mp4" del /Q "docs\source\tutorials\*.mp4"
-	@if exist ".make-install" rmdir /S /Q ".make-install"
-	@if exist "site" rmdir /S /Q "site"
-	@if exist "target" rmdir /S /Q "target"
-else
-	@rm -f *.mp4 docs/source/tutorials/*.mp4 || true
-	@rm -rf .make-install || true
-	@rm -rf site || true
-	@rm -rf target || true
-endif
+	@$(RM) *.mp4 docs$(DIR_SEP)source$(DIR_SEP)tutorials$(DIR_SEP)*.mp4 || true
+	@$(RMDIR) .make-install || true
+	@$(RMDIR) site || true
+	@$(RMDIR) target || true
