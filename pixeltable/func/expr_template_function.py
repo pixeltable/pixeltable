@@ -66,7 +66,7 @@ class ExprTemplateFunction(Function):
 
         super().__init__([t.signature for t in templates], self_path=self_path)
 
-    def _update_as_projection(self, signature_idx: int) -> None:
+    def _update_as_overload_resolution(self, signature_idx: int) -> None:
         self.templates = [self.templates[signature_idx]]
 
     def instantiate(self, args: Sequence[Any], kwargs: dict[str, Any]) -> 'pixeltable.exprs.Expr':

@@ -32,7 +32,7 @@ class Function(abc.ABC):
     is_method: bool
     is_property: bool
     _conditional_return_type: Optional[Callable[..., ts.ColumnType]]
-    __projections: list[Function]  # Cached monomorphic (one-signature) projections of this function
+    __resolutions: list[Function]  # Cached overload resolutions of this function
 
     # Translates a call to this function with the given arguments to its SQLAlchemy equivalent.
     # Overriden for specific Function instances via the to_sql() decorator. The override must accept the same
@@ -57,7 +57,7 @@ class Function(abc.ABC):
         self._conditional_return_type = None
         self._to_sql = self.__default_to_sql
 
-        self.__projections = []
+        self.__resolutions = []
 
     @property
     def name(self) -> str:
@@ -87,32 +87,32 @@ class Function(abc.ABC):
         assert not self.is_polymorphic
         return len(self.signatures[0].parameters)
 
-    def project(self, signature_idx: int) -> Function:
+    def _overload_resolution(self, signature_idx: int) -> Function:
         """
         Return a new  `Function` that retains just the single signature at index `signature_idx`, and is otherwise
         identical to this `Function`.
         """
         assert 0 <= signature_idx < len(self.signatures)
 
-        # We cache the projections in self.__projections. This ensures that each projection is represented globally
+        # We cache the resolutions in self.__resolutions. This ensures that each resolution is represented globally
         # by a single Python object. We do this dynamically rather than pre-constructing them in order to avoid
         # circular complexity in the `Function` initialization logic.
 
-        # Note that it is necessary to create a projection even if this Function has only one signature, because
+        # Note that it is necessary to create a resolution even if this Function has only one signature, because
         # there is no guarantee we have seen all the Function's @overload declarations at the time this is called.
 
-        while len(self.__projections) <= signature_idx:
-            idx = len(self.__projections)
-            mono_fn = copy(self)
-            mono_fn.signatures = [self.signatures[idx]]
-            mono_fn._update_as_projection(idx)
-            self.__projections.append(mono_fn)
+        while len(self.__resolutions) <= signature_idx:
+            idx = len(self.__resolutions)
+            resolution = copy(self)
+            resolution.signatures = [self.signatures[idx]]
+            resolution._update_as_overload_resolution(idx)
+            self.__resolutions.append(resolution)
 
-        return self.__projections[signature_idx]
+        return self.__resolutions[signature_idx]
 
-    def _update_as_projection(self, signature_idx: int) -> None:
+    def _update_as_overload_resolution(self, signature_idx: int) -> None:
         """
-        Subclasses must implement this in order to do any additional work when creating a projection, beyond
+        Subclasses must implement this in order to do any additional work when creating a resolution, beyond
         simply updating `self.signatures`.
         """
         raise NotImplementedError()
@@ -149,14 +149,14 @@ class Function(abc.ABC):
                 raise excs.Error(f'Function {self.name!r} has no matching signature for arguments')
         assert result >= 0
         assert bound_args is not None
-        return self.project(result), bound_args
+        return self._overload_resolution(result), bound_args
 
     def _bind_to_signature(self, signature_idx: int, args: Sequence[Any], kwargs: dict[str, Any]) -> dict[str, Any]:
         from pixeltable import exprs
 
         signature = self.signatures[signature_idx]
         bound_args = signature.py_signature.bind(*args, **kwargs).arguments
-        self.project(signature_idx).validate_call(bound_args)
+        self._overload_resolution(signature_idx).validate_call(bound_args)
         exprs.FunctionCall.normalize_args(self.name, signature, bound_args)
         return bound_args
 
@@ -207,7 +207,7 @@ class Function(abc.ABC):
             # (Note that the resulting ExprTemplateFunction may have strictly fewer signatures than
             # this Function, in the event that only some of the signatures are successfully bound.)
             templates: list[Template] = []
-            for mono_fn in self.__projections:
+            for mono_fn in self.__resolutions:
                 try:
                     template = mono_fn._bind_to_template(kwargs)
                     templates.append(template)

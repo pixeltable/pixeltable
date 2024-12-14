@@ -508,7 +508,7 @@ class FunctionCall(Expr):
             #       mark this FunctionCall as unusable). It's the same issue as dealing with a renamed UDF.
             raise excs.Error(f'UDF call arguments no longer match UDF signature (code has changed?): {fn}')
 
-        mono_fn = fn.project(signature_idx)
+        mono_fn = fn._overload_resolution(signature_idx)
 
         # Reassemble bound_args
         param_names = list(mono_fn.signature.parameters.keys())

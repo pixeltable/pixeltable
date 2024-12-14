@@ -40,7 +40,7 @@ class CallableFunction(Function):
         self.__doc__ = py_fns[0].__doc__
         super().__init__(signatures, self_path=self_path, is_method=is_method, is_property=is_property)
 
-    def _update_as_projection(self, signature_idx: int) -> None:
+    def _update_as_overload_resolution(self, signature_idx: int) -> None:
         assert len(self.py_fns) > signature_idx
         self.py_fns = [self.py_fns[signature_idx]]
 

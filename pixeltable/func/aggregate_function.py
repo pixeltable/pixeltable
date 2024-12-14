@@ -69,7 +69,7 @@ class AggregateFunction(Function):
 
         super().__init__(signatures, self_path=self_path)
 
-    def _update_as_projection(self, signature_idx: int) -> None:
+    def _update_as_overload_resolution(self, signature_idx: int) -> None:
         self.agg_classes = [self.agg_classes[signature_idx]]
         self.init_param_names = [self.init_param_names[signature_idx]]
 
