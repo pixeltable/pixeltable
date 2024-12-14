@@ -300,6 +300,20 @@ class DataFrame:
         return self.limit(n).collect()
 
     def head(self, n: int = 10) -> DataFrameResultSet:
+        """Return the first n rows of the DataFrame, in insertion order of the underlying Table.
+
+        head() is not supported for joins.
+
+        Args:
+            n: Number of rows to select. Default is 10.
+
+        Returns:
+            A DataFrameResultSet with the first n rows of the DataFrame.
+
+        Raises:
+            Error: If the DataFrame is the result of a join or
+                if the DataFrame has an order_by clause.
+        """
         if self.order_by_clause is not None:
             raise excs.Error(f'head() cannot be used with order_by()')
         if self._has_joins():
@@ -309,6 +323,20 @@ class DataFrame:
         return self.order_by(*order_by_clause, asc=True).limit(n).collect()
 
     def tail(self, n: int = 10) -> DataFrameResultSet:
+        """Return the last n rows of the DataFrame, in insertion order of the underlying Table.
+
+        tail() is not supported for joins.
+
+        Args:
+            n: Number of rows to select. Default is 10.
+
+        Returns:
+            A DataFrameResultSet with the last n rows of the DataFrame.
+
+        Raises:
+            Error: If the DataFrame is the result of a join or
+                if the DataFrame has an order_by clause.
+        """
         if self.order_by_clause is not None:
             raise excs.Error(f'tail() cannot be used with order_by()')
         if self._has_joins():
@@ -394,6 +422,11 @@ class DataFrame:
         return DataFrameResultSet(list(self._output_row_iterator(conn)), self.schema)
 
     def count(self) -> int:
+        """Return the number of rows in the DataFrame.
+
+        Returns:
+            The number of rows in the DataFrame.
+        """
         from pixeltable.plan import Planner
 
         stmt = Planner.create_count_stmt(self._first_tbl, self.where_clause)
@@ -463,6 +496,36 @@ class DataFrame:
         return self._descriptors().to_html()
 
     def select(self, *items: Any, **named_items: Any) -> DataFrame:
+        """ Select columns or expressions from the DataFrame.
+
+        Args:
+            items: expressions to be selected
+            named_items: named expressions to be selected
+
+        Returns:
+            A new DataFrame with the specified select list.
+
+        Raises:
+            Error: If the select list is already specified,
+                or if any of the specified expressions are invalid,
+                or refer to tables not in the DataFrame.
+
+        Examples:
+            Given the DataFrame person from a table t with all its columns and rows:
+
+            >>> person = t.select()
+
+            Select the columns 'name' and 'age' (referenced in table t) from the DataFrame person:
+
+            >>> df = person.select(t.name, t.age)
+
+            Select the columns 'name' (referenced in table t) from the DataFrame person,
+            and a named column 'is_adult' from the expression `age >= 18` where 'age' is
+            another column in table t:
+
+            >>> df = person.select(t.name, is_adult=(t.age >= 18))
+
+        """
         if self.select_list is not None:
             raise excs.Error(f'Select list already specified')
         for name, _ in named_items.items():
@@ -512,6 +575,29 @@ class DataFrame:
         )
 
     def where(self, pred: exprs.Expr) -> DataFrame:
+        """Filter rows based on a predicate.
+
+        Args:
+            pred: the predicate to filter rows
+
+        Returns:
+            A new DataFrame with the specified predicates replacing the where-clause.
+
+        Raises:
+            Error: If the predicate is not a Pixeltable expression,
+                or if it does not return a boolean value,
+                or refers to tables not in the DataFrame.
+
+        Examples:
+            Given the DataFrame person from a table t with all its columns and rows:
+
+            >>> person = t.select()
+
+            Filter the above DataFrame person to only include rows where the column 'age'
+            (referenced in table t) is greater than 30:
+
+            >>> df = person.where(t.age > 30)
+        """
         if not isinstance(pred, exprs.Expr):
             raise excs.Error(f'Where() requires a Pixeltable expression, but instead got {type(pred)}')
         if not pred.col_type.is_bool_type():
@@ -662,11 +748,45 @@ class DataFrame:
         )
 
     def group_by(self, *grouping_items: Any) -> DataFrame:
-        """
-        Add a group-by clause to this DataFrame.
+        """ Add a group-by clause to this DataFrame.
+
         Variants:
         - group_by(<base table>): group a component view by their respective base table rows
         - group_by(<expr>, ...): group by the given expressions
+
+        Note, that grouping will be applied to the rows and take effect when
+        used with an aggregation function like sum(), count() etc.
+
+        Args:
+            grouping_items: expressions to group by
+
+        Returns:
+            A new DataFrame with the specified group-by clause.
+
+        Raises:
+            Error: If the group-by clause is already specified,
+                or if the specified expression is invalid,
+                or refer to tables not in the DataFrame,
+                or if the DataFrame is a result of a join.
+
+        Examples:
+            Given the DataFrame book from a table t with all its columns and rows:
+
+            >>> book = t.select()
+
+            Group the above DataFrame book by the 'genre' column (referenced in table t):
+
+            >>> df = book.group_by(t.genre)
+
+            Use the above DataFrame df grouped by genre to count the number of
+            books for each 'genre':
+
+            >>> df = book.group_by(t.genre).select(t.genre, count=count(t.genre)).show()
+
+            Use the above DataFrame df grouped by genre to the total price of
+            books for each 'genre':
+
+            >>> df = book.group_by(t.genre).select(t.genre, total=sum(t.price)).show()
         """
         if self.group_by_clause is not None:
             raise excs.Error(f'Group-by already specified')
@@ -699,6 +819,35 @@ class DataFrame:
         )
 
     def order_by(self, *expr_list: exprs.Expr, asc: bool = True) -> DataFrame:
+        """ Add an order-by clause to this DataFrame.
+
+        Args:
+            expr_list: expressions to order by
+            asc: whether to order in ascending order (True) or descending order (False).
+                Default is True.
+
+        Returns:
+            A new DataFrame with the specified order-by clause.
+
+        Raises:
+            Error: If the order-by clause is already specified,
+                or if the specified expression is invalid,
+                or refer to tables not in the DataFrame.
+
+        Examples:
+            Given the DataFrame book from a table t with all its columns and rows:
+
+            >>> book = t.select()
+
+            Order the above DataFrame book by two columns (price, pages) in descending order:
+
+            >>> df = book.order_by(t.price, t.pages, asc=False)
+
+            Order the above DataFrame book by price in descending order, but order the pages
+            in ascending order:
+
+            >>> df = book.order_by(t.price, asc=False).order_by(t.pages)
+        """
         for e in expr_list:
             if not isinstance(e, exprs.Expr):
                 raise excs.Error(f'Invalid expression in order_by(): {e}')
@@ -715,6 +864,14 @@ class DataFrame:
         )
 
     def limit(self, n: int) -> DataFrame:
+        """ Limit the number of rows in the DataFrame.
+
+        Args:
+            n: Number of rows to select.
+
+        Returns:
+            A new DataFrame with the specified limited rows.
+        """
         # TODO: allow n to be a Variable that can be substituted in bind()
         assert n is not None and isinstance(n, int)
         return DataFrame(
@@ -728,17 +885,58 @@ class DataFrame:
         )
 
     def update(self, value_spec: dict[str, Any], cascade: bool = True) -> UpdateStatus:
+        """ Update rows in the underlying table of the DataFrame.
+
+        Update rows in the table with the specified value_spec.
+
+        Args:
+            value_spec: a dict of column names to update and the new value to update it to.
+            cascade: if True, also update all computed columns that transitively depend
+                    on the updated columns, including within views. Default is True.
+
+        Returns:
+            UpdateStatus: the status of the update operation.
+
+        Example:
+            Given the DataFrame person from a table t with all its columns and rows:
+
+            >>> person = t.select()
+
+            Via the above DataFrame person, update the column 'city' to 'Oakland' and 'state' to 'CA' in the table t:
+
+            >>> df = person.update({'city': 'Oakland', 'state': 'CA'})
+
+            Via the above DataFrame person, update the column 'age' to 30 for any rows where 'year' is 2014 in the table t:
+
+            >>> df = person.where(t.year == 2014).update({'age': 30})
+        """
         self._validate_mutable('update')
         return self._first_tbl.tbl_version.update(value_spec, where=self.where_clause, cascade=cascade)
 
     def delete(self) -> UpdateStatus:
+        """ Delete rows form the underlying table of the DataFrame.
+
+        The delete operation is only allowed for DataFrames on base tables.
+
+        Returns:
+            UpdateStatus: the status of the delete operation.
+
+        Example:
+            Given the DataFrame person from a table t with all its columns and rows:
+
+            >>> person = t.select()
+
+            Via the above DataFrame person, delete all rows from the table t where the column 'age' is less than 18:
+
+            >>> df = person.where(t.age < 18).delete()
+        """
         self._validate_mutable('delete')
         if not self._first_tbl.is_insertable():
             raise excs.Error(f'Cannot delete from view')
         return self._first_tbl.tbl_version.delete(where=self.where_clause)
 
     def _validate_mutable(self, op_name: str) -> None:
-        """Tests whether this `DataFrame` can be mutated (such as by an update operation)."""
+        """Tests whether this DataFrame can be mutated (such as by an update operation)."""
         if self.group_by_clause is not None or self.grouping_tbl is not None:
             raise excs.Error(f'Cannot use `{op_name}` after `group_by`')
         if self.order_by_clause is not None:
