@@ -111,6 +111,38 @@ class Signature:
         parameters = [Parameter.from_dict(param_dict) for param_dict in d['parameters']]
         return cls(ts.ColumnType.from_dict(d['return_type']), parameters, d['is_batched'])
 
+    def is_consistent_with(self, other: Signature) -> bool:
+        """
+        Returns True if this signature is consistent with the other signature.
+        S is consistent with T if we could safely replace S by T in any call where S is used. Specifically:
+        (i) S.return_type is a supertype of T.return_type
+        (ii) For each parameter p in S, there is a parameter q in T such that:
+            - p and q have the same name and kind
+            - q.col_type is a supertype of p.col_type
+        (iii) For each *required* parameter q in T, there is a parameter p in S with the same name (in which
+            case the kinds and types must also match, by condition (ii)).
+        """
+        # Check (i)
+        if not self.get_return_type().is_supertype_of(other.get_return_type(), ignore_nullable=True):
+            return False
+
+        # Check (ii)
+        for param_name, param in self.parameters.items():
+            if param_name not in other.parameters:
+                return False
+            other_param = other.parameters[param_name]
+            if (param.kind != other_param.kind or
+                (param.col_type is None) != (other_param.col_type is None) or  # this can happen if they are varargs
+                param.col_type is not None and not other_param.col_type.is_supertype_of(param.col_type, ignore_nullable=True)):
+                return False
+
+        # Check (iii)
+        for other_param in other.required_parameters:
+            if other_param.name not in self.parameters:
+                return False
+
+        return True
+
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Signature):
             return False

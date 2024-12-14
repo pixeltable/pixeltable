@@ -283,13 +283,17 @@ class Function(abc.ABC):
         to an instance with from_dict().
         Subclasses can override _as_dict().
         """
+        assert not self.is_polymorphic
         classpath = f'{self.__class__.__module__}.{self.__class__.__qualname__}'
         return {'_classpath': classpath, **self._as_dict()}
 
     def _as_dict(self) -> dict:
         """Default serialization: store the path to self (which includes the module path)"""
         assert self.self_path is not None
-        return {'path': self.self_path}
+        return {
+            'path': self.self_path,
+            'signature': self.signature.as_dict(),
+        }
 
     @classmethod
     def from_dict(cls, d: dict) -> Function:
@@ -300,15 +304,37 @@ class Function(abc.ABC):
         module_path, class_name = d['_classpath'].rsplit('.', 1)
         class_module = importlib.import_module(module_path)
         func_class = getattr(class_module, class_name)
+        assert isinstance(func_class, type) and issubclass(func_class, Function)
         return func_class._from_dict(d)
 
     @classmethod
     def _from_dict(cls, d: dict) -> Function:
         """Default deserialization: load the symbol indicated by the stored symbol_path"""
         assert 'path' in d and d['path'] is not None
+        assert 'signature' in d and d['signature'] is not None
         instance = resolve_symbol(d['path'])
         assert isinstance(instance, Function)
-        return instance
+        signature = Signature.from_dict(d['signature'])
+        idx = instance.__find_matching_overload(signature)
+        if idx is None:
+            signature_note_str = 'any of its signatures' if instance.is_polymorphic else 'its signature as'
+            instance_signature_str = (
+                f'{len(instance.signatures)} signatures' if instance.is_polymorphic else str(instance.signature)
+            )
+            raise excs.Error(
+                f'The signature stored in the database for the UDF `{instance.self_path}` no longer matches '
+                f'{signature_note_str} defined in the code.\nThis probably means that the code for `{instance.self_path}` '
+                f'has changed in a backward-incompatible way.\n'
+                f'Signature in database: {signature}\n'
+                f'Signature in code: {instance_signature_str}'
+            )
+        return instance._overload_resolution(idx)
+
+    def __find_matching_overload(self, sig: Signature) -> Optional[int]:
+        for idx, overload_sig in enumerate(self.signatures):
+            if sig.is_consistent_with(overload_sig):
+                return idx
+        return None
 
     def to_store(self) -> tuple[dict, bytes]:
         """
