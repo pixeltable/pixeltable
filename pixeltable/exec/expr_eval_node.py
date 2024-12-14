@@ -178,7 +178,7 @@ class ExprEvalNode(ExecNode):
                             # one of our inputs had an exception, skip this row
                             continue
                         valid_batch_idxs.append(row_idx)
-                        args, kwargs = fn_call._make_args(row)
+                        args, kwargs = fn_call.make_args(row)
                         for i in range(len(args)):
                             arg_batches[i].append(args[i])
                         for k in kwargs.keys():
