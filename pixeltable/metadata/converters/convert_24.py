@@ -1,4 +1,6 @@
+import importlib
 from typing import Any, Optional
+
 import sqlalchemy as sql
 
 from pixeltable.metadata import register_converter
@@ -11,6 +13,9 @@ def _(engine: sql.engine.Engine) -> None:
 
 
 def __substitute_md(k: Optional[str], v: Any) -> Optional[tuple[Optional[str], Any]]:
+    from pixeltable import func
+    from pixeltable.func.globals import resolve_symbol
+
     if (isinstance(v, dict) and
         '_classpath' in v and
         v['_classpath'] == 'pixeltable.func.expr_template_function.ExprTemplateFunction'):
@@ -27,7 +32,18 @@ def __substitute_md(k: Optional[str], v: Any) -> Optional[tuple[Optional[str], A
                 ],
                 '_classpath': v['_classpath'],
             }
-            return k, v
+
+    if (isinstance(v, dict) and
+        '_classpath' in v and
+        v['_classpath'] in ['pixeltable.func.callable_function.CallableFunction',
+                            'pixeltable.func.aggregate_function.AggregateFunction',
+                            'pixeltable.func.expr_template_function.ExprTemplateFunction']):
+        if 'path' in v:
+            assert 'signature' not in v
+            f = resolve_symbol(v['path'])
+            assert isinstance(f, func.Function)
+            v['signature'] = f.signatures[0].as_dict()
+        return k, v
 
     if isinstance(v, dict) and '_classname' in v and v['_classname'] == 'FunctionCall':
         # Correct an older serialization mechanism where Expr elements of FunctionCall args and
