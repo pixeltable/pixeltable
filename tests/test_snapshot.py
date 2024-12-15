@@ -92,6 +92,16 @@ class TestSnapshot:
                     snap = pxt.create_snapshot(snap_path, query, additional_columns=schema)
                     self.run_basic_test(tbl, query, snap, extra_items=extra_items, reload_md=reload_md)
 
+        # adding column with same name as a base table column at
+        # the time of creating a sanpshot is allowed. It overrides
+        # the base table column in the snapshot.
+        tbl = create_test_tbl(name=tbl_path)
+        assert 'c1' in tbl.columns and type(tbl.c1.col.col_type) == pxt.StringType
+        s = pxt.create_snapshot('snap2', tbl, additional_columns={'c1': pxt.Int})
+        assert 'c1' in s.columns and type(s.c1.col.col_type) == pxt.IntType
+        assert s.select(s.c1).collect()[0] == {'c1': None}
+        assert type(tbl.c1.col.col_type) == pxt.StringType
+
     def __test_create_if_exists(self, sname: str, t: pxt.Table, s: pxt.Table) -> None:
         """ Helper function for testing if_exists parameter while creating a snaphot.
 
@@ -197,6 +207,17 @@ class TestSnapshot:
         with pytest.raises(pxt.Error) as excinfo:
             _ = snap.insert(c3=1.0)
         assert 'cannot insert into view' in str(excinfo.value).lower()
+
+        # adding column is not supported for snapshots
+        with pytest.raises(excs.Error) as exc_info:
+            snap.add_column(non_existing_col1=pxt.String)
+        assert 'cannot add column to a snapshot' in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
+            snap.add_computed_column(non_existing_col1=tbl.c2 + tbl.c3)
+        assert 'cannot add column to a snapshot' in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
+            snap.add_columns({'non_existing_col1': pxt.String, 'non_existing_col2': pxt.String})
+        assert 'cannot add column to a snapshot' in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error) as excinfo:
             _ = snap.delete()

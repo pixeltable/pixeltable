@@ -1702,6 +1702,117 @@ class TestTable:
 
         _ = reload_tester.run_reload_test()
 
+    def test_add_column_if_exists(self, test_tbl: catalog.Table, reload_tester: ReloadTester) -> None:
+        """ Test the if_exists parameter of add_column. """
+        t = test_tbl
+        orig_cnames = t.columns
+        # See create_test_tbl for the column names and types
+        assert 'c1' in orig_cnames and type(t.c1.col.col_type) == pxt.StringType
+        assert 'c2' in orig_cnames and type(t.c2.col.col_type) == pxt.IntType
+        assert 'c3' in orig_cnames and type(t.c3.col.col_type) == pxt.FloatType
+        orig_res = t.select(t.c1).order_by(t.c1).collect()
+
+        # invalid if_exists is rejected
+        expected_err_str = "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']"
+        with pytest.raises(excs.Error) as exc_info:
+            t.add_column(non_existing_col1=pxt.Int, if_exists='invalid')
+        assert expected_err_str in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
+            t.add_computed_column(non_existing_col1=t.c2+t.c3, if_exists='invalid')
+        assert expected_err_str in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
+            t.add_columns({'non_existing_col1': pxt.Int, 'non_existing_col2': pxt.String}, if_exists='invalid')
+        assert expected_err_str in str(exc_info.value).lower()
+
+        assert orig_cnames == t.columns
+
+        # if_exists='error' raises an error if the column already exists
+        # by default, if_exists='error'
+        expected_err_str = "duplicate column name: 'c1'"
+        with pytest.raises(excs.Error) as exc_info:
+            t.add_column(c1=pxt.Int)
+        assert expected_err_str in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
+            t.add_computed_column(c1=t.c2 + t.c3)
+        assert expected_err_str in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
+            t.add_columns({'c1': pxt.Int, 'non_existing_col1': pxt.String})
+        assert expected_err_str in str(exc_info.value).lower()
+
+        with pytest.raises(excs.Error) as exc_info:
+            t.add_column(c1=pxt.Int, if_exists='error')
+        assert expected_err_str in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
+            t.add_computed_column(c1=t.c2 + t.c3, if_exists='error')
+        assert expected_err_str in str(exc_info.value).lower()
+        with pytest.raises(excs.Error) as exc_info:
+            t.add_columns({'c1': pxt.Int, 'non_existing_col1': pxt.String}, if_exists='error')
+        assert expected_err_str in str(exc_info.value).lower()
+
+        assert orig_cnames == t.columns
+        assert type(t.c1.col.col_type) == pxt.StringType
+        assert_resultset_eq(t.select(t.c1).order_by(t.c1).collect(), orig_res, True)
+
+        # if_exists='ignore' does nothing if the column already exists
+        t.add_column(c1=pxt.Int, if_exists='ignore')
+        assert orig_cnames == t.columns
+        assert type(t.c1.col.col_type) == pxt.StringType
+        assert_resultset_eq(t.select(t.c1).order_by(t.c1).collect(), orig_res, True)
+
+        t.add_computed_column(c1=t.c2+1, if_exists='ignore')
+        assert orig_cnames == t.columns
+        assert type(t.c1.col.col_type) == pxt.StringType
+        assert_resultset_eq(t.select(t.c1).order_by(t.c1).collect(), orig_res, True)
+
+        t.add_columns({'c1': pxt.Int, 'non_existing_col1': pxt.String}, if_exists='ignore')
+        assert 'c1' in t.columns and type(t.c1.col.col_type) == pxt.StringType
+        assert_resultset_eq(t.select(t.c1).order_by(t.c1).collect(), orig_res, True)
+        assert 'non_existing_col1' in t.columns
+
+        # if_exists='replace' replaces the column if it has no dependents
+        t.add_columns({'c1': pxt.Int, 'non_existing_col2': pxt.String}, if_exists='replace')
+        assert 'c1' in t.columns and type(t.c1.col.col_type) == pxt.IntType
+        assert t.select(t.c1).collect()[0] == {'c1': None}
+        assert 'non_existing_col2' in t.columns
+        before_cnames = t.columns
+
+        t.add_column(c1=10, if_exists='replace')
+        assert set(t.columns) == set(before_cnames)
+        assert 'c1' in t.columns and type(t.c1.col.col_type) == pxt.IntType
+        assert t.select(t.c1).collect()[0] != orig_res[0]
+        assert t.select(t.c1).collect()[0] == {'c1': 10}
+
+        # revert restores the state back wrt the underlying persistence.
+        # so it will revert the add_column operation and drop the column
+        # and not restore the original column it replaced.
+        t.revert()
+        assert 'c1' not in t.columns
+
+        t.add_column(c1=10)
+        assert set(t.columns) == set(before_cnames)
+        assert 'c1' in t.columns and type(t.c1.col.col_type) == pxt.IntType
+        assert t.select(t.c1).collect()[0] == {'c1': 10}
+
+        t.add_computed_column(c1=t.c2 + t.c3, if_exists='replace')
+        assert set(t.columns) == set(before_cnames)
+        assert 'c1' in t.columns and type(t.c1.col.col_type) == pxt.FloatType
+        assert t.select(t.c1).collect()[0] != {'c1': 10}
+        assert t.select().order_by(t.c1).collect()[0]['c1'] == t.select().order_by(t.c1).collect()[0]['c2'] + t.select().order_by(t.c1).collect()[0]['c3']
+
+        # replace will raise an error if the column has dependents
+        t.add_computed_column(non_existing_col3=t.c1+10)
+        with pytest.raises(excs.Error) as exc_info:
+            t.add_column(c1=pxt.String, if_exists='replace')
+        assert ("already exists" in str(exc_info.value).lower()
+            and "has dependents" in str(exc_info.value).lower())
+        assert 'c1' in t.columns and type(t.c1.col.col_type) == pxt.FloatType
+        assert t.select(t.c1).collect()[0] != {'c1': 10}
+        assert t.select().order_by(t.c1).collect()[0]['c1'] == t.select().order_by(t.c1).collect()[0]['c2'] + t.select().order_by(t.c1).collect()[0]['c3']
+
+        _ = reload_tester.run_query(t.select(t.c1))
+
+        reload_tester.run_reload_test()
+
     def test_add_column_setitem(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         num_orig_cols = len(t.columns)
