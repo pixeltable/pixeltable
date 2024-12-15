@@ -155,26 +155,31 @@ class TestIndex:
         t = small_img_tbl
         sample_img = t.select(t.img).head(1)[0, 'img']
         t.add_embedding_index('img', idx_name='clip_idx', image_embed=clip_img_embed, string_embed=clip_text_embed)
+        orig_res = t.select(t.img.localpath).order_by(t.img.similarity(sample_img, idx='clip_idx'), asc=False).limit(3).collect()
         t.revert()
         # creating an index with the same name again after a revert should be successful
         t.add_embedding_index('img', idx_name='clip_idx', image_embed=clip_img_embed, string_embed=clip_text_embed)
-        _ = t.select(t.img.localpath).order_by(t.img.similarity(sample_img), asc=False).limit(3).collect()
+        res = t.select(t.img.localpath).order_by(t.img.similarity(sample_img, idx='clip_idx'), asc=False).limit(3).collect()
+        assert_resultset_eq(orig_res, res, True)
         t.revert()
         # should be true even after reloading from persistence
-        _ = reload_tester.run_reload_test()
+        reload_tester.run_reload_test()
         t = pxt.get_table('small_img_tbl')
         t.add_embedding_index('img', idx_name='clip_idx', image_embed=clip_img_embed, string_embed=clip_text_embed)
-        _ = t.select(t.img.localpath).order_by(t.img.similarity(sample_img), asc=False).limit(3).collect()
+        res = t.select(t.img.localpath).order_by(t.img.similarity(sample_img, idx='clip_idx'), asc=False).limit(3).collect()
+        assert_resultset_eq(orig_res, res, True)
 
         # same should hold after a drop.
         t.drop_embedding_index(column='img')
         t.add_embedding_index('img', idx_name='clip_idx', image_embed=clip_img_embed, string_embed=clip_text_embed)
-        _ = t.select(t.img.localpath).order_by(t.img.similarity(sample_img), asc=False).limit(3).collect()
+        res = t.select(t.img.localpath).order_by(t.img.similarity(sample_img, idx='clip_idx'), asc=False).limit(3).collect()
+        assert_resultset_eq(orig_res, res, True)
         t.drop_embedding_index(idx_name='clip_idx')
-        _ = reload_tester.run_reload_test()
+        reload_tester.run_reload_test()
         t = pxt.get_table('small_img_tbl')
         t.add_embedding_index('img', idx_name='clip_idx', image_embed=clip_img_embed, string_embed=clip_text_embed)
-        _ = t.select(t.img.localpath).order_by(t.img.similarity(sample_img), asc=False).limit(3).collect()
+        res = t.select(t.img.localpath).order_by(t.img.similarity(sample_img, idx='clip_idx'), asc=False).limit(3).collect()
+        assert_resultset_eq(orig_res, res, True)
 
     def test_embedding_basic(self, img_tbl: pxt.Table, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
         skip_test_if_not_installed('transformers')
