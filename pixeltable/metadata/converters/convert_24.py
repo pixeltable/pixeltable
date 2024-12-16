@@ -18,23 +18,6 @@ def __substitute_md(k: Optional[str], v: Any) -> Optional[tuple[Optional[str], A
 
     if (isinstance(v, dict) and
         '_classpath' in v and
-        v['_classpath'] == 'pixeltable.func.expr_template_function.ExprTemplateFunction'):
-        # Modify the metadata for ExprTemplateFunction to reflect the new multi-template pattern
-        if 'path' not in v:
-            assert 'expr' in v and 'signature' in v and 'name' in v
-            v = {
-                'name': v['name'],
-                'templates': [
-                    {
-                        'expr': v['expr'],
-                        'signature': v['signature'],
-                    }
-                ],
-                '_classpath': v['_classpath'],
-            }
-
-    if (isinstance(v, dict) and
-        '_classpath' in v and
         v['_classpath'] in ['pixeltable.func.callable_function.CallableFunction',
                             'pixeltable.func.aggregate_function.AggregateFunction',
                             'pixeltable.func.expr_template_function.ExprTemplateFunction']):

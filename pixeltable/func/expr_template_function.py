@@ -41,21 +41,6 @@ class Template:
                 msg = str(e)
                 raise excs.Error(f"Default value for parameter '{param.name}': {msg[0].lower() + msg[1:]}")
 
-    def as_dict(self) -> dict:
-        return {
-            'expr': self.expr.as_dict(),
-            'signature': self.signature.as_dict(),
-        }
-
-    @classmethod
-    def from_dict(cls, d: dict) -> 'Template':
-        from pixeltable import exprs
-
-        assert 'expr' in d and 'signature' in d
-        expr = exprs.Expr.from_dict(d['expr'])
-        signature = Signature.from_dict(d['signature'])
-        return cls(expr, signature)
-
 
 class ExprTemplateFunction(Function):
     """A parameterized expression from which an executable Expr is created with a function call."""
@@ -120,14 +105,19 @@ class ExprTemplateFunction(Function):
     def _as_dict(self) -> dict:
         if self.self_path is not None:
             return super()._as_dict()
+        assert not self.is_polymorphic
+        assert len(self.templates) == 1
         return {
-            'templates': [t.as_dict() for t in self.templates],
+            'expr': self.templates[0].expr.as_dict(),
+            'signature': self.templates[0].signature.as_dict(),
             'name': self.name,
         }
 
     @classmethod
     def _from_dict(cls, d: dict) -> Function:
-        if 'templates' not in d:
-            return super()._from_dict(d)
-        templates = [Template.from_dict(t) for t in d['templates']]
-        return cls(templates, name=d['name'])
+        if 'expr' not in d:
+             return super()._from_dict(d)
+        assert 'signature' in d and 'name' in d
+        import pixeltable.exprs as exprs
+        template = Template(exprs.Expr.from_dict(d['expr']), Signature.from_dict(d['signature']))
+        return cls([template], name=d['name'])
