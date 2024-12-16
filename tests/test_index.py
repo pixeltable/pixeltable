@@ -27,28 +27,65 @@ class TestIndex:
     def bad_embed2(x: str) -> pxt.Array[(None,), pxt.Float]:
         return np.zeros(10)
 
-    def test_similarity(self, small_img_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
+    def test_similarity_multiple_index(self, multi_idx_img_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
+        skip_test_if_not_installed('transformers')
+        t = multi_idx_img_tbl
+        sample_img = t.select(t.img).head(1)[0, 'img']
+
+        # similarity query should fail because there are multiple indices
+        # img_idx1 and img_idx2 on img column in multi_idx_img_tbl
+        with pytest.raises(pxt.Error) as exc_info:
+            _ = t.select(t.img.localpath).order_by(t.img.similarity(sample_img), asc=False).limit(1).collect()
+        assert "column 'img' has multiple indices" in str(exc_info.value).lower()
+        # but we can specify the index to use, and the query should work
+        df = t.select(t.img.localpath).order_by(t.img.similarity(sample_img, idx='img_idx1'), asc=False).limit(1)
+        _ = reload_tester.run_query(df)
+        df = t.select(t.img.localpath).order_by(t.img.similarity(sample_img, idx='img_idx2'), asc=False).limit(1)
+        _ = reload_tester.run_query(df)
+
+        # verify that the result is the same as the original query after reload
+        reload_tester.run_reload_test(clear=False)
+
+        # After the query is serialized, dropping the index should raise an error
+        # on reload, because the index is no longer available
+        t.drop_embedding_index(idx_name='img_idx1')
+        with pytest.raises(pxt.Error) as exc_info:
+            _ = reload_tester.run_reload_test(clear=False)
+        assert "index 'img_idx1' not found" in str(exc_info.value).lower()
+
+        # After the query is serialized, dropping and recreating the index should work
+        # on reload, because the index is available again even if it is not the exact
+        # same one.
+        # TODO: due to the bug (PXT-374) cannot create index after drop.
+        # So this scenario is commented out until the pending fix (PR#406) is merged.
+        # recreate the index
+        #t.add_embedding_index('img', idx_name='img_idx1', metric='cosine', image_embed=clip_img_embed, string_embed=clip_text_embed)
+        #reload_tester.run_reload_test(clear=True)
+
+    @pytest.mark.parametrize("use_index_name", [True, False])
+    def test_similarity(self, use_index_name: bool, small_img_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
         skip_test_if_not_installed('transformers')
         t = small_img_tbl
         sample_img = t.select(t.img).head(1)[0, 'img']
         _ = t.select(t.img.localpath).collect()
 
         for metric, is_asc in [('cosine', False), ('ip', False), ('l2', True)]:
-            t.add_embedding_index('img', metric=metric, image_embed=clip_img_embed, string_embed=clip_text_embed)
+            iname = 'idx_'+metric+'_'+str(is_asc) if use_index_name else None
+            t.add_embedding_index('img', idx_name=iname, metric=metric, image_embed=clip_img_embed, string_embed=clip_text_embed)
 
             df = (
-                t.select(img=t.img, sim=t.img.similarity(sample_img))
-                .order_by(t.img.similarity(sample_img), asc=is_asc)
+                t.select(img=t.img, sim=t.img.similarity(sample_img, idx=iname))
+                .order_by(t.img.similarity(sample_img, idx=iname), asc=is_asc)
                 .limit(1)
             )
             res = reload_tester.run_query(df)
             out_img = res[0, 'img']
-            assert_img_eq(sample_img, out_img), f'{metric} failed'
+            assert_img_eq(sample_img, out_img, f'{metric} failed when using index {iname}')
 
             # TODO:  how to verify the output?
             df = (
-                t.select(path=t.img.localpath, sim=t.img.similarity('parachute'))
-                .order_by(t.img.similarity('parachute'), asc=is_asc)
+                t.select(path=t.img.localpath, sim=t.img.similarity('parachute', idx=iname))
+                .order_by(t.img.similarity('parachute', idx=iname), asc=is_asc)
                 .limit(1)
             )
             _ = reload_tester.run_query(df)

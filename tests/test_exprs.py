@@ -865,41 +865,44 @@ class TestExprs:
             _ = t[t.img.nearest('musical instrument')].show(10)
 
     def test_ids(
-            self, test_tbl: catalog.Table, test_tbl_exprs: list[exprs.Expr],
-            img_tbl: catalog.Table, img_tbl_exprs: list[exprs.Expr]
+            self, test_tbl_exprs: list[exprs.Expr], img_tbl_exprs: list[exprs.Expr],
+            sim_exprs_same_idx: list[exprs.Expr], sim_exprs_diff_idx: list[exprs.Expr]
     ) -> None:
         skip_test_if_not_installed('transformers')
         d: dict[int, exprs.Expr] = {}
-        for e in test_tbl_exprs:
+        for e in test_tbl_exprs + img_tbl_exprs + sim_exprs_diff_idx:
             assert e.id is not None
             d[e.id] = e
-        for e in img_tbl_exprs:
+        assert len(d) == len(test_tbl_exprs) + len(img_tbl_exprs) + len(sim_exprs_diff_idx)
+        nexprs_before = len(d)
+        for e in sim_exprs_same_idx:
             assert e.id is not None
             d[e.id] = e
-        assert len(d) == len(test_tbl_exprs) + len(img_tbl_exprs)
+        assert len(d) == nexprs_before + 1
 
     def test_serialization(
-            self, test_tbl_exprs: list[exprs.Expr], img_tbl_exprs: list[exprs.Expr]
+            self, test_tbl_exprs: list[exprs.Expr], img_tbl_exprs: list[exprs.Expr],
+            sim_exprs_same_idx: list[exprs.Expr],  sim_exprs_diff_idx: list[exprs.Expr]
     ) -> None:
         """Test as_dict()/from_dict() (via serialize()/deserialize()) for all exprs."""
         skip_test_if_not_installed('transformers')
-        for e in test_tbl_exprs:
+        for e in test_tbl_exprs + img_tbl_exprs + sim_exprs_same_idx + sim_exprs_diff_idx:
             e_serialized = e.serialize()
             e_deserialized = Expr.deserialize(e_serialized)
             assert e.equals(e_deserialized)
 
-        for e in img_tbl_exprs:
-            e_serialized = e.serialize()
-            e_deserialized = Expr.deserialize(e_serialized)
-            assert e.equals(e_deserialized)
+        serialized_vals = set(e.serialize() for e in sim_exprs_same_idx)
+        assert len(serialized_vals) == 1
+        serialized_vals.clear()
+        serialized_vals.update(e.serialize() for e in sim_exprs_diff_idx)
+        assert len(serialized_vals) == len(sim_exprs_diff_idx)
 
-    def test_print(self, test_tbl_exprs: list[exprs.Expr], img_tbl_exprs: list[exprs.Expr]) -> None:
+    def test_print(self, test_tbl_exprs: list[exprs.Expr], img_tbl_exprs: list[exprs.Expr],
+                   sim_exprs_same_idx: list[exprs.Expr], sim_exprs_diff_idx: list[exprs.Expr]
+    ) -> None:
         skip_test_if_not_installed('transformers')
         _ = pxt.func.FunctionRegistry.get().module_fns
-        for e in test_tbl_exprs:
-            _ = str(e)
-            print(_)
-        for e in img_tbl_exprs:
+        for e in test_tbl_exprs + img_tbl_exprs + sim_exprs_same_idx + sim_exprs_diff_idx:
             _ = str(e)
             print(_)
 
