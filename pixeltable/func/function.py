@@ -326,10 +326,13 @@ class Function(abc.ABC):
             instance_signature_str = (
                 f'{len(instance.signatures)} signatures' if instance.is_polymorphic else str(instance.signature)
             )
+            # TODO: Handle this more gracefully (instead of failing the DB load, allow the DB load to succeed, but
+            #       mark any enclosing FunctionCall as unusable). It's the same issue as dealing with a renamed UDF or
+            #       FunctionCall return type mismatch.
             raise excs.Error(
                 f'The signature stored in the database for the UDF `{instance.self_path}` no longer matches '
-                f'{signature_note_str} defined in the code.\nThis probably means that the code for `{instance.self_path}` '
-                f'has changed in a backward-incompatible way.\n'
+                f'{signature_note_str} as currently defined in the code.\nThis probably means that the code for '
+                f'`{instance.self_path}` has changed in a backward-incompatible way.\n'
                 f'Signature in database: {signature}\n'
                 f'Signature in code: {instance_signature_str}'
             )

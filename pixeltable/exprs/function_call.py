@@ -480,18 +480,10 @@ class FunctionCall(Expr):
         assert 'kwargs' in d
 
         fn = func.Function.from_dict(d['fn'])
+        assert not fn.is_polymorphic
         return_type = ts.ColumnType.from_dict(d['return_type']) if 'return_type' in d else None
         group_by_exprs = components[d['group_by_start_idx']:d['group_by_stop_idx']]
         order_by_exprs = components[d['order_by_start_idx']:]
-
-        # Try to find a function signature that matches the types of the args and kwargs in the dict. We do it this
-        # way, rather than simply serializing signature_idx, in order to ensure we do the right thing after a
-        # backward-compatible change to the UDF signature (for example, re-ordering the @fn.overload declarations,
-        # widening the type of a parameter, or introducing a new optional parameter).
-
-        # Note that args and kwargs represent "already bound arguments": they are not bindable in the Python sense,
-        # because variable args (such as *args and **kwargs) have already been condensed. Therefore we cannot rely
-        # on fn._bind_to_matching_signature to find an appropriate signature.
 
         args = [
             expr if idx is None else components[idx]
@@ -501,17 +493,13 @@ class FunctionCall(Expr):
             param_name: (expr if idx is None else components[idx])
             for param_name, (idx, expr) in d['kwargs'].items()
         }
-        signature_idx = cls.__find_matching_signature(fn, args, kwargs)
-        if signature_idx is None:
-            # No signature matches; this means there has been a backward-incompatible code change to the UDF.
-            # TODO: Handle this more gracefully (instead of failing the DB load, allow the DB load to succeed, but
-            #       mark this FunctionCall as unusable). It's the same issue as dealing with a renamed UDF.
-            raise excs.Error(f'UDF call arguments no longer match UDF signature (code has changed?): {fn}')
 
-        mono_fn = fn._overload_resolution(signature_idx)
+        # `Function.from_dict()` does signature matching, so it is safe to assume that `args` and `kwargs` are
+        # consistent with its signature.
 
-        # Reassemble bound_args
-        param_names = list(mono_fn.signature.parameters.keys())
+        # Reassemble bound_args. Note that args and kwargs represent "already bound arguments": they are not bindable
+        # in the Python sense, because variable args (such as *args and **kwargs) have already been condensed.
+        param_names = list(fn.signature.parameters.keys())
         bound_args = {param_names[i]: arg for i, arg in enumerate(args)}
         bound_args.update(kwargs.items())
 
@@ -525,10 +513,10 @@ class FunctionCall(Expr):
         }
 
         # Evaluate the call_return_type as defined in the current codebase.
-        call_return_type = mono_fn.call_return_type([], unpacked_bound_args)
+        call_return_type = fn.call_return_type([], unpacked_bound_args)
 
         if return_type is None:
-            # Schema versions prior to 24 did not store the return_type in metadata, and there is no obvious way to
+            # Schema versions prior to 25 did not store the return_type in metadata, and there is no obvious way to
             # infer it during DB migration, so we might encounter a stored return_type of None. In that case, we use
             # the call_return_type that we just inferred (which matches the deserialization behavior prior to
             # version 25).
@@ -537,14 +525,20 @@ class FunctionCall(Expr):
             # There is a return_type stored in metadata (schema version >= 25).
             # Check that the stored return_type of the UDF call matches the column type of the FunctionCall, and
             # fail-fast if it doesn't (otherwise we risk getting downstream database errors).
+            # TODO: Handle this more gracefully (instead of failing the DB load, allow the DB load to succeed, but
+            #       mark this FunctionCall as unusable). It's the same issue as dealing with a renamed UDF or Function
+            #       signature mismatch.
             if not return_type.is_supertype_of(call_return_type, ignore_nullable=True):
                 raise excs.Error(
-                    f'UDF call return type `{call_return_type}` no longer matches '
-                    f'column type `{return_type}` (code has changed?): {fn}'
+                    f'The return type stored in the database for a UDF call to `{fn.self_path}` no longer matches the '
+                    f'return type of the UDF as currently defined in the code.\nThis probably means that the code for '
+                    f'`{fn.self_path}` has changed in a backward-incompatible way.\n'
+                    f'Return type in database: `{return_type}`\n'
+                    f'Return type as currently defined: `{call_return_type}`'
                 )
 
         fn_call = cls(
-            mono_fn,
+            fn,
             bound_args,
             return_type,
             group_by_clause=group_by_exprs,
