@@ -283,12 +283,13 @@ class Function(abc.ABC):
         to an instance with from_dict().
         Subclasses can override _as_dict().
         """
+        # We currently only ever serialize a function that has a specific signature (not a polymorphic form).
         assert not self.is_polymorphic
         classpath = f'{self.__class__.__module__}.{self.__class__.__qualname__}'
         return {'_classpath': classpath, **self._as_dict()}
 
     def _as_dict(self) -> dict:
-        """Default serialization: store the path to self (which includes the module path)"""
+        """Default serialization: store the path to self (which includes the module path) and signature."""
         assert self.self_path is not None
         return {
             'path': self.self_path,
@@ -314,9 +315,13 @@ class Function(abc.ABC):
         assert 'signature' in d and d['signature'] is not None
         instance = resolve_symbol(d['path'])
         assert isinstance(instance, Function)
+
+        # Load the signature from the DB and check that it is still valid (i.e., is still consistent with a signature
+        # in the code).
         signature = Signature.from_dict(d['signature'])
         idx = instance.__find_matching_overload(signature)
         if idx is None:
+            # No match; generate an informative error message.
             signature_note_str = 'any of its signatures' if instance.is_polymorphic else 'its signature as'
             instance_signature_str = (
                 f'{len(instance.signatures)} signatures' if instance.is_polymorphic else str(instance.signature)
@@ -328,6 +333,7 @@ class Function(abc.ABC):
                 f'Signature in database: {signature}\n'
                 f'Signature in code: {instance_signature_str}'
             )
+        # We found a match; specialize to the appropriate overload resolution (non-polymorphic form) and return that.
         return instance._overload_resolution(idx)
 
     def __find_matching_overload(self, sig: Signature) -> Optional[int]:
