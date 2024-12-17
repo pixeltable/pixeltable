@@ -42,7 +42,7 @@ class TestFunction:
         deserialized = Function.from_dict(d)
         assert isinstance(deserialized, func.CallableFunction)
         # TODO: add Function.exec() and then use that
-        assert deserialized.py_fns[0](1) == 2
+        assert deserialized.py_fn(1) == 2
 
     def test_list(self, reset_db) -> None:
         _ = FunctionRegistry.get().list_functions()

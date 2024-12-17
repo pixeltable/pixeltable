@@ -8,7 +8,7 @@ from .function import Function
 from .signature import Signature
 
 
-class Template:
+class ExprTemplate:
     """
     Encapsulates a single signature of an `ExprTemplateFunction` and its associated parameterized expression,
     along with various precomputed metadata. (This is analogous to a `Callable`-`Signature` pair in a
@@ -16,6 +16,7 @@ class Template:
     """
     expr: 'pixeltable.exprs.Expr'
     signature: Signature
+    param_exprs: list['pixeltable.exprs.Variable']
 
     def __init__(self, expr: 'pixeltable.exprs.Expr', signature: Signature):
         from pixeltable import exprs
@@ -30,7 +31,7 @@ class Template:
 
         # verify default values
         self.defaults: dict[str, exprs.Literal] = {}  # key: param name, value: default value converted to a Literal
-        for param in signature.parameters.values():
+        for param in self.signature.parameters.values():
             if param.default is inspect.Parameter.empty:
                 continue
             param_expr = self.param_exprs_by_name[param.name]
@@ -44,8 +45,10 @@ class Template:
 
 class ExprTemplateFunction(Function):
     """A parameterized expression from which an executable Expr is created with a function call."""
+    templates: list[ExprTemplate]
+    self_name: str
 
-    def __init__(self, templates: list[Template], self_path: Optional[str] = None, name: Optional[str] = None):
+    def __init__(self, templates: list[ExprTemplate], self_path: Optional[str] = None, name: Optional[str] = None):
         self.templates = templates
         self.self_name = name
 
@@ -54,13 +57,17 @@ class ExprTemplateFunction(Function):
     def _update_as_overload_resolution(self, signature_idx: int) -> None:
         self.templates = [self.templates[signature_idx]]
 
+    @property
+    def template(self) -> ExprTemplate:
+        assert not self.is_polymorphic
+        return self.templates[0]
+
     def instantiate(self, args: Sequence[Any], kwargs: dict[str, Any]) -> 'pixeltable.exprs.Expr':
         from pixeltable import exprs
 
         assert not self.is_polymorphic
-        template = self.templates[0]
-        signature = self.signatures[0]
-        bound_args = signature.py_signature.bind(*args, **kwargs).arguments
+        template = self.template
+        bound_args = self.signature.py_signature.bind(*args, **kwargs).arguments
         # apply defaults, otherwise we might have Parameters left over
         bound_args.update(
             {param_name: default for param_name, default in template.defaults.items() if param_name not in bound_args})
@@ -108,8 +115,8 @@ class ExprTemplateFunction(Function):
         assert not self.is_polymorphic
         assert len(self.templates) == 1
         return {
-            'expr': self.templates[0].expr.as_dict(),
-            'signature': self.templates[0].signature.as_dict(),
+            'expr': self.template.expr.as_dict(),
+            'signature': self.signature.as_dict(),
             'name': self.name,
         }
 
@@ -119,5 +126,5 @@ class ExprTemplateFunction(Function):
              return super()._from_dict(d)
         assert 'signature' in d and 'name' in d
         import pixeltable.exprs as exprs
-        template = Template(exprs.Expr.from_dict(d['expr']), Signature.from_dict(d['signature']))
+        template = ExprTemplate(exprs.Expr.from_dict(d['expr']), Signature.from_dict(d['signature']))
         return cls([template], name=d['name'])

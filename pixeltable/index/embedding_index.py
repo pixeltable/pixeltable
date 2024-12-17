@@ -161,16 +161,16 @@ class EmbeddingIndex(IndexBase):
         if signature_idx == -1:
             raise excs.Error(f'{name} must take a single {expected_type.name.lower()} parameter')
 
-        mono_fn = embed_fn._overload_resolution(signature_idx)
+        resolved_fn = embed_fn._overload_resolution(signature_idx)
 
         # validate return type
         param_name = sig.parameters_by_pos[0].name
         if expected_type == ts.ColumnType.Type.STRING:
-            return_type = mono_fn.call_return_type([], {param_name: 'dummy'})
+            return_type = resolved_fn.call_return_type([], {param_name: 'dummy'})
         else:
             assert expected_type == ts.ColumnType.Type.IMAGE
             img = PIL.Image.new('RGB', (512, 512))
-            return_type = mono_fn.call_return_type([], {param_name: img})
+            return_type = resolved_fn.call_return_type([], {param_name: img})
         assert return_type is not None
         if not isinstance(return_type, ts.ArrayType):
             raise excs.Error(f'{name} must return an array, but returns {return_type}')
@@ -179,7 +179,7 @@ class EmbeddingIndex(IndexBase):
             if len(shape) != 1 or shape[0] == None:
                 raise excs.Error(f'{name} must return a 1D array of a specific length, but returns {return_type}')
 
-        return mono_fn
+        return resolved_fn
 
     def as_dict(self) -> dict:
         return {

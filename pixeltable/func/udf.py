@@ -6,7 +6,7 @@ import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 
 from .callable_function import CallableFunction
-from .expr_template_function import ExprTemplateFunction, Template
+from .expr_template_function import ExprTemplateFunction, ExprTemplate
 from .function import Function
 from .function_registry import FunctionRegistry
 from .globals import validate_symbol_path
@@ -132,7 +132,11 @@ def make_function(
 
         signatures = [sig]
     else:
-        assert batch_size is None and is_method is None and is_property is None
+        if batch_size is not None:
+            raise excs.Error(f'{errmsg_name}(): batched functions cannot have type substitutions')
+        if is_method is not None or is_property is not None:
+            # TODO: Support this for `is_method`?
+            raise excs.Error(f'{errmsg_name}(): type substitutions cannot be used with `is_method` or `is_property`')
         signatures = [
             Signature.create(decorated_fn, param_types, return_type, type_substitutions=subst)
             for subst in type_substitutions
@@ -147,7 +151,7 @@ def make_function(
 
     result = CallableFunction(
         signatures=signatures,
-        py_fns=[py_fn] * len(signatures),
+        py_fns=[py_fn] * len(signatures),  # All signatures share the same Python function
         self_path=function_path,
         self_name=function_name,
         batch_size=batch_size,
@@ -190,7 +194,7 @@ def expr_udf(*args: Any, **kwargs: Any) -> Any:
         sig.return_type = expr.col_type
         if function_path is not None:
             validate_symbol_path(function_path)
-        return ExprTemplateFunction([Template(expr, sig)], self_path=function_path, name=py_fn.__name__)
+        return ExprTemplateFunction([ExprTemplate(expr, sig)], self_path=function_path, name=py_fn.__name__)
 
     if len(args) == 1:
         assert len(kwargs) == 0 and callable(args[0])

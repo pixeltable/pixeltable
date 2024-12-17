@@ -126,7 +126,7 @@ class AggregateFunction(Function):
     def exec(self, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:
         raise NotImplementedError
 
-    def overload(self, cls: Callable) -> AggregateFunction:
+    def overload(self, cls: type[Aggregator]) -> AggregateFunction:  # type: ignore[override]
         if not isinstance(cls, type) or not issubclass(cls, Aggregator):
             raise excs.Error(f'Invalid argument to @overload decorator: {cls}')
         sig, init_param_names = self.__cls_to_signature(cls)
@@ -137,6 +137,8 @@ class AggregateFunction(Function):
 
     def help_str(self) -> str:
         res = super().help_str()
+        # We need to reference agg_classes[0] rather than agg_class here, because we want this to work even if the
+        # aggregator is polymorphic (in which case we use the docstring of the originally decorated UDA).
         res += '\n\n' + inspect.getdoc(self.agg_classes[0].update)
         return res
 
@@ -175,10 +177,10 @@ class AggregateFunction(Function):
                     f'{self.display_name}(): group_by invalid with an aggregate function that does not allow windows')
             group_by_clause = kwargs.pop(self.GROUP_BY_PARAM)
 
-        mono_fn, bound_args = self._bind_to_matching_signature(args, kwargs)
-        return_type = mono_fn.call_return_type(args, kwargs)
+        resolved_fn, bound_args = self._bind_to_matching_signature(args, kwargs)
+        return_type = resolved_fn.call_return_type(args, kwargs)
         return exprs.FunctionCall(
-            mono_fn,
+            resolved_fn,
             bound_args,
             return_type,
             order_by_clause=[order_by_clause] if order_by_clause is not None else [],

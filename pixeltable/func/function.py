@@ -16,7 +16,7 @@ from .globals import resolve_symbol
 from .signature import Signature
 
 if TYPE_CHECKING:
-    from .expr_template_function import ExprTemplateFunction, Template
+    from .expr_template_function import ExprTemplateFunction, ExprTemplate
 
 
 class Function(abc.ABC):
@@ -194,22 +194,22 @@ class Function(abc.ABC):
         raise NotImplementedError(f'Function of type {type(self)} does not support overloading')
 
     def using(self, **kwargs: Any) -> 'ExprTemplateFunction':
-        from .expr_template_function import ExprTemplateFunction, Template
+        from .expr_template_function import ExprTemplateFunction, ExprTemplate
 
         assert len(self.signatures) > 0
         if len(self.signatures) == 1:
             # Only one signature: call _bind_to_template() and surface any errors directly
-            template = self._bind_to_template(kwargs)
+            template = self._bind_and_create_template(kwargs)
             return ExprTemplateFunction([template])
         else:
             # Multiple signatures: iterate over each signature and generate a template for each
             # successful binding. If there are no successful bindings, raise a generic error.
             # (Note that the resulting ExprTemplateFunction may have strictly fewer signatures than
             # this Function, in the event that only some of the signatures are successfully bound.)
-            templates: list[Template] = []
-            for mono_fn in self.__resolutions:
+            templates: list[ExprTemplate] = []
+            for resolved_fn in self.__resolutions:
                 try:
-                    template = mono_fn._bind_to_template(kwargs)
+                    template = resolved_fn._bind_and_create_template(kwargs)
                     templates.append(template)
                 except (TypeError, excs.Error):
                     continue
@@ -217,10 +217,10 @@ class Function(abc.ABC):
                 raise excs.Error(f'Function {self.name!r} has no matching signature for arguments')
             return ExprTemplateFunction(templates)
 
-    def _bind_to_template(self, kwargs: dict[str, Any]) -> 'Template':
+    def _bind_and_create_template(self, kwargs: dict[str, Any]) -> 'ExprTemplate':
         from pixeltable import exprs
 
-        from .expr_template_function import Template
+        from .expr_template_function import ExprTemplate
 
         assert not self.is_polymorphic
 
@@ -252,7 +252,7 @@ class Function(abc.ABC):
         # conditional return type.
         new_signature = Signature(call.col_type, residual_params, signature.is_batched)
 
-        return Template(call, new_signature)
+        return ExprTemplate(call, new_signature)
 
     @abc.abstractmethod
     def exec(self, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:

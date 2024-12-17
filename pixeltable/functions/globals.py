@@ -52,7 +52,8 @@ def _(val: sql.ColumnElement) -> Optional[sql.ColumnElement]:
     # TODO: should we have an "Any" type that can be used here?
     type_substitutions=tuple(
         {T: Optional[t]}  # type: ignore[misc]
-        for t in (str, int, float, bool, ts.Timestamp, ts.Json, ts.Image, ts.Video, ts.Audio, ts.Document)
+        for t in (ts.String, ts.Int, ts.Float, ts.Bool, ts.Timestamp,
+                  ts.Json, ts.Image, ts.Video, ts.Audio, ts.Document)
     ),
 )
 class count(func.Aggregator, typing.Generic[T]):

@@ -441,7 +441,7 @@ class FunctionCall(Expr):
 
         if isinstance(self.fn, func.CallableFunction) and not self.fn.is_batched:
             # optimization: avoid additional level of indirection we'd get from calling Function.exec()
-            data_row[self.slot_idx] = self.fn.py_fns[0](*args, **kwargs)
+            data_row[self.slot_idx] = self.fn.py_fn(*args, **kwargs)
         elif self.is_window_fn_call:
             assert isinstance(self.fn, func.AggregateFunction)
             agg_cls = self.fn.agg_class

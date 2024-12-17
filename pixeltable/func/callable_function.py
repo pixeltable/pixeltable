@@ -37,7 +37,7 @@ class CallableFunction(Function):
         self.py_fns = py_fns
         self.self_name = self_name
         self.batch_size = batch_size
-        self.__doc__ = py_fns[0].__doc__
+        self.__doc__ = self.py_fns[0].__doc__
         super().__init__(signatures, self_path=self_path, is_method=is_method, is_property=is_property)
 
     def _update_as_overload_resolution(self, signature_idx: int) -> None:
@@ -48,21 +48,24 @@ class CallableFunction(Function):
     def is_batched(self) -> bool:
         return self.batch_size is not None
 
+    @property
+    def py_fn(self) -> Callable:
+        assert not self.is_polymorphic
+        return self.py_fns[0]
+
     def exec(self, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:
         assert not self.is_polymorphic
-        signature = self.signatures[0]
-        py_fn = self.py_fns[0]
         if self.is_batched:
             # Pack the batched parameters into singleton lists
-            constant_param_names = [p.name for p in signature.constant_parameters]
+            constant_param_names = [p.name for p in self.signature.constant_parameters]
             batched_args = [[arg] for arg in args]
             constant_kwargs = {k: v for k, v in kwargs.items() if k in constant_param_names}
             batched_kwargs = {k: [v] for k, v in kwargs.items() if k not in constant_param_names}
-            result = py_fn(*batched_args, **constant_kwargs, **batched_kwargs)
+            result = self.py_fn(*batched_args, **constant_kwargs, **batched_kwargs)
             assert len(result) == 1
             return result[0]
         else:
-            return py_fn(*args, **kwargs)
+            return self.py_fn(*args, **kwargs)
 
     def exec_batch(self, args: list[Any], kwargs: dict[str, Any]) -> list:
         """Execute the function with the given arguments and return the result.
@@ -72,13 +75,11 @@ class CallableFunction(Function):
         """
         assert self.is_batched
         assert not self.is_polymorphic
-        signature = self.signatures[0]
-        py_fn = self.py_fns[0]
         # Unpack the constant parameters
-        constant_param_names = [p.name for p in signature.constant_parameters]
+        constant_param_names = [p.name for p in self.signature.constant_parameters]
         constant_kwargs = {k: v[0] for k, v in kwargs.items() if k in constant_param_names}
         batched_kwargs = {k: v for k, v in kwargs.items() if k not in constant_param_names}
-        return py_fn(*args, **constant_kwargs, **batched_kwargs)
+        return self.py_fn(*args, **constant_kwargs, **batched_kwargs)
 
     # TODO(aaron-siegel): Implement conditional batch sizing
     def get_batch_size(self, *args: Any, **kwargs: Any) -> Optional[int]:
@@ -122,12 +123,12 @@ class CallableFunction(Function):
         return super()._from_dict(d)
 
     def to_store(self) -> tuple[dict, bytes]:
-        assert len(self.signatures) == 1  # multi-signature UDFs not allowed for stored fns
+        assert not self.is_polymorphic  # multi-signature UDFs not allowed for stored fns
         md = {
-            'signature': self.signatures[0].as_dict(),
+            'signature': self.signature.as_dict(),
             'batch_size': self.batch_size,
         }
-        return md, cloudpickle.dumps(self.py_fns[0])
+        return md, cloudpickle.dumps(self.py_fn)
 
     @classmethod
     def from_store(cls, name: Optional[str], md: dict, binary_obj: bytes) -> Function:
