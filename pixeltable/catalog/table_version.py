@@ -174,6 +174,14 @@ class TableVersion:
     def __hash__(self) -> int:
         return hash(self.id)
 
+    def _get_column(self, tbl_id: UUID, col_id: int) -> Column:
+        if self.id == tbl_id:
+            return self.cols_by_id[col_id]
+        else:
+            if self.base is None:
+                raise excs.Error(f'Unknown table id: {tbl_id}')
+            return self.base._get_column(tbl_id, col_id)
+
     def create_snapshot_copy(self) -> TableVersion:
         """Create a snapshot copy of this TableVersion"""
         assert not self.is_snapshot
@@ -336,7 +344,7 @@ class TableVersion:
             # instantiate index object
             cls_name = md.class_fqn.rsplit('.', 1)[-1]
             cls = getattr(index_module, cls_name)
-            idx_col = self.cols_by_id[md.indexed_col_id]
+            idx_col = self._get_column(UUID(md.indexed_col_tbl_id), md.indexed_col_id)
             idx = cls.from_dict(idx_col, md.init_args)
 
             # fix up the sa column type of the index value and undo columns
@@ -458,7 +466,8 @@ class TableVersion:
         idx_cls = type(idx)
         idx_md = schema.IndexMd(
             id=idx_id, name=idx_name,
-            indexed_col_id=col.id, index_val_col_id=val_col.id, index_val_undo_col_id=undo_col.id,
+            indexed_col_id=col.id, indexed_col_tbl_id=str(col.tbl.id),
+            index_val_col_id=val_col.id, index_val_undo_col_id=undo_col.id,
             schema_version_add=self.schema_version, schema_version_drop=None,
             class_fqn=idx_cls.__module__ + '.' + idx_cls.__name__, init_args=idx.as_dict())
         idx_info = self.IndexInfo(id=idx_id, name=idx_name, idx=idx, col=col, val_col=val_col, undo_col=undo_col)

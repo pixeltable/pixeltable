@@ -132,7 +132,7 @@ def _get_metadata(path: str) -> dict:
         assert isinstance(container, av.container.InputContainer)
         streams_info = [__get_stream_metadata(stream) for stream in container.streams]
         result = {
-            'bit_exact': container.bit_exact,
+            'bit_exact': getattr(container, 'bit_exact', False),
             'bit_rate': container.bit_rate,
             'size': container.size,
             'metadata': container.metadata,
