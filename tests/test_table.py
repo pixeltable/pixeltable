@@ -106,10 +106,10 @@ class TestTable:
 
         with pytest.raises(excs.Error) as exc_info:
             pxt.drop_table('test')
-        assert 'no such path: test' in str(exc_info.value).lower()
+        assert 'table `test` does not exist' in str(exc_info.value).lower()
         with pytest.raises(excs.Error) as exc_info:
             pxt.drop_table('dir1.test2')
-        assert 'no such path: dir1.test2' in str(exc_info.value).lower()
+        assert 'table `dir1.test2` does not exist' in str(exc_info.value).lower()
         with pytest.raises(excs.Error) as exc_info:
             pxt.drop_table('.test2')
         assert 'invalid path format' in str(exc_info.value).lower()
@@ -566,6 +566,28 @@ class TestTable:
         pxt.drop_table(t, force=True)  # Drops everything else
         assert len(pxt.list_tables()) == 0
 
+    def test_drop_table_if_not_exists_helper(self) -> None:
+        """ Test the if_not_exists parameter of drop_table API """
+        non_existing_t = 'non_existing_table'
+        table_list = pxt.list_tables()
+        assert non_existing_t not in table_list
+        # invalid if_not_exists value is rejected
+        with pytest.raises(excs.Error) as exc_info:
+            pxt.drop_table(non_existing_t, if_not_exists='invalid')
+        assert "if_not_exists must be one of: ['error', 'ignore']" in str(exc_info.value)
+        # if_not_exists='error' should raise an error if the table exists
+        with pytest.raises(excs.Error) as exc_info:
+            pxt.drop_table(non_existing_t, if_not_exists='error')
+        assert 'does not exist' in str(exc_info.value)
+        # default behavior is to raise an error if the table does not exist
+        with pytest.raises(excs.Error) as exc_info:
+            pxt.drop_table(non_existing_t)
+        assert 'does not exist' in str(exc_info.value)
+        # if_not_exists='ignore' should not raise an error
+        pxt.drop_table(non_existing_t, if_not_exists='ignore')
+        # force=True should not raise an error, irrespective of if_not_exists value
+        pxt.drop_table(non_existing_t, force=True)
+        assert table_list == pxt.list_tables()
 
     @pytest.mark.skip(reason='Skip until we figure out the right API for altering table attributes')
     def test_table_attrs(self, reset_db: None) -> None:
@@ -1044,28 +1066,28 @@ class TestTable:
         for (col_name, col_type), value_col_name in zip(
             schema.items(), ['c2', 'c3', 'c5', 'c5', 'c6', 'c7', 'c2', 'c2']
         ):
-            pxt.drop_table(tbl_name, ignore_errors=True)
+            pxt.drop_table(tbl_name, if_not_exists='ignore')
             t = pxt.create_table(tbl_name, {col_name: col_type})
             with pytest.raises(excs.Error) as exc_info:
                 t.insert({col_name: r[value_col_name]} for r in rows)
             assert 'expected' in str(exc_info.value).lower()
 
         # rows not list of dicts
-        pxt.drop_table(tbl_name, ignore_errors=True)
+        pxt.drop_table(tbl_name, if_not_exists='ignore')
         t = pxt.create_table(tbl_name, {'c1': pxt.String})
         with pytest.raises(excs.Error) as exc_info:
             t.insert(['1'])
         assert 'list of dictionaries' in str(exc_info.value)
 
         # bad null value
-        pxt.drop_table(tbl_name, ignore_errors=True)
+        pxt.drop_table(tbl_name, if_not_exists='ignore')
         t = pxt.create_table(tbl_name, {'c1': pxt.Required[pxt.String]})
         with pytest.raises(excs.Error) as exc_info:
             t.insert(c1=None)
         assert 'expected non-None' in str(exc_info.value)
 
         # bad array literal
-        pxt.drop_table(tbl_name, ignore_errors=True)
+        pxt.drop_table(tbl_name, if_not_exists='ignore')
         t = pxt.create_table(tbl_name, {'c5': pxt.Array[(2, 3), pxt.Int]})
         with pytest.raises(excs.Error) as exc_info:
             t.insert(c5=np.ndarray((3, 2)))
