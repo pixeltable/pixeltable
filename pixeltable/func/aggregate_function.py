@@ -126,7 +126,7 @@ class AggregateFunction(Function):
     def exec(self, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:
         raise NotImplementedError
 
-    def overload(self, cls: type[Aggregator]) -> AggregateFunction:  # type: ignore[override]
+    def overload(self, cls: type[Aggregator]) -> AggregateFunction:
         if not isinstance(cls, type) or not issubclass(cls, Aggregator):
             raise excs.Error(f'Invalid argument to @overload decorator: {cls}')
         sig, init_param_names = self.__cls_to_signature(cls)

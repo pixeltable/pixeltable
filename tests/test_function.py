@@ -10,7 +10,7 @@ import pixeltable.func as func
 from pixeltable import catalog
 from pixeltable.func import Batch, Function, FunctionRegistry
 
-from .utils import assert_resultset_eq, reload_catalog, validate_update_status
+from .utils import assert_resultset_eq, reload_catalog, validate_update_status, ReloadTester
 
 
 def dummy_fn(i: int) -> int:
@@ -460,7 +460,7 @@ class TestFunction:
     def typevar_udf(x: T, y: T, z: str = 'a') -> T:
         return x + y
 
-    def test_overloaded_udf(self, test_tbl: pxt.Table) -> None:
+    def test_overloaded_udf(self, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
         t = test_tbl
         fc_str = self.overloaded_udf(t.c1, t.c1)
         fc_int = self.overloaded_udf(t.c2, t.c2)
@@ -478,9 +478,15 @@ class TestFunction:
         from pixeltable.functions.string import format
 
         # Check that the correct Python function is invoked for each signature
-        res = t.select(fc_str, fc_int, fc_float).collect()
-        res_direct = t.select(format('{0}{1}', t.c1, t.c1), t.c2 + t.c2 + 1, t.c3 + t.c3 + 2.0).collect()
+        res = t.select(fc_str, fc_int, fc_float).order_by(t.c2).collect()
+        res_direct = t.select(format('{0}{1}', t.c1, t.c1), t.c2 + t.c2 + 1, t.c3 + t.c3 + 2.0).order_by(t.c2).collect()
         assert_resultset_eq(res, res_direct)
+
+        validate_update_status(t.add_computed_column(fc_str=fc_str))
+        validate_update_status(t.add_computed_column(fc_int=fc_int))
+        validate_update_status(t.add_computed_column(fc_float=fc_float))
+        res_cc = reload_tester.run_query(t.select(t.fc_str, t.fc_int, t.fc_float).order_by(t.c2))
+        assert_resultset_eq(res_cc, res_direct)
 
         # Check that .using() works correctly with overloaded UDFs: it should keep only the
         # signatures for which the substitution is valid
@@ -498,9 +504,14 @@ class TestFunction:
             fn(t.c3, t.c3)
         assert 'has no matching signature' in str(exc_info.value)
 
-        res = t.select(fc_str2, fc_int2).collect()
-        res_direct = t.select(format('{0}{1}', t.c1, t.c1), t.c2 + t.c2 + 1).collect()
+        res = t.select(fc_str2, fc_int2).order_by(t.c2).collect()
+        res_direct = t.select(format('{0}{1}', t.c1, t.c1), t.c2 + t.c2 + 1).order_by(t.c2).collect()
         assert_resultset_eq(res, res_direct)
+
+        validate_update_status(t.add_computed_column(fc_str2=fc_str2))
+        validate_update_status(t.add_computed_column(fc_int2=fc_int2))
+        res_cc = reload_tester.run_query(t.select(t.fc_str2, t.fc_int2).order_by(t.c2))
+        assert_resultset_eq(res_cc, res_direct)
 
         fc_str3 = self.typevar_udf(t.c1, t.c1)
         fc_int3 = self.typevar_udf(t.c2, t.c2)
@@ -514,9 +525,18 @@ class TestFunction:
         assert fc_float3.fn.signature == self.typevar_udf.signatures[2]
         assert fc_float3.col_type.is_float_type()
 
-        res = t.select(fc_str3, fc_int3, fc_float3).collect()
-        res_direct = t.select(format('{0}{1}', t.c1, t.c1), t.c2 + t.c2, t.c3 + t.c3).collect()
+        res = t.select(fc_str3, fc_int3, fc_float3).order_by(t.c2).collect()
+        res_direct = t.select(format('{0}{1}', t.c1, t.c1), t.c2 + t.c2, t.c3 + t.c3).order_by(t.c2).collect()
         assert_resultset_eq(res, res_direct)
+
+        validate_update_status(t.add_computed_column(fc_str3=fc_str3))
+        validate_update_status(t.add_computed_column(fc_int3=fc_int3))
+        validate_update_status(t.add_computed_column(fc_float3=fc_float3))
+        res_cc = reload_tester.run_query(t.select(t.fc_str3, t.fc_int3, t.fc_float3).order_by(t.c2))
+        assert_resultset_eq(res_cc, res_direct)
+
+        reload_tester.run_reload_test()
+
 
     @pxt.uda
     class overloaded_uda(pxt.Aggregator):

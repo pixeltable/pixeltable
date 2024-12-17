@@ -85,7 +85,7 @@ class Function(abc.ABC):
     @property
     def arity(self) -> int:
         assert not self.is_polymorphic
-        return len(self.signatures[0].parameters)
+        return len(self.signature.parameters)
 
     def _overload_resolution(self, signature_idx: int) -> Function:
         """
@@ -167,10 +167,9 @@ class Function(abc.ABC):
     def call_return_type(self, args: Sequence[Any], kwargs: dict[str, Any]) -> ts.ColumnType:
         """Return the type of the value returned by calling this function with the given arguments"""
         assert not self.is_polymorphic
-        signature = self.signatures[0]
         if self._conditional_return_type is None:
-            return signature.return_type
-        bound_args = signature.py_signature.bind(*args, **kwargs).arguments
+            return self.signature.return_type
+        bound_args = self.signature.py_signature.bind(*args, **kwargs).arguments
         kw_args: dict[str, Any] = {}
         sig = inspect.signature(self._conditional_return_type)
         for param in sig.parameters.values():
@@ -180,18 +179,15 @@ class Function(abc.ABC):
 
     def conditional_return_type(self, fn: Callable[..., ts.ColumnType]) -> Callable[..., ts.ColumnType]:
         """Instance decorator for specifying a conditional return type for this function"""
-        if len(self.signatures) > 1:
+        if self.is_polymorphic:
             raise excs.Error('`conditional_return_type` is not supported for functions with multiple signatures')
         # verify that call_return_type only has parameters that are also present in the signature
         sig = inspect.signature(fn)
         for param in sig.parameters.values():
-            if param.name not in self.signatures[0].parameters:
+            if param.name not in self.signature.parameters:
                 raise ValueError(f'`conditional_return_type` has parameter `{param.name}` that is not in the signature')
         self._conditional_return_type = fn
         return fn
-
-    def overload(self, fn: Callable) -> Function:
-        raise NotImplementedError(f'Function of type {type(self)} does not support overloading')
 
     def using(self, **kwargs: Any) -> 'ExprTemplateFunction':
         from .expr_template_function import ExprTemplateFunction, ExprTemplate
@@ -225,19 +221,18 @@ class Function(abc.ABC):
         assert not self.is_polymorphic
 
         # Resolve each kwarg into a parameter binding
-        signature = self.signatures[0]
         bindings: dict[str, exprs.Expr] = {}
         for k, v in kwargs.items():
-            if k not in signature.parameters:
+            if k not in self.signature.parameters:
                 raise excs.Error(f'Unknown parameter: {k}')
-            param = signature.parameters[k]
+            param = self.signature.parameters[k]
             expr = exprs.Expr.from_object(v)
             if not param.col_type.is_supertype_of(expr.col_type):
                 raise excs.Error(f'Expected type `{param.col_type}` for parameter `{k}`; got `{expr.col_type}`')
             bindings[k] = v  # Use the original value, not the Expr (The Expr is only for validation)
 
         residual_params = [
-            p for p in signature.parameters.values() if p.name not in bindings
+            p for p in self.signature.parameters.values() if p.name not in bindings
         ]
 
         # Bind each remaining parameter to a like-named variable
@@ -250,7 +245,7 @@ class Function(abc.ABC):
         # Construct the (n-k)-ary signature of the new function. We use `call.col_type` for this, rather than
         # `self.signature.return_type`, because the return type of the new function may be specialized via a
         # conditional return type.
-        new_signature = Signature(call.col_type, residual_params, signature.is_batched)
+        new_signature = Signature(call.col_type, residual_params, self.signature.is_batched)
 
         return ExprTemplate(call, new_signature)
 
