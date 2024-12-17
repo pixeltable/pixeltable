@@ -144,7 +144,34 @@ class TestDirs:
             assert ('already exists' in str(exc_info.value)
                 and 'not a Dir' in str(exc_info.value)), f" for if_exists='{_ie}'"
 
-    def test_rm(self, reset_db) -> None:
+    def _test_drop_if_not_exists(self, dir_name: str) -> None:
+        """ Test if_not_exists parameter of drop_dir """
+        orig_dirs = pxt.list_dirs(recursive=True)
+        # if_not_exists parameter can be used control behavior
+        # of drop_dir when the directory doesn't exist.
+
+        # if_not_exists='error' should raise error
+        with pytest.raises(excs.Error) as exc_info:
+            pxt.drop_dir(dir_name, if_not_exists='error')
+        assert "does not exist" in str(exc_info.value)
+        # default behavior is to raise error
+        with pytest.raises(excs.Error) as exc_info:
+            pxt.drop_dir(dir_name)
+        assert "does not exist" in str(exc_info.value)
+
+        # if_not_exists='ignore' should be successful but a no-op
+        pxt.drop_dir(dir_name, if_not_exists='ignore')
+        assert pxt.list_dirs(recursive=True) == orig_dirs
+        # when force=True, if_not_exists is ignored
+        pxt.drop_dir(dir_name, if_not_exists='error', force=True)
+        assert pxt.list_dirs(recursive=True) == orig_dirs
+        # invalid if_not_exists value is rejected, but only
+        # when the directory doesn't exist.
+        with pytest.raises(excs.Error) as exc_info:
+            pxt.drop_dir(dir_name, if_not_exists='invalid')
+        assert "if_not_exists must be one of: ['error', 'ignore']" in str(exc_info.value)
+
+    def test_drop(self, reset_db) -> None:
         dirs = ['dir1', 'dir1.sub1', 'dir1.sub1.subsub1']
         for name in dirs:
             pxt.create_dir(name)
@@ -152,17 +179,26 @@ class TestDirs:
         make_tbl('dir1.t1')
 
         # bad name
-        with pytest.raises(excs.Error):
+        with pytest.raises(excs.Error) as exc_info:
             pxt.drop_dir('1dir')
+        assert 'Invalid path format' in str(exc_info.value)
         # bad path
-        with pytest.raises(excs.Error):
+        with pytest.raises(excs.Error) as exc_info:
             pxt.drop_dir('dir1..sub1')
+        assert 'Invalid path format' in str(exc_info.value)
         # doesn't exist
-        with pytest.raises(excs.Error):
-            pxt.drop_dir('dir2')
+        self._test_drop_if_not_exists('dir2')
         # not empty
-        with pytest.raises(excs.Error):
+        with pytest.raises(excs.Error) as exc_info:
             pxt.drop_dir('dir1')
+        assert "is not empty" in str(exc_info.value)
+        with pytest.raises(excs.Error) as exc_info:
+            pxt.drop_dir('dir1', if_not_exists='invalid')
+        assert "is not empty" in str(exc_info.value)
+        # not a directory
+        with pytest.raises(excs.Error) as exc_info:
+            pxt.drop_dir('t1')
+        assert "needs to be a directory but is a table" in str(exc_info.value)
 
         pxt.drop_dir('dir1.sub1.subsub1')
         assert pxt.list_dirs('dir1.sub1') == []
@@ -171,7 +207,7 @@ class TestDirs:
         reload_catalog()
         assert pxt.list_dirs('dir1.sub1') == []
 
-    def test_rm_force(self, reset_db) -> None:
+    def test_drop_force(self, reset_db) -> None:
         pxt.create_dir('dir1')
         pxt.create_dir('dir2')
         pxt.create_dir('dir1.subdir')
