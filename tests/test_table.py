@@ -186,40 +186,34 @@ class TestTable:
                 'validation_error', {'img': {'type': pxt.Image, 'media_validation': 'wrong_value'}})
         assert "media_validation must be one of: ['on_read', 'on_write']" in str(exc_info.value)
 
-    def test_validate_on_read(self, reset_db: None) -> None:
+    def test_validate_on_read(self, reset_db: None, reload_tester: ReloadTester) -> None:
         files = get_video_files(include_bad_video=True)
-        rows = [{'media': f, 'is_bad_media': f.endswith('bad_video.mp4')} for f in files]
-        schema = {'media': pxt.Video, 'is_bad_media': pxt.Bool}
+        rows = [{'id': i, 'media': f, 'is_bad_media': f.endswith('bad_video.mp4')} for i, f in enumerate(files)]
+        schema = {'id': pxt.Int, 'media': pxt.Video, 'is_bad_media': pxt.Bool}
 
         on_read_tbl = pxt.create_table('read_validated', schema, media_validation='on_read')
         validate_update_status(on_read_tbl.insert(rows), len(rows))
-        on_read_res = (
-            on_read_tbl.select(
+        on_read_res = reload_tester.run_query(
+            on_read_tbl
+            .select(
                 on_read_tbl.media, on_read_tbl.media.localpath, on_read_tbl.media.errortype, on_read_tbl.media.errormsg,
-                on_read_tbl.is_bad_media
-            ).collect()
+                on_read_tbl.is_bad_media)
+            .order_by(on_read_tbl.id)
         )
 
         on_write_tbl = pxt.create_table('write_validated', schema, media_validation='on_write')
         status = on_write_tbl.insert(rows, on_error='ignore')
         assert status.num_excs == 2  # 1 row with exceptions in the media col and the index col
-        on_write_res = (
-            on_write_tbl.select(
+        on_write_res = reload_tester.run_query(
+            on_write_tbl
+            .select(
                 on_write_tbl.media, on_write_tbl.media.localpath, on_write_tbl.media.errortype,
-                on_write_tbl.media.errormsg, on_write_tbl.is_bad_media
-            ).collect()
+                on_write_tbl.media.errormsg, on_write_tbl.is_bad_media)
+            .order_by(on_write_tbl.id)
         )
         assert_resultset_eq(on_read_res, on_write_res)
 
-        reload_catalog()
-        on_read_tbl = pxt.get_table('read_validated')
-        on_read_res = (
-            on_read_tbl.select(
-                on_read_tbl.media, on_read_tbl.media.localpath, on_read_tbl.media.errortype, on_read_tbl.media.errormsg,
-                on_read_tbl.is_bad_media
-            ).collect()
-        )
-        assert_resultset_eq(on_read_res, on_write_res)
+        reload_tester.run_reload_test()
 
     def test_validate_on_read_with_computed_col(self, reset_db: None) -> None:
         files = get_video_files(include_bad_video=True)

@@ -184,7 +184,7 @@ class RowBuilder:
 
         # determine transitive dependencies for the purpose of exception propagation
         # (list of set of slot_idxs, indexed by slot_idx)
-        self.dependents = np.zeros((self.num_materialized, self.num_materialized), dtype=bool)
+        #self.dependents = np.zeros((self.num_materialized, self.num_materialized), dtype=bool)
         self.dependencies = np.zeros((self.num_materialized, self.num_materialized), dtype=bool)
         exc_dependencies: list[set[int]] = [set() for _ in range(self.num_materialized)]
         from .column_property_ref import ColumnPropertyRef
@@ -200,9 +200,10 @@ class RowBuilder:
             for d in expr.dependencies():
                 exc_dependencies[expr.slot_idx].add(d.slot_idx)
                 exc_dependencies[expr.slot_idx].update(exc_dependencies[d.slot_idx])
+
         self.dependents = self.dependencies.T
         self.transitive_dependents = np.zeros((self.num_materialized, self.num_materialized), dtype=bool)
-        for i in range(0, self.num_materialized, -1):
+        for i in reversed(range(self.num_materialized)):
             self.transitive_dependents[i] = (
                 self.dependents[i] | np.any(self.transitive_dependents[self.dependents[i]], axis=0)
             )

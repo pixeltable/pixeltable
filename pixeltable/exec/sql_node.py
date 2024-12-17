@@ -1,7 +1,7 @@
 import logging
 import warnings
 from decimal import Decimal
-from typing import Iterable, Iterator, NamedTuple, Optional, TYPE_CHECKING, Sequence
+from typing import Iterable, Iterator, NamedTuple, Optional, TYPE_CHECKING, Sequence, AsyncIterator
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -264,7 +264,7 @@ class SqlNode(ExecNode):
         except Exception as e:
             _logger.warning(f'EXPLAIN failed')
 
-    def __iter__(self) -> Iterator[DataRowBatch]:
+    async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
         # run the query; do this here rather than in _open(), exceptions are only expected during iteration
         assert self.ctx.conn is not None
         with warnings.catch_warnings(record=True) as w:

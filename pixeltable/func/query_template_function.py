@@ -57,13 +57,13 @@ class QueryTemplateFunction(Function):
     def set_conn(self, conn: Optional[sql.engine.Connection]) -> None:
         self.conn = conn
 
-    def exec(self, *args: Any, **kwargs: Any) -> Any:
+    async def aexec(self, *args: Any, **kwargs: Any) -> Any:
         bound_args = self.signature.py_signature.bind(*args, **kwargs).arguments
         # apply defaults, otherwise we might have Parameters left over
         bound_args.update(
             {param_name: default for param_name, default in self.defaults.items() if param_name not in bound_args})
         bound_df = self.template_df.bind(bound_args)
-        result = bound_df._collect(self.conn)
+        result = await bound_df._acollect(self.conn)
         return list(result)
 
     @property

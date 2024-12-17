@@ -135,10 +135,13 @@ class Function(abc.ABC):
         new_signature = Signature(call.col_type, residual_params, self.signature.is_batched)
         return ExprTemplateFunction(call, new_signature)
 
-    @abc.abstractmethod
     def exec(self, *args: Any, **kwargs: Any) -> Any:
         """Execute the function with the given arguments and return the result."""
-        pass
+        raise NotImplementedError()
+
+    async def aexec(self, *args: Any, **kwargs: Any) -> Any:
+        """Execute the function with the given arguments and return the result."""
+        raise NotImplementedError()
 
     def to_sql(self, fn: Callable[..., Optional[sql.ColumnElement]]) -> Callable[..., Optional[sql.ColumnElement]]:
         """Instance decorator for specifying the SQL translation of this function"""
