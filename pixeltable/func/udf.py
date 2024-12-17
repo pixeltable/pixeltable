@@ -28,7 +28,7 @@ def udf(
     is_property: bool = False,
     type_substitutions: Optional[Sequence[dict]] = None,
     _force_stored: bool = False
-) -> Callable[[Callable], Function]: ...
+) -> Callable[[Callable], CallableFunction]: ...
 
 
 def udf(*args, **kwargs):
@@ -85,7 +85,7 @@ def make_function(
     type_substitutions: Optional[Sequence[dict]] = None,
     function_name: Optional[str] = None,
     force_stored: bool = False
-) -> Function:
+) -> CallableFunction:
     """
     Constructs a `CallableFunction` from the specified parameters.
     If `substitute_fn` is specified, then `decorated_fn`
@@ -132,8 +132,12 @@ def make_function(
 
         signatures = [sig]
     else:
+        if function_path is None:
+            raise excs.Error(
+                f'{errmsg_name}(): type substitutions can only be used with module UDFs (not locally defined UDFs)'
+            )
         if batch_size is not None:
-            raise excs.Error(f'{errmsg_name}(): batched functions cannot have type substitutions')
+            raise excs.Error(f'{errmsg_name}(): type substitutions cannot be used with batched functions')
         if is_method is not None or is_property is not None:
             # TODO: Support this for `is_method`?
             raise excs.Error(f'{errmsg_name}(): type substitutions cannot be used with `is_method` or `is_property`')
