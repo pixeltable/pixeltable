@@ -77,7 +77,7 @@ def chat(
     *,
     model: str,
     tools: Optional[list[dict]] = None,
-    format: str = '',
+    format: Optional[str] = None,
     options: Optional[dict] = None,
 ) -> dict:
     """
@@ -87,7 +87,7 @@ def chat(
         messages: The messages of the chat.
         model: The model name.
         tools: Tools for the model to use.
-        format: The format of the response; must be one of `'json'` or `''` (the empty string).
+        format: The format of the response; must be one of `'json'` or `None`.
         options: Additional options to pass to the `chat` call, such as `max_tokens`, `temperature`, `top_p`, and `top_k`.
             For details, see the
             [Valid Parameters and Values](https://github.com/ollama/ollama/blob/main/docs/modelfile.md#valid-parameters-and-values)
