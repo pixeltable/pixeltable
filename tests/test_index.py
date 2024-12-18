@@ -436,9 +436,20 @@ class TestIndex:
         with pytest.raises(pxt.Error) as exc_info:
             img_t.drop_embedding_index(idx_name='doesnotexist')
         assert "index 'doesnotexist' does not exist" in str(exc_info.value).lower()
+        with pytest.raises(pxt.Error) as exc_info:
+            img_t.drop_embedding_index(idx_name='doesnotexist', if_not_exists='error')
+        assert "index 'doesnotexist' does not exist" in str(exc_info.value).lower()
+        img_t.drop_embedding_index(idx_name='doesnotexist', if_not_exists='ignore')
+        with pytest.raises(pxt.Error) as exc_info:
+            img_t.drop_embedding_index(idx_name='doesnotexist', if_not_exists='invalid')
+        assert "if_not_exists must be one of: ['error', 'ignore']" in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error) as exc_info:
             img_t.drop_embedding_index(column='doesnotexist')
+        assert "column 'doesnotexist' unknown" in str(exc_info.value).lower()
+        # when dropping an index via a column, if_not_exists does not apply
+        with pytest.raises(pxt.Error) as exc_info:
+            img_t.drop_embedding_index(column='doesnotexist', if_not_exists='invalid')
         assert "column 'doesnotexist' unknown" in str(exc_info.value).lower()
         with pytest.raises(AttributeError) as exc_info:
             img_t.drop_embedding_index(column=img_t.doesnotexist)
@@ -446,6 +457,10 @@ class TestIndex:
 
         with pytest.raises(pxt.Error) as exc_info:
             img_t.drop_embedding_index(column='img')
+        assert "column 'img' does not have an index" in str(exc_info.value).lower()
+        # when dropping an index via a column, if_not_exists does not apply
+        with pytest.raises(pxt.Error) as exc_info:
+            img_t.drop_embedding_index(column='img', if_not_exists='error')
         assert "column 'img' does not have an index" in str(exc_info.value).lower()
         with pytest.raises(pxt.Error) as exc_info:
             img_t.drop_embedding_index(column=img_t.img)
