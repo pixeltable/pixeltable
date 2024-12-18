@@ -127,7 +127,7 @@ class TestTable:
         assert "'insert' is a reserved name in pixeltable" in str(exc_info.value).lower()
 
     def test_create_if_exists(self, reset_db: None, reload_tester: ReloadTester) -> None:
-        """ Test the if_exists parameter of create_table """
+        """ Test the if_exists parameter of create_table API """
         schema = {
             'c1': pxt.String,
             'c2': pxt.Int,

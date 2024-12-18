@@ -76,7 +76,7 @@ class TestDirs:
         assert listing == ['dir1.sub1.subsub1']
 
     def test_create_if_exists(self, reset_db) -> None:
-        """Test if_exists parameter of create_dir"""
+        """Test if_exists parameter of create_dir API"""
         dirs = ['dir1', 'dir1.sub1', 'dir1.sub1.subsub1']
         id_before = {}
         for name in dirs:
@@ -96,55 +96,45 @@ class TestDirs:
         # if_exists='ignore' should not raise error and return existing Dir
         d1 = pxt.create_dir('dir1', if_exists='ignore')
         assert d1._id == id_before['dir1']
-        listing = pxt.list_dirs(recursive=True)
-        assert listing == dirs
+        assert pxt.list_dirs(recursive=True) == dirs
         d2 = pxt.create_dir('dir1.sub1', if_exists='ignore')
         assert d2._id == id_before['dir1.sub1']
-        listing = pxt.list_dirs(recursive=True)
-        assert listing == dirs
+        assert pxt.list_dirs(recursive=True) == dirs
         d3 = pxt.create_dir('dir1.sub1.subsub1', if_exists='ignore')
         assert d3._id == id_before['dir1.sub1.subsub1']
-        listing = pxt.list_dirs(recursive=True)
-        assert listing == dirs
+        assert pxt.list_dirs(recursive=True) == dirs
 
         # if_exists='replace' should replace existing Dir, but only if it's empty
         d3 = pxt.create_dir('dir1.sub1.subsub1', if_exists='replace')
         assert d3._id != id_before['dir1.sub1.subsub1']
         id_before['dir1.sub1.subsub1'] = d3._id
-        listing = pxt.list_dirs(recursive=True)
-        assert listing == dirs
+        assert pxt.list_dirs(recursive=True) == dirs
         with pytest.raises(excs.Error) as exc_info:
             _ = pxt.create_dir('dir1.sub1', if_exists='replace')
         assert ('already exists' in str(exc_info.value)
             and 'has dependents' in str(exc_info.value)
             and 'replace_force' in str(exc_info.value))
-        listing = pxt.list_dirs(recursive=True)
-        assert listing == dirs
+        assert pxt.list_dirs(recursive=True) == dirs
         with pytest.raises(excs.Error) as exc_info:
             _ = pxt.create_dir('dir1', if_exists='replace')
         assert ('already exists' in str(exc_info.value)
             and 'has dependents' in str(exc_info.value)
             and 'replace_force' in str(exc_info.value))
-        listing = pxt.list_dirs(recursive=True)
-        assert listing == dirs
+        assert pxt.list_dirs(recursive=True) == dirs
 
         # if_exists='replace_force' should replace existing Dir,
         # and all its children
         d3 = pxt.create_dir('dir1.sub1.subsub1', if_exists='replace_force')
         assert d3._id != id_before['dir1.sub1.subsub1']
-        listing = pxt.list_dirs(recursive=True)
-        assert listing == dirs
+        assert pxt.list_dirs(recursive=True) == dirs
         d2 = pxt.create_dir('dir1.sub1', if_exists='replace_force')
         assert d2._id != id_before['dir1.sub1']
-        listing = pxt.list_dirs(recursive=True)
-        assert listing == ['dir1', 'dir1.sub1']
+        assert pxt.list_dirs(recursive=True) == ['dir1', 'dir1.sub1']
         d3 = pxt.create_dir('dir1.sub1.subsub1')
-        listing = pxt.list_dirs(recursive=True)
-        assert listing == dirs
+        assert pxt.list_dirs(recursive=True) == dirs
         d1 = pxt.create_dir('dir1', if_exists='replace_force')
         assert d1._id != id_before['dir1']
-        listing = pxt.list_dirs(recursive=True)
-        assert listing == ['dir1']
+        assert pxt.list_dirs(recursive=True) == ['dir1']
 
         # scenrio 2: path already exists but is not a Dir
         make_tbl('dir1.t1')

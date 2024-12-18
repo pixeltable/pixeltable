@@ -139,13 +139,14 @@ class TestView:
         assert "invalid value for column 'v1'" in str(exc_info.value).lower()
 
     def test_create_if_exists(self, reset_db, reload_tester: ReloadTester) -> None:
+        """ Test if_exists parameter of create_view API"""
         t = self.create_tbl()
         v = pxt.create_view('test_view', t)
         id_before = v._id
 
         # invalid if_exists value is rejected
         with pytest.raises(excs.Error) as exc_info:
-            _ = pxt.create_table('test_view', t, if_exists='invalid')
+            _ = pxt.create_view('test_view', t, if_exists='invalid')
         assert "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']" in str(exc_info.value)
 
          # scenario 1: a view exists at the path already
