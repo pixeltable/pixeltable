@@ -7,6 +7,7 @@ from copy import copy
 from typing import TYPE_CHECKING, Any, Callable, Optional, Sequence
 
 import sqlalchemy as sql
+from typing_extensions import Self
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
@@ -16,7 +17,7 @@ from .globals import resolve_symbol
 from .signature import Signature
 
 if TYPE_CHECKING:
-    from .expr_template_function import ExprTemplateFunction, ExprTemplate
+    from .expr_template_function import ExprTemplate, ExprTemplateFunction
 
 
 class Function(abc.ABC):
@@ -32,7 +33,7 @@ class Function(abc.ABC):
     is_method: bool
     is_property: bool
     _conditional_return_type: Optional[Callable[..., ts.ColumnType]]
-    __resolutions: list[Function]  # Cached overload resolutions of this function
+    __resolutions: list[Self]  # Cached overload resolutions of this function
 
     # Translates a call to this function with the given arguments to its SQLAlchemy equivalent.
     # Overriden for specific Function instances via the to_sql() decorator. The override must accept the same
@@ -123,9 +124,9 @@ class Function(abc.ABC):
     def __call__(self, *args: Any, **kwargs: Any) -> 'pxt.exprs.FunctionCall':
         from pixeltable import exprs
 
-        mono_fn, bound_args = self._bind_to_matching_signature(args, kwargs)
-        return_type = mono_fn.call_return_type(args, kwargs)
-        return exprs.FunctionCall(mono_fn, bound_args, return_type)
+        resolved_fn, bound_args = self._bind_to_matching_signature(args, kwargs)
+        return_type = resolved_fn.call_return_type(args, kwargs)
+        return exprs.FunctionCall(resolved_fn, bound_args, return_type)
 
     def _bind_to_matching_signature(self, args: Sequence[Any], kwargs: dict[str, Any]) -> tuple[Function, dict[str, Any]]:
         result: int = -1
@@ -190,7 +191,7 @@ class Function(abc.ABC):
         return fn
 
     def using(self, **kwargs: Any) -> 'ExprTemplateFunction':
-        from .expr_template_function import ExprTemplateFunction, ExprTemplate
+        from .expr_template_function import ExprTemplate, ExprTemplateFunction
 
         assert len(self.signatures) > 0
         if len(self.signatures) == 1:
