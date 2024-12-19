@@ -1,13 +1,14 @@
 import json
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import pydantic
-
-from pixeltable import exprs
 
 from .function import Function
 from .signature import Parameter
 from .udf import udf
+
+if TYPE_CHECKING:
+    from pixeltable import exprs
 
 
 class Tool(pydantic.BaseModel):
@@ -44,22 +45,23 @@ class Tool(pydantic.BaseModel):
             }
         }
 
-    def invoke(self, tool_calls: exprs.Expr) -> exprs.FunctionCall:
+    def invoke(self, tool_calls: 'exprs.Expr') -> 'exprs.FunctionCall':
         kwargs = {
             param.name: self.__extract_tool_arg(param, tool_calls)
             for param in self.parameters.values()
         }
         return self.fn(**kwargs)
 
-    def __extract_tool_arg(self, param: Parameter, tool_calls: exprs.Expr) -> exprs.Expr:
+    def __extract_tool_arg(self, param: Parameter, tool_calls: 'exprs.Expr') -> 'exprs.Expr':
+        func_name = self.name or self.fn.name
         if param.col_type.is_string_type():
-            return _extract_str_tool_arg(tool_calls, param.name)
+            return _extract_str_tool_arg(tool_calls, func_name=func_name, param_name=param.name)
         if param.col_type.is_int_type():
-            return _extract_int_tool_arg(tool_calls, param.name)
+            return _extract_int_tool_arg(tool_calls, func_name=func_name, param_name=param.name)
         if param.col_type.is_float_type():
-            return _extract_float_tool_arg(tool_calls, param.name)
+            return _extract_float_tool_arg(tool_calls, func_name=func_name, param_name=param.name)
         if param.col_type.is_bool_type():
-            return _extract_bool_tool_arg(tool_calls, param.name)
+            return _extract_bool_tool_arg(tool_calls, func_name=func_name, param_name=param.name)
         assert False
 
 
@@ -70,7 +72,9 @@ class Tools(pydantic.BaseModel):
     def ser_model(self) -> list[dict[str, Any]]:
         return [tool.ser_model() for tool in self.tools]
 
-    def invoke(self, response: exprs.Expr) -> exprs.InlineDict:
+    def invoke(self, response: 'exprs.Expr') -> 'exprs.InlineDict':
+        from pixeltable import exprs
+
         tool_calls = response.choices[0].message.tool_calls
         return exprs.InlineDict({
             tool.name or tool.fn.name: tool.invoke(tool_calls)

@@ -528,7 +528,7 @@ def list_functions() -> Styler:
 
 
 def tools(*args: Union[func.Function, func.tools.Tool]) -> func.tools.Tools:
-    return func.tools.Tools([
+    return func.tools.Tools(tools=[
         arg if isinstance(arg, func.tools.Tool) else func.tools.Tool(fn=arg)
         for arg in args
     ])

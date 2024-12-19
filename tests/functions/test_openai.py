@@ -1,3 +1,4 @@
+from typing import Optional
 import pytest
 
 import pixeltable as pxt
@@ -94,6 +95,33 @@ class TestOpenai:
         with pytest.raises(excs.ExprEvalError) as exc_info:
             t.insert(input='Say something interesting.')
         assert "\\'messages\\' must contain the word \\'json\\'" in str(exc_info.value)
+
+    def test_tool_invocations(self, reset_db) -> None:
+        skip_test_if_not_installed('openai')
+        TestOpenai.skip_test_if_no_openai_client()
+        from pixeltable.functions.openai import chat_completions
+
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String})
+        messages = [{'role': 'user', 'content': t.prompt}]
+        tools = pxt.tools(stock_price)
+        t.add_computed_column(response=chat_completions(
+            model='gpt-4o-mini',
+            messages=messages,
+            tools=tools.model_dump()
+        ))
+        t.add_computed_column(output=t.response.choices[0].message.content)
+        t.add_computed_column(tool_calls=tools.invoke(t.response))
+        t.insert(prompt='What is the stock price of NVDA today?')
+        t.insert(prompt='How many grams of corn are in a bushel?')
+        res = t.select(t.output, t.tool_calls).head()
+
+        # First promprt results in tool invocation + no message output
+        assert res[0]['output'] is None
+        assert res[0]['tool_calls'] == {'stock_price': 131.17}
+
+        # Second prompt results in positive length message output + no tool call
+        assert len(res[1]['output']) > 0
+        assert res[1]['tool_calls'] == {'stock_price': None}
 
     @pytest.mark.expensive
     def test_gpt_4_vision(self, reset_db) -> None:
@@ -197,3 +225,17 @@ class TestOpenai:
             _ = pixeltable.functions.openai._openai_client()
         except excs.Error as exc:
             pytest.skip(str(exc))
+
+
+@pxt.udf
+def stock_price(ticker: str) -> Optional[float]:
+    """
+    Get today's stock price for a given ticker symbol.
+
+    Args:
+        ticker - The ticker symbol of the stock to look up.
+    """
+    if ticker == 'NVDA':
+        return 131.17
+    else:
+        return None
