@@ -1,0 +1,38 @@
+# Step 1: Core utilities
+setuptools
+wheel
+pip
+
+# Core dependencies
+fastapi
+uvicorn
+python-multipart
+pixeltable
+mistune
+
+# Machine learning and embeddings
+numpy
+pydantic
+sentence-transformers
+transformers
+spacy
+torch
+openai
+openai-whisper
+openpyxl
+tiktoken
+pandas
+
+# Utility packages
+python-dotenv
+passlib
+
+# API and CORS
+starlette
+aiofiles
+httpx
+validators
+aiohttp
+
+# Optional but recommended for production
+gunicorn
