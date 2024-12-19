@@ -41,6 +41,10 @@ class Parameter:
     def has_default(self) -> bool:
         return self.default is not inspect.Parameter.empty
 
+    def as_tool_dict(self) -> dict[str, Any]:
+        type_dict = self.col_type._to_json_schema()
+        return type_dict
+
     def as_dict(self) -> dict[str, Any]:
         return {
             'name': self.name,

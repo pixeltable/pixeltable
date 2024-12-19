@@ -225,6 +225,7 @@ def chat_completions(
             ]
             tbl['response'] = chat_completions(messages, model='gpt-4o-mini')
     """
+    unwrapped_tools = None if tools is None else [tool['tool'] for tool in tools]
     result = _retry(_openai_client().chat.completions.create)(
         messages=messages,
         model=model,
@@ -240,7 +241,7 @@ def chat_completions(
         stop=_opt(stop),
         temperature=_opt(temperature),
         top_p=_opt(top_p),
-        tools=_opt(tools),
+        tools=_opt(unwrapped_tools),
         tool_choice=_opt(tool_choice),
         user=_opt(user),
     )

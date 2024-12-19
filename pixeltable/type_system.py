@@ -479,6 +479,9 @@ class ColumnType:
         """
         pass
 
+    def _to_json_schema(self) -> dict[str, Any]:
+        raise excs.Error(f'Pixeltable type {self} is not a valid JSON type')
+
 
 class InvalidType(ColumnType):
     def __init__(self, nullable: bool = False):
@@ -500,6 +503,9 @@ class StringType(ColumnType):
 
     def to_sa_type(self) -> sql.types.TypeEngine:
         return sql.String()
+
+    def _to_json_schema(self) -> dict[str, Any]:
+        return {'type': 'string'}
 
     def print_value(self, val: Any) -> str:
         return f"'{val}'"
@@ -524,6 +530,9 @@ class IntType(ColumnType):
     def to_sa_type(self) -> sql.types.TypeEngine:
         return sql.BigInteger()
 
+    def _to_json_schema(self) -> dict[str, Any]:
+        return {'type': 'integer'}
+
     def _validate_literal(self, val: Any) -> None:
         # bool is a subclass of int, so we need to check for it
         # explicitly first
@@ -537,6 +546,9 @@ class FloatType(ColumnType):
 
     def to_sa_type(self) -> sql.types.TypeEngine:
         return sql.Float()
+
+    def _to_json_schema(self) -> dict[str, Any]:
+        return {'type': 'number'}
 
     def _validate_literal(self, val: Any) -> None:
         if not isinstance(val, float):
@@ -554,6 +566,9 @@ class BoolType(ColumnType):
 
     def to_sa_type(self) -> sql.types.TypeEngine:
         return sql.Boolean()
+
+    def _to_json_schema(self) -> dict[str, Any]:
+        return {'type': 'boolean'}
 
     def _validate_literal(self, val: Any) -> None:
         if not isinstance(val, bool):
@@ -744,6 +759,12 @@ class ArrayType(ColumnType):
             if n1 != n2:
                 return False
         return val.dtype == self.numpy_dtype()
+
+    def _to_json_schema(self) -> dict[str, Any]:
+        return {
+            'type': 'array',
+            'items': self.pxt_dtype._to_json_schema(),
+        }
 
     def _validate_literal(self, val: Any) -> None:
         if not isinstance(val, np.ndarray):

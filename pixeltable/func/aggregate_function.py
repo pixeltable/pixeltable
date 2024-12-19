@@ -81,10 +81,8 @@ class AggregateFunction(Function):
     def exec(self, *args: Any, **kwargs: Any) -> Any:
         raise NotImplementedError
 
-    def help_str(self) -> str:
-        res = super().help_str()
-        res += '\n\n' + inspect.getdoc(self.agg_cls.update)
-        return res
+    def _docstring(self) -> Optional[str]:
+        return inspect.getdoc(self.agg_cls)
 
     def __call__(self, *args: object, **kwargs: object) -> 'pixeltable.exprs.FunctionCall':
         from pixeltable import exprs

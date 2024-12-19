@@ -68,8 +68,15 @@ class Function(abc.ABC):
     def arity(self) -> int:
         return len(self.signature.parameters)
 
+    def _docstring(self) -> Optional[str]:
+        return None
+
     def help_str(self) -> str:
-        return self.display_name + str(self.signature)
+        docstring = self._docstring()
+        display = self.display_name + str(self.signature)
+        if docstring is None:
+            return display
+        return f'{display}\n\n{docstring}'
 
     def __call__(self, *args: Any, **kwargs: Any) -> 'pxt.exprs.FunctionCall':
         from pixeltable import exprs
@@ -158,7 +165,7 @@ class Function(abc.ABC):
         """Print source code"""
         print('source not available')
 
-    def as_dict(self) -> dict:
+    def as_dict(self) -> dict[str, Any]:
         """
         Return a serialized reference to the instance that can be passed to json.dumps() and converted back
         to an instance with from_dict().

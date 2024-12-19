@@ -527,6 +527,102 @@ def list_functions() -> Styler:
     return pd_df.hide(axis='index')
 
 
+def tools(*args: Union[func.Function, dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        arg if isinstance(arg, dict) else tool(arg)
+        for arg in args
+    ]
+
+
+def tool(fn: func.Function, name: Optional[str] = None, description: Optional[str] = None) -> dict[str, Any]:
+    if fn.self_path is None:
+        raise excs.Error('Only module UDFs can be used as tools (not locally defined UDFs)')
+
+    return {
+        'fqn': fn.self_path,
+        'tool': {
+            'type': 'function',
+            'function': {
+                'name': name or fn.name,
+                'description': description or fn._docstring(),
+                'parameters': {
+                    'type': 'object',
+                    'properties': {
+                        param.name: param.as_tool_dict()
+                        for param in fn.signature.parameters.values()
+                    }
+                },
+                'required': [
+                    param.name for param in fn.signature.parameters.values() if not param.col_type.nullable
+                ],
+                'additionalProperties': False,  # TODO Handle kwargs?
+            }
+        }
+    }
+
+
+def invoke_tools(tools: list[dict[str, Any]]) -> exprs.Expr:
+    from pixeltable.func.globals import resolve_symbol
+
+    result = {}
+    for tool in tools:
+        assert tool['tool']['type'] == 'function'
+        fn = resolve_symbol(tool['fqn'])
+        assert isinstance(fn, func.Function)
+        fc = fn(__marshal_tool_call_args())
+
+    return exprs.InlineDict(result)
+
+
+@func.udf
+def __extract_str_arg(tool_calls: list[dict[str, Any]], func_name: str, arg_name: str) -> str:
+    return __extract_arg(tool_call, func_name, arg_name)
+
+
+# @func.udf
+# def __marshal_tool_call_args(tool_call_args: dict[str, Any], fqn: str) -> dict[str, Any]:
+#     from pixeltable.func.globals import resolve_symbol
+
+#     fn = resolve_symbol(fqn)
+#     assert isinstance(fn, func.Function)
+
+#     fn_args: dict[str, Any] = {}
+#     for name, value in tool_call_args.items():
+#         if 'name' not in fn.signature.parameters:
+#             raise excs.Error(f'Unexpected argument name in LLM response: {name}')
+#         param = fn.signature.parameters['name']
+#         if param.col_type.is_string_type():
+#             fn_args['name'] = value
+#         if param.col_type.is_int_type():
+#             fn_args['name'] = int(value)
+#         if param.col_type.is_float_type():
+#             fn_args['name'] = float(value)
+#         if param.col_type.is_bool_type():
+#             fn_args['name'] = bool(value)
+
+#     return fn_args
+
+
+# def __tool_invocation(tool: dict[str, Any]) -> exprs.Expr:
+
+
+
+#     result = {tool['name']: None for tool in tools}
+#     if llm_response['finish_reason'] != 'tool_calls':
+#         return exprs.InlineDict(result)
+
+#     for tool_call in llm_response['message']['tool_calls']:
+
+#     return exprs.InlineDict({
+
+#     })
+
+#     result: dict[str, Any] = {}
+#     for tool in tools:
+#         tool_result: Any
+#         if llm_
+
+
 def configure_logging(
     *,
     to_stdout: Optional[bool] = None,

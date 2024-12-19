@@ -39,6 +39,9 @@ class CallableFunction(Function):
     def is_batched(self) -> bool:
         return self.batch_size is not None
 
+    def _docstring(self) -> Optional[str]:
+        return inspect.getdoc(self.py_fn)
+
     def exec(self, *args: Any, **kwargs: Any) -> Any:
         if self.is_batched:
             # Pack the batched parameters into singleton lists
@@ -76,11 +79,6 @@ class CallableFunction(Function):
     @property
     def name(self) -> str:
         return self.self_name
-
-    def help_str(self) -> str:
-        res = super().help_str()
-        res += '\n\n' + inspect.getdoc(self.py_fn)
-        return res
 
     def _as_dict(self) -> dict:
         if self.self_path is None:
