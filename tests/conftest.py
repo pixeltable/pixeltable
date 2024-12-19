@@ -146,18 +146,11 @@ def img_tbl_exprs(indexed_img_tbl: catalog.Table) -> list[exprs.Expr]:
         t.img.rotate(90).resize([224, 224]),
         t.img.fileurl,
         t.img.localpath,
-    ]
-
-@pytest.fixture(scope='function')
-def sim_exprs_same_idx(indexed_img_tbl: catalog.Table) -> list[exprs.Expr]:
-    t = indexed_img_tbl
-    return [
-        t.img.similarity('red truck'),
         t.img.similarity('red truck', idx='img_idx0')
     ]
 
 @pytest.fixture(scope='function')
-def sim_exprs_diff_idx(multi_idx_img_tbl: catalog.Table) -> list[exprs.Expr]:
+def multi_img_tbl_exprs(multi_idx_img_tbl: catalog.Table) -> list[exprs.Expr]:
     t = multi_idx_img_tbl
     return [
         t.img.similarity('red truck', idx='img_idx1'),

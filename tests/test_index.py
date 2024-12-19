@@ -56,11 +56,9 @@ class TestIndex:
         # After the query is serialized, dropping and recreating the index should work
         # on reload, because the index is available again even if it is not the exact
         # same one.
-        # TODO: due to the bug (PXT-374) cannot create index after drop.
-        # So this scenario is commented out until the pending fix (PR#406) is merged.
         # recreate the index
-        #t.add_embedding_index('img', idx_name='img_idx1', metric='cosine', image_embed=clip_img_embed, string_embed=clip_text_embed)
-        #reload_tester.run_reload_test(clear=True)
+        t.add_embedding_index('img', idx_name='img_idx1', metric='cosine', image_embed=clip_img_embed, string_embed=clip_text_embed)
+        reload_tester.run_reload_test(clear=True)
 
     @pytest.mark.parametrize("use_index_name", [True, False])
     def test_similarity(self, use_index_name: bool, small_img_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
