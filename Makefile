@@ -9,7 +9,6 @@ ifeq ($(OS),Windows_NT)
     RM := powershell -Command Remove-Item -Force
     RMDIR := powershell -Command Remove-Item -Force -Recurse
     SET_ENV := set
-    DIR_SEP := \\
     KERNEL_NAME := $(shell powershell -Command "(Get-Item .).Name")
     ULIMIT_CMD :=
 else
@@ -21,13 +20,14 @@ else
     RM := rm -f
     RMDIR := rm -rf
     SET_ENV := export
-    DIR_SEP := /
     KERNEL_NAME := $(shell basename `pwd`)
     ULIMIT_CMD := ulimit -n 4000;
 endif
 
 # Common test parameters
 PYTEST_COMMON_ARGS := -v -n auto --dist loadgroup --maxprocesses 6 tests
+
+# We ensure the TQDM progress bar is updated exactly once per cell execution, by setting the refresh rate equal to the timeout
 NB_CELL_TIMEOUT := 3600
 
 .DEFAULT_GOAL := help
@@ -78,13 +78,13 @@ WHISPERX_OK := $(shell python -c "import sys; sys.stdout.write(str(sys.version_i
 	@python -m pip install -qU pip
 	@python -m pip install -q poetry==1.8.4
 	@poetry self add "poetry-dynamic-versioning[plugin]"
-	@$(TOUCH) .make-install$(DIR_SEP)poetry -Force
+	@$(TOUCH) .make-install/poetry -Force
 
 .make-install/deps: poetry.lock
 	@echo "Installing dependencies from poetry ..."
 	@$(SET_ENV) CMAKE_ARGS='-DLLAVA_BUILD=OFF'
 	@poetry install --with dev
-	@$(TOUCH) .make-install$(DIR_SEP)deps -Force
+	@$(TOUCH) .make-install/deps -Force
 
 .make-install/others:
 ifeq ($(YOLOX_OK), True)
@@ -105,7 +105,7 @@ else
 endif
 	@echo "Installing Jupyter kernel ..."
 	@python -m ipykernel install --user --name=$(KERNEL_NAME)
-	@$(TOUCH) .make-install$(DIR_SEP)others -Force
+	@$(TOUCH) .make-install/others -Force
 
 .PHONY: install
 install: setup-install .make-install/poetry .make-install/deps .make-install/others
@@ -126,7 +126,7 @@ pytest: install
 .PHONY: fullpytest
 fullpytest: install
 	@echo "Running pytest, including expensive tests ..."
-	@$(ULIMIT_CMD) pytest -v -m '' -n auto --dist loadgroup --maxprocesses 6 tests
+	@$(ULIMIT_CMD) pytest -m '' $(PYTEST_COMMON_ARGS)
 
 .PHONY: nbtest
 nbtest: install
@@ -163,7 +163,7 @@ release-docs: install
 
 .PHONY: clean
 clean:
-	@$(RM) *.mp4 docs$(DIR_SEP)source$(DIR_SEP)tutorials$(DIR_SEP)*.mp4 || true
+	@$(RM) *.mp4 docs/source/tutorials/*.mp4 || true
 	@$(RMDIR) .make-install || true
 	@$(RMDIR) site || true
 	@$(RMDIR) target || true
