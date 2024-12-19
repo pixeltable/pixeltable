@@ -1,38 +1,21 @@
-import typing
-from dataclasses import dataclass
+import json
 from typing import Any, Optional
 
 import pydantic
-from pydantic import json_schema
-from pydantic_core import core_schema
+
+from pixeltable import exprs
 
 from .function import Function
 from .signature import Parameter
+from .udf import udf
 
 
-class _FunctionAdapter:
-    @classmethod
-    def __get_pydantic_core_schema__(
-        cls,
-        _source_type: Any,
-        _handler: pydantic.GetCoreSchemaHandler,
-    ) -> core_schema.CoreSchema:
-        return core_schema.is_instance_schema(
-            Function,
-            serialization=core_schema.plain_serializer_function_ser_schema(cls.__serialize_fn),
-        )
+class Tool(pydantic.BaseModel):
+    # Allow arbitrary types so that we can include a Pixeltable function in the schema.
+    # We will implement a model_serializer to ensure the Tool model can be serialized.
+    model_config = pydantic.ConfigDict(arbitrary_types_allowed=True)
 
-    @classmethod
-    def __get_pydantic_json_schema__(
-        cls, _core_schema: core_schema.CoreSchema, handler: pydantic.GetJsonSchemaHandler
-    ) -> json_schema.JsonSchemaValue:
-        # Use the same schema that would be used for `int`
-        return handler(core_schema.dict_schema())
-
-
-@dataclass(frozen=True)
-class Tool:
-    fn: typing.Annotated[Function, _FunctionAdapter]
+    fn: Function
     name: Optional[str] = None
     description: Optional[str] = None
 
@@ -40,44 +23,44 @@ class Tool:
     def parameters(self) -> dict[str, Parameter]:
         return self.fn.signature.parameters
 
-    @classmethod
-    def __get_pydantic_core_schema__(
-        cls,
-        _source_type: Any,
-        _handler: pydantic.GetCoreSchemaHandler,
-    ) -> core_schema.CoreSchema:
-        return core_schema.is_instance_schema(
-            Tool,
-            serialization=core_schema.plain_serializer_function_ser_schema(cls._serialize),
-        )
-
-    @classmethod
-    def __get_pydantic_json_schema__(
-        cls, _core_schema: core_schema.CoreSchema, handler: pydantic.GetJsonSchemaHandler
-    ) -> pydantic.json_schema.JsonSchemaValue:
-        # Use the same schema that would be used for `int`
-        return handler(core_schema.dict_schema())
-
-    @classmethod
-    def _serialize(cls, instance: 'Tool') -> dict[str, Any]:
+    @pydantic.model_serializer
+    def ser_model(self) -> dict[str, Any]:
         return {
             'type': 'function',
             'function': {
-                'name': instance.name or instance.fn.name,
-                'description': instance.description or instance.fn._docstring(),
+                'name': self.name or self.fn.name,
+                'description': self.description or self.fn._docstring(),
                 'parameters': {
                     'type': 'object',
                     'properties': {
                         param.name: param.as_tool_dict()
-                        for param in instance.parameters.values()
+                        for param in self.parameters.values()
                     }
                 },
                 'required': [
-                    param.name for param in instance.parameters.values() if not param.col_type.nullable
+                    param.name for param in self.parameters.values() if not param.col_type.nullable
                 ],
                 'additionalProperties': False,  # TODO Handle kwargs?
             }
         }
+
+    def invoke(self, tool_calls: exprs.Expr) -> exprs.FunctionCall:
+        kwargs = {
+            param.name: self.__extract_tool_arg(param, tool_calls)
+            for param in self.parameters.values()
+        }
+        return self.fn(**kwargs)
+
+    def __extract_tool_arg(self, param: Parameter, tool_calls: exprs.Expr) -> exprs.Expr:
+        if param.col_type.is_string_type():
+            return _extract_str_tool_arg(tool_calls, param.name)
+        if param.col_type.is_int_type():
+            return _extract_int_tool_arg(tool_calls, param.name)
+        if param.col_type.is_float_type():
+            return _extract_float_tool_arg(tool_calls, param.name)
+        if param.col_type.is_bool_type():
+            return _extract_bool_tool_arg(tool_calls, param.name)
+        assert False
 
 
 class Tools(pydantic.BaseModel):
@@ -85,4 +68,35 @@ class Tools(pydantic.BaseModel):
 
     @pydantic.model_serializer
     def ser_model(self) -> list[dict[str, Any]]:
-        return [Tool._serialize(tool) for tool in self.tools]
+        return [tool.ser_model() for tool in self.tools]
+
+    def invoke(self, response: exprs.Expr) -> exprs.InlineDict:
+        tool_calls = response.choices[0].message.tool_calls
+        return exprs.InlineDict({
+            tool.name or tool.fn.name: tool.invoke(tool_calls)
+            for tool in self.tools
+        })
+
+
+@udf
+def _extract_str_tool_arg(tool_calls: list[dict], func_name: str, param_name: str) -> Optional[str]:
+    return str(_extract_arg(tool_calls, func_name, param_name))
+
+@udf
+def _extract_int_tool_arg(tool_calls: list[dict], func_name: str, param_name: str) -> Optional[int]:
+    return int(_extract_arg(tool_calls, func_name, param_name))
+
+@udf
+def _extract_float_tool_arg(tool_calls: list[dict], func_name: str, param_name: str) -> Optional[float]:
+    return float(_extract_arg(tool_calls, func_name, param_name))
+
+@udf
+def _extract_bool_tool_arg(tool_calls: list[dict], func_name: str, param_name: str) -> Optional[bool]:
+    return bool(_extract_arg(tool_calls, func_name, param_name))
+
+def _extract_arg(tool_calls: list[dict], func_name: str, param_name: str) -> Any:
+    for tool_call in tool_calls:
+        if tool_call['function']['name'] == func_name:
+            arguments = json.loads(tool_call['function']['arguments'])
+            return arguments.get(param_name)
+    return None
