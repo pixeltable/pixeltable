@@ -54,33 +54,33 @@ class TestExprs:
         return a + b
 
     # error in agg.init()
-    @pxt.uda(update_types=[pxt.IntType()], value_type=pxt.IntType())
+    @pxt.uda
     class init_exc(pxt.Aggregator):
-        def __init__(self):
+        def __init__(self) -> None:
             self.sum = 1 / 0
-        def update(self, val):
+        def update(self, val: int):
             pass
-        def value(self):
+        def value(self) -> int:
             return 1
 
     # error in agg.update()
-    @pxt.uda(update_types=[pxt.IntType()], value_type=pxt.IntType())
+    @pxt.uda
     class update_exc(pxt.Aggregator):
-        def __init__(self):
+        def __init__(self) -> None:
             self.sum = 0
-        def update(self, val):
+        def update(self, val: int):
             self.sum += 1 / val
-        def value(self):
+        def value(self) -> int:
             return 1
 
     # error in agg.value()
-    @pxt.uda(update_types=[pxt.IntType()], value_type=pxt.IntType())
+    @pxt.uda
     class value_exc(pxt.Aggregator):
         def __init__(self):
             self.sum = 0
-        def update(self, val):
+        def update(self, val: int):
             self.sum += val
-        def value(self):
+        def value(self) -> int:
             return 1 / self.sum
 
     def test_basic(self, test_tbl: catalog.Table) -> None:
@@ -1058,9 +1058,7 @@ class TestExprs:
             # nested aggregates
             _ = t.group_by(t.c2 % 2).select(sum(count(t.c2))).collect()
 
-    @pxt.uda(
-        init_types=[pxt.IntType()], update_types=[pxt.IntType()], value_type=pxt.IntType(),
-        allows_window=True, requires_order_by=False)
+    @pxt.uda(allows_window=True, requires_order_by=False)
     class window_agg:
         def __init__(self, val: int = 0):
             self.val = val
@@ -1069,9 +1067,7 @@ class TestExprs:
         def value(self) -> int:
             return self.val
 
-    @pxt.uda(
-        init_types=[pxt.IntType()], update_types=[pxt.IntType()], value_type=pxt.IntType(),
-        requires_order_by=True, allows_window=True)
+    @pxt.uda(requires_order_by=True, allows_window=True)
     class ordered_agg:
         def __init__(self, val: int = 0):
             self.val = val
@@ -1080,9 +1076,7 @@ class TestExprs:
         def value(self) -> int:
             return self.val
 
-    @pxt.uda(
-        init_types=[pxt.IntType()], update_types=[pxt.IntType()], value_type=pxt.IntType(),
-        requires_order_by=False, allows_window=False)
+    @pxt.uda(requires_order_by=False, allows_window=False)
     class std_agg:
         def __init__(self, val: int = 0):
             self.val = val
@@ -1132,20 +1126,8 @@ class TestExprs:
         assert 'group_by(): only one table can be specified' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
-            # missing init type
-            @pxt.uda(update_types=[pxt.IntType()], value_type=pxt.IntType())
-            class WindowAgg:
-                def __init__(self, val: int = 0):
-                    self.val = val
-                def update(self, ignore: int) -> None:
-                    pass
-                def value(self) -> int:
-                    return self.val
-        assert 'init_types must be a list of' in str(exc_info.value)
-
-        with pytest.raises(excs.Error) as exc_info:
             # missing update parameter
-            @pxt.uda(init_types=[pxt.IntType()], update_types=[], value_type=pxt.IntType())
+            @pxt.uda
             class WindowAgg:
                 def __init__(self, val: int = 0):
                     self.val = val
@@ -1156,20 +1138,8 @@ class TestExprs:
         assert 'must have at least one parameter' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
-            # missing update type
-            @pxt.uda(init_types=[pxt.IntType()], update_types=[pxt.IntType()], value_type=pxt.IntType())
-            class WindowAgg:
-                def __init__(self, val: int = 0):
-                    self.val = val
-                def update(self, i1: int, i2: int) -> None:
-                    pass
-                def value(self) -> int:
-                    return self.val
-        assert 'update_types must be a list of' in str(exc_info.value)
-
-        with pytest.raises(excs.Error) as exc_info:
             # duplicate parameter names
-            @pxt.uda(init_types=[pxt.IntType()], update_types=[pxt.IntType()], value_type=pxt.IntType())
+            @pxt.uda
             class WindowAgg:
                 def __init__(self, val: int = 0):
                     self.val = val
@@ -1181,7 +1151,7 @@ class TestExprs:
 
         with pytest.raises(excs.Error) as exc_info:
             # reserved parameter name
-            @pxt.uda(init_types=[pxt.IntType()], update_types=[pxt.IntType()], value_type=pxt.IntType())
+            @pxt.uda
             class WindowAgg:
                 def __init__(self, val: int = 0):
                     self.val = val
@@ -1189,11 +1159,11 @@ class TestExprs:
                     pass
                 def value(self) -> int:
                     return self.val
-        assert 'order_by is reserved' in str(exc_info.value).lower()
+        assert "'order_by' is a reserved parameter name" in str(exc_info.value).lower()
 
         with pytest.raises(excs.Error) as exc_info:
             # reserved parameter name
-            @pxt.uda(init_types=[pxt.IntType()], update_types=[pxt.IntType()], value_type=pxt.IntType())
+            @pxt.uda
             class WindowAgg:
                 def __init__(self, val: int = 0):
                     self.val = val
@@ -1201,7 +1171,7 @@ class TestExprs:
                     pass
                 def value(self) -> int:
                     return self.val
-        assert 'group_by is reserved' in str(exc_info.value).lower()
+        assert "'group_by' is a reserved parameter name" in str(exc_info.value).lower()
 
     def test_repr(self, reset_db) -> None:
         t = create_all_datatypes_tbl()
