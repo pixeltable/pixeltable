@@ -101,6 +101,28 @@ class PathDict:
         assert to_path.name not in self.dir_contents[to_dir._id]
         self.dir_contents[to_dir._id][to_path.name] = obj
 
+    def check_if_exists(self, path: Path) -> SchemaObject:
+        """Check if path exists.
+
+        Args:
+            path: path to check
+
+        Returns:
+            SchemaObject at the path if it exists, None otherwise.
+
+        Raises:
+            Error if path is invalid, or the parent is not a directory.
+        """
+        if path.is_root:
+            return self.root_dir
+        parent_obj = self._resolve_path(path.parent)
+        if not isinstance(parent_obj, Dir):
+            raise excs.Error(
+                f'{str(path.parent)} is a {type(parent_obj)._display_name()}, not a {Dir._display_name()}')
+        if path.name in self.dir_contents[parent_obj._id]:
+            return self.dir_contents[parent_obj._id][path.name]
+        return None
+
     def check_is_valid(self, path: Path, expected: Optional[type[SchemaObject]]) -> None:
         """Check that path is valid and that the object at path has the expected type.
 
@@ -112,19 +134,15 @@ class PathDict:
             Error if path is invalid or object at path has wrong type
         """
         # check for existence
+        obj = self.check_if_exists(path)
         if expected is not None:
-            schema_obj = self._resolve_path(path)
-            if not isinstance(schema_obj, expected):
+            if obj is None:
+                raise excs.Error(f"No such path: {str(path)}")
+            if not isinstance(obj, expected):
                 raise excs.Error(
-                    f'{str(path)} needs to be a {expected._display_name()} but is a {type(schema_obj)._display_name()}')
-        if expected is None:
-            parent_obj = self._resolve_path(path.parent)
-            if not isinstance(parent_obj, Dir):
-                raise excs.Error(
-                    f'{str(path.parent)} is a {type(parent_obj)._display_name()}, not a {Dir._display_name()}')
-            if path.name in self.dir_contents[parent_obj._id]:
-                obj = self.dir_contents[parent_obj._id][path.name]
-                raise excs.Error(f"{type(obj)._display_name()} '{str(path)}' already exists")
+                    f'{str(path)} needs to be a {expected._display_name()} but is a {type(obj)._display_name()}')
+        if expected is None and obj is not None:
+            raise excs.Error(f"{type(obj)._display_name()} '{str(path)}' already exists")
 
     def get_children(self, parent: Path, child_type: Optional[type[SchemaObject]], recursive: bool) -> list[Path]:
         dir = self._resolve_path(parent)
