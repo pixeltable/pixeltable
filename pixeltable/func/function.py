@@ -4,7 +4,7 @@ import abc
 import importlib
 import inspect
 from copy import copy
-from typing import TYPE_CHECKING, Any, Callable, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Optional, Sequence, cast
 
 import sqlalchemy as sql
 from typing_extensions import Self
@@ -33,7 +33,7 @@ class Function(abc.ABC):
     is_method: bool
     is_property: bool
     _conditional_return_type: Optional[Callable[..., ts.ColumnType]]
-    __resolutions: list[Self]  # Cached overload resolutions of this function
+    _resolutions: list[Self]  # Cached overload resolutions of this function
 
     # Translates a call to this function with the given arguments to its SQLAlchemy equivalent.
     # Overriden for specific Function instances via the to_sql() decorator. The override must accept the same
@@ -58,7 +58,7 @@ class Function(abc.ABC):
         self._conditional_return_type = None
         self._to_sql = self.__default_to_sql
 
-        self.__resolutions = []
+        self._resolutions = []
 
     @property
     def name(self) -> str:
@@ -88,7 +88,7 @@ class Function(abc.ABC):
         assert not self.is_polymorphic
         return len(self.signature.parameters)
 
-    def _overload_resolution(self, signature_idx: int) -> Function:
+    def _overload_resolution(self, signature_idx: int) -> Self:
         """
         Return a new  `Function` that retains just the single signature at index `signature_idx`, and is otherwise
         identical to this `Function`.
@@ -102,14 +102,14 @@ class Function(abc.ABC):
         # Note that it is necessary to create a resolution even if this Function has only one signature, because
         # there is no guarantee we have seen all the Function's @overload declarations at the time this is called.
 
-        while len(self.__resolutions) <= signature_idx:
-            idx = len(self.__resolutions)
-            resolution = copy(self)
-            resolution.signatures = [self.signatures[idx]]
-            resolution._update_as_overload_resolution(idx)
-            self.__resolutions.append(resolution)
+        if len(self._resolutions) == 0:
+            for idx in range(len(self.signatures)):
+                resolution = cast(Self, copy(self))
+                resolution.signatures = [self.signatures[idx]]
+                resolution._update_as_overload_resolution(idx)
+                self._resolutions.append(resolution)
 
-        return self.__resolutions[signature_idx]
+        return self._resolutions[signature_idx]
 
     def _update_as_overload_resolution(self, signature_idx: int) -> None:
         """
@@ -128,7 +128,7 @@ class Function(abc.ABC):
         return_type = resolved_fn.call_return_type(args, kwargs)
         return exprs.FunctionCall(resolved_fn, bound_args, return_type)
 
-    def _bind_to_matching_signature(self, args: Sequence[Any], kwargs: dict[str, Any]) -> tuple[Function, dict[str, Any]]:
+    def _bind_to_matching_signature(self, args: Sequence[Any], kwargs: dict[str, Any]) -> tuple[Self, dict[str, Any]]:
         result: int = -1
         bound_args: Optional[dict[str, Any]] = None
         assert len(self.signatures) > 0
@@ -191,11 +191,11 @@ class Function(abc.ABC):
         return fn
 
     def using(self, **kwargs: Any) -> 'ExprTemplateFunction':
-        from .expr_template_function import ExprTemplate, ExprTemplateFunction
+        from .expr_template_function import ExprTemplateFunction
 
         assert len(self.signatures) > 0
         if len(self.signatures) == 1:
-            # Only one signature: call _bind_to_template() and surface any errors directly
+            # Only one signature: call _bind_and_create_template() and surface any errors directly
             template = self._bind_and_create_template(kwargs)
             return ExprTemplateFunction([template])
         else:
@@ -203,10 +203,10 @@ class Function(abc.ABC):
             # successful binding. If there are no successful bindings, raise a generic error.
             # (Note that the resulting ExprTemplateFunction may have strictly fewer signatures than
             # this Function, in the event that only some of the signatures are successfully bound.)
-            templates: list[ExprTemplate] = []
-            for resolved_fn in self.__resolutions:
+            templates: list['ExprTemplate'] = []
+            for i in range(len(self.signatures)):
                 try:
-                    template = resolved_fn._bind_and_create_template(kwargs)
+                    template = self._overload_resolution(i)._bind_and_create_template(kwargs)
                     templates.append(template)
                 except (TypeError, excs.Error):
                     continue

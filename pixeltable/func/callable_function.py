@@ -100,6 +100,10 @@ class CallableFunction(Function):
             raise excs.Error('`overload` cannot be used with batched functions')
         if self.is_method or self.is_property:
             raise excs.Error('`overload` cannot be used with cannot be used with `is_method` or `is_property`')
+        if len(self._resolutions) > 0:
+            raise excs.Error('New `overload` not allowed after the UDF has already been called')
+        if self._conditional_return_type is not None:
+            raise excs.Error('New `overload` not allowed after a conditional return type has been specified')
         sig = Signature.create(fn)
         self.signatures.append(sig)
         self.py_fns.append(fn)
