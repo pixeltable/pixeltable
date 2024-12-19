@@ -11,12 +11,27 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 ALLOWED_TYPES = {
-    "document": [
-        "application/pdf",
-        "application/msword",
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "text/x-python",
+    'document': [
+        'application/pdf',
+        'text/markdown',
+        'text/html',
+        'text/plain',
+        'application/xml', 'text/xml',
+        'application/x-pdf',
+        'text/x-markdown',
+        'text/x-html',
+        'text/x-xml'
     ],
-    "video": ["video/mp4", "video/quicktime", "video/x-msvideo", "video/webm"],
-    "audio": ["audio/mpeg", "audio/wav", "audio/ogg", "audio/webm"],
+    'video': [
+        'video/mp4',
+        'video/quicktime',
+        'video/x-msvideo',
+        'video/webm'
+    ],
+    'audio': [
+        'audio/mpeg',
+        'audio/wav',
+        'audio/ogg',
+        'audio/webm'
+    ]
 }

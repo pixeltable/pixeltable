@@ -94,15 +94,15 @@ def create_prompt(
 
 
 # Add computed columns for video processing
-docs_table["audio_extract"] = extract_audio(docs_table.video, format="mp3")
-docs_table["transcription"] = openai.transcriptions(
+docs_table.add_computed_column(audio_extract = extract_audio(docs_table.video, format="mp3"))
+docs_table.add_computed_column(transcription = openai.transcriptions(
     audio=docs_table.audio_extract, model="whisper-1"
-)
-docs_table["audio_transcription"] = openai.transcriptions(
+))
+docs_table.add_computed_column(audio_transcription = openai.transcriptions(
     audio=docs_table.audio, model="whisper-1"
-)
-docs_table["audio_transcription_text"] = docs_table.audio_transcription.text
-docs_table["transcription_text"] = docs_table.transcription.text
+))
+docs_table.add_computed_column(audio_transcription_text = docs_table.audio_transcription.text)
+docs_table.add_computed_column(transcription_text = docs_table.transcription.text)
 
 logger.info("Created documents table")
 
@@ -214,128 +214,71 @@ def get_relevant_audio_chunks(query_text: str):
 
 
 # Add computed columns
-docs_table["context_doc"] = chunks_view.queries.get_relevant_chunks(docs_table.question)
-docs_table["context_video"] = (
-    transcription_chunks.queries.get_relevant_transcript_chunks(docs_table.question)
-)
-docs_table["context_audio"] = audio_chunks.queries.get_relevant_audio_chunks(
-    docs_table.question
-)
-docs_table["prompt"] = create_prompt(
+docs_table.add_computed_column(context_doc = chunks_view.queries.get_relevant_chunks(docs_table.question))
+docs_table.add_computed_column(context_video = transcription_chunks.queries.get_relevant_transcript_chunks(docs_table.question))
+docs_table.add_computed_column(context_audio = audio_chunks.queries.get_relevant_audio_chunks(docs_table.question))
+docs_table.add_computed_column(prompt = create_prompt(
     docs_table.context_doc,
     docs_table.context_video,
     docs_table.context_audio,
     docs_table.question,
-)
-docs_table['chat_history'] = conversations.queries.get_chat_history()
-docs_table['messages'] = create_messages(
+))
+docs_table.add_computed_column(chat_history = conversations.queries.get_chat_history())
+docs_table.add_computed_column(messages = create_messages(
     docs_table.chat_history,
     docs_table.prompt
-)
-docs_table["response"] = openai.chat_completions(
+))
+docs_table.add_computed_column(response = openai.chat_completions(
     messages=docs_table.messages,
     model="gpt-4o-mini",
-)
+))
 
 # Extract the answer text from the API response
-docs_table["answer"] = docs_table.response.choices[0].message.content
+docs_table.add_computed_column(answer = docs_table.response.choices[0].message.content)
+
 
 logger.info("Setup complete")
 
 
-async def process_document(file_path: Path) -> bool:
-    try:
-        if file_path.suffix.lower() == ".py":
-            # Create markdown file with Python syntax highlighting
-            md_path = file_path.with_suffix(".md")
-            with open(file_path, "r", encoding="utf-8") as py_file:
-                content = py_file.read()
-            with open(md_path, "w", encoding="utf-8") as md_file:
-                md_file.write(f"```python\n{content}\n```")
-            file_path = md_path
-
-        abs_path = str(file_path.absolute()).replace(os.sep, "/")
-        logger.info(f"Processing document: {abs_path}")
-
-        docs_table = pxt.get_table("chatbot.documents")
-        docs_table.insert([{"document": abs_path}])
-        return True
-
-    except Exception as e:
-        logger.error(f"Error processing document: {e}")
-        raise
-
-
 @router.post("/api/upload")
 async def upload_file(file: UploadFile = File(...)):
-    logger.info(f"Received file upload request: {file.filename}")
-    logger.info(f"Content type: {file.content_type}")
+    """Upload and process document files with Pixeltable's native support."""
+    logger.info(f"Received file upload request: {file.filename}, type: {file.content_type}")
+
+    if not file.content_type in ALLOWED_TYPES['document']:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid document format. Supported formats are: PDF, MD, HTML, TXT, XML"
+        )
 
     try:
-        if not file.filename:
-            raise HTTPException(400, "No file provided")
-
-        # Check file type
-        if not (
-            file.content_type in ALLOWED_TYPES["document"]
-            or any(
-                file.content_type.startswith(vtype) for vtype in ALLOWED_TYPES["video"]
-            )
-        ):
-            raise HTTPException(
-                400,
-                f"Invalid file type. Got {file.content_type}. Allowed types are PDF, Word documents, and videos",
-            )
-
-        # Save file to upload directory
+        # Save file to temp directory
         file_path = Path(TEMP_DIR) / file.filename
+        with file_path.open("wb") as buffer:
+            content = await file.read()
+            buffer.write(content)
 
-        try:
-            # Read file content
-            contents = await file.read()
-            logger.info(f"Read file contents: {len(contents)} bytes")
+        # Process document
+        abs_path = str(file_path.absolute()).replace(os.sep, '/')
+        logger.info(f"Processing document: {abs_path}")
 
-            # Save file
-            with file_path.open("wb") as buffer:
-                buffer.write(contents)
-            logger.info(f"Saved file to {file_path}")
+        docs_table = pxt.get_table('chatbot.documents')
+        docs_table.insert([{'document': abs_path}])
 
-            # Process document or video based on content type
-            if file.content_type in ALLOWED_TYPES["document"] or file.filename.endswith(
-                ".py"
-            ):
-                await process_document(file_path)
-                file_type = "document"
-            else:
-                # Insert into Pixeltable as video
-                docs_table = pxt.get_table("chatbot.documents")
-                docs_table.insert([{"video": str(file_path)}])
-                file_type = "video"
+        return JSONResponse(
+            status_code=200,
+            content={
+                "message": f"Successfully uploaded and processed {file.filename}",
+                "filename": file.filename,
+                "type": "document"
+            }
+        )
 
-            logger.info(f"Processed {file_type}: {file_path}")
-
-            return JSONResponse(
-                status_code=200,
-                content={
-                    "message": f"Successfully uploaded and processed {file.filename}",
-                    "filename": file.filename,
-                    "size": len(contents),
-                    "type": file_type,
-                },
-            )
-
-        except Exception as e:
-            logger.error(f"Error processing file: {str(e)}")
-            if file_path.exists():
-                file_path.unlink()
-            raise HTTPException(500, f"Error processing file: {str(e)}")
-
-    except HTTPException as he:
-        logger.error(f"HTTP Exception: {str(he)}")
-        raise he
     except Exception as e:
-        logger.error(f"Unexpected error: {str(e)}")
-        raise HTTPException(500, f"Unexpected error: {str(e)}")
+        logger.error(f"Error processing file: {str(e)}")
+        if file_path.exists():
+            file_path.unlink()
+        raise HTTPException(500, f"Error processing file: {str(e)}")
 
 
 @router.get("/api/files")

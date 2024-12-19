@@ -62,7 +62,26 @@ interface MarkdownProps {
 }
 
 const MAX_FILE_SIZE = 150 * 1024 * 1024;
-const ALLOWED_DOCUMENT_TYPES = "application/pdf,.pdf,application/msword,.doc,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.txt,.py";
+const ALLOWED_DOCUMENT_TYPES = [
+  // PDF
+  "application/pdf",
+  ".pdf",
+  // Markdown
+  "text/markdown",
+  ".md",
+  ".markdown",
+  // HTML
+  "text/html",
+  ".html",
+  ".htm",
+  // Plain Text
+  "text/plain",
+  ".txt",
+  // XML
+  "application/xml",
+  "text/xml",
+  ".xml"
+].join(",");
 const ALLOWED_VIDEO_TYPES = "video/*";
 
 const ChatMessage = ({ message }: { message: Message }) => {
@@ -255,20 +274,6 @@ export default function EnhancedChatInterface() {
   useEffect(() => {
     fetchFiles();
   }, []);
-
-
-  // Utility functions
-  const validateFile = (file: File): string | null => {
-    if (!file.type.startsWith('application/pdf') &&
-        !file.type.includes('word') &&
-        !file.type.includes('document')) {
-      return 'Invalid file type. Only PDF, MD, Text documents are allowed.';
-    }
-    if (file.size > MAX_FILE_SIZE) {
-      return 'File size exceeds 10MB limit.';
-    }
-    return null;
-  };
 
   const formatFileSize = (bytes: number): string => {
     if (bytes === 0) return '0 Bytes';
@@ -528,26 +533,33 @@ export default function EnhancedChatInterface() {
   };
 
   const handleDrop = async (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-    const droppedFiles = e.dataTransfer.files;
-    if (droppedFiles.length > 0) {
-      const file = droppedFiles[0];
-      if (file.type.startsWith('video/')) {
-        await handleVideoUpload(droppedFiles);
-      } else if (file.type.startsWith('audio/')) {
-      await handleAudioUpload(droppedFiles);
-    } else if (file.type.startsWith('application/')) {
-      await handleFileUpload(droppedFiles);
-    } else {
-        setMessages(prev => [...prev, {
-          id: crypto.randomUUID(),
-          type: 'system',
-          content: 'Invalid file type. Only PDF, MD, Text and videos are allowed.',
-          timestamp: new Date()
-        }]);
+      e.preventDefault();
+      setIsDragging(false);
+      const droppedFiles = e.dataTransfer.files;
+      if (droppedFiles.length > 0) {
+          const file = droppedFiles[0];
+          const fileExtension = file.name.toLowerCase().split('.').pop();
+          const isDocument = file.type.startsWith('text/') || 
+                            file.type.startsWith('application/pdf') || 
+                            file.type.startsWith('application/xml') ||
+                            ['md', 'markdown', 'txt', 'html', 'htm', 'xml', 'pdf']
+                              .includes(fileExtension || '');
+
+          if (file.type.startsWith('video/')) {
+              await handleVideoUpload(droppedFiles);
+          } else if (file.type.startsWith('audio/')) {
+              await handleAudioUpload(droppedFiles);
+          } else if (isDocument) {
+              await handleFileUpload(droppedFiles);
+          } else {
+              setMessages(prev => [...prev, {
+                  id: crypto.randomUUID(),
+                  type: 'system',
+                  content: 'Invalid file type. Supported formats are: PDF, MD, HTML, TXT, XML',
+                  timestamp: new Date()
+              }]);
+          }
       }
-    }
   };
 
   return (
@@ -592,13 +604,14 @@ export default function EnhancedChatInterface() {
                   accept={ALLOWED_DOCUMENT_TYPES}
                   onChange={(e) => e.target.files && handleFileUpload(e.target.files)}
                 />
-                <UploadCloud className="mx-auto h-12 w-12 text-gray-400 mb-3" />
-                <p className="text-sm text-gray-600 mb-1">
+              <UploadCloud className="mx-auto h-12 w-12 text-gray-400 mb-3" />
+              <p className="text-sm text-gray-600 mb-1">
                   Drop files here or click to upload
-                </p>
-                <p className="text-xs text-gray-500">
-                  PDF, MD, and Text documents only
-                </p>
+              </p>
+              <div className="text-xs text-gray-500 space-y-1">
+                  <p>Supported formats:</p>
+                  <p>PDF, Markdown (MD), HTML, TXT, XML</p>
+              </div>
               </div>
 
               {/* Document List */}
