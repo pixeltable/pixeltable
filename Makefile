@@ -1,5 +1,35 @@
-SHELL := /bin/bash
-KERNEL_NAME := $(shell basename `pwd`)
+# Detect OS and set shell accordingly
+ifeq ($(OS),Windows_NT)
+    SHELL := pwsh.exe
+    # PowerShell command to get directory name
+    # Define Windows-specific commands
+    SHELL_PREFIX := pwsh.exe
+    MKDIR := powershell -Command New-Item -ItemType Directory -Path
+    TOUCH := powershell -Command New-Item -ItemType File -Path
+    RM := powershell -Command Remove-Item -Force
+    RMDIR := powershell -Command Remove-Item -Force -Recurse
+    SET_ENV := set
+    KERNEL_NAME := $(shell powershell -Command "(Get-Item .).Name")
+    ULIMIT_CMD :=
+else
+    SHELL := /bin/bash
+    # Define Unix-specific commands
+    SHELL_PREFIX :=
+    MKDIR := mkdir -p
+    TOUCH := touch
+    RM := rm -f
+    RMDIR := rm -rf
+    SET_ENV := export
+    KERNEL_NAME := $(shell basename `pwd`)
+    ULIMIT_CMD := ulimit -n 4000;
+endif
+
+# Common test parameters
+PYTEST_COMMON_ARGS := -v -n auto --dist loadgroup --maxprocesses 6 tests
+
+# We ensure the TQDM progress bar is updated exactly once per cell execution, by setting the refresh rate equal to the timeout
+NB_CELL_TIMEOUT := 3600
+
 .DEFAULT_GOAL := help
 
 .PHONY: help
@@ -27,7 +57,11 @@ help:
 
 .PHONY: setup-install
 setup-install:
-	@mkdir -p .make-install
+ifeq ($(OS),Windows_NT)
+	@powershell -Command "if (-not (Test-Path '.make-install')) { New-Item -ItemType Directory -Path '.make-install' }"
+else
+	@if [ ! -d ".make-install" ]; then $(MKDIR) .make-install; fi
+endif
 ifdef CONDA_DEFAULT_ENV
 ifeq ($(CONDA_DEFAULT_ENV),base)
 	$(error Pixeltable must be installed from a conda environment (not `base`))
@@ -44,13 +78,13 @@ WHISPERX_OK := $(shell python -c "import sys; sys.stdout.write(str(sys.version_i
 	@python -m pip install -qU pip
 	@python -m pip install -q poetry==1.8.4
 	@poetry self add "poetry-dynamic-versioning[plugin]"
-	@touch .make-install/poetry
+	@$(TOUCH) .make-install/poetry -Force
 
 .make-install/deps: poetry.lock
 	@echo "Installing dependencies from poetry ..."
-	@export CMAKE_ARGS='-DLLAVA_BUILD=OFF'
+	@$(SET_ENV) CMAKE_ARGS='-DLLAVA_BUILD=OFF'
 	@poetry install --with dev
-	@touch .make-install/deps
+	@$(TOUCH) .make-install/deps -Force
 
 .make-install/others:
 ifeq ($(YOLOX_OK), True)
@@ -71,7 +105,7 @@ else
 endif
 	@echo "Installing Jupyter kernel ..."
 	@python -m ipykernel install --user --name=$(KERNEL_NAME)
-	@touch .make-install/others
+	@$(TOUCH) .make-install/others -Force
 
 .PHONY: install
 install: setup-install .make-install/poetry .make-install/deps .make-install/others
@@ -87,23 +121,19 @@ fulltest: fullpytest nbtest typecheck docstest
 .PHONY: pytest
 pytest: install
 	@echo "Running pytest ..."
-	@ulimit -n 4000; pytest -v -n auto --dist loadgroup --maxprocesses 6 tests
+	@$(ULIMIT_CMD) pytest $(PYTEST_COMMON_ARGS)
 
 .PHONY: fullpytest
 fullpytest: install
 	@echo "Running pytest, including expensive tests ..."
-	@ulimit -n 4000; pytest -v -m '' -n auto --dist loadgroup --maxprocesses 6 tests
+	@$(ULIMIT_CMD) pytest -m '' $(PYTEST_COMMON_ARGS)
 
-NB_CELL_TIMEOUT := 3600
-# We ensure the TQDM progress bar is updated exactly once per cell execution, by setting the refresh rate equal
-# to the timeout. This ensures it will pretty-print if --overwrite is set on nbmake.
-# see: https://github.com/tqdm/tqdm?tab=readme-ov-file#faq-and-known-issues
 .PHONY: nbtest
 nbtest: install
-	@export TQDM_MININTERVAL=$(NB_CELL_TIMEOUT)
+	@$(SET_ENV) TQDM_MININTERVAL=$(NB_CELL_TIMEOUT)
 	@echo "Running pytest on notebooks ..."
-	@scripts/prepare-nb-tests.sh --no-pip docs/notebooks tests
-	@ulimit -n 4000; pytest -v --nbmake --nbmake-timeout=$(NB_CELL_TIMEOUT) --nbmake-kernel=$(KERNEL_NAME) target/nb-tests/*.ipynb
+	@$(SHELL_PREFIX) scripts/prepare-nb-tests.sh --no-pip docs/notebooks tests
+	@$(ULIMIT_CMD) pytest -v --nbmake --nbmake-timeout=$(NB_CELL_TIMEOUT) --nbmake-kernel=$(KERNEL_NAME) target/nb-tests/*.ipynb
 
 .PHONY: typecheck
 typecheck: install
@@ -117,15 +147,15 @@ docstest: install
 
 .PHONY: lint
 lint: install
-	@scripts/lint-changed-files.sh
+	@$(SHELL_PREFIX) scripts/lint-changed-files.sh
 
 .PHONY: format
 format: install
-	@scripts/format-changed-files.sh
+	@$(SHELL_PREFIX) scripts/format-changed-files.sh
 
 .PHONY: release
 release: install
-	@scripts/release.sh
+	@$(SHELL_PREFIX) scripts/release.sh
 
 .PHONY: release-docs
 release-docs: install
@@ -133,7 +163,7 @@ release-docs: install
 
 .PHONY: clean
 clean:
-	@rm -f *.mp4 docs/source/tutorials/*.mp4 || true
-	@rm -rf .make-install || true
-	@rm -rf site || true
-	@rm -rf target || true
+	@$(RM) *.mp4 docs/source/tutorials/*.mp4 || true
+	@$(RMDIR) .make-install || true
+	@$(RMDIR) site || true
+	@$(RMDIR) target || true
