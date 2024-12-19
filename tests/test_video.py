@@ -205,13 +205,7 @@ class TestVideo:
         }
 
     # window function that simply passes through the frame
-    @pxt.uda(
-        update_types=[pxt.ImageType()],
-        value_type=pxt.ImageType(),
-        requires_order_by=True,
-        allows_std_agg=False,
-        allows_window=True,
-    )
+    @pxt.uda(requires_order_by=True, allows_std_agg=False, allows_window=True)
     class agg_fn:
         def __init__(self):
             self.img = None
