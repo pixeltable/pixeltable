@@ -57,7 +57,7 @@ class TestDirs:
         make_tbl('t2')
         with pytest.raises(excs.Error) as exc_info:
             pxt.create_dir('t2.sub2')
-        assert 'not a directory' in str(exc_info.value)
+        assert 'Not a directory' in str(exc_info.value)
 
         # new client: force loading from store
         reload_catalog()

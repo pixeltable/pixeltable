@@ -66,8 +66,7 @@ class Table(SchemaObject):
     @property
     def _has_dependents(self) -> bool:
         """Returns True if this table has any dependent views, or snapshots."""
-        from .catalog import Catalog
-        return len(Catalog.get().tbl_dependents[self._id]) > 0
+        return len(self._get_views(recursive=False)) > 0
 
     def _move(self, new_name: str, new_dir_id: UUID) -> None:
         self._check_is_dropped()

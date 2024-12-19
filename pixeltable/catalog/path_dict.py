@@ -51,11 +51,41 @@ class PathDict:
             record_dir(dir)
 
     def _resolve_path(self, path: Path) -> SchemaObject:
+        """Resolve the path to a SchemaObject.
+
+        Args:
+            path: path to resolve
+
+        Returns:
+            SchemaObject at the path.
+
+        Raises:
+            Error if path is invalid or does not exist.
+        """
+        schema_obj = self.get_object(path)
+        if schema_obj is None:
+            raise excs.Error(f"No such path: {str(path)}")
+        return schema_obj
+
+    def get_object(self, path: Path) -> Optional[SchemaObject]:
+        """Get the object at the given path, if any.
+
+        Args:
+            path: path to object
+
+        Returns:
+            SchemaObject at the path if it exists, None otherwise.
+
+        Raises:
+            Error if path is invalid.
+        """
         if path.is_root:
             return self.root_dir
         dir = self.root_dir
         for i, component in enumerate(path.components):
             if component not in self.dir_contents[dir._id]:
+                if i == len(path.components) - 1:
+                    return None
                 raise excs.Error(f'No such path: {".".join(path.components[:i + 1])}')
             schema_obj = self.dir_contents[dir._id][component]
             if i < len(path.components) - 1:
@@ -101,28 +131,6 @@ class PathDict:
         assert to_path.name not in self.dir_contents[to_dir._id]
         self.dir_contents[to_dir._id][to_path.name] = obj
 
-    def check_if_exists(self, path: Path) -> SchemaObject:
-        """Check if path exists.
-
-        Args:
-            path: path to check
-
-        Returns:
-            SchemaObject at the path if it exists, None otherwise.
-
-        Raises:
-            Error if path is invalid, or the parent is not a directory.
-        """
-        if path.is_root:
-            return self.root_dir
-        parent_obj = self._resolve_path(path.parent)
-        if not isinstance(parent_obj, Dir):
-            raise excs.Error(
-                f'{str(path.parent)} is a {type(parent_obj)._display_name()}, not a {Dir._display_name()}')
-        if path.name in self.dir_contents[parent_obj._id]:
-            return self.dir_contents[parent_obj._id][path.name]
-        return None
-
     def check_is_valid(self, path: Path, expected: Optional[type[SchemaObject]]) -> None:
         """Check that path is valid and that the object at path has the expected type.
 
@@ -134,7 +142,7 @@ class PathDict:
             Error if path is invalid or object at path has wrong type
         """
         # check for existence
-        obj = self.check_if_exists(path)
+        obj = self.get_object(path)
         if expected is not None:
             if obj is None:
                 raise excs.Error(f"No such path: {str(path)}")

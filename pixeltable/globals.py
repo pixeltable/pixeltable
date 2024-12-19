@@ -26,7 +26,7 @@ def init() -> None:
 
 def _get_or_drop_existing_path(
     path_str: str,
-    caller_context: catalog.CreateType,
+    caller_context: catalog.SchemaObjectType,
     if_exists: catalog.IfExistsParam
 ) -> Optional[catalog.SchemaObject]:
     """Handle existing dir, table, view, or snapshot, during create call as per user directive.
@@ -51,19 +51,19 @@ def _get_or_drop_existing_path(
     """
     cat = Catalog.get()
     path = catalog.Path(path_str)
-    assert cat.paths.check_if_exists(path) is not None
+    assert cat.paths.get_object(path) is not None
 
     if if_exists == catalog.IfExistsParam.ERROR:
         raise excs.Error(f'Path `{path_str}` already exists.')
 
     existing_path = cat.paths[path]
-    expected_obj_type = catalog.Dir if caller_context == catalog.CreateType.DIR else \
-        catalog.Table if caller_context == catalog.CreateType.TABLE else catalog.View
+    expected_obj_type = catalog.Dir if caller_context == catalog.SchemaObjectType.DIR else \
+        catalog.Table if caller_context == catalog.SchemaObjectType.TABLE else catalog.View
     obj_type_str = caller_context.value.capitalize()
     existing_path_is_snapshot = expected_obj_type == catalog.View and existing_path.get_metadata()['is_snapshot']
     # Check if the existing path is of expected type.
     if (not isinstance(existing_path, expected_obj_type)
-        or (caller_context == catalog.CreateType.SNAPSHOT and not existing_path_is_snapshot)):
+        or (caller_context == catalog.SchemaObjectType.SNAPSHOT and not existing_path_is_snapshot)):
             raise excs.Error(f'Path `{path_str}` already exists but is not a {obj_type_str}. Cannot {if_exists.value} it.')
 
     # if_exists='ignore' return the handle to the existing object.
@@ -85,7 +85,7 @@ def _get_or_drop_existing_path(
             drop_dir(path_str, force=True, ignore_errors=False)
         else:
             drop_table(path_str, force=True, ignore_errors=False)
-        assert cat.paths.check_if_exists(path) is None
+        assert cat.paths.get_object(path) is None
 
     return None
 
@@ -151,10 +151,10 @@ def create_table(
     path = catalog.Path(path_str)
     cat = Catalog.get()
 
-    if cat.paths.check_if_exists(path) is not None:
+    if cat.paths.get_object(path) is not None:
         # The table already exists. Handle it as per user directive.
         _if_exists = catalog.IfExistsParam.validated(if_exists, 'if_exists')
-        existing_table = _get_or_drop_existing_path(path_str, catalog.CreateType.TABLE, _if_exists)
+        existing_table = _get_or_drop_existing_path(path_str, catalog.SchemaObjectType.TABLE, _if_exists)
         if existing_table is not None:
             assert isinstance(existing_table, catalog.Table)
             return existing_table
@@ -275,10 +275,10 @@ def create_view(
     path = catalog.Path(path_str)
     cat = Catalog.get()
 
-    if cat.paths.check_if_exists(path) is not None:
+    if cat.paths.get_object(path) is not None:
         # The view already exists. Handle it as per user directive.
         _if_exists = catalog.IfExistsParam.validated(if_exists, 'if_exists')
-        curr_context = catalog.CreateType.SNAPSHOT if is_snapshot else catalog.CreateType.VIEW
+        curr_context = catalog.SchemaObjectType.SNAPSHOT if is_snapshot else catalog.SchemaObjectType.VIEW
         existing_path = _get_or_drop_existing_path(path_str, curr_context, _if_exists)
         if existing_path is not None:
             assert isinstance(existing_path, catalog.View)
@@ -557,10 +557,10 @@ def create_dir(path_str: str, if_exists: Literal['error', 'ignore', 'replace', '
     path = catalog.Path(path_str)
     cat = Catalog.get()
 
-    if cat.paths.check_if_exists(path):
+    if cat.paths.get_object(path):
         # The directory already exists. Handle it as per user directive.
         _if_exists = catalog.IfExistsParam.validated(if_exists, 'if_exists')
-        existing_path = _get_or_drop_existing_path(path_str, catalog.CreateType.DIR, _if_exists)
+        existing_path = _get_or_drop_existing_path(path_str, catalog.SchemaObjectType.DIR, _if_exists)
         if existing_path is not None:
             assert isinstance(existing_path, catalog.Dir)
             return existing_path
