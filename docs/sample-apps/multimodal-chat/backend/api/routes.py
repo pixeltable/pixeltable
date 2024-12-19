@@ -154,47 +154,29 @@ audio_chunks.add_embedding_index(
 logger.info("Added embedding index")
 
 
-# @conversations.query
-# def create_messages(prompt: str) -> list[dict]:
-#     history = (
-#         conversations.order_by(conversations.timestamp)
-#         .select(conversations.role, conversations.content)
-#     )
-
-#     messages = [
-#         {
-#             "role": "system", 
-#             "content": """You are a helpful AI assistant maintaining conversation context while answering questions based on provided sources.""",
-#         }
-#     ]
-
-#     for row in history:
-#         messages.append({"role": row.role, "content": row.content})
-
-#     messages.append({"role": "user", "content": prompt})
-
-#     return messages
-
-@pxt.udf
-def create_messages(prompt: str) -> list[dict]:
-    history = conversations.order_by(
+@conversations.query
+def get_chat_history():
+    return conversations.order_by(
         conversations.timestamp
     ).select(
-        conversations.role,
-        conversations.content
-    ).collect().to_pandas()
+        role=conversations.role,
+        content=conversations.content
+    )
 
+@pxt.udf
+def create_messages(history: list[dict], prompt: str) -> list[dict]:
     messages = [{
         'role': 'system',
         'content': '''You are a helpful AI assistant maintaining conversation context while answering questions based on provided sources.'''
     }]
 
-    for _, row in history.iterrows():
-        messages.append({
-            'role': row['role'],
-            'content': row['content']
-        })
+    # Add historical messages
+    messages.extend([{
+        'role': msg['role'],
+        'content': msg['content']
+    } for msg in history])
 
+    # Add current prompt
     messages.append({
         'role': 'user',
         'content': prompt
@@ -245,8 +227,11 @@ docs_table["prompt"] = create_prompt(
     docs_table.context_audio,
     docs_table.question,
 )
-docs_table["messages"] = create_messages(prompt=docs_table.prompt)
-
+docs_table['chat_history'] = conversations.queries.get_chat_history()
+docs_table['messages'] = create_messages(
+    docs_table.chat_history,
+    docs_table.prompt
+)
 docs_table["response"] = openai.chat_completions(
     messages=docs_table.messages,
     model="gpt-4o-mini",

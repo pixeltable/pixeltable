@@ -79,12 +79,12 @@ const ChatMessage = ({ message }: { message: Message }) => {
     >
       <div className={cn(
         "max-w-[80%] rounded-lg px-4 py-2",
-        message.type === 'user' && "bg-blue-500 text-white",
-        message.type === 'bot' && "bg-gray-100 text-gray-900",
-        message.type === 'system' && "bg-gray-100 text-gray-500 text-sm"
+        message.type === 'user' && "bg-black text-white",
+        message.type === 'bot' && "bg-white text-black",
+        message.type === 'system' && "bg-white text-black text-sm"
       )}>
         {message.type === 'bot' ? (
-          <div className="prose dark:prose-invert max-w-none">
+          <div className="prose max-w-none text-black">
             <ReactMarkdown
               components={{
                 code: ({ node, inline, className, children, ...props }: MarkdownProps) => {
@@ -96,7 +96,7 @@ const ChatMessage = ({ message }: { message: Message }) => {
                     );
                   }
                   return (
-                    <pre className="bg-gray-800 text-gray-100 rounded p-4 overflow-x-auto">
+                    <pre className="bg-white text-black rounded p-4 overflow-x-auto">
                       <code className={className} {...props}>
                         {children}
                       </code>
