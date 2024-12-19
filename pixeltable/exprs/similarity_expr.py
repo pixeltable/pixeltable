@@ -23,7 +23,6 @@ class SimilarityExpr(Expr):
         assert item_expr.col_type.is_string_type() or item_expr.col_type.is_image_type()
 
         self.components = [col_ref, item_expr]
-        self.id = self._create_id()
 
         # determine index to use
         idx_info = col_ref.col.get_idx_info()
@@ -54,9 +53,13 @@ class SimilarityExpr(Expr):
             raise excs.Error(
                 f'Embedding index {self.idx_info.name!r} on column {self.idx_info.col.name!r} was created without the '
                 f"'image_embed' parameter and does not support image queries")
+        self.id = self._create_id()
 
     def __repr__(self) -> str:
         return f'{self.components[0]}.similarity({self.components[1]})'
+
+    def _id_attrs(self):
+        return super()._id_attrs() + [('idx_name', self.idx_info.name)]
 
     def default_column_name(self) -> str:
         return 'similarity'
@@ -81,8 +84,12 @@ class SimilarityExpr(Expr):
         # this should never get called
         assert False
 
+    def _as_dict(self) -> dict:
+        return {'idx_name': self.idx_info.name, **super()._as_dict()}
+
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr]) -> 'SimilarityExpr':
+        iname = d['idx_name'] if 'idx_name' in d else None
         assert len(components) == 2
         assert isinstance(components[0], ColumnRef)
-        return cls(components[0], components[1])
+        return cls(components[0], components[1], idx_name=iname)
