@@ -14,7 +14,7 @@ import {
   Send,
   Music
 } from 'lucide-react';
-import { cn, isDarkMode } from '@/utils/utils';
+import { cn } from '@/utils/utils';
 
 interface Message {
   id: string;
@@ -238,7 +238,6 @@ export default function EnhancedChatInterface() {
   const [showSidebar, setShowSidebar] = useState(true);
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(true);
-  const [darkMode, setDarkMode] = useState(isDarkMode());
   const [audioFiles, setAudioFiles] = useState<AudioFile[]>([]);
 
   // Refs
@@ -257,18 +256,6 @@ export default function EnhancedChatInterface() {
     fetchFiles();
   }, []);
 
-  useEffect(() => {
-    const handleDarkModeChange = (e: MediaQueryListEvent) => {
-      setDarkMode(e.matches);
-    };
-
-    const darkModeMediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    darkModeMediaQuery.addEventListener('change', handleDarkModeChange);
-
-    return () => {
-      darkModeMediaQuery.removeEventListener('change', handleDarkModeChange);
-    };
-  }, []);
 
   // Utility functions
   const validateFile = (file: File): string | null => {
@@ -564,7 +551,7 @@ export default function EnhancedChatInterface() {
   };
 
   return (
-    <div className={`flex h-screen overflow-hidden ${darkMode ? 'bg-gray-900 text-white' : 'bg-gray-50 text-black'}`}>
+    <div className="flex h-screen overflow-hidden bg-gray-50 text-black">
       <AnimatePresence>
         {showSidebar && (
           <motion.div
@@ -652,7 +639,7 @@ export default function EnhancedChatInterface() {
             </div>
 
             {/* Audio Section */}
-            <div className={`p-4 border-b ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
+            <div className="p-4 border-b border-gray-200">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold text-gray-800">Audio Files</h3>
                 <span className="text-sm text-gray-500">{audioFiles.length} files</span>
@@ -731,7 +718,7 @@ export default function EnhancedChatInterface() {
             </div>
 
             {/* Videos Section */}
-            <div className={`p-4 border-b ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
+            <div className="p-4 border-b border-gray-200">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold text-gray-800">Videos</h3>
                 <span className="text-sm text-gray-500">{videoFiles.length} videos</span>
@@ -813,15 +800,21 @@ export default function EnhancedChatInterface() {
       </AnimatePresence>
 
       {/* Main Chat Area */}
-      <div className={`flex-1 flex flex-col ${darkMode ? 'bg-gray-900' : 'bg-white'} overflow-hidden`}>
-        <div className={`h-14 border-b flex items-center px-4 justify-between sticky top-0 ${darkMode ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'} z-10`}>
+      <div className="flex-1 flex flex-col bg-white overflow-hidden">
+        <div className="h-14 border-b flex items-center px-4 justify-between sticky top-0 bg-white border-gray-200 z-10">
           <button
             onClick={() => setShowSidebar(!showSidebar)}
             className="p-2 hover:bg-gray-100 rounded-lg"
           >
             {showSidebar ? <ChevronLeft /> : <MessageCircle />}
           </button>
-          <h1 className="text-lg font-semibold">AI Chat Assistant</h1>
+          <div className="flex items-center gap-4">
+            <img 
+              src="/images/pixeltable-logo-large-768x147.png" 
+              alt="Pixeltable Logo" 
+              className="h-6 w-auto"
+            />
+          </div>
           <div className="w-8" />
         </div>
 
@@ -853,7 +846,7 @@ export default function EnhancedChatInterface() {
         </div>
 
         {/* Chat Input */}
-        <div className={`border-t p-4 ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
+        <div className="border-t p-4 bg-white border-gray-200">
           <div className="max-w-3xl mx-auto">
             <form onSubmit={handleSubmit} className="flex items-center gap-2">
               <input
@@ -861,13 +854,13 @@ export default function EnhancedChatInterface() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 placeholder="Type your message..."
-                className={`flex-1 px-4 py-2 rounded-lg border ${darkMode ? 'bg-gray-700 text-white border-gray-600' : 'bg-white text-black border-gray-300'} focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                className="flex-1 px-4 py-2 rounded-lg border bg-white text-black border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 disabled={isSending}
               />
               <button
                 type="submit"
                 disabled={isSending || !input.trim()}
-                className={`px-4 py-2 rounded-lg ${darkMode ? 'bg-blue-600 text-white' : 'bg-blue-500 text-white'} hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2`}
+                className="px-4 py-2 rounded-lg bg-zinc-900 text-white hover:bg-zinc-950 disabled:cursor-not-allowed flex items-center gap-2"
               >
                 {isSending ? (
                   <>

@@ -154,27 +154,53 @@ audio_chunks.add_embedding_index(
 logger.info("Added embedding index")
 
 
-@conversations.query
+# @conversations.query
+# def create_messages(prompt: str) -> list[dict]:
+#     history = (
+#         conversations.order_by(conversations.timestamp)
+#         .select(conversations.role, conversations.content)
+#     )
+
+#     messages = [
+#         {
+#             "role": "system", 
+#             "content": """You are a helpful AI assistant maintaining conversation context while answering questions based on provided sources.""",
+#         }
+#     ]
+
+#     for row in history:
+#         messages.append({"role": row.role, "content": row.content})
+
+#     messages.append({"role": "user", "content": prompt})
+
+#     return messages
+
+@pxt.udf
 def create_messages(prompt: str) -> list[dict]:
-    history = (
-        conversations.order_by(conversations.timestamp)
-        .select(conversations.role, conversations.content)
-    )
+    history = conversations.order_by(
+        conversations.timestamp
+    ).select(
+        conversations.role,
+        conversations.content
+    ).collect().to_pandas()
 
-    messages = [
-        {
-            "role": "system", 
-            "content": """You are a helpful AI assistant maintaining conversation context while answering questions based on provided sources.""",
-        }
-    ]
+    messages = [{
+        'role': 'system',
+        'content': '''You are a helpful AI assistant maintaining conversation context while answering questions based on provided sources.'''
+    }]
 
-    for row in history:
-        messages.append({"role": row.role, "content": row.content})
+    for _, row in history.iterrows():
+        messages.append({
+            'role': row['role'],
+            'content': row['content']
+        })
 
-    messages.append({"role": "user", "content": prompt})
+    messages.append({
+        'role': 'user',
+        'content': prompt
+    })
 
     return messages
-
 
 # Setup similarity search query
 @chunks_view.query
