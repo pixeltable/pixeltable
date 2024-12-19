@@ -405,7 +405,8 @@ def assert_resultset_eq(r1: DataFrameResultSet, r2: DataFrameResultSet, compare_
         s1 = r1[r1_col]
         s2 = r2[r2_col]
         if r1.schema[r1_col].is_float_type():
-            assert np.allclose(np.array(s1), np.array(s2))
+            # To handle None values in float columns, we need to set the dtype and allow NaN comparison
+            assert np.allclose(np.array(s1, dtype=float), np.array(s2, dtype=float), equal_nan=True)
         elif r1.schema[r1_col].is_array_type():
             assert all(np.array_equal(a1, a2) for a1, a2 in zip(s1, s2))
         else:

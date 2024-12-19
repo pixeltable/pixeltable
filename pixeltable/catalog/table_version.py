@@ -494,7 +494,10 @@ class TableVersion:
         idx_md.schema_version_drop = self.schema_version
         assert idx_md.name in self.idxs_by_name
         idx_info = self.idxs_by_name[idx_md.name]
+        # remove this index entry from the active indexes (in memory)
+        # and the index metadata (in persistent table metadata)
         del self.idxs_by_name[idx_md.name]
+        del self.idx_md[idx_id]
 
         with Env.get().engine.begin() as conn:
             self._drop_columns([idx_info.val_col, idx_info.undo_col])
