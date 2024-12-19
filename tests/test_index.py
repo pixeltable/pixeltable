@@ -149,7 +149,7 @@ class TestIndex:
             _ = t.order_by(t.split.similarity(sample_img)).limit(1).collect()
         assert "was created without the 'image_embed' parameter" in str(exc_info.value).lower()
 
-    def test_add_index_after_drop(self, small_img_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
+    def test_add_index_after_drop(self, small_img_tbl: pxt.Table) -> None:
         """ Test the an index with the same name can be added after the previous one is dropped """
         skip_test_if_not_installed('transformers')
         t = small_img_tbl
@@ -163,7 +163,7 @@ class TestIndex:
         assert_resultset_eq(orig_res, res, True)
         t.revert()
         # should be true even after reloading from persistence
-        reload_tester.run_reload_test()
+        reload_catalog()
         t = pxt.get_table('small_img_tbl')
         t.add_embedding_index('img', idx_name='clip_idx', image_embed=clip_img_embed, string_embed=clip_text_embed)
         res = t.select(t.img.localpath).order_by(t.img.similarity(sample_img, idx='clip_idx'), asc=False).limit(3).collect()
@@ -175,7 +175,7 @@ class TestIndex:
         res = t.select(t.img.localpath).order_by(t.img.similarity(sample_img, idx='clip_idx'), asc=False).limit(3).collect()
         assert_resultset_eq(orig_res, res, True)
         t.drop_embedding_index(idx_name='clip_idx')
-        reload_tester.run_reload_test()
+        reload_catalog()
         t = pxt.get_table('small_img_tbl')
         t.add_embedding_index('img', idx_name='clip_idx', image_embed=clip_img_embed, string_embed=clip_text_embed)
         res = t.select(t.img.localpath).order_by(t.img.similarity(sample_img, idx='clip_idx'), asc=False).limit(3).collect()
