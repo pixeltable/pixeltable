@@ -60,6 +60,13 @@ class ExprTemplateFunction(Function):
         assert not result._contains(exprs.Variable)
         return result
 
+    def _docstring(self) -> Optional[str]:
+        from pixeltable import exprs
+
+        if isinstance(self.expr, exprs.FunctionCall):
+            return self.expr.fn._docstring()
+        return None
+
     def exec(self, *args: Any, **kwargs: Any) -> Any:
         expr = self.instantiate(*args, **kwargs)
         import pixeltable.exprs as exprs

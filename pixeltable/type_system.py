@@ -15,6 +15,7 @@ from typing import Any, Iterable, Mapping, Optional, Sequence, Union
 import PIL.Image
 import av  # type: ignore
 import numpy as np
+import pydantic
 import sqlalchemy as sql
 from typing import _GenericAlias  # type: ignore[attr-defined]
 from typing_extensions import _AnnotatedAlias
@@ -244,7 +245,7 @@ class ColumnType:
             if col_type is not None:
                 return col_type
             # this could still be json-serializable
-        if isinstance(val, dict) or isinstance(val, list) or isinstance(val, np.ndarray):
+        if isinstance(val, dict) or isinstance(val, list) or isinstance(val, np.ndarray) or isinstance(val, pydantic.BaseModel):
             try:
                 JsonType().validate_literal(val)
                 return JsonType(nullable=nullable)
@@ -337,7 +338,7 @@ class ColumnType:
                     return TimestampType(nullable=nullable_default)
                 if t is PIL.Image.Image:
                     return ImageType(nullable=nullable_default)
-                if issubclass(t, Sequence) or issubclass(t, Mapping):
+                if issubclass(t, Sequence) or issubclass(t, Mapping) or issubclass(t, pydantic.BaseModel):
                     return JsonType(nullable=nullable_default)
         return None
 
@@ -479,6 +480,9 @@ class ColumnType:
         """
         pass
 
+    def _to_json_schema(self) -> dict[str, Any]:
+        raise excs.Error(f'Pixeltable type {self} is not a valid JSON type')
+
 
 class InvalidType(ColumnType):
     def __init__(self, nullable: bool = False):
@@ -500,6 +504,9 @@ class StringType(ColumnType):
 
     def to_sa_type(self) -> sql.types.TypeEngine:
         return sql.String()
+
+    def _to_json_schema(self) -> dict[str, Any]:
+        return {'type': 'string'}
 
     def print_value(self, val: Any) -> str:
         return f"'{val}'"
@@ -524,6 +531,9 @@ class IntType(ColumnType):
     def to_sa_type(self) -> sql.types.TypeEngine:
         return sql.BigInteger()
 
+    def _to_json_schema(self) -> dict[str, Any]:
+        return {'type': 'integer'}
+
     def _validate_literal(self, val: Any) -> None:
         # bool is a subclass of int, so we need to check for it
         # explicitly first
@@ -537,6 +547,9 @@ class FloatType(ColumnType):
 
     def to_sa_type(self) -> sql.types.TypeEngine:
         return sql.Float()
+
+    def _to_json_schema(self) -> dict[str, Any]:
+        return {'type': 'number'}
 
     def _validate_literal(self, val: Any) -> None:
         if not isinstance(val, float):
@@ -554,6 +567,9 @@ class BoolType(ColumnType):
 
     def to_sa_type(self) -> sql.types.TypeEngine:
         return sql.Boolean()
+
+    def _to_json_schema(self) -> dict[str, Any]:
+        return {'type': 'boolean'}
 
     def _validate_literal(self, val: Any) -> None:
         if not isinstance(val, bool):
@@ -647,7 +663,7 @@ class JsonType(ColumnType):
         return val_type.print_value(val)
 
     def _validate_literal(self, val: Any) -> None:
-        if not isinstance(val, dict) and not isinstance(val, list):
+        if not isinstance(val, (dict, list)):
             # TODO In the future we should accept scalars too, which would enable us to remove this top-level check
             raise TypeError(f'Expected dict or list, got {val.__class__.__name__}')
         if not self.__is_valid_literal(val):
@@ -666,6 +682,8 @@ class JsonType(ColumnType):
     def _create_literal(self, val: Any) -> Any:
         if isinstance(val, tuple):
             val = list(val)
+        if isinstance(val, pydantic.BaseModel):
+            return val.model_dump()
         return val
 
 
@@ -744,6 +762,12 @@ class ArrayType(ColumnType):
             if n1 != n2:
                 return False
         return val.dtype == self.numpy_dtype()
+
+    def _to_json_schema(self) -> dict[str, Any]:
+        return {
+            'type': 'array',
+            'items': self.pxt_dtype._to_json_schema(),
+        }
 
     def _validate_literal(self, val: Any) -> None:
         if not isinstance(val, np.ndarray):
