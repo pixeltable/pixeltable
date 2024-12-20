@@ -682,9 +682,11 @@ class JsonType(ColumnType):
         return val
 
     def supertype(self, other: ColumnType) -> Optional[JsonType]:
+        # Try using the (much faster) supertype logic in ColumnType first. That will work if, for example, the types
+        # are identical except for nullability. If that doesn't work and both types are JsonType, then we will need to
+        # merge their schemas.
         basic_supertype = super().supertype(other)
         if basic_supertype is not None:
-            # This will be much faster when it works
             assert isinstance(basic_supertype, JsonType)
             return basic_supertype
 
