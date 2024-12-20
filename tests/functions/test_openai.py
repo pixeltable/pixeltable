@@ -107,7 +107,7 @@ class TestOpenai:
         t.add_computed_column(response=chat_completions(
             model='gpt-4o-mini',
             messages=messages,
-            tools=tools.model_dump()
+            tools=tools
         ))
         t.add_computed_column(output=t.response.choices[0].message.content)
         t.add_computed_column(tool_calls=tools.invoke(t.response))

@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+import dataclasses
 import json
 from typing import TYPE_CHECKING, Any, Optional
 
