@@ -8,7 +8,7 @@ import pixeltable as pxt
 from pixeltable import catalog
 from pixeltable import exceptions as excs
 
-from .utils import assert_resultset_eq, create_test_tbl, reload_catalog, validate_update_status
+from .utils import assert_resultset_eq, create_test_tbl, reload_catalog, validate_update_status, ReloadTester
 
 logger = logging.getLogger('pixeltable')
 
@@ -137,6 +137,74 @@ class TestView:
         with pytest.raises(excs.Error) as exc_info:
             _ = pxt.create_view('lambda_view', t, additional_columns={'v1': lambda c3: c3 * 2.0})
         assert "invalid value for column 'v1'" in str(exc_info.value).lower()
+
+    def test_create_if_exists(self, reset_db, reload_tester: ReloadTester) -> None:
+        """ Test if_exists parameter of create_view API"""
+        t = self.create_tbl()
+        v = pxt.create_view('test_view', t)
+        id_before = v._id
+
+        # invalid if_exists value is rejected
+        with pytest.raises(excs.Error) as exc_info:
+            _ = pxt.create_view('test_view', t, if_exists='invalid')
+        assert "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']" in str(exc_info.value)
+
+         # scenario 1: a view exists at the path already
+        with pytest.raises(excs.Error) as exc_info:
+            pxt.create_view('test_view', t)
+        assert 'already exists' in str(exc_info.value)
+        # if_exists='ignore' should return the existing view
+        v2 = pxt.create_view('test_view', t, if_exists='ignore')
+        assert v2 == v
+        assert v2._id == id_before
+        # if_exists='replace' should drop the existing view and create a new one
+        v2 = pxt.create_view('test_view', t, if_exists='replace')
+        assert v2 != v
+        assert v2._id != id_before
+        id_before = v2._id
+
+        # scenario 2: a view exists at the path, but has dependency
+        v_on_v = pxt.create_view('test_view_on_view', v2)
+        with pytest.raises(excs.Error) as exc_info:
+            pxt.create_view('test_view', t)
+        assert 'already exists' in str(exc_info.value)
+        # if_exists='ignore' should return the existing view
+        v3 = pxt.create_view('test_view', t, if_exists='ignore')
+        assert v3 == v2
+        assert v3._id == id_before
+        assert 'test_view_on_view' in pxt.list_tables()
+        # if_exists='replace' cannot drop a view with a dependent view.
+        # it should raise an error and recommend using 'replace_force'
+        with pytest.raises(excs.Error) as exc_info:
+            v3 = pxt.create_view('test_view', t, if_exists='replace')
+        assert ('already exists' in str(exc_info.value)
+            and 'has dependents' in str(exc_info.value)
+            and 'replace_force' in str(exc_info.value))
+        assert 'test_view_on_view' in pxt.list_tables()
+        # if_exists='replace_force' should drop the existing view and
+        # its dependent views and create a new one
+        v3 = pxt.create_view('test_view', t, if_exists='replace_force')
+        assert v3 != v2
+        assert v3._id != id_before
+        assert v_on_v._is_dropped
+        assert 'test_view_on_view' not in pxt.list_tables()
+
+        # scenario 3: path exists but is not a view
+        _ = pxt.create_table('not_view', {'c1': pxt.String})
+        with pytest.raises(excs.Error) as exc_info:
+            pxt.create_view('not_view', t)
+        assert 'already exists' in str(exc_info.value)
+        for _ie in ['ignore', 'replace', 'replace_force']:
+            with pytest.raises(excs.Error) as exc_info:
+                _ = pxt.create_view('not_view', t, if_exists=_ie)
+            assert ('already exists' in str(exc_info.value)
+                and 'is not a View' in str(exc_info.value))
+            assert 'not_view' in pxt.list_tables(), f"with if_exists={_ie}"
+
+        # sanity check persistence
+        _ = reload_tester.run_query(t.select())
+        _ = reload_tester.run_query(v3.select())
+        reload_tester.run_reload_test()
 
     def test_from_dataframe(self, reset_db) -> None:
         t = self.create_tbl()

@@ -63,6 +63,11 @@ class Table(SchemaObject):
                 return self._queries[name]
             raise AttributeError(f'Table {self.__table._name!r} has no query with that name: {name!r}')
 
+    @property
+    def _has_dependents(self) -> bool:
+        """Returns True if this table has any dependent views, or snapshots."""
+        return len(self._get_views(recursive=False)) > 0
+
     def _move(self, new_name: str, new_dir_id: UUID) -> None:
         self._check_is_dropped()
         super()._move(new_name, new_dir_id)
