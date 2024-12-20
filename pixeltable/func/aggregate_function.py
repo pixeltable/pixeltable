@@ -129,7 +129,7 @@ class AggregateFunction(Function):
     def overload(self, cls: type[Aggregator]) -> AggregateFunction:
         if not isinstance(cls, type) or not issubclass(cls, Aggregator):
             raise excs.Error(f'Invalid argument to @overload decorator: {cls}')
-        if len(self._resolutions) > 0:
+        if self._has_resolved_fns:
             raise excs.Error('New `overload` not allowed after the UDF has already been called')
         if self._conditional_return_type is not None:
             raise excs.Error('New `overload` not allowed after a conditional return type has been specified')

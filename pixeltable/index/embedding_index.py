@@ -161,7 +161,7 @@ class EmbeddingIndex(IndexBase):
         if signature_idx == -1:
             raise excs.Error(f'{name} must take a single {expected_type.name.lower()} parameter')
 
-        resolved_fn = embed_fn._overload_resolution(signature_idx)
+        resolved_fn = embed_fn._resolved_fns[signature_idx]
 
         # validate return type
         param_name = sig.parameters_by_pos[0].name

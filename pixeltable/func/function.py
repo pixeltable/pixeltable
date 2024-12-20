@@ -33,7 +33,11 @@ class Function(abc.ABC):
     is_method: bool
     is_property: bool
     _conditional_return_type: Optional[Callable[..., ts.ColumnType]]
-    _resolutions: list[Self]  # Cached overload resolutions of this function
+
+    # We cache the overload resolutions in self._resolutions. This ensures that each resolution is represented
+    # globally by a single Python object. We do this dynamically rather than pre-constructing them in order to
+    # avoid circular complexity in the `Function` initialization logic.
+    __resolved_fns: list[Self]
 
     # Translates a call to this function with the given arguments to its SQLAlchemy equivalent.
     # Overriden for specific Function instances via the to_sql() decorator. The override must accept the same
@@ -58,7 +62,7 @@ class Function(abc.ABC):
         self._conditional_return_type = None
         self._to_sql = self.__default_to_sql
 
-        self._resolutions = []
+        self.__resolved_fns = []
 
     @property
     def name(self) -> str:
@@ -88,28 +92,35 @@ class Function(abc.ABC):
         assert not self.is_polymorphic
         return len(self.signature.parameters)
 
-    def _overload_resolution(self, signature_idx: int) -> Self:
+    @property
+    def _resolved_fns(self) -> list[Self]:
         """
-        Return a new  `Function` that retains just the single signature at index `signature_idx`, and is otherwise
-        identical to this `Function`.
+        Return the list of overload resolutions for this `Function`, constructing it first if necessary.
+        Each resolution is a new `Function` instance that retains just the single signature at index `signature_idx`,
+        and is otherwise identical to this `Function`.
         """
-        assert 0 <= signature_idx < len(self.signatures)
+        if len(self.__resolved_fns) == 0:
+            # The list of overload resolutions hasn't been constructed yet; do so now.
+            if len(self.signatures) == 1:
+                # Only one signature: no need to construct separate resolutions
+                self.__resolved_fns.append(self)
+            else:
+                # Multiple signatures: construct a resolution for each signature
+                for idx in range(len(self.signatures)):
+                    resolution = cast(Self, copy(self))
+                    resolution.signatures = [self.signatures[idx]]
+                    resolution._update_as_overload_resolution(idx)
+                    self.__resolved_fns.append(resolution)
 
-        # We cache the resolutions in self.__resolutions. This ensures that each resolution is represented globally
-        # by a single Python object. We do this dynamically rather than pre-constructing them in order to avoid
-        # circular complexity in the `Function` initialization logic.
+        return self.__resolved_fns
 
-        # Note that it is necessary to create a resolution even if this Function has only one signature, because
-        # there is no guarantee we have seen all the Function's @overload declarations at the time this is called.
-
-        if len(self._resolutions) == 0:
-            for idx in range(len(self.signatures)):
-                resolution = cast(Self, copy(self))
-                resolution.signatures = [self.signatures[idx]]
-                resolution._update_as_overload_resolution(idx)
-                self._resolutions.append(resolution)
-
-        return self._resolutions[signature_idx]
+    @property
+    def _has_resolved_fns(self) -> bool:
+        """
+        Returns true if the resolved_fns for this `Function` have been constructed (i.e., if self._resolved_fns
+        has been accessed).
+        """
+        return len(self.__resolved_fns) > 0
 
     def _update_as_overload_resolution(self, signature_idx: int) -> None:
         """
@@ -150,14 +161,14 @@ class Function(abc.ABC):
                 raise excs.Error(f'Function {self.name!r} has no matching signature for arguments')
         assert result >= 0
         assert bound_args is not None
-        return self._overload_resolution(result), bound_args
+        return self._resolved_fns[result], bound_args
 
     def _bind_to_signature(self, signature_idx: int, args: Sequence[Any], kwargs: dict[str, Any]) -> dict[str, Any]:
         from pixeltable import exprs
 
         signature = self.signatures[signature_idx]
         bound_args = signature.py_signature.bind(*args, **kwargs).arguments
-        self._overload_resolution(signature_idx).validate_call(bound_args)
+        self._resolved_fns[signature_idx].validate_call(bound_args)
         exprs.FunctionCall.normalize_args(self.name, signature, bound_args)
         return bound_args
 
@@ -206,7 +217,7 @@ class Function(abc.ABC):
             templates: list['ExprTemplate'] = []
             for i in range(len(self.signatures)):
                 try:
-                    template = self._overload_resolution(i)._bind_and_create_template(kwargs)
+                    template = self._resolved_fns[i]._bind_and_create_template(kwargs)
                     templates.append(template)
                 except (TypeError, excs.Error):
                     continue
@@ -333,7 +344,7 @@ class Function(abc.ABC):
                 f'Signature in code: {instance_signature_str}'
             )
         # We found a match; specialize to the appropriate overload resolution (non-polymorphic form) and return that.
-        return instance._overload_resolution(idx)
+        return instance._resolved_fns[idx]
 
     def __find_matching_overload(self, sig: Signature) -> Optional[int]:
         for idx, overload_sig in enumerate(self.signatures):
