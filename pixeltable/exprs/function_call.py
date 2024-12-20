@@ -5,7 +5,6 @@ import json
 import sys
 from typing import Any, Optional
 
-import pydantic
 import sqlalchemy as sql
 
 import pixeltable.catalog as catalog
@@ -188,12 +187,6 @@ class FunctionCall(Expr):
                     pass
 
             if not isinstance(arg, Expr):
-                # make sure that non-Expr args are json-serializable and are literals of the correct type
-                try:
-                    if not isinstance(arg, pydantic.BaseModel):
-                        _ = json.dumps(arg)
-                except TypeError:
-                    raise excs.Error(f'Argument for parameter {param_name!r} is not json-serializable: {arg} (of type {type(arg)})')
                 if arg is not None:
                     try:
                         param_type = param.col_type

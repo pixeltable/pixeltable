@@ -338,7 +338,7 @@ class ColumnType:
                     return TimestampType(nullable=nullable_default)
                 if t is PIL.Image.Image:
                     return ImageType(nullable=nullable_default)
-                if issubclass(t, Sequence) or issubclass(t, Mapping):
+                if issubclass(t, Sequence) or issubclass(t, Mapping) or issubclass(t, pydantic.BaseModel):
                     return JsonType(nullable=nullable_default)
         return None
 
@@ -663,7 +663,7 @@ class JsonType(ColumnType):
         return val_type.print_value(val)
 
     def _validate_literal(self, val: Any) -> None:
-        if not isinstance(val, (dict, list, pydantic.BaseModel)):
+        if not isinstance(val, (dict, list)):
             # TODO In the future we should accept scalars too, which would enable us to remove this top-level check
             raise TypeError(f'Expected dict or list, got {val.__class__.__name__}')
         if not self.__is_valid_literal(val):
@@ -671,7 +671,7 @@ class JsonType(ColumnType):
 
     @classmethod
     def __is_valid_literal(cls, val: Any) -> bool:
-        if val is None or isinstance(val, (str, int, float, bool, pydantic.BaseModel)):
+        if val is None or isinstance(val, (str, int, float, bool)):
             return True
         if isinstance(val, (list, tuple)):
             return all(cls.__is_valid_literal(v) for v in val)

@@ -17,7 +17,7 @@ import tenacity
 
 import pixeltable as pxt
 from pixeltable import env
-from pixeltable.func import Batch
+from pixeltable.func import Batch, Tools
 from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
@@ -192,7 +192,7 @@ def chat_completions(
     stop: Optional[list[str]] = None,
     temperature: Optional[float] = None,
     top_p: Optional[float] = None,
-    tools: Optional[list[dict]] = None,
+    tools: Optional[Tools] = None,
     tool_choice: Optional[dict] = None,
     user: Optional[str] = None,
 ) -> dict:

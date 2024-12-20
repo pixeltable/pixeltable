@@ -36,7 +36,7 @@ class Tool(pydantic.BaseModel):
                 'parameters': {
                     'type': 'object',
                     'properties': {
-                        param.name: param.as_tool_dict()
+                        param.name: param.col_type._to_json_schema()
                         for param in self.parameters.values()
                     }
                 },
