@@ -357,7 +357,7 @@ class Env:
             self.db_url,
             echo=echo,
             future=True,
-            isolation_level='AUTOCOMMIT',
+            isolation_level='REPEATABLE READ',
             connect_args=connect_args,
         )
         self._logger.info(f'Created SQLAlchemy engine at: {self.db_url}')
