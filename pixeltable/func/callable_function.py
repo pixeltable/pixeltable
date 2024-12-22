@@ -49,8 +49,8 @@ class CallableFunction(Function):
     def is_async(self) -> bool:
         return inspect.iscoroutinefunction(self.py_fn)
 
-    async def async_exec(self, *args: Any, **kwargs: Any) -> Any:
-        assert inspect.iscoroutinefunction(self.py_fn)
+    async def aexec(self, *args: Any, **kwargs: Any) -> Any:
+        assert self.is_async
         if self.is_batched:
             # Pack the batched parameters into singleton lists
             constant_param_names = [p.name for p in self.signature.constant_parameters]
@@ -83,14 +83,14 @@ class CallableFunction(Function):
             else:
                 return self.py_fn(*args, **kwargs)
 
-    async def async_exec_batch(self, *args: Any, **kwargs: Any) -> list:
+    async def aexec_batch(self, *args: Any, **kwargs: Any) -> list:
         """Execute the function with the given arguments and return the result.
         The arguments are expected to be batched: if the corresponding parameter has type T,
         then the argument should have type T if it's a constant parameter, or list[T] if it's
         a batched parameter.
         """
         assert self.is_batched
-        assert inspect.iscoroutinefunction(self.py_fn)
+        assert self.is_async
         # Unpack the constant parameters
         constant_param_names = [p.name for p in self.signature.constant_parameters]
         constant_kwargs = {k: v[0] for k, v in kwargs.items() if k in constant_param_names}

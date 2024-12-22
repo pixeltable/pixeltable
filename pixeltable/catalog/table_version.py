@@ -731,9 +731,12 @@ class TableVersion:
                 yield rowid
 
         if conn is None:
-            with Env.get().engine.begin() as conn:
-                return self._insert(
-                    plan, conn, time.time(), print_stats=print_stats, rowids=rowids(), abort_on_exc=fail_on_exception)
+            #with Env.get().engine.begin() as conn:
+            with Env.get().engine.connect().execution_options(isolation_level='REPEATABLE READ') as conn:
+                with conn.begin():
+                    return self._insert(
+                        plan, conn, time.time(), print_stats=print_stats, rowids=rowids(),
+                        abort_on_exc=fail_on_exception)
         else:
             return self._insert(
                 plan, conn, time.time(), print_stats=print_stats, rowids=rowids(), abort_on_exc=fail_on_exception)

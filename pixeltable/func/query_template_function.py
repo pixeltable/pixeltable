@@ -57,6 +57,10 @@ class QueryTemplateFunction(Function):
     def set_conn(self, conn: Optional[sql.engine.Connection]) -> None:
         self.conn = conn
 
+    @property
+    def is_async(self) -> bool:
+        return True
+
     async def aexec(self, *args: Any, **kwargs: Any) -> Any:
         bound_args = self.signature.py_signature.bind(*args, **kwargs).arguments
         # apply defaults, otherwise we might have Parameters left over

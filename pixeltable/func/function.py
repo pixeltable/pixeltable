@@ -68,6 +68,11 @@ class Function(abc.ABC):
     def arity(self) -> int:
         return len(self.signature.parameters)
 
+    @property
+    @abc.abstractmethod
+    def is_async(self) -> bool:
+        pass
+
     def help_str(self) -> str:
         return self.display_name + str(self.signature)
 

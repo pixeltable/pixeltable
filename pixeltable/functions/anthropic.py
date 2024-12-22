@@ -18,9 +18,9 @@ if TYPE_CHECKING:
 
 
 @env.register_client('anthropic')
-def _(api_key: str) -> 'anthropic.AsyncAnthropic':
+def _(api_key: str) -> 'anthropic.Anthropic':
     import anthropic
-    return anthropic.AsyncAnthropic(api_key=api_key)
+    return anthropic.Anthropic(api_key=api_key)
 
 
 def _anthropic_client() -> 'anthropic.Anthropic':
@@ -37,7 +37,7 @@ def _retry(fn: Callable) -> Callable:
 
 
 @pxt.udf
-async def messages(
+def messages(
     messages: list[dict[str, str]],
     *,
     model: str,
@@ -77,28 +77,7 @@ async def messages(
         >>> msgs = [{'role': 'user', 'content': tbl.prompt}]
         ... tbl['response'] = messages(msgs, model='claude-3-haiku-20240307')
     """
-    import anthropic
-    if False:
-        result = await _anthropic_client().messages._post(
-            '/v1/messages',
-            body={
-                'messages': messages,
-                'model': model,
-                'max_tokens': max_tokens,
-                'metadata': _opt(metadata),
-                'stop_sequences': _opt(stop_sequences),
-                'system': _opt(system),
-                'temperature': _opt(temperature),
-                'tool_choice': _opt(tool_choice),
-                'tools': _opt(tools),
-                'top_k': _opt(top_k),
-                'top_p': _opt(top_p),
-            },
-            cast_to=anthropic.types.Message,
-        )
-        return result.dict()
-
-    result = await _anthropic_client().messages.create(
+    return _retry(_anthropic_client().messages.create)(
         messages=messages,
         model=model,
         max_tokens=max_tokens,
@@ -110,9 +89,7 @@ async def messages(
         tools=_opt(tools),
         top_k=_opt(top_k),
         top_p=_opt(top_p),
-        #extra_headers={'X-Stainless-Raw-Response': 'true'},
-    )
-    return result.dict()
+    ).dict()
 
 
 _T = TypeVar('_T')

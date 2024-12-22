@@ -167,10 +167,13 @@ class Analyzer:
             raise excs.Error(
                 f'Invalid non-aggregate expression in aggregate query: {self.select_list[is_agg_output.index(False)]}')
 
-        # check that filter doesn't contain aggregates
+        # check that Where clause and filter doesn't contain aggregates
+        if self.sql_where_clause is not None:
+            if any(_is_agg_fn_call(e) for e in self.sql_where_clause.subexprs(expr_class=exprs.FunctionCall)):
+                raise excs.Error(f'where() cannot contain aggregate functions: {self.sql_where_clause}')
         if self.filter is not None:
             if any(_is_agg_fn_call(e) for e in self.filter.subexprs(expr_class=exprs.FunctionCall)):
-                raise excs.Error(f'Filter cannot contain aggregate functions: {self.filter}')
+                raise excs.Error(f'where() cannot contain aggregate functions: {self.filter}')
 
         # check that grouping exprs don't contain aggregates and can be expressed as SQL (we perform sort-based
         # aggregation and rely on the SqlScanNode returning data in the correct order)

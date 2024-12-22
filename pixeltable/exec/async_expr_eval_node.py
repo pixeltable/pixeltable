@@ -1,13 +1,12 @@
 import abc
 import asyncio
 import dataclasses
+import datetime
 import itertools
 import logging
 import sys
-from typing import Iterable, Iterator, Any, AsyncIterator, Protocol, Optional
 from types import TracebackType
-import datetime
-from concurrent.futures import ThreadPoolExecutor
+from typing import Iterable, Iterator, Any, AsyncIterator, Protocol, Optional, Callable, Union
 
 import numpy as np
 
@@ -21,6 +20,7 @@ _logger = logging.getLogger('pixeltable')
 
 
 class Dispatcher(Protocol):
+    """Row dispatcher used by Evaluators as a post-processing step after slot materialization"""
     tasks: set[asyncio.Task]
     row_builder: exprs.RowBuilder
     exc_event: asyncio.Event
@@ -35,6 +35,15 @@ class Dispatcher(Protocol):
 
 
 class Evaluator(abc.ABC):
+    """
+    Base class for expression evaluators. Each DataRow slot is assigned an evaluator, which is responsible for the
+    execution of the expression evaluation logic as well as the scheduling/task breakdown of that execution.
+
+    Expected behavior:
+    - all created tasks must be recorded in dispatcher.tasks
+    - evaluators are responsible for aborting execution when a) the task is cancelled or b) when an exception occurred
+      elsewhere (indicated by dispatcher.exc_event)
+    """
     dispatcher: Dispatcher
     is_closed: bool
 
@@ -44,7 +53,10 @@ class Evaluator(abc.ABC):
 
     @abc.abstractmethod
     def schedule(self, rows: list[exprs.DataRow], slot_idx: int) -> None:
-        """Create tasks to evaluate the expression in the given slot for the given rows; must not block"""
+        """
+        Create tasks to evaluate the expression in the given slot for the given rows; must not block.
+
+        """
         pass
 
     def _close(self) -> None:
@@ -52,11 +64,20 @@ class Evaluator(abc.ABC):
         pass
 
     def close(self) -> None:
+        """Indicates that there may not be any more rows getting scheduled"""
         self.is_closed = True
         self._close()
 
 
 class DefaultExprEvaluator(Evaluator):
+    """
+    Standard expression evaluation using Expr.eval().
+
+    Creates one task per set of rows handed to schedule().
+
+    TODO:
+    - parallelize via Ray
+    """
     e: exprs.Expr
 
     def __init__(self, e: exprs.Expr, dispatcher: Dispatcher):
@@ -70,7 +91,7 @@ class DefaultExprEvaluator(Evaluator):
         task.add_done_callback(self.dispatcher.tasks.discard)
 
     async def eval(self, rows: list[exprs.DataRow]) -> None:
-        rows_with_excs: set[int] = set()  # records idxs into 'rows'
+        rows_with_excs: set[int] = set()  # records idxs into rows
         for idx, row in enumerate(rows):
             assert not row.has_val[self.e.slot_idx] and not row.has_exc(self.e.slot_idx)
             if asyncio.current_task().cancelled() or self.dispatcher.exc_event.is_set():
@@ -85,71 +106,53 @@ class DefaultExprEvaluator(Evaluator):
         self.dispatcher.dispatch([rows[i] for i in range(len(rows)) if i not in rows_with_excs])
 
 
-class QueryTemplateFnCallExecutor(Evaluator):
-    fn_call: exprs.FunctionCall
-    query_template_fn: func.QueryTemplateFunction
+class FnCallEvaluator(Evaluator):
+    """
+    Evaluates function calls:
+    - batched functions (sync and async): one task per batch
+    - async functions: one task per row
+    - the rest: one task per set of rows handed to schedule()
 
-    def __init__(self, fn_call: exprs.FunctionCall, dispatcher: Dispatcher):
-        super().__init__(dispatcher)
-        self.fn_call = fn_call
-        assert isinstance(fn_call.fn, func.QueryTemplateFunction)
-        self.query_template_fn = fn_call.fn
-
-    def schedule(self, rows: list[exprs.DataRow], slot_idx: int) -> None:
-        assert self.fn_call.slot_idx >= 0
-        task = asyncio.create_task(self.eval(rows))
-        self.dispatcher.tasks.add(task)
-        task.add_done_callback(self.dispatcher.tasks.discard)
-
-    async def eval(self, rows: list[exprs.DataRow]) -> None:
-        rows_with_excs: set[int] = set()  # records idxs into 'rows'
-        for idx, row in enumerate(rows):
-            assert not row.has_val[self.fn_call.slot_idx] and not row.has_exc(self.fn_call.slot_idx)
-            # TODO: is it possible for this to get cancelled after it got started?
-            if asyncio.current_task().cancelled():
-                return
-            try:
-                args_kwargs = self.fn_call.make_args(row)
-                if args_kwargs is None:
-                    # we can't evaluate this function
-                    row[self.fn_call.slot_idx] = None
-                else:
-                    args, kwargs = args_kwargs
-                    row[self.fn_call.slot_idx] = await self.query_template_fn.aexec(*args, **kwargs)
-            except Exception as exc:
-                _, _, exc_tb = sys.exc_info()
-                row.set_exc(self.fn_call.slot_idx, exc)
-                rows_with_excs.add(idx)
-                self.dispatcher.dispatch_exc([row], self.fn_call.slot_idx, exc_tb)
-        self.dispatcher.dispatch([rows[i] for i in range(len(rows)) if i not in rows_with_excs])
-
-
-class BatchedFnCallEvaluator(Evaluator):
+    TODO:
+    - adaptive batching: finding the optimal batch size based on observed execution times
+    """
     @dataclasses.dataclass
-    class QueueItem:
+    class CallArgs:
         row: exprs.DataRow
         args: list[Any]
         kwargs: dict[str, Any]
 
     fn_call: exprs.FunctionCall
-    input_queue: asyncio.Queue[QueueItem]
-    batch_size: int
+    fn: func.Function
+    scalar_py_fn: Optional[Callable]  # only set for non-batching CallableFunctions
+
+    # only set if fn.is_batched
+    input_queue: Optional[asyncio.Queue[CallArgs]]
+    batch_size: Optional[int]
 
     def __init__(self, fn_call: exprs.FunctionCall, dispatcher: Dispatcher):
         super().__init__(dispatcher)
-        assert isinstance(fn_call.fn, func.CallableFunction)
-        assert fn_call.fn.is_batched
         self.fn_call = fn_call
-        self.input_queue =  asyncio.Queue[BatchedFnCallEvaluator.QueueItem]()
-        # we're not supplying sample arguments there, they're ignored anyway
-        self.batch_size = fn_call.fn.get_batch_size()
+        self.fn = fn_call.fn
+        if isinstance(self.fn, func.CallableFunction) and self.fn.is_batched:
+            self.input_queue =  asyncio.Queue[FnCallEvaluator.CallArgs]()
+            # we're not supplying sample arguments there, they're ignored anyway
+            self.batch_size = self.fn.get_batch_size()
+            self.scalar_py_fn = None
+        else:
+            self.input_queue = None
+            self.batch_size = None
+            if isinstance(self.fn, func.CallableFunction):
+                self.scalar_py_fn = self.fn.py_fn
+            else:
+                self.scalar_py_fn = None
 
     def schedule(self, rows: list[exprs.DataRow], slot_idx: int) -> None:
         assert self.fn_call.slot_idx >= 0
 
-        # create QueueItems for incoming rows
+        # create CallArgs for incoming rows
         skip_rows: list[exprs.DataRow] = []  # skip rows with Nones in non-nullable parameters
-        queue_items: list[BatchedFnCallEvaluator.QueueItem] = []
+        queue_items: list[FnCallEvaluator.CallArgs] = []
         for row in rows:
             args_kwargs = self.fn_call.make_args(row)
             if args_kwargs is None:
@@ -158,50 +161,66 @@ class BatchedFnCallEvaluator(Evaluator):
                 skip_rows.append(row)
             else:
                 args, kwargs = args_kwargs
-                queue_items.append(self.QueueItem(row, args, kwargs))
+                queue_items.append(self.CallArgs(row, args, kwargs))
 
         if len(skip_rows) > 0:
             self.dispatcher.dispatch(skip_rows)
 
-        if not self.is_closed and (len(queue_items) + self.input_queue.qsize() < self.batch_size):
-            # we don't have enough rows for a batch
-            for item in queue_items:
-                self.input_queue.put_nowait(item)
-            return
-
-        # create one task per batch
-        combined_items = itertools.chain(self._queued_items(), queue_items)
-        while True:
-            batch_items = list(itertools.islice(combined_items, self.batch_size))
-            if len(batch_items) == 0:
-                break
-            if not self.is_closed and (len(batch_items) < self.batch_size):
-                # we don't have a full batch left: return the rest to the queue
-                assert self.input_queue.empty()  # we returned all queued items
-                for item in batch_items:
+        if self.batch_size is not None:
+            if not self.is_closed and (len(queue_items) + self.input_queue.qsize() < self.batch_size):
+                # we don't have enough rows for a batch
+                for item in queue_items:
                     self.input_queue.put_nowait(item)
                 return
-            task = asyncio.create_task(self.eval(batch_items))
+
+            # create one task per batch
+            combined_items = itertools.chain(self._queued_items(), queue_items)
+            while True:
+                batch_items = list(itertools.islice(combined_items, self.batch_size))
+                if len(batch_items) == 0:
+                    break
+                if len(batch_items) < self.batch_size and not self.is_closed:
+                    # we don't have a full batch left: return the rest to the queue
+                    assert self.input_queue.empty()  # we saw all queued items
+                    for item in batch_items:
+                        self.input_queue.put_nowait(item)
+                    return
+                task = asyncio.create_task(self.eval_batch(batch_items))
+                self.dispatcher.tasks.add(task)
+                task.add_done_callback(self.dispatcher.tasks.discard)
+        elif self.fn.is_async:
+            # create one task per call
+            for item in queue_items:
+                task = asyncio.create_task(self.eval_async(item))
+                self.dispatcher.tasks.add(task)
+                task.add_done_callback(self.dispatcher.tasks.discard)
+        else:
+            # create a single task for all rows
+            task = asyncio.create_task(self.eval(queue_items))
             self.dispatcher.tasks.add(task)
             task.add_done_callback(self.dispatcher.tasks.discard)
 
-    def _queued_items(self) -> Iterator[QueueItem]:
+    def _queued_items(self) -> Iterator[CallArgs]:
         while not self.input_queue.empty():
             yield self.input_queue.get_nowait()
 
-    async def eval(self, items: list[QueueItem]) -> None:
+    async def eval_batch(self, items: list[CallArgs]) -> None:
         arg_batches: list[list[Optional[Any]]] = [[None] * len(items) for _ in range(len(self.fn_call.args))]
         kwarg_batches: dict[str, list[Optional[Any]]] = {k: [None] * len(items) for k in self.fn_call.kwargs.keys()}
 
-        assert isinstance(self.fn_call.fn, func.CallableFunction)
+        assert isinstance(self.fn, func.CallableFunction)
         for i, item in enumerate(items):
             for j in range(len(item.args)):
                 arg_batches[j][i] = item.args[j]
             for k in item.kwargs.keys():
                 kwarg_batches[k][i] = item.kwargs[k]
         rows = [item.row for item in items]
+        result_batch: list[Any]
         try:
-            result_batch = self.fn_call.fn.exec_batch(*arg_batches, **kwarg_batches)
+            if self.fn.is_async:
+                result_batch = await self.fn.aexec_batch(*arg_batches, **kwarg_batches)
+            else:
+                result_batch = self.fn.exec_batch(*arg_batches, **kwarg_batches)
         except Exception as exc:
             _, _, exc_tb = sys.exc_info()
             for row in rows:
@@ -213,76 +232,55 @@ class BatchedFnCallEvaluator(Evaluator):
             row[self.fn_call.slot_idx] = result_batch[i]
         self.dispatcher.dispatch(rows)
 
+    async def eval_async(self, item: CallArgs) -> None:
+        assert not item.row.has_val[self.fn_call.slot_idx] and not item.row.has_exc(self.fn_call.slot_idx)
+
+        try:
+            start_ts = datetime.datetime.now()
+            _logger.debug(f'Start evaluating slot {self.fn_call.slot_idx}')
+            item.row[self.fn_call.slot_idx] = await self.fn.aexec(*item.args, **item.kwargs)
+            end_ts = datetime.datetime.now()
+            _logger.debug(f'Evaluated slot {self.fn_call.slot_idx} in {end_ts - start_ts}')
+            self.dispatcher.dispatch([item.row])
+        except Exception as exc:
+            _, _, exc_tb = sys.exc_info()
+            item.row.set_exc(self.fn_call.slot_idx, exc)
+            self.dispatcher.dispatch_exc([item.row], self.fn_call.slot_idx, exc_tb)
+
+    async def eval(self, items: list[CallArgs]) -> None:
+        rows_with_excs: set[int] = set()  # records idxs into 'rows'
+        for idx, item in enumerate(items):
+            assert not item.row.has_val[self.fn_call.slot_idx] and not item.row.has_exc(self.fn_call.slot_idx)
+            if asyncio.current_task().cancelled() or self.dispatcher.exc_event.is_set():
+                return
+            try:
+                item.row[self.fn_call.slot_idx] = self.scalar_py_fn(*item.args, **item.kwargs)
+            except Exception as exc:
+                _, _, exc_tb = sys.exc_info()
+                item.row.set_exc(self.fn_call.slot_idx, exc)
+                rows_with_excs.add(idx)
+                self.dispatcher.dispatch_exc([item.row], self.fn_call.slot_idx, exc_tb)
+        self.dispatcher.dispatch([items[i].row for i in range(len(items)) if i not in rows_with_excs])
+
     def _close(self) -> None:
         """Create a task for the remaining queued items"""
-        if self.input_queue.empty():
+        if self.input_queue is None or self.input_queue.empty():
             return
-        task = asyncio.create_task(self.eval(list(self._queued_items())))
+        task = asyncio.create_task(self.eval_batch(list(self._queued_items())))
         self.dispatcher.tasks.add(task)
         task.add_done_callback(self.dispatcher.tasks.discard)
 
 
-class AsyncFnCallEvaluator(Evaluator):
-    @dataclasses.dataclass
-    class QueueItem:
-        row: exprs.DataRow
-        args: list[Any]
-        kwargs: dict[str, Any]
-
-    fn_call: exprs.FunctionCall
-    fn: func.CallableFunction
-
-    def __init__(self, fn_call: exprs.FunctionCall, dispatcher: Dispatcher):
-        super().__init__(dispatcher)
-        assert isinstance(fn_call.fn, func.CallableFunction)
-        self.fn_call = fn_call
-        assert isinstance(fn_call.fn, func.CallableFunction)
-        assert fn_call.fn.is_async
-        self.fn = fn_call.fn
-
-    def schedule(self, rows: list[exprs.DataRow], slot_idx: int) -> None:
-        assert self.fn_call.slot_idx >= 0
-        for row in rows:
-            task = asyncio.create_task(self.eval(row))
-            self.dispatcher.tasks.add(task)
-            task.add_done_callback(self.dispatcher.tasks.discard)
-
-    async def eval(self, row: exprs.DataRow) -> None:
-        assert not row.has_val[self.fn_call.slot_idx] and not row.has_exc(self.fn_call.slot_idx)
-
-        args_kwargs = self.fn_call.make_args(row)
-        if args_kwargs is None:
-            # we can't evaluate this function
-            row[self.fn_call.slot_idx] = None
-            self.dispatcher.dispatch([row])
-            return
-
-        args, kwargs = args_kwargs
-        try:
-            start_ts = datetime.datetime.now()
-            _logger.debug(f'Start evaluating slot {self.fn_call.slot_idx}')
-            row[self.fn_call.slot_idx] = await self.fn.async_exec(*args, **kwargs)
-            end_ts = datetime.datetime.now()
-            _logger.debug(f'Evaluated slot {self.fn_call.slot_idx} in {end_ts - start_ts}')
-            self.dispatcher.dispatch([row])
-        except Exception as exc:
-            _, _, exc_tb = sys.exc_info()
-            row.set_exc(self.fn_call.slot_idx, exc)
-            if False:
-                input_vals = [row[d.slot_idx] for d in self.e.dependencies()]
-                raise excs.ExprEvalError(
-                    self.e, f'expression {self.e}', row.get_exc(self.e.slot_idx), exc_tb, input_vals, 0)
-            self.dispatcher.dispatch_exc([row], self.fn_call.slot_idx, exc_tb)
-
-
 class CircularRowBuffer:
+    """Fixed-length circular buffer of DataRows; knows how to maintain input order"""
+
     size: int
     maintain_order: bool  # True if we're returning rows order by position
     num_rows: int  # number of rows in the buffer
     num_ready: int  # number of consecutive non-None rows at head
     buffer: np.ndarray  # of object
     head_idx: int  # index of beginning of the buffer
-    head_row_pos: int  # row position of the beginning of the buffer
+    head_pos: int  # row position of the beginning of the buffer
 
     def __init__(self, size: int, maintain_order: bool):
         self.size = size
@@ -290,14 +288,14 @@ class CircularRowBuffer:
         self.num_rows = 0
         self.num_ready = 0
         self.buffer = np.full(size, None, dtype=object)
-        self.head_row_pos = 0
+        self.head_pos = 0
         self.head_idx = 0
 
     def add_row(self, row: exprs.DataRow, pos: Optional[int]) -> None:
-        assert pos is None or (pos - self.head_row_pos < self.size)
+        assert pos is None or (pos - self.head_pos < self.size), f'{pos} {self.head_pos} {self.size}'
         offset: int  # of new row from head
         if self.maintain_order:
-            offset = pos - self.head_row_pos
+            offset = pos - self.head_pos
         else:
             offset = self.num_rows
         idx = (self.head_idx + offset) % self.size
@@ -327,7 +325,7 @@ class CircularRowBuffer:
             rows = np.concatenate([self.buffer[self.head_idx:], self.buffer[:self.head_idx + n - self.size]]).tolist()
             self.buffer[self.head_idx:] = None
             self.buffer[:self.head_idx + n - self.size] = None
-        self.head_row_pos += n
+        self.head_pos += n
         self.head_idx = (self.head_idx + n) % self.size
         self.num_rows -= n
         self.num_ready -= n
@@ -336,26 +334,50 @@ class CircularRowBuffer:
 
 class AsyncExprEvalNode(ExecNode):
     """
+    Expression evaluation
+
+    Resource management:
+    - the execution system tries to limit total memory consumption by limiting the number of rows that are in
+      circulation
+    - during execution, slots that aren't part of the output are garbage collected as soon as their direct dependents
+      are materialized
+
     TODO:
-    - flush in-mem images of output columns when they're no longer needed
+    - Literal handling: currently, Literal values are copied into slots via the normal evaluation mechanism, which is
+      needless overhead; instead: pre-populate Literal slots in _init_row()
+    - local model inference on gpu: currently, no attempt is made to ensure that models can fit onto the gpu
+      simultaneously, which will cause errors; instead, the execution should be divided into sequential phases, each
+      of which only contains a subset of the models which is known to fit onto the gpu simultaneously
     """
     maintain_input_order: bool  # True if we're returning rows in the order we received them from our input
     num_dependencies: np.ndarray  # number of dependencies for our output slots; indexed by slot idx
-    output_mask: np.ndarray  # of bool; True if this slot is part of our output
-    slot_evaluators: dict[int, Evaluator]
-    tasks: set[asyncio.Task]
-    completed_rows: asyncio.Queue[exprs.DataRow]  # rows ready to be returned
+    outputs: np.ndarray  # bool per slot; True if this slot is part of our output
+    slot_evaluators: dict[int, Evaluator]  # key: slot idx
     gc_targets: np.ndarray  # bool per slot; True if this is an intermediate expr (ie, not part of our output)
     eval_ctx: np.ndarray  # bool per slot; EvalCtx.slot_idxs as a mask
+
+    # execution state
+    tasks: set[asyncio.Task]  # collects all running tasks to prevent them from getting gc'd
     exc_event: asyncio.Event  # set if an exception needs to be propagated
-    eval_error: Optional[excs.ExprEvalError]  # set if an error needs to be propagated
+    error: Optional[Union[excs.Error, excs.ExprEvalError]]  # exception that needs to be propagated
+    completed_rows: asyncio.Queue[exprs.DataRow]  # rows that have completed evaluation
+    completed_event: asyncio.Event  # set when completed_rows is non-empty
+    input_iter: AsyncIterator[DataRowBatch]
+    current_input_batch: Optional[DataRowBatch]  # batch from which we're currently consuming rows
+    input_row_idx: int  # next row to consume from current_input_batch
+    next_input_batch: Optional[DataRowBatch]  # read-ahead input batch
+    avail_input_rows: int  # total number across both current_/next_input_batch
+    input_complete: bool  # True if we've received all input batches
+    num_in_flight: int  # number of dispatched rows that haven't completed
+    row_pos_map: Optional[dict[int, int]]  # id(row) -> position of row in input; only set if maintain_input_order
+    output_buffer: CircularRowBuffer  # holds rows that are ready to be returned, in order
 
     # debugging
     num_input_rows: int
     num_output_rows: int
 
     BATCH_SIZE = 12
-    MAX_IN_FLIGHT = 50
+    MAX_BUFFERED_ROWS = 50  # maximum number of rows that have been dispatched but not yet returned
 
     def __init__(
         self, row_builder: exprs.RowBuilder, output_exprs: Iterable[exprs.Expr], input_exprs: Iterable[exprs.Expr],
@@ -364,9 +386,9 @@ class AsyncExprEvalNode(ExecNode):
         super().__init__(row_builder, output_exprs, input_exprs, input)
         self.maintain_input_order = maintain_input_order
         self.num_dependencies = np.sum(row_builder.dependencies, axis=1)
-        self.output_mask = np.zeros(row_builder.num_materialized, dtype=bool)
+        self.outputs = np.zeros(row_builder.num_materialized, dtype=bool)
         output_slot_idxs = [e.slot_idx for e in output_exprs]
-        self.output_mask[output_slot_idxs] = True
+        self.outputs[output_slot_idxs] = True
         self.tasks = set()
 
         self.gc_targets = np.ones(row_builder.num_materialized, dtype=bool)
@@ -376,7 +398,17 @@ class AsyncExprEvalNode(ExecNode):
         output_ctx = self.row_builder.create_eval_ctx(output_exprs, exclude=input_exprs)
         self.eval_ctx = np.zeros(row_builder.num_materialized, dtype=bool)
         self.eval_ctx[output_ctx.slot_idxs] = True
-        self.eval_error = None
+        self.error = None
+
+        self.input_iter = self.input.__aiter__()
+        self.current_input_batch = None
+        self.next_input_batch = None
+        self.input_row_idx = 0
+        self.avail_input_rows = 0
+        self.input_complete = False
+        self.num_in_flight = 0
+        self.row_pos_map = {}
+        self.output_buffer = CircularRowBuffer(self.MAX_BUFFERED_ROWS, maintain_order=self.maintain_input_order)
 
         self.num_input_rows = 0
         self.num_output_rows = 0
@@ -387,129 +419,197 @@ class AsyncExprEvalNode(ExecNode):
     def _init_slot_evaluators(self) -> None:
         for slot_idx in range(self.row_builder.num_materialized):
             expr = self.row_builder.unique_exprs[slot_idx]
-            if isinstance(expr, exprs.FunctionCall) and isinstance(expr.fn, func.CallableFunction):
-                fn = expr.fn
-                if fn.is_batched:
-                    self.slot_evaluators[slot_idx] = BatchedFnCallEvaluator(expr, self)
-                elif fn.is_async:
-                    self.slot_evaluators[slot_idx] = AsyncFnCallEvaluator(expr, self)
-                else:
-                    self.slot_evaluators[slot_idx] = DefaultExprEvaluator(expr, self)
-            elif isinstance(expr, exprs.FunctionCall) and isinstance(expr.fn, func.QueryTemplateFunction):
-                self.slot_evaluators[slot_idx] = QueryTemplateFnCallExecutor(expr, self)
+            if (
+                isinstance(expr, exprs.FunctionCall)
+                # ExprTemplateFunction and AggregateFunction calls are best handled by FunctionCall.eval()
+                and not isinstance(expr.fn, func.ExprTemplateFunction)
+                and not isinstance(expr.fn, func.AggregateFunction)
+            ):
+                self.slot_evaluators[slot_idx] = FnCallEvaluator(expr, self)
             else:
                 self.slot_evaluators[slot_idx] = DefaultExprEvaluator(expr, self)
 
+    async def _fetch_input_batch(self) -> None:
+        """
+        Fetches another batch from our input or sets input_complete to True if there are no more batches.
+
+        - stores the batch in current_input_batch, if not already set, or next_input_batch
+        - updates row_pos_map, if needed
+        """
+        assert not self.input_complete
+        try:
+            batch = await self.input_iter.__anext__()
+            assert self.next_input_batch is None
+            if self.current_input_batch is None:
+                self.current_input_batch = batch
+            else:
+                self.next_input_batch = batch
+            if self.maintain_input_order:
+                for idx, row in enumerate(batch.rows):
+                    self.row_pos_map[id(row)] = self.num_input_rows + idx
+            self.num_input_rows += len(batch)
+            self.avail_input_rows += len(batch)
+        except StopAsyncIteration:
+            self.input_complete = True
+            for evaluator in self.slot_evaluators.values():
+                evaluator.close()
+        except excs.Error as err:
+            self.error = err
+            self.exc_event.set()
+        # TODO: should we also handle Exception here and create an excs.Error from it?
+
+    @property
+    def total_buffered(self) -> int:
+        return self.num_in_flight + self.completed_rows.qsize() + self.output_buffer.num_rows
+
+    def _dispatch_input_rows(self) -> None:
+        """Dispatch the maximum number of input rows, given total_buffered; does not block"""
+        if self.avail_input_rows == 0:
+            return
+        num_rows = min(self.MAX_BUFFERED_ROWS - self.total_buffered, self.avail_input_rows)
+        assert num_rows >= 0
+        if num_rows == 0:
+            return
+        assert self.current_input_batch is not None
+        avail_current_batch_rows = len(self.current_input_batch) - self.input_row_idx
+
+        rows: list[exprs.DataRow]
+        if avail_current_batch_rows > num_rows:
+            # we only need rows from current_input_batch
+            rows = self.current_input_batch.rows[self.input_row_idx:self.input_row_idx + num_rows]
+            self.input_row_idx += num_rows
+        else:
+            # we need rows from both current_/next_input_batch
+            rows = self.current_input_batch.rows[self.input_row_idx:]
+            self.current_input_batch = self.next_input_batch
+            self.next_input_batch = None
+            self.input_row_idx = 0
+            num_remaining = num_rows - len(rows)
+            if num_remaining > 0:
+                rows.extend(self.current_input_batch.rows[:num_remaining])
+                self.input_row_idx = num_remaining
+        self.avail_input_rows -= num_rows
+        self.num_in_flight += num_rows
+        self._log_state(f'dispatch input ({num_rows})')
+
+        self._init_input_rows(rows)
+        self.dispatch(rows)
+
+    def _log_state(self, prefix: str) -> None:
+        _logger.debug(
+            f'{prefix}: #in-flight={self.num_in_flight} #complete={self.completed_rows.qsize()} '
+            f'#output-buffer={self.output_buffer.num_rows} #ready={self.output_buffer.num_ready} '
+            f'total-buffered={self.total_buffered} #avail={self.avail_input_rows}'
+        )
+
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
+        """
+        Main event loop
+
+        Goals:
+        - return completed DataRowBatches as soon as they become available
+        - maximize the number of rows in flight in order to maximize parallelism, up to the given limit
+        """
+        # initialize completed_rows and events, now that we have the correct event loop
         self.completed_rows = asyncio.Queue[exprs.DataRow]()
         self.exc_event = asyncio.Event()
-        exc_event_wait = asyncio.create_task(self.exc_event.wait())
-        #batch_rows: list[exprs.DataRow] = []
-        input_row_iter = self._input_rows()
-        input_complete = False
-        num_in_flight = 0  # number of dispatched rows that haven't been returned yet
-        row_pos = 0
-        row_pos_map: dict[int, int] = {}  # id(row) -> row_pos
-        output_buffer = CircularRowBuffer(self.MAX_IN_FLIGHT, maintain_order=self.maintain_input_order)
+        self.completed_event = asyncio.Event()
+        row: exprs.DataRow
+        exc_event_aw = asyncio.create_task(self.exc_event.wait(), name='exc_event.wait()')
+        input_batch_aw: Optional[asyncio.Task] = None
+        completed_aw: Optional[asyncio.Task] = None
 
-        _logger.debug('Starting AsyncExprEvalNode')
-        while True:
-            if not input_complete and num_in_flight < self.MAX_IN_FLIGHT:
-                # get more input rows scheduled
-                _logger.debug(f'Trying to fetch {self.MAX_IN_FLIGHT - num_in_flight} input rows')
-                num_requested = self.MAX_IN_FLIGHT - num_in_flight
-                input_rows: list[exprs.DataRow] = []
-                try:
-                    for _ in range(num_requested):
-                        row = await input_row_iter.__anext__()
-                        row_pos_map[id(row)] = row_pos
-                        row_pos += 1
-                        input_rows.append(row)
-                except StopAsyncIteration:
-                    _logger.debug('Input is complete')
-                    input_complete = True
-                    for evaluator in self.slot_evaluators.values():
-                        evaluator.close()
-                _logger.debug(f'Fetched {len(input_rows)} input rows')
-                self.num_input_rows += len(input_rows)
-                num_in_flight += len(input_rows)
-                self._init_input_rows(input_rows)
-                self.dispatch(input_rows)
+        try:
+            while True:
+                # process completed rows before doing anything else
+                while not self.completed_rows.empty():
+                    self._log_state('processing completed')
+                    # move completed rows to output buffer
+                    while not self.completed_rows.empty():
+                        row = self.completed_rows.get_nowait()
+                        self.output_buffer.add_row(row, self.row_pos_map.pop(id(row), None))
 
-            # try to assemble output batch
-            #assert len(batch_rows) < self.BATCH_SIZE  # otherwise we would have yielded already
-            #_logger.debug(f'Assembling batch; #batch_rows={len(batch_rows)}')
-            while output_buffer.num_ready < self.BATCH_SIZE:
-                _logger.debug(f'#completed_rows={self.completed_rows.qsize()}')
-                row: exprs.DataRow
-                if not self.completed_rows.empty():
-                    row = self.completed_rows.get_nowait()
-                    _logger.debug(f'Gathered completed row')
-                else:
-                    # there are no completed rows to add to the batch
-                    if not input_complete and num_in_flight < self.MAX_IN_FLIGHT:
-                        # we can add more in-flight rows; let's do that now
-                        break
-                    if input_complete and num_in_flight == 0:
-                        # there's nothing left to wait for
-                        break
-                    # we need to wait for more rows to complete or for an exception
-                    _logger.debug('Waiting for more rows to complete')
-                    tasks = [
-                        asyncio.create_task(self.completed_rows.get(), name='completed_rows.get()'),
-                        exc_event_wait,
-                    ]
-                    done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-                    if self.exc_event.is_set():
-                        # we got an exception that we need to propagate through __iter__();
-                        # cancel all in-flight tasks first
-                        for task in itertools.chain(pending, self.tasks):
-                            task.cancel()
-                        _ = await asyncio.gather(*pending, *list(self.tasks), return_exceptions=True)
-                        _logger.debug(f'Propagating exception {self.eval_error}')
-                        raise self.eval_error
-                    row_ = done.pop().result()
-                    assert isinstance(row_, exprs.DataRow)
-                    row = row_
-                output_buffer.add_row(row, row_pos_map[id(row)])
-                num_in_flight -= 1
+                    self._log_state('processed completed')
+                    # return as many batches as we have available
+                    while self.output_buffer.num_ready >= self.BATCH_SIZE:
+                        batch_rows = self.output_buffer.get_rows(self.BATCH_SIZE)
+                        self.num_output_rows += len(batch_rows)
+                        # make sure we top up our in-flight rows before yielding
+                        self._dispatch_input_rows()
+                        self._log_state(f'yielding {len(batch_rows)} rows')
+                        yield DataRowBatch(tbl=None, row_builder=self.row_builder, rows=batch_rows)
+                        # at this point, we may have more completed rows
 
-            _logger.debug(f'Finished assembly; #batch_rows={output_buffer.num_ready}')
-            if output_buffer.num_ready >= self.BATCH_SIZE or (input_complete and num_in_flight == 0):
-                batch_rows = output_buffer.get_rows(self.BATCH_SIZE)
-                _logger.debug(f'Yielding batch of size {len(batch_rows)}')
-                self.num_output_rows += len(batch_rows)
-                yield DataRowBatch(tbl=None, row_builder=self.row_builder, rows=batch_rows)
+                assert self.completed_rows.empty()  # all completed rows should be sitting in output_buffer
+                self.completed_event.clear()
+                if self.input_complete and self.num_in_flight == 0:
+                    # there is no more input and nothing left to wait for
+                    assert self.avail_input_rows == 0
+                    if self.output_buffer.num_ready > 0:
+                        assert self.output_buffer.num_rows == self.output_buffer.num_ready
+                        # yield the leftover rows
+                        batch_rows = self.output_buffer.get_rows(self.output_buffer.num_ready)
+                        self.num_output_rows += len(batch_rows)
+                        yield DataRowBatch(tbl=None, row_builder=self.row_builder, rows=batch_rows)
 
-            if input_complete and num_in_flight == 0:
-                #assert len(batch_rows) == 0
-                assert output_buffer.num_rows == 0
-                _logger.debug('returning from AsyncExprEvalNode')
-                # clean up exc_event_wait
-                exc_event_wait.cancel()
-                try:
-                    _ = await exc_event_wait
-                except asyncio.CancelledError:
-                    pass
-                return
+                    assert self.output_buffer.num_rows == 0
+                    return
+
+                # we don't have a full batch of rows at this point and need to wait
+                aws = {exc_event_aw}  # always wait for an exception
+                if self.next_input_batch is None and not self.input_complete:
+                    # also wait for another batch if we don't have a read-ahead batch yet
+                    if input_batch_aw is None:
+                        input_batch_aw = asyncio.create_task(self._fetch_input_batch(), name='_fetch_input_batch()')
+                    aws.add(input_batch_aw)
+                if self.num_in_flight > 0:
+                    # also wait for more rows to complete
+                    if completed_aw is None:
+                        completed_aw = asyncio.create_task(self.completed_event.wait(), name='completed.wait()')
+                    aws.add(completed_aw)
+                done, pending = await asyncio.wait(aws, return_when=asyncio.FIRST_COMPLETED)
+
+                if self.exc_event.is_set():
+                    # we got an exception that we need to propagate through __iter__()
+                    _logger.debug(f'Propagating exception {self.error}')
+                    raise self.error
+                if completed_aw in done:
+                    self._log_state('completed_aw done')
+                    completed_aw = None
+                if input_batch_aw in done:
+                    self._dispatch_input_rows()
+                    input_batch_aw = None
+
+        finally:
+            # task cleanup
+            active_tasks = {exc_event_aw}
+            if input_batch_aw is not None:
+                active_tasks.add(input_batch_aw)
+            if completed_aw is not None:
+                active_tasks.add(completed_aw)
+            active_tasks.update(self.tasks)
+            for task in active_tasks:
+                if not task.done():
+                    task.cancel()
+            _ = await asyncio.gather(*active_tasks, return_exceptions=True)
 
     def _init_input_rows(self, rows: list[exprs.DataRow]) -> None:
-        """Set expr eval state in DataRow"""
+        """Set execution state in DataRow"""
         for row in rows:
             row.missing_dependents = np.sum(self.row_builder.dependencies[row.has_val == False], axis=0)
             row.missing_slots = self.eval_ctx & (row.has_val == False)
 
     def dispatch_exc(self, rows: list[exprs.DataRow], slot_with_exc: int, exc_tb: TracebackType) -> None:
+        """Propagate exception to main event loop or to dependent slots, depending on ignore_errors"""
         if len(rows) == 0 or self.exc_event.is_set():
             return
 
         if not self.ctx.ignore_errors:
-            #dependency_idxs = np.nonzero(self.row_builder.dependencies[slot_with_exc])[0].tolist()
             dependency_idxs = [e.slot_idx for e in self.row_builder.unique_exprs[slot_with_exc].dependencies()]
             first_row = rows[0]
             input_vals = [first_row[idx] for idx in dependency_idxs]
             e = self.row_builder.unique_exprs[slot_with_exc]
-            self.eval_error = excs.ExprEvalError(
+            self.error = excs.ExprEvalError(
                 e, f'expression {e}', first_row.get_exc(e.slot_idx), exc_tb, input_vals, 0)
             self.exc_event.set()
             return
@@ -523,16 +623,18 @@ class AsyncExprEvalNode(ExecNode):
         self.dispatch(rows)
 
     def dispatch(self, rows: list[exprs.DataRow]) -> None:
+        """Dispatch rows to slot evaluators, based on materialized dependencies"""
         if len(rows) == 0 or self.exc_event.is_set():
             return
 
         # slots ready for evaluation; rows x slots
         ready_slots = np.zeros((len(rows), self.row_builder.num_materialized), dtype=bool)
+        completed_rows = np.zeros(len(rows), dtype=bool)
         for i, row in enumerate(rows):
             row.missing_slots &= row.has_val == False
             if row.missing_slots.sum() == 0:
                 # all output slots have been materialized
-                self.completed_rows.put_nowait(row)
+                completed_rows[i] = True
             else:
                 # dependencies of missing slots
                 missing_dependencies = self.num_dependencies * row.missing_slots
@@ -547,6 +649,13 @@ class AsyncExprEvalNode(ExecNode):
             gc_targets = (missing_dependents == 0) & (row.missing_dependents > 0) & self.gc_targets
             row.clear(gc_targets)
             row.missing_dependents = missing_dependents
+
+        if np.any(completed_rows):
+            completed_idxs = list(completed_rows.nonzero()[0])
+            for i in completed_idxs:
+                self.completed_rows.put_nowait(rows[i])
+            self.completed_event.set()
+            self.num_in_flight -= len(completed_idxs)
 
         # schedule all ready slots
         for slot_idx in np.sum(ready_slots, axis=0).nonzero()[0]:

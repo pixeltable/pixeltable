@@ -14,8 +14,6 @@ from .exec_context import ExecContext
 _logger = logging.getLogger('pixeltable')
 
 class ExecNode(abc.ABC):
-    #class ExecNode(abc.ABC, AsyncIterable[DataRowBatch]):
-
     """Base class of all execution nodes"""
     output_exprs: Iterable[exprs.Expr]
     row_builder: exprs.RowBuilder
@@ -55,28 +53,8 @@ class ExecNode(abc.ABC):
     def __aiter__(self) -> AsyncIterator[DataRowBatch]:
         pass
 
-    # def __iter__(self) -> Iterator[DataRowBatch]:
-    #     def run() -> Iterator[DataRowBatch]:
-    #         _logger.debug(f'creating event loop for thread {threading.current_thread().ident}')
-    #         loop = asyncio.new_event_loop()
-    #         asyncio.set_event_loop(loop)
-    #         aiter = self.__aiter__()
-    #         try:
-    #             while True:
-    #                 batch: DataRowBatch = loop.run_until_complete(aiter.__anext__())
-    #                 yield batch
-    #         except StopAsyncIteration:
-    #             pass
-    #         finally:
-    #             loop.close()
-    #
-    #     _logger.debug(f'__iter__(): originating thread {threading.current_thread().ident}')
-    #     with ThreadPoolExecutor(max_workers=1) as executor:
-    #         gen = executor.submit(run).result()
-    #         yield from gen
-
-
     def __iter__(self) -> Iterator[DataRowBatch]:
+        # TODO: utilize the existing event loop if available (eg, in a Jupyter setting)
         _logger.debug(f'creating event loop for thread {threading.current_thread().ident}')
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
@@ -89,12 +67,6 @@ class ExecNode(abc.ABC):
             pass
         finally:
             loop.close()
-
-    async def _input_rows(self) -> AsyncIterator[exprs.DataRow]:
-        async for batch in self.input:
-            _logger.debug(f'Fetched input batch of size {len(batch)}')
-            for row in batch:
-                yield row
 
     def open(self) -> None:
         """Bottom-up initialization of nodes for execution. Must be called before __next__."""

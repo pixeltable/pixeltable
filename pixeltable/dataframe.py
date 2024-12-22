@@ -8,10 +8,9 @@ import json
 import logging
 import traceback
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Hashable, Iterator, Optional, Sequence, Union, Literal, AsyncIterator
+from typing import TYPE_CHECKING, Any, Callable, Hashable, Iterator, Optional, Sequence, Union, AsyncIterator, NoReturn
 
 import pandas as pd
-import pandas.io.formats.style
 import sqlalchemy as sql
 
 import pixeltable.catalog as catalog
@@ -406,7 +405,7 @@ class DataFrame:
             group_by_clause=group_by_clause, grouping_tbl=self.grouping_tbl,
             order_by_clause=order_by_clause, limit=self.limit_val)
 
-    def _raise_expr_eval_err(self, e: excs.ExprEvalError) -> None:
+    def _raise_expr_eval_err(self, e: excs.ExprEvalError) -> NoReturn:
         msg = f'In row {e.row_num} the {e.expr_msg} encountered exception ' f'{type(e.exc).__name__}:\n{str(e.exc)}'
         if len(e.input_vals) > 0:
             input_msgs = [

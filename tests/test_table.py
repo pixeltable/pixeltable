@@ -608,7 +608,7 @@ class TestTable:
 
         # Mode 1: Validation error on bad input (default)
         # we ignore the exact error here, because it depends on the media type
-        with pytest.raises(excs.Error):
+        with pytest.raises(excs.Error) as exc_info:
             tbl.insert(rows, on_error='abort')
 
         # Mode 2: ignore_errors=True, store error information in table

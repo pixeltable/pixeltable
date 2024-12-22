@@ -1101,9 +1101,10 @@ class TestExprs:
         from pixeltable.functions import count, sum
 
         # check that aggregates don't show up in the wrong places
-        with pytest.raises(excs.Error):
+        with pytest.raises(excs.Error) as exc_info:
             # aggregate in where clause
             _ = t.group_by(t.c2 % 2).where(sum(t.c2) > 0).select(sum(t.c2)).collect()
+        assert 'where() cannot contain aggregate functions' in str(exc_info.value)
         with pytest.raises(excs.Error):
             # aggregate in group_by clause
             _ = t.group_by(sum(t.c2)).select(sum(t.c2)).collect()
