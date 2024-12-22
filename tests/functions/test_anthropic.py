@@ -1,5 +1,3 @@
-import pytest
-
 import pixeltable as pxt
 
 from ..utils import skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
@@ -10,8 +8,8 @@ class TestAnthropic:
     def test_anthropic(self, reset_db) -> None:
         from pixeltable.functions.anthropic import messages
 
-        #skip_test_if_not_installed('anthropic')
-        #skip_test_if_no_client('anthropic')
+        skip_test_if_not_installed('anthropic')
+        skip_test_if_no_client('anthropic')
         t = pxt.create_table('test_tbl', {'input': pxt.String})
 
         msgs = [{'role': 'user', 'content': t.input}]
