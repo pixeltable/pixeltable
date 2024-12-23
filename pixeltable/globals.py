@@ -1,6 +1,6 @@
 import dataclasses
 import logging
-from typing import Any, Iterable, Optional, Union, Literal
+from typing import Any, Iterable, Optional, Union, Literal, Type
 from uuid import UUID
 
 import pandas as pd
@@ -26,21 +26,17 @@ def init() -> None:
 
 def _get_or_drop_existing_path(
     path_str: str,
-    caller_context: catalog.SchemaObjectType,
+    expected_obj_type: Type[catalog.SchemaObject],
+    expected_snapshot: bool,
     if_exists: catalog.IfExistsParam
 ) -> Optional[catalog.SchemaObject]:
-    """Handle existing dir, table, view, or snapshot, during create call as per user directive.
+    """Handle schema object path collision create call as per user directive.
 
     Args:
         path_str: An existing and valid path to the dir, table, view, or snapshot.
-        caller_context: Whether the caller of this function is creating a dir, table, view, or snapshot, at the existing path.
+        expected_obj_type: Whether the caller of this function is creating a dir, table, or view at the existing path.
+        expected_snapshot: Whether the caller of this function is creating a snapshot at the existing path.
         if_exists: Directive regarding how to handle the existing path.
-            Must be one of the following:
-            - `'error'`: raise an error
-            - `'ignore'`: do nothing and return a handle to the existing dir, table, view, or snapshot
-            - `'replace'`: if the existing dir, table, view, or snapshot, has no dependents, drop it
-            - `'replace_force'`: drop the existing dir, table, view, or snapshot, and all its dependents
-        For a dir, dependents is children; for a table, view, or snapshot, dependents is views/snapshots.
 
     Returns:
         A handle to the existing dir, table, view, or snapshot, if `if_exists='ignore'`, otherwise `None`.
@@ -57,14 +53,12 @@ def _get_or_drop_existing_path(
         raise excs.Error(f'Path `{path_str}` already exists.')
 
     existing_path = cat.paths[path]
-    expected_obj_type = catalog.Dir if caller_context == catalog.SchemaObjectType.DIR else \
-        catalog.Table if caller_context == catalog.SchemaObjectType.TABLE else catalog.View
-    obj_type_str = caller_context.value.capitalize()
-    existing_path_is_snapshot = expected_obj_type == catalog.View and existing_path.get_metadata()['is_snapshot']
+    existing_path_is_snapshot = 'is_snapshot' in existing_path.get_metadata() and existing_path.get_metadata()['is_snapshot']
+    obj_type_str = 'Snapshot' if expected_snapshot else expected_obj_type._display_name().capitalize()
     # Check if the existing path is of expected type.
     if (not isinstance(existing_path, expected_obj_type)
-        or (caller_context == catalog.SchemaObjectType.SNAPSHOT and not existing_path_is_snapshot)):
-            raise excs.Error(f'Path `{path_str}` already exists but is not a {obj_type_str}. Cannot {if_exists.value} it.')
+        or (expected_snapshot and not existing_path_is_snapshot)):
+            raise excs.Error(f'Path `{path_str}` already exists but is not a {obj_type_str}. Cannot {if_exists.name.lower()} it.')
 
     # if_exists='ignore' return the handle to the existing object.
     assert isinstance(existing_path, expected_obj_type)
@@ -125,9 +119,10 @@ def create_table(
         Please note the schema of the existing table may not match the schema provided in the call.
 
     Raises:
-        Error: if the path already exists and `if_exists='error'`,
+        Error: if the path is invalid,
+            or if the path already exists and `if_exists='error'`,
             or if the path already exists and is not a table,
-            or other error conditions like invalid path, connection error etc.
+            or an error occurs while attempting to create the table.
 
     Examples:
         Create a table with an int and a string column:
@@ -154,7 +149,7 @@ def create_table(
     if cat.paths.get_object(path) is not None:
         # The table already exists. Handle it as per user directive.
         _if_exists = catalog.IfExistsParam.validated(if_exists, 'if_exists')
-        existing_table = _get_or_drop_existing_path(path_str, catalog.SchemaObjectType.TABLE, _if_exists)
+        existing_table = _get_or_drop_existing_path(path_str, catalog.InsertableTable, False, _if_exists)
         if existing_table is not None:
             assert isinstance(existing_table, catalog.Table)
             return existing_table
@@ -237,9 +232,10 @@ def create_view(
             or the base of the existing view may not match those provided in the call.
 
     Raises:
-        Error: if the path already exists and `if_exists='error'`,
+        Error: if the path is invalid,
+            or if the path already exists and `if_exists='error'`,
             or if the path already exists and is not a view,
-            or other error conditions like invalid path, connection error etc.
+            or an error occurs while attempting to create the view.
 
     Examples:
         Create a view `my_view` of an existing table `my_table`, filtering on rows where `col1` is greater than 10:
@@ -278,8 +274,7 @@ def create_view(
     if cat.paths.get_object(path) is not None:
         # The view already exists. Handle it as per user directive.
         _if_exists = catalog.IfExistsParam.validated(if_exists, 'if_exists')
-        curr_context = catalog.SchemaObjectType.SNAPSHOT if is_snapshot else catalog.SchemaObjectType.VIEW
-        existing_path = _get_or_drop_existing_path(path_str, curr_context, _if_exists)
+        existing_path = _get_or_drop_existing_path(path_str, catalog.View, is_snapshot, _if_exists)
         if existing_path is not None:
             assert isinstance(existing_path, catalog.View)
             return existing_path
@@ -345,9 +340,10 @@ def create_snapshot(
         Please note the schema or base of the existing snapshot may not match those provided in the call.
 
     Raises:
-        Error: if the path already exists and `if_exists='error'`,
+        Error: if the path is invalid,
+            or if the path already exists and `if_exists='error'`,
             or if the path already exists and is not a snapshot,
-            or other error conditions like invalid path, connection error etc.
+            or an error occurs while attempting to create the snapshot.
 
     Examples:
         Create a snapshot `my_snapshot` of a table `my_table`:
@@ -535,9 +531,10 @@ def create_dir(path_str: str, if_exists: Literal['error', 'ignore', 'replace', '
         Please note the existing directory may not be empty.
 
     Raises:
-        Error: If the path already exists and `if_exists='error'`,
+        Error: If the path is invalid,
+            or if the path already exists and `if_exists='error'`,
             or if the path already exists and is not a directory,
-            or other error conditions like invalid path, store errors etc.
+            or an error occurs while attempting to create the directory.
 
     Examples:
         >>> pxt.create_dir('my_dir')
@@ -560,7 +557,7 @@ def create_dir(path_str: str, if_exists: Literal['error', 'ignore', 'replace', '
     if cat.paths.get_object(path):
         # The directory already exists. Handle it as per user directive.
         _if_exists = catalog.IfExistsParam.validated(if_exists, 'if_exists')
-        existing_path = _get_or_drop_existing_path(path_str, catalog.SchemaObjectType.DIR, _if_exists)
+        existing_path = _get_or_drop_existing_path(path_str, catalog.Dir, False, _if_exists)
         if existing_path is not None:
             assert isinstance(existing_path, catalog.Dir)
             return existing_path
