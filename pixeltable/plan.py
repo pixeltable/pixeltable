@@ -5,6 +5,7 @@ import enum
 from typing import Any, Iterable, Optional, Sequence, Literal
 from uuid import UUID
 
+
 import sqlalchemy as sql
 
 import pixeltable as pxt
@@ -166,10 +167,13 @@ class Analyzer:
             raise excs.Error(
                 f'Invalid non-aggregate expression in aggregate query: {self.select_list[is_agg_output.index(False)]}')
 
-        # check that filter doesn't contain aggregates
+        # check that Where clause and filter doesn't contain aggregates
+        if self.sql_where_clause is not None:
+            if any(_is_agg_fn_call(e) for e in self.sql_where_clause.subexprs(expr_class=exprs.FunctionCall)):
+                raise excs.Error(f'where() cannot contain aggregate functions: {self.sql_where_clause}')
         if self.filter is not None:
             if any(_is_agg_fn_call(e) for e in self.filter.subexprs(expr_class=exprs.FunctionCall)):
-                raise excs.Error(f'Filter cannot contain aggregate functions: {self.filter}')
+                raise excs.Error(f'where() cannot contain aggregate functions: {self.filter}')
 
         # check that grouping exprs don't contain aggregates and can be expressed as SQL (we perform sort-based
         # aggregation and rely on the SqlScanNode returning data in the correct order)
@@ -283,7 +287,8 @@ class Planner:
         computed_exprs = row_builder.output_exprs - row_builder.input_exprs
         if len(computed_exprs) > 0:
             # add an ExprEvalNode when there are exprs to compute
-            plan = exec.ExprEvalNode(row_builder, computed_exprs, plan.output_exprs, input=plan)
+            plan = exec.AsyncExprEvalNode(
+                row_builder, computed_exprs, plan.output_exprs, maintain_input_order=True, input=plan)
 
         stored_col_info = row_builder.output_slot_idxs()
         stored_img_col_info = [info for info in stored_col_info if info.col.col_type.is_image_type()]
@@ -440,7 +445,8 @@ class Planner:
         plan: exec.ExecNode = row_update_node
         if not cls._is_contained_in(analyzer.select_list, sql_exprs):
             # we need an ExprEvalNode to evaluate the remaining output exprs
-            plan = exec.ExprEvalNode(row_builder, analyzer.select_list, sql_exprs, input=plan)
+            plan = exec.AsyncExprEvalNode(
+                row_builder, analyzer.select_list, sql_exprs, maintain_input_order=True, input=plan)
         # update row builder with column information
         all_base_cols = copied_cols + list(updated_cols) + list(recomputed_base_cols)  # same order as select_list
         row_builder.set_slot_idxs(select_list, remove_duplicates=False)
@@ -547,8 +553,9 @@ class Planner:
         if target.is_component_view():
             plan = exec.ComponentIterationNode(target, plan)
         if len(view_output_exprs) > 0:
-            plan = exec.ExprEvalNode(
-                row_builder, output_exprs=view_output_exprs, input_exprs=base_output_exprs,input=plan)
+            plan = exec.AsyncExprEvalNode(
+                row_builder, output_exprs=view_output_exprs, input_exprs=base_output_exprs, maintain_input_order=True,
+                input=plan)
 
         stored_img_col_info = [info for info in row_builder.output_slot_idxs() if info.col.col_type.is_image_type()]
         plan.set_stored_img_cols(stored_img_col_info)
@@ -742,7 +749,7 @@ class Planner:
                 agg_input.update(fn_call.components)
             if not sql_exprs.issuperset(agg_input):
                 # we need an ExprEvalNode
-                plan = exec.ExprEvalNode(row_builder, agg_input, sql_exprs, input=plan)
+                plan = exec.AsyncExprEvalNode(row_builder, agg_input, sql_exprs, maintain_input_order=True, input=plan)
 
             # batch size for aggregation input: this could be the entire table, so we need to divide it into
             # smaller batches; at the same time, we need to make the batches large enough to amortize the
@@ -764,11 +771,14 @@ class Planner:
                 agg_output = exprs.ExprSet(typecheck_dummy)
                 if not agg_output.issuperset(exprs.ExprSet(eval_ctx.target_exprs)):
                     # we need an ExprEvalNode to evaluate the remaining output exprs
-                    plan = exec.ExprEvalNode(row_builder, eval_ctx.target_exprs, agg_output, input=plan)
+                    plan = exec.AsyncExprEvalNode(
+                        row_builder, eval_ctx.target_exprs, agg_output, maintain_input_order=True, input=plan)
         else:
             if not exprs.ExprSet(sql_exprs).issuperset(exprs.ExprSet(eval_ctx.target_exprs)):
                 # we need an ExprEvalNode to evaluate the remaining output exprs
-                plan = exec.ExprEvalNode(row_builder, eval_ctx.target_exprs, sql_exprs, input=plan)
+                #plan = exec.ExprEvalNode(row_builder, eval_ctx.target_exprs, sql_exprs, input=plan)
+                plan = exec.AsyncExprEvalNode(
+                    row_builder, eval_ctx.target_exprs, sql_exprs, maintain_input_order=True, input=plan)
             # we're returning everything to the user, so we might as well do it in a single batch
             ctx.batch_size = 0
 

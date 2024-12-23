@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import threading
 import abc
-from typing import TYPE_CHECKING, Iterable, Iterator, Optional, TypeVar
+import asyncio
+import logging
+from typing import Iterable, Iterator, Optional, TypeVar, AsyncIterator, AsyncIterable
+from concurrent.futures import ThreadPoolExecutor
 
 import pixeltable.exprs as exprs
-
 from .data_row_batch import DataRowBatch
 from .exec_context import ExecContext
 
+_logger = logging.getLogger('pixeltable')
 
 class ExecNode(abc.ABC):
     """Base class of all execution nodes"""
@@ -17,7 +21,6 @@ class ExecNode(abc.ABC):
     flushed_img_slots: list[int]  # idxs of image slots of our output_exprs dependencies
     stored_img_cols: list[exprs.ColumnSlotIdx]
     ctx: Optional[ExecContext]
-    __iter: Optional[Iterator[DataRowBatch]]
 
     def __init__(
             self, row_builder: exprs.RowBuilder, output_exprs: Iterable[exprs.Expr],
@@ -34,7 +37,6 @@ class ExecNode(abc.ABC):
         ]
         self.stored_img_cols = []
         self.ctx = None  # all nodes of a tree share the same context
-        self.__iter = None
 
     def set_ctx(self, ctx: ExecContext) -> None:
         self.ctx = ctx
@@ -47,15 +49,24 @@ class ExecNode(abc.ABC):
         if self.input is not None:
             self.input.set_stored_img_cols(stored_img_cols)
 
-    # TODO: make this an abstractmethod when __next__() is removed
-    def __iter__(self) -> Iterator[DataRowBatch]:
-        return self
+    @abc.abstractmethod
+    def __aiter__(self) -> AsyncIterator[DataRowBatch]:
+        pass
 
-    # TODO: remove this and switch every subclass over to implementing __iter__
-    def __next__(self) -> DataRowBatch:
-        if self.__iter is None:
-            self.__iter = iter(self)
-        return next(self.__iter)
+    def __iter__(self) -> Iterator[DataRowBatch]:
+        # TODO: utilize the existing event loop if available (eg, in a Jupyter setting)
+        _logger.debug(f'creating event loop for thread {threading.current_thread().ident}')
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        aiter = self.__aiter__()
+        try:
+            while True:
+                batch: DataRowBatch = loop.run_until_complete(aiter.__anext__())
+                yield batch
+        except StopAsyncIteration:
+            pass
+        finally:
+            loop.close()
 
     def open(self) -> None:
         """Bottom-up initialization of nodes for execution. Must be called before __next__."""

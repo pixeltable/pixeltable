@@ -1,5 +1,5 @@
 import logging
-from typing import Any
+from typing import Any, AsyncIterator
 
 import pixeltable.catalog as catalog
 import pixeltable.exprs as exprs
@@ -34,19 +34,19 @@ class RowUpdateNode(ExecNode):
         self.key_slot_idxs = {col: all_col_slot_idxs[col] for col in tbl.tbl_version.primary_key_columns()}
         self.matched_key_vals: set[tuple] = set()
 
-    def __next__(self) -> DataRowBatch:
-        batch = next(self.input)
-        for row in batch:
-            key_vals = row.rowid if self.is_rowid_key else \
-                tuple(row[slot_idx] for slot_idx in self.key_slot_idxs.values())
-            if key_vals not in self.updates:
-                continue
-            self.matched_key_vals.add(key_vals)
-            col_vals = self.updates[key_vals]
-            for col, val in col_vals.items():
-                slot_idx = self.col_slot_idxs[col]
-                row[slot_idx] = val
-        return batch
+    async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
+        async for batch in self.input:
+            for row in batch:
+                key_vals = row.rowid if self.is_rowid_key else \
+                    tuple(row[slot_idx] for slot_idx in self.key_slot_idxs.values())
+                if key_vals not in self.updates:
+                    continue
+                self.matched_key_vals.add(key_vals)
+                col_vals = self.updates[key_vals]
+                for col, val in col_vals.items():
+                    slot_idx = self.col_slot_idxs[col]
+                    row[slot_idx] = val
+            yield batch
 
     def unmatched_rows(self) -> list[dict[str, Any]]:
         """Return rows that didn't get used in the updates as a list of dicts compatible with TableVersion.insert()."""

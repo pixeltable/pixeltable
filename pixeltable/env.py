@@ -38,7 +38,7 @@ class Env:
     """
 
     _instance: Optional[Env] = None
-    _log_fmt_str = '%(asctime)s %(levelname)s %(name)s %(filename)s:%(lineno)d: %(message)s'
+    _log_fmt_str = '%(asctime)s [%(thread)d] %(levelname)s %(name)s %(filename)s:%(lineno)d: %(message)s'
 
     _home: Optional[Path]
     _media_dir: Optional[Path]

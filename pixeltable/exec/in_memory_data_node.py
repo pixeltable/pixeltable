@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Iterator, Optional
+from typing import Any, Iterator, Optional, AsyncIterator
 
 import pixeltable.catalog as catalog
 import pixeltable.exprs as exprs
@@ -76,6 +76,6 @@ class InMemoryDataNode(ExecNode):
 
         self.ctx.num_rows = len(self.output_rows)
 
-    def __iter__(self) -> Iterator[DataRowBatch]:
+    async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
         _logger.debug(f'InMemoryDataNode: created row batch with {len(self.output_rows)} output_rows')
         yield self.output_rows

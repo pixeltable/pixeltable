@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import sys
-from typing import Any, Iterable, Iterator, Optional, cast
+from typing import Any, Iterable, Iterator, Optional, cast, AsyncIterator
 
 import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
@@ -60,11 +60,11 @@ class AggregationNode(ExecNode):
                 input_vals = [row[d.slot_idx] for d in fn_call.dependencies()]
                 raise excs.ExprEvalError(fn_call, expr_msg, e, exc_tb, input_vals, row_num)
 
-    def __iter__(self) -> Iterator[DataRowBatch]:
+    async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
         prev_row: Optional[exprs.DataRow] = None
         current_group: Optional[list[Any]] = None  # the values of the group-by exprs
         num_input_rows = 0
-        for row_batch in self.input:
+        async for row_batch in self.input:
             num_input_rows += len(row_batch)
             for row in row_batch:
                 group = [row[e.slot_idx] for e in self.group_by] if self.group_by is not None else None

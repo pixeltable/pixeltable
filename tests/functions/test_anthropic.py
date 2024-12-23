@@ -1,11 +1,9 @@
-import pytest
-
 import pixeltable as pxt
 
 from ..utils import skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
 
 
-@pytest.mark.remote_api
+#@pytest.mark.remote_api
 class TestAnthropic:
     def test_anthropic(self, reset_db) -> None:
         from pixeltable.functions.anthropic import messages

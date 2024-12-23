@@ -367,11 +367,11 @@ class FunctionCall(Expr):
         Update agg state
         """
         assert self.is_agg_fn_call
-        args, kwargs = self._make_args(data_row)
+        args, kwargs = self.make_args(data_row)
         self.aggregator.update(*args, **kwargs)
 
-    def _make_args(self, data_row: DataRow) -> tuple[list[Any], dict[str, Any]]:
-        """Return args and kwargs, constructed for data_row"""
+    def make_args(self, data_row: DataRow) -> Optional[tuple[list[Any], dict[str, Any]]]:
+        """Return args and kwargs, constructed for data_row; returns None if any non-nullable arg is None."""
         kwargs: dict[str, Any] = {}
         for param_name, (component_idx, arg) in self.kwargs.items():
             val = arg if component_idx is None else data_row[self.components[component_idx].slot_idx]
@@ -381,6 +381,8 @@ class FunctionCall(Expr):
                 kwargs.update(val)
             else:
                 assert param.kind != inspect.Parameter.VAR_POSITIONAL
+                if not param.col_type.nullable and val is None:
+                    return None
                 kwargs[param_name] = val
 
         args: list[Any] = []
@@ -396,6 +398,8 @@ class FunctionCall(Expr):
                 assert isinstance(val, dict)
                 kwargs.update(val)
             else:
+                if not param.col_type.nullable and val is None:
+                    return None
                 args.append(val)
         return args, kwargs
 
@@ -412,20 +416,12 @@ class FunctionCall(Expr):
             data_row[self.slot_idx] = self.aggregator.value()
             return
 
-        args, kwargs = self._make_args(data_row)
-        signature = self.fn.signature
-        if signature.parameters is not None:
-            # check for nulls
-            for i in range(len(self.arg_types)):
-                if args[i] is None and not self.arg_types[i].nullable:
-                    # we can't evaluate this function
-                    data_row[self.slot_idx] = None
-                    return
-            for param_name, param_type in self.kwarg_types.items():
-                if kwargs[param_name] is None and not param_type.nullable:
-                    # we can't evaluate this function
-                    data_row[self.slot_idx] = None
-                    return
+        args_kwargs = self.make_args(data_row)
+        if args_kwargs is None:
+            # we can't evaluate this function
+            data_row[self.slot_idx] = None
+            return
+        args, kwargs = args_kwargs
 
         if isinstance(self.fn, func.CallableFunction) and not self.fn.is_batched:
             # optimization: avoid additional level of indirection we'd get from calling Function.exec()

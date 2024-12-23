@@ -78,6 +78,10 @@ class AggregateFunction(Function):
             if param.lower() in self.RESERVED_PARAMS:
                 raise excs.Error(f'{self.name}(): parameter name {param} is reserved')
 
+    @property
+    def is_async(self) -> bool:
+        return False
+
     def exec(self, *args: Any, **kwargs: Any) -> Any:
         raise NotImplementedError
 

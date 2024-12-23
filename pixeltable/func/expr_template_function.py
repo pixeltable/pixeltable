@@ -78,6 +78,10 @@ class ExprTemplateFunction(Function):
     def name(self) -> str:
         return self.self_name
 
+    @property
+    def is_async(self) -> bool:
+        return False
+
     def __str__(self) -> str:
         return str(self.expr)
 

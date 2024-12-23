@@ -220,4 +220,8 @@ preview = true
 known-first-party = ["pixeltable"]
 
 [tool.ruff.format]
-quote-style = "single"  # can be "single", "double", or "preserve"
+quote-style = "single"
+line-ending = "auto"
+indent-style = "space"
+skip-magic-trailing-comma = true
+
