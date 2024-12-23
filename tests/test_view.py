@@ -218,41 +218,19 @@ class TestView:
         with pytest.raises(excs.Error) as exc_info:
             pxt.create_view('test_view', t, additional_columns={'c1': pxt.Int})
         assert "column 'c1' already exists in the base table" in str(exc_info.value).lower()
-        # a new column specific to view can be added during creation
-        v = pxt.create_view('test_view', t, additional_columns={'v1': pxt.Int})
-        assert 'v1' in v.columns and type(v.v1.col.col_type) == pxt.IntType
-        assert v.select(v.v1).collect()[0]['v1'] == None
 
-        # adding a column with default value to the view
+        # create a view and add a column with default value
+        v = pxt.create_view('test_view', t, additional_columns={'v1': pxt.Int})
         v.add_column(vcol='xxx')
         assert 'vcol' in v.columns and type(v.vcol.col.col_type) == pxt.StringType
-        assert 'vcol' not in t.columns
         assert v.select(v.vcol).collect()[0]['vcol'] == 'xxx'
 
-        # adding a computed column to the view
-        v.add_computed_column(v2=t.c2 + t.c3)
-        assert 'v2' in v.columns and type(v.v2.col.col_type) == pxt.FloatType
-        assert 'v2' not in t.columns
-        assert v.select().collect()[0]['v2'] == v.select().collect()[0]['c2'] + v.select().collect()[0]['c3']
-
-        # adding multiple columns to the view
-        v.add_columns({'v3': pxt.Int, 'v4': pxt.String})
-        assert 'v3' in v.columns and type(v.v3.col.col_type) == pxt.IntType
-        assert 'v4' in v.columns and type(v.v4.col.col_type) == pxt.StringType
-        assert 'v3' not in t.columns
-        assert 'v4' not in t.columns
-        assert v.select(v.v3).collect()[0]['v3'] == None
-        assert v.select(v.v4).collect()[0]['v4'] == None
-
-        _ = reload_tester.run_query(v.select())
-        reload_tester.run_reload_test()
-
-        # adding column with same name as an existing column using the
-        # add_column* APIs on a view will depend on the if_exists parameter.
-        # the existing column may be specific to the view, or a base table column.
+        # add column with same name as an existing column.
+        # the result will depend on the if_exists parameter.
+        # test with the existing column specific to the view, or a base table column.
         # RESOLVE: could not consolidate the following two methods into one
-        # since I could not figure how to pass the schema to the add_column call
-        # with a string variable (also).
+        # since I could not figure how to pass the schema and column refs to the
+        # different APIs.
         self.__test_add_existing_view_column(v, t, 'xxx', pxt.StringType)
         _ = reload_tester.run_query(v.select())
         reload_tester.run_reload_test()

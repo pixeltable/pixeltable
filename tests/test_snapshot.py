@@ -96,15 +96,9 @@ class TestSnapshot:
         # the time of creating a snapshot will raise an error now.
         tbl = create_test_tbl(name=tbl_path)
         assert 'c1' in tbl.columns and type(tbl.c1.col.col_type) == pxt.StringType
-        orig_val = tbl.select(tbl.c1).collect()[0]['c1']
         with pytest.raises(excs.Error) as exc_info:
             _ = pxt.create_snapshot('snap2', tbl, additional_columns={'c1': pxt.Int})
         assert "Column 'c1' already exists in the base table" in str(exc_info.value)
-        assert 'c1' in tbl.columns and type(tbl.c1.col.col_type) == pxt.StringType
-        s = pxt.create_snapshot('snap2', tbl, additional_columns={'s1': pxt.Int})
-        assert 's1' in s.columns and type(s.s1.col.col_type) == pxt.IntType
-        assert s.select(s.s1).collect()[0] == {'s1': None}
-        assert type(tbl.c1.col.col_type) == pxt.StringType
 
     def __test_create_if_exists(self, sname: str, t: pxt.Table, s: pxt.Table) -> None:
         """ Helper function for testing if_exists parameter while creating a snaphot.

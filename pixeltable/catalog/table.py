@@ -457,22 +457,18 @@ class Table(SchemaObject):
         return False
 
     def __skip_or_drop_existing_columns(self, new_col_spec: dict[str, Any], if_exists: IfExistsParam) -> None:
-        """ Check for existing column and handle them according to the if_exists parameter.
+        """ Check for existing column in the new column specification and handle them according to the if_exists parameter.
 
         Note that this function will remove any column names from the passed in `new_col_spec` if `if_exists='ignore'`.
 
         Args:
-            new_col_spec: A dictionary mapping column names to column specifications.
-            if_exists: Determines the behavior if a column already exists. Must be one of the following:
-                - `'error'`: an exception will be raised.
-                - `'ignore'`: do nothing and return.
-                - `'replace'` or `'replace_force'`: replace the existing column with the new column,
-                if the existing column has no dependents.
+            new_col_spec: A dictionary mapping the new column names to column specifications.
+            if_exists: Directive for handling an existing column with the same name.
 
         Raises:
             Error: If any column already exists and `if_exists='error'`,
                 or the existing column has dependents,
-                or the existing column is for a snapshot.
+                or the existing column is a basetable column and `if_exists='replace*'`.
         """
         assert not self.get_metadata()['is_snapshot']
         existing_col_names = set(self._schema.keys())
@@ -496,10 +492,11 @@ class Table(SchemaObject):
                     # replace directive if column has dependents.
                     if self.__column_has_dependents(col):
                         raise excs.Error(
-                            f'Column {new_col_name!r} already exists and has dependents. Cannot {if_exists.value} it.'
+                            f'Column {new_col_name!r} already exists and has dependents. Cannot {if_exists.name.lower()} it.'
                         )
                     self.drop_column(new_col_name)
                     assert new_col_name not in self._tbl_version.cols_by_name
+        # remove the existing columns from new_col_spec when if_exists='ignore'
         for _cname in cols_to_ignore:
             assert _cname in existing_col_names
             del new_col_spec[_cname]
@@ -507,7 +504,7 @@ class Table(SchemaObject):
     def add_columns(
         self,
         schema: dict[str, Union[ts.ColumnType, builtins.type, _GenericAlias]],
-        if_exists: Literal['error', 'ignore', 'replace'] = 'error'
+        if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error'
     ) -> UpdateStatus:
         """
         Adds multiple columns to the table. The columns must be concrete (non-computed) columns; to add computed columns,
@@ -521,7 +518,7 @@ class Table(SchemaObject):
             if_exists: Determines the behavior if a column already exists. Must be one of the following:
             - `'error'`: an exception will be raised.
             - `'ignore'`: do nothing and return.
-            - `'replace'`: drop the existing column and add the new column, iff it has no dependents.
+            - `'replace' or 'replace_force'`: drop the existing column and add the new column, if it has no dependents.
             Defaults to `'error'`.
             Note that the if_exists parameter is applied to all columns in the schema.
             To apply different behaviors to different columns, please use [`add_column()`][pixeltable.Table.add_column] for each column.
@@ -530,7 +527,8 @@ class Table(SchemaObject):
             Information about the execution status of the operation.
 
         Raises:
-            Error: If any column name is invalid, or already exists and `if_exists='error'`, or has dependents.
+            Error: If any column name is invalid, or already exists and `if_exists='error'`,
+                or `if_exists='replace*'` but the column has dependents or is a basetable column.
 
         Examples:
             Add multiple columns to the table `my_table`:
@@ -572,7 +570,7 @@ class Table(SchemaObject):
         stored: Optional[bool] = None,
         print_stats: bool = False,
         on_error: Literal['abort', 'ignore'] = 'abort',
-        if_exists: Literal['error', 'ignore', 'replace'] = 'error',
+        if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
         **kwargs: Union[ts.ColumnType, builtins.type, _GenericAlias, exprs.Expr]
     ) -> UpdateStatus:
         """
@@ -591,14 +589,15 @@ class Table(SchemaObject):
             if_exists: Determines the behavior if the column already exists. Must be one of the following:
                 - `'error'`: an exception will be raised.
                 - `'ignore'`: do nothing and return.
-                - `'replace'`: drop the existing column and add the new column, iff it has no dependents.
+                - `'replace' or 'replace_force'`: drop the existing column and add the new column, if it has no dependents.
                 Defaults to `'error'`.
 
         Returns:
             Information about the execution status of the operation.
 
         Raises:
-            Error: If the column name is invalid, or already exists and `if_exists='erorr'`, or has depdendents.
+            Error: If the column name is invalid, or already exists and `if_exists='erorr'`,
+                or `if_exists='replace*'` but the column has dependents or is a basetable column.
 
         Examples:
             Add an int column:
@@ -667,14 +666,15 @@ class Table(SchemaObject):
             if_exists: Determines the behavior if the column already exists. Must be one of the following:
                 - `'error'`: an exception will be raised.
                 - `'ignore'`: do nothing and return.
-                - `'replace'`: drop the existing column and add the new column, iff it has no dependents.
+                - `'replace' or 'replace_force'`: drop the existing column and add the new column, iff it has no dependents.
                 Defaults to `'error'`.
 
         Returns:
             Information about the execution status of the operation.
 
         Raises:
-            Error: If the column name is invalid or already exists and `if_exists='error' or has depdendents.
+            Error: If the column name is invalid or already exists and `if_exists='error',
+             or `if_exists='replace*'` but the column has dependents or is a basetable column.
 
         Examples:
             For a table with an image column `frame`, add an image column `rotated` that rotates the image by
@@ -898,7 +898,7 @@ class Table(SchemaObject):
         """
         self._tbl_version.rename_column(old_name, new_name)
 
-    def _list_indexinfo_for_test(self) -> list[dict[str, Any]]:
+    def _list_index_info_for_test(self) -> list[dict[str, Any]]:
         """
         Returns list of all the indexes on this table. Used for testing.
 
@@ -996,7 +996,7 @@ class Table(SchemaObject):
             if _if_exists == IfExistsParam.ERROR:
                 raise excs.Error(f'Duplicate index name: {idx_name}')
             if not isinstance(self._tbl_version.idxs_by_name[idx_name].idx, index.EmbeddingIndex):
-                raise excs.Error(f'Index `{idx_name}` is not an embedding index. Cannot {_if_exists.value} it.')
+                raise excs.Error(f'Index `{idx_name}` is not an embedding index. Cannot {_if_exists.name.lower()} it.')
             if _if_exists == IfExistsParam.IGNORE:
                 return
             assert _if_exists == IfExistsParam.REPLACE or _if_exists == IfExistsParam.REPLACE_FORCE

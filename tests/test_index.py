@@ -185,46 +185,30 @@ class TestIndex:
         skip_test_if_not_installed('transformers')
         t = small_img_tbl
         sample_img = t.select(t.img).head(1)[0, 'img']
-        initial_indexes = len(t._list_indexinfo_for_test())
+        initial_indexes = len(t._list_index_info_for_test())
+
         t.add_embedding_index('img', idx_name='clip_idx', image_embed=clip_img_embed, string_embed=clip_text_embed)
-        indexes = t._list_indexinfo_for_test()
+        indexes = t._list_index_info_for_test()
         assert len(indexes) == initial_indexes + 1
         assert 'clip_idx' == indexes[initial_indexes]['_name']
         clip_idx_id_before = indexes[initial_indexes]['_id']
-        t.drop_embedding_index(idx_name='clip_idx')
-        t.add_embedding_index('img', idx_name='clip_idx', image_embed=clip_img_embed, string_embed=clip_text_embed)
-
-        # invalid value for if_exists is rejected, but only when index name is provided.
-        # when index name is not provided, the if_exists parameter is ignored.
-        with pytest.raises(pxt.Error) as exc_info:
-            t.add_embedding_index('img', idx_name='clip_idx', image_embed=clip_img_embed, string_embed=clip_text_embed, if_exists='invalid')
-        assert "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']" in str(exc_info.value).lower()
-        indexes = t._list_indexinfo_for_test()
-        assert len(indexes) == initial_indexes + 1
-        assert 'clip_idx' == indexes[initial_indexes]['_name']
 
         # when index name is not provided, the index is created with
-        # a newly generated name. And if_exists parameter does not apply.
-        # new index is created with a new name.
+        # a newly generated name. And if_exists parameter does not apply
+        # and will be ignored.
         t.add_embedding_index('img', image_embed=clip_img_embed, string_embed=clip_text_embed, if_exists='error')
-        indexes = t._list_indexinfo_for_test()
-        assert len(indexes) == initial_indexes + 2
-        assert 'clip_idx' == indexes[initial_indexes]['_name']
+        assert len(t._list_index_info_for_test()) == initial_indexes + 2
 
-        # invalid value for if_exists is rejected, but only when the
-        # index name is provided. otherwise, it is never used and is ignored.
         t.add_embedding_index('img', image_embed=clip_img_embed, string_embed=clip_text_embed, if_exists='invalid')
-        indexes = t._list_indexinfo_for_test()
-        assert len(indexes) == initial_indexes + 3
-        assert 'clip_idx' == indexes[initial_indexes]['_name']
+        assert len(t._list_index_info_for_test()) == initial_indexes + 3
+
+        # when index name is provided, if_exists parameter is applied.
+        # invalid value is rejected.
         with pytest.raises(pxt.Error) as exc_info:
             t.add_embedding_index('img', idx_name='clip_idx', image_embed=clip_img_embed, string_embed=clip_text_embed, if_exists='invalid')
         assert "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']" in str(exc_info.value).lower()
-        indexes = t._list_indexinfo_for_test()
-        assert len(indexes) == initial_indexes + 3
-        assert 'clip_idx' == indexes[initial_indexes]['_name']
+        assert len(t._list_index_info_for_test()) == initial_indexes + 3
 
-        # when index name is provided, if_exists parameter is applied.
         # if_exists='error' raises an error if the index name already exists.
         # by default, if_exists='error'.
         with pytest.raises(pxt.Error) as exc_info:
@@ -233,15 +217,14 @@ class TestIndex:
         with pytest.raises(pxt.Error) as exc_info:
             t.add_embedding_index('img', idx_name='clip_idx', image_embed=clip_img_embed, string_embed=clip_text_embed, if_exists='error')
         assert 'duplicate index name' in str(exc_info.value).lower()
-        indexes = t._list_indexinfo_for_test()
-        assert len(indexes) == initial_indexes + 3
-        assert 'clip_idx' == indexes[initial_indexes]['_name']
+        assert len(t._list_index_info_for_test()) == initial_indexes + 3
 
         # if_exists='ignore' does nothing if the index name already exists.
         t.add_embedding_index('img', idx_name='clip_idx', image_embed=clip_img_embed, string_embed=clip_text_embed, if_exists='ignore')
-        indexes = t._list_indexinfo_for_test()
+        indexes = t._list_index_info_for_test()
         assert len(indexes) == initial_indexes + 3
         assert 'clip_idx' == indexes[initial_indexes]['_name']
+        assert clip_idx_id_before == indexes[initial_indexes]['_id']
 
         # cannot use if_exists to ignore or replace an existing index
         # that is not an embedding (like, default btree indexes).
@@ -250,10 +233,14 @@ class TestIndex:
             with pytest.raises(pxt.Error) as exc_info:
                 t.add_embedding_index('img', idx_name='idx0', image_embed=clip_img_embed, string_embed=clip_text_embed, if_exists=_ie)
             assert 'not an embedding index' in str(exc_info.value).lower(), f'for if_exists={_ie}'
+        indexes = t._list_index_info_for_test()
+        assert len(indexes) == initial_indexes + 3
+        assert 'idx0' == indexes[0]['_name']
+        assert 'clip_idx' == indexes[initial_indexes]['_name']
 
         # if_exists='replace' replaces the existing index with the new one.
         t.add_embedding_index('img', idx_name='clip_idx', image_embed=clip_img_embed, string_embed=clip_text_embed, if_exists='replace')
-        indexes = t._list_indexinfo_for_test()
+        indexes = t._list_index_info_for_test()
         assert len(indexes) == initial_indexes + 3
         assert 'clip_idx' != indexes[initial_indexes]['_name']
         assert 'clip_idx' == indexes[initial_indexes+2]['_name']
@@ -266,7 +253,8 @@ class TestIndex:
         # sanity check persistence
         _ = reload_tester.run_query(t.select(t.img.localpath).order_by(t.img.similarity(sample_img, idx='clip_idx'), asc=False).limit(3))
         # bug: the index hint is not used in the similarity function
-        # when we reload the metadata and run the query. So drop all
+        # when we reload the metadata and run the query. PXT-382 tracks
+        # it and a fix pending under PR 411. To workaround, drop all
         # other indexes on img column first to ensure clip_idx is used.
         for idx in indexes:
             if idx['_name'] != 'clip_idx':
