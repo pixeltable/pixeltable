@@ -8,6 +8,7 @@ import importlib.util
 import inspect
 import logging
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -311,8 +312,12 @@ class Env:
         self._db_name = os.environ.get('PIXELTABLE_DB', 'pixeltable')
         self._pgdata_dir = Path(os.environ.get('PIXELTABLE_PGDATA', str(self._home / 'pgdata')))
 
-        # in pixeltable_pgserver.get_server(): cleanup_mode=None will leave db on for debugging purposes
-        self._db_server = pixeltable_pgserver.get_server(self._pgdata_dir, cleanup_mode=None)
+        # cleanup_mode=None will leave the postgres process running after Python exits
+        # cleanup_mode='stop' will terminate the postgres process when Python exits
+        # On Windows, we need cleanup_mode='stop' because child processes are killed automatically when the parent
+        # process (such as Terminal or VSCode) exits, potentially leaving it in an unusable state.
+        cleanup_mode = 'stop' if platform.system() == 'Windows' else None
+        self._db_server = pixeltable_pgserver.get_server(self._pgdata_dir, cleanup_mode=cleanup_mode)
         self._db_url = self._db_server.get_uri(database=self._db_name, driver='psycopg')
 
         tz_name = self.config.get_string_value('time_zone')
