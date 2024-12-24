@@ -494,7 +494,10 @@ class TableVersion:
         idx_md.schema_version_drop = self.schema_version
         assert idx_md.name in self.idxs_by_name
         idx_info = self.idxs_by_name[idx_md.name]
+        # remove this index entry from the active indexes (in memory)
+        # and the index metadata (in persistent table metadata)
         del self.idxs_by_name[idx_md.name]
+        del self.idx_md[idx_id]
 
         with Env.get().engine.begin() as conn:
             self._drop_columns([idx_info.val_col, idx_info.undo_col])
@@ -828,7 +831,7 @@ class TableVersion:
                 if error_if_not_exists:
                     raise excs.Error(f'batch_update(): {len(unmatched_rows)} row(s) not found')
                 if insert_if_not_exists:
-                    insert_status = self.insert(unmatched_rows, None, print_stats=False, fail_on_exception=False)
+                    insert_status = self.insert(unmatched_rows, None, conn=conn, print_stats=False, fail_on_exception=False)
                     result += insert_status
             return result
 

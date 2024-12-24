@@ -65,7 +65,7 @@ puremagic = ">=1.20"
 pymupdf = "^1.24.1"
 ftfy = "^6.2.0"
 pydantic = ">=2.7.4"  # Required minimum version to work with spacy + python 3.12
-pixeltable-pgserver = "==0.2.8"
+pixeltable-pgserver = "==0.2.9"
 
 [tool.poetry.group.dev]
 optional = true
