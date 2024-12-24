@@ -22,7 +22,7 @@ from pixeltable.utils.media_store import MediaStore
 
 from .utils import (assert_resultset_eq, create_table_data, get_audio_files, get_documents, get_image_files,
                     get_video_files, make_tbl, read_data_file, reload_catalog, skip_test_if_not_installed, strip_lines,
-                    validate_update_status, get_multimedia_commons_video_uris, ReloadTester)
+                    validate_update_status, get_multimedia_commons_video_uris, ReloadTester, assert_raises_error, get_raised_error)
 
 
 class TestTable:
@@ -1714,41 +1714,20 @@ class TestTable:
 
         # invalid if_exists is rejected
         expected_err_str = "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']"
-        with pytest.raises(excs.Error) as exc_info:
-            t.add_column(non_existing_col1=pxt.Int, if_exists='invalid')
-        assert expected_err_str in str(exc_info.value).lower()
-        with pytest.raises(excs.Error) as exc_info:
-            t.add_computed_column(non_existing_col1=t.c2+t.c3, if_exists='invalid')
-        assert expected_err_str in str(exc_info.value).lower()
-        with pytest.raises(excs.Error) as exc_info:
-            t.add_columns({'non_existing_col1': pxt.Int, 'non_existing_col2': pxt.String}, if_exists='invalid')
-        assert expected_err_str in str(exc_info.value).lower()
-
+        assert_raises_error(expected_err_str, t.add_column, non_existing_col1=pxt.Int, if_exists='invalid')
+        assert_raises_error(expected_err_str, t.add_computed_column, non_existing_col1=t.c2 + t.c3, if_exists='invalid')
+        assert_raises_error(expected_err_str, t.add_columns, {'non_existing_col1': pxt.Int, 'non_existing_col2': pxt.String}, if_exists='invalid')
         assert orig_cnames == t.columns
 
         # if_exists='error' raises an error if the column already exists
         # by default, if_exists='error'
         expected_err_str = "duplicate column name: 'c1'"
-        with pytest.raises(excs.Error) as exc_info:
-            t.add_column(c1=pxt.Int)
-        assert expected_err_str in str(exc_info.value).lower()
-        with pytest.raises(excs.Error) as exc_info:
-            t.add_computed_column(c1=t.c2 + t.c3)
-        assert expected_err_str in str(exc_info.value).lower()
-        with pytest.raises(excs.Error) as exc_info:
-            t.add_columns({'c1': pxt.Int, 'non_existing_col1': pxt.String})
-        assert expected_err_str in str(exc_info.value).lower()
-
-        with pytest.raises(excs.Error) as exc_info:
-            t.add_column(c1=pxt.Int, if_exists='error')
-        assert expected_err_str in str(exc_info.value).lower()
-        with pytest.raises(excs.Error) as exc_info:
-            t.add_computed_column(c1=t.c2 + t.c3, if_exists='error')
-        assert expected_err_str in str(exc_info.value).lower()
-        with pytest.raises(excs.Error) as exc_info:
-            t.add_columns({'c1': pxt.Int, 'non_existing_col1': pxt.String}, if_exists='error')
-        assert expected_err_str in str(exc_info.value).lower()
-
+        assert_raises_error(expected_err_str, t.add_column, c1=pxt.Int)
+        assert_raises_error(expected_err_str, t.add_computed_column, c1=t.c2 + t.c3)
+        assert_raises_error(expected_err_str, t.add_columns, {'c1': pxt.Int, 'non_existing_col1': pxt.String})
+        assert_raises_error(expected_err_str, t.add_column, c1=pxt.Int, if_exists='error')
+        assert_raises_error(expected_err_str, t.add_computed_column, c1=t.c2 + t.c3, if_exists='error')
+        assert_raises_error(expected_err_str, t.add_columns, {'c1': pxt.Int, 'non_existing_col1': pxt.String}, if_exists='error')
         assert orig_cnames == t.columns
         assert type(t.c1.col.col_type) == pxt.StringType
         assert_resultset_eq(t.select(t.c1).order_by(t.c1).collect(), orig_res, True)
@@ -1801,10 +1780,8 @@ class TestTable:
 
         # replace will raise an error if the column has dependents
         t.add_computed_column(non_existing_col3=t.c1+10)
-        with pytest.raises(excs.Error) as exc_info:
-            t.add_column(c1=pxt.String, if_exists='replace')
-        assert ("already exists" in str(exc_info.value).lower()
-            and "has dependents" in str(exc_info.value).lower())
+        error_msg = get_raised_error(t.add_column, c1=pxt.Int, if_exists='replace')
+        assert 'already exists' in error_msg and 'has dependents' in error_msg
         assert 'c1' in t.columns and type(t.c1.col.col_type) == pxt.FloatType
         assert t.select(t.c1).collect()[0] != {'c1': 10}
         assert t.select().order_by(t.c1).collect()[0]['c1'] == t.select().order_by(t.c1).collect()[0]['c2'] + t.select().order_by(t.c1).collect()[0]['c3']

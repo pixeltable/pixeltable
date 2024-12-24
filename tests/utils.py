@@ -530,6 +530,17 @@ def assert_img_eq(img1: PIL.Image.Image, img2: PIL.Image.Image) -> None:
     diff = PIL.ImageChops.difference(img1, img2)
     assert diff.getbbox() is None
 
+def assert_raises_error(expected_message, func, *args, **kwargs):
+    """ Assert that the function raises an excs.Error with the expected message """
+    with pytest.raises(excs.Error) as exc_info:
+        func(*args, **kwargs)
+    assert expected_message in str(exc_info.value).lower()
+
+def get_raised_error(func, *args, **kwargs):
+    """ Assert that the function raises an excs.Error and return the error message """
+    with pytest.raises(excs.Error) as exc_info:
+        func(*args, **kwargs)
+    return str(exc_info.value).lower()
 
 def reload_catalog() -> None:
     catalog.Catalog.clear()

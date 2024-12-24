@@ -6,7 +6,7 @@ import pytest
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 
-from .utils import assert_resultset_eq, clip_img_embed, create_img_tbl, create_test_tbl, reload_catalog, ReloadTester
+from .utils import assert_resultset_eq, clip_img_embed, create_img_tbl, create_test_tbl, reload_catalog, ReloadTester, assert_raises_error
 
 class TestSnapshot:
     def run_basic_test(
@@ -207,15 +207,10 @@ class TestSnapshot:
         assert 'cannot insert into view' in str(excinfo.value).lower()
 
         # adding column is not supported for snapshots
-        with pytest.raises(excs.Error) as exc_info:
-            snap.add_column(non_existing_col1=pxt.String)
-        assert 'cannot add column to a snapshot' in str(exc_info.value).lower()
-        with pytest.raises(excs.Error) as exc_info:
-            snap.add_computed_column(non_existing_col1=tbl.c2 + tbl.c3)
-        assert 'cannot add column to a snapshot' in str(exc_info.value).lower()
-        with pytest.raises(excs.Error) as exc_info:
-            snap.add_columns({'non_existing_col1': pxt.String, 'non_existing_col2': pxt.String})
-        assert 'cannot add column to a snapshot' in str(exc_info.value).lower()
+        expected_msg = 'cannot add column to a snapshot'
+        assert_raises_error(expected_msg, snap.add_column, non_existing_col1=pxt.String)
+        assert_raises_error(expected_msg, snap.add_computed_column, non_existing_col1=tbl.c2 + tbl.c3)
+        assert_raises_error(expected_msg, snap.add_columns, {'non_existing_col1': pxt.String, 'non_existing_col2': pxt.String})
 
         with pytest.raises(pxt.Error) as excinfo:
             _ = snap.delete()
