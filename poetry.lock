@@ -9120,6 +9120,20 @@ files = [
 ]
 
 [[package]]
+name = "types-jsonschema"
+version = "4.23.0.20241208"
+description = "Typing stubs for jsonschema"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "types_jsonschema-4.23.0.20241208-py3-none-any.whl", hash = "sha256:87934bd9231c99d8eff94cacfc06ba668f7973577a9bd9e1f9de957c5737313e"},
+    {file = "types_jsonschema-4.23.0.20241208.tar.gz", hash = "sha256:e8b15ad01f290ecf6aea53f93fbdf7d4730e4600313e89e8a7f95622f7e87b7c"},
+]
+
+[package.dependencies]
+referencing = "*"
+
+[[package]]
 name = "types-pillow"
 version = "10.1.0.20240106"
 description = "Typing stubs for Pillow"
@@ -9883,4 +9897,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.9,<4.0"
-content-hash = "44acf7c75f1555074b3d0d270bb8004918a605816f853b3ce99643e6bd8f7171"
+content-hash = "9ba9cafabd6265b66fd3915ee7f8b3403b6fffcff9ec32df6043e0145aeee3f5"
