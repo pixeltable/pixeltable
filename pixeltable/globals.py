@@ -686,6 +686,30 @@ def list_functions() -> Styler:
     return pd_df.hide(axis='index')
 
 
+def tools(*args: Union[func.Function, func.tools.Tool]) -> func.tools.Tools:
+    """
+    Specifies a collection of UDFs to be used as LLM tools. Pixeltable allows any UDF to be used as an input into an
+    LLM tool-calling API. To use one or more UDFs as tools, wrap them in a `pxt.tools` call and pass the return value
+    to an LLM API.
+
+    Args:
+        args: The UDFs to use as tools.
+
+    Returns:
+        A `Tools` object that can be passed to an LLM tool-calling API or invoked to generate tool results.
+    """
+    return func.tools.Tools(tools=[
+        arg if isinstance(arg, func.tools.Tool) else func.tools.Tool(fn=arg)
+        for arg in args
+    ])
+
+def tool(fn: func.Function, name: Optional[str] = None, description: Optional[str] = None) -> func.tools.Tool:
+    if fn.self_path is None:
+        raise excs.Error('Only module UDFs can be used as tools (not locally defined UDFs)')
+
+    return func.tools.Tool(fn=fn, name=name, description=description)
+
+
 def configure_logging(
     *,
     to_stdout: Optional[bool] = None,
