@@ -56,12 +56,7 @@ class IfExistsParam(enum.Enum):
     IGNORE = 1
     REPLACE = 2
     REPLACE_FORCE = 3
-    '''
-    ERROR = 'error'
-    IGNORE = 'ignore'
-    REPLACE = 'replace'
-    REPLACE_FORCE = 'replace_force'
-'''
+
     @classmethod
     def validated(cls, param_val: str, param_name: str) -> IfExistsParam:
         try:

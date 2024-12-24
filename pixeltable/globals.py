@@ -30,7 +30,7 @@ def _get_or_drop_existing_path(
     expected_snapshot: bool,
     if_exists: catalog.IfExistsParam
 ) -> Optional[catalog.SchemaObject]:
-    """Handle schema object path collision create call as per user directive.
+    """Handle schema object path collision during creation according to the if_exists parameter.
 
     Args:
         path_str: An existing and valid path to the dir, table, view, or snapshot.
