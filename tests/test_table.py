@@ -23,7 +23,8 @@ from pixeltable.utils.media_store import MediaStore
 
 from .utils import (assert_resultset_eq, create_table_data, get_audio_files, get_documents, get_image_files,
                     get_multimedia_commons_video_uris, get_video_files, make_tbl, read_data_file, reload_catalog,
-                    skip_test_if_not_installed, strip_lines, validate_update_status, ReloadTester)
+                    skip_test_if_not_installed, strip_lines, validate_update_status, ReloadTester,
+                    assert_raises_error, get_raised_error)
 
 
 class TestTable:
@@ -567,23 +568,20 @@ class TestTable:
         pxt.drop_table(t, force=True)  # Drops everything else
         assert len(pxt.list_tables()) == 0
 
-    def test_drop_table_if_not_exists_helper(self) -> None:
+    def test_drop_table_if_not_exists(self) -> None:
         """ Test the if_not_exists parameter of drop_table API """
         non_existing_t = 'non_existing_table'
         table_list = pxt.list_tables()
         assert non_existing_t not in table_list
         # invalid if_not_exists value is rejected
-        with pytest.raises(excs.Error) as exc_info:
-            pxt.drop_table(non_existing_t, if_not_exists='invalid')
-        assert "if_not_exists must be one of: ['error', 'ignore']" in str(exc_info.value)
+        assert_raises_error(
+            "if_not_exists must be one of: ['error', 'ignore']",
+            pxt.drop_table, non_existing_t, if_not_exists='invalid'
+        )
         # if_not_exists='error' should raise an error if the table exists
-        with pytest.raises(excs.Error) as exc_info:
-            pxt.drop_table(non_existing_t, if_not_exists='error')
-        assert 'does not exist' in str(exc_info.value)
+        assert_raises_error("does not exist", pxt.drop_table, non_existing_t, if_not_exists='error')
         # default behavior is to raise an error if the table does not exist
-        with pytest.raises(excs.Error) as exc_info:
-            pxt.drop_table(non_existing_t)
-        assert 'does not exist' in str(exc_info.value)
+        assert_raises_error("does not exist", pxt.drop_table, non_existing_t)
         # if_not_exists='ignore' should not raise an error
         pxt.drop_table(non_existing_t, if_not_exists='ignore')
         # force=True should not raise an error, irrespective of if_not_exists value
@@ -1804,16 +1802,16 @@ class TestTable:
     def __test_drop_column_if_not_exists(self, t: catalog.Table, non_existing_col: Union[str, ColumnRef]) -> None:
         """ Test the if_not_exists parameter of drop_column API """
         # invalid if_not_exists parameter is rejected
-        with pytest.raises(excs.Error) as exc_info:
-            t.drop_column(non_existing_col, if_not_exists='invalid')
-        assert "if_not_exists must be one of: ['error', 'ignore']" in str(exc_info.value).lower()
+        assert_raises_error(
+            "if_not_exists must be one of: ['error', 'ignore']",
+            t.drop_column, non_existing_col, if_not_exists='invalid'
+        )
         # if_not_exists='error' raises an error if the column does not exist
-        with pytest.raises(excs.Error) as exc_info:
-            t.drop_column(non_existing_col, if_not_exists='error')
+        err_msg = get_raised_error(t.drop_column, non_existing_col, if_not_exists='error')
         if isinstance(non_existing_col, str):
-            assert f"column '{non_existing_col}' unknown" in str(exc_info.value).lower()
+            assert f"column '{non_existing_col}' unknown" in err_msg
         else:
-            assert f"unknown column: {non_existing_col.col.qualified_name}" in str(exc_info.value).lower()
+            assert f"unknown column: {non_existing_col.col.qualified_name}" in err_msg
         # if_not_exists='ignore' does nothing if the column does not exist
         t.drop_column(non_existing_col, if_not_exists='ignore')
 

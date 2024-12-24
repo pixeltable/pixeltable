@@ -66,15 +66,16 @@ class IfExistsParam(enum.Enum):
             raise excs.Error(f'{param_name} must be one of: [{val_strs}]')
 
 class IfNotExistsParam(enum.Enum):
-    ERROR = 'error'
-    IGNORE = 'ignore'
+    ERROR = 0
+    IGNORE = 1
 
     @classmethod
     def validated(cls, param_val: str, param_name: str) -> IfNotExistsParam:
         try:
             return cls[param_val.upper()]
         except KeyError:
-            raise excs.Error(f'{param_name} must be one of: {[e.value for e in cls]}')
+            val_strs = ', '.join(f'{s.lower()!r}' for s in cls.__members__.keys())
+            raise excs.Error(f'{param_name} must be one of: [{val_strs}]')
 
 def is_valid_identifier(name: str) -> bool:
     return name.isidentifier() and not name.startswith('_')
