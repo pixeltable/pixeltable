@@ -146,14 +146,13 @@ class TestView:
         id_before = v._id
 
         # invalid if_exists value is rejected
-        with pytest.raises(excs.Error) as exc_info:
-            _ = pxt.create_view('test_view', t, if_exists='invalid')
-        assert "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']" in str(exc_info.value)
+        assert_raises_error(
+            "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']",
+            pxt.create_view, 'test_view', t, if_exists='invalid'
+        )
 
-         # scenario 1: a view exists at the path already
-        with pytest.raises(excs.Error) as exc_info:
-            pxt.create_view('test_view', t)
-        assert 'already exists' in str(exc_info.value)
+        # scenario 1: a view exists at the path already
+        assert_raises_error("already exists", pxt.create_view, 'test_view', t)
         # if_exists='ignore' should return the existing view
         v2 = pxt.create_view('test_view', t, if_exists='ignore')
         assert v2 == v
@@ -166,9 +165,7 @@ class TestView:
 
         # scenario 2: a view exists at the path, but has dependency
         v_on_v = pxt.create_view('test_view_on_view', v2)
-        with pytest.raises(excs.Error) as exc_info:
-            pxt.create_view('test_view', t)
-        assert 'already exists' in str(exc_info.value)
+        assert_raises_error("already exists", pxt.create_view, 'test_view', t)
         # if_exists='ignore' should return the existing view
         v3 = pxt.create_view('test_view', t, if_exists='ignore')
         assert v3 == v2
@@ -176,11 +173,8 @@ class TestView:
         assert 'test_view_on_view' in pxt.list_tables()
         # if_exists='replace' cannot drop a view with a dependent view.
         # it should raise an error and recommend using 'replace_force'
-        with pytest.raises(excs.Error) as exc_info:
-            v3 = pxt.create_view('test_view', t, if_exists='replace')
-        assert ('already exists' in str(exc_info.value)
-            and 'has dependents' in str(exc_info.value)
-            and 'replace_force' in str(exc_info.value))
+        err_msg = get_raised_error(pxt.create_view, 'test_view', t, if_exists='replace')
+        assert 'already exists' in err_msg and 'has dependents' in err_msg and 'replace_force' in err_msg
         assert 'test_view_on_view' in pxt.list_tables()
         # if_exists='replace_force' should drop the existing view and
         # its dependent views and create a new one
@@ -192,14 +186,10 @@ class TestView:
 
         # scenario 3: path exists but is not a view
         _ = pxt.create_table('not_view', {'c1': pxt.String})
-        with pytest.raises(excs.Error) as exc_info:
-            pxt.create_view('not_view', t)
-        assert 'already exists' in str(exc_info.value)
+        assert_raises_error("already exists", pxt.create_view, 'not_view', t)
         for _ie in ['ignore', 'replace', 'replace_force']:
-            with pytest.raises(excs.Error) as exc_info:
-                _ = pxt.create_view('not_view', t, if_exists=_ie)
-            assert ('already exists' in str(exc_info.value)
-                and 'is not a View' in str(exc_info.value))
+            err_msg = get_raised_error(pxt.create_view, 'not_view', t, if_exists=_ie)
+            assert 'already exists' in err_msg and 'is not a view' in err_msg
             assert 'not_view' in pxt.list_tables(), f"with if_exists={_ie}"
 
         # sanity check persistence

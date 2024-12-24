@@ -6,7 +6,8 @@ import pytest
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 
-from .utils import assert_resultset_eq, clip_img_embed, create_img_tbl, create_test_tbl, reload_catalog, ReloadTester, assert_raises_error
+from .utils import (assert_resultset_eq, clip_img_embed, create_img_tbl, create_test_tbl, reload_catalog, ReloadTester,
+    assert_raises_error, get_raised_error)
 
 class TestSnapshot:
     def run_basic_test(
@@ -96,9 +97,10 @@ class TestSnapshot:
         # the time of creating a snapshot will raise an error now.
         tbl = create_test_tbl(name=tbl_path)
         assert 'c1' in tbl.columns and type(tbl.c1.col.col_type) == pxt.StringType
-        with pytest.raises(excs.Error) as exc_info:
-            _ = pxt.create_snapshot('snap2', tbl, additional_columns={'c1': pxt.Int})
-        assert "Column 'c1' already exists in the base table" in str(exc_info.value)
+        assert_raises_error(
+            "column 'c1' already exists in the base table",
+            pxt.create_snapshot, 'snap2', tbl, additional_columns={'c1': pxt.Int}
+        )
 
     def __test_create_if_exists(self, sname: str, t: pxt.Table, s: pxt.Table) -> None:
         """ Helper function for testing if_exists parameter while creating a snaphot.
@@ -110,14 +112,13 @@ class TestSnapshot:
         """
         id_before = s._id
         # invalid if_exists value is rejected
-        with pytest.raises(excs.Error) as exc_info:
-            _ = pxt.create_snapshot(sname, t, if_exists='invalid')
-        assert "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']" in str(exc_info.value)
+        assert_raises_error(
+            "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']",
+            pxt.create_snapshot, sname, t, if_exists='invalid'
+        )
 
         # scenario 1: a snapshot exists at the path already
-        with pytest.raises(excs.Error) as exc_info:
-            pxt.create_snapshot(sname, t)
-        assert 'already exists' in str(exc_info.value)
+        assert_raises_error('already exists', pxt.create_snapshot, sname, t)
         # if_exists='ignore' should return the existing snapshot
         s12 = pxt.create_snapshot(sname, t, if_exists='ignore')
         assert s12 == s
@@ -133,9 +134,7 @@ class TestSnapshot:
         # dependent of the snapshot iff the snapshot has additional columns
         # not present in the base table/view of that snapshot.
         v_on_s1 = pxt.create_view('test_view_on_snapshot1', s12)
-        with pytest.raises(excs.Error) as exc_info:
-            pxt.create_snapshot(sname, t)
-        assert 'already exists' in str(exc_info.value)
+        assert_raises_error('already exists', pxt.create_snapshot, sname, t)
         # if_exists='ignore' should return the existing snapshot
         s13 = pxt.create_snapshot(sname, t, if_exists='ignore')
         assert s13 == s12
@@ -143,11 +142,8 @@ class TestSnapshot:
         assert 'test_view_on_snapshot1' in pxt.list_tables()
         # if_exists='replace' cannot drop a snapshot with a dependent view.
         # it should raise an error and recommend using 'replace_force'
-        with pytest.raises(excs.Error) as exc_info:
-            s13 = pxt.create_snapshot(sname, t, if_exists='replace')
-        assert ('already exists' in str(exc_info.value)
-            and 'has dependents' in str(exc_info.value)
-            and 'replace_force' in str(exc_info.value))
+        err_msg = get_raised_error(pxt.create_snapshot, sname, t, if_exists='replace')
+        assert 'already exists' in err_msg and 'has dependents' in err_msg and 'replace_force' in err_msg
         assert 'test_view_on_snapshot1' in pxt.list_tables()
         # if_exists='replace_force' should drop the existing snapshot and
         # its dependent views and create a new one
@@ -159,14 +155,10 @@ class TestSnapshot:
 
         # scenario 3: path exists but is not a snapshot
         _ = pxt.create_table('not_snapshot', {'c1': pxt.String}, if_exists='ignore')
-        with pytest.raises(excs.Error) as exc_info:
-            _ = pxt.create_snapshot('not_snapshot', t)
-        assert 'already exists' in str(exc_info.value)
+        assert_raises_error('already exists', pxt.create_snapshot, 'not_snapshot', t)
         for _ie in ['ignore', 'replace', 'replace_force']:
-            with pytest.raises(excs.Error) as exc_info:
-                _ = pxt.create_snapshot('not_snapshot', t, if_exists=_ie)
-            assert ('already exists' in str(exc_info.value)
-                and 'is not a Snapshot' in str(exc_info.value))
+            err_msg = get_raised_error(pxt.create_snapshot, 'not_snapshot', t, if_exists=_ie)
+            assert 'already exists' in err_msg and 'is not a snapshot' in err_msg
             assert 'not_snapshot' in pxt.list_tables(), f"with if_exists={_ie}"
 
     def test_create_if_exists(self, reset_db, reload_tester: ReloadTester) -> None:
