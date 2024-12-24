@@ -8,7 +8,7 @@ This project demonstrates how to build a prompt engineering and LLM testing appl
 
 ## Features
 
-- 🔄 **Multi-Model Testing**: Compare responses from different LLM models side by side
+- 🔄 **Test and Compare Models**: Compare responses from different LLM models side by side
 - 📊 **Advanced Analytics**: Automatic analysis of model outputs including custom metrics
 - 📝 **Experiment Tracking**: Automatic versioning and history of all prompts and results
 - 🎛️ **Parameter Tuning**: Control temperature, top_p, and other model parameters
