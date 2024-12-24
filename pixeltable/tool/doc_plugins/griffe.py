@@ -38,13 +38,14 @@ class PxtGriffeExtension(Extension):
         warnings.simplefilter("ignore")
         udf = griffe.dynamic_import(func.path)
         assert isinstance(udf, pxt.Function)
+        # TODO: Find a way to support multiple signatures?
         # Convert the return type to a Pixeltable type reference
-        func.returns = str(udf.signature.get_return_type())
+        func.returns = str(udf.signatures[0].get_return_type())
         # Convert the parameter types to Pixeltable type references
         for griffe_param in func.parameters:
             assert isinstance(griffe_param.annotation, griffe.expressions.Expr)
-            if griffe_param.name not in udf.signature.parameters:
+            if griffe_param.name not in udf.signatures[0].parameters:
                 logger.warning(f'Parameter `{griffe_param.name}` not found in signature for UDF: {udf.display_name}')
                 continue
-            pxt_param = udf.signature.parameters[griffe_param.name]
+            pxt_param = udf.signatures[0].parameters[griffe_param.name]
             griffe_param.annotation = str(pxt_param.col_type)

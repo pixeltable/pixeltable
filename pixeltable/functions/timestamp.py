@@ -232,7 +232,7 @@ def _(
         sql.cast(day, sql.Integer),
         sql.cast(hour, sql.Integer),
         sql.cast(minute, sql.Integer),
-        sql.cast(second + microsecond / 1000000.0, sql.Double))
+        sql.cast(second + microsecond / 1000000.0, sql.Float))
 
 # @pxt.udf
 # def date(self: datetime) -> datetime:

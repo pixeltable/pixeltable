@@ -16,20 +16,15 @@ import pixeltable as pxt
 from pixeltable.utils.code import local_public_names
 
 
-@pxt.uda(
-    update_types=[pxt.JsonType(nullable=True)],
-    value_type=pxt.JsonType(),
-    requires_order_by=False,
-    allows_window=False,
-)
+@pxt.uda
 class make_list(pxt.Aggregator):
     """
     Collects arguments into a list.
     """
-    def __init__(self):
+    def __init__(self) -> None:
         self.output: list[Any] = []
 
-    def update(self, obj: Any) -> None:
+    def update(self, obj: pxt.Json) -> None:
         if obj is None:
             return
         self.output.append(obj)

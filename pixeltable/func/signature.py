@@ -111,6 +111,38 @@ class Signature:
         parameters = [Parameter.from_dict(param_dict) for param_dict in d['parameters']]
         return cls(ts.ColumnType.from_dict(d['return_type']), parameters, d['is_batched'])
 
+    def is_consistent_with(self, other: Signature) -> bool:
+        """
+        Returns True if this signature is consistent with the other signature.
+        S is consistent with T if we could safely replace S by T in any call where S is used. Specifically:
+        (i) S.return_type is a supertype of T.return_type
+        (ii) For each parameter p in S, there is a parameter q in T such that:
+            - p and q have the same name and kind
+            - q.col_type is a supertype of p.col_type
+        (iii) For each *required* parameter q in T, there is a parameter p in S with the same name (in which
+            case the kinds and types must also match, by condition (ii)).
+        """
+        # Check (i)
+        if not self.get_return_type().is_supertype_of(other.get_return_type(), ignore_nullable=True):
+            return False
+
+        # Check (ii)
+        for param_name, param in self.parameters.items():
+            if param_name not in other.parameters:
+                return False
+            other_param = other.parameters[param_name]
+            if (param.kind != other_param.kind or
+                (param.col_type is None) != (other_param.col_type is None) or  # this can happen if they are varargs
+                param.col_type is not None and not other_param.col_type.is_supertype_of(param.col_type, ignore_nullable=True)):
+                return False
+
+        # Check (iii)
+        for other_param in other.required_parameters:
+            if other_param.name not in self.parameters:
+                return False
+
+        return True
+
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Signature):
             return False
@@ -156,8 +188,12 @@ class Signature:
 
     @classmethod
     def create_parameters(
-            cls, py_fn: Optional[Callable] = None, py_params: Optional[list[inspect.Parameter]] = None,
-            param_types: Optional[list[ts.ColumnType]] = None
+        cls,
+        py_fn: Optional[Callable] = None,
+        py_params: Optional[list[inspect.Parameter]] = None,
+        param_types: Optional[list[ts.ColumnType]] = None,
+        type_substitutions: Optional[dict] = None,
+        is_cls_method: bool = False
     ) -> list[Parameter]:
         assert (py_fn is None) != (py_params is None)
         if py_fn is not None:
@@ -165,7 +201,12 @@ class Signature:
             py_params = list(sig.parameters.values())
         parameters: list[Parameter] = []
 
+        if type_substitutions is None:
+            type_substitutions = {}
+
         for idx, param in enumerate(py_params):
+            if is_cls_method and idx == 0:
+                continue  # skip 'self' or 'cls' parameter
             if param.name in cls.SPECIAL_PARAM_NAMES:
                 raise excs.Error(f"'{param.name}' is a reserved parameter name")
             if param.kind == inspect.Parameter.VAR_POSITIONAL or param.kind == inspect.Parameter.VAR_KEYWORD:
@@ -179,7 +220,12 @@ class Signature:
                 param_type = param_types[idx]
                 is_batched = False
             else:
-                param_type, is_batched = cls._infer_type(param.annotation)
+                py_type: Optional[type]
+                if param.annotation in type_substitutions:
+                    py_type = type_substitutions[param.annotation]
+                else:
+                    py_type = param.annotation
+                param_type, is_batched = cls._infer_type(py_type)
                 if param_type is None:
                     raise excs.Error(f'Cannot infer pixeltable type for parameter {param.name}')
 
@@ -190,18 +236,29 @@ class Signature:
 
     @classmethod
     def create(
-        cls, py_fn: Callable,
+        cls,
+        py_fn: Callable,
         param_types: Optional[list[ts.ColumnType]] = None,
-        return_type: Optional[ts.ColumnType] = None
+        return_type: Optional[ts.ColumnType] = None,
+        type_substitutions: Optional[dict] = None,
+        is_cls_method: bool = False
     ) -> Signature:
         """Create a signature for the given Callable.
         Infer the parameter and return types, if none are specified.
         Raises an exception if the types cannot be inferred.
         """
-        parameters = cls.create_parameters(py_fn=py_fn, param_types=param_types)
+        if type_substitutions is None:
+            type_substitutions = {}
+
+        parameters = cls.create_parameters(py_fn=py_fn, param_types=param_types, is_cls_method=is_cls_method, type_substitutions=type_substitutions)
         sig = inspect.signature(py_fn)
         if return_type is None:
-            return_type, return_is_batched = cls._infer_type(sig.return_annotation)
+            py_type: Optional[type]
+            if sig.return_annotation in type_substitutions:
+                py_type = type_substitutions[sig.return_annotation]
+            else:
+                py_type = sig.return_annotation
+            return_type, return_is_batched = cls._infer_type(py_type)
             if return_type is None:
                 raise excs.Error('Cannot infer pixeltable return type')
         else:

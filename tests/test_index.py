@@ -27,28 +27,62 @@ class TestIndex:
     def bad_embed2(x: str) -> pxt.Array[(None,), pxt.Float]:
         return np.zeros(10)
 
-    def test_similarity(self, small_img_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
+    def test_similarity_multiple_index(self, multi_idx_img_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
+        skip_test_if_not_installed('transformers')
+        t = multi_idx_img_tbl
+        sample_img = t.select(t.img).head(1)[0, 'img']
+
+        # similarity query should fail because there are multiple indices
+        # img_idx1 and img_idx2 on img column in multi_idx_img_tbl
+        with pytest.raises(pxt.Error) as exc_info:
+            _ = t.select(t.img.localpath).order_by(t.img.similarity(sample_img), asc=False).limit(1).collect()
+        assert "column 'img' has multiple indices" in str(exc_info.value).lower()
+        # but we can specify the index to use, and the query should work
+        df = t.select(t.img.localpath).order_by(t.img.similarity(sample_img, idx='img_idx1'), asc=False).limit(1)
+        _ = reload_tester.run_query(df)
+        df = t.select(t.img.localpath).order_by(t.img.similarity(sample_img, idx='img_idx2'), asc=False).limit(1)
+        _ = reload_tester.run_query(df)
+
+        # verify that the result is the same as the original query after reload
+        reload_tester.run_reload_test(clear=False)
+
+        # After the query is serialized, dropping the index should raise an error
+        # on reload, because the index is no longer available
+        t.drop_embedding_index(idx_name='img_idx1')
+        with pytest.raises(pxt.Error) as exc_info:
+            _ = reload_tester.run_reload_test(clear=False)
+        assert "index 'img_idx1' not found" in str(exc_info.value).lower()
+
+        # After the query is serialized, dropping and recreating the index should work
+        # on reload, because the index is available again even if it is not the exact
+        # same one.
+        t.add_embedding_index('img', idx_name='img_idx1', metric='cosine', image_embed=clip_img_embed, string_embed=clip_text_embed)
+        reload_tester.run_reload_test(clear=True)
+
+    @pytest.mark.parametrize("use_index_name", [True, False])
+    def test_similarity(self, use_index_name: bool, small_img_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
         skip_test_if_not_installed('transformers')
         t = small_img_tbl
         sample_img = t.select(t.img).head(1)[0, 'img']
         _ = t.select(t.img.localpath).collect()
 
         for metric, is_asc in [('cosine', False), ('ip', False), ('l2', True)]:
-            t.add_embedding_index('img', metric=metric, image_embed=clip_img_embed, string_embed=clip_text_embed)
+            iname = 'idx_'+metric+'_'+str(is_asc) if use_index_name else None
+            t.add_embedding_index('img', idx_name=iname, metric=metric, image_embed=clip_img_embed, string_embed=clip_text_embed)
 
             df = (
-                t.select(img=t.img, sim=t.img.similarity(sample_img))
-                .order_by(t.img.similarity(sample_img), asc=is_asc)
+                t.select(img=t.img, sim=t.img.similarity(sample_img, idx=iname))
+                .order_by(t.img.similarity(sample_img, idx=iname), asc=is_asc)
                 .limit(1)
             )
             res = reload_tester.run_query(df)
             out_img = res[0, 'img']
-            assert_img_eq(sample_img, out_img), f'{metric} failed'
+            assert_img_eq(sample_img, out_img, f'{metric} failed when using index {iname}')
 
             # TODO:  how to verify the output?
             df = (
-                t.select(path=t.img.localpath, sim=t.img.similarity('parachute'))
-                .order_by(t.img.similarity('parachute'), asc=is_asc)
+                t.select(path=t.img.localpath, sim=t.img.similarity('parachute', idx=iname))
+                .order_by(t.img.similarity('parachute', idx=iname), asc=is_asc)
                 .limit(1)
             )
             _ = reload_tester.run_query(df)
@@ -149,6 +183,38 @@ class TestIndex:
             _ = t.order_by(t.split.similarity(sample_img)).limit(1).collect()
         assert "was created without the 'image_embed' parameter" in str(exc_info.value).lower()
 
+    def test_add_index_after_drop(self, small_img_tbl: pxt.Table) -> None:
+        """ Test the an index with the same name can be added after the previous one is dropped """
+        skip_test_if_not_installed('transformers')
+        t = small_img_tbl
+        sample_img = t.select(t.img).head(1)[0, 'img']
+        t.add_embedding_index('img', idx_name='clip_idx', image_embed=clip_img_embed, string_embed=clip_text_embed)
+        orig_res = t.select(t.img.localpath).order_by(t.img.similarity(sample_img, idx='clip_idx'), asc=False).limit(3).collect()
+        t.revert()
+        # creating an index with the same name again after a revert should be successful
+        t.add_embedding_index('img', idx_name='clip_idx', image_embed=clip_img_embed, string_embed=clip_text_embed)
+        res = t.select(t.img.localpath).order_by(t.img.similarity(sample_img, idx='clip_idx'), asc=False).limit(3).collect()
+        assert_resultset_eq(orig_res, res, True)
+        t.revert()
+        # should be true even after reloading from persistence
+        reload_catalog()
+        t = pxt.get_table('small_img_tbl')
+        t.add_embedding_index('img', idx_name='clip_idx', image_embed=clip_img_embed, string_embed=clip_text_embed)
+        res = t.select(t.img.localpath).order_by(t.img.similarity(sample_img, idx='clip_idx'), asc=False).limit(3).collect()
+        assert_resultset_eq(orig_res, res, True)
+
+        # same should hold after a drop.
+        t.drop_embedding_index(column='img')
+        t.add_embedding_index('img', idx_name='clip_idx', image_embed=clip_img_embed, string_embed=clip_text_embed)
+        res = t.select(t.img.localpath).order_by(t.img.similarity(sample_img, idx='clip_idx'), asc=False).limit(3).collect()
+        assert_resultset_eq(orig_res, res, True)
+        t.drop_embedding_index(idx_name='clip_idx')
+        reload_catalog()
+        t = pxt.get_table('small_img_tbl')
+        t.add_embedding_index('img', idx_name='clip_idx', image_embed=clip_img_embed, string_embed=clip_text_embed)
+        res = t.select(t.img.localpath).order_by(t.img.similarity(sample_img, idx='clip_idx'), asc=False).limit(3).collect()
+        assert_resultset_eq(orig_res, res, True)
+
     def test_embedding_basic(self, img_tbl: pxt.Table, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
         skip_test_if_not_installed('transformers')
         img_t = img_tbl
@@ -185,7 +251,7 @@ class TestIndex:
             img_t.add_embedding_index(img_t.img, idx_name='idx0', image_embed=clip_img_embed)
         assert 'duplicate index name' in str(exc_info.value).lower()
 
-        img_t.add_embedding_index(img_t.category, string_embed=e5_embed)
+        img_t.add_embedding_index(img_t.category, idx_name='cat_idx', string_embed=e5_embed)
 
         # revert() removes the index
         img_t.revert()
@@ -343,7 +409,7 @@ class TestIndex:
         with pytest.raises(pxt.Error) as exc_info:
             # wrong signature
             img_t.add_embedding_index('img', image_embed=clip_image)
-        assert 'but has signature' in str(exc_info.value).lower()
+        assert 'must take a single image parameter' in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error) as exc_info:
             # missing embedding function
@@ -353,7 +419,7 @@ class TestIndex:
         with pytest.raises(pxt.Error) as exc_info:
             # wrong signature
             img_t.add_embedding_index('category', string_embed=clip_text)
-        assert 'but has signature' in str(exc_info.value).lower()
+        assert 'must take a single string parameter' in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error) as exc_info:
             img_t.add_embedding_index('category', string_embed=self.bad_embed)

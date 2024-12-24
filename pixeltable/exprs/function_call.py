@@ -15,6 +15,7 @@ import pixeltable.type_system as ts
 from .data_row import DataRow
 from .expr import Expr
 from .inline_expr import InlineDict, InlineList
+from .literal import Literal
 from .row_builder import RowBuilder
 from .rowid_ref import RowidRef
 from .sql_element_cache import SqlElementCache
@@ -34,6 +35,7 @@ class FunctionCall(Expr):
 
     arg_types: list[ts.ColumnType]
     kwarg_types: dict[str, ts.ColumnType]
+    return_type: ts.ColumnType
     group_by_start_idx: int
     group_by_stop_idx: int
     fn_expr_idx: int
@@ -43,17 +45,25 @@ class FunctionCall(Expr):
     current_partition_vals: Optional[list[Any]]
 
     def __init__(
-            self, fn: func.Function, bound_args: dict[str, Any], order_by_clause: Optional[list[Any]] = None,
-            group_by_clause: Optional[list[Any]] = None, is_method_call: bool = False):
+        self,
+        fn: func.Function,
+        bound_args: dict[str, Any],
+        return_type: ts.ColumnType,
+        order_by_clause: Optional[list[Any]] = None,
+        group_by_clause: Optional[list[Any]] = None,
+        is_method_call: bool = False
+    ):
         if order_by_clause is None:
             order_by_clause = []
         if group_by_clause is None:
             group_by_clause = []
-        signature = fn.signature
-        return_type = fn.call_return_type(bound_args)
+
+        assert not fn.is_polymorphic
+
         self.fn = fn
         self.is_method_call = is_method_call
-        self.normalize_args(fn.name, signature, bound_args)
+
+        signature = fn.signature
 
         # If `return_type` is non-nullable, but the function call has a nullable input to any of its non-nullable
         # parameters, then we need to make it nullable. This is because Pixeltable defaults a function output to
@@ -67,6 +77,8 @@ class FunctionCall(Expr):
                 return_type = return_type.copy(nullable=True)
                 break
 
+        self.return_type = return_type
+
         super().__init__(return_type)
 
         self.agg_init_args = {}
@@ -74,9 +86,9 @@ class FunctionCall(Expr):
             # we separate out the init args for the aggregator
             assert isinstance(fn, func.AggregateFunction)
             self.agg_init_args = {
-                arg_name: arg for arg_name, arg in bound_args.items() if arg_name in fn.init_param_names
+                arg_name: arg for arg_name, arg in bound_args.items() if arg_name in fn.init_param_names[0]
             }
-            bound_args = {arg_name: arg for arg_name, arg in bound_args.items() if arg_name not in fn.init_param_names}
+            bound_args = {arg_name: arg for arg_name, arg in bound_args.items() if arg_name not in fn.init_param_names[0]}
 
         # construct components, args, kwargs
         self.args = []
@@ -88,7 +100,7 @@ class FunctionCall(Expr):
 
         # the prefix of parameters that are bound can be passed by position
         processed_args: set[str] = set()
-        for py_param in fn.signature.py_signature.parameters.values():
+        for py_param in signature.py_signature.parameters.values():
             if py_param.name not in bound_args or py_param.kind == inspect.Parameter.KEYWORD_ONLY:
                 break
             arg = bound_args[py_param.name]
@@ -110,7 +122,7 @@ class FunctionCall(Expr):
                     self.components.append(arg.copy())
                 else:
                     self.kwargs[param_name] = (None, arg)
-                if fn.signature.py_signature.parameters[param_name].kind != inspect.Parameter.VAR_KEYWORD:
+                if signature.py_signature.parameters[param_name].kind != inspect.Parameter.VAR_KEYWORD:
                     self.kwarg_types[param_name] = signature.parameters[param_name].col_type
 
         # window function state:
@@ -129,7 +141,7 @@ class FunctionCall(Expr):
 
         if isinstance(self.fn, func.ExprTemplateFunction):
             # we instantiate the template to create an Expr that can be evaluated and record that as a component
-            fn_expr = self.fn.instantiate(**bound_args)
+            fn_expr = self.fn.instantiate([], bound_args)
             self.components.append(fn_expr)
             self.fn_expr_idx = len(self.components) - 1
         else:
@@ -360,7 +372,7 @@ class FunctionCall(Expr):
         """
         assert self.is_agg_fn_call
         assert isinstance(self.fn, func.AggregateFunction)
-        self.aggregator = self.fn.agg_cls(**self.agg_init_args)
+        self.aggregator = self.fn.agg_class(**self.agg_init_args)
 
     def update(self, data_row: DataRow) -> None:
         """
@@ -432,27 +444,32 @@ class FunctionCall(Expr):
             data_row[self.slot_idx] = self.fn.py_fn(*args, **kwargs)
         elif self.is_window_fn_call:
             assert isinstance(self.fn, func.AggregateFunction)
+            agg_cls = self.fn.agg_class
             if self.has_group_by():
                 if self.current_partition_vals is None:
                     self.current_partition_vals = [None] * len(self.group_by)
                 partition_vals = [data_row[e.slot_idx] for e in self.group_by]
                 if partition_vals != self.current_partition_vals:
                     # new partition
-                    self.aggregator = self.fn.agg_cls(**self.agg_init_args)
+                    self.aggregator = agg_cls(**self.agg_init_args)
                     self.current_partition_vals = partition_vals
             elif self.aggregator is None:
-                self.aggregator = self.fn.agg_cls(**self.agg_init_args)
+                self.aggregator = agg_cls(**self.agg_init_args)
             self.aggregator.update(*args)
             data_row[self.slot_idx] = self.aggregator.value()
         else:
-            data_row[self.slot_idx] = self.fn.exec(*args, **kwargs)
+            data_row[self.slot_idx] = self.fn.exec(args, kwargs)
 
     def _as_dict(self) -> dict:
         result = {
-            'fn': self.fn.as_dict(), 'args': self.args, 'kwargs': self.kwargs,
-            'group_by_start_idx': self.group_by_start_idx, 'group_by_stop_idx': self.group_by_stop_idx,
+            'fn': self.fn.as_dict(),
+            'args': self.args,
+            'kwargs': self.kwargs,
+            'return_type': self.return_type.as_dict(),
+            'group_by_start_idx': self.group_by_start_idx,
+            'group_by_stop_idx': self.group_by_stop_idx,
             'order_by_start_idx': self.order_by_start_idx,
-            **super()._as_dict()
+            **super()._as_dict(),
         }
         return result
 
@@ -461,15 +478,108 @@ class FunctionCall(Expr):
         assert 'fn' in d
         assert 'args' in d
         assert 'kwargs' in d
-        # reassemble bound args
+
         fn = func.Function.from_dict(d['fn'])
-        param_names = list(fn.signature.parameters.keys())
-        bound_args = {param_names[i]: arg if idx is None else components[idx] for i, (idx, arg) in enumerate(d['args'])}
-        bound_args.update(
-            {param_name: val if idx is None else components[idx] for param_name, (idx, val) in d['kwargs'].items()})
+        assert not fn.is_polymorphic
+        return_type = ts.ColumnType.from_dict(d['return_type']) if 'return_type' in d else None
         group_by_exprs = components[d['group_by_start_idx']:d['group_by_stop_idx']]
         order_by_exprs = components[d['order_by_start_idx']:]
+
+        args = [
+            expr if idx is None else components[idx]
+            for idx, expr in d['args']
+        ]
+        kwargs = {
+            param_name: (expr if idx is None else components[idx])
+            for param_name, (idx, expr) in d['kwargs'].items()
+        }
+
+        # `Function.from_dict()` does signature matching, so it is safe to assume that `args` and `kwargs` are
+        # consistent with its signature.
+
+        # Reassemble bound_args. Note that args and kwargs represent "already bound arguments": they are not bindable
+        # in the Python sense, because variable args (such as *args and **kwargs) have already been condensed.
+        param_names = list(fn.signature.parameters.keys())
+        bound_args = {param_names[i]: arg for i, arg in enumerate(args)}
+        bound_args.update(kwargs.items())
+
+        # TODO: In order to properly invoke call_return_type, we need to ensure that any InlineLists or InlineDicts
+        # in bound_args are unpacked into Python lists/dicts. There is an open task to ensure this is true in general;
+        # for now, as a hack, we do the unpacking here for the specific case of an InlineList of Literals (the only
+        # case where this is necessary to support existing conditional_return_type implementations). Once the general
+        # pattern is implemented, we can remove this hack.
+        unpacked_bound_args = {
+            param_name: cls.__unpack_bound_arg(arg) for param_name, arg in bound_args.items()
+        }
+
+        # Evaluate the call_return_type as defined in the current codebase.
+        call_return_type = fn.call_return_type([], unpacked_bound_args)
+
+        if return_type is None:
+            # Schema versions prior to 25 did not store the return_type in metadata, and there is no obvious way to
+            # infer it during DB migration, so we might encounter a stored return_type of None. In that case, we use
+            # the call_return_type that we just inferred (which matches the deserialization behavior prior to
+            # version 25).
+            return_type = call_return_type
+        else:
+            # There is a return_type stored in metadata (schema version >= 25).
+            # Check that the stored return_type of the UDF call matches the column type of the FunctionCall, and
+            # fail-fast if it doesn't (otherwise we risk getting downstream database errors).
+            # TODO: Handle this more gracefully (instead of failing the DB load, allow the DB load to succeed, but
+            #       mark this FunctionCall as unusable). It's the same issue as dealing with a renamed UDF or Function
+            #       signature mismatch.
+            if not return_type.is_supertype_of(call_return_type, ignore_nullable=True):
+                raise excs.Error(
+                    f'The return type stored in the database for a UDF call to `{fn.self_path}` no longer matches the '
+                    f'return type of the UDF as currently defined in the code.\nThis probably means that the code for '
+                    f'`{fn.self_path}` has changed in a backward-incompatible way.\n'
+                    f'Return type in database: `{return_type}`\n'
+                    f'Return type as currently defined: `{call_return_type}`'
+                )
+
         fn_call = cls(
-            func.Function.from_dict(d['fn']), bound_args, group_by_clause=group_by_exprs,
-            order_by_clause=order_by_exprs)
+            fn,
+            bound_args,
+            return_type,
+            group_by_clause=group_by_exprs,
+            order_by_clause=order_by_exprs
+        )
         return fn_call
+
+    @classmethod
+    def __find_matching_signature(cls, fn: func.Function, args: list[Any], kwargs: dict[str, Any]) -> Optional[int]:
+        for idx, sig in enumerate(fn.signatures):
+            if cls.__signature_matches(sig, args, kwargs):
+                return idx
+        return None
+
+    @classmethod
+    def __signature_matches(cls, sig: func.Signature, args: list[Any], kwargs: dict[str, Any]) -> bool:
+        unbound_parameters = set(sig.parameters.keys())
+        for i, arg in enumerate(args):
+            if i >= len(sig.parameters_by_pos):
+                return False
+            param = sig.parameters_by_pos[i]
+            arg_type = arg.col_type if isinstance(arg, Expr) else ts.ColumnType.infer_literal_type(arg)
+            if param.col_type is not None and not param.col_type.is_supertype_of(arg_type, ignore_nullable=True):
+                return False
+            unbound_parameters.remove(param.name)
+        for param_name, arg in kwargs.items():
+            if param_name not in unbound_parameters:
+                return False
+            param = sig.parameters[param_name]
+            arg_type = arg.col_type if isinstance(arg, Expr) else ts.ColumnType.infer_literal_type(arg)
+            if param.col_type is not None and not param.col_type.is_supertype_of(arg_type, ignore_nullable=True):
+                return False
+            unbound_parameters.remove(param_name)
+        for param_name in unbound_parameters:
+            param = sig.parameters[param_name]
+            if not param.has_default:
+                return False
+        return True
+
+    @classmethod
+    def __unpack_bound_arg(cls, arg: Any) -> Any:
+        if isinstance(arg, InlineList) and all(isinstance(el, Literal) for el in arg.components):
+            return [el.val for el in arg.components]
+        return arg
