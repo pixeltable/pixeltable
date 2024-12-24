@@ -167,12 +167,12 @@ class View(Table):
 
     @classmethod
     def _verify_column(
-            cls, col: Column, existing_column_names: set[str], existing_query_names: Optional[set[str]] = None
+            cls, col: Column, existing_query_names: Optional[set[str]] = None
     ) -> None:
         # make sure that columns are nullable or have a default
         if not col.col_type.nullable and not col.is_computed:
             raise excs.Error(f'Column {col.name}: non-computed columns in views must be nullable')
-        super()._verify_column(col, existing_column_names, existing_query_names)
+        super()._verify_column(col, existing_query_names)
 
     @classmethod
     def _get_snapshot_path(cls, tbl_version_path: TableVersionPath) -> TableVersionPath:

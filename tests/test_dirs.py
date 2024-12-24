@@ -2,7 +2,7 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
-from .utils import make_tbl, reload_catalog
+from .utils import make_tbl, reload_catalog, assert_raises_error, get_raised_error
 
 
 class TestDirs:
@@ -15,49 +15,26 @@ class TestDirs:
             assert dir._parent._path == '.'.join(name.split('.')[:-1])
 
         # invalid names
-        with pytest.raises(excs.Error) as exc_info:
-            pxt.create_dir('1dir')
-        assert 'Invalid path format' in str(exc_info.value)
-        with pytest.raises(excs.Error) as exc_info:
-            pxt.create_dir('_dir1')
-        assert 'Invalid path format' in str(exc_info.value)
-        with pytest.raises(excs.Error) as exc_info:
-            pxt.create_dir('dir 1')
-        assert 'Invalid path format' in str(exc_info.value)
-        with pytest.raises(excs.Error) as exc_info:
-            pxt.create_dir('dir1..sub2')
-        assert 'Invalid path format' in str(exc_info.value)
-        with pytest.raises(excs.Error) as exc_info:
-            pxt.create_dir('dir1.sub2.')
-        assert 'Invalid path format' in str(exc_info.value)
-        with pytest.raises(excs.Error) as exc_info:
-            pxt.create_dir('dir1:sub2.')
-        assert 'Invalid path format' in str(exc_info.value)
+        expected_err = 'invalid path format'
+        assert_raises_error(expected_err, pxt.create_dir, '1dir')
+        assert_raises_error(expected_err, pxt.create_dir, '_dir1')
+        assert_raises_error(expected_err, pxt.create_dir, 'dir 1')
+        assert_raises_error(expected_err, pxt.create_dir, 'dir1..sub2')
+        assert_raises_error(expected_err, pxt.create_dir, 'dir1.sub2.')
+        assert_raises_error(expected_err, pxt.create_dir, 'dir1:sub2.')
 
         # existing dirs raise error by default
-        with pytest.raises(excs.Error) as exc_info:
-            pxt.create_dir('dir1')
-        assert 'already exists' in str(exc_info.value)
-        with pytest.raises(excs.Error) as exc_info:
-            pxt.create_dir('dir1.sub1')
-        assert 'already exists' in str(exc_info.value)
-        with pytest.raises(excs.Error) as exc_info:
-            pxt.create_dir('dir1.sub1.subsub1')
-        assert 'already exists' in str(exc_info.value)
+        expected_err = 'already exists'
+        assert_raises_error(expected_err, pxt.create_dir, 'dir1')
+        assert_raises_error(expected_err, pxt.create_dir, 'dir1.sub1')
+        assert_raises_error(expected_err, pxt.create_dir, 'dir1.sub1.subsub1')
 
         # existing table
         make_tbl('dir1.t1')
-        with pytest.raises(excs.Error) as exc_info:
-            pxt.create_dir('dir1.t1')
-        assert 'already exists' in str(exc_info.value)
-
-        with pytest.raises(excs.Error) as exc_info:
-            pxt.create_dir('dir2.sub2')
-        assert 'No such path' in str(exc_info.value)
+        assert_raises_error(expected_err, pxt.create_dir, 'dir1.t1')
+        assert_raises_error("no such path", pxt.create_dir, 'dir2.sub2')
         make_tbl('t2')
-        with pytest.raises(excs.Error) as exc_info:
-            pxt.create_dir('t2.sub2')
-        assert 'Not a directory' in str(exc_info.value)
+        assert_raises_error("not a directory", pxt.create_dir, 't2.sub2')
 
         # new client: force loading from store
         reload_catalog()
@@ -85,9 +62,9 @@ class TestDirs:
             id_before[name] = dir._id
 
         # invalid if_exists value is rejected
-        with pytest.raises(excs.Error) as exc_info:
-            pxt.create_dir('dir1', if_exists='invalid')
-        assert "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']" in str(exc_info.value)
+        assert_raises_error(
+            "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']",
+            pxt.create_dir, 'dir1', if_exists='invalid')
 
         # scenrio 1: path already has a directory
 
@@ -109,17 +86,11 @@ class TestDirs:
         assert d3._id != id_before['dir1.sub1.subsub1']
         id_before['dir1.sub1.subsub1'] = d3._id
         assert pxt.list_dirs(recursive=True) == dirs
-        with pytest.raises(excs.Error) as exc_info:
-            _ = pxt.create_dir('dir1.sub1', if_exists='replace')
-        assert ('already exists' in str(exc_info.value)
-            and 'has dependents' in str(exc_info.value)
-            and 'replace_force' in str(exc_info.value))
+        err_msg = get_raised_error(pxt.create_dir, 'dir1.sub1', if_exists='replace')
+        assert 'already exists' in err_msg and 'has dependents' in err_msg and 'replace_force' in err_msg
         assert pxt.list_dirs(recursive=True) == dirs
-        with pytest.raises(excs.Error) as exc_info:
-            _ = pxt.create_dir('dir1', if_exists='replace')
-        assert ('already exists' in str(exc_info.value)
-            and 'has dependents' in str(exc_info.value)
-            and 'replace_force' in str(exc_info.value))
+        err_msg = get_raised_error(pxt.create_dir, 'dir1', if_exists='replace')
+        assert 'already exists' in err_msg and 'has dependents' in err_msg and 'replace_force' in err_msg
         assert pxt.list_dirs(recursive=True) == dirs
 
         # if_exists='replace_force' should replace existing Dir,
@@ -139,10 +110,8 @@ class TestDirs:
         # scenrio 2: path already exists but is not a Dir
         make_tbl('dir1.t1')
         for _ie in ['ignore', 'replace', 'replace_force']:
-            with pytest.raises(excs.Error) as exc_info:
-                pxt.create_dir('dir1.t1', if_exists=_ie)
-            assert ('already exists' in str(exc_info.value)
-                and 'not a Dir' in str(exc_info.value)), f" for if_exists='{_ie}'"
+            err_msg = get_raised_error(pxt.create_dir, 'dir1.t1', if_exists=_ie)
+            assert 'already exists' in err_msg and 'not a dir' in err_msg, f" for if_exists='{_ie}'"
 
     def test_rm(self, reset_db) -> None:
         dirs = ['dir1', 'dir1.sub1', 'dir1.sub1.subsub1']

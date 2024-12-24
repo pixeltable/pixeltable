@@ -172,6 +172,12 @@ class Column:
         assert self.tbl is not None
         return self.tbl.media_validation
 
+    @property
+    def _has_dependent_user_columns(self) -> bool:
+        """ Returns True if this column has dependent user columns"""
+        dependent_user_cols = [c for c in self.dependent_cols if c.name is not None]
+        return len(dependent_user_cols) > 0
+
     def source(self) -> None:
         """
         If this is a computed col and the top-level expr is a function call, print the source, if possible.

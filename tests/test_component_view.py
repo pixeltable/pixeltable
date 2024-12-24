@@ -136,7 +136,7 @@ class TestComponentView:
 
         with pytest.raises(excs.Error) as excinfo:
             view_t.add_column(annotation=pxt.Required[pxt.Json])
-        assert 'must be nullable' in str(excinfo.value)
+        assert "Duplicate column name: 'annotation'" in str(excinfo.value)
 
     def test_update(self, reset_db) -> None:
         # create video table
