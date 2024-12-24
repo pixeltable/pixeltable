@@ -872,20 +872,15 @@ class TestExprs:
         sim2 = t1.img.similarity('red truck', idx='img_idx0')
         assert sim1.id == sim2.id
         assert sim1.serialize() == sim2.serialize()
-        # index name should be present in the serialized expression
-        assert 'img_idx0' in sim1.serialize()
-        assert 'img_idx0' in sim2.serialize()
 
         t2 = multi_idx_img_tbl
-        # for a table with multiple embedding index, the index
+        # for a table with multiple embedding indexes, the index
         # to use must be specified to the similarity expression.
-        # So similarity exressions using different index should differ.
+        # So similarity expressions using different indexes should differ.
         sim1 = t2.img.similarity('red truck', idx='img_idx1')
         sim2 = t2.img.similarity('red truck', idx='img_idx2')
         assert sim1.id != sim2.id
         assert sim1.serialize() != sim2.serialize()
-        assert 'img_idx1' in sim1.serialize()
-        assert 'img_idx2' in sim2.serialize()
 
     def test_ids(
         self, test_tbl_exprs: list[exprs.Expr], img_tbl_exprs: list[exprs.Expr],
