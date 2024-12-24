@@ -5,7 +5,7 @@ ifeq ($(OS),Windows_NT)
     # Define Windows-specific commands
     SHELL_PREFIX := pwsh.exe
     MKDIR := powershell -Command New-Item -ItemType Directory -Path
-    TOUCH := powershell -Command New-Item -ItemType File -Path
+    TOUCH := powershell -Command New-Item -ItemType File -Path -Force
     RM := powershell -Command Remove-Item -Force
     RMDIR := powershell -Command Remove-Item -Force -Recurse
     SET_ENV := set
@@ -78,13 +78,13 @@ WHISPERX_OK := $(shell python -c "import sys; sys.stdout.write(str(sys.version_i
 	@python -m pip install -qU pip
 	@python -m pip install -q poetry==1.8.4
 	@poetry self add "poetry-dynamic-versioning[plugin]"
-	@$(TOUCH) .make-install/poetry -Force
+	@$(TOUCH) .make-install/poetry
 
 .make-install/deps: poetry.lock
 	@echo "Installing dependencies from poetry ..."
 	@$(SET_ENV) CMAKE_ARGS='-DLLAVA_BUILD=OFF'
 	@poetry install --with dev
-	@$(TOUCH) .make-install/deps -Force
+	@$(TOUCH) .make-install/deps
 
 .make-install/others:
 ifeq ($(YOLOX_OK), True)
@@ -105,7 +105,7 @@ else
 endif
 	@echo "Installing Jupyter kernel ..."
 	@python -m ipykernel install --user --name=$(KERNEL_NAME)
-	@$(TOUCH) .make-install/others -Force
+	@$(TOUCH) .make-install/others
 
 .PHONY: install
 install: setup-install .make-install/poetry .make-install/deps .make-install/others
