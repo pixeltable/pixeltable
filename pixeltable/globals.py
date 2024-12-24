@@ -1,6 +1,6 @@
 import dataclasses
 import logging
-from typing import Any, Iterable, Optional, Union, Literal
+from typing import Any, Iterable, Optional, Union, Literal, Type
 from uuid import UUID
 
 import pandas as pd
@@ -20,11 +20,68 @@ from pixeltable.utils.filecache import FileCache
 
 _logger = logging.getLogger('pixeltable')
 
-
 def init() -> None:
     """Initializes the Pixeltable environment."""
     _ = Catalog.get()
 
+def _get_or_drop_existing_path(
+    path_str: str,
+    expected_obj_type: Type[catalog.SchemaObject],
+    expected_snapshot: bool,
+    if_exists: catalog.IfExistsParam
+) -> Optional[catalog.SchemaObject]:
+    """Handle schema object path collision during creation according to the if_exists parameter.
+
+    Args:
+        path_str: An existing and valid path to the dir, table, view, or snapshot.
+        expected_obj_type: Whether the caller of this function is creating a dir, table, or view at the existing path.
+        expected_snapshot: Whether the caller of this function is creating a snapshot at the existing path.
+        if_exists: Directive regarding how to handle the existing path.
+
+    Returns:
+        A handle to the existing dir, table, view, or snapshot, if `if_exists='ignore'`, otherwise `None`.
+
+    Raises:
+        Error: If the existing path is not of the expected type, or if the existing path has dependents and
+            `if_exists='replace'` or `if_exists='replace_force'`.
+    """
+    cat = Catalog.get()
+    path = catalog.Path(path_str)
+    assert cat.paths.get_object(path) is not None
+
+    if if_exists == catalog.IfExistsParam.ERROR:
+        raise excs.Error(f'Path `{path_str}` already exists.')
+
+    existing_path = cat.paths[path]
+    existing_path_is_snapshot = 'is_snapshot' in existing_path.get_metadata() and existing_path.get_metadata()['is_snapshot']
+    obj_type_str = 'Snapshot' if expected_snapshot else expected_obj_type._display_name().capitalize()
+    # Check if the existing path is of expected type.
+    if (not isinstance(existing_path, expected_obj_type)
+        or (expected_snapshot and not existing_path_is_snapshot)):
+            raise excs.Error(f'Path `{path_str}` already exists but is not a {obj_type_str}. Cannot {if_exists.name.lower()} it.')
+
+    # if_exists='ignore' return the handle to the existing object.
+    assert isinstance(existing_path, expected_obj_type)
+    if if_exists == catalog.IfExistsParam.IGNORE:
+        return existing_path
+
+    # Check if the existing object has dependents. If so, cannot replace it
+    # unless if_exists='replace_force'.
+    has_dependents = existing_path._has_dependents
+    if if_exists == catalog.IfExistsParam.REPLACE and has_dependents:
+        raise excs.Error(f"{obj_type_str} `{path_str}` already exists and has dependents. Use `if_exists='replace_force'` to replace it.")
+    else:
+        assert if_exists == catalog.IfExistsParam.REPLACE_FORCE or not has_dependents
+        # Drop the existing path so it can be replaced.
+        # Any errors during drop will be raised.
+        _logger.info(f"Dropping {obj_type_str} `{path_str}` to replace it.")
+        if isinstance(existing_path, catalog.Dir):
+            drop_dir(path_str, force=True, ignore_errors=False)
+        else:
+            drop_table(path_str, force=True, ignore_errors=False)
+        assert cat.paths.get_object(path) is None
+
+    return None
 
 def create_table(
     path_str: str,
@@ -33,7 +90,8 @@ def create_table(
     primary_key: Optional[Union[str, list[str]]] = None,
     num_retained_versions: int = 10,
     comment: str = '',
-    media_validation: Literal['on_read', 'on_write'] = 'on_write'
+    media_validation: Literal['on_read', 'on_write'] = 'on_write',
+    if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error'
 ) -> catalog.Table:
     """Create a new base table.
 
@@ -46,15 +104,25 @@ def create_table(
         num_retained_versions: Number of versions of the table to retain.
         comment: An optional comment; its meaning is user-defined.
         media_validation: Media validation policy for the table.
-
             - `'on_read'`: validate media files at query time
             - `'on_write'`: validate media files during insert/update operations
+        if_exists: Directive regarding how to handle if the path already exists.
+            Must be one of the following:
+            - `'error'`: raise an error
+            - `'ignore'`: do nothing and return the existing table handle
+            - `'replace'`: if the existing table has no views, drop and replace it with a new one
+            - `'replace_force'`: drop the existing table and all its views, and create a new one
+            Default is `'error'`.
 
     Returns:
-        A handle to the newly created [`Table`][pixeltable.Table].
+        A handle to the newly created table, or to an already existing table at the path when `if_exists='ignore'`.
+        Please note the schema of the existing table may not match the schema provided in the call.
 
     Raises:
-        Error: if the path already exists or is invalid.
+        Error: if the path is invalid,
+            or if the path already exists and `if_exists='error'`,
+            or if the path already exists and is not a table,
+            or an error occurs while attempting to create the table.
 
     Examples:
         Create a table with an int and a string column:
@@ -66,10 +134,27 @@ def create_table(
 
         >>> tbl1 = pxt.get_table('orig_table')
         ... tbl2 = pxt.create_table('new_table', tbl1.where(tbl1.col1 < 10).select(tbl1.col2))
+
+        Create a table if does not already exist, otherwise get the existing table:
+
+        >>> tbl = pxt.create_table('my_table', schema={'col1': pxt.Int, 'col2': pxt.String}, if_exists='ignore')
+
+        Create a table with an int and a float column, and replace any existing table:
+
+        >>> tbl = pxt.create_table('my_table', schema={'col1': pxt.Int, 'col2': pxt.Float}, if_exists='replace')
     """
     path = catalog.Path(path_str)
-    Catalog.get().paths.check_is_valid(path, expected=None)
-    dir = Catalog.get().paths[path.parent]
+    cat = Catalog.get()
+
+    if cat.paths.get_object(path) is not None:
+        # The table already exists. Handle it as per user directive.
+        _if_exists = catalog.IfExistsParam.validated(if_exists, 'if_exists')
+        existing_table = _get_or_drop_existing_path(path_str, catalog.InsertableTable, False, _if_exists)
+        if existing_table is not None:
+            assert isinstance(existing_table, catalog.Table)
+            return existing_table
+
+    dir = cat.paths[path.parent]
 
     df: Optional[DataFrame] = None
     if isinstance(schema_or_df, dict):
@@ -96,7 +181,7 @@ def create_table(
     tbl = catalog.InsertableTable._create(
         dir._id, path.name, schema, df, primary_key=primary_key, num_retained_versions=num_retained_versions,
         comment=comment, media_validation=catalog.MediaValidation.validated(media_validation, 'media_validation'))
-    Catalog.get().paths[path] = tbl
+    cat.paths[path] = tbl
 
     _logger.info(f'Created table `{path_str}`.')
     return tbl
@@ -112,7 +197,7 @@ def create_view(
     num_retained_versions: int = 10,
     comment: str = '',
     media_validation: Literal['on_read', 'on_write'] = 'on_write',
-    ignore_errors: bool = False,
+    if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
 ) -> Optional[catalog.Table]:
     """Create a view of an existing table object (which itself can be a view or a snapshot or a base table).
 
@@ -130,20 +215,45 @@ def create_view(
             the base table.
         num_retained_versions: Number of versions of the view to retain.
         comment: Optional comment for the view.
-        ignore_errors: if True, fail silently if the path already exists or is invalid.
+        media_validation: Media validation policy for the view.
+            - `'on_read'`: validate media files at query time
+            - `'on_write'`: validate media files during insert/update operations
+        if_exists: Directive regarding how to handle if the path already exists.
+            Must be one of the following:
+            - `'error'`: raise an error
+            - `'ignore'`: do nothing and return the existing view handle
+            - `'replace'`: if the existing view has no dependents, drop and replace it with a new one
+            - `'replace_force'`: drop the existing view and all its dependents, and create a new one
+            Default is `'error'`.
 
     Returns:
         A handle to the [`Table`][pixeltable.Table] representing the newly created view. If the path already
-            exists or is invalid and `ignore_errors=True`, returns `None`.
+            exists and `if_exists='ignore'`, returns a handle to the existing view. Please note the schema
+            or the base of the existing view may not match those provided in the call.
 
     Raises:
-        Error: if the path already exists or is invalid and `ignore_errors=False`.
+        Error: if the path is invalid,
+            or if the path already exists and `if_exists='error'`,
+            or if the path already exists and is not a view,
+            or an error occurs while attempting to create the view.
 
     Examples:
         Create a view `my_view` of an existing table `my_table`, filtering on rows where `col1` is greater than 10:
 
         >>> tbl = pxt.get_table('my_table')
         ... view = pxt.create_view('my_view', tbl.where(tbl.col1 > 10))
+
+        Create a view `my_view` of an existing table `my_table`, filtering on rows where `col1` is greater than 10,
+        and if it not already exist. Otherwise, get the existing view named `my_view`:
+
+        >>> tbl = pxt.get_table('my_table')
+        ... view = pxt.create_view('my_view', tbl.where(tbl.col1 > 10), if_exists='ignore')
+
+        Create a view `my_view` of an existing table `my_table`, filtering on rows where `col1` is greater than 100,
+        and replace any existing view named `my_view`:
+
+        >>> tbl = pxt.get_table('my_table')
+        ... view = pxt.create_view('my_view', tbl.where(tbl.col1 > 100), if_exists='replace_force')
     """
     where: Optional[exprs.Expr] = None
     if isinstance(base, catalog.Table):
@@ -157,15 +267,19 @@ def create_view(
     else:
         raise excs.Error('`base` must be an instance of `Table` or `DataFrame`')
     assert isinstance(base, catalog.Table) or isinstance(base, DataFrame)
+
     path = catalog.Path(path_str)
-    try:
-        Catalog.get().paths.check_is_valid(path, expected=None)
-    except Exception as e:
-        if ignore_errors:
-            return None
-        else:
-            raise e
-    dir = Catalog.get().paths[path.parent]
+    cat = Catalog.get()
+
+    if cat.paths.get_object(path) is not None:
+        # The view already exists. Handle it as per user directive.
+        _if_exists = catalog.IfExistsParam.validated(if_exists, 'if_exists')
+        existing_path = _get_or_drop_existing_path(path_str, catalog.View, is_snapshot, _if_exists)
+        if existing_path is not None:
+            assert isinstance(existing_path, catalog.View)
+            return existing_path
+
+    dir = cat.paths[path.parent]
 
     if additional_columns is None:
         additional_columns = {}
@@ -179,7 +293,7 @@ def create_view(
         is_snapshot=is_snapshot, iterator_cls=iterator_class, iterator_args=iterator_args,
         num_retained_versions=num_retained_versions, comment=comment,
         media_validation=catalog.MediaValidation.validated(media_validation, 'media_validation'))
-    Catalog.get().paths[path] = view
+    cat.paths[path] = view
     _logger.info(f'Created view `{path_str}`.')
     FileCache.get().emit_eviction_warnings()
     return view
@@ -194,7 +308,7 @@ def create_snapshot(
     num_retained_versions: int = 10,
     comment: str = '',
     media_validation: Literal['on_read', 'on_write'] = 'on_write',
-    ignore_errors: bool = False,
+    if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
 ) -> Optional[catalog.Table]:
     """Create a snapshot of an existing table object (which itself can be a view or a snapshot or a base table).
 
@@ -209,21 +323,44 @@ def create_snapshot(
         iterator: The iterator to use for this snapshot. If specified, then this snapshot will be a one-to-many view of
             the base table.
         num_retained_versions: Number of versions of the view to retain.
-        comment: Optional comment for the view.
-        ignore_errors: if True, fail silently if the path already exists or is invalid.
+        comment: Optional comment for the snapshot.
+        media_validation: Media validation policy for the snapshot.
+            - `'on_read'`: validate media files at query time
+            - `'on_write'`: validate media files during insert/update operations
+        if_exists: Directive regarding how to handle if the path already exists.
+            Must be one of the following:
+            - `'error'`: raise an error
+            - `'ignore'`: do nothing and return the existing snapshot handle
+            - `'replace'`: if the existing snapshot has no dependents, drop and replace it with a new one
+            - `'replace_force'`: drop the existing snapshot and all its dependents, and create a new one
+            Default is `'error'`.
 
     Returns:
-        A handle to the [`Table`][pixeltable.Table] representing the newly created snapshot. If the path already
-            exists or is invalid and `ignore_errors=True`, returns `None`.
+        A handle to the [`Table`][pixeltable.Table] representing the newly created snapshot.
+        Please note the schema or base of the existing snapshot may not match those provided in the call.
 
     Raises:
-        Error: if the path already exists or is invalid and `ignore_errors=False`.
+        Error: if the path is invalid,
+            or if the path already exists and `if_exists='error'`,
+            or if the path already exists and is not a snapshot,
+            or an error occurs while attempting to create the snapshot.
 
     Examples:
-        Create a snapshot of `my_table`:
+        Create a snapshot `my_snapshot` of a table `my_table`:
 
         >>> tbl = pxt.get_table('my_table')
         ... snapshot = pxt.create_snapshot('my_snapshot', tbl)
+
+        Create a snapshot `my_snapshot` of a view `my_view` with additional int column `col3`,
+        if `my_snapshot` does not already exist:
+
+        >>> view = pxt.get_table('my_view')
+        ... snapshot = pxt.create_snapshot('my_snapshot', view, additional_columns={'col3': pxt.Int}, if_exists='ignore')
+
+        Create a snapshot `my_snapshot` on a table `my_table`, and replace any existing snapshot named `my_snapshot`:
+
+        >>> tbl = pxt.get_table('my_table')
+        ... snapshot = pxt.create_snapshot('my_snapshot', tbl, if_exists='replace_force')
     """
     return create_view(
         path_str,
@@ -234,7 +371,7 @@ def create_snapshot(
         num_retained_versions=num_retained_versions,
         comment=comment,
         media_validation=media_validation,
-        ignore_errors=ignore_errors,
+        if_exists=if_exists,
     )
 
 
@@ -376,16 +513,28 @@ def list_tables(dir_path: str = '', recursive: bool = True) -> list[str]:
     Catalog.get().paths.check_is_valid(path, expected=catalog.Dir)
     return [str(p) for p in Catalog.get().paths.get_children(path, child_type=catalog.Table, recursive=recursive)]
 
-
-def create_dir(path_str: str, ignore_errors: bool = False) -> Optional[catalog.Dir]:
+def create_dir(path_str: str, if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error') -> Optional[catalog.Dir]:
     """Create a directory.
 
     Args:
         path_str: Path to the directory.
-        ignore_errors: if `True`, will return silently instead of throwing an exception if an error occurs.
+        if_exists: Directive regarding how to handle if the path already exists.
+            Must be one of the following:
+            - `'error'`: raise an error
+            - `'ignore'`: do nothing and return the existing directory handle
+            - `'replace'`: if the existing directory is empty, drop it and create a new one
+            - `'replace_force'`: drop the existing directory and all its children, and create a new one
+            Default is `'error'`.
+
+    Returns:
+        A handle to the newly created directory, or to an already existing directory at the path when `if_exists='ignore'`.
+        Please note the existing directory may not be empty.
 
     Raises:
-        Error: If the path already exists or the parent is not a directory, and `ignore_errors=False`.
+        Error: If the path is invalid,
+            or if the path already exists and `if_exists='error'`,
+            or if the path already exists and is not a directory,
+            or an error occurs while attempting to create the directory.
 
     Examples:
         >>> pxt.create_dir('my_dir')
@@ -393,31 +542,41 @@ def create_dir(path_str: str, ignore_errors: bool = False) -> Optional[catalog.D
         Create a subdirectory:
 
         >>> pxt.create_dir('my_dir.sub_dir')
-    """
-    try:
-        path = catalog.Path(path_str)
-        Catalog.get().paths.check_is_valid(path, expected=None)
-        parent = Catalog.get().paths[path.parent]
-        assert parent is not None
-        with orm.Session(Env.get().engine, future=True) as session:
-            dir_md = schema.DirMd(name=path.name)
-            dir_record = schema.Dir(parent_id=parent._id, md=dataclasses.asdict(dir_md))
-            session.add(dir_record)
-            session.flush()
-            assert dir_record.id is not None
-            assert isinstance(dir_record.id, UUID)
-            dir = catalog.Dir(dir_record.id, parent._id, path.name)
-            Catalog.get().paths[path] = dir
-            session.commit()
-            _logger.info(f'Created directory `{path_str}`.')
-            print(f'Created directory `{path_str}`.')
-            return dir
-    except excs.Error as e:
-        if ignore_errors:
-            return None
-        else:
-            raise e
 
+        Create a subdirectory only if it does not already exist, otherwise do nothing:
+
+        >>> pxt.create_dir('my_dir.sub_dir', if_exists='ignore')
+
+        Create a directory and replace if it already exists:
+
+        >>> pxt.create_dir('my_dir', if_exists='replace_force')
+    """
+    path = catalog.Path(path_str)
+    cat = Catalog.get()
+
+    if cat.paths.get_object(path):
+        # The directory already exists. Handle it as per user directive.
+        _if_exists = catalog.IfExistsParam.validated(if_exists, 'if_exists')
+        existing_path = _get_or_drop_existing_path(path_str, catalog.Dir, False, _if_exists)
+        if existing_path is not None:
+            assert isinstance(existing_path, catalog.Dir)
+            return existing_path
+
+    parent = cat.paths[path.parent]
+    assert parent is not None
+    with orm.Session(Env.get().engine, future=True) as session:
+        dir_md = schema.DirMd(name=path.name)
+        dir_record = schema.Dir(parent_id=parent._id, md=dataclasses.asdict(dir_md))
+        session.add(dir_record)
+        session.flush()
+        assert dir_record.id is not None
+        assert isinstance(dir_record.id, UUID)
+        dir = catalog.Dir(dir_record.id, parent._id, path.name)
+        cat.paths[path] = dir
+        session.commit()
+        _logger.info(f'Created directory `{path_str}`.')
+        print(f'Created directory `{path_str}`.')
+        return dir
 
 def drop_dir(path_str: str, force: bool = False, ignore_errors: bool = False) -> None:
     """Remove a directory.
