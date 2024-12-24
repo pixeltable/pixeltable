@@ -511,6 +511,7 @@ class Env:
         self.__register_package('openai')
         self.__register_package('openpyxl')
         self.__register_package('pyarrow')
+        self.__register_package('pydantic')
         self.__register_package('replicate')
         self.__register_package('sentencepiece')
         self.__register_package('sentence_transformers', library_name='sentence-transformers')

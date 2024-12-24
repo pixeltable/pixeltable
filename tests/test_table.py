@@ -1,5 +1,4 @@
 import datetime
-import random
 import math
 import os
 import random
@@ -10,6 +9,7 @@ import numpy as np
 import pandas as pd
 import PIL
 import pytest
+from jsonschema.exceptions import ValidationError
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
@@ -21,8 +21,8 @@ from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.media_store import MediaStore
 
 from .utils import (assert_resultset_eq, create_table_data, get_audio_files, get_documents, get_image_files,
-                    get_video_files, make_tbl, read_data_file, reload_catalog, skip_test_if_not_installed, strip_lines,
-                    validate_update_status, get_multimedia_commons_video_uris, ReloadTester)
+                    get_multimedia_commons_video_uris, get_video_files, make_tbl, read_data_file, reload_catalog,
+                    skip_test_if_not_installed, strip_lines, validate_update_status, ReloadTester)
 
 
 class TestTable:
@@ -752,6 +752,35 @@ class TestTable:
             for path in paths:
                 assert os.path.exists(path) and os.path.isfile(path)
 
+    def test_validate_json(self, reset_db) -> None:
+        json_schema = {
+            'properties': {
+                'a': {'type': 'string'},
+                'b': {'type': 'integer'},
+                'c': {'type': 'number'},
+                'd': {'type': 'boolean'},
+            },
+            'required': ['a', 'b'],
+        }
+
+        t = pxt.create_table('test', {
+            'json_col': pxt.Json[json_schema]
+        })
+        t.insert(json_col={'a': 'coconuts', 'b': 1, 'c': 3.0, 'd': True})
+        t.update({'json_col': {'a': 'mangoes', 'b': 2}})  # Omit optional properties
+
+        with pytest.raises(ValidationError) as exc_info:
+            t.insert(json_col={'a': 'apples', 'b': 'elephant'})  # Wrong type
+        assert "'elephant' is not of type 'integer'" in str(exc_info.value)
+
+        with pytest.raises(ValidationError) as exc_info:
+            t.insert(json_col={'a': 'apples'})  # Missing required field
+        assert "'b' is a required property" in str(exc_info.value)
+
+        with pytest.raises(excs.Error) as exc_info:
+            t.update({'json_col': {'a': 'apples'}})  # Validation error on update
+        assert "is not compatible with the type of column json_col" in str(exc_info.value)
+
     def test_validate_image(self, reset_db: None) -> None:
         rows = read_data_file('imagenette2-160', 'manifest_bad.csv', ['img'])
         rows = [{'media': r['img'], 'is_bad_media': r['is_bad_image']} for r in rows]
@@ -870,7 +899,6 @@ class TestTable:
     def test_create_video_table(self, reset_db: None) -> None:
         skip_test_if_not_installed('boto3')
         tbl = pxt.create_table('test_tbl', {'payload': pxt.Int, 'video': pxt.Video})
-        args = {'video': tbl.video, 'fps': 0}
         view = pxt.create_view('test_view', tbl, iterator=FrameIterator.create(video=tbl.video, fps=0))
         view.add_column(c1=view.frame.rotate(30), stored=True)
         view.add_column(c2=view.c1.rotate(40), stored=False)
@@ -2143,4 +2171,3 @@ class TestTable:
         with pytest.raises(excs.Error) as exc_info:
             t.revert()
         assert expected_err_msg in str(exc_info.value).lower()
-
