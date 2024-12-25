@@ -60,7 +60,7 @@ setup-install:
 ifeq ($(OS),Windows_NT)
 	@powershell -Command "if (-not (Test-Path '.make-install')) { New-Item -ItemType Directory -Path '.make-install' }"
 else
-	@if [ ! -d ".make-install" ]; then $(MKDIR) .make-install; fi
+	@$(MKDIR) .make-install
 endif
 ifdef CONDA_DEFAULT_ENV
 ifeq ($(CONDA_DEFAULT_ENV),base)
