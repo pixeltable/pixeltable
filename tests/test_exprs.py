@@ -854,7 +854,7 @@ class TestExprs:
 
     # TODO: this doesn't work when combined with test_similarity(), for some reason the data table for img_tbl
     # doesn't get created; why?
-    def test_similarity2(self, img_tbl: catalog.Table) -> None:
+    def test_similarity2(self, img_tbl: catalog.Table, indexed_img_tbl: catalog.Table, multi_idx_img_tbl: catalog.Table) -> None:
         t = img_tbl
         probe = t[t.img].show(1)
         img = probe[0, 0]
@@ -864,42 +864,52 @@ class TestExprs:
         with pytest.raises(AttributeError):
             _ = t[t.img.nearest('musical instrument')].show(10)
 
+        t1 = indexed_img_tbl
+        # for a table with a single embedding index, whether we
+        # specify the index or not, the similarity expression
+        # would use that index. So these exressions should be equivalent.
+        sim1 = t1.img.similarity('red truck')
+        sim2 = t1.img.similarity('red truck', idx='img_idx0')
+        assert sim1.id == sim2.id
+        assert sim1.serialize() == sim2.serialize()
+
+        t2 = multi_idx_img_tbl
+        # for a table with multiple embedding indexes, the index
+        # to use must be specified to the similarity expression.
+        # So similarity expressions using different indexes should differ.
+        sim1 = t2.img.similarity('red truck', idx='img_idx1')
+        sim2 = t2.img.similarity('red truck', idx='img_idx2')
+        assert sim1.id != sim2.id
+        assert sim1.serialize() != sim2.serialize()
+
     def test_ids(
-            self, test_tbl: catalog.Table, test_tbl_exprs: list[exprs.Expr],
-            img_tbl: catalog.Table, img_tbl_exprs: list[exprs.Expr]
+        self, test_tbl_exprs: list[exprs.Expr], img_tbl_exprs: list[exprs.Expr],
+        multi_img_tbl_exprs: list[exprs.Expr]
     ) -> None:
         skip_test_if_not_installed('transformers')
         d: dict[int, exprs.Expr] = {}
-        for e in test_tbl_exprs:
+        for e in test_tbl_exprs + img_tbl_exprs + multi_img_tbl_exprs:
             assert e.id is not None
             d[e.id] = e
-        for e in img_tbl_exprs:
-            assert e.id is not None
-            d[e.id] = e
-        assert len(d) == len(test_tbl_exprs) + len(img_tbl_exprs)
+        assert len(d) == len(test_tbl_exprs) + len(img_tbl_exprs) + len(multi_img_tbl_exprs)
 
     def test_serialization(
-            self, test_tbl_exprs: list[exprs.Expr], img_tbl_exprs: list[exprs.Expr]
+        self, test_tbl_exprs: list[exprs.Expr], img_tbl_exprs: list[exprs.Expr],
+        multi_img_tbl_exprs: list[exprs.Expr]
     ) -> None:
         """Test as_dict()/from_dict() (via serialize()/deserialize()) for all exprs."""
         skip_test_if_not_installed('transformers')
-        for e in test_tbl_exprs:
+        for e in test_tbl_exprs + img_tbl_exprs + multi_img_tbl_exprs:
             e_serialized = e.serialize()
             e_deserialized = Expr.deserialize(e_serialized)
             assert e.equals(e_deserialized)
 
-        for e in img_tbl_exprs:
-            e_serialized = e.serialize()
-            e_deserialized = Expr.deserialize(e_serialized)
-            assert e.equals(e_deserialized)
-
-    def test_print(self, test_tbl_exprs: list[exprs.Expr], img_tbl_exprs: list[exprs.Expr]) -> None:
+    def test_print(self, test_tbl_exprs: list[exprs.Expr], img_tbl_exprs: list[exprs.Expr],
+        multi_img_tbl_exprs: list[exprs.Expr]
+    ) -> None:
         skip_test_if_not_installed('transformers')
         _ = pxt.func.FunctionRegistry.get().module_fns
-        for e in test_tbl_exprs:
-            _ = str(e)
-            print(_)
-        for e in img_tbl_exprs:
+        for e in test_tbl_exprs + img_tbl_exprs + multi_img_tbl_exprs:
             _ = str(e)
             print(_)
 
