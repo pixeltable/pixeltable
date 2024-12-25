@@ -516,12 +516,12 @@ class Table(SchemaObject):
         Args:
             schema: A dictionary mapping column names to types.
             if_exists: Determines the behavior if a column already exists. Must be one of the following:
-            - `'error'`: an exception will be raised.
-            - `'ignore'`: do nothing and return.
-            - `'replace' or 'replace_force'`: drop the existing column and add the new column, if it has no dependents.
-            Defaults to `'error'`.
-            Note that the if_exists parameter is applied to all columns in the schema.
-            To apply different behaviors to different columns, please use [`add_column()`][pixeltable.Table.add_column] for each column.
+                - `'error'`: an exception will be raised.
+                - `'ignore'`: do nothing and return.
+                - `'replace' or 'replace_force'`: drop the existing column and add the new column, if it has no dependents.
+                Default is `'error'`.
+                Note that the if_exists parameter is applied to all columns in the schema.
+                To apply different behaviors to different columns, please use [`add_column()`][pixeltable.Table.add_column] for each column.
 
         Returns:
             Information about the execution status of the operation.
@@ -674,7 +674,7 @@ class Table(SchemaObject):
 
         Raises:
             Error: If the column name is invalid or already exists and `if_exists='error',
-             or `if_exists='replace*'` but the column has dependents or is a basetable column.
+                or `if_exists='replace*'` but the column has dependents or is a basetable column.
 
         Examples:
             For a table with an image column `frame`, add an image column `rotated` that rotates the image by
