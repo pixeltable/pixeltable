@@ -1,0 +1,120 @@
+{
+  "$schema": "https://mintlify.com/schema.json",
+  "name": "Pixeltable",
+  "layout": "sidenav",
+  "sidebar": {
+    "items": "undecorated"
+  },
+"modeToggle": {
+  "default": "light",
+  "isHidden": true
+},  
+  "logo": {
+    "dark": "/logo/pxt-dark.svg",
+    "light": "/logo/pxt-light.svg"
+  },
+  "favicon": "/favicon.svg",
+  "theme": "prism",
+  "colors": {
+    "primary": "#4F46E5",
+    "light": "#4F46E5",
+    "dark": "#4F46E5",
+    "anchors": {
+      "from": "#000000",
+      "to": "#FFFFFF"
+    }
+  },
+  "font": {
+    "headings": {
+      "family": "Inter",
+      "weight": 900
+    },
+    "body": {
+      "family": "Inter",
+      "weight": 400
+    }
+  },  
+  "topbarLinks": [
+    {
+      "name": "Contact",
+      "url": "https://calendar.google.com/calendar/u/0/appointments/schedules/AcZssZ0BSvx8SRh7HoLdgvGeYUuhdyaifN42nhieCJESo3B1Hmy_buqteAagnSwADXG1lhKFUg3_VTZM"
+    },
+    {
+      "name": "Hiring",
+      "url": "https://jobs.gusto.com/postings/pixeltable-inc-member-of-technical-staff-360acae7-6e57-4aa2-bd03-83c9dafb7bbc"
+    },
+    {
+      "name": "Hugging Face",
+      "url": "https://huggingface.co/Pixeltable"
+    }    
+  ],
+  "topbarCtaButton": {
+    "name": "Add Pixeltable to Discord",
+    "url": "https://discord.com/application-directory/1304932122611552346"
+  },
+  "tabs": [
+    {
+      "name": "API Reference",
+      "url": "api-reference"
+    }
+  ],
+  "anchors": [
+    {
+      "name": "Documentation",
+      "icon": "book-open-cover",
+      "url": "https://mintlify.com/docs"
+    },
+    {
+      "name": "Community",
+      "icon": "slack",
+      "url": "https://mintlify.com/community"
+    },
+    {
+      "name": "Blog",
+      "icon": "newspaper",
+      "url": "https://mintlify.com/blog"
+    }
+  ],
+  "navigation": [
+    {
+      "group": "Get Started",
+      "pages": [
+        "introduction",
+        "quickstart",
+        "development"
+      ]
+    },
+    {
+      "group": "Essentials",
+      "pages": [
+        "essentials/markdown",
+        "essentials/code",
+        "essentials/images",
+        "essentials/settings",
+        "essentials/navigation",
+        "essentials/reusable-snippets"
+      ]
+    },
+    {
+      "group": "API Documentation",
+      "pages": [
+        "api-reference/introduction"
+      ]
+    },
+    {
+      "group": "Endpoint Examples",
+      "pages": [
+        "api-reference/endpoint/get",
+        "api-reference/endpoint/create",
+        "api-reference/endpoint/delete"
+      ]
+    }
+  ],
+  "footerSocials": {
+    "website": "https://pixeltable.com",
+    "x": "https://x.com/pixeltablehq",
+    "github": "https://github.com/pixeltable/pixeltable",
+    "linkedin": "https://www.linkedin.com/company/pixeltablehq",
+    "discord": "https://discord.com/invite/QPyqFYx2UN"
+  }
+}
