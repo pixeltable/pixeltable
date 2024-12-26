@@ -113,14 +113,14 @@ class TestIndex:
         ])
         chunks.add_embedding_index(column='text', string_embed=clip_text_embed)
 
-        @chunks.query
+        @pxt.query
         def top_k_chunks(query_text: str) -> pxt.DataFrame:
             return chunks.select(chunks.text, sim=chunks.text.similarity(query_text)) \
                 .order_by(chunks.text.similarity(query_text), asc=False) \
                 .limit(5)
 
-        _ = queries.select(queries.query_text, out=chunks.queries.top_k_chunks(queries.query_text)).collect()
-        queries.add_column(chunks=chunks.queries.top_k_chunks(queries.query_text))
+        _ = queries.select(queries.query_text, out=top_k_chunks(queries.query_text)).collect()
+        queries.add_column(chunks=top_k_chunks(queries.query_text))
         _ = queries.collect()
 
         # make sure we can instantiate the query function from the metadata

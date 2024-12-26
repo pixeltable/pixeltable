@@ -243,7 +243,7 @@ class TestFunction:
         ])
 
         # # TODO: make this work
-        # @chunks.query
+        # @pxt.query
         # def retrieval(n: int):
         #     """ simply returns 2 passages from the table"""
         #     return chunks.select(chunks.text).limit(n)

@@ -48,20 +48,6 @@ class Table(SchemaObject):
         super().__init__(id, name, dir_id)
         self._is_dropped = False
         self.__tbl_version_path = tbl_version_path
-        self.__query_scope = self.QueryScope(self)
-
-    class QueryScope:
-        __table: 'Table'
-        _queries: dict[str, pxt.func.QueryTemplateFunction]
-
-        def __init__(self, table: 'Table') -> None:
-            self.__table = table
-            self._queries = {}
-
-        def __getattr__(self, name: str) -> pxt.func.QueryTemplateFunction:
-            if name in self._queries:
-                return self._queries[name]
-            raise AttributeError(f'Table {self.__table._name!r} has no query with that name: {name!r}')
 
     @property
     def _has_dependents(self) -> bool:
@@ -184,10 +170,6 @@ class Table(SchemaObject):
         from pixeltable.plan import FromClause
         return pxt.DataFrame(FromClause(tbls=[self._tbl_version_path]))
 
-    @property
-    def queries(self) -> 'Table.QueryScope':
-        return self.__query_scope
-
     def select(self, *items: Any, **named_items: Any) -> 'pxt.DataFrame':
         """ Select columns or expressions from this table.
 
@@ -263,11 +245,6 @@ class Table(SchemaObject):
     def _schema(self) -> dict[str, ts.ColumnType]:
         """Return the schema (column names and column types) of this table."""
         return {c.name: c.col_type for c in self._tbl_version_path.columns()}
-
-    @property
-    def _query_names(self) -> list[str]:
-        """Return the names of the registered queries for this table."""
-        return list(self.__query_scope._queries.keys())
 
     @property
     def _base(self) -> Optional['Table']:
@@ -478,7 +455,7 @@ class Table(SchemaObject):
         }
         new_cols = self._create_columns(col_schema)
         for new_col in new_cols:
-            self._verify_column(new_col, set(self._schema.keys()), set(self._query_names))
+            self._verify_column(new_col, set(self._schema.keys()))
         status = self._tbl_version.add_columns(new_cols, print_stats=False, on_error='abort')
         FileCache.get().emit_eviction_warnings()
         return status
@@ -545,7 +522,7 @@ class Table(SchemaObject):
             col_schema['stored'] = stored
 
         new_col = self._create_columns({col_name: col_schema})[0]
-        self._verify_column(new_col, set(self._schema.keys()), set(self._query_names))
+        self._verify_column(new_col, set(self._schema.keys()))
         status = self._tbl_version.add_columns([new_col], print_stats=print_stats, on_error=on_error)
         FileCache.get().emit_eviction_warnings()
         return status
@@ -595,7 +572,7 @@ class Table(SchemaObject):
             col_schema['stored'] = stored
 
         new_col = self._create_columns({col_name: col_schema})[0]
-        self._verify_column(new_col, set(self._schema.keys()), set(self._query_names))
+        self._verify_column(new_col, set(self._schema.keys()))
         status = self._tbl_version.add_columns([new_col], print_stats=print_stats, on_error=on_error)
         FileCache.get().emit_eviction_warnings()
         return status
@@ -675,9 +652,7 @@ class Table(SchemaObject):
         return columns
 
     @classmethod
-    def _verify_column(
-            cls, col: Column, existing_column_names: set[str], existing_query_names: Optional[set[str]] = None
-    ) -> None:
+    def _verify_column(cls, col: Column, existing_column_names: set[str]) -> None:
         """Check integrity of user-supplied Column and supply defaults"""
         if is_system_column_name(col.name):
             raise excs.Error(f'{col.name!r} is a reserved name in Pixeltable; please choose a different column name.')
@@ -685,8 +660,6 @@ class Table(SchemaObject):
             raise excs.Error(f"Invalid column name: {col.name!r}")
         if col.name in existing_column_names:
             raise excs.Error(f'Duplicate column name: {col.name!r}')
-        if existing_query_names is not None and col.name in existing_query_names:
-            raise excs.Error(f'Column name conflicts with a registered query: {col.name!r}')
         if col.stored is False and not (col.is_computed and col.col_type.is_image_type()):
             raise excs.Error(f'Column {col.name!r}: stored={col.stored} only applies to computed image columns')
         if col.stored is False and col.has_window_fn_call():
@@ -1195,43 +1168,6 @@ class Table(SchemaObject):
             raise excs.Error('Cannot revert a snapshot')
         self._tbl_version.revert()
 
-    @overload
-    def query(self, py_fn: Callable) -> 'pxt.func.QueryTemplateFunction': ...
-
-    @overload
-    def query(
-            self, *, param_types: Optional[list[ts.ColumnType]] = None
-    ) -> Callable[[Callable], 'pxt.func.QueryTemplateFunction']: ...
-
-    def query(self, *args: Any, **kwargs: Any) -> Any:
-        def make_query_template(
-                py_fn: Callable, param_types: Optional[list[ts.ColumnType]]
-        ) -> 'pxt.func.QueryTemplateFunction':
-            if py_fn.__module__ != '__main__' and py_fn.__name__.isidentifier():
-                # this is a named function in a module
-                function_path = f'{py_fn.__module__}.{py_fn.__qualname__}'
-            else:
-                function_path = None
-            query_name = py_fn.__name__
-            if query_name in self._schema.keys():
-                raise excs.Error(f'Query name {query_name!r} conflicts with existing column')
-            if query_name in self.__query_scope._queries and function_path is not None:
-                raise excs.Error(f'Duplicate query name: {query_name!r}')
-            query_fn = pxt.func.QueryTemplateFunction.create(
-                py_fn, param_types=param_types, path=function_path, name=query_name)
-            self.__query_scope._queries[query_name] = query_fn
-            return query_fn
-
-            # TODO: verify that the inferred return type matches that of the template
-            # TODO: verify that the signature doesn't contain batched parameters
-
-        if len(args) == 1:
-            assert len(kwargs) == 0 and callable(args[0])
-            return make_query_template(args[0], None)
-        else:
-            assert len(args) == 0 and len(kwargs) == 1 and 'param_types' in kwargs
-            return lambda py_fn: make_query_template(py_fn, kwargs['param_types'])
-
     @property
     def external_stores(self) -> list[str]:
         return list(self._tbl_version.external_stores.keys())
@@ -1321,7 +1257,7 @@ class Table(SchemaObject):
         return sync_status
 
     def __dir__(self) -> list[str]:
-        return list(super().__dir__()) + list(self._schema.keys()) + self._query_names
+        return list(super().__dir__()) + list(self._schema.keys())
 
     def _ipython_key_completions_(self) -> list[str]:
-        return list(self._schema.keys()) + self._query_names
+        return list(self._schema.keys())
