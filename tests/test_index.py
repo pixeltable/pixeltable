@@ -139,11 +139,11 @@ class TestIndex:
         t.add_embedding_index('img', metric='cosine', image_embed=clip_img_embed, string_embed=clip_text_embed)
         _ =  t.select(t.img.localpath).order_by(t.img.similarity(sample_img), asc=False).limit(3).collect()
 
-        @t.query
+        @pxt.query
         def img_matches(img: PIL.Image.Image):
             return t.select(t.img.localpath).order_by(t.img.similarity(img), asc=False).limit(3)
 
-        res = list(t.select(img=t.img.localpath, matches=t.queries.img_matches(t.img)).head(1))
+        res = list(t.select(img=t.img.localpath, matches=img_matches(t.img)).head(1))
 
     def test_similarity_errors(self, indexed_img_tbl: pxt.Table, small_img_tbl: pxt.Table) -> None:
         skip_test_if_not_installed('transformers')

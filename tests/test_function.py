@@ -203,12 +203,12 @@ class TestFunction:
         rows = [{'c1': i, 'c2': i + 0.5} for i in range(100)]
         validate_update_status(t.insert(rows))
 
-        @t.query
+        @pxt.query
         def lt_x(x: int) -> int:
             return t.where(t.c2 < x).select(t.c2, t.c1)
 
-        res1 = t.select(out=t.queries.lt_x(t.c1)).order_by(t.c2).collect()
-        validate_update_status(t.add_column(query1=t.queries.lt_x(t.c1)))
+        res1 = t.select(out=lt_x(t.c1)).order_by(t.c2).collect()
+        validate_update_status(t.add_column(query1=lt_x(t.c1)))
         _ = t.select(t.query1).collect()
 
         reload_catalog()
@@ -248,14 +248,14 @@ class TestFunction:
         #     """ simply returns 2 passages from the table"""
         #     return chunks.select(chunks.text).limit(n)
 
-        @chunks.query
+        @pxt.query
         def retrieval(s: str, n: int):
             """ simply returns 2 passages from the table"""
             return chunks.select(chunks.text).limit(2)
 
-        res = queries.select(queries.i, out=chunks.queries.retrieval(queries.query_text, queries.i)).collect()
+        res = queries.select(queries.i, out=retrieval(queries.query_text, queries.i)).collect()
         assert all(len(out) == 2 for out in res['out'])
-        validate_update_status(queries.add_column(chunks=chunks.queries.retrieval(queries.query_text, queries.i)))
+        validate_update_status(queries.add_column(chunks=retrieval(queries.query_text, queries.i)))
         res = queries.select(queries.i, queries.chunks).collect()
         assert all(len(c) == 2 for c in res['chunks'])
 
@@ -273,33 +273,9 @@ class TestFunction:
         rows = [{'a': i, 'b': i + 1} for i in range(100)]
         validate_update_status(t.insert(rows), expected_rows=len(rows))
 
-        # query name conflicts with column name
-        with pytest.raises(excs.Error) as exc_info:
-            @t.query
-            def a(x: int, y: int) -> int:
-                return t.order_by(t.a).where(t.a > x).select(c=t.a + y).limit(10)
-        assert 'conflicts with existing column' in str(exc_info.value).lower()
-
-        @t.query
+        @pxt.query
         def c(x: int, y: int) -> int:
             return t.order_by(t.a).where(t.a > x).select(c=t.a + y).limit(10)
-
-        # duplicate query name
-        with pytest.raises(excs.Error) as exc_info:
-            @t.query
-            def c(x: int, y: int) -> int:
-                return t.order_by(t.a).where(t.a > x).select(c=t.a + y).limit(10)
-        assert 'duplicate query name' in str(exc_info.value).lower()
-
-        # column name conflicts with query name
-        with pytest.raises(excs.Error) as exc_info:
-            t.add_column(c=pxt.Int)
-        assert 'conflicts with a registered query' in str(exc_info.value).lower()
-
-        # unknown query
-        with pytest.raises(AttributeError) as exc_info:
-            _ = t.queries.not_a_query
-        assert "table 'test' has no query with that name: 'not_a_query'" in str(exc_info.value).lower()
 
     @pxt.udf
     def binding_test_udf(p1: str, p2: str, p3: str, p4: str = 'default') -> str:

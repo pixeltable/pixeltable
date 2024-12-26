@@ -2104,10 +2104,6 @@ class TestTable:
         with pytest.raises(excs.Error) as exc_info:
             _ = t.order_by(t.c1)
         assert expected_err_msg in str(exc_info.value).lower()
-        # RESOLVE: the t.queries and t.query() APIs dont seem to work.
-        # hits an assrtion failure in the code.
-        #t.query('select c1 from test')
-        #t.queries(['select c1 from test', 'select c2 from test'])
 
         with pytest.raises(excs.Error) as exc_info:
             _ = t.collect()
