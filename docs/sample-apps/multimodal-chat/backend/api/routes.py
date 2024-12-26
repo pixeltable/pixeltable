@@ -94,15 +94,15 @@ def create_prompt(
 
 
 # Add computed columns for video processing
-docs_table.add_computed_column(audio_extract = extract_audio(docs_table.video, format="mp3"))
-docs_table.add_computed_column(transcription = openai.transcriptions(
+docs_table.add_computed_column(audio_extract=extract_audio(docs_table.video, format="mp3"))
+docs_table.add_computed_column(transcription=openai.transcriptions(
     audio=docs_table.audio_extract, model="whisper-1"
 ))
-docs_table.add_computed_column(audio_transcription = openai.transcriptions(
+docs_table.add_computed_column(audio_transcription=openai.transcriptions(
     audio=docs_table.audio, model="whisper-1"
 ))
-docs_table.add_computed_column(audio_transcription_text = docs_table.audio_transcription.text)
-docs_table.add_computed_column(transcription_text = docs_table.transcription.text)
+docs_table.add_computed_column(audio_transcription_text=docs_table.audio_transcription.text)
+docs_table.add_computed_column(transcription_text=docs_table.transcription.text)
 
 logger.info("Created documents table")
 
@@ -214,27 +214,27 @@ def get_relevant_audio_chunks(query_text: str):
 
 
 # Add computed columns
-docs_table.add_computed_column(context_doc = chunks_view.queries.get_relevant_chunks(docs_table.question))
-docs_table.add_computed_column(context_video = transcription_chunks.queries.get_relevant_transcript_chunks(docs_table.question))
-docs_table.add_computed_column(context_audio = audio_chunks.queries.get_relevant_audio_chunks(docs_table.question))
-docs_table.add_computed_column(prompt = create_prompt(
+docs_table.add_computed_column(context_doc=chunks_view.queries.get_relevant_chunks(docs_table.question))
+docs_table.add_computed_column(context_video=transcription_chunks.queries.get_relevant_transcript_chunks(docs_table.question))
+docs_table.add_computed_column(context_audio=audio_chunks.queries.get_relevant_audio_chunks(docs_table.question))
+docs_table.add_computed_column(prompt=create_prompt(
     docs_table.context_doc,
     docs_table.context_video,
     docs_table.context_audio,
     docs_table.question,
 ))
-docs_table.add_computed_column(chat_history = conversations.queries.get_chat_history())
-docs_table.add_computed_column(messages = create_messages(
+docs_table.add_computed_column(chat_history=conversations.queries.get_chat_history())
+docs_table.add_computed_column(messages=create_messages(
     docs_table.chat_history,
     docs_table.prompt
 ))
-docs_table.add_computed_column(response = openai.chat_completions(
+docs_table.add_computed_column(response=openai.chat_completions(
     messages=docs_table.messages,
     model="gpt-4o-mini",
 ))
 
 # Extract the answer text from the API response
-docs_table.add_computed_column(answer = docs_table.response.choices[0].message.content)
+docs_table.add_computed_column(answer=docs_table.response.choices[0].message.content)
 
 
 logger.info("Setup complete")
