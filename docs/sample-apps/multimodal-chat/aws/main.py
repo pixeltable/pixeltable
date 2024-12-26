@@ -1,4 +1,3 @@
-# app.py
 import os
 
 from aws_cdk import (

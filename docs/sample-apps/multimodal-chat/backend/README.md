@@ -27,7 +27,7 @@ FastAPI-based backend service for Pixel Table providing multimodal processing ca
 
 ### Using Python
 ```bash
-uv venv .venv
+uv venv .venv # Or python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
 uv sync
 fastapi dev api/main.py

@@ -1,6 +1,6 @@
 # Multimodal Chat Application
 
-A full-stack application demonstrating Pixel Table's multimodal processing capabilities. This application allows users to interact with documents, videos, and audio files using natural language queries.
+A full-stack application demonstrating Pixeltable's multimodal processing capabilities. This application allows users to interact with documents, videos, and audio files using natural language queries.
 
 ![Screenshot](local_rag_screenshot.png)
 
@@ -86,55 +86,7 @@ npm run dev
 
 ### AWS Deployment
 
-The application can be deployed to AWS using CDK, which provisions an ECS Fargate service with auto-scaling, load balancing, and secure secrets management.
-
-#### Prerequisites
-- AWS CLI with configured credentials
-- AWS CDK v2
-- Docker Desktop
-- Node.js 18+
-- Python 3.8+
-
-#### AWS Infrastructure
-- **Compute**: ECS Fargate (ARM64) with 8 vCPU/16GB RAM
-- **Scaling**: Auto-scales based on CPU, memory and request count
-- **Monitoring**: Container insights and CloudWatch logs
-- **Security**: Secrets stored in AWS Secrets Manager
-- **Networking**: VPC with public/private subnets and NAT Gateway
-
-#### Deployment Steps
-1. Create `.env` file:
-```bash
-OPENAI_API_KEY=your_key_here
-```
-
-2. Install dependencies:
-```bash
-# Install CDK dependencies
-cd aws
-npm install
-
-# Install Python dependencies
-pip install -r requirements.txt
-```
-
-3. Deploy:
-```bash
-cd aws
-cdk bootstrap && cdk deploy
-```
-
-#### Cleanup AWS Resources
-```bash
-cd aws
-cdk destroy
-```
-
-### Environment Configuration
-For local development, create a `.env` file in the backend directory:
-```bash
-OPENAI_API_KEY=your_openai_api_key
-```
+See [aws/README.md](aws/README.md) for details.
 
 ## Usage
 
