@@ -1037,6 +1037,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../functions/gemini/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    gemini
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../functions/huggingface/" class="md-nav__link">
         
   
@@ -1618,10 +1639,71 @@ Another difference to pandas is that query execution needs to be initiated expli
 
     <div class="doc doc-contents ">
 
-      <p>Add a group-by clause to this DataFrame.
-Variants:
+      <p>Add a group-by clause to this DataFrame.</p>
+<p>Variants:
 - group_by(<base table>): group a component view by their respective base table rows
 - group_by(<expr>, ...): group by the given expressions</p>
+<p>Note, that grouping will be applied to the rows and take effect when
+used with an aggregation function like sum(), count() etc.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>grouping_items</code></b>
+              (<code><span title="typing.Any">Any</span></code>, default:
+                  <code>()</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>expressions to group by</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><a class="autorefs autorefs-internal" title="pixeltable.dataframe.DataFrame" href="#pixeltable.DataFrame">DataFrame</a></code>
+          –
+          <div class="doc-md-description">
+            <p>A new DataFrame with the specified group-by clause.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Raises:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><span title="pixeltable.exceptions.Error">Error</span></code>
+            –
+          <div class="doc-md-description">
+            <p>If the group-by clause is already specified,
+or if the specified expression is invalid,
+or refer to tables not in the DataFrame,
+or if the DataFrame is a result of a join.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <p>Given the DataFrame book from a table t with all its columns and rows:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">book</span> <span class="o">=</span> <span class="n">t</span><span class="o">.</span><span class="n">select</span><span class="p">()</span>
+</code></pre></div>
+    <p>Group the above DataFrame book by the 'genre' column (referenced in table t):</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">df</span> <span class="o">=</span> <span class="n">book</span><span class="o">.</span><span class="n">group_by</span><span class="p">(</span><span class="n">t</span><span class="o">.</span><span class="n">genre</span><span class="p">)</span>
+</code></pre></div>
+    <p>Use the above DataFrame df grouped by genre to count the number of
+books for each 'genre':</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">df</span> <span class="o">=</span> <span class="n">book</span><span class="o">.</span><span class="n">group_by</span><span class="p">(</span><span class="n">t</span><span class="o">.</span><span class="n">genre</span><span class="p">)</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">t</span><span class="o">.</span><span class="n">genre</span><span class="p">,</span> <span class="n">count</span><span class="o">=</span><span class="n">count</span><span class="p">(</span><span class="n">t</span><span class="o">.</span><span class="n">genre</span><span class="p">))</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
+</code></pre></div>
+    <p>Use the above DataFrame df grouped by genre to the total price of
+books for each 'genre':</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">df</span> <span class="o">=</span> <span class="n">book</span><span class="o">.</span><span class="n">group_by</span><span class="p">(</span><span class="n">t</span><span class="o">.</span><span class="n">genre</span><span class="p">)</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">t</span><span class="o">.</span><span class="n">genre</span><span class="p">,</span> <span class="n">total</span><span class="o">=</span><span class="nb">sum</span><span class="p">(</span><span class="n">t</span><span class="o">.</span><span class="n">price</span><span class="p">))</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
+</code></pre></div>
 
     </div>
 
@@ -1640,6 +1722,49 @@ Variants:
 
     <div class="doc doc-contents ">
 
+      <p>Return the first n rows of the DataFrame, in insertion order of the underlying Table.</p>
+<p>head() is not supported for joins.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>n</code></b>
+              (<code>int</code>, default:
+                  <code>10</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Number of rows to select. Default is 10.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><span title="pixeltable.dataframe.DataFrameResultSet">DataFrameResultSet</span></code>
+          –
+          <div class="doc-md-description">
+            <p>A DataFrameResultSet with the first n rows of the DataFrame.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Raises:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><span title="pixeltable.exceptions.Error">Error</span></code>
+            –
+          <div class="doc-md-description">
+            <p>If the DataFrame is the result of a join or
+if the DataFrame has an order_by clause.</p>
+          </div>
+        </li>
+    </ul>
+
     </div>
 
 </div>
@@ -1656,6 +1781,33 @@ Variants:
 </code></pre></div>
 
     <div class="doc doc-contents ">
+
+      <p>Limit the number of rows in the DataFrame.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>n</code></b>
+              (<code>int</code>)
+          –
+          <div class="doc-md-description">
+            <p>Number of rows to select.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><a class="autorefs autorefs-internal" title="pixeltable.dataframe.DataFrame" href="#pixeltable.DataFrame">DataFrame</a></code>
+          –
+          <div class="doc-md-description">
+            <p>A new DataFrame with the specified limited rows.</p>
+          </div>
+        </li>
+    </ul>
 
     </div>
 
@@ -1674,6 +1826,73 @@ Variants:
 
     <div class="doc doc-contents ">
 
+      <p>Add an order-by clause to this DataFrame.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>expr_list</code></b>
+              (<code><span title="pixeltable.exprs.Expr">Expr</span></code>, default:
+                  <code>()</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>expressions to order by</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>asc</code></b>
+              (<code>bool</code>, default:
+                  <code>True</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>whether to order in ascending order (True) or descending order (False).
+Default is True.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><a class="autorefs autorefs-internal" title="pixeltable.dataframe.DataFrame" href="#pixeltable.DataFrame">DataFrame</a></code>
+          –
+          <div class="doc-md-description">
+            <p>A new DataFrame with the specified order-by clause.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Raises:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><span title="pixeltable.exceptions.Error">Error</span></code>
+            –
+          <div class="doc-md-description">
+            <p>If the order-by clause is already specified,
+or if the specified expression is invalid,
+or refer to tables not in the DataFrame.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <p>Given the DataFrame book from a table t with all its columns and rows:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">book</span> <span class="o">=</span> <span class="n">t</span><span class="o">.</span><span class="n">select</span><span class="p">()</span>
+</code></pre></div>
+    <p>Order the above DataFrame book by two columns (price, pages) in descending order:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">df</span> <span class="o">=</span> <span class="n">book</span><span class="o">.</span><span class="n">order_by</span><span class="p">(</span><span class="n">t</span><span class="o">.</span><span class="n">price</span><span class="p">,</span> <span class="n">t</span><span class="o">.</span><span class="n">pages</span><span class="p">,</span> <span class="n">asc</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+</code></pre></div>
+    <p>Order the above DataFrame book by price in descending order, but order the pages
+in ascending order:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">df</span> <span class="o">=</span> <span class="n">book</span><span class="o">.</span><span class="n">order_by</span><span class="p">(</span><span class="n">t</span><span class="o">.</span><span class="n">price</span><span class="p">,</span> <span class="n">asc</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span><span class="o">.</span><span class="n">order_by</span><span class="p">(</span><span class="n">t</span><span class="o">.</span><span class="n">pages</span><span class="p">)</span>
+</code></pre></div>
+
     </div>
 
 </div>
@@ -1690,6 +1909,73 @@ Variants:
 </code></pre></div>
 
     <div class="doc doc-contents ">
+
+      <p>Select columns or expressions from the DataFrame.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>items</code></b>
+              (<code><span title="typing.Any">Any</span></code>, default:
+                  <code>()</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>expressions to be selected</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>named_items</code></b>
+              (<code><span title="typing.Any">Any</span></code>, default:
+                  <code>{}</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>named expressions to be selected</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><a class="autorefs autorefs-internal" title="pixeltable.dataframe.DataFrame" href="#pixeltable.DataFrame">DataFrame</a></code>
+          –
+          <div class="doc-md-description">
+            <p>A new DataFrame with the specified select list.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Raises:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><span title="pixeltable.exceptions.Error">Error</span></code>
+            –
+          <div class="doc-md-description">
+            <p>If the select list is already specified,
+or if any of the specified expressions are invalid,
+or refer to tables not in the DataFrame.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <p>Given the DataFrame person from a table t with all its columns and rows:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">person</span> <span class="o">=</span> <span class="n">t</span><span class="o">.</span><span class="n">select</span><span class="p">()</span>
+</code></pre></div>
+    <p>Select the columns 'name' and 'age' (referenced in table t) from the DataFrame person:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">df</span> <span class="o">=</span> <span class="n">person</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">t</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">t</span><span class="o">.</span><span class="n">age</span><span class="p">)</span>
+</code></pre></div>
+    <p>Select the columns 'name' (referenced in table t) from the DataFrame person,
+and a named column 'is_adult' from the expression <code>age &gt;= 18</code> where 'age' is
+another column in table t:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">df</span> <span class="o">=</span> <span class="n">person</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">t</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">is_adult</span><span class="o">=</span><span class="p">(</span><span class="n">t</span><span class="o">.</span><span class="n">age</span> <span class="o">&gt;=</span> <span class="mi">18</span><span class="p">))</span>
+</code></pre></div>
 
     </div>
 
@@ -1832,6 +2118,49 @@ key columns d1 and d2 in t):</p>
 
     <div class="doc doc-contents ">
 
+      <p>Return the last n rows of the DataFrame, in insertion order of the underlying Table.</p>
+<p>tail() is not supported for joins.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>n</code></b>
+              (<code>int</code>, default:
+                  <code>10</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Number of rows to select. Default is 10.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><span title="pixeltable.dataframe.DataFrameResultSet">DataFrameResultSet</span></code>
+          –
+          <div class="doc-md-description">
+            <p>A DataFrameResultSet with the last n rows of the DataFrame.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Raises:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><span title="pixeltable.exceptions.Error">Error</span></code>
+            –
+          <div class="doc-md-description">
+            <p>If the DataFrame is the result of a join or
+if the DataFrame has an order_by clause.</p>
+          </div>
+        </li>
+    </ul>
+
     </div>
 
 </div>
@@ -1955,6 +2284,57 @@ This dataframe must return a single json-typed output column in the following fo
 </code></pre></div>
 
     <div class="doc doc-contents ">
+
+      <p>Filter rows based on a predicate.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>pred</code></b>
+              (<code><span title="pixeltable.exprs.Expr">Expr</span></code>)
+          –
+          <div class="doc-md-description">
+            <p>the predicate to filter rows</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><a class="autorefs autorefs-internal" title="pixeltable.dataframe.DataFrame" href="#pixeltable.DataFrame">DataFrame</a></code>
+          –
+          <div class="doc-md-description">
+            <p>A new DataFrame with the specified predicates replacing the where-clause.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Raises:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><span title="pixeltable.exceptions.Error">Error</span></code>
+            –
+          <div class="doc-md-description">
+            <p>If the predicate is not a Pixeltable expression,
+or if it does not return a boolean value,
+or refers to tables not in the DataFrame.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <p>Given the DataFrame person from a table t with all its columns and rows:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">person</span> <span class="o">=</span> <span class="n">t</span><span class="o">.</span><span class="n">select</span><span class="p">()</span>
+</code></pre></div>
+    <p>Filter the above DataFrame person to only include rows where the column 'age'
+(referenced in table t) is greater than 30:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">df</span> <span class="o">=</span> <span class="n">person</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">t</span><span class="o">.</span><span class="n">age</span> <span class="o">&gt;</span> <span class="mi">30</span><span class="p">)</span>
+</code></pre></div>
 
     </div>
 

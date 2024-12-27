@@ -865,6 +865,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../gemini/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    gemini
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../huggingface/" class="md-nav__link">
         
   
@@ -1324,7 +1345,7 @@ To specify an explicit host, either set the <code>OLLAMA_HOST</code> environment
     <span class="o">*</span><span class="p">,</span>
     <span class="n">model</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
     <span class="n">tools</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="nb">format</span><span class="p">:</span> <span class="n">String</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span><span class="p">,</span>
+    <span class="nb">format</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">options</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
 </code></pre></div>
@@ -1364,12 +1385,12 @@ To specify an explicit host, either set the <code>OLLAMA_HOST</code> environment
         </li>
         <li class="doc-section-item field-body">
           <b><code>format</code></b>
-              (<code>String</code>, default:
-                  <code>&#39;&#39;</code>
+              (<code>Optional[String]</code>, default:
+                  <code>None</code>
 )
           –
           <div class="doc-md-description">
-            <p>The format of the response; must be one of <code>'json'</code> or <code>''</code> (the empty string).</p>
+            <p>The format of the response; must be one of <code>'json'</code> or <code>None</code>.</p>
           </div>
         </li>
         <li class="doc-section-item field-body">
@@ -1478,7 +1499,7 @@ section of the Ollama documentation.</p>
     <span class="n">template</span><span class="p">:</span> <span class="n">String</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span><span class="p">,</span>
     <span class="n">context</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">raw</span><span class="p">:</span> <span class="n">Bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
-    <span class="nb">format</span><span class="p">:</span> <span class="n">String</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span><span class="p">,</span>
+    <span class="nb">format</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">options</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
 </code></pre></div>
@@ -1518,12 +1539,12 @@ section of the Ollama documentation.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>format</code></b>
-              (<code>String</code>, default:
-                  <code>&#39;&#39;</code>
+              (<code>Optional[String]</code>, default:
+                  <code>None</code>
 )
           –
           <div class="doc-md-description">
-            <p>The format of the response; must be one of <code>'json'</code> or <code>''</code> (the empty string).</p>
+            <p>The format of the response; must be one of <code>'json'</code> or <code>None</code>.</p>
           </div>
         </li>
         <li class="doc-section-item field-body">

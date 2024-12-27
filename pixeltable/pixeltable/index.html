@@ -1037,6 +1037,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../functions/gemini/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    gemini
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../functions/huggingface/" class="md-nav__link">
         
   
@@ -1654,7 +1675,10 @@ below.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">create_dir</span><span class="p">(</span><span class="n">path_str</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span> <span class="n">ignore_errors</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n"><span title="pixeltable.catalog.Dir">Dir</span></span><span class="p">]</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">create_dir</span><span class="p">(</span>
+    <span class="n">path_str</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span>
+    <span class="n">if_exists</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;error&quot;</span><span class="p">,</span> <span class="s2">&quot;ignore&quot;</span><span class="p">,</span> <span class="s2">&quot;replace&quot;</span><span class="p">,</span> <span class="s2">&quot;replace_force&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;error&quot;</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n"><span title="pixeltable.catalog.Dir">Dir</span></span><span class="p">]</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1673,13 +1697,38 @@ below.</p>
           </div>
         </li>
         <li class="doc-section-item field-body">
-          <b><code>ignore_errors</code></b>
-              (<code>bool</code>, default:
-                  <code>False</code>
+          <b><code>if_exists</code></b>
+              (<code><span title="typing.Literal">Literal</span>[&#39;error&#39;, &#39;ignore&#39;, &#39;replace&#39;, &#39;replace_force&#39;]</code>, default:
+                  <code>&#39;error&#39;</code>
 )
           –
           <div class="doc-md-description">
-            <p>if <code>True</code>, will return silently instead of throwing an exception if an error occurs.</p>
+            <p>Directive regarding how to handle if the path already exists.
+Must be one of the following:
+- <code>'error'</code>: raise an error
+- <code>'ignore'</code>: do nothing and return the existing directory handle
+- <code>'replace'</code>: if the existing directory is empty, drop it and create a new one
+- <code>'replace_force'</code>: drop the existing directory and all its children, and create a new one
+Default is <code>'error'</code>.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code><span title="typing.Optional">Optional</span>[<span title="pixeltable.catalog.Dir">Dir</span>]</code>
+          –
+          <div class="doc-md-description">
+            <p>A handle to the newly created directory, or to an already existing directory at the path when <code>if_exists='ignore'</code>.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+              <code><span title="typing.Optional">Optional</span>[<span title="pixeltable.catalog.Dir">Dir</span>]</code>
+          –
+          <div class="doc-md-description">
+            <p>Please note the existing directory may not be empty.</p>
           </div>
         </li>
     </ul>
@@ -1691,7 +1740,10 @@ below.</p>
               <code><span title="pixeltable.exceptions.Error">Error</span></code>
             –
           <div class="doc-md-description">
-            <p>If the path already exists or the parent is not a directory, and <code>ignore_errors=False</code>.</p>
+            <p>If the path is invalid,
+or if the path already exists and <code>if_exists='error'</code>,
+or if the path already exists and is not a directory,
+or an error occurs while attempting to create the directory.</p>
           </div>
         </li>
     </ul>
@@ -1702,6 +1754,12 @@ below.</p>
 </code></pre></div>
     <p>Create a subdirectory:</p>
     <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">pxt</span><span class="o">.</span><span class="n">create_dir</span><span class="p">(</span><span class="s1">&#39;my_dir.sub_dir&#39;</span><span class="p">)</span>
+</code></pre></div>
+    <p>Create a subdirectory only if it does not already exist, otherwise do nothing:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">pxt</span><span class="o">.</span><span class="n">create_dir</span><span class="p">(</span><span class="s1">&#39;my_dir.sub_dir&#39;</span><span class="p">,</span> <span class="n">if_exists</span><span class="o">=</span><span class="s1">&#39;ignore&#39;</span><span class="p">)</span>
+</code></pre></div>
+    <p>Create a directory and replace if it already exists:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">pxt</span><span class="o">.</span><span class="n">create_dir</span><span class="p">(</span><span class="s1">&#39;my_dir&#39;</span><span class="p">,</span> <span class="n">if_exists</span><span class="o">=</span><span class="s1">&#39;replace_force&#39;</span><span class="p">)</span>
 </code></pre></div>
 
     </div>
@@ -1725,7 +1783,7 @@ below.</p>
     <span class="n">num_retained_versions</span><span class="p">:</span> <span class="n">int</span> <span class="o">=</span> <span class="mi">10</span><span class="p">,</span>
     <span class="n">comment</span><span class="p">:</span> <span class="n">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span><span class="p">,</span>
     <span class="n">media_validation</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;on_read&quot;</span><span class="p">,</span> <span class="s2">&quot;on_write&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;on_write&quot;</span><span class="p">,</span>
-    <span class="n">ignore_errors</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">False</span>
+    <span class="n">if_exists</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;error&quot;</span><span class="p">,</span> <span class="s2">&quot;ignore&quot;</span><span class="p">,</span> <span class="s2">&quot;replace&quot;</span><span class="p">,</span> <span class="s2">&quot;replace_force&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;error&quot;</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.Table" href="../table/#pixeltable.Table">Table</a></span><span class="p">]</span>
 </code></pre></div>
 
@@ -1794,17 +1852,35 @@ the base table.</p>
 )
           –
           <div class="doc-md-description">
-            <p>Optional comment for the view.</p>
+            <p>Optional comment for the snapshot.</p>
           </div>
         </li>
         <li class="doc-section-item field-body">
-          <b><code>ignore_errors</code></b>
-              (<code>bool</code>, default:
-                  <code>False</code>
+          <b><code>media_validation</code></b>
+              (<code><span title="typing.Literal">Literal</span>[&#39;on_read&#39;, &#39;on_write&#39;]</code>, default:
+                  <code>&#39;on_write&#39;</code>
 )
           –
           <div class="doc-md-description">
-            <p>if True, fail silently if the path already exists or is invalid.</p>
+            <p>Media validation policy for the snapshot.
+- <code>'on_read'</code>: validate media files at query time
+- <code>'on_write'</code>: validate media files during insert/update operations</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>if_exists</code></b>
+              (<code><span title="typing.Literal">Literal</span>[&#39;error&#39;, &#39;ignore&#39;, &#39;replace&#39;, &#39;replace_force&#39;]</code>, default:
+                  <code>&#39;error&#39;</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Directive regarding how to handle if the path already exists.
+Must be one of the following:
+- <code>'error'</code>: raise an error
+- <code>'ignore'</code>: do nothing and return the existing snapshot handle
+- <code>'replace'</code>: if the existing snapshot has no dependents, drop and replace it with a new one
+- <code>'replace_force'</code>: drop the existing snapshot and all its dependents, and create a new one
+Default is <code>'error'</code>.</p>
           </div>
         </li>
     </ul>
@@ -1816,8 +1892,14 @@ the base table.</p>
               <code><span title="typing.Optional">Optional</span>[<a class="autorefs autorefs-internal" title="pixeltable.catalog.Table" href="../table/#pixeltable.Table">Table</a>]</code>
           –
           <div class="doc-md-description">
-            <p>A handle to the <a class="autorefs autorefs-internal" href="../table/#pixeltable.Table"><code>Table</code></a> representing the newly created snapshot. If the path already
-exists or is invalid and <code>ignore_errors=True</code>, returns <code>None</code>.</p>
+            <p>A handle to the <a class="autorefs autorefs-internal" href="../table/#pixeltable.Table"><code>Table</code></a> representing the newly created snapshot.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+              <code><span title="typing.Optional">Optional</span>[<a class="autorefs autorefs-internal" title="pixeltable.catalog.Table" href="../table/#pixeltable.Table">Table</a>]</code>
+          –
+          <div class="doc-md-description">
+            <p>Please note the schema or base of the existing snapshot may not match those provided in the call.</p>
           </div>
         </li>
     </ul>
@@ -1829,16 +1911,28 @@ exists or is invalid and <code>ignore_errors=True</code>, returns <code>None</co
               <code><span title="pixeltable.exceptions.Error">Error</span></code>
             –
           <div class="doc-md-description">
-            <p>if the path already exists or is invalid and <code>ignore_errors=False</code>.</p>
+            <p>if the path is invalid,
+or if the path already exists and <code>if_exists='error'</code>,
+or if the path already exists and is not a snapshot,
+or an error occurs while attempting to create the snapshot.</p>
           </div>
         </li>
     </ul>
 
 
 <p><span class="doc-section-title">Examples:</span></p>
-    <p>Create a snapshot of <code>my_table</code>:</p>
+    <p>Create a snapshot <code>my_snapshot</code> of a table <code>my_table</code>:</p>
     <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span> <span class="o">=</span> <span class="n">pxt</span><span class="o">.</span><span class="n">get_table</span><span class="p">(</span><span class="s1">&#39;my_table&#39;</span><span class="p">)</span>
 <span class="gp">... </span><span class="n">snapshot</span> <span class="o">=</span> <span class="n">pxt</span><span class="o">.</span><span class="n">create_snapshot</span><span class="p">(</span><span class="s1">&#39;my_snapshot&#39;</span><span class="p">,</span> <span class="n">tbl</span><span class="p">)</span>
+</code></pre></div>
+    <p>Create a snapshot <code>my_snapshot</code> of a view <code>my_view</code> with additional int column <code>col3</code>,
+if <code>my_snapshot</code> does not already exist:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">view</span> <span class="o">=</span> <span class="n">pxt</span><span class="o">.</span><span class="n">get_table</span><span class="p">(</span><span class="s1">&#39;my_view&#39;</span><span class="p">)</span>
+<span class="gp">... </span><span class="n">snapshot</span> <span class="o">=</span> <span class="n">pxt</span><span class="o">.</span><span class="n">create_snapshot</span><span class="p">(</span><span class="s1">&#39;my_snapshot&#39;</span><span class="p">,</span> <span class="n">view</span><span class="p">,</span> <span class="n">additional_columns</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;col3&#39;</span><span class="p">:</span> <span class="n">pxt</span><span class="o">.</span><span class="n">Int</span><span class="p">},</span> <span class="n">if_exists</span><span class="o">=</span><span class="s1">&#39;ignore&#39;</span><span class="p">)</span>
+</code></pre></div>
+    <p>Create a snapshot <code>my_snapshot</code> on a table <code>my_table</code>, and replace any existing snapshot named <code>my_snapshot</code>:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span> <span class="o">=</span> <span class="n">pxt</span><span class="o">.</span><span class="n">get_table</span><span class="p">(</span><span class="s1">&#39;my_table&#39;</span><span class="p">)</span>
+<span class="gp">... </span><span class="n">snapshot</span> <span class="o">=</span> <span class="n">pxt</span><span class="o">.</span><span class="n">create_snapshot</span><span class="p">(</span><span class="s1">&#39;my_snapshot&#39;</span><span class="p">,</span> <span class="n">tbl</span><span class="p">,</span> <span class="n">if_exists</span><span class="o">=</span><span class="s1">&#39;replace_force&#39;</span><span class="p">)</span>
 </code></pre></div>
 
     </div>
@@ -1860,7 +1954,8 @@ exists or is invalid and <code>ignore_errors=True</code>, returns <code>None</co
     <span class="n">primary_key</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n"><span title="typing.Union">Union</span></span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n">list</span><span class="p">[</span><span class="n">str</span><span class="p">]]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">num_retained_versions</span><span class="p">:</span> <span class="n">int</span> <span class="o">=</span> <span class="mi">10</span><span class="p">,</span>
     <span class="n">comment</span><span class="p">:</span> <span class="n">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span><span class="p">,</span>
-    <span class="n">media_validation</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;on_read&quot;</span><span class="p">,</span> <span class="s2">&quot;on_write&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;on_write&quot;</span>
+    <span class="n">media_validation</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;on_read&quot;</span><span class="p">,</span> <span class="s2">&quot;on_write&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;on_write&quot;</span><span class="p">,</span>
+    <span class="n">if_exists</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;error&quot;</span><span class="p">,</span> <span class="s2">&quot;ignore&quot;</span><span class="p">,</span> <span class="s2">&quot;replace&quot;</span><span class="p">,</span> <span class="s2">&quot;replace_force&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;error&quot;</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.Table" href="../table/#pixeltable.Table">Table</a></span>
 </code></pre></div>
 
@@ -1926,11 +2021,25 @@ table.</p>
 )
           –
           <div class="doc-md-description">
-            <p>Media validation policy for the table.</p>
-<ul>
-<li><code>'on_read'</code>: validate media files at query time</li>
-<li><code>'on_write'</code>: validate media files during insert/update operations</li>
-</ul>
+            <p>Media validation policy for the table.
+- <code>'on_read'</code>: validate media files at query time
+- <code>'on_write'</code>: validate media files during insert/update operations</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>if_exists</code></b>
+              (<code><span title="typing.Literal">Literal</span>[&#39;error&#39;, &#39;ignore&#39;, &#39;replace&#39;, &#39;replace_force&#39;]</code>, default:
+                  <code>&#39;error&#39;</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Directive regarding how to handle if the path already exists.
+Must be one of the following:
+- <code>'error'</code>: raise an error
+- <code>'ignore'</code>: do nothing and return the existing table handle
+- <code>'replace'</code>: if the existing table has no views, drop and replace it with a new one
+- <code>'replace_force'</code>: drop the existing table and all its views, and create a new one
+Default is <code>'error'</code>.</p>
           </div>
         </li>
     </ul>
@@ -1942,7 +2051,14 @@ table.</p>
               <code><a class="autorefs autorefs-internal" title="pixeltable.catalog.Table" href="../table/#pixeltable.Table">Table</a></code>
           –
           <div class="doc-md-description">
-            <p>A handle to the newly created <a class="autorefs autorefs-internal" href="../table/#pixeltable.Table"><code>Table</code></a>.</p>
+            <p>A handle to the newly created table, or to an already existing table at the path when <code>if_exists='ignore'</code>.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+              <code><a class="autorefs autorefs-internal" title="pixeltable.catalog.Table" href="../table/#pixeltable.Table">Table</a></code>
+          –
+          <div class="doc-md-description">
+            <p>Please note the schema of the existing table may not match the schema provided in the call.</p>
           </div>
         </li>
     </ul>
@@ -1954,7 +2070,10 @@ table.</p>
               <code><span title="pixeltable.exceptions.Error">Error</span></code>
             –
           <div class="doc-md-description">
-            <p>if the path already exists or is invalid.</p>
+            <p>if the path is invalid,
+or if the path already exists and <code>if_exists='error'</code>,
+or if the path already exists and is not a table,
+or an error occurs while attempting to create the table.</p>
           </div>
         </li>
     </ul>
@@ -1968,6 +2087,12 @@ table.</p>
 containing the exact contents of the query):</p>
     <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl1</span> <span class="o">=</span> <span class="n">pxt</span><span class="o">.</span><span class="n">get_table</span><span class="p">(</span><span class="s1">&#39;orig_table&#39;</span><span class="p">)</span>
 <span class="gp">... </span><span class="n">tbl2</span> <span class="o">=</span> <span class="n">pxt</span><span class="o">.</span><span class="n">create_table</span><span class="p">(</span><span class="s1">&#39;new_table&#39;</span><span class="p">,</span> <span class="n">tbl1</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">tbl1</span><span class="o">.</span><span class="n">col1</span> <span class="o">&lt;</span> <span class="mi">10</span><span class="p">)</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">tbl1</span><span class="o">.</span><span class="n">col2</span><span class="p">))</span>
+</code></pre></div>
+    <p>Create a table if does not already exist, otherwise get the existing table:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span> <span class="o">=</span> <span class="n">pxt</span><span class="o">.</span><span class="n">create_table</span><span class="p">(</span><span class="s1">&#39;my_table&#39;</span><span class="p">,</span> <span class="n">schema</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;col1&#39;</span><span class="p">:</span> <span class="n">pxt</span><span class="o">.</span><span class="n">Int</span><span class="p">,</span> <span class="s1">&#39;col2&#39;</span><span class="p">:</span> <span class="n">pxt</span><span class="o">.</span><span class="n">String</span><span class="p">},</span> <span class="n">if_exists</span><span class="o">=</span><span class="s1">&#39;ignore&#39;</span><span class="p">)</span>
+</code></pre></div>
+    <p>Create a table with an int and a float column, and replace any existing table:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span> <span class="o">=</span> <span class="n">pxt</span><span class="o">.</span><span class="n">create_table</span><span class="p">(</span><span class="s1">&#39;my_table&#39;</span><span class="p">,</span> <span class="n">schema</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;col1&#39;</span><span class="p">:</span> <span class="n">pxt</span><span class="o">.</span><span class="n">Int</span><span class="p">,</span> <span class="s1">&#39;col2&#39;</span><span class="p">:</span> <span class="n">pxt</span><span class="o">.</span><span class="n">Float</span><span class="p">},</span> <span class="n">if_exists</span><span class="o">=</span><span class="s1">&#39;replace&#39;</span><span class="p">)</span>
 </code></pre></div>
 
     </div>
@@ -1992,7 +2117,7 @@ containing the exact contents of the query):</p>
     <span class="n">num_retained_versions</span><span class="p">:</span> <span class="n">int</span> <span class="o">=</span> <span class="mi">10</span><span class="p">,</span>
     <span class="n">comment</span><span class="p">:</span> <span class="n">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span><span class="p">,</span>
     <span class="n">media_validation</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;on_read&quot;</span><span class="p">,</span> <span class="s2">&quot;on_write&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;on_write&quot;</span><span class="p">,</span>
-    <span class="n">ignore_errors</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">False</span>
+    <span class="n">if_exists</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;error&quot;</span><span class="p">,</span> <span class="s2">&quot;ignore&quot;</span><span class="p">,</span> <span class="s2">&quot;replace&quot;</span><span class="p">,</span> <span class="s2">&quot;replace_force&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;error&quot;</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.Table" href="../table/#pixeltable.Table">Table</a></span><span class="p">]</span>
 </code></pre></div>
 
@@ -2076,13 +2201,31 @@ the base table.</p>
           </div>
         </li>
         <li class="doc-section-item field-body">
-          <b><code>ignore_errors</code></b>
-              (<code>bool</code>, default:
-                  <code>False</code>
+          <b><code>media_validation</code></b>
+              (<code><span title="typing.Literal">Literal</span>[&#39;on_read&#39;, &#39;on_write&#39;]</code>, default:
+                  <code>&#39;on_write&#39;</code>
 )
           –
           <div class="doc-md-description">
-            <p>if True, fail silently if the path already exists or is invalid.</p>
+            <p>Media validation policy for the view.
+- <code>'on_read'</code>: validate media files at query time
+- <code>'on_write'</code>: validate media files during insert/update operations</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>if_exists</code></b>
+              (<code><span title="typing.Literal">Literal</span>[&#39;error&#39;, &#39;ignore&#39;, &#39;replace&#39;, &#39;replace_force&#39;]</code>, default:
+                  <code>&#39;error&#39;</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Directive regarding how to handle if the path already exists.
+Must be one of the following:
+- <code>'error'</code>: raise an error
+- <code>'ignore'</code>: do nothing and return the existing view handle
+- <code>'replace'</code>: if the existing view has no dependents, drop and replace it with a new one
+- <code>'replace_force'</code>: drop the existing view and all its dependents, and create a new one
+Default is <code>'error'</code>.</p>
           </div>
         </li>
     </ul>
@@ -2095,7 +2238,8 @@ the base table.</p>
           –
           <div class="doc-md-description">
             <p>A handle to the <a class="autorefs autorefs-internal" href="../table/#pixeltable.Table"><code>Table</code></a> representing the newly created view. If the path already
-exists or is invalid and <code>ignore_errors=True</code>, returns <code>None</code>.</p>
+exists and <code>if_exists='ignore'</code>, returns a handle to the existing view. Please note the schema
+or the base of the existing view may not match those provided in the call.</p>
           </div>
         </li>
     </ul>
@@ -2107,7 +2251,10 @@ exists or is invalid and <code>ignore_errors=True</code>, returns <code>None</co
               <code><span title="pixeltable.exceptions.Error">Error</span></code>
             –
           <div class="doc-md-description">
-            <p>if the path already exists or is invalid and <code>ignore_errors=False</code>.</p>
+            <p>if the path is invalid,
+or if the path already exists and <code>if_exists='error'</code>,
+or if the path already exists and is not a view,
+or an error occurs while attempting to create the view.</p>
           </div>
         </li>
     </ul>
@@ -2117,6 +2264,16 @@ exists or is invalid and <code>ignore_errors=True</code>, returns <code>None</co
     <p>Create a view <code>my_view</code> of an existing table <code>my_table</code>, filtering on rows where <code>col1</code> is greater than 10:</p>
     <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span> <span class="o">=</span> <span class="n">pxt</span><span class="o">.</span><span class="n">get_table</span><span class="p">(</span><span class="s1">&#39;my_table&#39;</span><span class="p">)</span>
 <span class="gp">... </span><span class="n">view</span> <span class="o">=</span> <span class="n">pxt</span><span class="o">.</span><span class="n">create_view</span><span class="p">(</span><span class="s1">&#39;my_view&#39;</span><span class="p">,</span> <span class="n">tbl</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">tbl</span><span class="o">.</span><span class="n">col1</span> <span class="o">&gt;</span> <span class="mi">10</span><span class="p">))</span>
+</code></pre></div>
+    <p>Create a view <code>my_view</code> of an existing table <code>my_table</code>, filtering on rows where <code>col1</code> is greater than 10,
+and if it not already exist. Otherwise, get the existing view named <code>my_view</code>:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span> <span class="o">=</span> <span class="n">pxt</span><span class="o">.</span><span class="n">get_table</span><span class="p">(</span><span class="s1">&#39;my_table&#39;</span><span class="p">)</span>
+<span class="gp">... </span><span class="n">view</span> <span class="o">=</span> <span class="n">pxt</span><span class="o">.</span><span class="n">create_view</span><span class="p">(</span><span class="s1">&#39;my_view&#39;</span><span class="p">,</span> <span class="n">tbl</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">tbl</span><span class="o">.</span><span class="n">col1</span> <span class="o">&gt;</span> <span class="mi">10</span><span class="p">),</span> <span class="n">if_exists</span><span class="o">=</span><span class="s1">&#39;ignore&#39;</span><span class="p">)</span>
+</code></pre></div>
+    <p>Create a view <code>my_view</code> of an existing table <code>my_table</code>, filtering on rows where <code>col1</code> is greater than 100,
+and replace any existing view named <code>my_view</code>:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span> <span class="o">=</span> <span class="n">pxt</span><span class="o">.</span><span class="n">get_table</span><span class="p">(</span><span class="s1">&#39;my_table&#39;</span><span class="p">)</span>
+<span class="gp">... </span><span class="n">view</span> <span class="o">=</span> <span class="n">pxt</span><span class="o">.</span><span class="n">create_view</span><span class="p">(</span><span class="s1">&#39;my_view&#39;</span><span class="p">,</span> <span class="n">tbl</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">tbl</span><span class="o">.</span><span class="n">col1</span> <span class="o">&gt;</span> <span class="mi">100</span><span class="p">),</span> <span class="n">if_exists</span><span class="o">=</span><span class="s1">&#39;replace_force&#39;</span><span class="p">)</span>
 </code></pre></div>
 
     </div>
