@@ -171,10 +171,10 @@ def create_messages(history: list[dict], prompt: str) -> list[dict]:
     }]
 
     # Add historical messages
-    messages.extend([{
+    messages.extend({
         'role': msg['role'],
         'content': msg['content']
-    } for msg in history])
+    } for msg in history)
 
     # Add current prompt
     messages.append({
@@ -418,42 +418,6 @@ async def upload_audio(file: UploadFile = File(...)):
         if file_path.exists():
             file_path.unlink()
         raise HTTPException(500, f"Error uploading audio: {str(e)}")
-
-
-@router.get("/api/videos")
-async def list_videos():
-    try:
-        docs_table = pxt.get_table("chatbot.documents")
-        results = (
-            docs_table.where(docs_table.video.is_not(None))
-            .select(docs_table.video)
-            .collect()
-        )
-
-        videos = []
-        for video_path in results["video"]:
-            if not video_path:
-                continue
-
-            try:
-                file_path = Path(video_path)
-                if file_path.exists():
-                    videos.append(
-                        {
-                            "id": str(hash(video_path)),
-                            "name": file_path.name,
-                            "type": "video",
-                            "status": "success",
-                        }
-                    )
-            except Exception as e:
-                logger.error(f"Error processing video path {video_path}: {e}")
-                continue
-
-        return JSONResponse(status_code=200, content={"videos": videos})
-    except Exception as e:
-        logger.error(f"Error listing videos: {e}")
-        raise HTTPException(500, str(e))
 
 
 async def get_answer(question: str) -> str:

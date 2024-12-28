@@ -1,19 +1,18 @@
-# Pixel Table Backend API
+# Pixeltable Backend API
 
-FastAPI-based backend service for Pixel Table providing multimodal processing capabilities.
+FastAPI-based backend service for Pixeltable providing multimodal processing capabilities.
 
 ## API Routes
 
 ### Core Endpoints
 - `GET /` - Service info
 - `GET /health` - Health check
-- `GET /api/files` - List all uploaded files
 
 ### File Management
-- `POST /api/upload` - Upload document/video files
+- `POST /api/upload` - Upload document files
 - `POST /api/videos/upload` - Upload video files
 - `POST /api/audio/upload` - Upload audio files
-- `GET /api/videos` - List uploaded videos
+- `GET /api/files` - List all uploaded files
 
 ### Chat Interface
 - `POST /api/chat` - Send message and get AI response

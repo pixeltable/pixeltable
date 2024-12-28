@@ -4,22 +4,6 @@ A full-stack application demonstrating Pixeltable's multimodal processing capabi
 
 ![Screenshot](local_rag_screenshot.png)
 
-## Backend API
-
-### Core Endpoints
-- `GET /` - Service info
-- `GET /health` - Health check
-- `GET /api/files` - List all uploaded files
-
-### File Management
-- `POST /api/upload` - Upload document/video files
-- `POST /api/videos/upload` - Upload video files
-- `POST /api/audio/upload` - Upload audio files
-- `GET /api/videos` - List uploaded videos
-
-### Chat Interface
-- `POST /api/chat` - Send message and get AI response
-
 ## Architecture Overview
 
 ```mermaid

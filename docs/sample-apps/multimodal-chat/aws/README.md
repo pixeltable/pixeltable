@@ -5,6 +5,7 @@ This guide will help you deploy the Multimodal API to AWS using CDK. The stack p
 ## Limitations
 This deployment has the following limitations:
 
+- CDK must be ran on a Unix system. The docker container expects a linux/arm64 platform.
 - No Session Management: The API doesn't maintain user sessions. Each request is treated independently.
 - No Ephemeral Storage Management: The container's storage isn't cleaned up automatically. Long-running containers will eventually run out of disk space if temp files accumulate.
 
