@@ -1,0 +1,127 @@
+---
+title: "Fireworks"
+
+---
+
+[![Kaggle](\images\docs\static\images\open-in-kaggle.svg)](https://kaggle.com/kernels/welcome?src=https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-fireworks.ipynb) [![Colab](\images\docs\assets\colab-badge.svg)](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-fireworks.ipynb)
+
+# Working with Fireworks AI in Pixeltable
+
+Pixeltable's Fireworks integration enables you to access advanced large language models (LLMs) hosted on the Fireworks platform.
+
+### Prerequisites
+
+* A Fireworks account with an API key ([https://fireworks.ai/api-keys](https://fireworks.ai/api-keys))
+
+### Important Notes
+
+* Fireworks usage may incur costs based on your Fireworks plan.
+* Be mindful of sensitive data and consider security measures when integrating with external services.
+
+First you'll need to install required libraries and enter a Fireworks API key.
+
+<CodeGroup>
+  ```python python
+  %pip install -qU pixeltable fireworks-ai
+  ```
+</CodeGroup>
+
+<CodeGroup>
+  ```python python
+  import os
+  import getpass
+
+  if 'FIREWORKS_API_KEY' not in os.environ:
+      os.environ['FIREWORKS_API_KEY'] = getpass.getpass('Fireworks API Key:')
+  ```
+</CodeGroup>
+
+Now let's create a Pixeltable directory to hold the tables for our demo.
+
+<CodeGroup>
+  ```python python
+  import pixeltable as pxt
+
+  pxt.drop_dir('fireworks_demo', force=True)  # Ensure a clean slate for the demo
+  pxt.create_dir('fireworks_demo')
+  ```
+</CodeGroup>
+
+```
+Connected to Pixeltable database at: postgresql://postgres:@/pixeltable?host=/Users/asiegel/.pixeltable/pgdata
+Created directory `fireworks_demo`.
+
+<pixeltable.catalog.dir.Dir at 0x31ecb1550>
+```
+
+## Completions
+
+Create a Table: In Pixeltable, create a table with columns to represent your input data and the columns where you want to store the results from Fireworks.
+
+<CodeGroup>
+  ```python python
+  from pixeltable.functions.fireworks import chat_completions
+
+  # Create a table in Pixeltable and pick a model hosted on Fireworks with some parameters
+
+  t = pxt.create_table('fireworks_demo.chat', {'input': pxt.String})
+
+  messages = [{'role': 'user', 'content': t.input}]
+  t['output'] = chat_completions(
+      messages=messages,
+      model='accounts/fireworks/models/mixtral-8x22b-instruct',
+      # These parameters are optional and can be used to tune model behavior:
+      max_tokens=300,
+      top_k=40,
+      top_p=0.9,
+      temperature=0.7
+  )
+  ```
+</CodeGroup>
+
+```
+Created table `chat`.
+Added 0 column values with 0 errors.
+```
+
+<CodeGroup>
+  ```python python
+  # Parse the bot_response into a new column
+  t['response'] = t.output.choices[0].message.content
+  ```
+</CodeGroup>
+
+```
+Added 0 column values with 0 errors.
+```
+
+<CodeGroup>
+  ```python python
+  # Start a conversation
+  t.insert(input="Can you tell me who's the President of the US?")
+  t.select(t.input, t.response).show()
+  ```
+</CodeGroup>
+
+```
+Computing cells: 100%|████████████████████████████████████████████| 3/3 [00:01<00:00,  2.60 cells/s]
+Inserting rows into `chat`: 1 rows [00:00, 263.63 rows/s]
+Computing cells: 100%|████████████████████████████████████████████| 3/3 [00:01<00:00,  2.56 cells/s]
+Inserted 1 row with 0 errors.
+```
+
+| input                                          | response                                                                                                                                                                                            |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Can you tell me who's the President of the US? | As of my last update, the President of the United States is Joe Biden. He assumed office on January 20, 2021. However, please check the most recent sources as this information might have changed. |
+
+### Learn More
+
+To learn more about advanced techniques like RAG operations in Pixeltable, check out the [RAG Operations in Pixeltable](https://pixeltable.readme.io/docs/rag-operations-in-pixeltable) tutorial.
+
+If you have any questions, don't hesitate to reach out.
+
+***
+
+* [Table of Contents](#)
+* * [Working with Fireworks AI in Pixeltable](#working-with-fireworks-ai-in-pixeltable)
+    * [Completions](#completions)

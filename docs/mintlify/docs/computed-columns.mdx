@@ -1,0 +1,483 @@
+---
+title: "Computed Columns"
+---
+
+[![Kaggle](\images\docs\static\images\open-in-kaggle.svg)](https://kaggle.com/kernels/welcome?src=https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/fundamentals/computed-columns.ipynb) [![Colab](\images\docs\assets\colab-badge.svg)](https://colab.research.google.com/github.com/pixeltable/pixeltable/blob/main/docs/notebooks/fundamentals/computed-columns.ipynb) [![Download Notebook](\images\docs\badge\⬇-Download-Notebook-blue)](https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/release/fundamentals/computed-columns.ipynb)
+
+## Pixeltable Fundamentals
+
+## Section 2: Computed Columns
+
+Welcome to Section 2 of the **Pixeltable Fundamentals** tutorial, **Computed Columns**.
+
+In the previous section, [Tables and Data Operations](https://pixeltable.readme.io/docs/tables-and-data-operations), we learned how to create tables, populate them with data, and query and manipulate their contents. In this section, we'll introduce one of Pixeltable's most essential and powerful concepts: computed columns. We'll learn how to:
+
+* Add computed columns to a table
+* Use computed columns for complex operations such as image processing and model inference
+
+**If you are running this tutorial in Colab:** In order to make the tutorial run a bit snappier, let's switch to a GPU-equipped instance for this Colab session. To do that, click on the `Runtime -> Change runtime type` menu item at the top, then select the `GPU` radio button and click on `Save`.
+
+Next, let's ensure the Pixeltable library is installed in your environment, along with the Huggingface `transformers` library, which we'll need for this tutorial section.
+
+<CodeGroup>
+  ```python python
+  %pip install -qU pixeltable torch transformers
+  ```
+</CodeGroup>
+
+### Computed Columns
+
+Let's start with a simple example that illustrates the basic concepts behind computed columns. We'll use a table of world population data for our example. Remember that you can import datasets into a Pixeltable table by providing a URL or file path to `pxt.io.import_csv()`.
+
+<CodeGroup>
+  ```python python
+  import pixeltable as pxt
+
+  pxt.drop_dir('fundamentals', force=True)
+  pxt.create_dir('fundamentals')
+  pop_t = pxt.io.import_csv(
+      'fundamentals.population',
+      'https://github.com/pixeltable/pixeltable/raw/main/docs/source/data/world-population-data.csv'
+  )
+  ```
+</CodeGroup>
+
+```
+Connected to Pixeltable database at: postgresql+psycopg://postgres:@/pixeltable?host=/Users/asiegel/.pixeltable/pgdata
+Created directory `fundamentals`.
+Created table `population`.
+Inserting rows into `population`: 234 rows [00:00, 18059.27 rows/s]
+Inserted 234 rows with 0 errors.
+```
+
+Also recall that `pop_t.head()` returns the first few rows of a table, and typing the table name `pop_t` by itself gives the schema.
+
+<CodeGroup>
+  ```python python
+  pop_t.head(5)
+  ```
+</CodeGroup>
+
+| cca3 | country       | continent     | pop\_2023  | pop\_2022  | pop\_2000  | area\_\_km\_\_ |
+| ---- | ------------- | ------------- | ---------- | ---------- | ---------- | -------------- |
+| IND  | India         | Asia          | 1428627663 | 1417173173 | 1059633675 | 3287590.       |
+| CHN  | China         | Asia          | 1425671352 | 1425887337 | 1264099069 | 9706961.       |
+| USA  | United States | North America | 339996563  | 338289857  | 282398554  | 9372610.       |
+| IDN  | Indonesia     | Asia          | 277534122  | 275501339  | 214072421  | 1904569.       |
+| PAK  | Pakistan      | Asia          | 240485658  | 235824862  | 154369924  | 881912.        |
+
+<CodeGroup>
+  ```python python
+  pop_t
+  ```
+</CodeGroup>
+
+| Column Name    | Type   | Computed With |
+| -------------- | ------ | ------------- |
+| cca3           | string |               |
+| country        | string |               |
+| continent      | string |               |
+| pop\_2023      | int    |               |
+| pop\_2022      | int    |               |
+| pop\_2000      | int    |               |
+| area\_\_km\_\_ | float  |               |
+
+Now let's suppose we want to add a new column for the year-over-year population change from 2022 to 2023. In the previous tutorial section, [Tables and Data Operations](/docs/tables-and-data-operations), we saw how one might `select()` such a quantity into a Pixeltable `DataFrame`, giving it the name `yoy_change` (year-over-year change):
+
+<CodeGroup>
+  ```python python
+  pop_t.select(pop_t.country, yoy_change=(pop_t.pop_2023 - pop_t.pop_2022)).head(5)
+  ```
+</CodeGroup>
+
+| country       | yoy\_change |
+| ------------- | ----------- |
+| India         | 11454490    |
+| China         | -215985     |
+| United States | 1706706     |
+| Indonesia     | 2032783     |
+| Pakistan      | 4660796     |
+
+A **computed column** is a way of turning such a selection into a new, permanent column of the table. Here's how it works:
+
+<CodeGroup>
+  ```python python
+  pop_t.add_computed_column(yoy_change=(pop_t.pop_2023 - pop_t.pop_2022))
+  ```
+</CodeGroup>
+
+```
+Added 234 column values with 0 errors.
+UpdateStatus(num_rows=234, num_computed_values=234, num_excs=0, updated_cols=[], cols_with_excs=[])
+```
+
+As soon as the column is added, Pixeltable will (by default) automatically compute its value for all rows in the table, storing the results in the new column. If we now inspect the schema of `pop_t`, we see the new column and its definition.
+
+<CodeGroup>
+  ```python python
+  pop_t
+  ```
+</CodeGroup>
+
+| Column Name    | Type   | Computed With         |
+| -------------- | ------ | --------------------- |
+| cca3           | string |                       |
+| country        | string |                       |
+| continent      | string |                       |
+| pop\_2023      | int    |                       |
+| pop\_2022      | int    |                       |
+| pop\_2000      | int    |                       |
+| area\_\_km\_\_ | float  |                       |
+| yoy\_change    | int    | pop\_2023 - pop\_2022 |
+
+The new column can be queried in the usual manner.
+
+<CodeGroup>
+  ```python python
+  pop_t.select(pop_t.country, pop_t.yoy_change).head(5)
+  ```
+</CodeGroup>
+
+| country       | yoy\_change |
+| ------------- | ----------- |
+| India         | 11454490    |
+| China         | -215985     |
+| United States | 1706706     |
+| Indonesia     | 2032783     |
+| Pakistan      | 4660796     |
+
+The output is identical to the previous example, but now we're retrieving the computed output from the database, instead of computing it on-the-fly.
+
+Computed columns can be "chained" with other computed columns. Here's an example that expresses population change as a percentage:
+
+<CodeGroup>
+  ```python python
+  pop_t.add_computed_column(
+      yoy_percent_change=(100 * pop_t.yoy_change / pop_t.pop_2022)
+  )
+  ```
+</CodeGroup>
+
+```
+Added 234 column values with 0 errors.
+UpdateStatus(num_rows=234, num_computed_values=234, num_excs=0, updated_cols=[], cols_with_excs=[])
+```
+
+<CodeGroup>
+  ```python python
+  pop_t
+  ```
+</CodeGroup>
+
+| Column Name          | Type   | Computed With                    |
+| -------------------- | ------ | -------------------------------- |
+| cca3                 | string |                                  |
+| country              | string |                                  |
+| continent            | string |                                  |
+| pop\_2023            | int    |                                  |
+| pop\_2022            | int    |                                  |
+| pop\_2000            | int    |                                  |
+| area\_\_km\_\_       | float  |                                  |
+| yoy\_change          | int    | pop\_2023 - pop\_2022            |
+| yoy\_percent\_change | float  | (100 \* yoy\_change) / pop\_2022 |
+
+<CodeGroup>
+  ```python python
+  pop_t.select(pop_t.country, pop_t.yoy_change, pop_t.yoy_percent_change).head(5)
+  ```
+</CodeGroup>
+
+| country       | yoy\_change | yoy\_percent\_change |
+| ------------- | ----------- | -------------------- |
+| India         | 11454490    | 0.808                |
+| China         | -215985     | -0.015               |
+| United States | 1706706     | 0.505                |
+| Indonesia     | 2032783     | 0.738                |
+| Pakistan      | 4660796     | 1.976                |
+
+Although computed columns appear superficially similar to DataFrames, there is a key difference. Because computed columns are a permanent part of the table, they will be automatically updated any time new data is added to the table. These updates will propagate through any other computed columns that are "downstream" of the new data, ensuring that the state of the entire data is kept up-to-date.
+
+<Info />
+
+Let's see how this works in practice. For purposes of illustration, we'll add an entry for California to the table, as if it were a country.
+
+<CodeGroup>
+  ```python python
+  pop_t.insert(
+      country='California',
+      pop_2023=39110000,
+      pop_2022=39030000,
+  )
+  ```
+</CodeGroup>
+
+```
+Computing cells:   0%|                                                    | 0/5 [00:00<?, ? cells/s]
+Inserting rows into `population`: 1 rows [00:00, 253.11 rows/s]
+Computing cells: 100%|███████████████████████████████████████████| 5/5 [00:00<00:00, 648.51 cells/s]
+Inserted 1 row with 0 errors.
+UpdateStatus(num_rows=1, num_computed_values=5, num_excs=0, updated_cols=[], cols_with_excs=[])
+```
+
+Observe that the computed columns `yoy_growth` and `yoy_percent_growth` have been automatically updated in response to the new data.
+
+<CodeGroup>
+  ```python python
+  pop_t.tail(5)
+  ```
+</CodeGroup>
+
+| cca3 | country          | continent     | pop\_2023 | pop\_2022 | pop\_2000 | area\_\_km\_\_ | yoy\_change | yoy\_percent\_change |
+| ---- | ---------------- | ------------- | --------- | --------- | --------- | -------------- | ----------- | -------------------- |
+| FLK  | Falkland Islands | South America | 3791      | 3780      | 3080.0    | 12173.         | 11          | 0.291                |
+| NIU  | Niue             | Oceania       | 1935      | 1934      | 2074.0    | 261.           | 1           | 0.052                |
+| TKL  | Tokelau          | Oceania       | 1893      | 1871      | 1666.0    | 12.            | 22          | 1.176                |
+| VAT  | Vatican City     | Europe        | 518       | 510       | 651.0     | 0.44           | 8           | 1.569                |
+| None | California       | None          | 39110000  | 39030000  | NaN       | NaN            | 80000       | 0.205                |
+
+<Info />
+
+### A More Complex Example: Image Processing
+
+In the **Tables and Data Operations** tutorial, we saw how media data such as images can be inserted into Pixeltable tables, alongside more traditional structured data. Let's explore another example that uses computed columns for image processing operations.
+
+In this example, we'll create the table directly by providing a schema, rather than importing it from a CSV like before.
+
+<CodeGroup>
+  ```python python
+  t = pxt.create_table('fundamentals.image_ops', {'source': pxt.Image})
+  ```
+</CodeGroup>
+
+```
+Created table `image_ops`.
+```
+
+<CodeGroup>
+  ```python python
+  url_prefix = 'https://github.com/pixeltable/pixeltable/raw/main/docs/source/data/images'
+  images = ['000000000139.jpg', '000000000632.jpg', '000000000872.jpg']
+  t.insert({'source': f'{url_prefix}/{image}'} for image in images)
+  ```
+</CodeGroup>
+
+```
+Inserting rows into `image_ops`: 3 rows [00:00, 974.44 rows/s]
+Inserted 3 rows with 0 errors.
+UpdateStatus(num_rows=3, num_computed_values=0, num_excs=0, updated_cols=[], cols_with_excs=[])
+```
+
+<CodeGroup>
+  ```python python
+  t.collect()
+  ```
+</CodeGroup>
+
+![](\images\docs\4469ebd39cca3967da6753d452593070f9f9093a8cf6852a927b794d54f5898e-image.png)
+
+What are some things we might want to do with these images? A fairly basic one is to extract metadata. Pixeltable provides the built-in UDF `get_metadata()`, which returns a dictionary with various metadata about the image. Let's go ahead and make this a computed column.
+
+"UDF" is standard terminology in databases, meaning "User-Defined Function". Technically speaking, the `get_metadata()` function isn't user-defined, it's built in to the Pixeltable library. But we'll consistently refer to Pixeltable functions as "UDFs" in order to clearly distinguish them from ordinary Python functions. Later in this tutorial, we'll see how to turn (almost) any Python function into a Pixeltable UDF.
+
+<CodeGroup>
+  ```python python
+  t.add_computed_column(metadata=t.source.get_metadata())
+  t.collect()
+  ```
+</CodeGroup>
+
+```
+Computing cells: 100%|███████████████████████████████████████████| 3/3 [00:00<00:00, 116.21 cells/s]
+Added 3 column values with 0 errors.
+```
+
+![](\images\docs\cdb8dbdc0046334f36d25dbb44038ed89248190a923ff20b0de84575f67f8643-image.png)
+
+Image operations, of course, can also return new images. In the next example, we use a different notation for adding a new computed column, which is sometimes more convenient. Its meaning is exactly identical to `add_column()`.
+
+<CodeGroup>
+  ```python python
+  t.add_computed_column(rotated=t.source.rotate(10))
+  ```
+</CodeGroup>
+
+```
+Computing cells: 100%|████████████████████████████████████████████| 3/3 [00:00<00:00, 11.94 cells/s]
+Added 3 column values with 0 errors.
+```
+
+<CodeGroup>
+  ```python python
+  t.collect()
+  ```
+</CodeGroup>
+
+![](\images\docs\3be7343bb63be90cb1f4dc6255fc010ec869a25cc85847bae6dd918925fa6d26-image.png)
+
+Or, perhaps we want to rotate our images and fill them in with a transparent background rather than black. We can do this by chaining image operations, adding a transparency layer before doing the rotation.
+
+<CodeGroup>
+  ```python python
+  t.add_computed_column(rotated_transparent=t.source.convert('RGBA').rotate(10))
+  t.collect()
+  ```
+</CodeGroup>
+
+```
+Computing cells: 100%|████████████████████████████████████████████| 3/3 [00:00<00:00,  8.45 cells/s]
+Added 3 column values with 0 errors.
+```
+
+![](\images\docs\52fab0c992ab4be1c9528b749905d6d6f3264be0e12a3b82765347c728f45d97-image.png)
+
+<Info />
+
+Let's have a look at our table schema.
+
+<CodeGroup>
+  ```python python
+  t
+  ```
+</CodeGroup>
+
+| Column Name          | Type             | Computed With                     |
+| -------------------- | ---------------- | --------------------------------- |
+| source               | image            |                                   |
+| metadata             | json             | source.get\_metadata()            |
+| rotated              | image            | source.rotate(10)                 |
+| rotated\_transparent | image(mode=RGBA) | source.convert('RGBA').rotate(10) |
+
+### Image Detection
+
+In addition to simple operations like `rotate()` and `convert()`, the Pixeltable API includes UDFs for various off-the-shelf image models. Let's look at one example: object detection using the ResNet-50 model. Model inference is a UDF too, and it can be inserted into a computed column like any other.
+
+This one may take a little more time to compute, since it involves first downloading the ResNet-50 model (if it isn't already cached), then running inference on the images in our table.
+
+<CodeGroup>
+  ```python python
+  from pixeltable.functions.huggingface import detr_for_object_detection
+
+  t.add_computed_column(detections=detr_for_object_detection(
+      t.source,
+      model_id='facebook/detr-resnet-50',
+      threshold=0.8
+  ))
+  ```
+</CodeGroup>
+
+```
+Computing cells: 100%|████████████████████████████████████████████| 3/3 [00:01<00:00,  2.41 cells/s]
+Added 3 column values with 0 errors.
+```
+
+<CodeGroup>
+  ```python python
+  t.select(t.source, t.detections).collect()
+  ```
+</CodeGroup>
+
+![](\images\docs\3f78ee0a3548017930ba379445047a4995c193818e4540a42de5f42160ea0f0b-image.png)
+
+It's great that the DETR model gave us so much information about the images, but it's not exactly in human-readable form. Those are JSON structures that encode bounding boxes, confidence scores, and categories for each detected object. Let's do something more useful with them: we'll use Pixeltable's `draw_bounding_boxes()` API to superimpose bounding boxes on the images, using different colors to distinguish different object categories.
+
+<CodeGroup>
+  ```python python
+  from pixeltable.functions.vision import draw_bounding_boxes
+
+  t.add_computed_column(image_with_bb=draw_bounding_boxes(
+      t.source, t.detections.boxes, t.detections.label_text, fill=True
+  ))
+  t.select(t.source, t.image_with_bb).collect()
+  ```
+</CodeGroup>
+
+```
+Computing cells: 100%|████████████████████████████████████████████| 3/3 [00:00<00:00,  9.46 cells/s]
+Added 3 column values with 0 errors.
+```
+
+![](\images\docs\423e1860f7491a19efd08cefa3af351534993a3337c3dc3ed4b99810dbe7dec9-image.png)
+
+It can be a little hard to see what's going on, so let's zoom in on just one image. If you select a single image in a notebook, Pixeltable will enlarge its display:
+
+<CodeGroup>
+  ```python python
+  t.select(t.image_with_bb).head(1)
+  ```
+</CodeGroup>
+
+![](\images\docs\d764f5add52b6f1ea5578c3251f14dfa3efd8ac4c17f40e968d0346bf58deedb-image.png)
+
+Let's check in on our schema. We now have five computed columns, all derived from the single source column.
+
+<CodeGroup>
+  ```python python
+  t
+  ```
+</CodeGroup>
+
+| Column Name          | Type             | Computed With                                                                            |
+| -------------------- | ---------------- | ---------------------------------------------------------------------------------------- |
+| source               | image            |                                                                                          |
+| metadata             | json             | source.get\_metadata()                                                                   |
+| rotated              | image            | source.rotate(10)                                                                        |
+| rotated\_transparent | image(mode=RGBA) | source.convert('RGBA').rotate(10)                                                        |
+| detections           | json             | detr\_for\_object\_detection(source, threshold=0.8, model\_id='facebook/detr-resnet-50') |
+| image\_with\_bb      | image            | draw\_bounding\_boxes(source, detections.boxes, detections.label\_text, fill=True)       |
+
+And as always, when we add new data to the table, its computed columns are updated automatically. Let's try this on a few more images.
+
+<CodeGroup>
+  ```python python
+  more_images = ['000000000108.jpg', '000000000885.jpg']
+  t.insert({'source': f'{url_prefix}/{image}'} for image in more_images)
+  ```
+</CodeGroup>
+
+```
+Computing cells: 100%|██████████████████████████████████████████| 10/10 [00:01<00:00,  6.69 cells/s]
+Inserting rows into `image_ops`: 2 rows [00:00, 1247.56 rows/s]
+Computing cells: 100%|██████████████████████████████████████████| 10/10 [00:01<00:00,  5.55 cells/s]
+Inserted 2 rows with 0 errors.
+UpdateStatus(num_rows=2, num_computed_values=10, num_excs=0, updated_cols=[], cols_with_excs=[])
+```
+
+<CodeGroup>
+  ```python python
+  t.select(t.source, t.image_with_bb, t.detections.label_text, t.metadata).tail(2)
+  ```
+</CodeGroup>
+
+![](\images\docs\adabef61d3bbd8841cb55aa537f7edfb4e0acc416d1b2e51020cb1e24883db3e-image.png)
+
+It bears repeating that **Pixeltable is persistent**! Anything you put into a table, including computed columns, will be saved in persistent storage. This includes inference outputs such as `t.detections`, as well as generated images such as `t.image_with_bb`. (Later we'll see how to tune this behavior in cases where it might be undesirable to store *everything*, but the default behavior is that computed column output is always persisted.)
+
+### Expressions
+
+Let's have a closer look at that call to `draw_bounding_boxes()` in the last example.
+
+<CodeGroup>
+  ```python python
+  draw_bounding_boxes(t.source, t.detections.boxes, t.detections.label_text, fill=True)
+  ```
+</CodeGroup>
+
+There are a couple of things going on. `draw_bounding_boxes()` is, of course, a UDF, and its first argument is a column reference of the sort we've used many times now: `t.source`, the source image. The other two arguments are more than simple column references, though: they're compound expressions that include the column reference `t.detections` along with a suffix (`.boxes` or `.label_text`) that tells Pixeltable to look inside the dictionary stored in `t.detections`.
+
+These are all examples of **Pixeltable expressions**. In fact, we've seen other types of Pixeltable expressions as well, without explicitly calling them out:
+
+* Calls to a UDF are expressions, such as `t.source.rotate(10)`, or the `draw_bounding_boxes()` example above;
+* Arithmetic operations are expressions, such as year-over-year calculation in our first example: `100 * pop_t.yoy_change / pop_t.pop_2022`.
+
+***
+
+* [Table of Contents](#)
+
+* * [Pixeltable Fundamentals](#pixeltable-fundamentals)
+
+  * [Section 2: Computed Columns](#section-2-computed-columns)
+
+    * [Computed Columns](#computed-columns)
+    * [A More Complex Example: Image Processing](#a-more-complex-example-image-processing)
+    * [Image Detection](#image-detection)
+    * [Expressions](#expressions)

@@ -1,0 +1,247 @@
+---
+title: "Data Types and Formats"
+
+---
+
+A guide to working with Pixeltable's type system and supported data formats. [Pixeltable](https://github.com/pixeltable/pixeltable) provides a unified interface for handling various data types common in AI/ML workflows.
+
+## Data Types
+
+| Pixeltable Type | Python Type         | Description                                     | Example                                       |
+| --------------- | ------------------- | ----------------------------------------------- | --------------------------------------------- |
+| `pxt.String`    | `str`               | Text data                                       | `{'text': pxt.String}`                        |
+| `pxt.Int`       | `int`               | Integer numbers                                 | `{'count': pxt.Int}`                          |
+| `pxt.Float`     | `float`             | Floating-point numbers                          | `{'score': pxt.Float}`                        |
+| `pxt.Bool`      | `bool`              | Boolean values                                  | `{'valid': pxt.Bool}`                         |
+| `pxt.Timestamp` | `datetime.datetime` | DateTime values                                 | `{'date': pxt.Timestamp}`                     |
+| `pxt.Json`      | `list`, `dict`      | Structured data like lists or dictionaries      | `{'metadata': pxt.Json}`                      |
+| `pxt.Array`     | `np.ndarray`        | N-dimensional arrays (requires shape and dtype) | `{'embedding': pxt.Array[(512,), pxt.Float]}` |
+
+## Media Types
+
+| Pixeltable Type | Python Type       | Supported Formats                                                                              | Common Use Cases                   |
+| --------------- | ----------------- | ---------------------------------------------------------------------------------------------- | ---------------------------------- |
+| `pxt.Image`     | `PIL.Image.Image` | [Image File Formats](https://pillow.readthedocs.io/en/stable/handbook/image-file-formats.html) | Computer vision, image processing  |
+| `pxt.Video`     | `str` (path)      | MP4                                                                                            | Video analysis, frame extraction   |
+| `pxt.Audio`     | `str` (path)      | MP3                                                                                            | Speech recognition, audio analysis |
+| `pxt.Document`  | `str` (path)      | PDF, MD, HTML, TXT                                                                             | Text extraction, RAG applications  |
+
+For practical examples of working with these types, check out:
+
+* [Object Detection in Videos Tutorial](/docs/object-detection-in-videos)
+* [Document Indexing & RAG Tutorial](/docs/document-indexing-and-rag)
+* [Working with External Files Guide](/docs/working-with-external-files)
+
+## Creating Tables with Media Types
+
+<CodeGroup>
+  ```python python
+  # Example from Object Detection Tutorial
+  videos = pxt.create_table('video_analysis', {
+      'video': pxt.Video,
+      'thumbnail': pxt.Image[(224, 224), 'RGB'],  # With constraints
+      'transcript': pxt.Document,
+      'audio': pxt.Audio
+  })
+  ```
+</CodeGroup>
+
+## Specialized Types
+
+### Array Type (Essential for ML Models)
+
+<CodeGroup>
+  ```python python
+  # Example from RAG Tutorial
+  embeddings = pxt.create_table('embeddings', {
+      'text': pxt.String,
+      'vector': pxt.Array[(768,), pxt.Float]  # For embeddings
+  })
+
+  # For variable-sized tensors
+  features = pxt.create_table('features', {
+      'tensor': pxt.Array[(None, 512), pxt.Float]  # Dynamic first dimension
+  })
+  ```
+</CodeGroup>
+
+### JSON Type (For Structured Data)
+
+<CodeGroup>
+  ```python python
+  # Example from Object Detection Tutorial
+  detections = pxt.create_table('detections', {
+      'model_output': pxt.Json,  # Stores bounding boxes, labels, scores
+      'metadata': pxt.Json
+  })
+  ```
+</CodeGroup>
+
+## Working with Types
+
+### Image Type Constraints
+
+<CodeGroup>
+  ```python python
+  # From Computer Vision Examples
+  images = pxt.create_table('image_processing', {
+      'original': pxt.Image,  # Any valid image
+      'thumbnail': pxt.Image[(224, 224)],  # ResNet input size
+      'rgb_image': pxt.Image['RGB'],
+      'grayscale': pxt.Image['L']
+  })
+  ```
+</CodeGroup>
+
+### Media File Handling
+
+<CodeGroup>
+  ```python python
+  # Various input formats supported
+  t.insert({'image': 'https://example.com/image.jpg'})  # URLs
+  t.insert({'document': '/path/to/doc.pdf'})           # Local files
+  t.insert({'video': 's3://my-bucket/video.mp4'})      # Cloud storage
+  ```
+</CodeGroup>
+
+## Data Import/Export
+
+### Import Operations
+
+<CodeGroup>
+  ```python python
+  import pixeltable as pxt
+
+  # CSV Import with type overrides
+  df = pxt.io.import_csv(
+      'customers',
+      'path/to/data.csv',
+      schema_overrides={
+          'balance': pxt.Float,
+          'status': pxt.String
+      }
+  )
+
+  # Excel Import
+  sales = pxt.io.import_excel(
+      'sales_data',                  # Table name
+      'sales_2024.xlsx',            # File path or URL
+      schema_overrides={            # Optional type overrides
+          'revenue': pxt.Float,
+          'category': pxt.String
+      }      
+  )
+
+  # Parquet Import 
+  transactions = pxt.io.import_parquet(
+      'transactions',               # Table name
+      'transactions.parquet',       # File path or URL
+      schema_overrides={
+          'amount': pxt.Float,
+          'timestamp': pxt.Timestamp
+      }
+  )
+
+  # Hugging Face Dataset Import
+  from datasets import load_dataset
+  dataset = load_dataset('mnist', split='train[:1000]')
+  mnist = pxt.io.import_huggingface_dataset(
+      'mnist_samples',
+      dataset,
+      schema_overrides={
+          'image': pxt.Image,
+          'label': pxt.Int
+      }
+  )
+  ```
+</CodeGroup>
+
+For more details on integrating with Hugging Face, see our [Hugging Face Integration Guide](/docs/hugging-face).
+
+### Export Formats
+
+<CodeGroup>
+  ```python python
+  # To pandas DataFrame
+  df = t.collect().to_pandas()
+
+  # To PyTorch Dataset (from Computer Vision Tutorial)
+  dataset = t.to_pytorch_dataset(
+      features=['image'],
+      labels=['label']
+  )
+
+  # To COCO format (for object detection)
+  coco_data = t.to_coco_dataset()
+  ```
+</CodeGroup>
+
+## Important Notes for Users
+
+1. **Media Files**:
+
+   * Pixeltable handles downloading, caching, and format validation
+   * Local paths are managed automatically
+   * Supports URLs, local paths, and cloud storage (S3)
+   * See [Working with External Files](/docs/working-with-external-files)
+
+2. **Arrays**:
+
+   * Must specify shape and dtype
+   * Use `None` for dynamic dimensions
+   * Common in ML workflows for embeddings and features
+   * See examples in [RAG Operations Tutorial](/docs/document-indexing-and-rag)
+
+3. **JSON Data**:
+
+   * Flexible storage for structured data
+   * Commonly used for model outputs and metadata
+   * Supports nested structures
+   * See examples in [Object Detection Tutorial](/docs/object-detection-in-videos)
+
+## Additional Resources
+
+### Core Documentation
+
+* [Pixeltable Documentation](https://docs.pixeltable.com/)
+* [API Reference](https://pixeltable.github.io/pixeltable/)
+* [GitHub Repository](https://github.com/pixeltable/pixeltable)
+
+### Integration Guides
+
+* [OpenAI Integration](/docs/working-with-openai)
+* [Together.ai Integration](/docs/together-ai)
+* [Hugging Face Integration](/docs/hugging-face)
+* [Label Studio Integration](/docs/label-studio)
+
+***
+
+* [Table of Contents](#)
+
+* * [Data Types](#data-types)
+
+  * [Media Types](#media-types)
+
+  * [Creating Tables with Media Types](#creating-tables-with-media-types)
+
+  * [Specialized Types](#specialized-types)
+
+    * [Array Type (Essential for ML Models)](#array-type-essential-for-ml-models)
+    * [JSON Type (For Structured Data)](#json-type-for-structured-data)
+
+  * [Working with Types](#working-with-types)
+
+    * [Image Type Constraints](#image-type-constraints)
+    * [Media File Handling](#media-file-handling)
+
+  * [Data Import/Export](#data-importexport)
+
+    * [Import Operations](#import-operations)
+    * [Export Formats](#export-formats)
+
+  * [Important Notes for Users](#important-notes-for-users)
+
+  * [Additional Resources](#additional-resources)
+
+    * [Core Documentation](#core-documentation)
+    * [Integration Guides](#integration-guides)

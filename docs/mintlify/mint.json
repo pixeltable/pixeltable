@@ -1,20 +1,14 @@
 {
   "$schema": "https://mintlify.com/schema.json",
-  "name": "Pixeltable",
-  "layout": "sidenav",
-  "sidebar": {
-    "items": "undecorated"
-  },
-"modeToggle": {
-  "default": "light",
-  "isHidden": true
-},  
+  "name": "Welcome to Pixeltable",
   "logo": {
-    "dark": "/logo/pxt-dark.svg",
-    "light": "/logo/pxt-light.svg"
+    "light": "/logo/pxt-light.svg",
+    "dark": "/logo/pxt-dark.svg"
   },
-  "favicon": "/favicon.svg",
-  "theme": "prism",
+  "modeToggle": {
+    "default": "light",
+    "isHidden": true
+  },
   "colors": {
     "primary": "#4F46E5",
     "light": "#4F46E5",
@@ -26,95 +20,111 @@
   },
   "font": {
     "headings": {
-      "family": "Inter",
-      "weight": 900
+      "family": "DM Sans"
     },
     "body": {
-      "family": "Inter",
-      "weight": 400
+      "family": "Inter"
     }
-  },  
+  },
+  "favicon": "favicon.svg",
   "topbarLinks": [
     {
-      "name": "Contact",
+      "name": "☎️ Contact",
       "url": "https://calendar.google.com/calendar/u/0/appointments/schedules/AcZssZ0BSvx8SRh7HoLdgvGeYUuhdyaifN42nhieCJESo3B1Hmy_buqteAagnSwADXG1lhKFUg3_VTZM"
     },
     {
-      "name": "Hiring",
+      "name": "💼 Hiring",
       "url": "https://jobs.gusto.com/postings/pixeltable-inc-member-of-technical-staff-360acae7-6e57-4aa2-bd03-83c9dafb7bbc"
     },
     {
-      "name": "Hugging Face",
+      "name": "🤗 Hugging Face",
       "url": "https://huggingface.co/Pixeltable"
     }    
   ],
   "topbarCtaButton": {
-    "name": "Add Pixeltable to Discord",
+    "name": "Pixeltable Discord Bot",
     "url": "https://discord.com/application-directory/1304932122611552346"
-  },
-  "tabs": [
-    {
-      "name": "API Reference",
-      "url": "api-reference"
-    }
-  ],
-  "anchors": [
-    {
-      "name": "Documentation",
-      "icon": "book-open-cover",
-      "url": "https://mintlify.com/docs"
-    },
-    {
-      "name": "Community",
-      "icon": "slack",
-      "url": "https://mintlify.com/community"
-    },
-    {
-      "name": "Blog",
-      "icon": "newspaper",
-      "url": "https://mintlify.com/blog"
-    }
-  ],
+  },    
   "navigation": [
     {
-      "group": "Get Started",
+      "group": "🏁 Getting Started",
       "pages": [
-        "introduction",
-        "quickstart",
-        "development"
+        "docs/get-started",
+        "docs/installation",
+        "docs/pixeltable-basics",
+        "docs/data-types-and-formats"
       ]
     },
     {
-      "group": "Essentials",
+      "group": "⚙️Learning Pixeltable",
       "pages": [
-        "essentials/markdown",
-        "essentials/code",
-        "essentials/images",
-        "essentials/settings",
-        "essentials/navigation",
-        "essentials/reusable-snippets"
+        "docs/tables-and-data-operations",
+        {
+          "group": "Fundamentals",
+          "pages": [
+            "docs/tables-and-data-operations",
+            "docs/computed-columns",
+            "docs/queries-and-expressions"
+          ]
+        },
+        {
+          "group": "Feature Guides",
+          "pages": [
+            "docs/embedding-vector-indexes",
+            "docs/user-defined-functions-udfs",
+            "docs/working-with-external-files",
+            "docs/time-zones"
+          ]
+        }
       ]
     },
     {
-      "group": "API Documentation",
+      "group": "🎨 Use Cases",
       "pages": [
-        "api-reference/introduction"
+        "docs/document-indexing-and-rag",
+        "docs/rag-operations",
+        "docs/incremental-prompt-engineering-and-model-comparison-with-mistral-using-pixeltable",
+        "docs/object-detection-in-videos",
+        "docs/transcribing-and-indexing-audio-and-video"
       ]
     },
     {
-      "group": "Endpoint Examples",
+      "group": "🤖 Integrations",
       "pages": [
-        "api-reference/endpoint/get",
-        "api-reference/endpoint/create",
-        "api-reference/endpoint/delete"
+        "docs/working-with-anthropic",
+        {
+          "group": "LLMs",
+          "pages": [
+            "docs/working-with-anthropic",
+            "docs/working-with-fireworks",
+            "docs/gemini",
+            "docs/working-with-openai",
+            "docs/working-with-llamacpp",
+            "docs/mistral-ai",
+            "docs/working-with-ollama",
+            "docs/working-with-together-ai",
+            "docs/working-with-replicate"
+          ]
+        },
+        {
+          "group": "Computer Vision",
+          "pages": [
+            "docs/using-label-studio-for-annotations-with-pixeltable",
+            "docs/working-with-fiftyone",
+            "docs/working-with-yolox"
+          ]
+        },
+        "docs/working-with-huggingface",
+        "docs/pandas",
+        "docs/whisper"
+      ]
+    },
+    {
+      "group": "❓ Community & Support",
+      "pages": [
+        "docs/contributions-discussions",
+        "docs/faq"
       ]
     }
-  ],
-  "footerSocials": {
-    "website": "https://pixeltable.com",
-    "x": "https://x.com/pixeltablehq",
-    "github": "https://github.com/pixeltable/pixeltable",
-    "linkedin": "https://www.linkedin.com/company/pixeltablehq",
-    "discord": "https://discord.com/invite/QPyqFYx2UN"
-  }
+  ]
 }

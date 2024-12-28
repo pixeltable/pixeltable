@@ -1,0 +1,353 @@
+---
+title: "Incremental Prompt Engineering"
+
+---
+
+[![Kaggle](\images\docs\static\images\open-in-kaggle.svg)](https://kaggle.com/kernels/welcome?src=https://github.com/mistralai/cookbook/blob/main/third_party/Pixeltable/incremental_prompt_engineering_and_model_comparison.ipynb) [![Colab](\images\docs\assets\colab-badge.svg)](https://colab.research.google.com/github/mistralai/cookbook/blob/main/third_party/Pixeltable/incremental_prompt_engineering_and_model_comparison.ipynb)
+
+# Incremental Prompt Engineering and Model Comparison with Mistral using Pixeltable
+
+This notebook shows how to use Pixeltable for iterative prompt engineering and model comparison with Mistral AI models. It showcases persistent storage, incremental updates, and how to benchmark different prompts and models easily.
+
+[Pixeltable](https://github.com/pixeltable/pixeltable) is data infrastructure that provides a declarative, incremental approach for multimodal AI.
+
+**Category:** Prompt Engineering & Model Comparison
+
+## 1. Setup and Installation
+
+<CodeGroup>
+  ```python python
+  %pip install -qU pixeltable mistralai textblob nltk
+  ```
+</CodeGroup>
+
+<CodeGroup>
+  ```python python
+  import os
+  import getpass
+  import pixeltable as pxt
+  from pixeltable.functions.mistralai import chat_completions
+  from textblob import TextBlob
+  import nltk
+  from nltk.tokenize import word_tokenize
+  from nltk.corpus import stopwords
+  import re
+  ```
+</CodeGroup>
+
+<CodeGroup>
+  ```python python
+  nltk.download('punkt', quiet=True)
+  nltk.download('stopwords', quiet=True)
+  nltk.download('punkt_tab', quiet=True)
+  ```
+</CodeGroup>
+
+```
+True
+```
+
+<CodeGroup>
+  ```python python
+  if 'MISTRAL_API_KEY' not in os.environ:
+      os.environ['MISTRAL_API_KEY'] = getpass.getpass('Mistral AI API Key:')
+  ```
+</CodeGroup>
+
+```
+Mistral AI API Key:··········
+```
+
+## 2. Create a Pixeltable Table and Insert Examples
+
+First, Pixeltable is persistent. Unlike in-memory Python libraries such as Pandas, Pixeltable is a database. When you reset a notebook kernel or start a new Python session, you'll have access to all the data you've stored previously in Pixeltable.
+
+<CodeGroup>
+  ```python python
+  # Create a table to store prompts and results
+  pxt.drop_table('mistral_prompts', ignore_errors=True)
+  t = pxt.create_table('mistral_prompts', {
+      'task': pxt.StringType(),
+      'system': pxt.StringType(),
+      'input_text': pxt.StringType()
+  })
+
+  # Insert sample data
+  t.insert([
+      {'task': 'summarization',
+       'system': 'Summarize the following text:',
+       'input_text': 'Mistral AI is a French artificial intelligence (AI) research and development company that focuses on creating and applying AI technologies to various industries.'},
+      {'task': 'sentiment',
+       'system': 'Analyze the sentiment of this text:',
+       'input_text': 'I love using Mistral for my AI projects! They provide great LLMs and it is really easy to work with.'},
+      {'task': 'question_answering',
+       'system': 'Answer the following question:',
+       'input_text': 'What are the main benefits of using Mistral AI over other LLMs providers?'}
+  ])
+  ```
+</CodeGroup>
+
+```
+Creating a Pixeltable instance at: /root/.pixeltable
+Connected to Pixeltable database at: postgresql+psycopg://postgres:@/pixeltable?host=/root/.pixeltable/pgdata
+Created table `mistral_prompts`.
+Inserting rows into `mistral_prompts`: 3 rows [00:00, 391.64 rows/s]
+Inserted 3 rows with 0 errors.
+
+UpdateStatus(num_rows=3, num_computed_values=9, num_excs=0, updated_cols=[], cols_with_excs=[])
+```
+
+## 3. Run Mistral Inference Functions
+
+We create **computed columns** to instruct Pixeltable to run the Mistral `chat_completions` function and store the output. Because computed columns are a permanent part of the table, they will be automatically updated any time new data is added to the table. For more information, see our [tutorial](/docs/computed-columns).
+
+In this particular example we are running the `open_mistral_nemo` and `mistral_medium` models and make the output available in their respective columns.
+
+<CodeGroup>
+  ```python python
+  # We are referencing columns from the 'mistral_prompts' table to dynamically compose the message for the Inference API.
+  msgs = [
+      {'role': 'system', 'content': t.system},
+      {'role': 'user', 'content': t.input_text}
+  ]
+
+  # Run inference with open-mistral-nemo model
+  t['open_mistral_nemo'] = chat_completions(
+      messages=msgs,
+      model='open-mistral-nemo',
+      max_tokens=300,
+      top_p=0.9,
+      temperature=0.7
+  )
+
+  # Run inference with mistral-medium model
+  t['mistral_medium'] = chat_completions(
+      messages=msgs,
+      model='mistral-medium',
+      max_tokens=300,
+      top_p=0.9,
+      temperature=0.7
+  )
+  ```
+</CodeGroup>
+
+```
+Computing cells: 100%|████████████████████████████████████████████| 3/3 [00:06<00:00,  2.28s/ cells]
+Added 3 column values with 0 errors.
+Computing cells: 100%|████████████████████████████████████████████| 3/3 [00:09<00:00,  3.31s/ cells]
+Added 3 column values with 0 errors.
+```
+
+The respective response columns have the JSON column type and we can now use JSON path expressions to extract the relevant pieces of data and make them available as additional computed columns.
+
+<CodeGroup>
+  ```python python
+  # Extract the response content as a string (by default JSON)
+  t['omn_response'] = t.open_mistral_nemo.choices[0].message.content.astype(pxt.StringType())
+  t['ml_response'] = t.mistral_medium.choices[0].message.content.astype(pxt.StringType())
+  ```
+</CodeGroup>
+
+```
+Computing cells: 100%|███████████████████████████████████████████| 3/3 [00:00<00:00, 120.75 cells/s]
+Added 3 column values with 0 errors.
+Computing cells: 100%|███████████████████████████████████████████| 3/3 [00:00<00:00, 121.09 cells/s]
+Added 3 column values with 0 errors.
+```
+
+<CodeGroup>
+  ```python python
+  # Display the responses
+  t.select(t.omn_response, t.ml_response).collect()
+  ```
+</CodeGroup>
+
+| omn\_response                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | ml\_response                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Mistral AI is a French company specializing in AI research and development, aiming to create and apply AI technologies across diverse industries.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Mistral AI is a French firm specializing in AI research and development, with a focus on implementing AI technologies across various industries.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| The sentiment of the text "I love using Mistral for my AI projects! They provide great LLMs and it is really easy to work with." is overwhelmingly positive. Here's a breakdown of the indicators:1) **Positive words and phrases:**
+
+   * "love" (strong positive emotion)
+   * "great" (implies high quality or excellence)
+   * "really easy" (implies simplicity and convenience)
+
+2) **No negative words or phrases:** There are no negative words or phrases that could counteract the positive sentiment.
+
+3) **Exclamation mark:** The use of an exclamation mark at the end of the sentence emphasizes the positive sentiment, making it more enthusiastic.Based on these points, the overall sentiment of the text is extremely positive. The speaker is expressing strong approval and satisfaction with using Mistral for their AI projects.                                                                                                                                                                             | The sentiment of this text is positive. The author expresses their love for using Mistral for their AI projects and highlights the quality of the large language models (LLMs) provided by Mistral, as well as the ease of working with them.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Using Mistral AI over other Large Language Model (LLM) providers offers several main benefits:1) **Advanced Language Models**: Mistral AI offers state-of-the-art language models like Mixtral 8x7B and Codestral, which are designed to understand and generate human-like text more effectively than many other LLMs.
+
+2) **Context Window**: Mistral AI's models have a larger context window, allowing them to maintain context over longer sequences of text. This is particularly useful for tasks like ...... emphasis on safety and moderation. Their models are designed to minimize harmful, biased, or offensive outputs, making them safer to use.
+
+3) **Transparency and Documentation**: Mistral AI provides clear documentation and is transparent about their models' capabilities and limitations, making it easier for developers to integrate and use their models.
+
+4) **Pricing and Accessibility**: While pricing can vary, Mistral AI aims to provide competitive pricing and offers free tiers, making their | Mistral AI is a cutting-edge company based in Paris, France, developing large language models (LLMs). While I don't have real-time access to specific details about Mistral AI, I can share some potential benefits based on the information available on their website and general industry trends. Keep in mind that these benefits are not guaranteed and may vary depending on your specific needs and use case.* Customization and Adaptability: Mistral AI emphasizes the importance of customization a ...... ean Perspective: As a European company, Mistral AI may have a better understanding of European data privacy regulations, such as GDPR, and cultural nuances, providing more relevant and compliant solutions for European businesses.* Research and Development: Mistral AI invests heavily in research and development to stay at the forefront of AI and language processing technology. This commitment to innovation may result in more advanced and capable LLMs compared to other providers.* Collabor |
+
+We can see how data is computed across the different columns in our table.
+
+<CodeGroup>
+  ```python python
+  t
+  ```
+</CodeGroup>
+
+| Column Name         | Type   | Computed With                                                                                                                                                                    |
+| ------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| task                | string |                                                                                                                                                                                  |
+| system              | string |                                                                                                                                                                                  |
+| input\_text         | string |                                                                                                                                                                                  |
+| open\_mistral\_nemo | json   | chat\_completions(\[\{'role': 'system', 'content': system}, \{'role': 'user', 'content': input\_text}], top\_p=0.9, model='open-mistral-nemo', temperature=0.7, max\_tokens=300) |
+| mistral\_medium     | json   | chat\_completions(\[\{'role': 'system', 'content': system}, \{'role': 'user', 'content': input\_text}], top\_p=0.9, model='mistral-medium', temperature=0.7, max\_tokens=300)    |
+| omn\_response       | string | open\_mistral\_nemo.choices\[0].message.content.astype(string)                                                                                                                   |
+| ml\_response        | string | mistral\_medium.choices\[0].message.content.astype(string)                                                                                                                       |
+
+## 4. Leveraging User-Defined Functions (UDFs) for Further Analysis
+
+UDFs allow you to extend Pixeltable with custom Python code, enabling you to integrate any computation or analysis into your workflow. See our [tutorial](/docs/user-defined-functions-udfs) regarding UDFs to learn more.
+
+We define three UDFs to compute two metrics (sentiment and readability scores) that give us insights into the quality of the LLM outputs.
+
+<CodeGroup>
+  ```python python
+  @pxt.udf
+  def get_sentiment_score(text: str) -> float:
+      return TextBlob(text).sentiment.polarity
+
+  @pxt.udf
+  def extract_keywords(text: str, num_keywords: int = 5) -> list:
+      stop_words = set(stopwords.words('english'))
+      words = word_tokenize(text.lower())
+      keywords = [word for word in words if word.isalnum() and word not in stop_words]
+      return sorted(set(keywords), key=keywords.count, reverse=True)[:num_keywords]
+
+  @pxt.udf
+  def calculate_readability(text: str) -> float:
+      words = len(re.findall(r'\w+', text))
+      sentences = len(re.findall(r'\w+[.!?]', text)) or 1
+      average_words_per_sentence = words / sentences
+      return 206.835 - 1.015 * average_words_per_sentence
+  ```
+</CodeGroup>
+
+For each model we want to compare we are adding the metrics as new computed columns, using the UDFs we created.
+
+<CodeGroup>
+  ```python python
+  t['large_sentiment_score'] = get_sentiment_score(t.ml_response)
+  t['large_keywords'] = extract_keywords(t.ml_response)
+  t['large_readability_score'] = calculate_readability(t.ml_response)
+
+  t['open_sentiment_score'] = get_sentiment_score(t.omn_response)
+  t['open_keywords'] = extract_keywords(t.omn_response)
+  t['open_readability_score'] = calculate_readability(t.omn_response)
+  ```
+</CodeGroup>
+
+```
+Computing cells: 100%|████████████████████████████████████████████| 3/3 [00:00<00:00, 23.99 cells/s]
+Added 3 column values with 0 errors.
+Computing cells: 100%|████████████████████████████████████████████| 3/3 [00:00<00:00, 22.87 cells/s]
+Added 3 column values with 0 errors.
+Computing cells: 100%|████████████████████████████████████████████| 3/3 [00:00<00:00, 68.75 cells/s]
+Added 3 column values with 0 errors.
+Computing cells: 100%|████████████████████████████████████████████| 3/3 [00:00<00:00, 93.24 cells/s]
+Added 3 column values with 0 errors.
+Computing cells: 100%|████████████████████████████████████████████| 3/3 [00:00<00:00, 46.49 cells/s]
+Added 3 column values with 0 errors.
+Computing cells: 100%|████████████████████████████████████████████| 3/3 [00:00<00:00, 61.91 cells/s]
+Added 3 column values with 0 errors.
+```
+
+Once a UDF is defined and used in a computed column, Pixeltable automatically applies it to all relevant rows.
+
+You don't need to write loops or worry about applying the function to each row manually.
+
+<CodeGroup>
+  ```python python
+  t.head(1)
+  ```
+</CodeGroup>
+
+| task          | system                        | input\_text                                                                                                                                                       | open\_mistral\_nemo                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | mistral\_medium                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | omn\_response                                                                                                                                     | ml\_response                                                                                                                                     | large\_sentiment\_score | large\_keywords                                            | large\_readability\_score | open\_sentiment\_score | open\_keywords                                       | open\_readability\_score |
+| ------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------- | ---------------------------------------------------------- | ------------------------- | ---------------------- | ---------------------------------------------------- | ------------------------ |
+| summarization | Summarize the following text: | Mistral AI is a French artificial intelligence (AI) research and development company that focuses on creating and applying AI technologies to various industries. | \{"id": "3ba3f2ae28094f5fb29240423f26cd1b", "model": "open-mistral-nemo", "usage": \{"total\_tokens": 65, "prompt\_tokens": 38, "completion\_tokens": 27}, "object": "chat.completion", "choices": \[\{"index": 0, "message": \{"role": "assistant", "prefix": false, "content": "Mistral AI is a French company specializing in AI research and development, aiming to create and apply AI technologies across diverse industries.", "tool\_calls": null}, "finish\_reason": "stop"}], "created": 1728587238} | \{"id": "ecc5e83f1d364b36b6cf342752b44a45", "model": "mistral-medium", "usage": \{"total\_tokens": 82, "prompt\_tokens": 50, "completion\_tokens": 32}, "object": "chat.completion", "choices": \[\{"index": 0, "message": \{"role": "assistant", "prefix": false, "content": "Mistral AI is a French firm specializing in AI research and development, with a focus on implementing AI technologies across various industries.", "tool\_calls": null}, "finish\_reason": "stop"}], "created": 1728587244} | Mistral AI is a French company specializing in AI research and development, aiming to create and apply AI technologies across diverse industries. | Mistral AI is a French firm specializing in AI research and development, with a focus on implementing AI technologies across various industries. | -0.067                  | \["ai", "implementing", "industries", "french", "mistral"] | 184.505                   | 0.                     | \["ai", "company", "industries", "aiming", "french"] | 184.505                  |
+
+## 5. Experiment with Different Prompts
+
+We are inserting an additional two rows, and Pixeltable will automatically populate the computed columns.
+
+<CodeGroup>
+  ```python python
+  t.insert([
+      {
+          'task': 'summarization',
+          'system': 'Provide a concise summary of the following text in one sentence:',
+          'input_text': 'Mistral AI is a company that develops AI models and has been in the news for its partnerships and latest models.'
+      },
+      {
+          'task': 'translation',
+          'system': 'Translate the following English text to French:',
+          'input_text': 'Hello, how are you today?'
+      }
+  ])
+  ```
+</CodeGroup>
+
+```
+Computing cells: 100%|██████████████████████████████████████████| 30/30 [00:05<00:00,  5.17 cells/s]
+Inserting rows into `mistral_prompts`: 2 rows [00:00, 95.14 rows/s]
+Computing cells: 100%|██████████████████████████████████████████| 30/30 [00:05<00:00,  5.12 cells/s]
+Inserted 2 rows with 0 errors.
+
+UpdateStatus(num_rows=2, num_computed_values=30, num_excs=0, updated_cols=[], cols_with_excs=[])
+```
+
+Often you want to select only certain rows and/or certain columns in a table. You can do this with `where()`.
+
+You can learn more about the available table and data operations [here](/docs/tables-and-data-operations).
+
+<CodeGroup>
+  ```python python
+  t.select(t.task, t.omn_response, t.ml_response, t.large_readability_score, t.open_readability_score).where(t.task == 'summarization').collect()
+  ```
+</CodeGroup>
+
+| task          | omn\_response                                                                                                                                     | ml\_response                                                                                                                                     | large\_readability\_score | open\_readability\_score |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------- | ------------------------ |
+| summarization | Mistral AI is a French company specializing in AI research and development, aiming to create and apply AI technologies across diverse industries. | Mistral AI is a French firm specializing in AI research and development, with a focus on implementing AI technologies across various industries. | 184.505                   | 184.505                  |
+| summarization | Mistral AI is a prominent developer of AI models, known for its strategic partnerships and recent model releases.                                 | Mistral AI is a company known for creating advanced AI models and has recently gained attention for its collaborations and new model releases.   | 183.49                    | 188.565                  |
+
+Pixeltable's schema provides a holistic view of data ingestion, inference API calls, and metric computation, reflecting your entire workflow.
+
+<CodeGroup>
+  ```python python
+  t
+  ```
+</CodeGroup>
+
+| Column Name               | Type   | Computed With                                                                                                                                                                    |
+| ------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| task                      | string |                                                                                                                                                                                  |
+| system                    | string |                                                                                                                                                                                  |
+| input\_text               | string |                                                                                                                                                                                  |
+| open\_mistral\_nemo       | json   | chat\_completions(\[\{'role': 'system', 'content': system}, \{'role': 'user', 'content': input\_text}], top\_p=0.9, model='open-mistral-nemo', temperature=0.7, max\_tokens=300) |
+| mistral\_medium           | json   | chat\_completions(\[\{'role': 'system', 'content': system}, \{'role': 'user', 'content': input\_text}], top\_p=0.9, model='mistral-medium', temperature=0.7, max\_tokens=300)    |
+| omn\_response             | string | open\_mistral\_nemo.choices\[0].message.content.astype(string)                                                                                                                   |
+| ml\_response              | string | mistral\_medium.choices\[0].message.content.astype(string)                                                                                                                       |
+| large\_sentiment\_score   | float  | get\_sentiment\_score(ml\_response)                                                                                                                                              |
+| large\_keywords           | json   | extract\_keywords(ml\_response)                                                                                                                                                  |
+| large\_readability\_score | float  | calculate\_readability(ml\_response)                                                                                                                                             |
+| open\_sentiment\_score    | float  | get\_sentiment\_score(omn\_response)                                                                                                                                             |
+| open\_keywords            | json   | extract\_keywords(omn\_response)                                                                                                                                                 |
+| open\_readability\_score  | float  | calculate\_readability(omn\_response)                                                                                                                                            |
+
+***
+
+* [Table of Contents](#)
+
+* * [Incremental Prompt Engineering and Model Comparison with Mistral using Pixeltable](#incremental-prompt-engineering-and-model-comparison-with-mistral-using-pixeltable)
+
+    * [1. Setup and Installation](#1-setup-and-installation)
+    * [2. Create a Pixeltable Table and Insert Examples](#2-create-a-pixeltable-table-and-insert-examples)
+    * [3. Run Mistral Inference Functions](#3-run-mistral-inference-functions)
+    * [4. Leveraging User-Defined Functions (UDFs) for Further Analysis](#4-leveraging-user-defined-functions-udfs-for-further-analysis)
+    * [5. Experiment with Different Prompts](#5-experiment-with-different-prompts)
