@@ -91,14 +91,14 @@ class TestComponentView:
         # create frame view
         view_t = pxt.create_view('test_view', video_t, iterator=FrameIterator.create(video=video_t.video, fps=1))
         # computed column that references a column from the base
-        view_t.add_column(angle2=view_t.angle + 1)
+        view_t.add_computed_column(angle2=view_t.angle + 1)
         # computed column that references an unstored and a stored computed view column
-        view_t.add_column(v1=view_t.frame.rotate(view_t.angle2), stored=True)
+        view_t.add_computed_column(v1=view_t.frame.rotate(view_t.angle2), stored=True)
         # computed column that references a stored computed column from the view
-        view_t.add_column(v2=view_t.frame_idx - 1)
+        view_t.add_computed_column(v2=view_t.frame_idx - 1)
         # computed column that references an unstored view column and a column from the base; the stored value
         # cannot be materialized in SQL directly
-        view_t.add_column(v3=view_t.frame.rotate(video_t.other_angle), stored=True)
+        view_t.add_computed_column(v3=view_t.frame.rotate(video_t.other_angle), stored=True)
 
         # and load data
         rows = [{'video': p, 'angle': 30, 'other_angle': -30} for p in video_filepaths]
@@ -217,7 +217,7 @@ class TestComponentView:
         # create frame view with a computed column
         view_t = pxt.create_view(
             view_path, video_t, iterator=ConstantImgIterator.create(video=video_t.video))
-        view_t.add_column(
+        view_t.add_computed_column(
             cropped=view_t.frame.crop([view_t.margin, view_t.margin, view_t.frame.width, view_t.frame.height]),
             stored=True)
         snap_col_expr = [view_t.cropped.width * view_t.cropped.height] if has_column else []
@@ -282,27 +282,27 @@ class TestComponentView:
         # create first view
         v1 = pxt.create_view('test_view', video_t, iterator=ConstantImgIterator.create(video=video_t.video))
         # computed column that references stored base column
-        v1.add_column(int3=v1.int1 + 1)
+        v1.add_computed_column(int3=v1.int1 + 1)
         # stored computed column that references an unstored and a stored computed view column
-        v1.add_column(img1=v1.frame.crop([v1.int3, v1.int3, v1.frame.width, v1.frame.height]), stored=True)
+        v1.add_computed_column(img1=v1.frame.crop([v1.int3, v1.int3, v1.frame.width, v1.frame.height]), stored=True)
         # computed column that references a stored computed view column
-        v1.add_column(int4=v1.frame_idx + 1)
+        v1.add_computed_column(int4=v1.frame_idx + 1)
         # unstored computed column that references an unstored and a stored computed view column
-        v1.add_column(img2=v1.frame.crop([v1.int4, v1.int4, v1.frame.width, v1.frame.height]), stored=False)
+        v1.add_computed_column(img2=v1.frame.crop([v1.int4, v1.int4, v1.frame.width, v1.frame.height]), stored=False)
 
         # create second view
         v2 = pxt.create_view('chained_view', v1)
         # computed column that references stored video_t column
-        v2.add_column(int5=v2.int1 + 1)
-        v2.add_column(int6=v2.int2 + 1)
+        v2.add_computed_column(int5=v2.int1 + 1)
+        v2.add_computed_column(int6=v2.int2 + 1)
         # stored computed column that references a stored base column and a stored computed view column;
         # indirectly references int1
-        v2.add_column(img3=v2.img1.crop([v2.int5, v2.int5, v2.img1.width, v2.img1.height]), stored=True)
+        v2.add_computed_column(img3=v2.img1.crop([v2.int5, v2.int5, v2.img1.width, v2.img1.height]), stored=True)
         # stored computed column that references an unstored base column and a manually updated column from video_t;
         # indirectly references int2
-        v2.add_column(img4=v2.img2.crop([v2.int6, v2.int6, v2.img2.width, v2.img2.height]), stored=True)
+        v2.add_computed_column(img4=v2.img2.crop([v2.int6, v2.int6, v2.img2.width, v2.img2.height]), stored=True)
         # comuted column that indirectly references int1 and int2
-        v2.add_column(int7=v2.img3.width + v2.img4.width)
+        v2.add_computed_column(int7=v2.img3.width + v2.img4.width)
 
         def check_view():
             assert_resultset_eq(

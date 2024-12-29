@@ -590,7 +590,7 @@ class Env:
         self._logger.info(f'Ensuring spaCy model is installed: {filename}')
         ret = subprocess.run([sys.executable, '-m', 'pip', 'install', '-qU', url], check=False)
         if ret.returncode != 0:
-            self._logger.warn(f'pip install failed for spaCy model: {filename}')
+            self._logger.warning(f'pip install failed for spaCy model: {filename}')
         try:
             self._logger.info(f'Loading spaCy model: {spacy_model}')
             self._spacy_nlp = spacy.load(spacy_model)

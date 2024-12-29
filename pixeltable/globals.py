@@ -1,6 +1,6 @@
 import dataclasses
 import logging
-from typing import Any, Iterable, Optional, Union, Literal, Type
+from typing import Any, Iterable, Literal, Optional, Union
 from uuid import UUID
 
 import pandas as pd
@@ -26,7 +26,7 @@ def init() -> None:
 
 def _get_or_drop_existing_path(
     path_str: str,
-    expected_obj_type: Type[catalog.SchemaObject],
+    expected_obj_type: type[catalog.SchemaObject],
     expected_snapshot: bool,
     if_exists: catalog.IfExistsParam
 ) -> Optional[catalog.SchemaObject]:

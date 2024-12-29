@@ -62,7 +62,7 @@ class TestFunction:
         @pxt.udf(_force_stored=True)
         def f1(a: int, b: float) -> float:
             return a + b
-        t['f1'] = f1(t.c1, t.c2)
+        t.add_computed_column(f1=f1(t.c1, t.c2))
 
         func.FunctionRegistry.get().clear_cache()
         reload_catalog()
@@ -208,7 +208,7 @@ class TestFunction:
             return t.where(t.c2 < x).select(t.c2, t.c1)
 
         res1 = t.select(out=lt_x(t.c1)).order_by(t.c2).collect()
-        validate_update_status(t.add_column(query1=lt_x(t.c1)))
+        validate_update_status(t.add_computed_column(query1=lt_x(t.c1)))
         _ = t.select(t.query1).collect()
 
         reload_catalog()
@@ -255,7 +255,7 @@ class TestFunction:
 
         res = queries.select(queries.i, out=retrieval(queries.query_text, queries.i)).collect()
         assert all(len(out) == 2 for out in res['out'])
-        validate_update_status(queries.add_column(chunks=retrieval(queries.query_text, queries.i)))
+        validate_update_status(queries.add_computed_column(chunks=retrieval(queries.query_text, queries.i)))
         res = queries.select(queries.i, queries.chunks).collect()
         assert all(len(c) == 2 for c in res['chunks'])
 

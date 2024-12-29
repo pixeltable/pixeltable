@@ -68,7 +68,7 @@ class TestMistral:
         skip_test_if_no_client('mistral')
         t = pxt.create_table('test_tbl', {'input': pxt.String})
 
-        t.add_column(embed=embeddings(t.input, model='mistral-embed'))
+        t.add_computed_column(embed=embeddings(t.input, model='mistral-embed'))
         validate_update_status(t.insert(input='A chunk of text that will be embedded.'), 1)
         assert t.embed.col_type.shape == (1024,)
         assert len(t.collect()['embed'][0]) == 1024

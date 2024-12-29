@@ -418,10 +418,7 @@ class Table(SchemaObject):
             raise excs.Error(f'Column spec must be a ColumnType, Expr, or type, got {type(spec)}')
         self.add_column(stored=None, print_stats=False, on_error='abort', **{col_name: spec})
 
-    def add_columns(
-        self,
-        schema: dict[str, Union[ts.ColumnType, builtins.type, _GenericAlias]]
-    ) -> UpdateStatus:
+    def add_columns(self, schema: dict[str, Union[ts.ColumnType, builtins.type, _GenericAlias]]) -> UpdateStatus:
         """
         Adds multiple columns to the table. The columns must be concrete (non-computed) columns; to add computed columns,
         use [`add_computed_column()`][pixeltable.catalog.Table.add_computed_column] instead.
@@ -460,32 +457,12 @@ class Table(SchemaObject):
         FileCache.get().emit_eviction_warnings()
         return status
 
-    # TODO: add_column() still supports computed columns for backward-compatibility. In the future, computed columns
-    #     will be supported only through add_computed_column(). At that point, we can remove the `stored`,
-    #     `print_stats`, and `on_error` parameters, and change the method body to simply call self.add_columns(kwargs),
-    #     simplifying the code. For the time being, there's some obvious code duplication.
-    def add_column(
-        self,
-        *,
-        stored: Optional[bool] = None,
-        print_stats: bool = False,
-        on_error: Literal['abort', 'ignore'] = 'abort',
-        **kwargs: Union[ts.ColumnType, builtins.type, _GenericAlias, exprs.Expr]
-    ) -> UpdateStatus:
+    def add_column(self, **kwargs: Union[ts.ColumnType, builtins.type, _GenericAlias]) -> UpdateStatus:
         """
-        Adds a column to the table.
+        Adds an ordinary (non-computed) column to the table.
 
         Args:
             kwargs: Exactly one keyword argument of the form `col_name=col_type`.
-            stored: Whether the column is materialized and stored or computed on demand. Only valid for image columns.
-            print_stats: If `True`, print execution metrics during evaluation.
-            on_error: Determines the behavior if an error occurs while evaluating the column expression for at least one
-                row.
-
-                - `'abort'`: an exception will be raised and the column will not be added.
-                - `'ignore'`: execution will continue and the column will be added. Any rows
-                  with errors will have a `None` value for the column, with information about the error stored in the
-                  corresponding `tbl.col_name.errortype` and `tbl.col_name.errormsg` fields.
 
         Returns:
             Information about the execution status of the operation.
@@ -503,29 +480,13 @@ class Table(SchemaObject):
             >>> tbl['new_col'] = pxt.Int
         """
         self._check_is_dropped()
-        # verify kwargs and construct column schema dict
+        # verify kwargs
         if len(kwargs) != 1:
             raise excs.Error(
                 f'add_column() requires exactly one keyword argument of the form "col_name=col_type"; '
-                f'got {len(kwargs)} instead ({", ".join(list(kwargs.keys()))})'
+                f'got {len(kwargs)} instead ({", ".join(kwargs.keys())})'
             )
-        col_name, spec = next(iter(kwargs.items()))
-        if not is_valid_identifier(col_name):
-            raise excs.Error(f'Invalid column name: {col_name!r}')
-
-        col_schema: dict[str, Any] = {}
-        if isinstance(spec, (ts.ColumnType, builtins.type, _GenericAlias)):
-            col_schema['type'] = ts.ColumnType.normalize_type(spec, nullable_default=True, allow_builtin_types=False)
-        else:
-            col_schema['value'] = spec
-        if stored is not None:
-            col_schema['stored'] = stored
-
-        new_col = self._create_columns({col_name: col_schema})[0]
-        self._verify_column(new_col, set(self._schema.keys()))
-        status = self._tbl_version.add_columns([new_col], print_stats=print_stats, on_error=on_error)
-        FileCache.get().emit_eviction_warnings()
-        return status
+        return self.add_columns(kwargs)
 
     def add_computed_column(
         self,
@@ -540,6 +501,15 @@ class Table(SchemaObject):
 
         Args:
             kwargs: Exactly one keyword argument of the form `col_name=expression`.
+            stored: Whether the column is materialized and stored or computed on demand. Only valid for image columns.
+            print_stats: If `True`, print execution metrics during evaluation.
+            on_error: Determines the behavior if an error occurs while evaluating the column expression for at least one
+                row.
+
+                - `'abort'`: an exception will be raised and the column will not be added.
+                - `'ignore'`: execution will continue and the column will be added. Any rows
+                  with errors will have a `None` value for the column, with information about the error stored in the
+                  corresponding `tbl.col_name.errortype` and `tbl.col_name.errormsg` fields.
 
         Returns:
             Information about the execution status of the operation.

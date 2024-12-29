@@ -88,7 +88,7 @@ class TestIndex:
             _ = reload_tester.run_query(df)
 
             # can also be used in a computed column
-            validate_update_status(t.add_column(sim=t.img.similarity('parachute')))
+            validate_update_status(t.add_computed_column(sim=t.img.similarity('parachute')))
             t.drop_column('sim')
 
             reload_tester.run_reload_test(clear=True)
@@ -120,7 +120,7 @@ class TestIndex:
                 .limit(5)
 
         _ = queries.select(queries.query_text, out=top_k_chunks(queries.query_text)).collect()
-        queries.add_column(chunks=top_k_chunks(queries.query_text))
+        queries.add_computed_column(chunks=top_k_chunks(queries.query_text))
         _ = queries.collect()
 
         # make sure we can instantiate the query function from the metadata
