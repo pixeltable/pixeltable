@@ -399,25 +399,6 @@ class Table(SchemaObject):
         """
         return self._df().to_coco_dataset()
 
-    def __setitem__(self, col_name: str, spec: Union[ts.ColumnType, exprs.Expr]) -> None:
-        """
-        Adds a column to the table. This is an alternate syntax for `add_column()`; the meaning of
-
-        >>> tbl['new_col'] = pxt.Int
-
-        is exactly equivalent to
-
-        >>> tbl.add_column(new_col=pxt.Int)
-
-        For details, see the documentation for [`add_column()`][pixeltable.catalog.Table.add_column].
-        """
-        self._check_is_dropped()
-        if not isinstance(col_name, str):
-            raise excs.Error(f'Column name must be a string, got {type(col_name)}')
-        if not isinstance(spec, (ts.ColumnType, exprs.Expr, type, _GenericAlias)):
-            raise excs.Error(f'Column spec must be a ColumnType, Expr, or type, got {type(spec)}')
-        self.add_column(stored=None, print_stats=False, on_error='abort', **{col_name: spec})
-
     def add_columns(self, schema: dict[str, Union[ts.ColumnType, builtins.type, _GenericAlias]]) -> UpdateStatus:
         """
         Adds multiple columns to the table. The columns must be concrete (non-computed) columns; to add computed columns,
