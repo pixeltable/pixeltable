@@ -9,10 +9,10 @@ import PIL.Image
 import pytest
 
 import pixeltable as pxt
-from pixeltable.functions.huggingface import clip_image, clip_text
+from pixeltable.functions.huggingface import clip
 
-from .utils import (assert_img_eq, clip_img_embed, clip_text_embed, e5_embed, reload_catalog,
-                    skip_test_if_not_installed, validate_update_status, ReloadTester, get_sentences, assert_resultset_eq)
+from .utils import (ReloadTester, assert_img_eq, assert_resultset_eq, clip_embed, e5_embed, get_sentences,
+                    reload_catalog, skip_test_if_not_installed, validate_update_status)
 
 
 class TestIndex:
@@ -56,7 +56,7 @@ class TestIndex:
         # After the query is serialized, dropping and recreating the index should work
         # on reload, because the index is available again even if it is not the exact
         # same one.
-        t.add_embedding_index('img', idx_name='img_idx1', metric='cosine', image_embed=clip_img_embed, string_embed=clip_text_embed)
+        t.add_embedding_index('img', idx_name='img_idx1', metric='cosine', image_embed=clip_embed, string_embed=clip_embed)
         reload_tester.run_reload_test(clear=True)
 
     @pytest.mark.parametrize("use_index_name", [True, False])
@@ -68,7 +68,7 @@ class TestIndex:
 
         for metric, is_asc in [('cosine', False), ('ip', False), ('l2', True)]:
             iname = 'idx_'+metric+'_'+str(is_asc) if use_index_name else None
-            t.add_embedding_index('img', idx_name=iname, metric=metric, image_embed=clip_img_embed, string_embed=clip_text_embed)
+            t.add_embedding_index('img', idx_name=iname, metric=metric, image_embed=clip_embed, string_embed=clip_embed)
 
             df = (
                 t.select(img=t.img, sim=t.img.similarity(sample_img, idx=iname))
@@ -111,7 +111,7 @@ class TestIndex:
             {'text': 'machine learning is a subset of artificial intelligence'},
             {'text': 'gas car companies are in danger of being left behind by electric car companies'},
         ])
-        chunks.add_embedding_index(column='text', string_embed=clip_text_embed)
+        chunks.add_embedding_index(column='text', string_embed=clip_embed)
 
         @chunks.query
         def top_k_chunks(query_text: str) -> pxt.DataFrame:
@@ -136,7 +136,7 @@ class TestIndex:
         sample_img = t.select(t.img).head(1)[0, 'img']
         _ = t.select(t.img.localpath).collect()
 
-        t.add_embedding_index('img', metric='cosine', image_embed=clip_img_embed, string_embed=clip_text_embed)
+        t.add_embedding_index('img', metric='cosine', image_embed=clip_embed, string_embed=clip_embed)
         _ =  t.select(t.img.localpath).order_by(t.img.similarity(sample_img), asc=False).limit(3).collect()
 
         @t.query
@@ -165,19 +165,19 @@ class TestIndex:
         assert 'no index found' in str(exc_info.value).lower()
 
         t = small_img_tbl
-        t.add_embedding_index('img', image_embed=clip_img_embed)
+        t.add_embedding_index('img', image_embed=clip_embed)
         with pytest.raises(pxt.Error) as exc_info:
             _ = t.order_by(t.img.similarity('red truck')).limit(1).collect()
         assert "was created without the 'string_embed' parameter" in str(exc_info.value).lower()
 
-        t.add_embedding_index('img', string_embed=clip_text_embed, image_embed=clip_img_embed)
+        t.add_embedding_index('img', string_embed=clip_embed, image_embed=clip_embed)
         with pytest.raises(pxt.Error) as exc_info:
             _ = t.order_by(t.img.similarity('red truck')).limit(1).collect()
         assert "column 'img' has multiple indices" in str(exc_info.value).lower()
 
         t.drop_embedding_index(idx_name='idx0')
         t.drop_embedding_index(idx_name='idx1')
-        t.add_embedding_index('split', string_embed=clip_text_embed)
+        t.add_embedding_index('split', string_embed=clip_embed)
         sample_img = t.select(t.img).head(1)[0, 'img']
         with pytest.raises(pxt.Error) as exc_info:
             _ = t.order_by(t.split.similarity(sample_img)).limit(1).collect()
@@ -188,30 +188,30 @@ class TestIndex:
         skip_test_if_not_installed('transformers')
         t = small_img_tbl
         sample_img = t.select(t.img).head(1)[0, 'img']
-        t.add_embedding_index('img', idx_name='clip_idx', image_embed=clip_img_embed, string_embed=clip_text_embed)
+        t.add_embedding_index('img', idx_name='clip_idx', image_embed=clip_embed, string_embed=clip_embed)
         orig_res = t.select(t.img.localpath).order_by(t.img.similarity(sample_img, idx='clip_idx'), asc=False).limit(3).collect()
         t.revert()
         # creating an index with the same name again after a revert should be successful
-        t.add_embedding_index('img', idx_name='clip_idx', image_embed=clip_img_embed, string_embed=clip_text_embed)
+        t.add_embedding_index('img', idx_name='clip_idx', image_embed=clip_embed, string_embed=clip_embed)
         res = t.select(t.img.localpath).order_by(t.img.similarity(sample_img, idx='clip_idx'), asc=False).limit(3).collect()
         assert_resultset_eq(orig_res, res, True)
         t.revert()
         # should be true even after reloading from persistence
         reload_catalog()
         t = pxt.get_table('small_img_tbl')
-        t.add_embedding_index('img', idx_name='clip_idx', image_embed=clip_img_embed, string_embed=clip_text_embed)
+        t.add_embedding_index('img', idx_name='clip_idx', image_embed=clip_embed, string_embed=clip_embed)
         res = t.select(t.img.localpath).order_by(t.img.similarity(sample_img, idx='clip_idx'), asc=False).limit(3).collect()
         assert_resultset_eq(orig_res, res, True)
 
         # same should hold after a drop.
         t.drop_embedding_index(column='img')
-        t.add_embedding_index('img', idx_name='clip_idx', image_embed=clip_img_embed, string_embed=clip_text_embed)
+        t.add_embedding_index('img', idx_name='clip_idx', image_embed=clip_embed, string_embed=clip_embed)
         res = t.select(t.img.localpath).order_by(t.img.similarity(sample_img, idx='clip_idx'), asc=False).limit(3).collect()
         assert_resultset_eq(orig_res, res, True)
         t.drop_embedding_index(idx_name='clip_idx')
         reload_catalog()
         t = pxt.get_table('small_img_tbl')
-        t.add_embedding_index('img', idx_name='clip_idx', image_embed=clip_img_embed, string_embed=clip_text_embed)
+        t.add_embedding_index('img', idx_name='clip_idx', image_embed=clip_embed, string_embed=clip_embed)
         res = t.select(t.img.localpath).order_by(t.img.similarity(sample_img, idx='clip_idx'), asc=False).limit(3).collect()
         assert_resultset_eq(orig_res, res, True)
 
@@ -229,10 +229,10 @@ class TestIndex:
 
         with pytest.raises(pxt.Error) as exc_info:
             # cannot pass another table's column reference
-            img_t.add_embedding_index(dummy_img_t.img, image_embed=clip_img_embed, string_embed=clip_text_embed)
+            img_t.add_embedding_index(dummy_img_t.img, image_embed=clip_embed, string_embed=clip_embed)
         assert 'unknown column: dummy.img' in str(exc_info.value).lower()
 
-        img_t.add_embedding_index('img', image_embed=clip_img_embed, string_embed=clip_text_embed)
+        img_t.add_embedding_index('img', image_embed=clip_embed, string_embed=clip_embed)
 
         with pytest.raises(pxt.Error) as exc_info:
             # cannot pass another table's column reference
@@ -245,10 +245,10 @@ class TestIndex:
 
         with pytest.raises(pxt.Error) as exc_info:
             # duplicate name
-            img_t.add_embedding_index('img', idx_name='idx0', image_embed=clip_img_embed)
+            img_t.add_embedding_index('img', idx_name='idx0', image_embed=clip_embed)
         assert 'duplicate index name' in str(exc_info.value).lower()
         with pytest.raises(pxt.Error) as exc_info:
-            img_t.add_embedding_index(img_t.img, idx_name='idx0', image_embed=clip_img_embed)
+            img_t.add_embedding_index(img_t.img, idx_name='idx0', image_embed=clip_embed)
         assert 'duplicate index name' in str(exc_info.value).lower()
 
         img_t.add_embedding_index(img_t.category, idx_name='cat_idx', string_embed=e5_embed)
@@ -294,7 +294,7 @@ class TestIndex:
         img_t.revert()
 
         # multiple indices
-        img_t.add_embedding_index(img_t.img, idx_name='other_idx', image_embed=clip_img_embed, string_embed=clip_text_embed)
+        img_t.add_embedding_index(img_t.img, idx_name='other_idx', image_embed=clip_embed, string_embed=clip_embed)
         with pytest.raises(pxt.Error) as exc_info:
             sim = img_t.img.similarity('red truck')
             _ = img_t.order_by(sim, asc=False).limit(1).collect()
@@ -333,7 +333,7 @@ class TestIndex:
         # revert() makes the index reappear
         img_t.revert()
         with pytest.raises(pxt.Error) as exc_info:
-            img_t.add_embedding_index('img', idx_name='idx0', image_embed=clip_img_embed)
+            img_t.add_embedding_index('img', idx_name='idx0', image_embed=clip_embed)
         assert 'duplicate index name' in str(exc_info.value).lower()
 
         # dropping the indexed column also drops indices
@@ -388,37 +388,37 @@ class TestIndex:
         img_t = small_img_tbl
 
         with pytest.raises(pxt.Error) as exc_info:
-            img_t.add_embedding_index('img', metric='badmetric', image_embed=clip_img_embed)
+            img_t.add_embedding_index('img', metric='badmetric', image_embed=clip_embed)
         assert 'invalid metric badmetric' in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error) as exc_info:
             # unknown column
-            img_t.add_embedding_index('does_not_exist', idx_name='idx0', image_embed=clip_img_embed)
+            img_t.add_embedding_index('does_not_exist', idx_name='idx0', image_embed=clip_embed)
         assert "column 'does_not_exist' unknown" in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error) as exc_info:
             # wrong column type
-            test_tbl.add_embedding_index('c2', image_embed=clip_img_embed)
+            test_tbl.add_embedding_index('c2', image_embed=clip_embed)
         assert 'requires string or image column' in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error) as exc_info:
             # missing embedding function
-            img_t.add_embedding_index('img', string_embed=clip_text_embed)
+            img_t.add_embedding_index('img', string_embed=clip_embed)
         assert 'image embedding function is required' in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error) as exc_info:
             # wrong signature
-            img_t.add_embedding_index('img', image_embed=clip_image)
+            img_t.add_embedding_index('img', image_embed=clip)
         assert 'must take a single image parameter' in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error) as exc_info:
             # missing embedding function
-            img_t.add_embedding_index('category', image_embed=clip_img_embed)
+            img_t.add_embedding_index('category', image_embed=clip_embed)
         assert 'text embedding function is required' in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error) as exc_info:
             # wrong signature
-            img_t.add_embedding_index('category', string_embed=clip_text)
+            img_t.add_embedding_index('category', string_embed=clip)
         assert 'must take a single string parameter' in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error) as exc_info:
@@ -451,8 +451,8 @@ class TestIndex:
             img_t.drop_embedding_index(column=img_t.img)
         assert "column 'img' does not have an index" in str(exc_info.value).lower()
 
-        img_t.add_embedding_index('img', idx_name='embed0', image_embed=clip_img_embed, string_embed=clip_text_embed)
-        img_t.add_embedding_index('img', idx_name='embed1', image_embed=clip_img_embed, string_embed=clip_text_embed)
+        img_t.add_embedding_index('img', idx_name='embed0', image_embed=clip_embed, string_embed=clip_embed)
+        img_t.add_embedding_index('img', idx_name='embed1', image_embed=clip_embed, string_embed=clip_embed)
 
         with pytest.raises(pxt.Error) as exc_info:
             img_t.drop_embedding_index(column='img')

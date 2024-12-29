@@ -226,7 +226,7 @@ class Dumper:
         add_column('test_udf_batched', test_udf_stored_batched(t.c1, upper=False))  # batched stored udf
         if include_expensive_functions:
             # batched library function
-            add_column('batched', pxt.functions.huggingface.clip_text(t.c1, model_id='openai/clip-vit-base-patch32'))
+            add_column('batched', pxt.functions.huggingface.clip(t.c1, model_id='openai/clip-vit-base-patch32'))
 
         # image_member_access
         add_column('image_mode', t.c8.mode)
@@ -276,14 +276,14 @@ class Dumper:
 
         t.add_embedding_index(
             f'{col_prefix}_function_call',
-            string_embed=pxt.functions.huggingface.clip_text.using(model_id='openai/clip-vit-base-patch32')
+            string_embed=pxt.functions.huggingface.clip.using(model_id='openai/clip-vit-base-patch32')
         )
 
         if t.get_metadata()['is_view']:
             # Add an embedding index to the view that is on a column in the base table
             t.add_embedding_index(
                 'base_table_function_call',
-                string_embed=pxt.functions.huggingface.clip_text.using(model_id='openai/clip-vit-base-patch32')
+                string_embed=pxt.functions.huggingface.clip.using(model_id='openai/clip-vit-base-patch32')
             )
 
         # query()

@@ -6,23 +6,22 @@ import random
 import urllib.parse
 from pathlib import Path
 from typing import Any, Optional
-import dataclasses
 
-import PIL.Image
 import more_itertools
 import numpy as np
 import pandas as pd
+import PIL.Image
 import pytest
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
+import pixeltable.utils.s3 as s3_util
 from pixeltable import catalog
 from pixeltable.catalog.globals import UpdateStatus
 from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
-from pixeltable.functions.huggingface import clip_image, clip_text, sentence_transformer
+from pixeltable.functions.huggingface import clip, sentence_transformer
 from pixeltable.io import SyncStatus
-import pixeltable.utils.s3 as s3_util
 
 
 def make_default_type(t: pxt.ColumnType.Type) -> pxt.ColumnType:
@@ -536,8 +535,7 @@ def reload_catalog() -> None:
     pxt.init()
 
 
-clip_img_embed = clip_image.using(model_id='openai/clip-vit-base-patch32')
-clip_text_embed = clip_text.using(model_id='openai/clip-vit-base-patch32')
+clip_embed = clip.using(model_id='openai/clip-vit-base-patch32')
 e5_embed = sentence_transformer.using(model_id='intfloat/e5-large-v2')
 
 
