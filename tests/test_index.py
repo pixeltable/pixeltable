@@ -427,7 +427,7 @@ class TestIndex:
 
         with pytest.raises(pxt.Error) as exc_info:
             img_t.add_embedding_index('category', string_embed=self.bad_embed2)
-        assert 'must return a 1d array of a specific length' in str(exc_info.value).lower()
+        assert 'must return a 1-dimensional array of a specific length' in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error) as exc_info:
             img_t.drop_embedding_index()
