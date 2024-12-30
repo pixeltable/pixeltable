@@ -76,9 +76,9 @@ def _get_or_drop_existing_path(
         # Any errors during drop will be raised.
         _logger.info(f"Dropping {obj_type_str} `{path_str}` to replace it.")
         if isinstance(existing_path, catalog.Dir):
-            drop_dir(path_str, force=True, ignore_errors=False)
+            drop_dir(path_str, force=True)
         else:
-            drop_table(path_str, force=True, ignore_errors=False)
+            drop_table(path_str, force=True)
         assert cat.paths.get_object(path) is None
 
     return None
@@ -436,16 +436,22 @@ def move(path: str, new_path: str) -> None:
     obj._move(new_p.name, new_dir._id)
 
 
-def drop_table(table: Union[str, catalog.Table], force: bool = False, ignore_errors: bool = False) -> None:
+def drop_table(table: Union[str, catalog.Table], force: bool = False,
+    if_not_exists: Literal['error', 'ignore'] = 'error') -> None:
     """Drop a table, view, or snapshot.
 
     Args:
         table: Fully qualified name, or handle, of the table to be dropped.
         force: If `True`, will also drop all views and sub-views of this table.
-        ignore_errors: If `True`, return silently if the table does not exist (without throwing an exception).
+        if_not_exists: Directive regarding how to handle if the path does not exist.
+            Must be one of the following:
+            - `'error'`: raise an error
+            - `'ignore'`: do nothing and return
+            Default is `'error'`.
 
     Raises:
-        Error: If the name does not exist or does not designate a table object, and `ignore_errors=False`.
+        Error: If the name is invalid, or name does not exist and `if_not_exists='error'`,
+            or does not designate a table object, or has dependents and `force='False'`.
 
     Examples:
         Drop a table by its fully qualified name:
@@ -455,19 +461,25 @@ def drop_table(table: Union[str, catalog.Table], force: bool = False, ignore_err
         >>> t = pxt.get_table('subdir.my_table')
         ... pxt.drop_table(t)
 
+        Drop a table if it exists, otherwise do nothing:
+        >>> pxt.drop_table('subdir.my_table', if_not_exists='ignore')
+
+        Drop a table and all its dependents:
+        >>> pxt.drop_table('subdir.my_table', force=True)
     """
     cat = Catalog.get()
     if isinstance(table, str):
         tbl_path_obj = catalog.Path(table)
-        try:
-            cat.paths.check_is_valid(tbl_path_obj, expected=catalog.Table)
-        except Exception as e:
-            if ignore_errors or force:
+        tbl = cat.paths.get_object(tbl_path_obj)
+        if tbl is None:
+            _if_not_exists = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
+            if _if_not_exists == catalog.IfNotExistsParam.IGNORE or force:
                 _logger.info(f'Skipped table `{table}` (does not exist).')
                 return
             else:
-                raise e
-        tbl = cat.paths[tbl_path_obj]
+                raise excs.Error(f'Table `{table}` does not exist.')
+        if not isinstance(tbl, catalog.Table):
+            raise excs.Error(f'{tbl} needs to be a {catalog.Table._display_name()} but is a {type(tbl)._display_name()}')
     else:
         tbl = table
         tbl_path_obj = catalog.Path(tbl._path)
@@ -578,37 +590,53 @@ def create_dir(path_str: str, if_exists: Literal['error', 'ignore', 'replace', '
         print(f'Created directory `{path_str}`.')
         return dir
 
-def drop_dir(path_str: str, force: bool = False, ignore_errors: bool = False) -> None:
+def drop_dir(path_str: str, force: bool = False, if_not_exists: Literal['error', 'ignore'] = 'error') -> None:
     """Remove a directory.
 
     Args:
         path_str: Name or path of the directory.
         force: If `True`, will also drop all tables and subdirectories of this directory, recursively, along
             with any views or snapshots that depend on any of the dropped tables.
-        ignore_errors: if `True`, will return silently instead of throwing an exception if the directory
-            does not exist.
+        if_not_exists: Directive regarding how to handle if the path does not exist.
+            Must be one of the following:
+            - `'error'`: raise an error
+            - `'ignore'`: do nothing and return
+            Default is `'error'`.
 
     Raises:
-        Error: If the path does not exist or does not designate a directory, or if the directory is not empty.
+        Error: If the path is invalid, or does not exist and `if_not_exists='error'`,
+            or is not designate a directory, or if the directory is not empty and `force` is False.
 
     Examples:
+        Remove a directory, if it exists and is empty:
         >>> pxt.drop_dir('my_dir')
 
         Remove a subdirectory:
 
         >>> pxt.drop_dir('my_dir.sub_dir')
+
+        Remove an existing directory if it is empty, but do nothing if it does not exist:
+
+        >>> pxt.drop_dir('my_dir.sub_dir', if_not_exists='ignore')
+
+        Remove an existing directory and all its contents:
+
+        >>> pxt.drop_dir('my_dir', force=True)
     """
     cat = Catalog.get()
     path = catalog.Path(path_str)
-
-    try:
-        cat.paths.check_is_valid(path, expected=catalog.Dir)
-    except Exception as e:
-        if ignore_errors or force:
-            _logger.info(f'Skipped directory `{path}` (does not exist).')
+    obj = cat.paths.get_object(path)
+    if obj is None:
+        _if_not_exists = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
+        if _if_not_exists == catalog.IfNotExistsParam.IGNORE or force:
+            _logger.info(f'Skipped directory `{path_str}` (does not exist).')
             return
         else:
-            raise e
+            raise excs.Error(f'Directory `{path_str}` does not exist.')
+
+    if not isinstance(obj, catalog.Dir):
+        raise excs.Error(
+            f'{str(path)} needs to be a {catalog.Dir._display_name()} but is a {type(obj)._display_name()}')
 
     children = cat.paths.get_children(path, child_type=None, recursive=True)
 
