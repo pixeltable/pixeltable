@@ -12,7 +12,8 @@ import pixeltable as pxt
 from pixeltable.functions.huggingface import clip_image, clip_text
 
 from .utils import (assert_img_eq, clip_img_embed, clip_text_embed, e5_embed, reload_catalog,
-                    skip_test_if_not_installed, validate_update_status, ReloadTester, get_sentences, assert_resultset_eq)
+                    skip_test_if_not_installed, validate_update_status, ReloadTester, get_sentences, assert_resultset_eq,
+                    assert_raises_error, get_raised_error)
 
 
 class TestIndex:
@@ -214,6 +215,91 @@ class TestIndex:
         t.add_embedding_index('img', idx_name='clip_idx', image_embed=clip_img_embed, string_embed=clip_text_embed)
         res = t.select(t.img.localpath).order_by(t.img.similarity(sample_img, idx='clip_idx'), asc=False).limit(3).collect()
         assert_resultset_eq(orig_res, res, True)
+
+    def test_add_embedding_index_if_exists(self, small_img_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
+        skip_test_if_not_installed('transformers')
+        t = small_img_tbl
+        sample_img = t.select(t.img).head(1)[0, 'img']
+        initial_indexes = len(t._list_index_info_for_test())
+
+        t.add_embedding_index('img', idx_name='clip_idx', image_embed=clip_img_embed, string_embed=clip_text_embed)
+        indexes = t._list_index_info_for_test()
+        assert len(indexes) == initial_indexes + 1
+        assert 'clip_idx' == indexes[initial_indexes]['_name']
+        clip_idx_id_before = indexes[initial_indexes]['_id']
+
+        # when index name is not provided, the index is created with
+        # a newly generated name. And if_exists parameter does not apply
+        # and will be ignored.
+        t.add_embedding_index('img', image_embed=clip_img_embed, string_embed=clip_text_embed, if_exists='error')
+        assert len(t._list_index_info_for_test()) == initial_indexes + 2
+
+        t.add_embedding_index('img', image_embed=clip_img_embed, string_embed=clip_text_embed, if_exists='invalid')
+        assert len(t._list_index_info_for_test()) == initial_indexes + 3
+
+        # when index name is provided, if_exists parameter is applied.
+        # invalid value is rejected.
+        assert_raises_error(
+            "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']",
+            t.add_embedding_index, 'img', idx_name='clip_idx', image_embed=clip_img_embed, string_embed=clip_text_embed, if_exists='invalid'
+        )
+        assert len(t._list_index_info_for_test()) == initial_indexes + 3
+
+        # if_exists='error' raises an error if the index name already exists.
+        # by default, if_exists='error'.
+        expected_err = 'duplicate index name'
+        assert_raises_error(
+            expected_err, t.add_embedding_index, 'img', idx_name='clip_idx',
+            image_embed=clip_img_embed, string_embed=clip_text_embed
+        )
+        assert_raises_error(
+            expected_err, t.add_embedding_index, 'img', idx_name='clip_idx',
+            image_embed=clip_img_embed, string_embed=clip_text_embed, if_exists='error'
+        )
+        assert len(t._list_index_info_for_test()) == initial_indexes + 3
+
+        # if_exists='ignore' does nothing if the index name already exists.
+        t.add_embedding_index('img', idx_name='clip_idx', image_embed=clip_img_embed, string_embed=clip_text_embed, if_exists='ignore')
+        indexes = t._list_index_info_for_test()
+        assert len(indexes) == initial_indexes + 3
+        assert 'clip_idx' == indexes[initial_indexes]['_name']
+        assert clip_idx_id_before == indexes[initial_indexes]['_id']
+
+        # cannot use if_exists to ignore or replace an existing index
+        # that is not an embedding (like, default btree indexes).
+        assert 'idx0' == indexes[0]['_name']
+        for _ie in ['ignore', 'replace', 'replace_force']:
+            assert_raises_error(
+                'not an embedding index', t.add_embedding_index, 'img', idx_name='idx0',
+                image_embed=clip_img_embed, string_embed=clip_text_embed, if_exists=_ie
+            )
+        indexes = t._list_index_info_for_test()
+        assert len(indexes) == initial_indexes + 3
+        assert 'idx0' == indexes[0]['_name']
+        assert 'clip_idx' == indexes[initial_indexes]['_name']
+
+        # if_exists='replace' replaces the existing index with the new one.
+        t.add_embedding_index('img', idx_name='clip_idx', image_embed=clip_img_embed, string_embed=clip_text_embed, if_exists='replace')
+        indexes = t._list_index_info_for_test()
+        assert len(indexes) == initial_indexes + 3
+        assert 'clip_idx' != indexes[initial_indexes]['_name']
+        assert 'clip_idx' == indexes[initial_indexes+2]['_name']
+        assert clip_idx_id_before != indexes[initial_indexes+2]['_id']
+
+        # sanity check: use the replaced index to run a query.
+        # use the index hint in similarity function to ensure clip_idx is used.
+        _ = t.select(t.img.localpath).order_by(t.img.similarity(sample_img, idx='clip_idx'), asc=False).limit(3).collect()
+
+        # sanity check persistence
+        _ = reload_tester.run_query(t.select(t.img.localpath).order_by(t.img.similarity(sample_img, idx='clip_idx'), asc=False).limit(3))
+        # bug: the index hint is not used in the similarity function
+        # when we reload the metadata and run the query. PXT-382 tracks
+        # it and a fix pending under PR 411. To workaround, drop all
+        # other indexes on img column first to ensure clip_idx is used.
+        for idx in indexes:
+            if idx['_name'] != 'clip_idx':
+                t.drop_embedding_index(idx_name=idx['_name'])
+        _ = reload_tester.run_reload_test()
 
     def test_embedding_basic(self, img_tbl: pxt.Table, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
         skip_test_if_not_installed('transformers')
