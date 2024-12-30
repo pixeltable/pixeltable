@@ -374,9 +374,9 @@ class TestLabelStudio:
         )
         assert not v.frame.col.is_stored
         assert v.count() == 10
-        v['rot_frame'] = v.frame.rotate(180)
-        v['header'] = format('Frame Number {0}', v.frame_idx)
-        v['text'] = pxt.String
+        v.add_computed_column(rot_frame=v.frame.rotate(180))
+        v.add_computed_column(header=format('Frame Number {0}', v.frame_idx))
+        v.add_column(text=pxt.String)
         v.update({'text': 'Initial text'})
 
         sync_status = pxt.io.create_label_studio_project(v, self.test_config_complex, media_import_method='file', name='complex_project')

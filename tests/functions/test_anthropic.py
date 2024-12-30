@@ -15,8 +15,8 @@ class TestAnthropic:
         t = pxt.create_table('test_tbl', {'input': pxt.String})
 
         msgs = [{'role': 'user', 'content': t.input}]
-        t['output'] = messages(messages=msgs, model='claude-3-haiku-20240307')
-        t['output2'] = messages(
+        t.add_computed_column(output=messages(messages=msgs, model='claude-3-haiku-20240307'))
+        t.add_computed_column(output2=messages(
             messages=msgs,
             model='claude-3-haiku-20240307',
             max_tokens=300,
@@ -26,7 +26,7 @@ class TestAnthropic:
             temperature=0.7,
             top_k=40,
             top_p=0.9,
-        )
+        ))
         validate_update_status(t.insert(input="How's everything going today?"), 1)
         results = t.collect()
         assert len(results['output'][0]['content'][0]['text']) > 0

@@ -16,8 +16,8 @@ class TestMistral:
         t = pxt.create_table('test_tbl', {'input': pxt.String})
 
         msgs = [{'role': 'user', 'content': t.input}]
-        t['output'] = chat_completions(messages=msgs, model='mistral-small-latest')
-        t['output2'] = chat_completions(
+        t.add_computed_column(output=chat_completions(messages=msgs, model='mistral-small-latest'))
+        t.add_computed_column(output2=chat_completions(
             messages=msgs,
             model='mistral-small-latest',
             temperature=0.8,
@@ -27,7 +27,7 @@ class TestMistral:
             random_seed=4171780,
             response_format={'type': 'text'},
             safe_prompt=True
-        )
+        ))
         validate_update_status(t.insert(input="What three species of fish have the highest mercury content?"), 1)
         results = t.collect()
         assert len(results['output'][0]['choices'][0]['message']['content']) > 0
@@ -40,8 +40,8 @@ class TestMistral:
         skip_test_if_no_client('mistral')
         t = pxt.create_table('test_tbl', {'input': pxt.String, 'suffix': pxt.String})
 
-        t['output'] = fim_completions(prompt=t.input, model='codestral-latest')
-        t['output2'] = fim_completions(
+        t.add_computed_column(output=fim_completions(prompt=t.input, model='codestral-latest'))
+        t.add_computed_column(output2=fim_completions(
             prompt=t.input,
             model='codestral-latest',
             temperature=0.8,
@@ -50,7 +50,7 @@ class TestMistral:
             stop=['def'],
             random_seed=4171780,
             suffix=t.suffix
-        )
+        ))
         status = t.insert([
             {'input': 'def fibonacci(n: int):'},
             {'input': 'def fibonacci(n: int):', 'suffix': 'n = int(input("Enter a number: "))\nprint(fibonacci(n))'}
