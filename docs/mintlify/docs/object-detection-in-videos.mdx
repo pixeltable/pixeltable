@@ -1,0 +1,441 @@
+---
+title: "Comparing Object Detection Models"
+
+---
+
+[![Kaggle](\images\docs\static\images\open-in-kaggle.svg)](https://kaggle.com/kernels/welcome?src=https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/use-cases/object-detection-in-videos.ipynb) [![Colab](\images\docs\assets\colab-badge.svg)](https://colab.research.google.com/github.com/pixeltable/pixeltable/blob/main/docs/notebooks/use-cases/object-detection-in-videos.ipynb)
+
+# Object Detection in Videos
+
+In this tutorial, we'll demonstrate how to use Pixeltable to do frame-by-frame object detection, made simple through Pixeltable's video-related functionality:
+
+* automatic frame extraction
+* running complex functions against frames (in this case, the YOLOX object detection models)
+* reassembling frames back into videos We'll be working with a single video file from Pixeltable's test data repository.
+
+This tutorial assumes you've worked through the [Pixeltable Basics](/docs/pixeltable-basics) tutorial; if you haven't, it's probably a good idea to do so now.
+
+## Creating a tutorial directory and table
+
+First, let's make sure the packages we need for this tutorial are installed: Pixeltable itself, and the YOLOX object detection library.
+
+<CodeGroup>
+  ```python python
+  %pip install -qU pixeltable git+https://github.com/Megvii-BaseDetection/YOLOX@ac58e0a
+  ```
+</CodeGroup>
+
+As we saw in the Pixeltable Basics tutorial, all data in Pixeltable is stored in tables, which in turn reside in directories. We'll begin by creating a `video_tutorial` directory and a table to hold our videos, with a single column.
+
+<CodeGroup>
+  ```python python
+  import pixeltable as pxt
+
+  # Ensure a clean slate for the demo
+  pxt.drop_dir('video_tutorial', force=True)
+  pxt.create_dir('video_tutorial')
+
+  # Create the `videos` table
+  videos_table = pxt.create_table(
+      'video_tutorial.videos',
+      {'video': pxt.Video}
+  )
+  ```
+</CodeGroup>
+
+```
+Connected to Pixeltable database at: 
+postgresql://postgres:@/pixeltable?host=/Users/asiegel/.pixeltable/pgdata
+Created directory `video_tutorial`.
+Created table `videos`.
+```
+
+In order to interact with the frames, we take advantage of Pixeltable's component view concept: we create a "view" of our video table that contains one row for each frame of each video in the table. Pixeltable provides the built-in `FrameIterator` class for this.
+
+<CodeGroup>
+  ```python python
+  from pixeltable.iterators import FrameIterator
+
+  frames_view = pxt.create_view(
+      'video_tutorial.frames',
+      videos_table,
+      # `fps` determines the frame rate; a value of `0`
+      # indicates the native frame rate of the video.
+      iterator=FrameIterator.create(video=videos_table.video, fps=0)
+  )
+  ```
+</CodeGroup>
+
+```
+Created view `frames` with 0 rows, 0 exceptions.
+```
+
+You'll see that neither the `videos` table nor the `frames` view has any actual data yet, because we haven't yet added any videos to the table. However, the `frames` view is now configured to automatically track the `videos` table as new data shows up.
+
+The new view is automatically configured with six columns:
+
+* `pos` - a system column that is part of every component view
+* `video` - the column inherited from our base table (all base table columns are visible in any of its views)
+* `frame_idx`, `pos_msec`, `pos_frame`, `frame` - these four columns are created by the `FrameIterator` class.
+
+Let's have a look at the new view:
+
+<CodeGroup>
+  ```python python
+  frames_view
+  ```
+</CodeGroup>
+
+| Column Name | Type  | Computed With |
+| ----------- | ----- | ------------- |
+| pos         | int   |               |
+| frame\_idx  | int   |               |
+| pos\_msec   | float |               |
+| pos\_frame  | float |               |
+| frame       | image |               |
+| video       | video |               |
+
+We'll now insert a single row into the videos table, containing a video of a busy intersection in Bangkok.
+
+<CodeGroup>
+  ```python python
+  videos_table.insert([
+      {
+          'video': 'https://raw.github.com/pixeltable/pixeltable/release/docs/source/data/bangkok.mp4'
+      }
+  ])
+  ```
+</CodeGroup>
+
+```
+Inserting rows into `videos`: 1 rows [00:00, 883.38 rows/s]
+Inserting rows into `frames`: 462 rows [00:00, 12052.52 rows/s]
+Inserted 463 rows with 0 errors.
+
+UpdateStatus(num_rows=463, num_computed_values=0, num_excs=0, updated_cols=[], cols_with_excs=[])
+```
+
+Notice that both the `videos` table and `frames` view were automatically updated, expanding the single video into 462 rows in the view. Let's have a look at `videos` first.
+
+<CodeGroup>
+  ```python python
+  videos_table.show()
+  ```
+</CodeGroup>
+
+![](\images\docs\9b3cf107d5d98ccbd8d6dc7d5d17e80852e38bdd9497dbbe596120b7aac18001-image.png)
+
+Now let's peek at the first five rows of `frames`:
+
+<CodeGroup>
+  ```python python
+  frames_view.select(
+      frames_view.pos,
+      frames_view.frame,
+      frames_view.frame.width,
+      frames_view.frame.height
+  ).show(5)
+  ```
+</CodeGroup>
+
+![](\images\docs\713602dbfc625d6ef310979f9dfabf68f3a96eca7b52db3af1d8eedb8ccd9cda-image.png)
+
+One advantage of using Pixeltable's component view mechanism is that Pixeltable does not physically store the frames. Instead, Pixeltable re-extracts the frames on retrieval using the frame index, which can be done very efficiently and avoids any storage overhead (which can be quite substantial for video frames).
+
+## Object Detection with Pixeltable
+
+Now let's apply an object detection model to our frames. Pixeltable includes built-in support for a number of models; we're going to use the YOLOX family of models, which are lightweight models with solid performance. We first import the `yolox` Pixeltable function.
+
+<CodeGroup>
+  ```python python
+  from pixeltable.ext.functions.yolox import yolox
+  ```
+</CodeGroup>
+
+Pixeltable functions operate on columns and expressions using standard Python function call syntax. Here's an example that shows how we might experiment with applying one of the YOLOX models to the first few frames in our video, using Pixeltable's powerful `select` comprehension.
+
+<CodeGroup>
+  ```python python
+  # Show the results of applying the `yolox_tiny` model
+  # to the first few frames in the table.
+
+  frames_view.select(
+      frames_view.frame,
+      yolox(frames_view.frame, model_id='yolox_tiny')
+  ).show(3)
+  ```
+</CodeGroup>
+
+![](\images\docs\b537e0572b9157c22a859ce87526e667274fbaa5df41d2959f3014d0e0671a77-image.png)
+
+It may appear that we just ran the YOLOX inference over the entire view of 462 frames, but remember that Pixeltable evaluates expressions lazily: in this case, it only ran inference over the 3 frames that we actually displayed.
+
+The inference output looks like what we'd expect, so let's add a *computed column* that runs inference over the entire view (we first encountered computed columns in the Pixeltable Basics tutorial). Remember that once a computed column is created, Pixeltable will update it incrementally any time new rows are added to the view. This is a convenient way to incorporate inference (and other operations) into data workflows.
+
+<CodeGroup>
+  ```python python
+  # Create a computed column to compute detections using the `yolox_tiny`
+  # model.
+  # We'll adjust the confidence threshold down a bit (the default is 0.5)
+  # to pick up even more bounding boxes.
+
+  frames_view.add_computed_column(detect_yolox_tiny=yolox(
+      frames_view.frame, model_id='yolox_tiny', threshold=0.25
+  ))
+  ```
+</CodeGroup>
+
+```
+Computing cells: 100%|████████████████████████████████████████| 462/462 [00:28<00:00, 16.43 cells/s]
+Added 462 column values with 0 errors.
+```
+
+The new column is now part of the schema of the `frames` view:
+
+<CodeGroup>
+  ```python python
+  frames_view
+  ```
+</CodeGroup>
+
+| Column Name         | Type  | Computed With                                         |
+| ------------------- | ----- | ----------------------------------------------------- |
+| pos                 | int   |                                                       |
+| frame\_idx          | int   |                                                       |
+| pos\_msec           | float |                                                       |
+| pos\_frame          | float |                                                       |
+| frame               | image |                                                       |
+| detect\_yolox\_tiny | json  | yolox(frame, threshold=0.25, model\_id='yolox\_tiny') |
+| video               | video |                                                       |
+
+The data in the computed column is now stored for fast retrieval.
+
+<CodeGroup>
+  ```python python
+  frames_view.select(
+      frames_view.frame,
+      frames_view.detect_yolox_tiny
+  ).show(3)
+  ```
+</CodeGroup>
+
+![](\images\docs\7320720b2585450749f54233d480fb69b9f43fa526310a93e23f05433faba107-image.png)
+
+Now let's create a new set of images, in which we superimpose the detected bounding boxes on top of the original images. There's no built-in Pixeltable function to do this, but we can easily create our own. We'll use the `@pxt.udf` decorator for this, as we first saw in the Pixeltable Basics tutorial.
+
+<CodeGroup>
+  ```python python
+  import PIL.Image
+  import PIL.ImageDraw
+
+  @pxt.udf
+  def draw_boxes(
+      img: PIL.Image.Image, boxes: list[list[float]]
+  ) -> PIL.Image.Image:
+      result = img.copy()  # Create a copy of `img`
+      d = PIL.ImageDraw.Draw(result)
+      for box in boxes:
+          # Draw bounding box rectangles on the copied image
+          d.rectangle(box, width=3)
+      return result
+  ```
+</CodeGroup>
+
+This function takes two arguments, `img` and `boxes`, and returns the new, annotated image. We could create a new computed column to hold the annotated images, but we don't have to; sometimes it's easier just to use a `select` comprehension, as we did when we were first experimenting with the detection model.
+
+<CodeGroup>
+  ```python python
+  frames_view.select(
+      frames_view.frame,
+      draw_boxes(
+          frames_view.frame,
+          frames_view.detect_yolox_tiny.bboxes
+      )
+  ).show(1)
+  ```
+</CodeGroup>
+
+![](\images\docs\b35e1a4205515541d82e22c4ddf9faf83fcfa6f366baf04982f176a490df6cd5-image.png)
+
+Our `select` comprehension ranged over the entire table, but just as before, Pixeltable computes the output lazily: image operations are performed at retrieval time, so in this case, Pixeltable drew the annotations just for the one frame that we actually displayed.
+
+Looking at individual frames gives us some idea of how well our detection algorithm works, but it would be more instructive to turn the visualization output back into a video.
+
+We do that with the built-in function `make_video()`, which is an aggregation function that takes a frame index (actually: any expression that can be used to order the frames; a timestamp would also work) and an image, and then assembles the sequence of images into a video.
+
+<CodeGroup>
+  ```python python
+  frames_view.group_by(videos_table).select(
+      pxt.functions.video.make_video(
+          frames_view.pos,
+          draw_boxes(
+              frames_view.frame,
+              frames_view.detect_yolox_tiny.bboxes
+          )
+      )
+  ).show(1)
+  ```
+</CodeGroup>
+
+![](\images\docs\76013e654275e481752a4dfa18a99533265bea68988df4eb3f35739d8446ed5a-image.png)
+
+## Comparing Object Detection Models
+
+Now suppose we want to experiment with a more powerful object detection model, to see if there is any improvement in detection quality. We can create an additional column to hold the new inferences. The larger model takes longer to download and run, so please be patient.
+
+<CodeGroup>
+  ```python python
+  # Here we use the larger `yolox_m` (medium) model.
+
+  frames_view.add_computed_column(detect_yolox_m=yolox(
+      frames_view.frame, model_id='yolox_m', threshold=0.25
+  ))
+  ```
+</CodeGroup>
+
+```
+Computing cells: 100%|████████████████████████████████████████| 462/462 [02:13<00:00,  3.45 cells/s]
+Added 462 column values with 0 errors.
+```
+
+Let's see the results of the two models side-by-side.
+
+<CodeGroup>
+  ```python python
+  frames_view.group_by(videos_table).select(
+      pxt.functions.video.make_video(
+          frames_view.pos,
+          draw_boxes(
+              frames_view.frame,
+              frames_view.detect_yolox_tiny.bboxes
+          )
+      ),
+      pxt.functions.video.make_video(
+          frames_view.pos,
+          draw_boxes(
+              frames_view.frame,
+              frames_view.detect_yolox_m.bboxes
+          )
+      )
+  ).show(1)
+  ```
+</CodeGroup>
+
+![](\images\docs\8cd849f7cf8052da770fc413d7ae155179e34c1d1a099acb948526745425d041-image.png)
+
+Running the videos side-by-side, we can see that the larger model is higher in quality: less flickering, with more stable boxes from frame to frame.
+
+## Evaluating Models Against a Ground Truth
+
+In order to do a quantitative evaluation of model performance, we need a ground truth to compare them against. Let's generate some (synthetic) "ground truth" data by running against the largest YOLOX model available. It will take even longer to cache and evaluate this model.
+
+<CodeGroup>
+  ```python python
+  frames_view.add_computed_column(detect_yolox_x=yolox(
+      frames_view.frame, model_id='yolox_x', threshold=0.25
+  ))
+  ```
+</CodeGroup>
+
+```
+Computing cells: 100%|████████████████████████████████████████| 462/462 [05:46<00:00,  1.33 cells/s]
+Added 462 column values with 0 errors.
+```
+
+Let's have a look at our enlarged view, now with three `detect` columns.
+
+<CodeGroup>
+  ```python python
+  frames_view
+  ```
+</CodeGroup>
+
+| Column Name         | Type  | Computed With                                         |
+| ------------------- | ----- | ----------------------------------------------------- |
+| pos                 | int   |                                                       |
+| frame\_idx          | int   |                                                       |
+| pos\_msec           | float |                                                       |
+| pos\_frame          | float |                                                       |
+| frame               | image |                                                       |
+| detect\_yolox\_tiny | json  | yolox(frame, threshold=0.25, model\_id='yolox\_tiny') |
+| detect\_yolox\_m    | json  | yolox(frame, threshold=0.25, model\_id='yolox\_m')    |
+| detect\_yolox\_x    | json  | yolox(frame, threshold=0.25, model\_id='yolox\_x')    |
+| video               | video |                                                       |
+
+We're going to be evaluating the generated detections with the commonly-used [mean average precision](https://learnopencv.com/mean-average-precision-map-object-detection-model-evaluation-metric/) metric (mAP).
+
+The mAP metric is based on per-frame metrics, such as true and false positives per detected class, which are then aggregated into a single (per-class) number. In Pixeltable, functionality is available via the `eval_detections()` and `mean_ap()` built-in functions.
+
+<CodeGroup>
+  ```python python
+  from pixeltable.functions.vision import eval_detections, mean_ap
+
+  frames_view.add_computed_column(eval_yolox_tiny=eval_detections(
+      pred_bboxes=frames_view.detect_yolox_tiny.bboxes,
+      pred_labels=frames_view.detect_yolox_tiny.labels,
+      pred_scores=frames_view.detect_yolox_tiny.scores,
+      gt_bboxes=frames_view.detect_yolox_x.bboxes,
+      gt_labels=frames_view.detect_yolox_x.labels
+  ))
+
+  frames_view.add_computed_column(eval_yolox_m=eval_detections(
+      pred_bboxes=frames_view.detect_yolox_m.bboxes,
+      pred_labels=frames_view.detect_yolox_m.labels,
+      pred_scores=frames_view.detect_yolox_m.scores,
+      gt_bboxes=frames_view.detect_yolox_x.bboxes,
+      gt_labels=frames_view.detect_yolox_x.labels
+  ))
+  ```
+</CodeGroup>
+
+```
+Computing cells: 100%|██████████████████████████████████████| 462/462 [00:00<00:00, 1233.34 cells/s]
+Added 462 column values with 0 errors.
+Computing cells: 100%|██████████████████████████████████████| 462/462 [00:00<00:00, 1189.61 cells/s]
+Added 462 column values with 0 errors.
+Computing cells: 100%|███████████████████████████████████████| 462/462 [00:00<00:00, 931.50 cells/s]
+Added 462 column values with 0 errors.
+```
+
+Let's take a look at the output.
+
+<CodeGroup>
+  ```python python
+  frames_view.select(
+      frames_view.eval_yolox_tiny,
+      frames_view.eval_yolox_m
+  ).show(1)
+  ```
+</CodeGroup>
+
+| eval\_yolox\_tiny                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | eval\_yolox\_m                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| \[\{"fp": \[], "tp": \[], "class": 0, "scores": \[], "min\_iou": 0.5, "num\_gts": 4}, \{"fp": \[0, 0, 0, 0, 0, 0, ..., 0, 1, 1, 1, 1, 1], "tp": \[1, 1, 1, 1, 1, 1, ..., 1, 0, 0, 0, 0, 0], "class": 2, "scores": \[0.841, 0.773, 0.765, 0.751, 0.71, 0.662, ..., 0.332, 0.319, 0.3, 0.278, 0.253, 0.25], "min\_iou": 0.5, "num\_gts": 25}, \{"fp": \[0], "tp": \[1], "class": 3, "scores": \[0.607], "min\_iou": 0.5, "num\_gts": 2}, \{"fp": \[0, 1, 0, 1], "tp": \[1, 0, 1, 0], "class": 7, "scores": \[0.488, 0.469, 0.294, 0.281], "min\_iou": 0.5, "num\_gts": 5}, \{"fp": \[], "tp": \[], "class": 62, "scores": \[], "min\_iou": 0.5, "num\_gts": 1}] | \[\{"fp": \[0, 0, 0], "tp": \[1, 1, 1], "class": 0, "scores": \[0.447, 0.403, 0.394], "min\_iou": 0.5, "num\_gts": 4}, \{"fp": \[0, 0, 0, 0, 0, 0, ..., 1, 0, 0, 1, 0, 1], "tp": \[1, 1, 1, 1, 1, 1, ..., 0, 1, 1, 0, 1, 0], "class": 2, "scores": \[0.934, 0.901, 0.901, 0.887, 0.886, 0.878, ..., 0.441, 0.434, 0.392, 0.346, 0.333, 0.264], "min\_iou": 0.5, "num\_gts": 25}, \{"fp": \[0, 1, 0, 1], "tp": \[1, 0, 1, 0], "class": 3, "scores": \[0.86, 0.633, 0.542, 0.401], "min\_iou": 0.5, "num\_gts": 2}, \{"fp": \[0, 0, 0], "tp": \[1, 1, 1], "class": 7, "scores": \[0.718, 0.479, 0.299], "min\_iou": 0.5, "num\_gts": 5}, \{"fp": \[], "tp": \[], "class": 62, "scores": \[], "min\_iou": 0.5, "num\_gts": 1}] |
+
+The computation of the mAP metric is now simply a query over the evaluation output, aggregated with the `mean_ap()` function.
+
+<CodeGroup>
+  ```python python
+  frames_view.select(
+      mean_ap(frames_view.eval_yolox_tiny),
+      mean_ap(frames_view.eval_yolox_m)
+  ).show()
+  ```
+</CodeGroup>
+
+| col\_0                                                                                  | col\_1                                                                              |
+| --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| \{0: 0.108, 2: 0.623, 3: 0.278, 7: 0.093, 62: 0., 5: 0.03, 58: 0., 8: 0., 9: 0., 1: 0.} | \{0: 0.594, 2: 0.912, 3: 0.723, 7: 0.525, 62: 0., 58: 0.042, 4: 0., 1: 0., 5: 0.65} |
+
+This two-step process allows you to compute mAP at every granularity: over your entire dataset, only for specific videos, only for videos that pass a certain filter, etc. Moreover, you can compute this metric any time, not just during training, and use it to guide your understanding of your dataset and how it affects the quality of your models.
+
+***
+
+* [Table of Contents](#)
+
+* * [Object Detection in Videos](#object-detection-in-videos)
+
+    * [Creating a tutorial directory and table](#creating-a-tutorial-directory-and-table)
+    * [Object Detection with Pixeltable](#object-detection-with-pixeltable)
+    * [Comparing Object Detection Models](#comparing-object-detection-models)
+    * [Evaluating Models Against a Ground Truth](#evaluating-models-against-a-ground-truth)

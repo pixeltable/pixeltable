@@ -1,0 +1,199 @@
+---
+title: "Replicate"
+
+---
+
+[![Kaggle](\images\docs\static\images\open-in-kaggle.svg)](https://kaggle.com/kernels/welcome?src=https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-replicate.ipynb) [![Colab](\images\docs\assets\colab-badge.svg)](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-replicate.ipynb) [![Download Notebook](\images\docs\badge\⬇-Download-Notebook-blue)](https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/notebooks/integrations/working-with-replicate.ipynb)
+
+# Working with Replicate in Pixeltable
+
+Pixeltable's Replicate integration enables you to access Replicate's models via the Replicate API.
+
+### Prerequisites
+
+* A Replicate account with an API token.
+
+### Important Notes
+
+* Replicate usage may incur costs based on your Replicate plan.
+* Be mindful of sensitive data and consider security measures when integrating with external services.
+
+First you'll need to install required libraries and enter a Replicate API token.
+
+<CodeGroup>
+  ```python python
+  %pip install -qU pixeltable replicate
+  ```
+</CodeGroup>
+
+<CodeGroup>
+  ```python python
+  import os
+  import getpass
+
+  if 'REPLICATE_API_TOKEN' not in os.environ:
+      os.environ['REPLICATE_API_TOKEN'] = getpass.getpass('Replicate API Token:')
+  ```
+</CodeGroup>
+
+Now let's create a Pixeltable directory to hold the tables for our demo.
+
+<CodeGroup>
+  ```python python
+  import pixeltable as pxt
+
+  # Remove the `replicate_demo` directory and its contents, if it exists
+  pxt.drop_dir('replicate_demo', force=True)
+  pxt.create_dir('replicate_demo')
+  ```
+</CodeGroup>
+
+```
+Connected to Pixeltable database at:
+postgresql+psycopg://postgres:@/pixeltable?host=/Users/asiegel/.pixeltable/pgdata
+Created directory `replicate_demo`.
+
+<pixeltable.catalog.dir.Dir at 0x334624190>
+```
+
+## Chat Completions
+
+Create a Table: In Pixeltable, create a table with columns to represent your input data and the columns where you want to store the results from Replicate.
+
+<CodeGroup>
+  ```python python
+  from pixeltable.functions.replicate import run
+
+  # Create a table in Pixeltable and pick a model hosted on Replicate with some parameters
+
+  t = pxt.create_table('replicate_demo.chat', {'prompt': pxt.String})
+
+  input = {
+      'system_prompt': 'You are a helpful assistant.',
+      'prompt': t.prompt,
+      # These parameters are optional and can be used to tune model behavior:
+      'max_tokens': 300,
+      'top_p': 0.9,
+      'temperature': 0.8
+  }
+  t['output'] = run(input, ref='meta/meta-llama-3-8b-instruct')
+  ```
+</CodeGroup>
+
+```
+Created table `chat`.
+Added 0 column values with 0 errors.
+```
+
+<CodeGroup>
+  ```python python
+  # Parse the response into a new column
+  t['response'] = pxt.functions.string.join('', t.output)
+  ```
+</CodeGroup>
+
+```
+Added 0 column values with 0 errors.
+```
+
+<CodeGroup>
+  ```python python
+  # Start a conversation
+  t.insert(prompt='What foods are rich in selenium?')
+  t.select(t.prompt, t.response).show()
+  ```
+</CodeGroup>
+
+```
+Computing cells: 100%|████████████████████████████████████████████| 4/4 [00:07<00:00,  1.89s/ cells]
+Inserting rows into `chat`: 1 rows [00:00, 171.89 rows/s]
+Computing cells: 100%|████████████████████████████████████████████| 4/4 [00:07<00:00,  1.89s/ cells]
+Inserted 1 row with 0 errors.
+```
+
+| prompt                           | response                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| What foods are rich in selenium? | Selenium is an essential mineral that plays a crucial role in various bodily functions, such as protecting cells from damage, supporting immune function, and acting as an antioxidant. Here are some foods that are rich in selenium:1) Brazil nuts: Brazil nuts are one of the richest sources of selenium, with a single nut providing about 60-90 micrograms (mcg) of selenium. This is equivalent to the daily recommended intake of selenium.
+2) Fish: Fatty fish like tuna, mackerel, and sardines ar ...... e of selenium, with a 3-ounce serving providing about 30 mcg of selenium.
+3) Chicken: Chicken breast is also a good source of selenium, with a 3-ounce serving providing about 25 mcg of selenium.
+4) Eggs: Eggs are a good source of selenium, with a large egg providing about 20 mcg of selenium.
+5) Wheat germ: Wheat germ is a good source of selenium, with a 1/4 cup serving providing about 20 mcg of selenium.
+6) Brown rice: Brown rice is a good source of selenium, with a 1/2 cup serving providing |
+
+## Image Generation
+
+Here's an example that shows how to use Replicate's image generation models with Pixeltable. We'll use the FLUX Schnell model.
+
+<CodeGroup>
+  ```python python
+  t = pxt.create_table('replicate_demo.images', {'prompt': pxt.String})
+
+  input = {
+      'prompt': t.prompt,
+      'go_fast': True,
+      'megapixels': '1'
+  }
+  t['output'] = run(input, ref='black-forest-labs/flux-schnell')
+  ```
+</CodeGroup>
+
+```
+Created table `images`.
+Added 0 column values with 0 errors.
+```
+
+<CodeGroup>
+  ```python python
+  t.insert(prompt='Draw a pencil sketch of a friendly dinosaur playing tennis in a cornfield.')
+  ```
+</CodeGroup>
+
+```
+Computing cells: 100%|████████████████████████████████████████████| 2/2 [00:00<00:00,  2.17 cells/s]
+Inserting rows into `images`: 1 rows [00:00, 198.61 rows/s]
+Computing cells: 100%|████████████████████████████████████████████| 2/2 [00:00<00:00,  2.14 cells/s]
+Inserted 1 row with 0 errors.
+
+UpdateStatus(num_rows=1, num_computed_values=2, num_excs=0, updated_cols=[], cols_with_excs=[])
+```
+
+<CodeGroup>
+  ```python python
+  t.select(t.prompt, t.output).collect()
+  ```
+</CodeGroup>
+
+| prompt                                                                     | output                                                                                             |
+| -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| Draw a pencil sketch of a friendly dinosaur playing tennis in a cornfield. | \["https\://replicate.delivery/yhqm/DH2e9QRelTr0KEhcfciu9GHPINCt1rJ9kAShds91nCG7grYnA/out-0.webp"] |
+
+We see that Replicate returns our image as an array containing a single URL. To turn it into an actual image, we cast the string to type `pxt.Image` in a new computed column:
+
+<CodeGroup>
+  ```python python
+  t['image'] = t.output[0].astype(pxt.Image)
+  t.select(t.image).collect()
+  ```
+</CodeGroup>
+
+```
+Computing cells: 100%|████████████████████████████████████████████| 1/1 [00:00<00:00, 93.29 cells/s]
+Added 1 column value with 0 errors.
+```
+
+![](\images\docs\527f4fd68ef0ef95e3883c98798d260415ffc88bdefed423f113deb3be7e6898-image.png)
+
+### Learn More
+
+To learn more about advanced techniques like RAG operations in Pixeltable, check out the [RAG Operations in Pixeltable](https://pixeltable.readme.io/docs/rag-operations-in-pixeltable) tutorial.
+
+If you have any questions, don't hesitate to reach out.
+
+***
+
+* [Table of Contents](#)
+
+* * [Working with Replicate in Pixeltable](#working-with-replicate-in-pixeltable)
+
+    * [Chat Completions](#chat-completions)
+    * [Image Generation](#image-generation)

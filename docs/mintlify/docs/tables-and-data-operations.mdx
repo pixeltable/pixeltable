@@ -1,0 +1,963 @@
+---
+title: "Overview"
+
+---
+
+[](https://kaggle.com/kernels/welcome?src=https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/fundamentals/tables-and-data-operations.ipynb)[![Colab](\images\docs\assets\colab-badge.svg)](https://colab.research.google.com/github.com/pixeltable/pixeltable/blob/main/docs/notebooks/fundamentals/tables-and-data-operations.ipynb) [![Download Notebook](\images\docs\badge\⬇-Download-Notebook-blue)](https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/release/fundamentals/tables-and-data-operations.ipynb)
+
+## Pixeltable Fundamentals
+
+## Section 1: Tables and Data Operations
+
+Welcome to Section 1 of the [Pixeltable Fundamentals](...) tutorial, **Tables and Data Operations**. In this section, we'll learn how to:
+
+* Create and manage tables: Understand Pixeltable's table structure, create and modify tables, and work with table schemas
+* Manipulate data: Insert, update, and delete data within tables, and retrieve data from tables into Python variables
+* Filter and select data: Use `where()`, `select()`, and `order_by()` to query for specific rows and columns
+* Import data from CSV files and other file types
+
+First, let's ensure the Pixeltable library is installed in your environment.
+
+<CodeGroup>
+  ```python python
+  %pip install -qU pixeltable
+  ```
+</CodeGroup>
+
+### Tables
+
+All data in Pixeltable is stored in tables. At a high level, a Pixeltable table behaves similarly to an ordinary SQL database table, but with many additional capabilities to support complex AI workflows. We'll introduce those advanced capabilities gradually throughout this tutorial; in this section, the focus is on basic table and data operations.
+
+Tables in Pixeltable are grouped into **directories**, which are simply user-defined namespaces. The following command creates a new directory, `fundamentals`, which we'll use to store the tables in our tutorial.
+
+<CodeGroup>
+  ```python python
+  import pixeltable as pxt
+
+  # First we delete the `fundamentals` directory and all its contents (if
+  # it exists), in order to ensure a clean environment for the tutorial.
+  pxt.drop_dir('fundamentals', force=True)
+
+  # Now we create the directory.
+  pxt.create_dir('fundamentals')
+  ```
+</CodeGroup>
+
+```
+Connected to Pixeltable database at: postgresql+psycopg://postgres:@/pixeltable?host=/Users/asiegel/.pixeltable/pgdata
+Created directory `fundamentals`.
+
+<pixeltable.catalog.dir.Dir at 0x319a80610>
+```
+
+Now let's create our first table. To create a table, we must give it a name and a **schema** that describes the table structure. Note that prefacing the name with `fundamentals` causes it to be placed in our newly-created directory.
+
+<CodeGroup>
+  ```python python
+  films_t = pxt.create_table('fundamentals.films', {
+      'film_name': pxt.String,
+      'year': pxt.Int,
+      'revenue': pxt.Float
+  })
+  ```
+</CodeGroup>
+
+```
+Created table `films`.
+```
+
+To insert data into a table, we use the `insert()` method, passing it a list of Python dicts.
+
+<CodeGroup>
+  ```python python
+  films_t.insert([
+      {'film_name': 'Jurassic Park', 'year': 1993, 'revenue': 1037.5},
+      {'film_name': 'Titanic', 'year': 1997, 'revenue': 2257.8},
+      {'film_name': 'Avengers: Endgame', 'year': 2019, 'revenue': 2797.5}
+  ])
+  ```
+</CodeGroup>
+
+```
+Inserting rows into `films`: 3 rows [00:00, 490.68 rows/s]
+Inserted 3 rows with 0 errors.
+
+UpdateStatus(num_rows=3, num_computed_values=3, num_excs=0, updated_cols=[], cols_with_excs=[])
+```
+
+If you're inserting just a single row, you can use an alternate syntax that is sometimes more convenient.
+
+<CodeGroup>
+  ```python python
+  films_t.insert(film_name='Inside Out 2', year=2024, revenue=1462.7)
+  ```
+</CodeGroup>
+
+```
+Inserting rows into `films`: 1 rows [00:00, 386.54 rows/s]
+Inserted 1 row with 0 errors.
+
+UpdateStatus(num_rows=1, num_computed_values=1, num_excs=0, updated_cols=[], cols_with_excs=[])
+```
+
+We can peek at the data in our table with the `collect()` method, which retrieves all the rows in the table.
+
+<CodeGroup>
+  ```python python
+  films_t.collect()
+  ```
+</CodeGroup>
+
+| film\_name        | year | revenue |
+| ----------------- | ---- | ------- |
+| Jurassic Park     | 1993 | 1037.5  |
+| Titanic           | 1997 | 2257.8  |
+| Avengers: Endgame | 2019 | 2797.5  |
+| Inside Out 2      | 2024 | 1462.7  |
+
+Pixeltable also provides `update()` and `delete()` methods for modifying and removing data from a table; we'll see examples of them shortly.
+
+### Filtering and Selecting Data
+
+Often you want to select only certain rows and/or certain columns in a table. You can do this with the `where()` and `select()` methods.
+
+<CodeGroup>
+  ```python python
+  films_t.where(films_t.revenue >= 2000.0).collect()
+  ```
+</CodeGroup>
+
+| film\_name        | year | revenue |
+| ----------------- | ---- | ------- |
+| Titanic           | 1997 | 2257.8  |
+| Avengers: Endgame | 2019 | 2797.5  |
+
+<CodeGroup>
+  ```python python
+  films_t.select(films_t.film_name, films_t.year).collect()
+  ```
+</CodeGroup>
+
+| film\_name        | year |
+| ----------------- | ---- |
+| Jurassic Park     | 1993 |
+| Titanic           | 1997 |
+| Avengers: Endgame | 2019 |
+| Inside Out 2      | 2024 |
+
+Note the expressions that appear inside the calls to `where()` and `select()`, such as `films_t.year`. These are **column references** that point to specific columns within a table. In place of `films_t.year`, you can also use dictionary syntax and type `films_t['year']`, which means exactly the same thing but is sometimes more convenient.
+
+<CodeGroup>
+  ```python python
+  films_t.select(films_t['film_name'], films_t['year']).collect()
+  ```
+</CodeGroup>
+
+| film\_name        | year |
+| ----------------- | ---- |
+| Jurassic Park     | 1993 |
+| Titanic           | 1997 |
+| Avengers: Endgame | 2019 |
+| Inside Out 2      | 2024 |
+
+In addition to selecting columns directly, you can use column references inside various kinds of expressions. For example, our `revenue` numbers are given in millions of dollars. Let's say we wanted to select revenue in thousands of dollars instead; we could do that as follows:
+
+<CodeGroup>
+  ```python python
+  films_t.select(films_t.film_name, films_t.revenue * 1000).collect()
+  ```
+</CodeGroup>
+
+| film\_name        | col\_1   |
+| ----------------- | -------- |
+| Jurassic Park     | 1037500. |
+| Titanic           | 2257800. |
+| Avengers: Endgame | 2797500. |
+| Inside Out 2      | 1462700. |
+
+Note that since we selected an abstract expression rather than a specific column, Pixeltable gave it the generic name `col_1`. You can assign it a more informative name with Python keyword syntax:
+
+<CodeGroup>
+  ```python python
+  films_t.select(films_t.film_name, revenue_thousands=films_t.revenue * 1000).collect()
+  ```
+</CodeGroup>
+
+| film\_name        | revenue\_thousands |
+| ----------------- | ------------------ |
+| Jurassic Park     | 1037500.           |
+| Titanic           | 2257800.           |
+| Avengers: Endgame | 2797500.           |
+| Inside Out 2      | 1462700.           |
+
+### Tables are Persistent
+
+This is a good time to mention a few key differences between Pixeltable tables and other familiar datastructures, such as Python dicts or Pandas dataframes.
+
+First, **Pixeltable is persistent. Unlike in-memory Python libraries such as Pandas, Pixeltable is a database**. When you reset a notebook kernel or start a new Python session, you'll have access to all the data you've stored previously in Pixeltable. Let's demonstrate this by using the IPython `%reset -f` command to clear out all our notebook variables, so that `films_t` is no longer defined.
+
+<CodeGroup>
+  ```python python
+  %reset -f
+  films_t.collect()  # Throws an exception now
+  ```
+</CodeGroup>
+
+```
+---------------------------------------------------------------------------
+
+NameError                                 Traceback (most recent call last)
+
+Cell In[11], line 2
+      1 get_ipython().run_line_magic('reset', '-f')
+----> 2 films_t.collect()  # Throws an exception now
+
+NameError: name 'films_t' is not defined
+```
+
+The `films_t` variable (along with all other variables in our Python session) has been cleared out - but that's ok, because it wasn't the source of record for our data. The `films_t` variable is just a reference to the underlying database table. We can recover it with the `get_table` command, referencing the `films` table by name.
+
+<CodeGroup>
+  ```python python
+  import pixeltable as pxt
+
+  films_t = pxt.get_table('fundamentals.films')
+  films_t.collect()
+  ```
+</CodeGroup>
+
+| film\_name        | year | revenue |
+| ----------------- | ---- | ------- |
+| Jurassic Park     | 1993 | 1037.5  |
+| Titanic           | 1997 | 2257.8  |
+| Avengers: Endgame | 2019 | 2797.5  |
+| Inside Out 2      | 2024 | 1462.7  |
+
+You can always get a list of all existing tables with the Pixeltable `list_tables` command.
+
+<CodeGroup>
+  ```python python
+  pxt.list_tables()
+  ```
+</CodeGroup>
+
+```
+['fundamentals.films']
+```
+
+Note that if you're running Pixeltable on colab or kaggle, the database will persist only for as long as your colab/kaggle session remains active. If you're running it locally or on your own server, then your database will persist indefinitely (until you actively delete it).
+
+### Tables are Typed
+
+The second major difference is that **Pixeltable is strongly typed**. Because Pixeltable is a database, every column has a data type: that's why we specified `String`, `Int`, and `Float` for the three columns when we created the table. These **type specifiers** are *mandatory* when creating tables, and they become part of the table schema. You can always see the table schema with the `describe()` method.
+
+<CodeGroup>
+  ```python python
+  films_t.describe()
+  ```
+</CodeGroup>
+
+| Column Name | Type   | Computed With |
+| ----------- | ------ | ------------- |
+| film\_name  | String |               |
+| year        | Int    |               |
+| revenue     | Float  |               |
+
+In a notebook, you can also just type `films_t` to see the schema; its output is identical to `films_t.describe()`.
+
+<CodeGroup>
+  ```python python
+  films_t
+  ```
+</CodeGroup>
+
+| Column Name | Type   | Computed With |
+| ----------- | ------ | ------------- |
+| film\_name  | String |               |
+| year        | Int    |               |
+| revenue     | Float  |               |
+
+In addition to `String`, `Int`, and `Float`, Pixeltable provides several additional data types:
+
+* `Bool`, whose values are `True` or `False`;
+* `Array` for numerical arrays;
+* `Json`, for lists or dicts that correspond to valid JSON structures; and
+* The **media types** `Image`, `Video`, `Audio`, and `Document`.
+
+We'll see examples of each of these types later in the tutorial.
+
+Besides the column names and types, there's a third element to the schema, `Computed With`. We'll explain what this means in the next section of the tutorial, [Computed Columns](...).
+
+All of the methods we've discussed so far, such as `insert()` and `get_table()`, are documented in the [Pixeltable API](https://pixeltable.github.io/pixeltable/) Documentation. The following pages are particularly relevant to this section of the tutorial:
+
+* [pixeltable](https://pixeltable.github.io/pixeltable/api/pixeltable/) package reference
+* [pxt.Table](https://pixeltable.github.io/pixeltable/api/table/) class reference
+* [API Cheat Sheet](https://pixeltable.github.io/pixeltable/api-cheat-sheet/)
+
+### A Real-World Example: Earthquake Data
+
+Now let's dive a little deeper into Pixeltable's data operations. To showcase all the features, it'll be helpful to have a real-world dataset, rather than our toy dataset with four movies. The dataset we'll be using consists of Earthquake data drawn from the US Geological Survey: all recorded Earthquakes that occurred within 100 km of Seattle, Washington, between January 1, 2023 and June 30, 2024.
+
+The dataset is in CSV format, and we can load it into Pixeltable with the handy `import_csv()` function, which creates a new Pixeltable table from the contents of a CSV file.
+
+<CodeGroup>
+  ```python python
+  eq_t = pxt.io.import_csv(
+      'fundamentals.earthquakes',  # Name for the new table
+      'https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/source/data/earthquakes.csv',
+      primary_key='id',  # Column 'id' is the primary key
+      parse_dates=[3]  # Interpret column 3 as a timestamp
+  )
+  ```
+</CodeGroup>
+
+```
+Created table `earthquakes`.
+Inserting rows into `earthquakes`: 1823 rows [00:00, 25263.30 rows/s]
+Inserted 1823 rows with 0 errors.
+```
+
+In Pixeltable, you can always import external data by giving a URL instead of a local file path. This applies to CSV datasets, media files (such images and video), and other types of content. The URL will often be an `http://` URL, but it can also be an `s3://` URL referencing an S3 bucket.
+
+In addition to `import_csv`, Pixeltable provides a variety of other importers for structured data, such as `import_pandas` (which creates a table from a Pandas dataframe) and `import_excel`. These importers are described in the [pixeltable.io package reference](https://pixeltable.github.io/pixeltable/api/io/).
+
+Let's have a peek at our new dataset. The dataset contains 1823 rows, and we probably don't want to display them all at once. We can limit our query to fewer rows with the `limit()` method.
+
+<CodeGroup>
+  ```python python
+  eq_t.limit(5).collect()
+  ```
+</CodeGroup>
+
+| id | magnitude | location                          | timestamp                        | longitude | latitude |
+| -- | --------- | --------------------------------- | -------------------------------- | --------- | -------- |
+| 0  | 1.15      | 10 km NW of Belfair, Washington   | 2023-01-01 08:10:37.050000-08:00 | -122.93   | 47.51    |
+| 1  | 0.29      | 23 km ENE of Ashford, Washington  | 2023-01-02 01:02:43.950000-08:00 | -121.76   | 46.85    |
+| 2  | 0.2       | 23 km ENE of Ashford, Washington  | 2023-01-02 12:05:01.420000-08:00 | -121.75   | 46.86    |
+| 3  | 0.52      | 15 km NNE of Ashford, Washington  | 2023-01-02 12:45:14.220000-08:00 | -121.95   | 46.89    |
+| 4  | 1.56      | 0 km WSW of Esperance, Washington | 2023-01-02 13:19:27.200000-08:00 | -122.36   | 47.79    |
+
+A different way of achieving something similar is to use the `head()` and `tail()` methods. Pixeltable keeps track of the insertion order of all its data, and `head()` and `tail()` will always return the *earliest inserted* and *most recently inserted* rows in a table, respectively.
+
+<CodeGroup>
+  ```python python
+  eq_t.head(5)
+  ```
+</CodeGroup>
+
+| id | magnitude | location                          | timestamp                        | longitude | latitude |
+| -- | --------- | --------------------------------- | -------------------------------- | --------- | -------- |
+| 0  | 1.15      | 10 km NW of Belfair, Washington   | 2023-01-01 08:10:37.050000-08:00 | -122.93   | 47.51    |
+| 1  | 0.29      | 23 km ENE of Ashford, Washington  | 2023-01-02 01:02:43.950000-08:00 | -121.76   | 46.85    |
+| 2  | 0.2       | 23 km ENE of Ashford, Washington  | 2023-01-02 12:05:01.420000-08:00 | -121.75   | 46.86    |
+| 3  | 0.52      | 15 km NNE of Ashford, Washington  | 2023-01-02 12:45:14.220000-08:00 | -121.95   | 46.89    |
+| 4  | 1.56      | 0 km WSW of Esperance, Washington | 2023-01-02 13:19:27.200000-08:00 | -122.36   | 47.79    |
+
+<CodeGroup>
+  ```python python
+  eq_t.tail(5)
+  ```
+</CodeGroup>
+
+| id   | magnitude | location                            | timestamp                        | longitude | latitude |
+| ---- | --------- | ----------------------------------- | -------------------------------- | --------- | -------- |
+| 1818 | 1.7       | 14 km W of Skokomish, Washington    | 2024-06-29 08:55:50.030000-07:00 | -123.35   | 47.32    |
+| 1819 | 1.06      | 7 km E of Lake McMurray, Washington | 2024-06-29 12:15:19.130000-07:00 | -122.13   | 48.31    |
+| 1820 | 0.48      | 4 km E of Duvall, Washington        | 2024-06-30 09:15:43.020000-07:00 | -121.93   | 47.75    |
+| 1821 | 0.46      | 12 km NE of Ashford, Washington     | 2024-06-30 10:05:15.410000-07:00 | -121.93   | 46.84    |
+| 1822 | 0.72      | 6 km ENE of Oso, Washington         | 2024-06-30 11:12:41.900000-07:00 | -121.84   | 48.28    |
+
+`head(n)` and `limit(n).collect()` appear similar in this example. But `head()` always returns the *earliest* rows in a table, whereas `limit()` makes no promises about the ordering of its results (unless you specify an `order_by()` clause - more on this below).
+
+Let's also peek at the schema:
+
+<CodeGroup>
+  ```python python
+  eq_t.describe()
+  ```
+</CodeGroup>
+
+| Column Name | Type           | Computed With |
+| ----------- | -------------- | ------------- |
+| id          | Required\[Int] |               |
+| magnitude   | Float          |               |
+| location    | String         |               |
+| timestamp   | Timestamp      |               |
+| longitude   | Float          |               |
+| latitude    | Float          |               |
+
+Note that while specifying a schema is mandatory when *creating* a table, it's not always required when *importing* data. This is because Pixeltable uses the structure of the imported data to infer the column types, when feasible. You can always override the inferred column types with the `schema_overrides` parameter of `import_csv()`.
+
+The following examples showcase some common data operations.
+
+<CodeGroup>
+  ```python python
+  eq_t.count()  # Number of rows in the table
+  ```
+</CodeGroup>
+
+```
+1823
+```
+
+<CodeGroup>
+  ```python python
+  # 5 highest-magnitude earthquakes
+
+  eq_t.order_by(eq_t.magnitude, asc=False).limit(5).collect()
+  ```
+</CodeGroup>
+
+| id   | magnitude | location                           | timestamp                        | longitude | latitude |
+| ---- | --------- | ---------------------------------- | -------------------------------- | --------- | -------- |
+| 1002 | 4.3       | Port Townsend, WA                  | 2023-10-09 02:21:08.960000-07:00 | -122.73   | 48.04    |
+| 1226 | 4.04      | 6 km W of Quilcene, Washington     | 2023-12-24 15:14:04.220000-08:00 | -122.96   | 47.82    |
+| 699  | 3.91      | 9 km NNE of Snoqualmie, Washington | 2023-08-08 10:17:23.910000-07:00 | -121.77   | 47.6     |
+| 1281 | 3.48      | 7 km SSW of River Road, Washington | 2024-01-15 07:25:05.920000-08:00 | -123.17   | 48.      |
+| 1355 | 3.42      | 17 km WSW of Brinnon, Washington   | 2024-02-16 16:30:18.830000-08:00 | -123.09   | 47.59    |
+
+<CodeGroup>
+  ```python python
+  from datetime import datetime
+
+  # 5 highest-magnitude earthquakes in Q3 2023
+
+  eq_t.where((eq_t.timestamp >= datetime(2023, 6, 1)) & (eq_t.timestamp < datetime(2023, 10, 1))) \
+    .order_by(eq_t.magnitude, asc=False).limit(5).collect()
+  ```
+</CodeGroup>
+
+| id  | magnitude | location                            | timestamp                        | longitude | latitude |
+| --- | --------- | ----------------------------------- | -------------------------------- | --------- | -------- |
+| 699 | 3.91      | 9 km NNE of Snoqualmie, Washington  | 2023-08-08 10:17:23.910000-07:00 | -121.77   | 47.6     |
+| 799 | 2.86      | 5 km E of Ashford, Washington       | 2023-08-27 10:10:23.770000-07:00 | -121.96   | 46.77    |
+| 710 | 2.84      | 8 km ENE of Fall City, Washington   | 2023-08-08 11:51:12.750000-07:00 | -121.79   | 47.6     |
+| 577 | 2.79      | 0 km NE of Maple Valley, Washington | 2023-07-04 15:52:54.430000-07:00 | -122.04   | 47.4     |
+| 769 | 2.73      | 16 km NE of Ashford, Washington     | 2023-08-22 23:44:12.250000-07:00 | -121.88   | 46.87    |
+
+Note that Pixeltable uses Pandas-like operators for filtering data: the expression
+
+<CodeGroup>
+  ```python python
+  (eq_t.timestamp >= datetime(2023, 6, 1)) & (eq_t.timestamp < datetime(2023, 10, 1))
+  ```
+</CodeGroup>
+
+means *both* conditions must be true; similarly (say),
+
+<CodeGroup>
+  ```python python
+  (eq_t.timestamp < datetime(2023, 6, 1)) | (eq_t.timestamp >= datetime(2023, 10, 1))
+  ```
+</CodeGroup>
+
+would mean *either* condition must be true.
+
+You can also use the special `isin` operator to select just those values that appear within a particular list:
+
+<CodeGroup>
+  ```python python
+  # Earthquakes with specific ids
+
+  eq_t.where(eq_t.id.isin([123,456,789])).collect()
+  ```
+</CodeGroup>
+
+| id  | magnitude | location                       | timestamp                        | longitude | latitude |
+| --- | --------- | ------------------------------ | -------------------------------- | --------- | -------- |
+| 123 | 1.23      | 7 km SW of Rainier, Washington | 2023-02-17 00:28:25.460000-08:00 | -122.75   | 46.84    |
+| 456 | 0.23      | Washington                     | 2023-05-23 08:49:02.450000-07:00 | -121.98   | 46.87    |
+| 789 | 1.67      | Puget Sound region, Washington | 2023-08-26 04:04:11.200000-07:00 | -122.57   | 47.6     |
+
+In addition to basic operators like `>=` and `isin`, a Pixeltable `where` clause can also contain more complex operations. For example, the `location` column in our dataset is a string that contains a lot of information, but in a relatively unstructured way. Suppose we wanted to see all Earthquakes in the vicinity of Rainier, Washington; one way to do this is with the `contains()` method:
+
+<CodeGroup>
+  ```python python
+  # All earthquakes in the vicinity of Rainier
+
+  eq_t.where(eq_t.location.contains('Rainier')).collect()
+  ```
+</CodeGroup>
+
+| id   | magnitude | location                         | timestamp                        | longitude | latitude |
+| ---- | --------- | -------------------------------- | -------------------------------- | --------- | -------- |
+| 40   | 1.22      | 11 km SSE of Rainier, Washington | 2023-01-19 21:52:29.910000-08:00 | -122.65   | 46.79    |
+| 85   | 1.45      | 10 km SSE of Rainier, Washington | 2023-02-02 20:08:27.810000-08:00 | -122.65   | 46.79    |
+| 123  | 1.23      | 7 km SW of Rainier, Washington   | 2023-02-17 00:28:25.460000-08:00 | -122.75   | 46.84    |
+| 467  | 1.09      | 10 km SSE of Rainier, Washington | 2023-05-26 19:39:44.120000-07:00 | -122.65   | 46.8     |
+| 1399 | 1.08      | 5 km SW of Rainier, Washington   | 2024-03-04 22:34:25.210000-08:00 | -122.74   | 46.85    |
+| 1709 | 1.16      | 10 km S of Rainier, Washington   | 2024-05-22 18:28:38.130000-07:00 | -122.68   | 46.79    |
+| 1776 | 1.17      | 12 km S of Rainier, Washington   | 2024-06-17 18:25:33.400000-07:00 | -122.66   | 46.77    |
+
+Pixeltable also supports various **aggregators**; here's an example showcasing two fairly simple ones, `max()` and `min()`:
+
+<CodeGroup>
+  ```python python
+  # Min and max ids
+
+  eq_t.select(min=pxt.functions.min(eq_t.id), max=pxt.functions.max(eq_t.id)).collect()
+  ```
+</CodeGroup>
+
+| min | max  |
+| --- | ---- |
+| 0   | 1822 |
+
+We'll discuss the various Pixeltable functions and expressions more thoroughly in the next tutorial section, [Computed Columns and Expressions](), and they're exhaustively documented in the [Pixeltable API](https://pixeltable.github.io/pixeltable/).
+
+### Extracting Data from Tables into Python/Pandas
+
+Sometimes it's handy to pull out data from a table into a Python object. We've actually already done this; the call to `collect()` returns an in-memory result set, which we can then dereference in various ways. For example:
+
+<CodeGroup>
+  ```python python
+  result = eq_t.limit(5).collect()
+  result[0]  # Get the first row of the results as a dict
+  ```
+</CodeGroup>
+
+```
+{'id': 0,
+ 'magnitude': 1.15,
+ 'location': '10 km NW of Belfair, Washington',
+ 'timestamp': datetime.datetime(2023, 1, 1, 8, 10, 37, 50000, tzinfo=zoneinfo.ZoneInfo(key='America/Los_Angeles')),
+ 'longitude': -122.93,
+ 'latitude': 47.51}
+```
+
+<CodeGroup>
+  ```python python
+  result['timestamp']  # Get a list of the `timestamp` field of all the rows that were queried
+  ```
+</CodeGroup>
+
+```
+[datetime.datetime(2023, 1, 1, 8, 10, 37, 50000, tzinfo=zoneinfo.ZoneInfo(key='America/Los_Angeles')),
+ datetime.datetime(2023, 1, 2, 1, 2, 43, 950000, tzinfo=zoneinfo.ZoneInfo(key='America/Los_Angeles')),
+ datetime.datetime(2023, 1, 2, 12, 5, 1, 420000, tzinfo=zoneinfo.ZoneInfo(key='America/Los_Angeles')),
+ datetime.datetime(2023, 1, 2, 12, 45, 14, 220000, tzinfo=zoneinfo.ZoneInfo(key='America/Los_Angeles')),
+ datetime.datetime(2023, 1, 2, 13, 19, 27, 200000, tzinfo=zoneinfo.ZoneInfo(key='America/Los_Angeles'))]
+```
+
+<CodeGroup>
+  ```python python
+  df = result.to_pandas()  # Convert the result set into a Pandas dataframe
+  df['magnitude'].describe()
+  ```
+</CodeGroup>
+
+```
+count    5.000000
+mean     0.744000
+std      0.587988
+min      0.200000
+25%      0.290000
+50%      0.520000
+75%      1.150000
+max      1.560000
+Name: magnitude, dtype: float64
+```
+
+`collect()` without a preceding `limit()` returns the entire contents of a query or table. Be careful! For very large tables, this could result in out-of-memory errors. In this example, the 1823 rows in the table fit comfortably into a dataframe.
+
+<CodeGroup>
+  ```python python
+  df = eq_t.collect().to_pandas()
+  df['magnitude'].describe()
+  ```
+</CodeGroup>
+
+```
+count    1823.000000
+mean        0.900378
+std         0.625492
+min        -0.830000
+25%         0.420000
+50%         0.850000
+75%         1.310000
+max         4.300000
+Name: magnitude, dtype: float64
+```
+
+### Adding Columns
+
+Like other database tables, Pixeltable tables aren't fixed entities: they're meant to evolve over time. Suppose we want to add a new column to hold user-specified comments about particular earthquake events. We can do this with the `add_column()` method:
+
+<CodeGroup>
+  ```python python
+  eq_t.add_column(note=pxt.String)
+  ```
+</CodeGroup>
+
+```
+Added 1823 column values with 0 errors.
+UpdateStatus(num_rows=1823, num_computed_values=1823, num_excs=0, updated_cols=[], cols_with_excs=[])
+```
+
+Here, `note` is the column name, and `pxt.String` specifies the type of the new column. An alternate syntax is sometimes convenient:
+
+<CodeGroup>
+  ```python python
+  eq_t.add_column(contact_email=pxt.String)
+  ```
+</CodeGroup>
+
+```
+Added 1823 column values with 0 errors.
+```
+
+Let's have a look at the revised schema.
+
+<CodeGroup>
+  ```python python
+  eq_t.describe()
+  ```
+</CodeGroup>
+
+| Column Name    | Type           | Computed With |
+| -------------- | -------------- | ------------- |
+| id             | Required\[Int] |               |
+| magnitude      | Float          |               |
+| location       | String         |               |
+| timestamp      | Timestamp      |               |
+| longitude      | Float          |               |
+| latitude       | Float          |               |
+| note           | String         |               |
+| contact\_email | String         |               |
+
+### Updating Rows in a Table
+
+Table rows can be modified and deleted with the SQL-like `update()` and `delete()` commands.
+
+<CodeGroup>
+  ```python python
+  # Add a comment to records with IDs 123 and 127
+
+  (
+      eq_t
+      .where(eq_t.id.isin([121,123]))
+      .update({'note': 'Still investigating.', 'contact_email': '[email protected]'})
+  )
+  ```
+</CodeGroup>
+
+```
+Inserting rows into `earthquakes`: 2 rows [00:00, 638.55 rows/s]
+
+UpdateStatus(num_rows=2, num_computed_values=0, num_excs=0, updated_cols=['earthquakes.note', 'earthquakes.contact_email'], cols_with_excs=[])
+```
+
+<CodeGroup>
+  ```python python
+  eq_t.where(eq_t.id >= 120).select(eq_t.id, eq_t.magnitude, eq_t.note, eq_t.contact_email).head(5)
+  ```
+</CodeGroup>
+
+| id  | magnitude | note                 | contact\_email                                     |
+| --- | --------- | -------------------- | -------------------------------------------------- |
+| 120 | 1.17      | None                 | None                                               |
+| 121 | 1.87      | Still investigating. | [\[email protected\]](/cdn-cgi/l/email-protection) |
+| 122 | 0.34      | None                 | None                                               |
+| 123 | 1.23      | Still investigating. | [\[email protected\]](/cdn-cgi/l/email-protection) |
+| 124 | 0.13      | None                 | None                                               |
+
+`update()` can also accept an expression, rather than a constant value. For example, suppose we wanted to shorten the location strings by replacing every occurrence of `Washington` with `WA`. One way to do this is with an `update()` clause, using a Pixeltable expression with the `replace()` method.
+
+<CodeGroup>
+  ```python python
+  eq_t.update({'location': eq_t.location.replace('Washington', 'WA')})
+  ```
+</CodeGroup>
+
+```
+Inserting rows into `earthquakes`: 1823 rows [00:00, 19274.07 rows/s]
+
+UpdateStatus(num_rows=1823, num_computed_values=0, num_excs=0, updated_cols=['earthquakes.location'], cols_with_excs=[])
+```
+
+<CodeGroup>
+  ```python python
+  eq_t.head(5)
+  ```
+</CodeGroup>
+
+| id | magnitude | location                  | timestamp                        | longitude | latitude | note | contact\_email |
+| -- | --------- | ------------------------- | -------------------------------- | --------- | -------- | ---- | -------------- |
+| 0  | 1.15      | 10 km NW of Belfair, WA   | 2023-01-01 08:10:37.050000-08:00 | -122.93   | 47.51    | None | None           |
+| 1  | 0.29      | 23 km ENE of Ashford, WA  | 2023-01-02 01:02:43.950000-08:00 | -121.76   | 46.85    | None | None           |
+| 2  | 0.2       | 23 km ENE of Ashford, WA  | 2023-01-02 12:05:01.420000-08:00 | -121.75   | 46.86    | None | None           |
+| 3  | 0.52      | 15 km NNE of Ashford, WA  | 2023-01-02 12:45:14.220000-08:00 | -121.95   | 46.89    | None | None           |
+| 4  | 1.56      | 0 km WSW of Esperance, WA | 2023-01-02 13:19:27.200000-08:00 | -122.36   | 47.79    | None | None           |
+
+Notice that in all cases, the `update()` clause takes a Python dictionary, but its values can be either constants such as `'[email protected]'`, or more complex expressions such as `eq_t.location.replace('Washington', 'WA')`. Also notice that if `update()` appears without a `where()` clause, then every row in the table will be updated, as in the preceding example.
+
+### Batch Updates
+
+The `batch_update()` method provides an alternative way to update multiple rows with different values. With a `batch_update()`, the contents of each row are specified by individual `dict`s, rather than according to a formula. Here's a toy example that shows `batch_update()` in action.
+
+<CodeGroup>
+  ```python python
+  updates = [
+      {'id': 500, 'note': 'This is an example note.'},
+      {'id': 501, 'note': 'This is a different note.'},
+      {'id': 502, 'note': 'A third note, unrelated to the others.'}
+  ]
+  eq_t.batch_update(updates)
+  ```
+</CodeGroup>
+
+```
+Inserting rows into `earthquakes`: 3 rows [00:00, 1600.88 rows/s]
+
+UpdateStatus(num_rows=3, num_computed_values=0, num_excs=0, updated_cols=['earthquakes.note'], cols_with_excs=[])
+```
+
+<CodeGroup>
+  ```python python
+  eq_t.where(eq_t.id >= 500).select(eq_t.id, eq_t.magnitude, eq_t.note, eq_t.contact_email).head(5)
+  ```
+</CodeGroup>
+
+| id  | magnitude | note                                   | contact\_email |
+| --- | --------- | -------------------------------------- | -------------- |
+| 500 | 0.75      | This is an example note.               | None           |
+| 501 | 0.23      | This is a different note.              | None           |
+| 502 | 0.43      | A third note, unrelated to the others. | None           |
+| 503 | 0.31      | None                                   | None           |
+| 504 | 0.35      | None                                   | None           |
+
+### Deleting Rows
+
+To delete rows from a table, use the `delete()` method.
+
+<CodeGroup>
+  ```python python
+  # Delete all rows in 2024
+
+  eq_t.where(eq_t.timestamp >= datetime(2024, 1, 1)).delete()
+  ```
+</CodeGroup>
+
+```
+UpdateStatus(num_rows=587, num_computed_values=0, num_excs=0, updated_cols=[], cols_with_excs=[])
+```
+
+<CodeGroup>
+  ```python python
+  eq_t.count()  # How many are left after deleting?
+  ```
+</CodeGroup>
+
+```
+1236
+```
+
+Don't forget to specify a `where()` clause when using `delete()`! If you run `delete()` without a `where()` clause, the entire contents of the table will be deleted.
+
+<CodeGroup>
+  ```python python
+  eq_t.delete()
+  ```
+</CodeGroup>
+
+```
+UpdateStatus(num_rows=1236, num_computed_values=0, num_excs=0, updated_cols=[], cols_with_excs=[])
+```
+
+<CodeGroup>
+  ```python python
+  eq_t.count()
+  ```
+</CodeGroup>
+
+```
+0
+```
+
+### Table Versioning
+
+Every table in Pixeltable is versioned: some or all of its modification history is preserved. If you make a mistake, you can always call `revert()` to undo the previous change to a table. Let's try it out: we'll use it to revert the successive `delete()` calls that we just executed.
+
+<CodeGroup>
+  ```python python
+  eq_t.revert()
+  ```
+</CodeGroup>
+
+<CodeGroup>
+  ```python python
+  eq_t.count()
+  ```
+</CodeGroup>
+
+```
+1236
+```
+
+<CodeGroup>
+  ```python python
+  eq_t.revert()
+  ```
+</CodeGroup>
+
+<CodeGroup>
+  ```python python
+  eq_t.count()
+  ```
+</CodeGroup>
+
+```
+1823
+```
+
+Be aware: calling `revert()` cannot be undone!
+
+### Multimodal Data
+
+In addition to the structured data we've been exploring so far in this tutorial, Pixeltable has native support for **media types**: images, video, audio, and unstructured documents such as pdfs. Media support is one of Pixeltable's core capabilities, and we'll have much more to say about it the upcoming [Unstructured Data](...) section of this tutorial. For now, we'll just give one example to show how media data lives side-by-side with structured data in Pixeltable.
+
+<CodeGroup>
+  ```python python
+  eq_t['map_image'] = pxt.Image  # Add a new column of type `Image`
+  eq_t.describe()
+  ```
+</CodeGroup>
+
+```
+Added 1823 column values with 0 errors.
+```
+
+| Column Name    | Type           | Computed With |
+| -------------- | -------------- | ------------- |
+| id             | Required\[Int] |               |
+| magnitude      | Float          |               |
+| location       | String         |               |
+| timestamp      | Timestamp      |               |
+| longitude      | Float          |               |
+| latitude       | Float          |               |
+| note           | String         |               |
+| contact\_email | String         |               |
+| map\_image     | Image          |               |
+
+<CodeGroup>
+  ```python python
+  # Update the row with id == 1002, adding an image to the `map_image` column
+
+  eq_t.where(eq_t.id == 1002).update(
+      {'map_image': 'https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/source/data/port-townsend-map.jpeg'}
+  )
+  ```
+</CodeGroup>
+
+```
+Inserting rows into `earthquakes`: 1 rows [00:00, 327.99 rows/s]
+
+UpdateStatus(num_rows=1, num_computed_values=0, num_excs=0, updated_cols=['earthquakes.map_image'], cols_with_excs=[])
+```
+
+Note that in Pixeltable, you can always insert images into a table by giving the file path or URL of the image (as a string). It's not necessary to load the image first; Pixeltable will manage the loading and caching of images in the background. The same applies to other media data such as documents and videos.
+
+Pixeltable will also embed image thumbnails in your notebook when you do a query:
+
+<CodeGroup>
+  ```python python
+  eq_t.where(eq_t.id >= 1000).select(eq_t.id, eq_t.magnitude, eq_t.location, eq_t.map_image).head(5)
+  ```
+</CodeGroup>
+
+![](\images\docs\8e0b4b683b1f5ec66d8d908fa96a39af2e654bce27ee3f124ca19daaa6b7b9ea-image.png)
+
+### Directory Hierarchies
+
+So far we've only seen an example of a single directory with a table inside it, but one can also put directories inside other directories, in whatever fashion makes the most sense for a given application.
+
+<CodeGroup>
+  ```python python
+  pxt.create_dir('fundamentals.subdir')
+  pxt.create_dir('fundamentals.subdir.subsubdir')
+  pxt.create_table('fundamentals.subdir.subsubdir.my_table', {'my_col': pxt.StringType()})
+  ```
+</CodeGroup>
+
+```
+Created directory `fundamentals.subdir`.
+Created directory `fundamentals.subdir.subsubdir`.
+Created table `my_table`.
+```
+
+| Column Name | Type              | Computed With |
+| ----------- | ----------------- | ------------- |
+| my\_col     | Required\[String] |               |
+
+### Deleting Columns, Tables, and Directories
+
+`drop_column()`, `drop_table()`, and `drop_dir()` are used to delete columns, tables, and directories, respectively.
+
+<CodeGroup>
+  ```python python
+  # Delete the `contact_email` column
+
+  eq_t.drop_column('contact_email')
+  ```
+</CodeGroup>
+
+<CodeGroup>
+  ```python python
+  eq_t.describe()
+  ```
+</CodeGroup>
+
+| Column Name | Type           | Computed With |
+| ----------- | -------------- | ------------- |
+| id          | Required\[Int] |               |
+| magnitude   | Float          |               |
+| location    | String         |               |
+| timestamp   | Timestamp      |               |
+| longitude   | Float          |               |
+| latitude    | Float          |               |
+| note        | String         |               |
+| map\_image  | Image          |               |
+
+<CodeGroup>
+  ```python python
+  # Delete the entire table (cannot be reverted!)
+
+  pxt.drop_table('fundamentals.earthquakes')
+  ```
+</CodeGroup>
+
+<CodeGroup>
+  ```python python
+  # Delete the entire directory and all its contents, including any nested
+  # subdirectories (cannot be reverted!)
+
+  pxt.drop_dir('fundamentals', force=True)
+  ```
+</CodeGroup>
+
+That's the end of this section of the Fundamentals tutorial! Continue on to the next section:
+
+* [Computed Columns and Expressions]()
+
+***
+
+* [Table of Contents](#)
+
+* * [Pixeltable Fundamentals](#pixeltable-fundamentals)
+
+  * [Section 1: Tables and Data Operations](#section-1-tables-and-data-operations)
+
+    * [Tables](#tables)
+    * [Filtering and Selecting Data](#filtering-and-selecting-data)
+    * [Tables are Persistent](#tables-are-persistent)
+    * [Tables are Typed](#tables-are-typed)
+    * [A Real-World Example: Earthquake Data](#a-real-world-example-earthquake-data)
+    * [Extracting Data from Tables into Python/Pandas](#extracting-data-from-tables-into-pythonpandas)
+    * [Adding Columns](#adding-columns)
+    * [Updating Rows in a Table](#updating-rows-in-a-table)
+    * [Batch Updates](#batch-updates)
+    * [Deleting Rows](#deleting-rows)
+    * [Table Versioning](#table-versioning)
+    * [Multimodal Data](#multimodal-data)
+    * [Directory Hierarchies](#directory-hierarchies)
+    * [Deleting Columns, Tables, and Directories](#deleting-columns-tables-and-directories)
