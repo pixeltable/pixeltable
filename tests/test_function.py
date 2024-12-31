@@ -410,7 +410,7 @@ class TestFunction:
             @udf6.conditional_return_type
             def _(wrong_param: str) -> pxt.ColumnType:
                 return pxt.StringType()
-        assert '`wrong_param` that is not in the signature' in str(exc_info.value).lower()
+        assert '`wrong_param` that is not in a signature' in str(exc_info.value).lower()
 
         with pytest.raises(excs.Error) as exc_info:
             from .module_with_duplicate_udf import duplicate_udf

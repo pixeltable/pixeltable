@@ -121,15 +121,15 @@ class TestHuggingface:
         assert status.num_excs == 0
 
         # run multiple models one at a time in order to exercise batching
-        from pixeltable.functions.huggingface import clip_image, clip_text
+        from pixeltable.functions.huggingface import clip
 
         model_ids = ['openai/clip-vit-base-patch32', 'laion/CLIP-ViT-B-32-laion2B-s34B-b79K']
         for idx, model_id in enumerate(model_ids):
             col_name = f'embed_text{idx}'
-            t.add_computed_column(**{col_name: clip_text(t.text, model_id=model_id)})
+            t.add_computed_column(**{col_name: clip(t.text, model_id=model_id)})
             assert t._schema[col_name].is_array_type()
             col_name = f'embed_img{idx}'
-            t.add_computed_column(**{col_name: clip_image(t.img, model_id=model_id)})
+            t.add_computed_column(**{col_name: clip(t.img, model_id=model_id)})
             assert t._schema[col_name].is_array_type()
 
         def verify_row(row: dict[str, Any]) -> None:
