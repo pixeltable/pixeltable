@@ -109,6 +109,7 @@ class Function(abc.ABC):
                 for idx in range(len(self.signatures)):
                     resolution = cast(Self, copy(self))
                     resolution.signatures = [self.signatures[idx]]
+                    resolution.__resolved_fns = [resolution]  # Resolves to itself
                     resolution._update_as_overload_resolution(idx)
                     self.__resolved_fns.append(resolution)
 

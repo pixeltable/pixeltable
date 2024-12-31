@@ -49,20 +49,17 @@ class EmbeddingIndex(IndexBase):
         self,
         c: catalog.Column,
         metric: str,
+        embed: Optional[func.Function] = None,
         string_embed: Optional[func.Function] = None,
         image_embed: Optional[func.Function] = None,
-        embed: Optional[func.Function] = None
     ):
-        assert not (string_embed is None and image_embed is None and embed is None)
+        if embed is None and string_embed is None and image_embed is None:
+            raise excs.Error('At least one of `embed`, `string_embed`, or `image_embed` must be specified')
         metric_names = [m.name.lower() for m in self.Metric]
         if metric.lower() not in metric_names:
             raise excs.Error(f'Invalid metric {metric}, must be one of {metric_names}')
         if not c.col_type.is_string_type() and not c.col_type.is_image_type():
             raise excs.Error(f'Embedding index requires string or image column')
-        if c.col_type.is_string_type() and string_embed is None:
-                raise excs.Error(f"Text embedding function is required for column {c.name} (parameter 'string_embed')")
-        if c.col_type.is_image_type() and image_embed is None:
-            raise excs.Error(f"Image embedding function is required for column {c.name} (parameter 'image_embed')")
 
         self.string_embed = None
         self.image_embed = None
@@ -112,8 +109,16 @@ class EmbeddingIndex(IndexBase):
         if self.image_embed is not None:
             self._validate_embedding_fn(self.image_embed, ts.ColumnType.Type.IMAGE)
 
+        if c.col_type.is_string_type() and self.string_embed is None:
+            raise excs.Error(f"Text embedding function is required for column {c.name} (parameter 'string_embed')")
+        if c.col_type.is_image_type() and self.image_embed is None:
+            raise excs.Error(f"Image embedding function is required for column {c.name} (parameter 'image_embed')")
+
         self.metric = self.Metric[metric.upper()]
-        self.value_expr = string_embed(exprs.ColumnRef(c)) if c.col_type.is_string_type() else image_embed(exprs.ColumnRef(c))
+        self.value_expr = (
+            self.string_embed(exprs.ColumnRef(c)) if c.col_type.is_string_type()
+            else self.image_embed(exprs.ColumnRef(c))
+        )
         assert isinstance(self.value_expr.col_type, ts.ArrayType)
         vector_size = self.value_expr.col_type.shape[0]
         assert vector_size is not None

@@ -788,6 +788,7 @@ class Table(SchemaObject):
 
     def add_embedding_index(
             self, column: Union[str, ColumnRef], *, idx_name: Optional[str] = None,
+            embed: Optional[pxt.Function] = None,
             string_embed: Optional[pxt.Function] = None, image_embed: Optional[pxt.Function] = None,
             metric: str = 'cosine'
     ) -> None:
@@ -804,8 +805,9 @@ class Table(SchemaObject):
             column: The name of, or reference to, the column to index; must be a `String` or `Image` column.
             idx_name: The name of index. If not specified, a name such as `'idx0'` will be generated automatically.
                 If specified, the name must be unique for this table.
-            string_embed: A function to embed text; required if the column is a `String` column.
-            image_embed: A function to embed images; required if the column is an `Image` column.
+            embed: A function to embed data; may be used to embed text, images, or for a multimodal embedding.
+            string_embed: A function to embed text.
+            image_embed: A function to embed images.
             metric: Distance metric to use for the index; one of `'cosine'`, `'ip'`, or `'l2'`;
                 the default is `'cosine'`.
 
@@ -858,7 +860,7 @@ class Table(SchemaObject):
         from pixeltable.index import EmbeddingIndex
 
         # create the EmbeddingIndex instance to verify args
-        idx = EmbeddingIndex(col, metric=metric, string_embed=string_embed, image_embed=image_embed)
+        idx = EmbeddingIndex(col, metric=metric, embed=embed, string_embed=string_embed, image_embed=image_embed)
         status = self._tbl_version.add_index(col, idx_name=idx_name, idx=idx)
         # TODO: how to deal with exceptions here? drop the index and raise?
         FileCache.get().emit_eviction_warnings()
