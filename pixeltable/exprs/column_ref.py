@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Optional, Sequence
+from typing import Any, Optional, Sequence, TYPE_CHECKING
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -16,6 +16,8 @@ from .expr import Expr
 from .row_builder import RowBuilder
 from .sql_element_cache import SqlElementCache
 
+if TYPE_CHECKING:
+    from ..catalog import TableVersion
 
 class ColumnRef(Expr):
     """A reference to a table column
@@ -46,11 +48,16 @@ class ColumnRef(Expr):
     pos_idx: Optional[int]
     id: int
     perform_validation: bool  # if True, performs media validation
+    tbl_context: Optional[TableVersion]
 
-    def __init__(self, col: catalog.Column, perform_validation: Optional[bool] = None):
+    def __init__(self, col: catalog.Column, perform_validation: Optional[bool] = None, tbl_context: Optional[TableVersion] = None):
         super().__init__(col.col_type)
         assert col.tbl is not None
         self.col = col
+        if tbl_context is not None:
+            self.tbl_context = tbl_context
+        else:
+            self.tbl_context = col.tbl
         self.is_unstored_iter_col = \
             col.tbl.is_component_view() and col.tbl.is_iterator_column(col) and not col.is_stored
         self.iter_arg_ctx = None

@@ -140,7 +140,7 @@ class Table(SchemaObject):
     def __getattr__(self, name: str) -> 'pxt.exprs.ColumnRef':
         """Return a ColumnRef for the given name.
         """
-        return self._tbl_version_path.get_column_ref(name)
+        return self._tbl_version_path.get_column_ref(name, self._tbl_version_path.tbl_version)
 
     @overload
     def __getitem__(self, name: str) -> 'pxt.exprs.ColumnRef': ...

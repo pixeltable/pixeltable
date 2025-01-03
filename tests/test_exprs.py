@@ -102,6 +102,28 @@ class TestExprs:
             _ = t.does_not_exist
         assert 'unknown' in str(excinfo.value).lower()
 
+    def test_column_ref(self, test_tbl: catalog.Table) -> None:
+        t = test_tbl
+        assert t.count() == 100
+        assert t.select(t.c2).count() == 100
+        assert t.select(t.c2).head(5)['c2'] == [0, 1, 2, 3, 4]
+        colref = t.c2
+        assert colref.col.tbl.name == 'test_tbl'
+        assert colref.tbl_context.name == 'test_tbl'
+        v = pxt.create_view('test_view', t.where(t.c2 >= 90), additional_columns={'v1': pxt.Int})
+        assert v.count() == 10
+
+        colref = v.v1
+        assert colref.col.tbl.name == 'test_view'
+        assert colref.tbl_context.name == 'test_view'
+        assert v.select(v.v1).count() == 10
+
+        colref = v.c2
+        assert colref.col.tbl.name == 'test_tbl'
+        assert colref.tbl_context.name == 'test_view'
+        assert v.select(v.c2).count() == 10 # should be 10, but is 100?
+        assert v.select(v.c2).head(5)['c2'] == [90, 91, 92, 93, 94]
+
     def test_compound_predicates(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         # compound predicates that can be fully evaluated in SQL
