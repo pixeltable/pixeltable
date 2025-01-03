@@ -25,7 +25,7 @@ class SimilarityExpr(Expr):
         self.components = [col_ref, item_expr]
 
         # determine index to use
-        idx_info = col_ref.col.get_idx_info()
+        idx_info = col_ref.get_idx_info()
         from pixeltable import index
         embedding_idx_info = {
             info.name: info for info in idx_info.values() if isinstance(info.idx, index.EmbeddingIndex)

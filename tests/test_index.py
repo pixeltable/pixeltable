@@ -363,11 +363,11 @@ class TestIndex:
         v.add_embedding_index(v.s, string_embed=pxt.functions.huggingface.sentence_transformer.using(model_id='all-mpnet-base-v2'))
         v.add_embedding_index(t.s, string_embed=pxt.functions.huggingface.sentence_transformer.using(model_id='all-mpnet-base-v2'))
         # Expected to verify the following:
-        # df = v.select(sim=v.s.similarity(sents[1]))
-        # res2 = df.collect()
-        # assert_resultset_eq(res1, res2)
+        df = v.select(sim=v.s.similarity(sents[1], idx='idx1'))
+        res2 = df.collect()
+        assert_resultset_eq(res1, res2)
         # and
-        # _ = reload_tester.run_query(df)
+        #_ = reload_tester.run_query(df)
         #
         # But found a bug, instead. PXT-371 tracks this.
         # RCA: The indexes above are on the view, not the base table.
@@ -376,9 +376,11 @@ class TestIndex:
         # the table in the ColumnRef, which is the base table.
         # So it raises error that there's no index.
         # Fix needs discussion.
-        with pytest.raises(pxt.Error) as exc_info:
-            df = v.select(sim=v.s.similarity(sents[1]))
-        assert 'no index found for column' in str(exc_info.value).lower()
+        #with pytest.raises(pxt.Error) as exc_info:
+        df = v.select(sim=v.s.similarity(sents[1], idx='idx2'))
+        res2 = df.collect()
+        assert_resultset_eq(res1, res2)
+        #assert 'no index found for column' in str(exc_info.value).lower()
         _ = reload_tester.run_query(v.select())
 
         _ = reload_tester.run_reload_test()

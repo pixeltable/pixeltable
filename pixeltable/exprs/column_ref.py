@@ -221,6 +221,15 @@ class ColumnRef(Expr):
         res = next(self.iterator)
         data_row[self.slot_idx] = res[self.col.name]
 
+    def get_idx_info(self) -> dict[str, 'TableVersion.IndexInfo']:
+        assert self.col is not None
+        assert self.tbl_context is not None
+        idx_info = {name: info for name, info in self.tbl_context.idxs_by_name.items() if info.col == self.col}
+        print(f'----> DEBUG_A: ColumnRef.get_idx_info() {self.col.name} {self.tbl_context.name} {self.col.tbl.name} len(idx_info)={len(idx_info)}')
+        if len(idx_info) == 0:
+            return self.col.get_idx_info()
+        return idx_info
+
     def _as_dict(self) -> dict:
         tbl = self.col.tbl
         version = tbl.version if tbl.is_snapshot else None
