@@ -92,7 +92,7 @@ class ColumnRef(Expr):
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return (
             super()._id_attrs()
-            + [('tbl_id', self.col.tbl.id), ('col_id', self.col.id), ('perform_validation', self.perform_validation)]
+            + [('tbl_id', self.col.tbl.id), ('col_id', self.col.id), ('perform_validation', self.perform_validation), ('tbl_context', self.tbl_context.id)]
         )
 
     # override
@@ -100,7 +100,8 @@ class ColumnRef(Expr):
         target = tbl_versions[self.col.tbl.id]
         assert self.col.id in target.cols_by_id
         col = target.cols_by_id[self.col.id]
-        return ColumnRef(col)
+        target_tbl_context = tbl_versions[self.tbl_context.id]
+        return ColumnRef(col, tbl_context=target_tbl_context)
 
     def __getattr__(self, name: str) -> Expr:
         from .column_property_ref import ColumnPropertyRef
@@ -133,10 +134,12 @@ class ColumnRef(Expr):
         return str(self)
 
     def _equals(self, other: ColumnRef) -> bool:
-        return self.col == other.col and self.perform_validation == other.perform_validation
+        return (self.col == other.col and self.perform_validation == other.perform_validation
+                and self.tbl_context.id == other.tbl_context.id
+                and self.tbl_context.version == other.tbl_context.version)
 
     def _df(self) -> 'pxt.dataframe.DataFrame':
-        tbl = catalog.Catalog.get().tbls[self.col.tbl.id]
+        tbl = catalog.Catalog.get().tbls[self.tbl_context.id]
         return tbl.select(self)
 
     def show(self, *args, **kwargs) -> 'pxt.dataframe.DataFrameResultSet':
@@ -239,7 +242,9 @@ class ColumnRef(Expr):
             'tbl_id': str(tbl.id),
             'tbl_version': version,
             'col_id': self.col.id,
-            'perform_validation': self.perform_validation
+            'perform_validation': self.perform_validation,
+            'tbl_context_id': str(self.tbl_context.id),
+            'tbl_context_version': self.tbl_context.version if self.tbl_context.is_snapshot else None
         }
 
     @classmethod
@@ -251,7 +256,16 @@ class ColumnRef(Expr):
         return col
 
     @classmethod
+    def get_column_context(cls, d: dict) -> catalog.TableVersion:
+        if 'tbl_context_id' in d:
+            tbl_id, version = UUID(d['tbl_context_id']), d['tbl_context_version']
+        else:
+            tbl_id, version = UUID(d['tbl_id']), d['tbl_version']
+        return catalog.Catalog.get().tbl_versions[(tbl_id, version)]
+
+    @classmethod
     def _from_dict(cls, d: dict, _: list[Expr]) -> ColumnRef:
         col = cls.get_column(d)
         perform_validation = d['perform_validation']
-        return cls(col, perform_validation=perform_validation)
+        tbl_context = cls.get_column_context(d)
+        return cls(col, perform_validation=perform_validation,tbl_context=tbl_context)

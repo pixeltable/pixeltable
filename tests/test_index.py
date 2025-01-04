@@ -367,7 +367,7 @@ class TestIndex:
         res2 = df.collect()
         assert_resultset_eq(res1, res2)
         # and
-        #_ = reload_tester.run_query(df)
+        _ = reload_tester.run_query(df)
         #
         # But found a bug, instead. PXT-371 tracks this.
         # RCA: The indexes above are on the view, not the base table.
@@ -380,6 +380,11 @@ class TestIndex:
         df = v.select(sim=v.s.similarity(sents[1], idx='idx2'))
         res2 = df.collect()
         assert_resultset_eq(res1, res2)
+        _ = reload_tester.run_query(df)
+        df = v.select(sim=v.s.similarity(sents[1], idx='idx0'))
+        res2 = df.collect()
+        assert_resultset_eq(res1, res2)
+        _ = reload_tester.run_query(df)
         #assert 'no index found for column' in str(exc_info.value).lower()
         _ = reload_tester.run_query(v.select())
 

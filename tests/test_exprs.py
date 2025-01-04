@@ -117,12 +117,15 @@ class TestExprs:
         assert colref.col.tbl.name == 'test_view'
         assert colref.tbl_context.name == 'test_view'
         assert v.select(v.v1).count() == 10
+        assert v.v1.count() == 10
 
         colref = v.c2
         assert colref.col.tbl.name == 'test_tbl'
         assert colref.tbl_context.name == 'test_view'
-        assert v.select(v.c2).count() == 10 # should be 10, but is 100?
+        assert v.select(v.c2).count() == 10
         assert v.select(v.c2).head(5)['c2'] == [90, 91, 92, 93, 94]
+        assert v.c2.count() == 10 # should be 10, but is 100?
+        assert v.c2.head(5)['c2'] == [90, 91, 92, 93, 94] # should be [90, 91, 92, 93, 94], but is [0, 1, 2, 3, 4]?
 
     def test_compound_predicates(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
