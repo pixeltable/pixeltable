@@ -397,6 +397,11 @@ class TestIndex:
         assert "column 'does_not_exist' unknown" in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error) as exc_info:
+            # no embedding function specified
+            img_t.add_embedding_index('img')
+        assert '`embed`, `string_embed`, or `image_embed` must be specified' in str(exc_info.value)
+
+        with pytest.raises(pxt.Error) as exc_info:
             # wrong column type
             test_tbl.add_embedding_index('c2', image_embed=clip_embed)
         assert 'requires string or image column' in str(exc_info.value).lower()
@@ -420,6 +425,11 @@ class TestIndex:
             # wrong signature
             img_t.add_embedding_index('category', string_embed=clip)
         assert 'must take a single string parameter' in str(exc_info.value).lower()
+
+        with pytest.raises(pxt.Error) as exc_info:
+            # no matching signature
+            img_t.add_embedding_index('img', embed=clip)
+        assert 'must take a single string or image parameter' in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error) as exc_info:
             img_t.add_embedding_index('category', string_embed=self.bad_embed)
