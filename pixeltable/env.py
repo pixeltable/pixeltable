@@ -276,6 +276,7 @@ class Env:
         if self._config.get_bool_value('hide_warnings'):
             # Disable more warnings
             warnings.simplefilter('ignore', category=UserWarning)
+            warnings.simplefilter('ignore', category=FutureWarning)
 
         # configure _logger to log to a file
         self._logfilename = datetime.datetime.now().strftime('%Y%m%d_%H%M%S') + '.log'

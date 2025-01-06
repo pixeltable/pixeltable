@@ -456,6 +456,11 @@ class Table(SchemaObject):
                 f'add_column() requires exactly one keyword argument of the form "col_name=col_type"; '
                 f'got {len(kwargs)} instead ({", ".join(kwargs.keys())})'
             )
+        col_type = next(iter(kwargs.values()))
+        if not isinstance(col_type, (ts.ColumnType, type, _GenericAlias)):
+            raise excs.Error(
+                f'The argument to add_column() must be a type; did you intend to use add_computed_column() instead?'
+            )
         return self.add_columns(kwargs)
 
     def add_computed_column(
