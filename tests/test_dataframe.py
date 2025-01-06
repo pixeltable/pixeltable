@@ -42,10 +42,6 @@ class TestDataFrame:
         res2 = t.select().collect()
         assert len(res1) > 0 and res1 == res2
 
-        res1 = t[t.c1, t.c2, t.c3].collect()
-        res2 = t.select(t.c1, t.c2, t.c3).collect()
-        assert len(res1) > 0 and res1 == res2
-
         res1 = t.where(t.c2 < 10).select(t.c1, t.c2, t.c3).collect()
 
         res3 = t.where(t.c2 < 10).select(c1=t.c1, c2=t.c2, c3=t.c3).collect()

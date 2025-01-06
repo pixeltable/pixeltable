@@ -82,49 +82,49 @@ class TestFunction:
     def test_call(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
 
-        r0 = t[t.c2, t.c3].collect().to_pandas()
+        r0 = t.select(t.c2, t.c3).collect().to_pandas()
         # positional params with default args
-        r1 = t[self.f1(t.c2, t.c3)].collect().to_pandas()['f1']
+        r1 = t.select(self.f1(t.c2, t.c3)).collect().to_pandas()['f1']
         assert np.all(r1 == r0.c2 + r0.c3 + 1.0)
         # kw args only
-        r2 = t[self.f1(c=0.0, b=t.c3, a=t.c2)].collect().to_pandas()['f1']
+        r2 = t.select(self.f1(c=0.0, b=t.c3, a=t.c2)).collect().to_pandas()['f1']
         assert np.all(r1 == r2)
         # overriding default args
-        r3 = t[self.f1(d=0.0, c=1.0, b=t.c3, a=t.c2)].collect().to_pandas()['f1']
+        r3 = t.select(self.f1(d=0.0, c=1.0, b=t.c3, a=t.c2)).collect().to_pandas()['f1']
         assert np.all(r2 == r3)
         # overriding default with positional arg
-        r4 = t[self.f1(t.c2, t.c3, 0.0)].collect().to_pandas()['f1']
+        r4 = t.select(self.f1(t.c2, t.c3, 0.0)).collect().to_pandas()['f1']
         assert np.all(r3 == r4)
         # overriding default with positional arg and kw arg
-        r5 = t[self.f1(t.c2, t.c3, 1.0, d=0.0)].collect().to_pandas()['f1']
+        r5 = t.select(self.f1(t.c2, t.c3, 1.0, d=0.0)).collect().to_pandas()['f1']
         assert np.all(r4 == r5)
         # d is kwarg
-        r6 = t[self.f1(t.c2, d=1.0, b=t.c3)].collect().to_pandas()['f1']
+        r6 = t.select(self.f1(t.c2, d=1.0, b=t.c3)).collect().to_pandas()['f1']
         assert np.all(r5 == r6)
         # d is Expr kwarg
-        r6 = t[self.f1(1, d=t.c3, b=t.c3)].collect().to_pandas()['f1']
+        r6 = t.select(self.f1(1, d=t.c3, b=t.c3)).collect().to_pandas()['f1']
         assert np.all(r5 == r6)
 
         # test handling of Nones
-        r0 = t[self.f2(1, t.c3)].collect().to_pandas()['f2']
-        r1 = t[self.f2(None, t.c3, 2.0)].collect().to_pandas()['f2']
+        r0 = t.select(self.f2(1, t.c3)).collect().to_pandas()['f2']
+        r1 = t.select(self.f2(None, t.c3, 2.0)).collect().to_pandas()['f2']
         assert np.all(r0 == r1)
-        r2 = t[self.f2(2, t.c3, None)].collect().to_pandas()['f2']
+        r2 = t.select(self.f2(2, t.c3, None)).collect().to_pandas()['f2']
         assert np.all(r1 == r2)
         # kwarg with None
-        r3 = t[self.f2(c=None, a=t.c2)].collect().to_pandas()['f2']
+        r3 = t.select(self.f2(c=None, a=t.c2)).collect().to_pandas()['f2']
         # kwarg with Expr
-        r4 = t[self.f2(c=t.c3, a=None)].collect().to_pandas()['f2']
+        r4 = t.select(self.f2(c=t.c3, a=None)).collect().to_pandas()['f2']
         assert np.all(r3 == r4)
 
         with pytest.raises(TypeError) as exc_info:
-            _ = t[self.f1(t.c2, c=0.0)].collect()
+            _ = t.select(self.f1(t.c2, c=0.0)).collect()
         assert "'b'" in str(exc_info.value)
         with pytest.raises(TypeError) as exc_info:
-            _ = t[self.f1(t.c2)].collect()
+            _ = t.select(self.f1(t.c2)).collect()
         assert "'b'" in str(exc_info.value)
         with pytest.raises(TypeError) as exc_info:
-            _ = t[self.f1(c=1.0, a=t.c2)].collect()
+            _ = t.select(self.f1(c=1.0, a=t.c2)).collect()
         assert "'b'" in str(exc_info.value)
 
         # bad default value

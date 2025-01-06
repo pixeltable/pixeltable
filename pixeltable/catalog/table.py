@@ -124,23 +124,12 @@ class Table(SchemaObject):
             raise excs.Error(f'{self._display_name()} {self._name} has been dropped')
 
     def __getattr__(self, name: str) -> 'pxt.exprs.ColumnRef':
-        """Return a ColumnRef for the given name.
-        """
+        """Return a ColumnRef for the given name."""
         return self._tbl_version_path.get_column_ref(name)
 
-    @overload
-    def __getitem__(self, name: str) -> 'pxt.exprs.ColumnRef': ...
-
-    @overload
-    def __getitem__(self, index: Union[exprs.Expr, Sequence[exprs.Expr]]) -> 'pxt.DataFrame': ...
-
-    def __getitem__(self, index):
-        """Return a ColumnRef or QueryTemplateFunction for the given name, or a DataFrame for the given slice.
-        """
-        if isinstance(index, str):
-            return getattr(self, index)
-        else:
-            return self._df()[index]
+    def __getitem__(self, name: str) -> 'pxt.exprs.ColumnRef':
+        """Return a ColumnRef for the given name."""
+        return getattr(self, name)
 
     def list_views(self, *, recursive: bool = True) -> list[str]:
         """

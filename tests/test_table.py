@@ -1525,7 +1525,7 @@ class TestTable:
         # c3 is now stored
         t.add_computed_column(c3=t.img.rotate(90))
         self._test_computed_img_cols(t, stores_img_col=True)
-        _ = t[t.c3.errortype].collect()
+        _ = t.select(t.c3.errortype).collect()
 
         # computed img col with exceptions
         t = pxt.create_table('test3', schema)
@@ -1533,7 +1533,7 @@ class TestTable:
         rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
         rows = [{'img': r['img']} for r in rows[:20]]
         t.insert(rows, on_error='ignore')
-        _ = t[t.c3.errortype].collect()
+        _ = t.select(t.c3.errortype).collect()
 
     def test_computed_window_fn(self, reset_db: None, test_tbl: catalog.Table) -> None:
         t = test_tbl
