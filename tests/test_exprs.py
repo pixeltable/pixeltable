@@ -23,7 +23,7 @@ from pixeltable.functions import cast
 from pixeltable.iterators import FrameIterator
 
 from .utils import (create_all_datatypes_tbl, create_scalars_tbl, get_image_files, reload_catalog, skip_test_if_not_installed,
-                    validate_update_status)
+                    validate_update_status, ReloadTester)
 
 
 class TestExprs:
@@ -102,30 +102,73 @@ class TestExprs:
             _ = t.does_not_exist
         assert 'unknown' in str(excinfo.value).lower()
 
-    def test_column_ref(self, test_tbl: catalog.Table) -> None:
+    def _verify_colref(self, colref: ColumnRef, col_tbl_name: str, context_tbl_name: str) -> None:
+        assert colref.col.tbl.name == col_tbl_name
+        assert colref.tbl_context.name == context_tbl_name
+
+    def test_column_ref_context(self, test_tbl: catalog.Table, reload_tester: ReloadTester) -> None:
+        """ Test the table context is setup and works as expected for ColumnRef expression"""
         t = test_tbl
         assert t.count() == 100
+
+        self._verify_colref(t.c2, 'test_tbl', 'test_tbl')
         assert t.select(t.c2).count() == 100
         assert t.select(t.c2).head(5)['c2'] == [0, 1, 2, 3, 4]
-        colref = t.c2
-        assert colref.col.tbl.name == 'test_tbl'
-        assert colref.tbl_context.name == 'test_tbl'
+        assert t.c2.count() == 100
+        assert t.c2.head(5)['c2'] == [0, 1, 2, 3, 4]
+
+        # register the query to later verify results after reload
+        _ = reload_tester.run_query(t.select(t.c2))
+        _ = reload_tester.run_query(t.c2._df())
+
         v = pxt.create_view('test_view', t.where(t.c2 >= 90), additional_columns={'v1': pxt.Int})
         assert v.count() == 10
 
-        colref = v.v1
-        assert colref.col.tbl.name == 'test_view'
-        assert colref.tbl_context.name == 'test_view'
+        self._verify_colref(v.v1, 'test_view', 'test_view')
         assert v.select(v.v1).count() == 10
         assert v.v1.count() == 10
 
-        colref = v.c2
-        assert colref.col.tbl.name == 'test_tbl'
-        assert colref.tbl_context.name == 'test_view'
+        self._verify_colref(v.c2, 'test_tbl', 'test_view')
         assert v.select(v.c2).count() == 10
         assert v.select(v.c2).head(5)['c2'] == [90, 91, 92, 93, 94]
-        assert v.c2.count() == 10 # should be 10, but is 100?
-        assert v.c2.head(5)['c2'] == [90, 91, 92, 93, 94] # should be [90, 91, 92, 93, 94], but is [0, 1, 2, 3, 4]?
+        assert v.c2.count() == 10 # before fix: should be 10, but is 100
+        assert v.c2.head(5)['c2'] == [90, 91, 92, 93, 94] # before fix: should be [90, 91, 92, 93, 94], but is [0, 1, 2, 3, 4]
+
+        # register the query to later verify results after reload
+        _ = reload_tester.run_query(v.select(v.c2))
+        _ = reload_tester.run_query(v.c2._df())
+
+        # selecting mix of columns from base and view results in a join. verify that works.
+        v.select(v.v1, v.c2).collect()
+        _ = reload_tester.run_query(v.select(v.v1, v.c2))
+
+        s = pxt.create_snapshot('test_snap1', v.where(v.c2 >=95), additional_columns={'s1': pxt.String})
+        assert s.count() == 5
+
+        self._verify_colref(s.s1, 'test_snap1', 'test_snap1')
+        assert s.select(s.s1).count() == 5
+        assert s.s1.count() == 5
+
+        self._verify_colref(s.v1, 'test_view', 'test_snap1')
+        assert s.select(s.v1).count() == 5 # before fix: should be 5, but is 10
+        assert s.v1.count() == 5
+
+        self._verify_colref(s.c2, 'test_tbl', 'test_snap1')
+        assert s.select(s.c2).count() == 5
+        assert s.select(s.c2).head(3)['c2'] == [95, 96, 97]
+        assert s.c2.count() == 5 # before fix: should be 5, but is 100
+        assert s.c2.head(3)['c2'] == [95, 96, 97] # before fix: should be [95, 96, 97], but is [0, 1, 2]?
+
+        # register the query to later verify results after reload
+        _ = reload_tester.run_query(s.select(s.c2))
+        _ = reload_tester.run_query(s.c2._df())
+
+        # selecting mix of columns from base and view and snapshots results in a join. verify that works.
+        _ = reload_tester.run_query(s.select(s.s1, s.v1))
+        _ = reload_tester.run_query(s.select(s.s1, s.c2))
+        _ = reload_tester.run_query(s.select(s.s1, s.v1, s.c2))
+
+        reload_tester.run_reload_test()
 
     def test_compound_predicates(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
