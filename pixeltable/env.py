@@ -8,6 +8,7 @@ import importlib.util
 import inspect
 import logging
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -311,8 +312,12 @@ class Env:
         self._db_name = os.environ.get('PIXELTABLE_DB', 'pixeltable')
         self._pgdata_dir = Path(os.environ.get('PIXELTABLE_PGDATA', str(self._home / 'pgdata')))
 
-        # in pixeltable_pgserver.get_server(): cleanup_mode=None will leave db on for debugging purposes
-        self._db_server = pixeltable_pgserver.get_server(self._pgdata_dir, cleanup_mode=None)
+        # cleanup_mode=None will leave the postgres process running after Python exits
+        # cleanup_mode='stop' will terminate the postgres process when Python exits
+        # On Windows, we need cleanup_mode='stop' because child processes are killed automatically when the parent
+        # process (such as Terminal or VSCode) exits, potentially leaving it in an unusable state.
+        cleanup_mode = 'stop' if platform.system() == 'Windows' else None
+        self._db_server = pixeltable_pgserver.get_server(self._pgdata_dir, cleanup_mode=cleanup_mode)
         self._db_url = self._db_server.get_uri(database=self._db_name, driver='psycopg')
 
         tz_name = self.config.get_string_value('time_zone')
@@ -357,7 +362,7 @@ class Env:
             self.db_url,
             echo=echo,
             future=True,
-            isolation_level='AUTOCOMMIT',
+            isolation_level='REPEATABLE READ',
             connect_args=connect_args,
         )
         self._logger.info(f'Created SQLAlchemy engine at: {self.db_url}')
@@ -506,6 +511,7 @@ class Env:
         self.__register_package('openai')
         self.__register_package('openpyxl')
         self.__register_package('pyarrow')
+        self.__register_package('pydantic')
         self.__register_package('replicate')
         self.__register_package('sentencepiece')
         self.__register_package('sentence_transformers', library_name='sentence-transformers')

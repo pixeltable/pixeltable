@@ -9,6 +9,7 @@ import uuid
 from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, Optional
 from uuid import UUID
 
+import jsonschema.exceptions
 import sqlalchemy as sql
 import sqlalchemy.orm as orm
 
@@ -831,7 +832,7 @@ class TableVersion:
                 if error_if_not_exists:
                     raise excs.Error(f'batch_update(): {len(unmatched_rows)} row(s) not found')
                 if insert_if_not_exists:
-                    insert_status = self.insert(unmatched_rows, None, print_stats=False, fail_on_exception=False)
+                    insert_status = self.insert(unmatched_rows, None, conn=conn, print_stats=False, fail_on_exception=False)
                     result += insert_status
             return result
 
@@ -858,10 +859,11 @@ class TableVersion:
                 raise excs.Error(f'Column {col_name} is a primary key column and cannot be updated')
 
             # make sure that the value is compatible with the column type
+            value_expr: exprs.Expr
             try:
                 # check if this is a literal
-                value_expr: exprs.Expr = exprs.Literal(val, col_type=col.col_type)
-            except TypeError:
+                value_expr = exprs.Literal(val, col_type=col.col_type)
+            except (TypeError, jsonschema.exceptions.ValidationError):
                 if not allow_exprs:
                     raise excs.Error(
                         f'Column {col_name}: value {val!r} is not a valid literal for this column '
@@ -870,11 +872,11 @@ class TableVersion:
                 value_expr = exprs.Expr.from_object(val)
                 if value_expr is None:
                     raise excs.Error(f'Column {col_name}: value {val!r} is not a recognized literal or expression')
-                if not col.col_type.matches(value_expr.col_type):
-                    raise excs.Error((
+                if not col.col_type.is_supertype_of(value_expr.col_type, ignore_nullable=True):
+                    raise excs.Error(
                         f'Type of value {val!r} ({value_expr.col_type}) is not compatible with the type of column '
                         f'{col_name} ({col.col_type})'
-                    ))
+                    )
             update_targets[col] = value_expr
 
         return update_targets

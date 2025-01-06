@@ -13,6 +13,7 @@ import pixeltable.env as env
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable.metadata import schema
+
 from .function import Function
 
 _logger = logging.getLogger('pixeltable')
@@ -68,7 +69,7 @@ class FunctionRegistry:
             raise excs.Error(f'A UDF with that name already exists: {fqn}')
         self.module_fns[fqn] = fn
         if fn.is_method or fn.is_property:
-            base_type = fn.signature.parameters_by_pos[0].col_type.type_enum
+            base_type = fn.signatures[0].parameters_by_pos[0].col_type.type_enum
             if base_type not in self.type_methods:
                 self.type_methods[base_type] = {}
             if fn.name in self.type_methods[base_type]:
