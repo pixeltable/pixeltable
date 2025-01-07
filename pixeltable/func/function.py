@@ -37,6 +37,8 @@ class Function(abc.ABC):
     # parameter names as the original function. Each parameter is going to be of type sql.ColumnElement.
     _to_sql: Callable[..., Optional[sql.ColumnElement]]
 
+    _resource_pool: Callable[..., Optional[str]]
+
 
     def __init__(
         self, signature: Signature, self_path: Optional[str] = None, is_method: bool = False, is_property: bool = False
@@ -49,6 +51,7 @@ class Function(abc.ABC):
         self.is_property = is_property
         self._conditional_return_type = None
         self._to_sql = self.__default_to_sql
+        self._resource_pool = self.__default_resource_pool
 
     @property
     def name(self) -> str:
@@ -85,6 +88,16 @@ class Function(abc.ABC):
     def validate_call(self, bound_args: dict[str, Any]) -> None:
         """Override this to do custom validation of the arguments"""
         pass
+
+    def call_resource_pool(self, kwargs: dict[str, Any]) -> str:
+        """Return the resource pool to use for calling this function with the given arguments"""
+        bound_args = self.signature.py_signature.bind(**kwargs)
+        kw_args: dict[str, Any] = {}
+        sig = inspect.signature(self._resource_pool)
+        for param in sig.parameters.values():
+            if param.name in bound_args.arguments:
+                kw_args[param.name] = bound_args.arguments[param.name]
+        return self._resource_pool(**kw_args)
 
     def call_return_type(self, kwargs: dict[str, Any]) -> ts.ColumnType:
         """Return the type of the value returned by calling this function with the given arguments"""
@@ -155,6 +168,15 @@ class Function(abc.ABC):
 
     def __default_to_sql(self, *args: Any, **kwargs: Any) -> Optional[sql.ColumnElement]:
         """The default implementation of SQL translation, which provides no translation"""
+        return None
+
+    def resource_pool(self, fn: Callable[..., str]) -> Callable[..., str]:
+        """Instance decorator for specifying the resource pool of this function"""
+        # TODO: check that fn's parameters are a subset of our parameters
+        self._resource_pool = fn
+        return fn
+
+    def __default_resource_pool(self) -> Optional[str]:
         return None
 
     def __eq__(self, other: object) -> bool:

@@ -5,6 +5,9 @@ first `pip install anthropic` and configure your Anthropic credentials, as descr
 the [Working with Anthropic](https://pixeltable.readme.io/docs/working-with-anthropic) tutorial.
 """
 
+import datetime
+import json
+import logging
 from typing import TYPE_CHECKING, Any, Callable, Optional, TypeVar, Union
 
 import tenacity
@@ -16,11 +19,12 @@ from pixeltable.utils.code import local_public_names
 if TYPE_CHECKING:
     import anthropic
 
+_logger = logging.getLogger('pixeltable')
 
 @env.register_client('anthropic')
-def _(api_key: str) -> 'anthropic.Anthropic':
+def _(api_key: str) -> 'anthropic.AsyncAnthropic':
     import anthropic
-    return anthropic.Anthropic(api_key=api_key)
+    return anthropic.AsyncAnthropic(api_key=api_key)
 
 
 def _anthropic_client() -> 'anthropic.Anthropic':
@@ -37,7 +41,7 @@ def _retry(fn: Callable) -> Callable:
 
 
 @pxt.udf
-def messages(
+async def messages(
     messages: list[dict[str, str]],
     *,
     model: str,
@@ -77,7 +81,12 @@ def messages(
         >>> msgs = [{'role': 'user', 'content': tbl.prompt}]
         ... tbl['response'] = messages(msgs, model='claude-3-haiku-20240307')
     """
-    return _retry(_anthropic_client().messages.create)(
+
+    # it doesn't look like count_tokens() actually exists in the current version of the library
+    #count_result = await cl.beta.messages.count_tokens(model=model, messages=messages)
+
+    # TODO: timeouts should be set system-wide and be user-configurable
+    result = await _anthropic_client().messages.create(
         messages=messages,
         model=model,
         max_tokens=max_tokens,
@@ -89,8 +98,47 @@ def messages(
         tools=_opt(tools),
         top_k=_opt(top_k),
         top_p=_opt(top_p),
-    ).dict()
+        timeout=5,
+        extra_headers={'X-Stainless-Raw-Response': 'true'},
+    )
 
+    requests_limit_str = result.headers.get('anthropic-ratelimit-requests-limit')
+    requests_limit = int(requests_limit_str) if requests_limit_str is not None else None
+    requests_remaining_str = result.headers.get('anthropic-ratelimit-requests-remaining')
+    requests_remaining = int(requests_remaining_str) if requests_remaining_str is not None else None
+    requests_reset_str = result.headers.get('anthropic-ratelimit-requests-reset')
+    requests_reset = datetime.datetime.fromisoformat(requests_reset_str.replace('Z', '+00:00'))
+    input_tokens_limit_str = result.headers.get('anthropic-ratelimit-input-tokens-limit')
+    input_tokens_limit = int(input_tokens_limit_str) if input_tokens_limit_str is not None else None
+    input_tokens_remaining_str = result.headers.get('anthropic-ratelimit-input-tokens-remaining')
+    input_tokens_remaining = int(input_tokens_remaining_str) if input_tokens_remaining_str is not None else None
+    input_tokens_reset_str = result.headers.get('anthropic-ratelimit-input-tokens-reset')
+    input_tokens_reset = datetime.datetime.fromisoformat(input_tokens_reset_str.replace('Z', '+00:00'))
+    output_tokens_limit_str = result.headers.get('anthropic-ratelimit-output-tokens-limit')
+    output_tokens_limit = int(output_tokens_limit_str) if output_tokens_limit_str is not None else None
+    output_tokens_remaining_str = result.headers.get('anthropic-ratelimit-output-tokens-remaining')
+    output_tokens_remaining = int(output_tokens_remaining_str) if output_tokens_remaining_str is not None else None
+    output_tokens_reset_str = result.headers.get('anthropic-ratelimit-output-tokens-reset')
+    output_tokens_reset = datetime.datetime.fromisoformat(output_tokens_reset_str.replace('Z', '+00:00'))
+    retry_after_str = result.headers.get('retry-after')
+    if retry_after_str is not None:
+        _logger.debug(f'retry-after: {retry_after_str}')
+
+    resource_pool_id = f'rate-limits:anthropic-{model}'
+    rate_limits_info = env.Env.get().get_resource_pool_info(resource_pool_id)
+    assert isinstance(rate_limits_info, env.RateLimitsInfo)
+    rate_limits_info.record(
+        requests=(requests_limit, requests_remaining, requests_reset),
+        input_tokens=(input_tokens_limit, input_tokens_remaining, input_tokens_reset),
+        output_tokens=(output_tokens_limit, output_tokens_remaining, output_tokens_reset))
+
+    result_dict = json.loads(result.text)
+    return result_dict
+
+
+@messages.resource_pool
+def _(model: str) -> str:
+    return f'rate-limits:anthropic-{model}'
 
 _T = TypeVar('_T')
 

@@ -1,16 +1,19 @@
+from __future__ import annotations
+
 import abc
 import asyncio
-import dataclasses
 import datetime
 import itertools
 import logging
 import sys
+from dataclasses import dataclass
 from types import TracebackType
-from typing import Iterable, Iterator, Any, AsyncIterator, Protocol, Optional, Callable, Union
+from typing import Iterable, Iterator, Any, AsyncIterator, Protocol, Optional, Callable, Union, Awaitable
 
 import numpy as np
 
 import pixeltable.exceptions as excs
+from pixeltable import env
 from pixeltable import exprs
 from pixeltable import func
 from .data_row_batch import DataRowBatch
@@ -24,6 +27,7 @@ class Dispatcher(Protocol):
     tasks: set[asyncio.Task]
     row_builder: exprs.RowBuilder
     exc_event: asyncio.Event
+    schedulers: dict[str, RateLimitsScheduler]
 
     def dispatch(self, rows: list[exprs.DataRow]) -> None:
         """Dispatches row slots to the appropriate schedulers; does not block"""
@@ -106,6 +110,390 @@ class DefaultExprEvaluator(Evaluator):
         self.dispatcher.dispatch([rows[i] for i in range(len(rows)) if i not in rows_with_excs])
 
 
+@dataclass
+class FnCallArgs:
+    fn_call: exprs.FunctionCall
+    row: exprs.DataRow
+    args: list[Any]
+    kwargs: dict[str, Any]
+
+
+class RateLimitsScheduler:
+    """Scheduler for FunctionCalls with a RateLimitsInfo pool"""
+    @dataclass
+    class RequestInfo:
+        submitted_at: datetime.datetime
+        input_length: int
+        max_tokens: int
+
+
+    @dataclass
+    class QueueItem:
+        request: FnCallArgs
+        num_retries: int
+
+        def __lt__(self, other: RateLimitsScheduler.QueueItem) -> bool:
+            return self.num_retries > other.num_retries
+
+
+    resource_pool: str
+    queue: asyncio.PriorityQueue[QueueItem]  # prioritizes retries
+    loop_task: asyncio.Task
+    dispatcher: Dispatcher
+
+    # scheduling-related state
+    pool_info: env.RateLimitsInfo
+    acc_output_tokens: int  # accumulated output tokens since the last util. report
+
+    num_in_flight: int  # unfinished tasks
+    request_completed: asyncio.Event
+
+    # token-related stats
+    total_input_length: int
+    total_input_tokens: int
+    total_responses: int
+    total_output_tokens: int
+    total_retried: int
+
+    TIME_FORMAT = '%H:%M.%S %f'
+    MAX_RETRIES = 10
+
+    def __init__(self, resource_pool: str, dispatcher: Dispatcher):
+        self.resource_pool = resource_pool
+        self.queue = asyncio.PriorityQueue()
+        self.dispatcher = dispatcher
+        self.loop_task = asyncio.create_task(self._main_loop())
+        self.dispatcher.tasks.add(self.loop_task)
+        self.pool_info = env.Env.get().get_resource_pool_info(self.resource_pool)
+        assert isinstance(self.pool_info, env.RateLimitsInfo)
+        self.acc_output_tokens = 0
+        self.num_in_flight = 0
+        self.request_completed = asyncio.Event()
+        self.total_input_length = 0
+        self.total_input_tokens = 0
+        self.total_responses = 0
+        self.total_output_tokens = 0
+        self.total_retried = 0
+
+    def submit(self, item: FnCallArgs) -> None:
+        self.queue.put_nowait(self.QueueItem(item, 0))
+
+    def close(self) -> None:
+        # TODO: do we need this?
+        return
+        #self.queue.put_nowait(None)
+
+    async def _main_loop(self) -> None:
+        item: Optional[RateLimitsScheduler.QueueItem] = None
+        while True:
+            if item is None:
+                item = await self.queue.get()
+                if item.num_retries > 0:
+                    self.total_retried += 1
+
+            now = datetime.datetime.now(tz=datetime.timezone.utc)
+            if not self.pool_info.is_initialized():
+                # wait for a single request to get rate limits
+                _logger.debug(f'initializing rate limits for {self.resource_pool}')
+                await self._exec(item.request, item.num_retries, is_task=False)
+                item = None
+                continue
+
+            # check rate limits
+            rem_output_tokens = self._get_est_remaining_output_tokens()
+            request_output_tokens = 1024  # TODO: get max_tokens arg from the call
+            output_tokens_limit = self.pool_info.resource_limits['output_tokens'].limit
+            # leave some headroom, we don't have perfect information
+            if rem_output_tokens - request_output_tokens < 0.05 * output_tokens_limit:
+            #if rem_output_tokens - request_output_tokens < 0.00 * output_tokens_limit:
+                # wait for capacity to free up
+                aws: list[Awaitable[None]] = []
+                completed_aw: Optional[asyncio.Task] = None
+                wait_for_reset: Optional[asyncio.Task] = None
+
+                if self.num_in_flight > 0:
+                    # a completed request can free up output_tokens capacity
+                    self.request_completed.clear()
+                    completed_aw = asyncio.create_task(self.request_completed.wait())
+                    aws.append(completed_aw)
+                    _logger.debug(f'waiting for completed request for {self.resource_pool}')
+
+                reset_at = self.pool_info.resource_limits['output_tokens'].reset_at
+                if reset_at > now:
+                    # we're waiting for the rate limit to reset
+                    wait_for_reset = asyncio.create_task(asyncio.sleep((reset_at - now).total_seconds()))
+                    aws.append(wait_for_reset)
+                    _logger.debug(f'waiting for rate limit reset for {self.resource_pool}')
+
+                if len(aws) == 0:
+                    # we have nothing in particular to wait for: wait for an arbitrary amount of time and then
+                    # re-evaluate the rate limits
+                    aws.append(asyncio.sleep(1.0))
+                    _logger.debug(f'waiting for 1.0 for {self.resource_pool}')
+
+                done, pending = await asyncio.wait(aws, return_when=asyncio.FIRST_COMPLETED)
+                for task in pending:
+                    task.cancel()
+                if completed_aw in done:
+                    _logger.debug(f'wait(): completed request for {self.resource_pool}')
+                if wait_for_reset in done:
+                    _logger.debug(f'wait(): rate limit reset for {self.resource_pool}')
+                    # force re-acquisition of rate limits before making any scheduling decisions
+                    self.pool_info.reset()
+
+                # re-evaluate current capacity for current item
+                continue
+
+            assert rem_output_tokens >= request_output_tokens
+            self.acc_output_tokens += request_output_tokens
+            _logger.debug(f'creating task for {self.resource_pool}, rem_output_tokens={rem_output_tokens}')
+            self.num_in_flight += 1
+            task = asyncio.create_task(self._exec(item.request, item.num_retries, is_task=True))
+            self.dispatcher.tasks.add(task)
+            task.add_done_callback(self.dispatcher.tasks.discard)
+            item = None
+
+    def _get_est_remaining_output_tokens(self) -> int:
+        reported = self.pool_info.resource_limits['output_tokens'].remaining
+        recorded_at = self.pool_info.resource_limits['output_tokens'].recorded_at
+        _logger.debug(f'est remaining output_tokens for {self.resource_pool}: report={reported} adjustment={-self.acc_output_tokens} recorded_at={recorded_at.strftime(self.TIME_FORMAT)}')
+        return max(0, reported - self.acc_output_tokens)
+
+    async def _exec(self, request: FnCallArgs, num_retries: int, is_task: bool) -> None:
+        assert not request.row.has_val[request.fn_call.slot_idx] and not request.row.has_exc(request.fn_call.slot_idx)
+
+        try:
+            start_ts = datetime.datetime.now(tz=datetime.timezone.utc)
+            _logger.debug(f'scheduler {self.resource_pool}: start evaluating slot {request.fn_call.slot_idx}')
+            result = await request.fn_call.fn.aexec(*request.args, **request.kwargs)
+            request.row[request.fn_call.slot_idx] = result
+            end_ts = datetime.datetime.now(tz=datetime.timezone.utc)
+            _logger.debug(f'scheduler {self.resource_pool}: evaluated slot {request.fn_call.slot_idx} in {end_ts - start_ts}')
+
+            # update token-related stats
+            self.total_input_length += 10  # TODO: get the actual input length
+            self.total_input_tokens += result['usage']['input_tokens']
+            self.total_responses += 1
+            self.total_output_tokens += result['usage']['output_tokens']
+
+            # purge accumulated resource usage, now that we have a new report
+            self.acc_output_tokens = 0
+
+            self.dispatcher.dispatch([request.row])
+        except Exception as exc:
+            import anthropic
+            if isinstance(exc, anthropic.APIStatusError):
+                # retry this request, if it's retryable
+                _logger.debug(f'output_tokens RateLimitError: total_output_tokens={self.total_output_tokens}')
+                _logger.debug(f'headers={exc.response.headers}')
+                should_retry_str = exc.response.headers.get('x-should-retry', '')
+                if should_retry_str.lower() == 'true' and num_retries < self.MAX_RETRIES:
+                    retry_after_str = exc.response.headers.get('retry-after', '1')
+                    retry_after_secs = int(retry_after_str)
+                    await asyncio.sleep(retry_after_secs)
+                    self.queue.put_nowait(self.QueueItem(request, num_retries + 1))
+                    return
+
+            # record the exception
+            _, _, exc_tb = sys.exc_info()
+            request.row.set_exc(request.fn_call.slot_idx, exc)
+            self.dispatcher.dispatch_exc([request.row], request.fn_call.slot_idx, exc_tb)
+        finally:
+            _logger.debug(
+                f'Scheduler stats: total_input_length={self.total_input_length}, total_input_tokens={self.total_input_tokens}, total_responses={self.total_responses}, total_output_tokens={self.total_output_tokens} total_retried={self.total_retried}')
+            if is_task:
+                self.num_in_flight -= 1
+                self.request_completed.set()
+
+
+class OpenAIRateLimitsScheduler:
+    """Scheduler for FunctionCalls with a RateLimitsInfo pool"""
+    @dataclass
+    class RequestInfo:
+        submitted_at: datetime.datetime
+        input_length: int
+        max_tokens: int
+
+
+    @dataclass
+    class QueueItem:
+        request: FnCallArgs
+        num_retries: int
+
+        def __lt__(self, other: RateLimitsScheduler.QueueItem) -> bool:
+            return self.num_retries > other.num_retries
+
+
+    resource_pool: str
+    queue: asyncio.PriorityQueue[QueueItem]  # prioritizes retries
+    loop_task: asyncio.Task
+    dispatcher: Dispatcher
+
+    # scheduling-related state
+    pool_info: env.RateLimitsInfo
+    acc_output_tokens: int  # accumulated output tokens since the last util. report
+
+    num_in_flight: int  # unfinished tasks
+    request_completed: asyncio.Event
+
+    # token-related stats
+    total_input_length: int
+    total_input_tokens: int
+    total_responses: int
+    total_output_tokens: int
+    total_retried: int
+
+    TIME_FORMAT = '%H:%M.%S %f'
+    MAX_RETRIES = 10
+
+    def __init__(self, resource_pool: str, dispatcher: Dispatcher):
+        self.resource_pool = resource_pool
+        self.queue = asyncio.PriorityQueue()
+        self.dispatcher = dispatcher
+        self.loop_task = asyncio.create_task(self._main_loop())
+        self.dispatcher.tasks.add(self.loop_task)
+        self.pool_info = env.Env.get().get_resource_pool_info(self.resource_pool)
+        assert isinstance(self.pool_info, env.RateLimitsInfo)
+        self.acc_output_tokens = 0
+        self.num_in_flight = 0
+        self.request_completed = asyncio.Event()
+        self.total_input_length = 0
+        self.total_input_tokens = 0
+        self.total_responses = 0
+        self.total_output_tokens = 0
+        self.total_retried = 0
+
+    def submit(self, item: FnCallArgs) -> None:
+        self.queue.put_nowait(self.QueueItem(item, 0))
+
+    def close(self) -> None:
+        # TODO: do we need this?
+        return
+        #self.queue.put_nowait(None)
+
+    async def _main_loop(self) -> None:
+        item: Optional[RateLimitsScheduler.QueueItem] = None
+        while True:
+            if item is None:
+                item = await self.queue.get()
+                if item.num_retries > 0:
+                    self.total_retried += 1
+
+            now = datetime.datetime.now(tz=datetime.timezone.utc)
+            if not self.pool_info.is_initialized():
+                # wait for a single request to get rate limits
+                _logger.debug(f'initializing rate limits for {self.resource_pool}')
+                await self._exec(item.request, item.num_retries, is_task=False)
+                item = None
+                continue
+
+            # check rate limits
+            rem_output_tokens = self._get_est_remaining_output_tokens()
+            request_output_tokens = 1024  # TODO: get max_tokens arg from the call
+            output_tokens_limit = self.pool_info.resource_limits['output_tokens'].limit
+            # leave some headroom, we don't have perfect information
+            if rem_output_tokens - request_output_tokens < 0.05 * output_tokens_limit:
+                #if rem_output_tokens - request_output_tokens < 0.00 * output_tokens_limit:
+                # wait for capacity to free up
+                aws: list[Awaitable[None]] = []
+                completed_aw: Optional[asyncio.Task] = None
+                wait_for_reset: Optional[asyncio.Task] = None
+
+                if self.num_in_flight > 0:
+                    # a completed request can free up output_tokens capacity
+                    self.request_completed.clear()
+                    completed_aw = asyncio.create_task(self.request_completed.wait())
+                    aws.append(completed_aw)
+                    _logger.debug(f'waiting for completed request for {self.resource_pool}')
+
+                reset_at = self.pool_info.resource_limits['output_tokens'].reset_at
+                if reset_at > now:
+                    # we're waiting for the rate limit to reset
+                    wait_for_reset = asyncio.create_task(asyncio.sleep((reset_at - now).total_seconds()))
+                    aws.append(wait_for_reset)
+                    _logger.debug(f'waiting for rate limit reset for {self.resource_pool}')
+
+                if len(aws) == 0:
+                    # we have nothing in particular to wait for: wait for an arbitrary amount of time and then
+                    # re-evaluate the rate limits
+                    aws.append(asyncio.sleep(1.0))
+                    _logger.debug(f'waiting for 1.0 for {self.resource_pool}')
+
+                done, pending = await asyncio.wait(aws, return_when=asyncio.FIRST_COMPLETED)
+                for task in pending:
+                    task.cancel()
+                if completed_aw in done:
+                    _logger.debug(f'wait(): completed request for {self.resource_pool}')
+                if wait_for_reset in done:
+                    _logger.debug(f'wait(): rate limit reset for {self.resource_pool}')
+                    # force re-acquisition of rate limits before making any scheduling decisions
+                    self.pool_info.reset()
+
+                # re-evaluate current capacity for current item
+                continue
+
+            assert rem_output_tokens >= request_output_tokens
+            self.acc_output_tokens += request_output_tokens
+            _logger.debug(f'creating task for {self.resource_pool}, rem_output_tokens={rem_output_tokens}')
+            self.num_in_flight += 1
+            task = asyncio.create_task(self._exec(item.request, item.num_retries, is_task=True))
+            self.dispatcher.tasks.add(task)
+            task.add_done_callback(self.dispatcher.tasks.discard)
+            item = None
+
+    def _get_est_remaining_output_tokens(self) -> int:
+        reported = self.pool_info.resource_limits['output_tokens'].remaining
+        recorded_at = self.pool_info.resource_limits['output_tokens'].recorded_at
+        _logger.debug(f'est remaining output_tokens for {self.resource_pool}: report={reported} adjustment={-self.acc_output_tokens} recorded_at={recorded_at.strftime(self.TIME_FORMAT)}')
+        return max(0, reported - self.acc_output_tokens)
+
+    async def _exec(self, request: FnCallArgs, num_retries: int, is_task: bool) -> None:
+        assert not request.row.has_val[request.fn_call.slot_idx] and not request.row.has_exc(request.fn_call.slot_idx)
+
+        try:
+            start_ts = datetime.datetime.now(tz=datetime.timezone.utc)
+            _logger.debug(f'scheduler {self.resource_pool}: start evaluating slot {request.fn_call.slot_idx}')
+            result = await request.fn_call.fn.aexec(*request.args, **request.kwargs)
+            request.row[request.fn_call.slot_idx] = result
+            end_ts = datetime.datetime.now(tz=datetime.timezone.utc)
+            _logger.debug(f'scheduler {self.resource_pool}: evaluated slot {request.fn_call.slot_idx} in {end_ts - start_ts}')
+
+            # update token-related stats
+            self.total_input_length += 10  # TODO: get the actual input length
+            self.total_input_tokens += result['usage']['input_tokens']
+            self.total_responses += 1
+            self.total_output_tokens += result['usage']['output_tokens']
+
+            # purge accumulated resource usage, now that we have a new report
+            self.acc_output_tokens = 0
+
+            self.dispatcher.dispatch([request.row])
+        except Exception as exc:
+            import anthropic
+            if isinstance(exc, anthropic.APIStatusError):
+                # retry this request, if it's retryable
+                _logger.debug(f'output_tokens RateLimitError: total_output_tokens={self.total_output_tokens}')
+                _logger.debug(f'headers={exc.response.headers}')
+                should_retry_str = exc.response.headers.get('x-should-retry', '')
+                if should_retry_str.lower() == 'true' and num_retries < self.MAX_RETRIES:
+                    retry_after_str = exc.response.headers.get('retry-after', '1')
+                    retry_after_secs = int(retry_after_str)
+                    await asyncio.sleep(retry_after_secs)
+                    self.queue.put_nowait(self.QueueItem(request, num_retries + 1))
+                    return
+
+            # record the exception
+            _, _, exc_tb = sys.exc_info()
+            request.row.set_exc(request.fn_call.slot_idx, exc)
+            self.dispatcher.dispatch_exc([request.row], request.fn_call.slot_idx, exc_tb)
+        finally:
+            _logger.debug(
+                f'Scheduler stats: total_input_length={self.total_input_length}, total_input_tokens={self.total_input_tokens}, total_responses={self.total_responses}, total_output_tokens={self.total_output_tokens} total_retried={self.total_retried}')
+            if is_task:
+                self.num_in_flight -= 1
+                self.request_completed.set()
+
+
 class FnCallEvaluator(Evaluator):
     """
     Evaluates function calls:
@@ -116,18 +504,12 @@ class FnCallEvaluator(Evaluator):
     TODO:
     - adaptive batching: finding the optimal batch size based on observed execution times
     """
-    @dataclasses.dataclass
-    class CallArgs:
-        row: exprs.DataRow
-        args: list[Any]
-        kwargs: dict[str, Any]
-
     fn_call: exprs.FunctionCall
     fn: func.Function
     scalar_py_fn: Optional[Callable]  # only set for non-batching CallableFunctions
 
     # only set if fn.is_batched
-    input_queue: Optional[asyncio.Queue[CallArgs]]
+    input_queue: Optional[asyncio.Queue[FnCallArgs]]
     batch_size: Optional[int]
 
     def __init__(self, fn_call: exprs.FunctionCall, dispatcher: Dispatcher):
@@ -135,7 +517,7 @@ class FnCallEvaluator(Evaluator):
         self.fn_call = fn_call
         self.fn = fn_call.fn
         if isinstance(self.fn, func.CallableFunction) and self.fn.is_batched:
-            self.input_queue =  asyncio.Queue[FnCallEvaluator.CallArgs]()
+            self.input_queue =  asyncio.Queue[FnCallArgs]()
             # we're not supplying sample arguments there, they're ignored anyway
             self.batch_size = self.fn.get_batch_size()
             self.scalar_py_fn = None
@@ -150,9 +532,9 @@ class FnCallEvaluator(Evaluator):
     def schedule(self, rows: list[exprs.DataRow], slot_idx: int) -> None:
         assert self.fn_call.slot_idx >= 0
 
-        # create CallArgs for incoming rows
+        # create FnCallArgs for incoming rows
         skip_rows: list[exprs.DataRow] = []  # skip rows with Nones in non-nullable parameters
-        queue_items: list[FnCallEvaluator.CallArgs] = []
+        queue_items: list[FnCallArgs] = []
         for row in rows:
             args_kwargs = self.fn_call.make_args(row)
             if args_kwargs is None:
@@ -161,7 +543,7 @@ class FnCallEvaluator(Evaluator):
                 skip_rows.append(row)
             else:
                 args, kwargs = args_kwargs
-                queue_items.append(self.CallArgs(row, args, kwargs))
+                queue_items.append(FnCallArgs(self.fn_call, row, args, kwargs))
 
         if len(skip_rows) > 0:
             self.dispatcher.dispatch(skip_rows)
@@ -189,22 +571,28 @@ class FnCallEvaluator(Evaluator):
                 self.dispatcher.tasks.add(task)
                 task.add_done_callback(self.dispatcher.tasks.discard)
         elif self.fn.is_async:
-            # create one task per call
-            for item in queue_items:
-                task = asyncio.create_task(self.eval_async(item))
-                self.dispatcher.tasks.add(task)
-                task.add_done_callback(self.dispatcher.tasks.discard)
+            if self.fn_call.resource_pool is not None:
+                scheduler = self.dispatcher.schedulers[self.fn_call.resource_pool]
+                for item in queue_items:
+                    scheduler.submit(item)
+            else:
+                # create one task per call
+                for item in queue_items:
+                    task = asyncio.create_task(self.eval_async(item))
+                    self.dispatcher.tasks.add(task)
+                    task.add_done_callback(self.dispatcher.tasks.discard)
+
         else:
             # create a single task for all rows
             task = asyncio.create_task(self.eval(queue_items))
             self.dispatcher.tasks.add(task)
             task.add_done_callback(self.dispatcher.tasks.discard)
 
-    def _queued_items(self) -> Iterator[CallArgs]:
+    def _queued_items(self) -> Iterator[FnCallArgs]:
         while not self.input_queue.empty():
             yield self.input_queue.get_nowait()
 
-    async def eval_batch(self, items: list[CallArgs]) -> None:
+    async def eval_batch(self, items: list[FnCallArgs]) -> None:
         arg_batches: list[list[Optional[Any]]] = [[None] * len(items) for _ in range(len(self.fn_call.args))]
         kwarg_batches: dict[str, list[Optional[Any]]] = {k: [None] * len(items) for k in self.fn_call.kwargs.keys()}
 
@@ -232,7 +620,7 @@ class FnCallEvaluator(Evaluator):
             row[self.fn_call.slot_idx] = result_batch[i]
         self.dispatcher.dispatch(rows)
 
-    async def eval_async(self, item: CallArgs) -> None:
+    async def eval_async(self, item: FnCallArgs) -> None:
         assert not item.row.has_val[self.fn_call.slot_idx] and not item.row.has_exc(self.fn_call.slot_idx)
 
         try:
@@ -243,11 +631,14 @@ class FnCallEvaluator(Evaluator):
             _logger.debug(f'Evaluated slot {self.fn_call.slot_idx} in {end_ts - start_ts}')
             self.dispatcher.dispatch([item.row])
         except Exception as exc:
+            import anthropic
+            if isinstance(exc, anthropic.RateLimitError):
+                _logger.debug(f'RateLimitError: {exc}')
             _, _, exc_tb = sys.exc_info()
             item.row.set_exc(self.fn_call.slot_idx, exc)
             self.dispatcher.dispatch_exc([item.row], self.fn_call.slot_idx, exc_tb)
 
-    async def eval(self, items: list[CallArgs]) -> None:
+    async def eval(self, items: list[FnCallArgs]) -> None:
         rows_with_excs: set[int] = set()  # records idxs into 'rows'
         for idx, item in enumerate(items):
             assert not item.row.has_val[self.fn_call.slot_idx] and not item.row.has_exc(self.fn_call.slot_idx)
@@ -353,6 +744,7 @@ class AsyncExprEvalNode(ExecNode):
     num_dependencies: np.ndarray  # number of dependencies for our output slots; indexed by slot idx
     outputs: np.ndarray  # bool per slot; True if this slot is part of our output
     slot_evaluators: dict[int, Evaluator]  # key: slot idx
+    schedulers: dict[str, RateLimitsScheduler]  # key: resource pool name
     gc_targets: np.ndarray  # bool per slot; True if this is an intermediate expr (ie, not part of our output)
     eval_ctx: np.ndarray  # bool per slot; EvalCtx.slot_idxs as a mask
 
@@ -377,7 +769,7 @@ class AsyncExprEvalNode(ExecNode):
     num_output_rows: int
 
     BATCH_SIZE = 12
-    MAX_BUFFERED_ROWS = 50  # maximum number of rows that have been dispatched but not yet returned
+    MAX_BUFFERED_ROWS = 512  # maximum number of rows that have been dispatched but not yet returned
 
     def __init__(
         self, row_builder: exprs.RowBuilder, output_exprs: Iterable[exprs.Expr], input_exprs: Iterable[exprs.Expr],
@@ -414,9 +806,12 @@ class AsyncExprEvalNode(ExecNode):
         self.num_output_rows = 0
 
         self.slot_evaluators = {}
+        self.schedulers = {}
         self._init_slot_evaluators()
 
     def _init_slot_evaluators(self) -> None:
+        """Create slot evaluators and resource pool schedulers"""
+        resource_pools: set[str] = set()
         for slot_idx in range(self.row_builder.num_materialized):
             expr = self.row_builder.unique_exprs[slot_idx]
             if (
@@ -425,6 +820,8 @@ class AsyncExprEvalNode(ExecNode):
                 and not isinstance(expr.fn, func.ExprTemplateFunction)
                 and not isinstance(expr.fn, func.AggregateFunction)
             ):
+                if expr.resource_pool is not None:
+                    resource_pools.add(expr.resource_pool)
                 self.slot_evaluators[slot_idx] = FnCallEvaluator(expr, self)
             else:
                 self.slot_evaluators[slot_idx] = DefaultExprEvaluator(expr, self)
@@ -502,6 +899,14 @@ class AsyncExprEvalNode(ExecNode):
             f'total-buffered={self.total_buffered} #avail={self.avail_input_rows}'
         )
 
+    def _init_schedulers(self) -> None:
+        resource_pools = {
+            eval.fn_call.resource_pool for eval in self.slot_evaluators.values() if isinstance(eval, FnCallEvaluator)
+        }
+        resource_pools = {pool for pool in resource_pools if pool is not None}
+        for pool_name in resource_pools:
+            self.schedulers[pool_name] = RateLimitsScheduler(pool_name, self)
+
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
         """
         Main event loop
@@ -514,6 +919,7 @@ class AsyncExprEvalNode(ExecNode):
         self.completed_rows = asyncio.Queue[exprs.DataRow]()
         self.exc_event = asyncio.Event()
         self.completed_event = asyncio.Event()
+        self._init_schedulers()
         row: exprs.DataRow
         exc_event_aw = asyncio.create_task(self.exc_event.wait(), name='exc_event.wait()')
         input_batch_aw: Optional[asyncio.Task] = None
@@ -523,7 +929,7 @@ class AsyncExprEvalNode(ExecNode):
             while True:
                 # process completed rows before doing anything else
                 while not self.completed_rows.empty():
-                    self._log_state('processing completed')
+                    #self._log_state('processing completed')
                     # move completed rows to output buffer
                     while not self.completed_rows.empty():
                         row = self.completed_rows.get_nowait()
@@ -550,6 +956,7 @@ class AsyncExprEvalNode(ExecNode):
                         # yield the leftover rows
                         batch_rows = self.output_buffer.get_rows(self.output_buffer.num_ready)
                         self.num_output_rows += len(batch_rows)
+                        self._log_state(f'yielding {len(batch_rows)} rows')
                         yield DataRowBatch(tbl=None, row_builder=self.row_builder, rows=batch_rows)
 
                     assert self.output_buffer.num_rows == 0

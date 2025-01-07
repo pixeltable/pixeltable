@@ -25,6 +25,7 @@ class FunctionCall(Expr):
     fn: func.Function
     is_method_call: bool
     agg_init_args: dict[str, Any]
+    resource_pool: Optional[str]
 
     # tuple[Optional[int], Optional[Any]]:
     # - for Exprs: (index into components, None)
@@ -54,6 +55,7 @@ class FunctionCall(Expr):
         self.fn = fn
         self.is_method_call = is_method_call
         self.normalize_args(fn.name, signature, bound_args)
+        self.resource_pool = fn.call_resource_pool(bound_args)
 
         # If `return_type` is non-nullable, but the function call has a nullable input to any of its non-nullable
         # parameters, then we need to make it nullable. This is because Pixeltable defaults a function output to
