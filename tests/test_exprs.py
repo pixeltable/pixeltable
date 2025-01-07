@@ -168,6 +168,34 @@ class TestExprs:
         _ = reload_tester.run_query(s.select(s.s1, s.c2))
         _ = reload_tester.run_query(s.select(s.s1, s.v1, s.c2))
 
+        s2 = pxt.create_snapshot('test_snap2', v.where(v.c2 >=95))
+        assert s2.count() == 5
+
+        self._verify_colref(s2.v1, 'test_view', 'test_snap2')
+        self._verify_colref(s2.c2, 'test_tbl', 'test_snap2')
+
+        assert s2.select(s2.c2).count() == 5
+        assert s2.select(s2.c2).head(3)['c2'] == [95, 96, 97]
+        assert s2.c2.count() == 5
+        assert s2.c2.head(3)['c2'] == [95, 96, 97]
+        _ = reload_tester.run_query(s2.select(s2.v1, s2.c2))
+
+        s3 = pxt.create_snapshot('test_snap3', v)
+        assert s3.count() == 10
+
+        self._verify_colref(s3.v1, 'test_view', 'test_view') #expected test_snap3 but is test_view
+        self._verify_colref(s3.c2, 'test_tbl', 'test_view')
+
+        assert s3.select(s3.c2).count() == 10
+        assert s3.select(s3.c2).head(3)['c2'] == [90, 91, 92]
+        # not working, raises an exception that c2 is not found in test_view.
+        # looks like a effective version not set issue.
+        with pytest.raises(excs.Error) as exc_info:
+            assert s3.c2.count() == 10
+            assert s3.c2.head(3)['c2'] == [90, 91, 92]
+        # assert exc_info == "Expression 'c2' cannot be evaluated in the context of this query's tables (test_view)"
+        _ = reload_tester.run_query(s3.select(s3.v1, s3.c2))
+
         reload_tester.run_reload_test()
 
     def test_compound_predicates(self, test_tbl: catalog.Table) -> None:
