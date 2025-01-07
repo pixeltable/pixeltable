@@ -1,0 +1,197 @@
+---
+title: "Basic Concepts"
+description: "Learn the core concepts of Pixeltable in minutes"
+---
+
+<Note>
+  Try it now in [Kaggle](https://kaggle.com/) or [Google Colab](https://colab.research.google.com/)
+</Note>
+
+## Key concepts in 30 seconds
+
+<CardGroup cols={2}>
+  <Card title="Smart Tables" icon="database">
+    Store any ML data type (images, videos, text, audio) with automatic versioning
+  </Card>
+  <Card title="Computed Columns" icon="gears">
+    Transform data automatically with ML models and custom functions
+  </Card>
+  <Card title="Production Ready" icon="rocket">
+    Built-in caching, versioning, and incremental updates
+  </Card>
+  <Card title="Developer Friendly" icon="code">
+    Simple Python interface with type safety and schema validation
+  </Card>
+</CardGroup>
+
+<Tip>
+  All changes are automatically versioned and cached - focus on building, not infrastructure
+</Tip>
+
+## Quick Setup
+
+```bash
+pip install pixeltable
+``` 
+
+## Smart Tables with Automatic Versioning
+
+<Note>
+  Pixeltable tables automatically track version history and data lineage - perfect for ML workflows.
+</Note>
+
+```python
+import pixeltable as pxt
+
+# Create a versioned directory for your project
+pxt.create_dir("demo")
+
+# Create a table - versions and lineage tracked automatically
+image_table = pxt.create_table('demo.first', {'input_image': pxt.Image})
+
+# Add sample image - change history is tracked
+path = 'https://raw.github.com/pixeltable/pixeltable/release/docs/resources/images/000000000025.jpg'
+image_table.insert(input_image=path)
+```
+
+<CodeGroup>
+  ```python Batch Operations
+  # Bulk operations are also version-tracked
+  paths = [
+      'path/to/image1.jpg',
+      'path/to/image2.jpg'
+  ]
+  image_table.insert({'input_image': path} for path in paths)
+  ```
+  ```python Rich Schema
+  # Type-safe schemas with automatic lineage
+  schema = {
+      'image': pxt.Image,
+      'metadata': dict,
+      'timestamp': datetime
+  }
+  dataset = pxt.create_table('demo.dataset', schema)
+  ```
+</CodeGroup>
+
+<Card title="Automatic Features" icon="wand-magic-sparkles">
+  - 📝 Version history for all changes
+  - 🔄 Data lineage tracking
+  - 🔍 Schema evolution tracking
+  - ⏱️ Temporal querying capabilities
+</Card>
+
+## ML Transformations with Smart Updates
+
+<Tip>
+  Computed columns automatically process new data incrementally - only running when needed and caching results for reuse.
+</Tip>
+
+```python
+# Object detection with smart incremental processing
+from pixeltable.functions import huggingface
+
+# Define transformation that only runs on new or changed data
+image_table.add_computed_column(
+    detections=huggingface.detr_for_object_detection(
+        image_table.input_image
+    )
+)
+
+# Process more images - ML runs automatically only on new data
+image_table.insert(input_image='https://example.com/new_image.jpg')
+image_table.insert(input_image='https://example.com/another_image.jpg')
+
+# Extract just what you need
+image_table.add_computed_column(
+    labels=image_table.detections.label_text
+)
+```
+
+<Note>
+Every transformation is:
+- 🚀 Processed incrementally
+- 💾 Cached automatically  
+- ⚡ Computed only when needed
+</Note>
+
+
+## Production-Ready API Integrations
+
+<Note>
+  Built-in rate limiting and error handling for popular AI APIs
+</Note>
+
+```python
+from pixeltable.functions import openai
+
+# Managed API calls with automatic retries and rate limiting
+image_table.add_computed_column(
+    description=openai.vision(
+        prompt="Describe this image",
+        image=image_table.input_image,
+        model='gpt-4o-mini'
+    )
+)
+
+# Results are automatically cached and reused
+image_table.show(1)
+```
+
+## Extend with Custom Functions
+
+<CodeGroup>
+  ```python Simple Transform
+  # Create type-safe custom transformations
+  @pxt.udf
+  def get_top_label(detections: dict) -> str:
+      scores = detections['scores']
+      labels = detections['label_text']
+      return labels[scores.index(max(scores))]
+  
+  # Use seamlessly in computed columns
+  image_table.add_computed_column(
+      best_match=get_top_label(image_table.detections)
+  )
+  ```
+
+  ```python Advanced Processing
+  # Handle complex data processing
+  @pxt.udf
+  def analyze_confidence(detections: dict) -> dict:
+      return {
+          'top_score': max(detections['scores']),
+          'avg_score': sum(detections['scores']) / len(detections['scores']),
+          'num_objects': len(detections['scores'])
+      }
+  
+  # All results are cached and versioned
+  image_table.add_computed_column(
+      metrics=analyze_confidence(image_table.detections)
+  )
+  ```
+</CodeGroup>
+
+<Card title="Function Benefits" icon="puzzle-piece">
+  - 🔒 Type-safe by default
+  - ♻️ Automatic caching
+  - 📊 Parallelized execution
+  - 🔄 Version tracked
+</Card>
+
+## Why Pixeltable?
+
+<CardGroup cols={2}>
+  <Card title="Smart Execution" icon="sparkles">
+    Computations run only when needed - save time and costs
+  </Card>
+  <Card title="Auto-Save" icon="floppy-disk">
+    All data and transformations are persisted automatically
+  </Card>
+  <Card title="Auto-Update" icon="arrows-rotate">
+    Computed columns update automatically with new data
+  </Card>
+  <Card title="Flexible" icon="puzzle">
+    Works with your existing ML models and tools
+  </Card>
+</CardGroup>

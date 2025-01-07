@@ -1,0 +1,90 @@
+---
+title: 'Installation'
+description: 'Learn how to install and configure Pixeltable locally'
+---
+
+<Note>
+  Pixeltable works with Python 3.9, 3.10, 3.11, or 3.12 running on Linux, MacOS, or Windows.
+</Note>
+
+## Overview
+
+This guide covers different methods to set up a local installation of Pixeltable. If you prefer using cloud notebooks, check out our [Quick Start Guide](https://pixeltable.readme.io/docs/get-started/).
+
+<Tabs>
+  <Tab title="Simple venv">
+    <Steps>
+      <Step title="Create virtual environment">
+        ```bash
+        python -m venv venv
+        ```
+      </Step>
+      <Step title="Activate environment">
+        <CodeGroup>
+          ```bash Windows
+          venv\Scripts\activate
+          ```
+          ```bash Linux/MacOS
+          source venv/bin/activate
+          ```
+        </CodeGroup>
+      </Step>
+      <Step title="Install Pixeltable">
+        ```bash
+        pip install pixeltable
+        ```
+      </Step>
+    </Steps>
+  </Tab>
+  <Tab title="Miniconda">
+    <Steps>
+      <Step title="Install Miniconda">
+        Download and install from [Miniconda Installation Guide](https://docs.anaconda.com/free/miniconda/miniconda-install/)
+      </Step>
+      <Step title="Create environment">
+        ```bash
+        conda create --name pxt python=3.11
+        conda activate pxt
+        ```
+      </Step>
+      <Step title="Install Pixeltable">
+        ```bash
+        pip install pixeltable
+        ```
+      </Step>
+    </Steps>
+  </Tab>
+</Tabs>
+
+## Using with Notebooks
+
+<Steps>
+  <Step title="Install Jupyter">
+    If not already installed:
+    ```bash
+    pip install jupyter
+    ```
+  </Step>
+  <Step title="Start Jupyter server">
+    ```bash
+    jupyter notebook
+    ```
+  </Step>
+  <Step title="Create notebook">
+    Select "Python 3 (ipykernel)" as the kernel via File / New / Notebook
+  </Step>
+  <Step title="Test installation">
+    ```python
+    import pixeltable as pxt
+    pxt.init()
+    ```
+  </Step>
+</Steps>
+
+<Warning>
+  Wait about a minute for Pixeltable to load. You should see a success message once connected to the database.
+</Warning>
+
+<Tip>
+  You can also try Pixeltable directly in Google Colab using our [Pixeltable Basics Tutorial](https://docs.pixeltable.com/docs/pixeltable-basics).
+</Tip>

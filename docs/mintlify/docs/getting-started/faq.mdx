@@ -1,0 +1,252 @@
+---
+title: 'FAQ'
+description: 'Frequently asked questions about Pixeltable'
+---
+
+## Core Concepts
+
+<AccordionGroup>
+  <Accordion title="What is Pixeltable?">
+    Pixeltable is a Python library designed for working with multimodal data, including text, images, audio, and video. It offers a declarative interface that simplifies data storage, transformation, indexing, and iteration. Unlike in-memory libraries like Pandas, Pixeltable is a database with persistent storage, enabling you to manage large datasets and track changes effectively.
+
+    ```python
+    import pixeltable as pxt
+
+    # Create a table with multiple data types
+    table = pxt.create_table('multimodal', {
+       'text': pxt.StringType(),
+       'image': pxt.ImageType(),
+       'video': pxt.VideoType(), 
+       'embedding': pxt.ArrayType()
+    })
+
+    # Add computed columns for transformations
+    table['object_detections'] = yolox(table.image)
+    ```
+  </Accordion>
+
+  <Accordion title="How does Pixeltable handle data storage?">
+    Pixeltable stores references to media data (images, videos) in their original location while managing derived data products.
+
+    ```python
+    # Videos stay in original location (S3, local filesystem)
+    videos = pxt.create_table('videos', {'video': pxt.VideoType()})
+    videos.insert({'video': 's3://bucket/video.mp4'})
+
+    # Computed data (frames, detections) managed by Pixeltable 
+    frames = pxt.create_view(
+        'frames',
+        videos,
+        iterator=FrameIterator.create(video=videos.video)
+    )
+    frames['detections'] = object_detection(frames.frame)
+    ```
+  </Accordion>
+
+  <Accordion title="What are Pixeltable views?">
+    Views are virtual tables based on a query or transformation applied to a base table. They provide a flexible way to interact with data without modifying the original table. Views can be created with filters, aggregations, joins, and other operations.
+  </Accordion>
+</AccordionGroup>
+
+## Features & Capabilities
+
+<AccordionGroup>
+  <Accordion title="What are the key features of Pixeltable?">
+    * **Smart Tables with Automatic Versioning**: Store and manage any ML data type (images, videos, text, audio) with automatic version tracking
+    * **Developer-Friendly Interface**: Simple Python declarative interface with type safety and schema validation
+    * **Computed Columns**: Transform data automatically with ML models and custom functions
+    * **Incremental Processing**: Smart, continuous incremental updates that only run on new or changed data
+    * **Built-in Production Features**:
+      - High-performance Postgres execution engine
+      - Parallelized and distributed execution
+      - Built-in rate limit protection
+      - Automated caching and versioning
+    * **Advanced Data Management**:
+      - Advanced retrieval and metadata filtering
+      - Automated table versioning and lineage tracking
+      - Low-level model integrations
+      - Unified interface for storage, extraction, chunking, embedding, inference, and evaluation
+  </Accordion>
+
+  <Accordion title="How does incremental processing work?">
+    Pixeltable's smart incremental processing ensures efficiency and cost savings:
+
+    ```python
+    # Define transformation that only runs on new or changed data
+    image_table.add_computed_column(
+        detections=huggingface.detr_for_object_detection(
+            image_table.input_image
+        )
+    )
+
+    # Process more images - ML runs automatically only on new data
+    image_table.insert(input_image='https://example.com/new_image.jpg')
+    ```
+
+    Every transformation is:
+    * Processed incrementally
+    * Cached automatically  
+    * Computed only when needed
+  </Accordion>
+
+  <Accordion title="How can I extend Pixeltable with custom functions?">
+    Pixeltable supports custom User-Defined Functions (UDFs) with built-in type safety and caching:
+
+    ```python
+    @pxt.udf
+    def get_top_label(detections: dict) -> str:
+        scores = detections['scores']
+        labels = detections['label_text']
+        return labels[scores.index(max(scores))]
+    
+    # Use seamlessly in computed columns
+    image_table.add_computed_column(
+        best_match=get_top_label(image_table.detections)
+    )
+    ```
+
+    Custom functions benefits include:
+    * Type-safe by default
+    * Automatic caching
+    * Parallelized execution
+    * Version tracking
+  </Accordion>
+
+  <Accordion title="How does Pixeltable handle API integrations?">
+    Pixeltable provides production-ready API integrations with built-in management features:
+
+    ```python
+    from pixeltable.functions import openai
+
+    # Managed API calls with automatic retries and rate limiting
+    image_table.add_computed_column(
+        description=openai.vision(
+            prompt="Describe this image",
+            image=image_table.input_image,
+            model='gpt-4o-mini'
+        )
+    )
+    ```
+
+    Features include:
+    * Built-in rate limiting
+    * Automatic error handling and retries
+    * Result caching and reuse
+    * Support for popular AI APIs (OpenAI, Hugging Face, etc.)
+  </Accordion>
+</AccordionGroup>
+
+## Integration & Deployment
+
+<AccordionGroup>
+  <Accordion title="What external services can I integrate?">
+    ```python
+    # Label Service Integration
+    from pixeltable.functions import labelstudio
+    table['annotations'] = labelstudio.get_annotations(table.image)
+
+    # Inference Provider Integration
+    from pixeltable.functions import openai
+    table['embeddings'] = openai.get_embedding(table.text)
+
+    # Cloud Storage Integration
+    videos.insert({'video': 's3://bucket/videos/*.mp4'})  # Bulk import
+    ```
+  </Accordion>
+
+  <Accordion title="How do I deploy to production?">
+    Pixeltable's development environment mirrors production. Your table structure and computed columns work identically in both environments:
+
+    ```python
+    # Development
+    dev_table = pxt.create_table('dev.detection', {
+        'video': pxt.VideoType(),
+        'detections': object_detection(video.frame)
+    })
+
+    # Production - same structure
+    prod_table = pxt.create_table('prod.detection', {
+        'video': pxt.VideoType(),
+        'detections': object_detection(video.frame)
+    })
+    ```
+  </Accordion>
+
+  <Accordion title="How does Pixeltable fit into existing stacks?">
+    Pixeltable integrates with your existing AI workflow:
+
+    * **Data Sources & Sinks:** Interfaces with object stores (S3), labeling services (Voxel51, LabelStudio), inference providers (OpenAI, Together, Replicate) and more.
+    * **Compute & Runtimes:** Works with cloud providers (e.g. AWS), and optimized environments (e.g. Modal).
+    * **Tools & Libraries:** Integrates with your favorite Python libraries and MLOps tools.
+  </Accordion>
+</AccordionGroup>
+
+## Common Use Cases & Best Practices
+
+<AccordionGroup>
+  <Accordion title="Can I define custom functions to process data in Pixeltable?">
+    Yes, Pixeltable allows defining User-Defined Functions (UDFs) using the @pxt.udf decorator:
+
+    ```python
+    @pxt.udf
+    def longest_word(sentence: str) -> str:
+        words = sentence.split()
+        return max(words, key=len)
+
+    t['longest_word'] = longest_word(t.input)
+    ```
+  </Accordion>
+
+  <Accordion title="How do I optimize performance?">
+    ```python
+    # Use batch processing where possible
+    @pxt.udf(batch_size=32)
+    def process_batch(images: list[PIL.Image]) -> list[dict]:
+        return model.predict(images)
+
+    # Leverage indexing for faster queries
+    table.add_embedding_index('embeddings')
+
+    # Monitor resource usage
+    usage = table.select(
+        table.column_name,
+        table.compute_time,
+        table.memory_usage
+    ).collect()
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## General Questions
+
+<AccordionGroup>
+  <Accordion title="What problems does Pixeltable solve?">
+    Today's solutions for AI app development require extensive custom coding and infrastructure plumbing. Tracking lineage and versions between and across data transformations, models, and deployments is cumbersome. Pixeltable lets ML Engineers and Data Scientists focus on exploration, modeling, and app development without dealing with the customary data plumbing.
+  </Accordion>
+
+  <Accordion title="Who is Pixeltable for?">
+    Pixeltable accelerates the work of both ML Engineers and Data Scientists by removing time-consuming data plumbing tasks. This enables:
+
+    * **ML Engineers:** Increased focus on optimization, deployment, and monitoring, leading to more robust AI in production
+    * **Data Scientists:** More time for core modeling tasks, experimentation, and driving impactful insights.
+  </Accordion>
+
+  <Accordion title="What is Pixeltable not?">
+    * Pixeltable is not a low-code, prescriptive AI solution. We empower you to use the best tools and techniques for your specific needs.
+    * We do not aim to replace your existing AI toolkit, but rather enhance it by streamlining the underlying data infrastructure and orchestration.
+  </Accordion>
+
+  <Accordion title="Do I need to move all my data to Pixeltable?">
+    No. Pixeltable stores reference to media data (images, videos) in their original location and manage new data products generated within your workflows. Structured data will need to be imported, but this can be done dynamically as needed.
+  </Accordion>
+
+  <Accordion title="How is Pixeltable different from Pandas?">
+    While Pixeltable complements Pandas, there are key differences:
+
+    * **Frame-Level Video Interaction**: Access and manipulate individual frames seamlessly without manual extraction
+    * **Incremental and Interactive Augmentation**: Enrich your data with built-in functions and custom code
+    * **Unified Data Interface**: Handle multiple data types in a familiar dataframe-like environment
+    * **Built-in ML Integration**: Direct access as a PyTorch dataset
+    * **Data Integrity**: Automatic versioning and snapshotting
+  </Accordion>
+</AccordionGroup>

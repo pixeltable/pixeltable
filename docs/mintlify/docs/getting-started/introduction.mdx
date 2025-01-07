@@ -1,0 +1,161 @@
+---
+title: "Introduction"
+description: "Open-source AI data infrastructure"
+---
+
+# What is Pixeltable?
+
+Pixeltable is your all-in-one AI data platform that makes building production multimodal AI applications seamless.
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Simple Interface" icon="wand-magic-sparkles">
+    Simple, python declarative interface for easy integration
+  </Card>
+  <Card title="Smart Updates" icon="arrows-rotate">
+    Smart, continuous incremental-updates to keep your data fresh
+  </Card>
+  <Card title="Type Safety" icon="shield-check">
+    Type-safe and schema-first approach for reliable applications
+  </Card>
+  <Card title="Advanced Retrieval" icon="magnifying-glass">
+    Advanced retrieval and metadata filtering capabilities
+  </Card>
+  <Card title="Version Control" icon="code-branch">
+    Automated Table Versioning and Lineage Tracking
+  </Card>
+  <Card title="Distributed Execution" icon="network-wired">
+    Parallelized and distributed execution with built-in rate limit protection
+  </Card>
+  <Card title="Unified Interface" icon="puzzle-piece">
+    Unified interface for storage, extraction, chunking, embedding, inference, and evaluation
+  </Card>
+  <Card title="AWS Ready" icon="aws">
+    Deploy to your own AWS infrastructure with production-ready templates
+  </Card>
+</CardGroup>
+
+## Install
+```bash
+pip install -U pixeltable
+```
+
+## Simple, Unified Interface
+
+From storage to evaluation, Pixeltable handles the entire lifecycle.
+
+<CodeGroup>
+
+```python Storage
+import pixeltable as pxt
+
+# Automated versioning and lineage tracking
+pxt.create_dir("chatbot")
+
+# Type-safe + Schema-first
+video_table = pxt.create_table("chatbot.videos", {"video": pxt.Video})
+```
+
+```python Preprocessing
+from pixeltable.functions import openai
+from pixeltable.functions.video import extract_audio
+
+# Best-in-class video processing
+video_table.add_computed_column(
+    audio_extract=extract_audio(video_table.video, format="mp3")
+)
+
+# Production-ready multimodal integrations
+video_table.add_computed_column(
+    transcription=openai.transcriptions(audio=video_table.audio_extract, model="whisper-1")
+)
+
+# Smart and continuous incremental updates
+video_table.add_computed_column(
+    audio_transcription_text=video_table.audio_transcription.text
+)
+```
+
+```python Chunking
+# Define your chunking strategy
+audio_chunks = pxt.create_view(
+    "chatbot.audio_chunks",
+    video_table,
+    iterator=StringSplitter.create(
+        text=video_table.audio_transcription_text, separators="sentence"
+    ),
+)
+
+# Use a local embedding model
+audio_chunks.add_embedding_index(
+    "text", string_embed=sentence_transformer.using(model_id="intfloat/e5-large-v2")
+)
+```
+
+```python Retrieval
+
+import pixeltable as pxt
+
+@audio_chunks.query
+def get_relevant_audio_chunks(query_text: str):
+    sim = audio_chunks.text.similarity(query_text)
+    return (
+         # Metadata sorting and filtering
+        audio_chunks.order_by(
+            [sim, audio_chunks.timestamp], 
+            asc=[False, True]
+        )
+        .select(audio_chunks.text, sim=sim) 
+        .limit(20)
+    )
+
+# Only runs on new data for efficient incremental updates
+video_table.add_computed_column(
+    context_audio=audio_chunks.queries.get_relevant_audio_chunks(docs_table.question)
+)
+
+```
+
+```python Inference
+from pixeltable.functions import openai
+
+# Low-level api integration for production-ready workflows
+video_table.add_computed_column(response=openai.chat_completions(
+    system_prompt="Answer the users question based on the audio context.",
+    messages=video_table.context_audio,
+    model="gpt-4o-mini",
+))
+video_table.add_computed_column(
+    answer=video_table.response.choices[0].message.content
+)
+
+# Lazy evaluation and cache management
+video_table.show(1)
+```
+
+```python Evaluation
+from pixeltable.functions import openai
+
+# Custom evaluation metrics (e.g. LLM-as-a-judge)
+video_table.add_computed_column(readability_score=openai.chat_completions(
+    system_prompt="Rate the response between 1 and 10 on readability.",
+    messages=video_table.answer,
+    model="gpt-4o-mini",
+))
+
+# High-performance aggregation
+video_table.mean(video_table.readability_score).show(1)
+```
+</CodeGroup>
+
+## Library of examples
+
+We've built a library of [examples](https://github.com/pixeltable/pixeltable/tree/main/docs/notebooks) and [sample applications](https://github.com/pixeltable/pixeltable/tree/main/docs/sample-apps) to help you get started with Pixeltable.
+
+## Quickly deploy to your AWS account
+
+We've built a FastAPI auto-scaling server optimized for Pixeltable, so you can get started in minutes.
+
+Deploy Pixeltable to your own AWS infrastructure with production-ready [templates](https://github.com/pixeltable/pixeltable/tree/main/docs/sample-apps/multimodal-chat/aws).
+

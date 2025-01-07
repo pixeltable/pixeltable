@@ -1,6 +1,6 @@
 {
   "$schema": "https://mintlify.com/schema.json",
-  "name": "Welcome to Pixeltable",
+  "name": "Pixeltable",
   "logo": {
     "light": "/logo/pxt-light.svg",
     "dark": "/logo/pxt-dark.svg"
@@ -29,34 +29,47 @@
   "favicon": "favicon.svg",
   "topbarLinks": [
     {
-      "name": "☎️ Contact",
+      "name": "Discord",
+      "url": "https://discord.com/invite/QPyqFYx2UN"
+    },
+    {
+      "name": "Book a Demo",
       "url": "https://calendar.google.com/calendar/u/0/appointments/schedules/AcZssZ0BSvx8SRh7HoLdgvGeYUuhdyaifN42nhieCJESo3B1Hmy_buqteAagnSwADXG1lhKFUg3_VTZM"
     },
     {
-      "name": "💼 Hiring",
+      "name": "Hiring",
       "url": "https://jobs.gusto.com/postings/pixeltable-inc-member-of-technical-staff-360acae7-6e57-4aa2-bd03-83c9dafb7bbc"
-    },
-    {
-      "name": "🤗 Hugging Face",
-      "url": "https://huggingface.co/Pixeltable"
-    }    
+    } 
   ],
   "topbarCtaButton": {
-    "name": "Pixeltable Discord Bot",
-    "url": "https://discord.com/application-directory/1304932122611552346"
-  },    
+    "type": "github",
+    "url": "https://github.com/pixeltable/pixeltable"
+  },  
   "navigation": [
     {
-      "group": "🏁 Getting Started",
+      "group": "Getting Started",
       "pages": [
-        "docs/get-started",
-        "docs/installation",
-        "docs/pixeltable-basics",
-        "docs/data-types-and-formats"
+        "docs/getting-started/introduction",
+        "docs/getting-started/installation",
+        "docs/getting-started/data-types",
+        "docs/getting-started/getting-help",
+        "docs/getting-started/faq"
       ]
     },
     {
-      "group": "⚙️Learning Pixeltable",
+      "group": "Examples",
+      "pages": [
+        "docs/examples/multimodal-chat",
+        "docs/examples/incremental-prompt-engineering-and-model-comparison-with-mistral-using-pixeltable",
+        "docs/document-indexing-and-rag",
+        "docs/rag-operations",
+        "docs/incremental-prompt-engineering-and-model-comparison-with-mistral-using-pixeltable",
+        "docs/object-detection-in-videos",
+        "docs/transcribing-and-indexing-audio-and-video"      
+      ]
+    },
+    {
+      "group": "Learning Pixeltable",
       "pages": [
         "docs/tables-and-data-operations",
         {
@@ -79,48 +92,38 @@
       ]
     },
     {
-      "group": "🎨 Use Cases",
+      "group": "Integrations",
       "pages": [
-        "docs/document-indexing-and-rag",
-        "docs/rag-operations",
-        "docs/incremental-prompt-engineering-and-model-comparison-with-mistral-using-pixeltable",
-        "docs/object-detection-in-videos",
-        "docs/transcribing-and-indexing-audio-and-video"
-      ]
-    },
-    {
-      "group": "🤖 Integrations",
-      "pages": [
-        "docs/working-with-anthropic",
+        "docs/integrations/working-with-anthropic",
         {
           "group": "LLMs",
           "pages": [
-            "docs/working-with-anthropic",
-            "docs/working-with-fireworks",
-            "docs/gemini",
-            "docs/working-with-openai",
-            "docs/working-with-llamacpp",
-            "docs/mistral-ai",
-            "docs/working-with-ollama",
-            "docs/working-with-together-ai",
-            "docs/working-with-replicate"
+            "docs/integrations/LLMs/working-with-anthropic",
+            "docs/integrations/LLMs/working-with-fireworks",
+            "docs/integrations/LLMs/gemini",
+            "docs/integrations/LLMs/working-with-openai",
+            "docs/integrations/LLMs/working-with-llamacpp",
+            "docs/integrations/LLMs/mistral-ai",
+            "docs/integrations/LLMs/working-with-ollama",
+            "docs/integrations/LLMs/working-with-together-ai",
+            "docs/integrations/LLMs/working-with-replicate"
           ]
         },
         {
           "group": "Computer Vision",
           "pages": [
-            "docs/using-label-studio-for-annotations-with-pixeltable",
-            "docs/working-with-fiftyone",
-            "docs/working-with-yolox"
+            "docs/integrations/CV/using-label-studio-for-annotations-with-pixeltable",
+            "docs/integrations/CV/working-with-fiftyone",
+            "docs/integrations/CV/working-with-yolox"
           ]
         },
-        "docs/working-with-huggingface",
-        "docs/pandas",
-        "docs/whisper"
+        "docs/integrations/LLMs/working-with-huggingface",
+        "docs/integrations/pandas",
+        "docs/integrations/whisper"
       ]
     },
     {
-      "group": "❓ Community & Support",
+      "group": "Community & Support",
       "pages": [
         "docs/contributions-discussions",
         "docs/faq"

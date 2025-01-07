@@ -1,0 +1,360 @@
+---
+title: "Data Types"
+description: "Complete guide to Pixeltable's type system and supported data formats"
+---
+
+<CardGroup cols={3}>
+  <Card title="Basic Types" icon="font">
+    - `pxt.String` for text
+    - `pxt.Int` for integers
+    - `pxt.Float` for numbers
+    - `pxt.Bool` for true/false
+    - `pxt.Timestamp` for dates
+  </Card>
+  <Card title="Media Types" icon="photo-film">
+    - `pxt.Image` for images
+    - `pxt.Video` for videos
+    - `pxt.Audio` for audio
+    - `pxt.Document` for text files
+  </Card>
+  <Card title="ML Types" icon="brain">
+    - `pxt.Array` for tensors
+    - `pxt.Json` for structured data
+    - Support for embeddings
+    - Numpy array compatibility
+  </Card>
+</CardGroup>
+
+## Type Examples
+
+<Tabs>
+  <Tab title="Basic Types">
+    <CodeGroup>
+    ```python Simple Table
+    # Basic table with multiple types
+    table = pxt.create_table('demo.basic', {
+        'text': pxt.String,
+        'count': pxt.Int,
+        'score': pxt.Float,
+        'created': pxt.Timestamp
+    })
+    ```
+
+    ```python Operations
+    # Example operations
+    table.insert({
+        'text': 'Sample text',
+        'count': 42,
+        'score': 95.5,
+        'created': datetime.now()
+    })
+    ```
+    </CodeGroup>
+  </Tab>
+
+  <Tab title="Media Types">
+    <CodeGroup>
+    ```python Images
+    # Image handling with constraints
+    images = pxt.create_table('images', {
+        'original': pxt.Image,                    # Any valid image
+        'thumbnail': pxt.Image[(224, 224)],      # Fixed size
+        'rgb_image': pxt.Image['RGB'],           # Color mode
+        'grayscale': pxt.Image['L']              # Grayscale
+    })
+    ```
+
+    ```python Videos
+    # Video processing setup
+    videos = pxt.create_table('videos', {
+        'video': pxt.Video,                      # MP4 supported
+        'preview': pxt.Image,                    # First frame
+        'segments': pxt.Json                     # Time segments
+    })
+    ```
+
+    ```python Documents
+    # Document handling
+    docs = pxt.create_table('documents', {
+        'doc': pxt.Document,                     # PDF, MD, HTML, TXT
+        'extracted_text': pxt.String,            # Processed text
+        'metadata': pxt.Json                     # File info
+    })
+    ```
+    </CodeGroup>
+  </Tab>
+
+  <Tab title="ML Types">
+    <CodeGroup>
+    ```python Array Types
+    # Array Type for ML Models
+    embeddings = pxt.create_table('embeddings', {
+        # Fixed-size embeddings
+        'text_embedding': pxt.Array[(768,), pxt.Float],
+        
+        # Variable-size features
+        'features': pxt.Array[(None, 512), pxt.Float],
+        
+        # Image tensors
+        'image_tensor': pxt.Array[(3, 224, 224), pxt.Float]
+    })
+    ```
+
+    ```python JSON Types
+    # JSON Type for Model Outputs
+    outputs = pxt.create_table('model_outputs', {
+        'predictions': pxt.Json,      # Model predictions
+        'confidence': pxt.Json,       # Confidence scores
+        'metadata': pxt.Json          # Additional info
+    })
+    ```
+
+    ```python Operations
+    # Example ML operations
+    embeddings.insert({
+        'text_embedding': model.encode('Hello world'),
+        'features': extract_features(image),
+        'image_tensor': preprocess_image(img)
+    })
+
+    outputs.insert({
+        'predictions': {
+            'class': 'cat',
+            'bbox': [100, 200, 150, 250]
+        },
+        'confidence': {
+            'class_score': 0.95,
+            'bbox_score': 0.88
+        }
+    })
+    ```
+    </CodeGroup>
+  </Tab>
+</Tabs>
+
+<Note>
+Pixeltable automatically handles file management, type conversion, and validation for all supported types. This includes downloading and caching files, format validation, and support for local paths, URLs, and S3 storage.
+</Note>
+
+## Data I/O
+
+Pixeltable provides comprehensive data import and export capabilities, supporting various formats and integrations. Key features include:
+
+* Frame-level video interaction
+* Incremental and interactive data augmentation
+* Unified interface for multiple data types
+* Built-in ML integration
+* Automatic versioning and data integrity
+
+<Tabs>
+  <Tab title="Import">
+    <CodeGroup>
+    ```python Pandas
+    import pixeltable as pxt
+    import pandas as pd
+
+    # Create a pandas DataFrame
+    df = pd.DataFrame({
+        'name': ['Alice', 'Bob'],
+        'age': [25, 30],
+        'score': [95.5, 88.0]
+    })
+
+    # Import into Pixeltable
+    table = pxt.create_table('demo.users', {
+        'name': pxt.String,
+        'age': pxt.Int,
+        'score': pxt.Float
+    })
+    
+    # Insert DataFrame rows
+    table.insert(df.to_dict('records'))
+    ```
+
+    ```python CSV
+    # Import from CSV
+    df = pxt.io.import_csv(
+        'customers',
+        'data.csv',
+        schema_overrides={
+            'balance': pxt.Float
+        }
+    )
+    ```
+
+    ```python Parquet
+    # Import from Parquet
+    df = pxt.io.import_parquet(
+        'transactions',
+        'data.parquet',
+        schema_overrides={
+            'timestamp': pxt.Timestamp
+        }
+    )
+    ```
+
+    ```python HuggingFace
+    # Import from HuggingFace
+    df = pxt.io.import_huggingface_dataset(
+        'mnist',
+        dataset,
+        schema_overrides={
+            'image': pxt.Image
+        }
+    )
+    ```
+    </CodeGroup>
+  </Tab>
+
+  <Tab title="Export">
+    <CodeGroup>
+    ```python Pandas
+    # Full table to DataFrame
+    df = table.collect().to_pandas()
+
+    # Select specific columns
+    df = table.select(
+        table.name, 
+        table.age
+    ).collect().to_pandas()
+
+    # Export with filtering
+    df = table.filter(
+        table.age > 25
+    ).collect().to_pandas()
+    ```
+
+    ```python PyTorch
+    # To PyTorch Dataset
+    dataset = table.to_pytorch_dataset(
+        features=['image'],
+        labels=['label']
+    )
+
+    # With custom transformations
+    dataset = table.to_pytorch_dataset(
+        features=['image'],
+        labels=['label'],
+        transform=transforms.Compose([
+            transforms.Resize(256),
+            transforms.CenterCrop(224)
+        ])
+    )
+    ```
+
+    ```python COCO
+    # To COCO format
+    coco_data = table.to_coco_dataset()
+
+    # With custom annotations
+    coco_data = table.to_coco_dataset(
+        image_col='image',
+        annotation_col='detections'
+    )
+    ```
+    </CodeGroup>
+  </Tab>
+</Tabs>
+
+<Note>
+When importing data, Pixeltable automatically handles schema detection and data type conversion, but you can override these using `schema_overrides` as shown in the examples.
+</Note>
+
+## Pandas Type Mappings
+
+<ResponseField name="Pandas → Pixeltable" type="table">
+| Pandas Type    | Pixeltable Type  |
+|---------------|-----------------|
+| `str`/`object` | `pxt.String`    |
+| `int64`       | `pxt.Int`       |
+| `float64`     | `pxt.Float`     |
+| `bool`        | `pxt.Bool`      |
+| `datetime64`  | `pxt.Timestamp` |
+| `dict`/`list` | `pxt.Json`      |
+</ResponseField>
+
+## Advanced Operations
+
+<CodeGroup>
+```python Batched Import
+# Large DataFrame handling with batching
+batch_size = 1000
+for i in range(0, len(df), batch_size):
+    batch = df.iloc[i:i + batch_size]
+    table.insert(batch.to_dict('records'))
+```
+
+```python Complex Queries
+# Complex operations before export
+df = (table
+    .filter(table.age > 25)
+    .order_by(table.score, asc=False)
+    .select(
+        table.name,
+        table.score,
+        adjusted_score=table.score * 1.1
+    )
+    .collect()
+    .to_pandas()
+)
+```
+
+```python Schema Override
+# Import with schema override
+table = pxt.create_table('demo.override', {
+    'name': pxt.String,
+    'data': pxt.Json  # Override pandas object type
+})
+
+df = pd.DataFrame({
+    'name': ['Alice'],
+    'data': [{'key': 'value'}]
+})
+
+table.insert(df.to_dict('records'))
+```
+</CodeGroup>
+
+<Card title="Best Practices" icon="lightbulb">
+  - Use batching for large data frames
+  - Perform filtering in Pixeltable before export when possible
+  - Consider memory usage for large tables
+  - Use appropriate type mappings for your data
+</Card>
+
+<Note>
+When working with large datasets, Pixeltable's lazy evaluation and incremental processing can be more efficient than loading entire DataFrames into memory.
+</Note>
+
+## Working with Files
+
+<Note>
+Pixeltable handles file management automatically:
+- Downloads and caches files
+- Validates formats
+- Supports local paths, URLs, and S3
+</Note>
+
+```python
+# File handling examples
+table.insert({'image': 'https://example.com/image.jpg'})  # URLs
+table.insert({'document': '/path/to/doc.pdf'})           # Local files
+table.insert({'video': 's3://bucket/video.mp4'})         # Cloud storage
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Object Detection" icon="camera">
+    Learn computer vision with [Object Detection Tutorial](/docs/object-detection-in-videos)
+  </Card>
+  <Card title="RAG Tutorial" icon="book">
+    Build RAG apps with [Document Indexing Guide](/docs/document-indexing-and-rag)
+  </Card>
+  <Card title="API Reference" icon="code">
+    View full [API Documentation](https://pixeltable.github.io/pixeltable/)
+  </Card>
+  <Card title="Integrations" icon="puzzle-piece">
+    Explore [Integration Guides](/docs/working-with-openai)
+  </Card>
+</CardGroup>
