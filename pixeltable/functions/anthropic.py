@@ -82,12 +82,12 @@ def messages(
         # Reformat `tools` into Anthropic format
         tools = [
             {
-                'name': tool['function']['name'],
-                'description': tool['function']['description'],
+                'name': tool['name'],
+                'description': tool['description'],
                 'input_schema': {
                     'type': 'object',
-                    'properties': tool['function']['parameters']['properties'],
-                    'required': tool['function']['required'],
+                    'properties': tool['parameters']['properties'],
+                    'required': tool['required'],
                 },
             }
             for tool in tools

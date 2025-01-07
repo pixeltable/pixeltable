@@ -226,6 +226,16 @@ def chat_completions(
             ]
             tbl['response'] = chat_completions(messages, model='gpt-4o-mini')
     """
+
+    if tools is not None:
+        tools = [
+            {
+                'type': 'function',
+                'function': tool
+            }
+            for tool in tools
+        ]
+
     result = _retry(_openai_client().chat.completions.create)(
         messages=messages,
         model=model,

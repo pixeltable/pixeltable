@@ -208,6 +208,8 @@ filterwarnings = [
     "ignore:The 'strip_cdata' option of HTMLParser:DeprecationWarning",
     # This one is raised by mongoengine, which is required by fiftyone:
     "ignore:No uuidRepresentation is specified! Falling back to 'pythonLegacy' which is the default for pymongo 3.x:DeprecationWarning",
+    # This one is raised by huggingface-hub:
+    "ignore:`resume_download` is deprecated and will be removed:FutureWarning",
 ]
 
 [tool.ruff]

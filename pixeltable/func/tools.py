@@ -13,6 +13,11 @@ if TYPE_CHECKING:
     from pixeltable import exprs
 
 
+# The Tool and Tools classes are containers that hold Pixeltable UDFs and related metadata, so that they can be
+# realized as LLM tools. They are implemented as Pydantic models in order to provide a canonical way of converting
+# to JSON, via the Pydantic `model_serializer` interface. In this way, they can be passed directly as UDF
+# parameters as described in the `pixeltable.tools` and `pixeltable.tool` docstrings.
+
 class Tool(pydantic.BaseModel):
     # Allow arbitrary types so that we can include a Pixeltable function in the schema.
     # We will implement a model_serializer to ensure the Tool model can be serialized.
@@ -29,22 +34,19 @@ class Tool(pydantic.BaseModel):
     @pydantic.model_serializer
     def ser_model(self) -> dict[str, Any]:
         return {
-            'type': 'function',
-            'function': {
-                'name': self.name or self.fn.name,
-                'description': self.description or self.fn._docstring(),
-                'parameters': {
-                    'type': 'object',
-                    'properties': {
-                        param.name: param.col_type._to_json_schema()
-                        for param in self.parameters.values()
-                    }
-                },
-                'required': [
-                    param.name for param in self.parameters.values() if not param.col_type.nullable
-                ],
-                'additionalProperties': False,  # TODO Handle kwargs?
-            }
+            'name': self.name or self.fn.name,
+            'description': self.description or self.fn._docstring(),
+            'parameters': {
+                'type': 'object',
+                'properties': {
+                    param.name: param.col_type._to_json_schema()
+                    for param in self.parameters.values()
+                }
+            },
+            'required': [
+                param.name for param in self.parameters.values() if not param.col_type.nullable
+            ],
+            'additionalProperties': False,  # TODO Handle kwargs?
         }
 
     # `tool_calls` must be in standardized tool invocation format:
