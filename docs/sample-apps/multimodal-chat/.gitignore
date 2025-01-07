@@ -1,0 +1,11 @@
+.env
+
+*.swp
+package-lock.json
+__pycache__
+.pytest_cache
+.venv
+*.egg-info
+
+.cdk.staging
+cdk.out
