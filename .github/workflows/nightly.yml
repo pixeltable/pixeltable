@@ -15,7 +15,6 @@ env:
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
   REPLICATE_API_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
   TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
-  OPENCV_VIDEOIO_DEBUG: 1
 
 jobs:
   tests:
@@ -31,7 +30,7 @@ jobs:
           - ""
           - "pyarrow sentence-transformers sentencepiece soundfile torch torchaudio torchvision transformers"
           - "anthropic fireworks-ai google-generativeai mistralai openai replicate together"
-          - "llama-cpp-python"
+          - "huggingface-hub llama-cpp-python"
           - "datasets boto3 openpyxl tiktoken pymupdf mistune 'spacy<3.8'"  # spacy 3.8 is problematic on python 3.12
           - "label_studio_sdk"
         include:
