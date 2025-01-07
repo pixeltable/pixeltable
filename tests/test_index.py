@@ -59,16 +59,20 @@ class TestIndex:
         t.add_embedding_index('img', idx_name='img_idx1', metric='cosine', embed=clip_embed)
         reload_tester.run_reload_test(clear=True)
 
-    @pytest.mark.parametrize("use_index_name", [True, False])
-    def test_similarity(self, use_index_name: bool, small_img_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
+    @pytest.mark.parametrize("use_index_name,use_separate_embeddings", [(False, False), (True, False), (False, True)])
+    def test_similarity(self, use_index_name: bool, use_separate_embeddings: bool, small_img_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
         skip_test_if_not_installed('transformers')
         t = small_img_tbl
         sample_img = t.select(t.img).head(1)[0, 'img']
         _ = t.select(t.img.localpath).collect()
 
         for metric, is_asc in [('cosine', False), ('ip', False), ('l2', True)]:
-            iname = 'idx_'+metric+'_'+str(is_asc) if use_index_name else None
-            t.add_embedding_index('img', idx_name=iname, metric=metric, embed=clip_embed)
+            iname = f'idx_{metric}_{is_asc}' if use_index_name else None
+            if use_separate_embeddings:
+                embed_args = {'string_embed': clip_embed, 'image_embed': clip_embed}
+            else:
+                embed_args = {'embed': clip_embed}
+            t.add_embedding_index('img', idx_name=iname, metric=metric, **embed_args)
 
             df = (
                 t.select(img=t.img, sim=t.img.similarity(sample_img, idx=iname))
