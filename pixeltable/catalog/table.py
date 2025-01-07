@@ -441,34 +441,25 @@ class Table(SchemaObject):
             raise excs.Error(f'Column spec must be a ColumnType, Expr, or type, got {type(spec)}')
         self.add_column(stored=None, print_stats=False, on_error='abort', if_exists='error', **{col_name: spec})
 
-    def __column_has_dependents(self, col: Column) -> bool:
+    def _column_has_dependents(self, col: Column) -> bool:
         """Returns True if the column has dependents, False otherwise."""
         assert col is not None
-        if col._has_dependent_user_columns:
+        assert col.name in self._schema.keys()
+        if any(c.name is not None for c in col.dependent_cols):
             return True
-        dependent_stores = [
+        if any(
             (view, store)
             for view in [self] + self._get_views(recursive=True)
             for store in view._tbl_version.external_stores.values()
             if col in store.get_local_columns()
-        ]
-        if len(dependent_stores) > 0:
+        ):
             return True
         return False
 
-    def __skip_or_drop_existing_columns(self, new_col_spec: dict[str, Any], if_exists: IfExistsParam) -> None:
-        """ Check for existing column in the new column specification and handle them according to the if_exists parameter.
+    def _ignore_or_drop_existing_columns(self, new_col_spec: dict[str, Any], if_exists: IfExistsParam) -> None:
+        """ Check and handle existing columns in the new column specification based on the if_exists parameter.
 
         Note that this function will remove any column names from the passed in `new_col_spec` if `if_exists='ignore'`.
-
-        Args:
-            new_col_spec: A dictionary mapping the new column names to column specifications.
-            if_exists: Directive for handling an existing column with the same name.
-
-        Raises:
-            Error: If any column already exists and `if_exists='error'`,
-                or the existing column has dependents,
-                or the existing column is a basetable column and `if_exists='replace*'`.
         """
         assert not self.get_metadata()['is_snapshot']
         existing_col_names = set(self._schema.keys())
@@ -490,16 +481,17 @@ class Table(SchemaObject):
                     col = self._tbl_version.cols_by_name[new_col_name]
                     # cannot drop a column with dependents; so reject
                     # replace directive if column has dependents.
-                    if self.__column_has_dependents(col):
+                    if self._column_has_dependents(col):
                         raise excs.Error(
                             f'Column {new_col_name!r} already exists and has dependents. Cannot {if_exists.name.lower()} it.'
                         )
                     self.drop_column(new_col_name)
                     assert new_col_name not in self._tbl_version.cols_by_name
+
         # remove the existing columns from new_col_spec when if_exists='ignore'
-        for _cname in cols_to_ignore:
-            assert _cname in existing_col_names
-            del new_col_spec[_cname]
+        for cname in cols_to_ignore:
+            assert cname in existing_col_names
+            del new_col_spec[cname]
 
     def add_columns(
         self,
@@ -519,7 +511,6 @@ class Table(SchemaObject):
                 - `'error'`: an exception will be raised.
                 - `'ignore'`: do nothing and return.
                 - `'replace' or 'replace_force'`: drop the existing column and add the new column, if it has no dependents.
-                Default is `'error'`.
                 Note that the if_exists parameter is applied to all columns in the schema.
                 To apply different behaviors to different columns, please use [`add_column()`][pixeltable.Table.add_column] for each column.
 
@@ -548,10 +539,10 @@ class Table(SchemaObject):
             for col_name, spec in schema.items()
         }
         # handle existing columns based on if_exists parameter
-        self.__skip_or_drop_existing_columns(col_schema, IfExistsParam.validated(if_exists, 'if_exists'))
+        self._ignore_or_drop_existing_columns(col_schema, IfExistsParam.validated(if_exists, 'if_exists'))
         # if all columns to be added already exist and user asked to ignore
-        # existing columns, there's nothing to do. Return.
-        if not col_schema:
+        # existing columns, there's nothing to do.
+        if len(col_schema) == 0:
             return UpdateStatus()
         new_cols = self._create_columns(col_schema)
         for new_col in new_cols:
@@ -590,7 +581,6 @@ class Table(SchemaObject):
                 - `'error'`: an exception will be raised.
                 - `'ignore'`: do nothing and return.
                 - `'replace' or 'replace_force'`: drop the existing column and add the new column, if it has no dependents.
-                Defaults to `'error'`.
 
         Returns:
             Information about the execution status of the operation.
@@ -631,8 +621,8 @@ class Table(SchemaObject):
 
         # handle existing column based on if_exists parameter
         col_to_add = {col_name: col_schema}
-        self.__skip_or_drop_existing_columns(col_to_add, IfExistsParam.validated(if_exists, 'if_exists'))
-        if not col_to_add:
+        self._ignore_or_drop_existing_columns(col_to_add, IfExistsParam.validated(if_exists, 'if_exists'))
+        if len(col_to_add) == 0:
             return UpdateStatus()
 
         new_col = self._create_columns(col_to_add)[0]
@@ -667,7 +657,6 @@ class Table(SchemaObject):
                 - `'error'`: an exception will be raised.
                 - `'ignore'`: do nothing and return.
                 - `'replace' or 'replace_force'`: drop the existing column and add the new column, iff it has no dependents.
-                Defaults to `'error'`.
 
         Returns:
             Information about the execution status of the operation.
@@ -704,8 +693,8 @@ class Table(SchemaObject):
 
         # handle existing columns based on if_exists parameter
         col_to_add = {col_name: col_schema}
-        self.__skip_or_drop_existing_columns(col_to_add, IfExistsParam.validated(if_exists, 'if_exists'))
-        if not col_to_add:
+        self._ignore_or_drop_existing_columns(col_to_add, IfExistsParam.validated(if_exists, 'if_exists'))
+        if len(col_to_add) == 0:
             return UpdateStatus()
 
         new_col = self._create_columns(col_to_add)[0]
@@ -943,7 +932,6 @@ class Table(SchemaObject):
                 - `'error'`: raise an error if an index with the same name already exists.
                 - `'ignore'`: do nothing if an index with the same name already exists.
                 - `'replace'` or `'replace_force'`: replace the existing index with the new one.
-                Defaults to `'error'`.
 
         Raises:
             Error: If an index with that name already exists for the table and if_exists='error', or if the specified column does not exist.

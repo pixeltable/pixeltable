@@ -287,7 +287,7 @@ def create_view(
         # additional columns should not be in the base table
         for col_name in additional_columns.keys():
             if col_name in [c.name for c in tbl_version_path.columns()]:
-                raise excs.Error(f"Column {col_name!r} already exists in the base table.")
+                raise excs.Error(f"Column {col_name!r} already exists in the base table {tbl_version_path.get_column(col_name).tbl.name}.")
     if iterator is None:
         iterator_class, iterator_args = None, None
     else:
