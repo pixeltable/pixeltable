@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>AI-based Day Trading Insights</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="header">
+    <h1 class="header-title">AI-based Day Trading Insights by <a href="https://github.com/pixeltable/pixeltable">Pixeltable</a></h1>
+    <span class="timestamp" id="timestamp">-</span>
+  </div>
+
+  <div class="analysis-grid">
+    <div class="analysis-section">
+      <h2 class="section-title">Technical Indicators</h2>
+      <div class="analysis-card">
+        <div class="metrics-list">
+          <div class="metric-item">
+            <span class="metric-label">MACD</span>
+            <span class="metric-value" id="macd-value">-</span>
+          </div>
+          <div class="metric-item">
+            <span class="metric-label">RSI</span>
+            <span class="metric-value" id="rsi-value">-</span>
+          </div>
+          <div class="metric-item">
+            <span class="metric-label">MFI</span>
+            <span class="metric-value" id="mfi-value">-</span>
+          </div>
+          <div class="metric-item">
+            <span class="metric-label">Stochastic</span>
+            <span class="metric-value" id="stoch-value">-</span>
+          </div>
+          <div class="metric-item">
+            <span class="metric-label">Volume</span>
+            <span class="metric-value" id="volume-value">-</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="analysis-section">
+      <h2 class="section-title">Price Levels</h2>
+      <div class="analysis-card">
+        <div class="metrics-list">
+          <div class="metric-item">
+            <span class="metric-label">Current Price</span>
+            <span class="metric-value" id="current-price">-</span>
+          </div>
+          <div class="metric-item">
+            <span class="metric-label">VWAP</span>
+            <span class="metric-value" id="vwap-value">-</span>
+          </div>
+          <div class="metric-item">
+            <span class="metric-label">Support</span>
+            <div class="metric-value" id="supportLevels">-</div>
+          </div>
+          <div class="metric-item">
+            <span class="metric-label">Resistance</span>
+            <div class="metric-value" id="resistanceLevels">-</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="trade-section">
+    <div class="section-header">
+      <h2 class="section-title">Trade Setup</h2>
+      <span class="signal-badge" id="signal-badge">-</span>
+    </div>
+    <div class="trade-card">
+      <div class="targets-grid">
+        <div class="target-card">
+          <div class="target-label">Entry</div>
+          <div class="target-value" id="entry-price">-</div>
+        </div>
+        <div class="target-card">
+          <div class="target-label">Stop Loss</div>
+          <div class="target-value" id="stop-loss">-</div>
+        </div>
+        <div class="target-card">
+          <div class="target-label">Target</div>
+          <div class="target-value" id="price-target">-</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="summary-section">
+    <h2 class="section-title">Analysis Summary</h2>
+    <div class="summary-card">
+      <p id="analysis-summary" class="summary-text">-</p>
+    </div>
+  </div>
+
+  <div class="action-buttons-container">
+    <button id="startAnalysis" class="analyze-button">Analyze Chart</button>
+    <a href="https://www.paypal.com/donate/?business=PTVERFHD9ESN2&no_recurring=0&item_name=Support+free+AI-powered+trading+analysis+-+your+donation+helps+keep+the+chrome+extension+live+%28Anthropic+API+%2B+Hosting+costs%29&currency_code=USD"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="donate-button">
+      <svg class="heart-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+      </svg>
+      Support This Extension
+    </a>
+  </div>
+
+  <div id="error" class="error hidden"></div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
