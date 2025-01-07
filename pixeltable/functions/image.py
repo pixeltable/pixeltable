@@ -56,6 +56,7 @@ def blend(im1: PIL.Image.Image, im2: PIL.Image.Image, alpha: float) -> PIL.Image
     """
     pass
 
+
 @pxt.udf(substitute_fn=PIL.Image.composite, is_method=True)
 def composite(image1: PIL.Image.Image, image2: PIL.Image.Image, mask: PIL.Image.Image) -> PIL.Image.Image:
     """
@@ -67,6 +68,7 @@ def composite(image1: PIL.Image.Image, image2: PIL.Image.Image, mask: PIL.Image.
 
 
 # PIL.Image.Image methods
+
 
 # Image.convert()
 @pxt.udf(is_method=True)
@@ -108,7 +110,9 @@ def _(self: Expr, box: tuple[int, int, int, int]) -> pxt.ColumnType:
     input_type = self.col_type
     assert isinstance(input_type, pxt.ImageType)
     if (isinstance(box, list) or isinstance(box, tuple)) and len(box) == 4 and all(isinstance(x, int) for x in box):
-        return pxt.ImageType(size=(box[2] - box[0], box[3] - box[1]), mode=input_type.mode, nullable=input_type.nullable)
+        return pxt.ImageType(
+            size=(box[2] - box[0], box[3] - box[1]), mode=input_type.mode, nullable=input_type.nullable
+        )
     return pxt.ImageType(mode=input_type.mode, nullable=input_type.nullable)  # we can't compute the size statically
 
 
@@ -339,7 +343,7 @@ def getprojection(self: PIL.Image.Image) -> tuple[int]:
 
 @pxt.udf(substitute_fn=PIL.Image.Image.histogram, is_method=True)
 def histogram(
-        self: PIL.Image.Image, mask: Optional[PIL.Image.Image] = None, extrema: Optional[list] = None
+    self: PIL.Image.Image, mask: Optional[PIL.Image.Image] = None, extrema: Optional[list] = None
 ) -> list[int]:
     """
     Return a histogram for the image.
@@ -375,7 +379,7 @@ def quantize(
         kmeans: The number of k-means clusters to use.
         palette: The palette to use.
         dither: The dithering method. See the [Pillow documentation](https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.quantize) for a list of supported methods.
-     """
+    """
     pass
 
 

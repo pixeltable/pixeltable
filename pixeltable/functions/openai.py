@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 @env.register_client('openai')
 def _(api_key: str) -> 'openai.OpenAI':
     import openai
+
     return openai.OpenAI(api_key=api_key)
 
 
@@ -39,6 +40,7 @@ def _openai_client() -> 'openai.OpenAI':
 # by OpenAI. Should we investigate making this more customizable in the future?
 def _retry(fn: Callable) -> Callable:
     import openai
+
     return tenacity.retry(
         retry=tenacity.retry_if_exception_type(openai.RateLimitError),
         wait=tenacity.wait_random_exponential(multiplier=1, max=60),
@@ -133,11 +135,7 @@ def transcriptions(
 
 @pxt.udf
 def translations(
-    audio: pxt.Audio,
-    *,
-    model: str,
-    prompt: Optional[str] = None,
-    temperature: Optional[float] = None
+    audio: pxt.Audio, *, model: str, prompt: Optional[str] = None, temperature: Optional[float] = None
 ) -> dict:
     """
     Translates audio into English.
@@ -458,6 +456,7 @@ _T = TypeVar('_T')
 
 def _opt(arg: _T) -> Union[_T, 'openai.NotGiven']:
     import openai
+
     return arg if arg is not None else openai.NOT_GIVEN
 
 

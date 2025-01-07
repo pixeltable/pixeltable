@@ -26,9 +26,9 @@ class TestMistral:
             stop=['\n'],
             random_seed=4171780,
             response_format={'type': 'text'},
-            safe_prompt=True
+            safe_prompt=True,
         )
-        validate_update_status(t.insert(input="What three species of fish have the highest mercury content?"), 1)
+        validate_update_status(t.insert(input='What three species of fish have the highest mercury content?'), 1)
         results = t.collect()
         assert len(results['output'][0]['choices'][0]['message']['content']) > 0
         assert len(results['output2'][0]['choices'][0]['message']['content']) > 0
@@ -49,12 +49,17 @@ class TestMistral:
             max_tokens=300,
             stop=['def'],
             random_seed=4171780,
-            suffix=t.suffix
+            suffix=t.suffix,
         )
-        status = t.insert([
-            {'input': 'def fibonacci(n: int):'},
-            {'input': 'def fibonacci(n: int):', 'suffix': 'n = int(input("Enter a number: "))\nprint(fibonacci(n))'}
-        ])
+        status = t.insert(
+            [
+                {'input': 'def fibonacci(n: int):'},
+                {
+                    'input': 'def fibonacci(n: int):',
+                    'suffix': 'n = int(input("Enter a number: "))\nprint(fibonacci(n))',
+                },
+            ]
+        )
         validate_update_status(status, 2)
         results = t.collect()
         for out_col in ['output', 'output2']:

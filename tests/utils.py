@@ -259,17 +259,22 @@ def create_scalars_tbl(num_rows: int, seed: int = 0, percent_nulls: int = 10) ->
     for i in range(num_rows):
         str_idx = int(rng.integers(0, 26))
         days = int(rng.integers(0, delta_days))
-        seconds = int(rng.integers(0, 60*60*24))
-        example_rows.append({
-            'row_id': i,
-            'c_bool': None if rng.integers(0, 100) < percent_nulls else bool(rng.choice([True, False])),
-            'c_float': None if rng.integers(0, 100) < percent_nulls else float(rng.uniform(0, 1)),
-            'c_int': None if rng.integers(0, 100) < percent_nulls else int(rng.integers(0, 10)),
-            'c_string': None if rng.integers(0, 100) < percent_nulls else str_chars[str_idx:str_idx + 3],
-            'c_timestamp': None if rng.integers(0, 100) < percent_nulls else start_date + datetime.timedelta(days=days, seconds=seconds),
-        })
+        seconds = int(rng.integers(0, 60 * 60 * 24))
+        example_rows.append(
+            {
+                'row_id': i,
+                'c_bool': None if rng.integers(0, 100) < percent_nulls else bool(rng.choice([True, False])),
+                'c_float': None if rng.integers(0, 100) < percent_nulls else float(rng.uniform(0, 1)),
+                'c_int': None if rng.integers(0, 100) < percent_nulls else int(rng.integers(0, 10)),
+                'c_string': None if rng.integers(0, 100) < percent_nulls else str_chars[str_idx : str_idx + 3],
+                'c_timestamp': None
+                if rng.integers(0, 100) < percent_nulls
+                else start_date + datetime.timedelta(days=days, seconds=seconds),
+            }
+        )
     tbl.insert(example_rows)
     return tbl
+
 
 def read_data_file(dir_name: str, file_name: str, path_col_names: Optional[list[str]] = None) -> list[dict[str, Any]]:
     """
@@ -350,6 +355,7 @@ def __image_mode(path: str) -> str:
     finally:
         image.close()
 
+
 def get_multimedia_commons_video_uris(n: int = 10) -> list[str]:
     uri = 's3://multimedia-commons/data/videos/mp4/'
     parsed = urllib.parse.urlparse(uri)
@@ -369,6 +375,7 @@ def get_multimedia_commons_video_uris(n: int = 10) -> list[str]:
             uri = f"s3://{bucket_name}/{obj['Key']}"
             uris.append(uri)
     return uris
+
 
 def get_audio_files(include_bad_audio: bool = False) -> list[str]:
     tests_dir = Path(os.path.dirname(__file__))
@@ -437,12 +444,12 @@ def validate_update_status(status: UpdateStatus, expected_rows: Optional[int] = 
 
 
 def validate_sync_status(
-        status: SyncStatus,
-        expected_external_rows_created: Optional[int] = None,
-        expected_external_rows_updated: Optional[int] = None,
-        expected_external_rows_deleted: Optional[int] = None,
-        expected_pxt_rows_updated: Optional[int] = None,
-        expected_num_excs: Optional[int] = 0
+    status: SyncStatus,
+    expected_external_rows_created: Optional[int] = None,
+    expected_external_rows_updated: Optional[int] = None,
+    expected_external_rows_deleted: Optional[int] = None,
+    expected_pxt_rows_updated: Optional[int] = None,
+    expected_num_excs: Optional[int] = 0,
 ) -> None:
     if expected_external_rows_created is not None:
         assert status.external_rows_created == expected_external_rows_created, status
@@ -541,9 +548,7 @@ clip_text_embed = clip_text.using(model_id='openai/clip-vit-base-patch32')
 e5_embed = sentence_transformer.using(model_id='intfloat/e5-large-v2')
 
 
-SAMPLE_IMAGE_URL = (
-    'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000009.jpg'
-)
+SAMPLE_IMAGE_URL = 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000009.jpg'
 
 
 class ReloadTester:

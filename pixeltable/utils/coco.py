@@ -22,6 +22,7 @@ Required format:
 }
 """
 
+
 def _verify_input_dict(input_dict: dict[str, Any]) -> None:
     """Verify that input_dict is a valid input dict for write_coco_dataset()"""
     if not isinstance(input_dict, dict):
@@ -30,7 +31,7 @@ def _verify_input_dict(input_dict: dict[str, Any]) -> None:
         raise excs.Error(f'Missing key "image" in input dict: {input_dict}{format_msg}')
     if not isinstance(input_dict['image'], PIL.Image.Image):
         raise excs.Error(f'Value for "image" is not a PIL.Image.Image: {input_dict}{format_msg}')
-    if  'annotations' not in input_dict:
+    if 'annotations' not in input_dict:
         raise excs.Error(f'Missing key "annotations" in input dict: {input_dict}{format_msg}')
     if not isinstance(input_dict['annotations'], list):
         raise excs.Error(f'Value for "annotations" is not a list: {input_dict}{format_msg}')
@@ -47,6 +48,7 @@ def _verify_input_dict(input_dict: dict[str, Any]) -> None:
             raise excs.Error(f'Missing key "category" in annotation: {annotation}{format_msg}')
         if not isinstance(annotation['category'], (str, int)):
             raise excs.Error(f'Value for "category" is not a str or int: {annotation}{format_msg}')
+
 
 def write_coco_dataset(df: pxt.DataFrame, dest_path: Path) -> Path:
     """Export a DataFrame result set as a COCO dataset in dest_path and return the path of the data.json file."""
@@ -96,12 +98,14 @@ def write_coco_dataset(df: pxt.DataFrame, dest_path: Path) -> Path:
             img_path = images_dir / f'{img_id}.jpg'
             img.save(img_path)
 
-        images.append({
-            'id': img_id,
-            'file_name': str(img_path),
-            'width': img.width,
-            'height': img.height,
-        })
+        images.append(
+            {
+                'id': img_id,
+                'file_name': str(img_path),
+                'width': img.width,
+                'height': img.height,
+            }
+        )
 
         # create annotation records for this image
         for annotation in input_dict['annotations']:
@@ -109,15 +113,17 @@ def write_coco_dataset(df: pxt.DataFrame, dest_path: Path) -> Path:
             x, y, w, h = annotation['bbox']
             category = annotation['category']
             categories.add(category)
-            annotations.append({
-                'id': ann_id,
-                'image_id': img_id,
-                # we use the category name here and fix it up at the end, when we have assigned category ids
-                'category_id': category,
-                'bbox': annotation['bbox'],
-                'area': w * h,
-                'iscrowd': 0,
-            })
+            annotations.append(
+                {
+                    'id': ann_id,
+                    'image_id': img_id,
+                    # we use the category name here and fix it up at the end, when we have assigned category ids
+                    'category_id': category,
+                    'bbox': annotation['bbox'],
+                    'area': w * h,
+                    'iscrowd': 0,
+                }
+            )
 
     # replace category names with ids
     category_ids = {category: id for id, category in enumerate(sorted(list(categories)))}
@@ -226,5 +232,5 @@ COCO_2017_CATEGORIES = {
     87: 'scissors',
     88: 'teddy bear',
     89: 'hair drier',
-    90: 'toothbrush'
+    90: 'toothbrush',
 }

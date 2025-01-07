@@ -9,10 +9,13 @@ import pixeltable.type_system as ts
 
 
 def import_pandas(
-    tbl_name: str, df: pd.DataFrame, *, schema_overrides: Optional[dict[str, pxt.ColumnType]] = None,
+    tbl_name: str,
+    df: pd.DataFrame,
+    *,
+    schema_overrides: Optional[dict[str, pxt.ColumnType]] = None,
     primary_key: Optional[Union[str, list[str]]] = None,
     num_retained_versions: int = 10,
-    comment: str = ''
+    comment: str = '',
 ) -> pxt.Table:
     """Creates a new base table from a Pandas
     [`DataFrame`](https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.html), with the
@@ -45,17 +48,21 @@ def import_pandas(
 
     schema, pxt_pk = __df_to_pxt_schema(df, schema_overrides, primary_key)
     tbl_rows = (dict(__df_row_to_pxt_row(row, schema)) for row in df.itertuples())
-    table = pxt.create_table(tbl_name, schema, primary_key=pxt_pk, num_retained_versions=num_retained_versions, comment=comment)
+    table = pxt.create_table(
+        tbl_name, schema, primary_key=pxt_pk, num_retained_versions=num_retained_versions, comment=comment
+    )
     table.insert(tbl_rows)
     return table
 
 
 def import_csv(
-    tbl_name: str, filepath_or_buffer, schema_overrides: Optional[dict[str, ts.ColumnType]] = None,
+    tbl_name: str,
+    filepath_or_buffer,
+    schema_overrides: Optional[dict[str, ts.ColumnType]] = None,
     primary_key: Optional[Union[str, list[str]]] = None,
     num_retained_versions: int = 10,
     comment: str = '',
-    **kwargs
+    **kwargs,
 ) -> pxt.Table:
     """
     Creates a new base table from a csv file. This is a convenience method and is equivalent
@@ -67,15 +74,25 @@ def import_csv(
         A handle to the newly created [`Table`][pixeltable.Table].
     """
     df = pd.read_csv(filepath_or_buffer, **kwargs)
-    return import_pandas(tbl_name, df, schema_overrides=schema_overrides, primary_key=primary_key, num_retained_versions=num_retained_versions, comment=comment)
+    return import_pandas(
+        tbl_name,
+        df,
+        schema_overrides=schema_overrides,
+        primary_key=primary_key,
+        num_retained_versions=num_retained_versions,
+        comment=comment,
+    )
 
 
 def import_excel(
-    tbl_name: str, io, *args, schema_overrides: Optional[dict[str, ts.ColumnType]] = None,
+    tbl_name: str,
+    io,
+    *args,
+    schema_overrides: Optional[dict[str, ts.ColumnType]] = None,
     primary_key: Optional[Union[str, list[str]]] = None,
     num_retained_versions: int = 10,
     comment: str = '',
-    **kwargs
+    **kwargs,
 ) -> pxt.Table:
     """
     Creates a new base table from an Excel (.xlsx) file. This is a convenience method and is
@@ -87,7 +104,14 @@ def import_excel(
         A handle to the newly created [`Table`][pixeltable.Table].
     """
     df = pd.read_excel(io, *args, **kwargs)
-    return import_pandas(tbl_name, df, schema_overrides=schema_overrides, primary_key=primary_key, num_retained_versions=num_retained_versions, comment=comment)
+    return import_pandas(
+        tbl_name,
+        df,
+        schema_overrides=schema_overrides,
+        primary_key=primary_key,
+        num_retained_versions=num_retained_versions,
+        comment=comment,
+    )
 
 
 def __df_to_pxt_schema(

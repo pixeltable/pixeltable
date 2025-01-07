@@ -23,6 +23,7 @@ class UpdateStatus:
     """
     Information about updates that resulted from a table operation.
     """
+
     num_rows: int = 0
     # TODO: disambiguate what this means: # of slots computed or # of columns computed?
     num_computed_values: int = 0
@@ -51,6 +52,7 @@ class MediaValidation(enum.Enum):
             val_strs = ', '.join(f'{s.lower()!r}' for s in cls.__members__.keys())
             raise excs.Error(f'{error_prefix} must be one of: [{val_strs}]')
 
+
 class IfExistsParam(enum.Enum):
     ERROR = 0
     IGNORE = 1
@@ -65,10 +67,12 @@ class IfExistsParam(enum.Enum):
             val_strs = ', '.join(f'{s.lower()!r}' for s in cls.__members__.keys())
             raise excs.Error(f'{param_name} must be one of: [{val_strs}]')
 
+
 def is_valid_identifier(name: str) -> bool:
     return name.isidentifier() and not name.startswith('_')
 
-def is_valid_path(path: str, empty_is_valid : bool) -> bool:
+
+def is_valid_path(path: str, empty_is_valid: bool) -> bool:
     if path == '':
         return empty_is_valid
 
@@ -76,6 +80,7 @@ def is_valid_path(path: str, empty_is_valid : bool) -> bool:
         if not is_valid_identifier(part):
             return False
     return True
+
 
 def is_system_column_name(name: str) -> bool:
     from pixeltable.catalog import InsertableTable, View

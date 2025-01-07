@@ -24,7 +24,6 @@ _logger = logging.getLogger('pixeltable')
 
 
 class Dumper:
-
     def __init__(self, output_dir='target', db_name='pxtdump') -> None:
         if sys.version_info >= (3, 10):
             raise RuntimeError(
@@ -57,15 +56,9 @@ class Dumper:
         db_url = Env.get()._db_server.get_uri(Env.get()._db_name)
         with open(dump_file, 'wb') as dump:
             pg_dump_process = subprocess.Popen(
-                (pg_dump_binary, db_url, '-U', 'postgres', '-Fc'),
-                stdout=subprocess.PIPE
+                (pg_dump_binary, db_url, '-U', 'postgres', '-Fc'), stdout=subprocess.PIPE
             )
-            subprocess.run(
-                ('gzip', '-9'),
-                stdin=pg_dump_process.stdout,
-                stdout=dump,
-                check=True
-            )
+            subprocess.run(('gzip', '-9'), stdin=pg_dump_process.stdout, stdout=dump, check=True)
             if pg_dump_process.poll() != 0:
                 # wait for a 2s before checking again & raising error
                 time.sleep(2)
@@ -74,12 +67,14 @@ class Dumper:
         info_file = self.output_dir / f'pixeltable-v{md_version:03d}-test-info.toml'
         git_sha = subprocess.check_output(('git', 'rev-parse', 'HEAD')).decode('ascii').strip()
         user = os.environ.get('USER', os.environ.get('USERNAME'))
-        info_dict = {'pixeltable-dump': {
-            'metadata-version': md_version,
-            'git-sha': git_sha,
-            'datetime': datetime.datetime.now(tz=datetime.timezone.utc),
-            'user': user
-        }}
+        info_dict = {
+            'pixeltable-dump': {
+                'metadata-version': md_version,
+                'git-sha': git_sha,
+                'datetime': datetime.datetime.now(tz=datetime.timezone.utc),
+                'user': user,
+            }
+        }
         with open(info_file, 'w') as info:
             toml.dump(info_dict, info)
 
@@ -94,7 +89,7 @@ class Dumper:
             'c5': TimestampType(nullable=False),
             'c6': JsonType(nullable=False),
             'c7': JsonType(nullable=False),
-            'c8': ImageType(nullable=True)
+            'c8': ImageType(nullable=True),
         }
         t = pxt.create_table('base_table', schema, primary_key='c2')
 
@@ -142,7 +137,7 @@ class Dumper:
                 'c5': c5_data[i],
                 'c6': c6_data[i],
                 'c7': c7_data[i],
-                'c8': None
+                'c8': None,
             }
             for i in range(num_rows)
         ]
@@ -170,21 +165,25 @@ class Dumper:
 
         # Add external stores
         from pixeltable.io.external_store import MockProject
+
         v._link_external_store(
             MockProject.create(
                 v,
                 'project',
                 {'int_field': pxt.IntType()},
                 {'str_field': pxt.StringType()},
-                {'view_test_udf': 'int_field', 'c1': 'str_field'}
+                {'view_test_udf': 'int_field', 'c1': 'str_field'},
             )
         )
         # We're just trying to test metadata here, so it's ok to link a false Label Studio project.
         # We include a computed image column in order to ensure the creation of a stored proxy.
         from pixeltable.io.label_studio import LabelStudioProject
+
         col_mapping = Project.validate_columns(
-            v, {'str_field': pxt.StringType(), 'img_field': pxt.ImageType()}, {},
-            {'view_function_call': 'str_field', 'base_table_image_rot': 'img_field'}
+            v,
+            {'str_field': pxt.StringType(), 'img_field': pxt.ImageType()},
+            {},
+            {'view_function_call': 'str_field', 'base_table_image_rot': 'img_field'},
         )
         project = LabelStudioProject('ls_project_0', 4171780, media_import_method='file', col_mapping=col_mapping)
         v._link_external_store(project)
@@ -276,28 +275,30 @@ class Dumper:
 
         t.add_embedding_index(
             f'{col_prefix}_function_call',
-            string_embed=pxt.functions.huggingface.clip_text.using(model_id='openai/clip-vit-base-patch32')
+            string_embed=pxt.functions.huggingface.clip_text.using(model_id='openai/clip-vit-base-patch32'),
         )
 
         if t.get_metadata()['is_view']:
             # Add an embedding index to the view that is on a column in the base table
             t.add_embedding_index(
                 'base_table_function_call',
-                string_embed=pxt.functions.huggingface.clip_text.using(model_id='openai/clip-vit-base-patch32')
+                string_embed=pxt.functions.huggingface.clip_text.using(model_id='openai/clip-vit-base-patch32'),
             )
 
         # query()
         @t.query
         def q1(i: int):
             # this breaks; TODO: why?
-            #return t.where(t.c2 < i)
+            # return t.where(t.c2 < i)
             return t.where(t.c2 < i).select(t.c1, t.c2)
+
         add_column('query_output', t.queries.q1(t.c2))
 
         @t.query
         def q2(s: str):
             sim = t[f'{col_prefix}_function_call'].similarity(s)
             return t.order_by(sim, asc=False).select(t[f'{col_prefix}_function_call']).limit(5)
+
         add_column('sim_output', t.queries.q2(t.c1))
 
 
@@ -312,11 +313,11 @@ def test_udf_stored_batched(strings: Batch[str], *, upper: bool = True) -> Batch
 
 
 def main() -> None:
-    _logger.info("Creating pixeltable test artifact.")
+    _logger.info('Creating pixeltable test artifact.')
     dumper = Dumper()
     dumper.create_tables()
     dumper.dump_db()
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

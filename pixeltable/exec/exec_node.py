@@ -11,6 +11,7 @@ from .exec_context import ExecContext
 
 class ExecNode(abc.ABC):
     """Base class of all execution nodes"""
+
     output_exprs: Iterable[exprs.Expr]
     row_builder: exprs.RowBuilder
     input: Optional[ExecNode]
@@ -20,8 +21,12 @@ class ExecNode(abc.ABC):
     __iter: Optional[Iterator[DataRowBatch]]
 
     def __init__(
-            self, row_builder: exprs.RowBuilder, output_exprs: Iterable[exprs.Expr],
-            input_exprs: Iterable[exprs.Expr], input: Optional[ExecNode] = None):
+        self,
+        row_builder: exprs.RowBuilder,
+        output_exprs: Iterable[exprs.Expr],
+        input_exprs: Iterable[exprs.Expr],
+        input: Optional[ExecNode] = None,
+    ):
         self.output_exprs = output_exprs
         self.row_builder = row_builder
         self.input = input
@@ -29,8 +34,7 @@ class ExecNode(abc.ABC):
         output_slot_idxs = {e.slot_idx for e in output_exprs}
         output_dependencies = row_builder.get_dependencies(output_exprs, exclude=input_exprs)
         self.flushed_img_slots = [
-            e.slot_idx for e in output_dependencies
-            if e.col_type.is_image_type() and e.slot_idx not in output_slot_idxs
+            e.slot_idx for e in output_dependencies if e.col_type.is_image_type() and e.slot_idx not in output_slot_idxs
         ]
         self.stored_img_cols = []
         self.ctx = None  # all nodes of a tree share the same context

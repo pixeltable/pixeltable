@@ -27,18 +27,13 @@ class TestFiftyone:
         sample_cls = [{'label': 'cat', 'confidence': 0.5}, {'label': 'tiger', 'confidence': 0.3}]
         sample_det = [
             {'label': 'cat', 'bounding_box': [0.1, 0.2, 0.3, 0.4], 'confidence': 0.9},
-            {'label': 'cat', 'bounding_box': [0.2, 0.2, 0.3, 0.4], 'confidence': 0.8}
+            {'label': 'cat', 'bounding_box': [0.2, 0.2, 0.3, 0.4], 'confidence': 0.8},
         ]
         t.where(t.id < 5).update({'classifications': sample_cls})
         t.where(t.id < 3).update({'detections': sample_det})
         t.where(t.id < 2).update({'other_classifications': sample_cls})
 
-        ds = pxt.io.export_images_as_fo_dataset(
-            t,
-            t.image,
-            classifications=t.classifications,
-            detections=t.detections
-        )
+        ds = pxt.io.export_images_as_fo_dataset(t, t.image, classifications=t.classifications, detections=t.detections)
         assert len(ds) == 10
         assert ds.count('classifications') == 5
         assert ds.count('detections') == 3
@@ -63,10 +58,7 @@ class TestFiftyone:
 
         # Try a dynamically created image
         ds = pxt.io.export_images_as_fo_dataset(
-            t,
-            t.image.rotate(180),
-            classifications=t.classifications,
-            detections=t.detections
+            t, t.image.rotate(180), classifications=t.classifications, detections=t.detections
         )
         assert len(ds) == 10
 
@@ -75,7 +67,7 @@ class TestFiftyone:
             t,
             t.image,
             classifications={'first': t.classifications, 'other': t.other_classifications},
-            detections=[t.detections]
+            detections=[t.detections],
         )
         assert len(ds) == 10
         assert ds.count('first') == 5
@@ -100,32 +92,17 @@ class TestFiftyone:
             pxt.io.export_images_as_fo_dataset(t, t.id)
 
         with pytest.raises(excs.Error, match='Invalid label name'):
-            pxt.io.export_images_as_fo_dataset(
-                t,
-                t.image,
-                classifications={'invalid name!@#': t.classifications}
-            )
+            pxt.io.export_images_as_fo_dataset(t, t.image, classifications={'invalid name!@#': t.classifications})
 
         with pytest.raises(excs.Error, match='Duplicate label name'):
             pxt.io.export_images_as_fo_dataset(
-                t,
-                t.image,
-                classifications={'labels': t.classifications},
-                detections={'labels': t.detections}
+                t, t.image, classifications={'labels': t.classifications}, detections={'labels': t.detections}
             )
 
         with pytest.raises(excs.Error, match='Invalid classifications data'):
             t.update({'classifications': {'a': 'b'}})
-            pxt.io.export_images_as_fo_dataset(
-                t,
-                t.image,
-                classifications=t.classifications
-            )
+            pxt.io.export_images_as_fo_dataset(t, t.image, classifications=t.classifications)
 
         with pytest.raises(excs.Error, match='Invalid detections data'):
             t.update({'detections': {'a': 'b'}})
-            pxt.io.export_images_as_fo_dataset(
-                t,
-                t.image,
-                detections=t.detections
-            )
+            pxt.io.export_images_as_fo_dataset(t, t.image, detections=t.detections)

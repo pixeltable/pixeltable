@@ -347,6 +347,7 @@ class Env:
 
         if create_db:
             from pixeltable.metadata import schema
+
             schema.base_metadata.create_all(self._sa_engine)
             metadata.create_system_info(self._sa_engine)
 
@@ -396,7 +397,7 @@ class Env:
             with engine.begin() as conn:
                 # use C collation to get standard C/Python-style sorting
                 stmt = (
-                    f"CREATE DATABASE {preparer.quote(self._db_name)} "
+                    f'CREATE DATABASE {preparer.quote(self._db_name)} '
                     "ENCODING 'utf-8' LC_COLLATE 'C' LC_CTYPE 'C' TEMPLATE template0"
                 )
                 conn.execute(sql.text(stmt))
@@ -420,12 +421,12 @@ class Env:
         try:
             with engine.begin() as conn:
                 # terminate active connections
-                stmt = (f"""
+                stmt = f"""
                     SELECT pg_terminate_backend(pg_stat_activity.pid)
                     FROM pg_stat_activity
                     WHERE pg_stat_activity.datname = '{self._db_name}'
                     AND pid <> pg_backend_pid()
-                """)
+                """
                 conn.execute(sql.text(stmt))
                 # drop db
                 stmt = f'DROP DATABASE {preparer.quote(self._db_name)}'
@@ -535,7 +536,7 @@ class Env:
             is_installed = False
         self.__optional_packages[package_name] = PackageInfo(
             is_installed=is_installed,
-            library_name=library_name or package_name  # defaults to package_name unless specified otherwise
+            library_name=library_name or package_name,  # defaults to package_name unless specified otherwise
         )
 
     def require_package(self, package_name: str, min_version: Optional[list[int]] = None) -> None:
@@ -581,6 +582,7 @@ class Env:
         """
         import spacy
         from spacy.cli.download import get_model_filename
+
         spacy_model = 'en_core_web_sm'
         spacy_model_version = '3.7.1'
         filename = get_model_filename(spacy_model, spacy_model_version, sdist=False)
@@ -598,7 +600,7 @@ class Env:
             self._logger.warn(f'Failed to load spaCy model: {spacy_model}', exc_info=exc)
             warnings.warn(
                 f"Failed to load spaCy model '{spacy_model}'. spaCy features will not be available.",
-                excs.PixeltableWarning
+                excs.PixeltableWarning,
             )
             self.__optional_packages['spacy'].is_installed = False
 
@@ -669,6 +671,7 @@ def register_client(name: str) -> Callable:
     Args:
         - name (str): The name of the API client (e.g., 'openai' or 'label-studio').
     """
+
     def decorator(fn: Callable) -> None:
         global _registered_clients
         sig = inspect.signature(fn)
@@ -683,6 +686,7 @@ class Config:
     The (global) Pixeltable configuration, as loaded from `config.toml`. Provides methods for retrieving
     configuration values, which can be set in the config file or as environment variables.
     """
+
     __config: dict[str, Any]
 
     T = TypeVar('T')

@@ -31,11 +31,7 @@ class EmbeddingIndex(IndexBase):
         IP = 2
         L2 = 3
 
-    PGVECTOR_OPS = {
-        Metric.COSINE: 'vector_cosine_ops',
-        Metric.IP: 'vector_ip_ops',
-        Metric.L2: 'vector_l2_ops'
-    }
+    PGVECTOR_OPS = {Metric.COSINE: 'vector_cosine_ops', Metric.IP: 'vector_ip_ops', Metric.L2: 'vector_l2_ops'}
 
     metric: Metric
     value_expr: exprs.FunctionCall
@@ -46,15 +42,19 @@ class EmbeddingIndex(IndexBase):
     index_col_type: pgvector.sqlalchemy.Vector
 
     def __init__(
-            self, c: catalog.Column, metric: str, string_embed: Optional[func.Function] = None,
-            image_embed: Optional[func.Function] = None):
+        self,
+        c: catalog.Column,
+        metric: str,
+        string_embed: Optional[func.Function] = None,
+        image_embed: Optional[func.Function] = None,
+    ):
         metric_names = [m.name.lower() for m in self.Metric]
         if metric.lower() not in metric_names:
             raise excs.Error(f'Invalid metric {metric}, must be one of {metric_names}')
         if not c.col_type.is_string_type() and not c.col_type.is_image_type():
             raise excs.Error(f'Embedding index requires string or image column')
         if c.col_type.is_string_type() and string_embed is None:
-                raise excs.Error(f"Text embedding function is required for column {c.name} (parameter 'string_embed')")
+            raise excs.Error(f"Text embedding function is required for column {c.name} (parameter 'string_embed')")
         if c.col_type.is_image_type() and image_embed is None:
             raise excs.Error(f"Image embedding function is required for column {c.name} (parameter 'image_embed')")
 
@@ -71,7 +71,9 @@ class EmbeddingIndex(IndexBase):
             self.image_embed = self._validate_embedding_fn(image_embed, 'image_embed', ts.ColumnType.Type.IMAGE)
 
         self.metric = self.Metric[metric.upper()]
-        self.value_expr = string_embed(exprs.ColumnRef(c)) if c.col_type.is_string_type() else image_embed(exprs.ColumnRef(c))
+        self.value_expr = (
+            string_embed(exprs.ColumnRef(c)) if c.col_type.is_string_type() else image_embed(exprs.ColumnRef(c))
+        )
         assert isinstance(self.value_expr.col_type, ts.ArrayType)
         vector_size = self.value_expr.col_type.shape[0]
         assert vector_size is not None
@@ -91,10 +93,11 @@ class EmbeddingIndex(IndexBase):
     def create_index(self, index_name: str, index_value_col: catalog.Column, conn: sql.engine.Connection) -> None:
         """Create the index on the index value column"""
         idx = sql.Index(
-            index_name, index_value_col.sa_col,
+            index_name,
+            index_value_col.sa_col,
             postgresql_using='hnsw',
             postgresql_with={'m': 16, 'ef_construction': 64},
-            postgresql_ops={index_value_col.sa_col.name: self.PGVECTOR_OPS[self.metric]}
+            postgresql_ops={index_value_col.sa_col.name: self.PGVECTOR_OPS[self.metric]},
         )
         idx.create(bind=conn)
 
@@ -144,7 +147,9 @@ class EmbeddingIndex(IndexBase):
         return 'embedding'
 
     @classmethod
-    def _validate_embedding_fn(cls, embed_fn: func.Function, name: str, expected_type: ts.ColumnType.Type) -> func.Function:
+    def _validate_embedding_fn(
+        cls, embed_fn: func.Function, name: str, expected_type: ts.ColumnType.Type
+    ) -> func.Function:
         """Validate that the Function has a matching signature, and return the corresponding monomorphic function."""
         assert isinstance(embed_fn, func.Function)
 
@@ -152,9 +157,11 @@ class EmbeddingIndex(IndexBase):
         for idx, sig in enumerate(embed_fn.signatures):
             # The embedding function must be a 1-ary function of the correct type. But it's ok if the function signature
             # has more than one parameter, as long as it has at most one *required* parameter.
-            if (len(sig.parameters) >= 1
+            if (
+                len(sig.parameters) >= 1
                 and len(sig.required_parameters) <= 1
-                and sig.parameters_by_pos[0].col_type.type_enum == expected_type):
+                and sig.parameters_by_pos[0].col_type.type_enum == expected_type
+            ):
                 signature_idx = idx
                 break
 
@@ -185,7 +192,7 @@ class EmbeddingIndex(IndexBase):
         return {
             'metric': self.metric.name.lower(),
             'string_embed': None if self.string_embed is None else self.string_embed.as_dict(),
-            'image_embed': None if self.image_embed is None else self.image_embed.as_dict()
+            'image_embed': None if self.image_embed is None else self.image_embed.as_dict(),
         }
 
     @classmethod

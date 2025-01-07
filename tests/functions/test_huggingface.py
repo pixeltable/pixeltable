@@ -5,8 +5,16 @@ import pytest
 
 import pixeltable as pxt
 
-from ..utils import (SAMPLE_IMAGE_URL, get_audio_files, get_image_files, get_sentences, reload_catalog, skip_test_if_not_installed,
-                     validate_update_status, ReloadTester)
+from ..utils import (
+    SAMPLE_IMAGE_URL,
+    get_audio_files,
+    get_image_files,
+    get_sentences,
+    reload_catalog,
+    skip_test_if_not_installed,
+    validate_update_status,
+    ReloadTester,
+)
 
 
 class TestHuggingface:
@@ -188,9 +196,12 @@ class TestHuggingface:
         audio_file = next(
             file for file in get_audio_files() if file.endswith('jfk_1961_0109_cityuponahill-excerpt.flac')
         )
-        t['transcription'] = speech2text_for_conditional_generation(t.audio, model_id='facebook/s2t-small-librispeech-asr')
+        t['transcription'] = speech2text_for_conditional_generation(
+            t.audio, model_id='facebook/s2t-small-librispeech-asr'
+        )
         t['translation'] = speech2text_for_conditional_generation(
-            t.audio, model_id='facebook/s2t-medium-mustc-multilingual-st', language='fr')
+            t.audio, model_id='facebook/s2t-medium-mustc-multilingual-st', language='fr'
+        )
 
         validate_update_status(t.insert(audio=audio_file), expected_rows=1)
         result = t.collect()

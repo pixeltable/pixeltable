@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 @env.register_client('anthropic')
 def _(api_key: str) -> 'anthropic.Anthropic':
     import anthropic
+
     return anthropic.Anthropic(api_key=api_key)
 
 
@@ -29,6 +30,7 @@ def _anthropic_client() -> 'anthropic.Anthropic':
 
 def _retry(fn: Callable) -> Callable:
     import anthropic
+
     return tenacity.retry(
         retry=tenacity.retry_if_exception_type(anthropic.RateLimitError),
         wait=tenacity.wait_random_exponential(multiplier=1, max=60),
@@ -97,6 +99,7 @@ _T = TypeVar('_T')
 
 def _opt(arg: _T) -> Union[_T, 'anthropic.NotGiven']:
     import anthropic
+
     return arg if arg is not None else anthropic.NOT_GIVEN
 
 

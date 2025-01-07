@@ -15,16 +15,25 @@ import pixeltable.exceptions as excs
 from pixeltable import InsertableTable
 from pixeltable.functions.string import format
 
-from ..utils import (SAMPLE_IMAGE_URL, get_audio_files, get_image_files, get_video_files, reload_catalog,
-                     skip_test_if_not_installed, validate_sync_status, validate_update_status)
+from ..utils import (
+    SAMPLE_IMAGE_URL,
+    get_audio_files,
+    get_image_files,
+    get_video_files,
+    reload_catalog,
+    skip_test_if_not_installed,
+    validate_sync_status,
+    validate_update_status,
+)
 
 _logger = logging.getLogger('pixeltable')
 
 
 @pytest.mark.skipif(platform.system() == 'Windows', reason='Label Studio tests do not currently run on Windows')
-@pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Label Studio tests do not currently run on Linux ARM')
+@pytest.mark.skipif(
+    sysconfig.get_platform() == 'linux-aarch64', reason='Label Studio tests do not currently run on Linux ARM'
+)
 class TestLabelStudio:
-
     test_config_image = """
     <View>
         <Image name="image_object" value="$image"/>
@@ -96,7 +105,7 @@ class TestLabelStudio:
             title='Test Project',
             media_import_method='file',
             col_mapping={'image_col': 'image'},
-            sync_immediately=False
+            sync_immediately=False,
         )
         store = t._tbl_version.external_stores['test_project']
         assert store.name == 'test_project'
@@ -115,9 +124,11 @@ class TestLabelStudio:
                     <Label value="person" background="blue"/>
                   </RectangleLabels>
                 </View>
-                """
+                """,
             )
-        assert '`toName` attribute of RectangleLabels `obj_label` references an unknown data key: `walnut`' in str(exc_info.value)
+        assert '`toName` attribute of RectangleLabels `obj_label` references an unknown data key: `walnut`' in str(
+            exc_info.value
+        )
 
         with pytest.raises(excs.Error) as exc_info:
             pxt.io.create_label_studio_project(
@@ -130,7 +141,7 @@ class TestLabelStudio:
                     <Label value="green gorilla" background="blue"/>
                   </RectangleLabels>
                 </View>
-                """
+                """,
             )
         assert 'not a valid COCO object name' in str(exc_info.value)
 
@@ -139,16 +150,18 @@ class TestLabelStudio:
     @pytest.mark.xdist_group('label_studio')
     @pytest.mark.parametrize(
         'media_import_method,sync_col',
-        [('post', 'image_col'), ('file', 'image_col'), ('url', 'image_col'),
-         # 'url' is not supported for computed columns (yet).
-         # TODO(aaron-siegel): Validate and test this.
-         ('post', 'rot_image_col'), ('file', 'rot_image_col')]
+        [
+            ('post', 'image_col'),
+            ('file', 'image_col'),
+            ('url', 'image_col'),
+            # 'url' is not supported for computed columns (yet).
+            # TODO(aaron-siegel): Validate and test this.
+            ('post', 'rot_image_col'),
+            ('file', 'rot_image_col'),
+        ],
     )
     def test_label_studio_sync_images(
-            self,
-            ls_image_table: pxt.InsertableTable,
-            media_import_method: Literal['post', 'file', 'url'],
-            sync_col: str
+        self, ls_image_table: pxt.InsertableTable, media_import_method: Literal['post', 'file', 'url'], sync_col: str
     ) -> None:
         skip_test_if_not_installed('label_studio_sdk')
         self.__test_label_studio_sync(ls_image_table, self.test_config_image, media_import_method, sync_col, 'image')
@@ -157,9 +170,7 @@ class TestLabelStudio:
     @pytest.mark.xdist_group('label_studio')
     @pytest.mark.parametrize('media_import_method', ['post', 'url'])
     def test_label_studio_sync_videos(
-            self,
-            ls_video_table: pxt.InsertableTable,
-            media_import_method: Literal['post', 'file', 'url']
+        self, ls_video_table: pxt.InsertableTable, media_import_method: Literal['post', 'file', 'url']
     ) -> None:
         skip_test_if_not_installed('label_studio_sdk')
         self.__test_label_studio_sync(ls_video_table, self.test_config_video, media_import_method, 'video_col', 'video')
@@ -167,21 +178,19 @@ class TestLabelStudio:
     @pytest.mark.xdist_group('label_studio')
     @pytest.mark.parametrize('media_import_method', ['post', 'url'])
     def test_label_studio_sync_audio(
-            self,
-            ls_audio_table: pxt.InsertableTable,
-            media_import_method: Literal['post', 'file', 'url']
+        self, ls_audio_table: pxt.InsertableTable, media_import_method: Literal['post', 'file', 'url']
     ) -> None:
         skip_test_if_not_installed('label_studio_sdk')
         self.__test_label_studio_sync(ls_audio_table, self.test_config_audio, media_import_method, 'audio_col', 'audio')
 
     @classmethod
     def __test_label_studio_sync(
-            cls,
-            t: InsertableTable,
-            label_config: str,
-            media_import_method: Literal['post', 'file', 'url'],
-            sync_col: str,
-            ext_col: str
+        cls,
+        t: InsertableTable,
+        label_config: str,
+        media_import_method: Literal['post', 'file', 'url'],
+        sync_col: str,
+        ext_col: str,
     ) -> None:
         from pixeltable.io.label_studio import LabelStudioProject
 
@@ -189,7 +198,7 @@ class TestLabelStudio:
             t,
             label_config=label_config,
             media_import_method=media_import_method,
-            col_mapping={sync_col: ext_col, 'annotations_col': 'annotations'}
+            col_mapping={sync_col: ext_col, 'annotations_col': 'annotations'},
         )
         t_count = t.count()
         validate_sync_status(sync_status, t_count, 0, 0, 0, 0)
@@ -210,11 +219,7 @@ class TestLabelStudio:
         for task in tasks[:10]:
             task_id = task['id']
             assert len(store.project.get_task(task_id)['annotations']) == 0
-            store.project.create_annotation(
-                task_id=task_id,
-                unique_id=str(uuid.uuid4()),
-                result=[{'class': 'Cat'}]
-            )
+            store.project.create_annotation(task_id=task_id, unique_id=str(uuid.uuid4()), result=[{'class': 'Cat'}])
             assert len(store.project.get_task(task_id)['annotations']) == 1
 
         # Import the annotations back to Pixeltable
@@ -257,7 +262,7 @@ class TestLabelStudio:
             name='custom_name',
             title='Custom Title',
             media_import_method=media_import_method,
-            col_mapping={sync_col: ext_col}
+            col_mapping={sync_col: ext_col},
         )
         validate_sync_status(sync_status, t.count(), 0, 0, 0, 0)
         t.unlink_external_stores('custom_name', delete_external_data=True)
@@ -270,7 +275,7 @@ class TestLabelStudio:
             name='custom_name',
             title='Custom Title',
             media_import_method=media_import_method,
-            col_mapping={'annotations_col': 'annotations'}
+            col_mapping={'annotations_col': 'annotations'},
         )
         t.unlink_external_stores('custom_name', delete_external_data=True)
 
@@ -297,7 +302,7 @@ class TestLabelStudio:
             t,
             label_config=self.test_config_with_rl,
             media_import_method='post',
-            col_mapping={'image_col': 'frame', 'preannotations': 'obj_label', 'annotations_col': 'annotations'}
+            col_mapping={'image_col': 'frame', 'preannotations': 'obj_label', 'annotations_col': 'annotations'},
         )
         validate_sync_status(sync_status, t.count(), 0, 0, 0, 0)
 
@@ -336,7 +341,7 @@ class TestLabelStudio:
             v2,
             label_config=self.test_config_image,
             media_import_method='post',
-            col_mapping={'image_col': 'image', 'annotations_col': 'annotations'}
+            col_mapping={'image_col': 'image', 'annotations_col': 'annotations'},
         )
         validate_sync_status(sync_status, v2.count(), 0, 0, 0, 0)
         store = v2._tbl_version.external_stores['ls_project_0']
@@ -347,9 +352,7 @@ class TestLabelStudio:
             task_id = task['id']
             assert len(store.project.get_task(task_id)['annotations']) == 0
             store.project.create_annotation(
-                task_id=task_id,
-                unique_id=str(uuid.uuid4()),
-                result=[{'image_class': 'Dog'}]
+                task_id=task_id, unique_id=str(uuid.uuid4()), result=[{'image_class': 'Dog'}]
             )
             assert len(store.project.get_task(task_id)['annotations']) == 1
         sync_status = v2.sync()
@@ -368,9 +371,7 @@ class TestLabelStudio:
         t = ls_video_table
         t.delete(where=(t.id != 0))  # Save just the first video
         v = pxt.create_view(
-            'frames_view',
-            t,
-            iterator=pxt.iterators.FrameIterator.create(video=ls_video_table.video_col, fps=0.5)
+            'frames_view', t, iterator=pxt.iterators.FrameIterator.create(video=ls_video_table.video_col, fps=0.5)
         )
         assert not v.frame.col.is_stored
         assert v.count() == 10
@@ -379,7 +380,9 @@ class TestLabelStudio:
         v['text'] = pxt.String
         v.update({'text': 'Initial text'})
 
-        sync_status = pxt.io.create_label_studio_project(v, self.test_config_complex, media_import_method='file', name='complex_project')
+        sync_status = pxt.io.create_label_studio_project(
+            v, self.test_config_complex, media_import_method='file', name='complex_project'
+        )
         validate_sync_status(sync_status, v.count(), 0, 0, 0, 0)
 
         reload_catalog()
@@ -419,7 +422,9 @@ class TestLabelStudio:
         t['annotations_col'] = pxt.Json
 
         with pytest.raises(excs.Error) as exc_info:
-            pxt.io.create_label_studio_project(t, self.test_config_with_text, media_import_method='post', col_mapping={'image_col': 'image'})
+            pxt.io.create_label_studio_project(
+                t, self.test_config_with_text, media_import_method='post', col_mapping={'image_col': 'image'}
+            )
         assert '`media_import_method` cannot be `post` if there is more than one data key' in str(exc_info.value)
 
         # Check that we can create a LabelStudioProject on a non-existent project id
@@ -436,10 +441,7 @@ class TestLabelStudio:
 @pytest.fixture(scope='function')
 def ls_image_table(init_ls, reset_db) -> pxt.InsertableTable:
     skip_test_if_not_installed('label_studio_sdk')
-    t = pxt.create_table(
-        'test_ls_sync',
-        {'id': pxt.Int, 'image_col': pxt.Image}
-    )
+    t = pxt.create_table('test_ls_sync', {'id': pxt.Int, 'image_col': pxt.Image})
     t.add_column(rot_image_col=t.image_col.rotate(180), stored=False)
     # 30 rows, a mix of URLs and locally stored image files
     images = [SAMPLE_IMAGE_URL, *get_image_files()[:29]]
@@ -451,16 +453,13 @@ def ls_image_table(init_ls, reset_db) -> pxt.InsertableTable:
 @pytest.fixture(scope='function')
 def ls_video_table(init_ls, reset_db) -> pxt.InsertableTable:
     skip_test_if_not_installed('label_studio_sdk')
-    t = pxt.create_table(
-        'test_ls_sync',
-        {'id': pxt.Int, 'video_col': pxt.Video}
-    )
+    t = pxt.create_table('test_ls_sync', {'id': pxt.Int, 'video_col': pxt.Video})
     local_video = next(video for video in get_video_files() if video.endswith('bangkok_half_res.mp4'))
     videos = [
         local_video,
         'https://multimedia-commons.s3.amazonaws.com/data/videos/mp4/122/8ff/1228ff94bf742242ee7c88e4769ad5d5.mp4',
         'https://multimedia-commons.s3.amazonaws.com/data/videos/mp4/2cf/a20/2cfa205eae979b31b1144abd9fa4e521.mp4',
-        'https://multimedia-commons.s3.amazonaws.com/data/videos/mp4/ffe/ff3/ffeff3c6bf57504e7a6cecaff6aefbc9.mp4'
+        'https://multimedia-commons.s3.amazonaws.com/data/videos/mp4/ffe/ff3/ffeff3c6bf57504e7a6cecaff6aefbc9.mp4',
     ]
     status = t.insert({'id': n, 'video_col': video} for n, video in enumerate(videos))
     validate_update_status(status, expected_rows=len(videos))
@@ -470,10 +469,7 @@ def ls_video_table(init_ls, reset_db) -> pxt.InsertableTable:
 @pytest.fixture(scope='function')
 def ls_audio_table(init_ls, reset_db) -> pxt.InsertableTable:
     skip_test_if_not_installed('label_studio_sdk')
-    t = pxt.create_table(
-        'test_ls_sync',
-        {'id': pxt.Int, 'audio_col': pxt.Audio}
-    )
+    t = pxt.create_table('test_ls_sync', {'id': pxt.Int, 'audio_col': pxt.Audio})
     audio = get_audio_files()
     status = t.insert({'id': n, 'audio_col': audio} for n, audio in enumerate(audio))
     validate_update_status(status, expected_rows=len(audio))
@@ -498,16 +494,25 @@ def init_ls(init_env) -> Iterator[None]:
     subprocess.run(f'{python_binary} -m pip install --no-cache-dir label-studio=={ls_version}'.split(' '), check=True)
     _logger.info('Spawning Label Studio pytest fixture.')
     import label_studio_sdk
-    ls_process = subprocess.Popen([
-        ls_binary,
-        'start',
-        '--no-browser',
-        '--port', str(ls_port),
-        '--username', 'pixeltable',
-        '--password', 'pxtpass',
-        '--user-token', 'pxt-api-token',
-        '--data-dir', 'target/ls-data'
-    ], env={'LABEL_STUDIO_LOCAL_FILES_SERVING_ENABLED': 'true'})
+
+    ls_process = subprocess.Popen(
+        [
+            ls_binary,
+            'start',
+            '--no-browser',
+            '--port',
+            str(ls_port),
+            '--username',
+            'pixeltable',
+            '--password',
+            'pxtpass',
+            '--user-token',
+            'pxt-api-token',
+            '--data-dir',
+            'target/ls-data',
+        ],
+        env={'LABEL_STUDIO_LOCAL_FILES_SERVING_ENABLED': 'true'},
+    )
 
     _logger.info('Waiting for Label Studio pytest fixture to initialize.')
     max_wait = 300  # Maximum time in seconds to wait for Label Studio to initialize

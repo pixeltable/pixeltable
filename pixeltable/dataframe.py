@@ -289,7 +289,7 @@ class DataFrame:
             where_clause=self.where_clause,
             group_by_clause=group_by_clause,
             order_by_clause=self.order_by_clause if self.order_by_clause is not None else [],
-            limit=self.limit_val
+            limit=self.limit_val,
         )
 
     def _has_joins(self) -> bool:
@@ -357,8 +357,11 @@ class DataFrame:
         select_list_exprs = copy.deepcopy(self._select_list_exprs)
         where_clause = copy.deepcopy(self.where_clause)
         group_by_clause = copy.deepcopy(self.group_by_clause)
-        order_by_exprs = [copy.deepcopy(order_by_expr) for order_by_expr, _ in self.order_by_clause] \
-            if self.order_by_clause is not None else None
+        order_by_exprs = (
+            [copy.deepcopy(order_by_expr) for order_by_expr, _ in self.order_by_clause]
+            if self.order_by_clause is not None
+            else None
+        )
 
         var_exprs: dict[exprs.Expr, exprs.Expr] = {}
         vars = self._vars()
@@ -388,9 +391,14 @@ class DataFrame:
             ]
 
         return DataFrame(
-            from_clause=self._from_clause, select_list=select_list, where_clause=where_clause,
-            group_by_clause=group_by_clause, grouping_tbl=self.grouping_tbl,
-            order_by_clause=order_by_clause, limit=self.limit_val)
+            from_clause=self._from_clause,
+            select_list=select_list,
+            where_clause=where_clause,
+            group_by_clause=group_by_clause,
+            grouping_tbl=self.grouping_tbl,
+            order_by_clause=order_by_clause,
+            limit=self.limit_val,
+        )
 
     def _output_row_iterator(self, conn: Optional[sql.engine.Connection] = None) -> Iterator[list]:
         try:
@@ -444,14 +452,16 @@ class DataFrame:
         return helper
 
     def _col_descriptor(self) -> pd.DataFrame:
-        return pd.DataFrame([
-            {
-                'Name': name,
-                'Type': expr.col_type._to_str(as_schema=True),
-                'Expression': expr.display_str(inline=False),
-            }
-            for name, expr in zip(self.schema.keys(), self._select_list_exprs)
-        ])
+        return pd.DataFrame(
+            [
+                {
+                    'Name': name,
+                    'Type': expr.col_type._to_str(as_schema=True),
+                    'Expression': expr.display_str(inline=False),
+                }
+                for name, expr in zip(self.schema.keys(), self._select_list_exprs)
+            ]
+        )
 
     def _query_descriptor(self) -> pd.DataFrame:
         heading_vals: list[str] = []
@@ -485,6 +495,7 @@ class DataFrame:
         """
         if getattr(builtins, '__IPYTHON__', False):
             from IPython.display import display
+
             display(self._repr_html_())
         else:
             print(repr(self))
@@ -496,7 +507,7 @@ class DataFrame:
         return self._descriptors().to_html()
 
     def select(self, *items: Any, **named_items: Any) -> DataFrame:
-        """ Select columns or expressions from the DataFrame.
+        """Select columns or expressions from the DataFrame.
 
         Args:
             items: expressions to be selected
@@ -552,7 +563,8 @@ class DataFrame:
             if not expr.is_bound_by(self._from_clause.tbls):
                 raise excs.Error(
                     f"Expression '{expr}' cannot be evaluated in the context of this query's tables "
-                    f"({','.join(tbl.tbl_name() for tbl in self._from_clause.tbls)})")
+                    f"({','.join(tbl.tbl_name() for tbl in self._from_clause.tbls)})"
+                )
 
         # check user provided names do not conflict among themselves or with auto-generated ones
         seen: set[str] = set()
@@ -613,7 +625,7 @@ class DataFrame:
         )
 
     def _create_join_predicate(
-            self, other: catalog.TableVersionPath, on: Union[exprs.Expr, Sequence[exprs.ColumnRef]]
+        self, other: catalog.TableVersionPath, on: Union[exprs.Expr, Sequence[exprs.ColumnRef]]
     ) -> exprs.Expr:
         """Verifies user-specified 'on' argument and converts it into a join predicate."""
         col_refs: list[exprs.ColumnRef] = []
@@ -629,14 +641,12 @@ class DataFrame:
             return on
         else:
             if not isinstance(on, Sequence) or len(on) == 0:
-                raise excs.Error(
-                    f"'on': must be a sequence of column references or a boolean expression")
+                raise excs.Error(f"'on': must be a sequence of column references or a boolean expression")
 
         assert isinstance(on, Sequence)
         for col_ref in on:
             if not isinstance(col_ref, exprs.ColumnRef):
-                raise excs.Error(
-                    f"'on': must be a sequence of column references or a boolean expression")
+                raise excs.Error(f"'on': must be a sequence of column references or a boolean expression")
             if not col_ref.is_bound_by(joined_tbls):
                 raise excs.Error(f"'on': expression cannot be evaluated in the context of the joined tables: {col_ref}")
             col_refs.append(col_ref)
@@ -666,8 +676,7 @@ class DataFrame:
                     lhs_col_ref = exprs.ColumnRef(col)
                 if lhs_col_ref is None:
                     tbl_names = [tbl.tbl_name() for tbl in self._from_clause.tbls]
-                    raise excs.Error(
-                        f"'on': column {col_ref.col.name!r} not found in any of: {' '.join(tbl_names)}")
+                    raise excs.Error(f"'on': column {col_ref.col.name!r} not found in any of: {' '.join(tbl_names)}")
             pred = exprs.Comparison(exprs.ComparisonOperator.EQ, lhs_col_ref, rhs_col_ref)
             predicates.append(pred)
 
@@ -678,8 +687,10 @@ class DataFrame:
             return exprs.CompoundPredicate(operator=exprs.LogicalOperator.AND, operands=predicates)
 
     def join(
-        self, other: catalog.Table,  on: Optional[Union[exprs.Expr, Sequence[exprs.ColumnRef]]] = None,
-        how: plan.JoinType.LiteralType = 'inner'
+        self,
+        other: catalog.Table,
+        on: Optional[Union[exprs.Expr, Sequence[exprs.ColumnRef]]] = None,
+        how: plan.JoinType.LiteralType = 'inner',
     ) -> DataFrame:
         """
         Join this DataFrame with a table.
@@ -739,16 +750,20 @@ class DataFrame:
         join_clause = plan.JoinClause(join_type=plan.JoinType.validated(how, "'how'"), join_predicate=join_pred)
         from_clause = plan.FromClause(
             tbls=[*self._from_clause.tbls, other._tbl_version_path],
-            join_clauses=[*self._from_clause.join_clauses, join_clause])
+            join_clauses=[*self._from_clause.join_clauses, join_clause],
+        )
         return DataFrame(
             from_clause=from_clause,
-            select_list=self.select_list, where_clause=self.where_clause,
-            group_by_clause=self.group_by_clause, grouping_tbl=self.grouping_tbl,
-            order_by_clause=self.order_by_clause, limit=self.limit_val,
+            select_list=self.select_list,
+            where_clause=self.where_clause,
+            group_by_clause=self.group_by_clause,
+            grouping_tbl=self.grouping_tbl,
+            order_by_clause=self.order_by_clause,
+            limit=self.limit_val,
         )
 
     def group_by(self, *grouping_items: Any) -> DataFrame:
-        """ Add a group-by clause to this DataFrame.
+        """Add a group-by clause to this DataFrame.
 
         Variants:
         - group_by(<base table>): group a component view by their respective base table rows
@@ -819,7 +834,7 @@ class DataFrame:
         )
 
     def order_by(self, *expr_list: exprs.Expr, asc: bool = True) -> DataFrame:
-        """ Add an order-by clause to this DataFrame.
+        """Add an order-by clause to this DataFrame.
 
         Args:
             expr_list: expressions to order by
@@ -864,7 +879,7 @@ class DataFrame:
         )
 
     def limit(self, n: int) -> DataFrame:
-        """ Limit the number of rows in the DataFrame.
+        """Limit the number of rows in the DataFrame.
 
         Args:
             n: Number of rows to select.
@@ -885,7 +900,7 @@ class DataFrame:
         )
 
     def update(self, value_spec: dict[str, Any], cascade: bool = True) -> UpdateStatus:
-        """ Update rows in the underlying table of the DataFrame.
+        """Update rows in the underlying table of the DataFrame.
 
         Update rows in the table with the specified value_spec.
 
@@ -914,7 +929,7 @@ class DataFrame:
         return self._first_tbl.tbl_version.update(value_spec, where=self.where_clause, cascade=cascade)
 
     def delete(self) -> UpdateStatus:
-        """ Delete rows form the underlying table of the DataFrame.
+        """Delete rows form the underlying table of the DataFrame.
 
         The delete operation is only allowed for DataFrames on base tables.
 
@@ -967,16 +982,19 @@ class DataFrame:
             '_classname': 'DataFrame',
             'from_clause': {
                 'tbls': [tbl.as_dict() for tbl in self._from_clause.tbls],
-                'join_clauses': [dataclasses.asdict(clause) for clause in self._from_clause.join_clauses]
+                'join_clauses': [dataclasses.asdict(clause) for clause in self._from_clause.join_clauses],
             },
-            'select_list':
-                [(e.as_dict(), name) for (e, name) in self.select_list] if self.select_list is not None else None,
+            'select_list': [(e.as_dict(), name) for (e, name) in self.select_list]
+            if self.select_list is not None
+            else None,
             'where_clause': self.where_clause.as_dict() if self.where_clause is not None else None,
-            'group_by_clause':
-                [e.as_dict() for e in self.group_by_clause] if self.group_by_clause is not None else None,
+            'group_by_clause': [e.as_dict() for e in self.group_by_clause]
+            if self.group_by_clause is not None
+            else None,
             'grouping_tbl': self.grouping_tbl.as_dict() if self.grouping_tbl is not None else None,
-            'order_by_clause':
-                [(e.as_dict(), asc) for (e,asc) in self.order_by_clause] if self.order_by_clause is not None else None,
+            'order_by_clause': [(e.as_dict(), asc) for (e, asc) in self.order_by_clause]
+            if self.order_by_clause is not None
+            else None,
             'limit_val': self.limit_val,
         }
         return d
@@ -986,21 +1004,29 @@ class DataFrame:
         tbls = [catalog.TableVersionPath.from_dict(tbl_dict) for tbl_dict in d['from_clause']['tbls']]
         join_clauses = [plan.JoinClause(**clause_dict) for clause_dict in d['from_clause']['join_clauses']]
         from_clause = plan.FromClause(tbls=tbls, join_clauses=join_clauses)
-        select_list = [(exprs.Expr.from_dict(e), name) for e, name in d['select_list']] \
-            if d['select_list'] is not None else None
-        where_clause = exprs.Expr.from_dict(d['where_clause']) \
-            if d['where_clause'] is not None else None
-        group_by_clause = [exprs.Expr.from_dict(e) for e in d['group_by_clause']] \
-            if d['group_by_clause'] is not None else None
-        grouping_tbl = catalog.TableVersion.from_dict(d['grouping_tbl']) \
-            if d['grouping_tbl'] is not None else None
-        order_by_clause = [(exprs.Expr.from_dict(e), asc) for e, asc in d['order_by_clause']] \
-            if d['order_by_clause'] is not None else None
+        select_list = (
+            [(exprs.Expr.from_dict(e), name) for e, name in d['select_list']] if d['select_list'] is not None else None
+        )
+        where_clause = exprs.Expr.from_dict(d['where_clause']) if d['where_clause'] is not None else None
+        group_by_clause = (
+            [exprs.Expr.from_dict(e) for e in d['group_by_clause']] if d['group_by_clause'] is not None else None
+        )
+        grouping_tbl = catalog.TableVersion.from_dict(d['grouping_tbl']) if d['grouping_tbl'] is not None else None
+        order_by_clause = (
+            [(exprs.Expr.from_dict(e), asc) for e, asc in d['order_by_clause']]
+            if d['order_by_clause'] is not None
+            else None
+        )
         limit_val = d['limit_val']
         return DataFrame(
-            from_clause=from_clause, select_list=select_list, where_clause=where_clause,
-            group_by_clause=group_by_clause, grouping_tbl=grouping_tbl, order_by_clause=order_by_clause,
-            limit=limit_val)
+            from_clause=from_clause,
+            select_list=select_list,
+            where_clause=where_clause,
+            group_by_clause=group_by_clause,
+            grouping_tbl=grouping_tbl,
+            order_by_clause=order_by_clause,
+            limit=limit_val,
+        )
 
     def _hash_result_set(self) -> str:
         """Return a hash that changes when the result set changes."""

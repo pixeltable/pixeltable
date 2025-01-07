@@ -38,7 +38,7 @@ class TileIterator(ComponentIterator):
         overlap: tuple[int, int] = (0, 0),
     ):
         if overlap[0] >= tile_size[0] or overlap[1] >= tile_size[1]:
-            raise excs.Error(f"overlap dimensions {overlap} are not strictly smaller than tile size {tile_size}")
+            raise excs.Error(f'overlap dimensions {overlap} are not strictly smaller than tile size {tile_size}')
 
         self.__image = image
         self.__image.load()
@@ -64,11 +64,7 @@ class TileIterator(ComponentIterator):
         x2 = x1 + self.__tile_size[0]
         y2 = y1 + self.__tile_size[1]
         tile = self.__image.crop((x1, y1, x2, y2))
-        result = {
-            'tile': tile,
-            'tile_coord': [self.__i, self.__j],
-            'tile_box': [x1, y1, x2, y2]
-        }
+        result = {'tile': tile, 'tile_coord': [self.__i, self.__j], 'tile_box': [x1, y1, x2, y2]}
 
         self.__i += 1
         if self.__i >= self.__xlen:
@@ -92,7 +88,7 @@ class TileIterator(ComponentIterator):
         }
 
     @classmethod
-    def output_schema(cls,  *args: Any, **kwargs: Any) -> tuple[dict[str, ts.ColumnType], list[str]]:
+    def output_schema(cls, *args: Any, **kwargs: Any) -> tuple[dict[str, ts.ColumnType], list[str]]:
         return {
             'tile': ts.ImageType(),
             'tile_coord': ts.JsonType(),

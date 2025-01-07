@@ -27,7 +27,7 @@ def udf(
     is_method: bool = False,
     is_property: bool = False,
     type_substitutions: Optional[Sequence[dict]] = None,
-    _force_stored: bool = False
+    _force_stored: bool = False,
 ) -> Callable[[Callable], CallableFunction]: ...
 
 
@@ -40,13 +40,11 @@ def udf(*args, **kwargs):
         ...    return x + 1
     """
     if len(args) == 1 and len(kwargs) == 0 and callable(args[0]):
-
         # Decorator invoked without parentheses: @pxt.udf
         # Simply call make_function with defaults.
         return make_function(decorated_fn=args[0])
 
     else:
-
         # Decorator schema invoked with parentheses: @pxt.udf(**kwargs)
         # Create a decorator for the specified schema.
         batch_size = kwargs.pop('batch_size', None)
@@ -68,7 +66,7 @@ def udf(*args, **kwargs):
                 is_method=is_method,
                 is_property=is_property,
                 type_substitutions=type_substitutions,
-                force_stored=force_stored
+                force_stored=force_stored,
             )
 
         return decorator
@@ -84,7 +82,7 @@ def make_function(
     is_property: bool = False,
     type_substitutions: Optional[Sequence[dict]] = None,
     function_name: Optional[str] = None,
-    force_stored: bool = False
+    force_stored: bool = False,
 ) -> CallableFunction:
     """
     Constructs a `CallableFunction` from the specified parameters.
@@ -125,7 +123,7 @@ def make_function(
             raise excs.Error(f'Cannot specify both `is_method` and `is_property` (in function `{function_name}`)')
         if is_property and len(sig.parameters) != 1:
             raise excs.Error(
-                f"`is_property=True` expects a UDF with exactly 1 parameter, but `{function_name}` has {len(sig.parameters)}"
+                f'`is_property=True` expects a UDF with exactly 1 parameter, but `{function_name}` has {len(sig.parameters)}'
             )
         if (is_method or is_property) and function_path is None:
             raise excs.Error('Stored functions cannot be declared using `is_method` or `is_property`')
@@ -160,7 +158,7 @@ def make_function(
         self_name=function_name,
         batch_size=batch_size,
         is_method=is_method,
-        is_property=is_property
+        is_property=is_property,
     )
 
     # If this function is part of a module, register it
@@ -171,11 +169,14 @@ def make_function(
 
     return result
 
+
 @overload
 def expr_udf(py_fn: Callable) -> ExprTemplateFunction: ...
 
+
 @overload
 def expr_udf(*, param_types: Optional[list[ts.ColumnType]] = None) -> Callable[[Callable], ExprTemplateFunction]: ...
+
 
 def expr_udf(*args: Any, **kwargs: Any) -> Any:
     def make_expr_template(py_fn: Callable, param_types: Optional[list[ts.ColumnType]]) -> ExprTemplateFunction:
@@ -191,6 +192,7 @@ def expr_udf(*args: Any, **kwargs: Any) -> Any:
         # construct Signature from the function signature
         sig = Signature.create(py_fn=py_fn, param_types=param_types, return_type=ts.InvalidType())
         import pixeltable.exprs as exprs
+
         var_exprs = [exprs.Variable(param.name, param.col_type) for param in sig.parameters.values()]
         # call the function with the parameter expressions to construct an Expr with parameters
         expr = py_fn(*var_exprs)

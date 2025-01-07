@@ -30,6 +30,7 @@ class CachePrefetchNode(ExecNode):
     TODO:
     - adapting the number of download threads at runtime to maximize throughput
     """
+
     BATCH_SIZE = 16
     NUM_EXECUTOR_THREADS = 16
 
@@ -59,8 +60,8 @@ class CachePrefetchNode(ExecNode):
         num_missing: int  # number of missing URLs in this row
 
     def __init__(
-            self, tbl_id: UUID, file_col_info: list[exprs.ColumnSlotIdx], input: ExecNode,
-            retain_input_order: bool = True):
+        self, tbl_id: UUID, file_col_info: list[exprs.ColumnSlotIdx], input: ExecNode, retain_input_order: bool = True
+    ):
         # input_/output_exprs=[]: we don't have anything to evaluate
         super().__init__(input.row_builder, [], [], input)
         self.retain_input_order = retain_input_order
@@ -235,6 +236,7 @@ class CachePrefetchNode(ExecNode):
             _logger.debug(f'Downloading {url} to {tmp_path}')
             if parsed.scheme == 's3':
                 from pixeltable.utils.s3 import get_client
+
                 with self.boto_client_lock:
                     if self.boto_client is None:
                         config = {

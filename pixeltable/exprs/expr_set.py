@@ -6,10 +6,12 @@ from .expr import Expr
 
 T = TypeVar('T', bound='Expr')
 
+
 class ExprSet(Generic[T]):
     """
     A set that also supports indexed lookup (by slot_idx and Expr.id). Exprs are uniquely identified by Expr.id.
     """
+
     exprs: dict[int, T]  # key: Expr.id
     exprs_by_idx: dict[int, T]  # key: slot_idx
 

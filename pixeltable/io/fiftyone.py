@@ -16,6 +16,7 @@ class PxtImageDatasetImporter(foud.LabeledImageDatasetImporter):
     """
     Implementation of a FiftyOne `DatasetImporter` that reads image data from a Pixeltable table.
     """
+
     __image_format: str  # format to use for any exported images that are not already stored on disk
     __labels: dict[str, tuple[exprs.Expr, type[fo.Label]]]  # label_name -> (expr, label_cls)
     __image_idx: int  # index of the image expr in the select list
@@ -34,12 +35,7 @@ class PxtImageDatasetImporter(foud.LabeledImageDatasetImporter):
         seed: Union[int, float, str, bytes, bytearray, None] = None,
         max_samples: Optional[int] = None,
     ):
-        super().__init__(
-            dataset_dir=dataset_dir,
-            shuffle=shuffle,
-            seed=seed,
-            max_samples=max_samples
-        )
+        super().__init__(dataset_dir=dataset_dir, shuffle=shuffle, seed=seed, max_samples=max_samples)
 
         self.__image_format = image_format
 
@@ -54,9 +50,9 @@ class PxtImageDatasetImporter(foud.LabeledImageDatasetImporter):
             if isinstance(exprs_, dict):
                 for label_name, expr in exprs_.items():
                     if not label_name.isidentifier():
-                        raise excs.Error(f"Invalid label name: {label_name}")
+                        raise excs.Error(f'Invalid label name: {label_name}')
                     if label_name in self.__labels:
-                        raise excs.Error(f"Duplicate label name: {label_name}")
+                        raise excs.Error(f'Duplicate label name: {label_name}')
                     self.__labels[label_name] = (expr, label_cls)
 
         # Now add the remaining labels, assigning unused default names.
@@ -137,13 +133,9 @@ class PxtImageDatasetImporter(foud.LabeledImageDatasetImporter):
     def __as_fo_classifications(self, data: list) -> list[fo.Classification]:
         if not isinstance(data, list) or any('label' not in entry for entry in data):
             raise excs.Error(
-                f'Invalid classifications data: {data}\n'
-                "(Expected a list of dicts, each containing a 'label' key)"
+                f'Invalid classifications data: {data}\n' "(Expected a list of dicts, each containing a 'label' key)"
             )
-        return [
-            fo.Classification(label=entry['label'], confidence=entry.get('confidence'))
-            for entry in data
-        ]
+        return [fo.Classification(label=entry['label'], confidence=entry.get('confidence')) for entry in data]
 
     def __as_fo_detections(self, data: list) -> list[fo.Detections]:
         if not isinstance(data, list) or any('label' not in entry or 'bounding_box' not in entry for entry in data):

@@ -17,6 +17,7 @@ class JsonMapper(Expr):
     The target expr would typically contain relative JsonPaths, which are bound to an ObjectRef, which in turn
     is populated by JsonMapper.eval(). The JsonMapper effectively creates a new scope for its target expr.
     """
+
     def __init__(self, src_expr: Expr, target_expr: Expr):
         # TODO: type spec should be list[target_expr.col_type]
         super().__init__(ts.JsonType())
@@ -26,6 +27,7 @@ class JsonMapper(Expr):
         self.target_expr_scope = ExprScope(_GLOBAL_SCOPE)
 
         from .object_ref import ObjectRef
+
         scope_anchor = ObjectRef(self.target_expr_scope, self)
         self.components = [src_expr, target_expr, scope_anchor]
         self.parent_mapper: Optional[JsonMapper] = None
@@ -118,4 +120,3 @@ class JsonMapper(Expr):
     def _from_dict(cls, d: dict, components: list[Expr]) -> JsonMapper:
         assert len(components) == 2
         return cls(components[0], components[1])
-

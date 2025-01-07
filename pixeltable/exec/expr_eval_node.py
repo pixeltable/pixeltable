@@ -17,11 +17,12 @@ _logger = logging.getLogger('pixeltable')
 
 
 class ExprEvalNode(ExecNode):
-    """Materializes expressions
-    """
+    """Materializes expressions"""
+
     @dataclass
     class Cohort:
         """List of exprs that form an evaluation context and contain calls to at most one external function"""
+
         exprs_: list[exprs.Expr]
         batched_fn: Optional[CallableFunction]
         segment_ctxs: list['exprs.RowBuilder.EvalCtx']
@@ -29,8 +30,11 @@ class ExprEvalNode(ExecNode):
         batch_size: int = 8
 
     def __init__(
-            self, row_builder: exprs.RowBuilder, output_exprs: Iterable[exprs.Expr], input_exprs: Iterable[exprs.Expr],
-            input: ExecNode
+        self,
+        row_builder: exprs.RowBuilder,
+        output_exprs: Iterable[exprs.Expr],
+        input_exprs: Iterable[exprs.Expr],
+        input: ExecNode,
     ):
         super().__init__(row_builder, output_exprs, input_exprs, input)
         self.input_exprs = input_exprs
@@ -50,7 +54,7 @@ class ExprEvalNode(ExecNode):
         return input_batch
 
     def _open(self) -> None:
-        warnings.simplefilter("ignore", category=TqdmWarning)
+        warnings.simplefilter('ignore', category=TqdmWarning)
         # This is a temporary hack. When B-tree indices on string columns were implemented (via computed columns
         # that invoke the `BtreeIndex.str_filter` udf), it resulted in frivolous progress bars appearing on every
         # insertion. This special-cases the `str_filter` call to suppress the corresponding progress bar.
@@ -64,7 +68,7 @@ class ExprEvalNode(ExecNode):
                 desc='Computing cells',
                 unit=' cells',
                 ncols=100,
-                file=sys.stdout
+                file=sys.stdout,
             )
 
     def _close(self) -> None:
@@ -103,17 +107,20 @@ class ExprEvalNode(ExecNode):
         target_slot_idxs: list[list[int]] = []  # the ones materialized by each cohort
         for i in range(len(cohorts)):
             cohorts[i] = self.row_builder.get_dependencies(
-                cohorts[i], exclude=[self.row_builder.unique_exprs[slot_idx] for slot_idx in exclude])
-            target_slot_idxs.append(
-                [e.slot_idx for e in cohorts[i] if e.slot_idx in all_target_slot_idxs])
+                cohorts[i], exclude=[self.row_builder.unique_exprs[slot_idx] for slot_idx in exclude]
+            )
+            target_slot_idxs.append([e.slot_idx for e in cohorts[i] if e.slot_idx in all_target_slot_idxs])
             exclude.update(target_slot_idxs[-1])
 
         all_cohort_slot_idxs = set(e.slot_idx for cohort in cohorts for e in cohort)
         remaining_slot_idxs = set(all_target_slot_idxs) - all_cohort_slot_idxs
         if len(remaining_slot_idxs) > 0:
-            cohorts.append(self.row_builder.get_dependencies(
-                [self.row_builder.unique_exprs[slot_idx] for slot_idx in remaining_slot_idxs],
-                exclude=[self.row_builder.unique_exprs[slot_idx] for slot_idx in exclude]))
+            cohorts.append(
+                self.row_builder.get_dependencies(
+                    [self.row_builder.unique_exprs[slot_idx] for slot_idx in remaining_slot_idxs],
+                    exclude=[self.row_builder.unique_exprs[slot_idx] for slot_idx in exclude],
+                )
+            )
             target_slot_idxs.append(list(remaining_slot_idxs))
         # we need to have captured all target slots at this point
         assert all_target_slot_idxs == set().union(*target_slot_idxs)
@@ -142,7 +149,8 @@ class ExprEvalNode(ExecNode):
             # we create the EvalCtxs manually because create_eval_ctx() would repeat the dependencies of each segment
             segment_ctxs = [
                 exprs.RowBuilder.EvalCtx(
-                    slot_idxs=[e.slot_idx for e in s], exprs=s, target_slot_idxs=[], target_exprs=[])
+                    slot_idxs=[e.slot_idx for e in s], exprs=s, target_slot_idxs=[], target_exprs=[]
+                )
                 for s in segments
             ]
             cohort_info = self.Cohort(cohort, batched_fn, segment_ctxs, target_slot_idxs[i])
@@ -163,7 +171,8 @@ class ExprEvalNode(ExecNode):
                     # compute batch row-wise
                     for row_idx in range(batch_start_idx, batch_start_idx + num_batch_rows):
                         self.row_builder.eval(
-                            rows[row_idx], segment_ctx, self.ctx.profile, ignore_errors=self.ctx.ignore_errors)
+                            rows[row_idx], segment_ctx, self.ctx.profile, ignore_errors=self.ctx.ignore_errors
+                        )
                 else:
                     fn_call = segment_ctx.exprs[0]
                     assert isinstance(fn_call, exprs.FunctionCall)
@@ -199,11 +208,11 @@ class ExprEvalNode(ExecNode):
                         num_ext_batch_rows = min(ext_batch_size, num_remaining_batch_rows)
                         ext_batch_offset = num_valid_batch_rows - num_remaining_batch_rows  # offset into args, not rows
                         call_args = [
-                            arg_batches[i][ext_batch_offset:ext_batch_offset + num_ext_batch_rows]
+                            arg_batches[i][ext_batch_offset : ext_batch_offset + num_ext_batch_rows]
                             for i in range(len(arg_batches))
                         ]
                         call_kwargs = {
-                            k: kwarg_batches[k][ext_batch_offset:ext_batch_offset + num_ext_batch_rows]
+                            k: kwarg_batches[k][ext_batch_offset : ext_batch_offset + num_ext_batch_rows]
                             for k in kwarg_batches.keys()
                         }
                         start_ts = time.perf_counter()
@@ -225,8 +234,8 @@ class ExprEvalNode(ExecNode):
 
             # make sure images for stored cols have been saved to files before moving on to the next batch
             rows.flush_imgs(
-                slice(batch_start_idx, batch_start_idx + num_batch_rows), self.stored_img_cols, self.flushed_img_slots)
+                slice(batch_start_idx, batch_start_idx + num_batch_rows), self.stored_img_cols, self.flushed_img_slots
+            )
             if self.pbar is not None:
                 self.pbar.update(num_batch_rows * len(cohort.target_slot_idxs))
             batch_start_idx += num_batch_rows
-

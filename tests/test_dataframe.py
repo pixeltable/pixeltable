@@ -14,7 +14,14 @@ from pixeltable import catalog
 from pixeltable import exceptions as excs
 from pixeltable.iterators import FrameIterator
 
-from .utils import get_audio_files, get_documents, get_video_files, skip_test_if_not_installed, strip_lines, validate_update_status
+from .utils import (
+    get_audio_files,
+    get_documents,
+    get_video_files,
+    skip_test_if_not_installed,
+    strip_lines,
+    validate_update_status,
+)
 
 
 class TestDataFrame:
@@ -24,7 +31,8 @@ class TestDataFrame:
         validate_update_status(t1.insert({'id': i, 'i': i} for i in range(num_rows)), expected_rows=num_rows)
         # t2 has matching ids
         validate_update_status(
-            t2.insert({'id': i, 'f': float(num_rows - i)} for i in range(num_rows)), expected_rows=num_rows)
+            t2.insert({'id': i, 'f': float(num_rows - i)} for i in range(num_rows)), expected_rows=num_rows
+        )
 
         # t3:
         # - column i with a different type
@@ -32,7 +40,8 @@ class TestDataFrame:
         t3 = pxt.create_table(f't3_{num_rows}', {'id': pxt.Int, 'i': pxt.String, 'f': pxt.Float})
         validate_update_status(
             t3.insert({'id': i, 'i': str(i), 'f': float(num_rows - i)} for i in range(0, 10 * num_rows, 10)),
-            expected_rows=num_rows)
+            expected_rows=num_rows,
+        )
 
         return t1, t2, t3
 
@@ -55,11 +64,12 @@ class TestDataFrame:
         assert res1 == res4
 
         from pixeltable.functions.string import contains
+
         _ = t.where(contains(t.c1, 'test')).select(t.c1).collect()
         _ = t.where(contains(t.c1, 'test') & contains(t.c1, '1')).select(t.c1).collect()
         _ = t.where(contains(t.c1, 'test') & (t.c2 >= 10)).select(t.c1).collect()
 
-        _ = t.where(t.c2 < 10).select(t.c2, t.c2).collect() # repeated name no error
+        _ = t.where(t.c2 < 10).select(t.c2, t.c2).collect()  # repeated name no error
 
         # where clause needs to be a predicate
         with pytest.raises(excs.Error) as exc_info:
@@ -105,7 +115,7 @@ class TestDataFrame:
         assert 'Repeated column name' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
-            _ = t.select(t.c2+1, col_0=t.c2).collect()
+            _ = t.select(t.c2 + 1, col_0=t.c2).collect()
         assert 'Repeated column name' in str(exc_info.value)
 
         # select list contains invalid references
@@ -117,11 +127,7 @@ class TestDataFrame:
     def test_join(self, reset_db) -> None:
         t1, t2, t3 = self.create_join_tbls(1000)
         # inner join
-        df = (
-            t1.join(t2, on=t1.id, how='inner')
-            .select(t1.i, t2.f, out=t1.i + t2.f)
-            .order_by(t2.f)
-        )
+        df = t1.join(t2, on=t1.id, how='inner').select(t1.i, t2.f, out=t1.i + t2.f).order_by(t2.f)
         pd_df = df.collect().to_pandas()
         assert len(pd_df) == 1000
         assert pd_df.f.is_monotonic_increasing  # correct ordering
@@ -137,11 +143,7 @@ class TestDataFrame:
         assert pd_df.equals(pd_df2)
 
         # left outer join
-        df = (
-            t1.join(t3, on=t1.id, how='left')
-            .select(t1.i, t3.f, out=t1.i + t3.f)
-            .order_by(t1.i)
-        )
+        df = t1.join(t3, on=t1.id, how='left').select(t1.i, t3.f, out=t1.i + t3.f).order_by(t1.i)
         pd_df = df.collect().to_pandas()
         assert len(pd_df) == 1000
         assert len(pd_df[~pd_df.f.isnull()]) == 100  # correct number of nulls
@@ -171,9 +173,7 @@ class TestDataFrame:
         assert res == sum(range(1000)) * 2
 
         # inner join with grouping aggregation
-        df = (
-            t1.join(t2, on=t2.id).group_by(t2.id % 10).select(grp=t2.id % 10, val=pxt.functions.sum(t1.i + t2.id))
-        )
+        df = t1.join(t2, on=t2.id).group_by(t2.id % 10).select(grp=t2.id % 10, val=pxt.functions.sum(t1.i + t2.id))
         res = df.collect()
         pd_df = res.to_pandas()
         # TODO: verify result
@@ -183,11 +183,11 @@ class TestDataFrame:
 
         with pytest.raises(excs.Error) as exc_info:
             _ = t1.join(t2, on=(t2.id, 17)).collect()
-        assert "must be a sequence of column references or a boolean expression" in str(exc_info.value)
+        assert 'must be a sequence of column references or a boolean expression' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
             _ = t1.join(t2, on=(15, 27)).collect()
-        assert "must be a sequence of column references or a boolean expression" in str(exc_info.value)
+        assert 'must be a sequence of column references or a boolean expression' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
             _ = t1.join(t2, how='cross', on=t2.id).collect()
@@ -203,11 +203,11 @@ class TestDataFrame:
 
         with pytest.raises(excs.Error) as exc_info:
             _ = t1.join(t2, on=t3.i).collect()
-        assert "expression cannot be evaluated in the context of the joined tables: i" in str(exc_info.value)
+        assert 'expression cannot be evaluated in the context of the joined tables: i' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
             _ = t1.join(t2, on=t2.id + 1).collect()
-        assert "boolean expression expected, but got Optional[Int]: id + 1" in str(exc_info.value)
+        assert 'boolean expression expected, but got Optional[Int]: id + 1' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
             _ = t1.join(t2, on=t2.id).join(t3, on=t3.id).collect()
@@ -303,18 +303,12 @@ class TestDataFrame:
 
     def test_repr(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
-        df = (
-            t.select(t.c1, t.c1.upper(), t.c2 + 5)
-            .where(t.c2 < 10)
-            .group_by(t.c1)
-            .order_by(t.c3)
-            .limit(10)
-        )
+        df = t.select(t.c1, t.c1.upper(), t.c2 + 5).where(t.c2 < 10).group_by(t.c1).order_by(t.c3).limit(10)
         df.describe()
 
         r = df.__repr__()
         assert strip_lines(r) == strip_lines(
-            '''Name              Type  Expression
+            """Name              Type  Expression
                c1  Required[String]          c1
             upper  Required[String]  c1.upper()
             col_2     Required[Int]      c2 + 5
@@ -323,7 +317,7 @@ class TestDataFrame:
             Where      c2 < 10
             Group By        c1
             Order By    c3 asc
-            Limit           10'''
+            Limit           10"""
         )
         _ = df._repr_html_()  # TODO: Is there a good way to test this output?
 
@@ -346,9 +340,7 @@ class TestDataFrame:
         assert res[next(iter(res.schema.keys()))] == [1.0] * 10
 
     def test_html_media_url(self, reset_db) -> None:
-        tab = pxt.create_table('test_html_repr', {'video': pxt.Video,
-                                                  'audio': pxt.Audio,
-                                                  'doc': pxt.Document})
+        tab = pxt.create_table('test_html_repr', {'video': pxt.Video, 'audio': pxt.Audio, 'doc': pxt.Document})
 
         pdf_doc = next(f for f in get_documents() if f.endswith('.pdf'))
         status = tab.insert(video=get_video_files()[0], audio=get_audio_files()[0], doc=pdf_doc)
@@ -370,7 +362,7 @@ class TestDataFrame:
                 op = urllib.request.urlopen(src['src'])
                 assert op.getcode() == 200
 
-        document_tags = doc.find_all('div', attrs={'class':'pxt_document'})
+        document_tags = doc.find_all('div', attrs={'class': 'pxt_document'})
         assert len(document_tags) == 1
         res0 = document_tags[0]
         href = res0.find('a')['href']
@@ -474,8 +466,7 @@ class TestDataFrame:
         assert 'Cannot delete from view' in str(exc_info.value)
 
     def test_to_pytorch_dataset(self, all_datatypes_tbl: catalog.Table) -> None:
-        """ tests all types are handled correctly in this conversion
-        """
+        """tests all types are handled correctly in this conversion"""
         skip_test_if_not_installed('torch')
         skip_test_if_not_installed('pyarrow')
         import torch
@@ -494,7 +485,7 @@ class TestDataFrame:
             assert arrval.dtype == col_type.numpy_dtype()
             assert arrval.shape == col_type.shape
             assert arrval.dtype == np.float32
-            assert arrval.flags["WRITEABLE"], 'required by pytorch collate function'
+            assert arrval.flags['WRITEABLE'], 'required by pytorch collate function'
 
             assert isinstance(tup['c_bool'], bool)
             assert isinstance(tup['c_int'], int)
@@ -505,21 +496,16 @@ class TestDataFrame:
             assert isinstance(tup['c_json'], dict)
 
     def test_to_pytorch_image_format(self, all_datatypes_tbl: catalog.Table) -> None:
-        """ tests the image_format parameter is honored
-        """
+        """tests the image_format parameter is honored"""
         skip_test_if_not_installed('torch')
         skip_test_if_not_installed('torchvision')
         skip_test_if_not_installed('pyarrow')
         import torch
         import torchvision.transforms as T
 
-        W, H = 220, 224 # make different from each other
+        W, H = 220, 224  # make different from each other
         t = all_datatypes_tbl
-        df = t.select(
-            t.row_id,
-            t.c_image,
-            c_image_xformed=t.c_image.resize([W, H]).convert('RGB')
-        ).where(t.row_id < 1)
+        df = t.select(t.row_id, t.c_image, c_image_xformed=t.c_image.resize([W, H]).convert('RGB')).where(t.row_id < 1)
 
         pandas_df = df.show().to_pandas()
         im_plain = pandas_df['c_image'].values[0]
@@ -533,19 +519,20 @@ class TestDataFrame:
         for elt, elt_pt in zip(ds, ds_ptformat):
             arr_plain = elt['c_image']
             assert isinstance(arr_plain, np.ndarray)
-            assert arr_plain.flags["WRITEABLE"], 'required by pytorch collate function'
+            assert arr_plain.flags['WRITEABLE'], 'required by pytorch collate function'
 
             # compare numpy array bc PIL.Image object itself is not using same file.
             assert (arr_plain == np.array(im_plain)).all(), 'numpy image should be the same as the original'
             arr_xformed = elt['c_image_xformed']
             assert isinstance(arr_xformed, np.ndarray)
-            assert arr_xformed.flags["WRITEABLE"], 'required by pytorch collate function'
+            assert arr_xformed.flags['WRITEABLE'], 'required by pytorch collate function'
 
             assert arr_xformed.shape == (H, W, 3)
             assert arr_xformed.dtype == np.uint8
             # same as above, compare numpy array bc PIL.Image object itself is not using same file.
-            assert (arr_xformed == np.array(im_xformed)).all(),\
-                'numpy image array for xformed image should be the same as the original'
+            assert (
+                arr_xformed == np.array(im_xformed)
+            ).all(), 'numpy image array for xformed image should be the same as the original'
 
             # now compare pytorch version
             arr_pt = elt_pt['c_image']
@@ -556,16 +543,17 @@ class TestDataFrame:
             assert arr_pt.dtype == torch.float32
             assert (0.0 <= arr_pt).all()
             assert (arr_pt <= 1.0).all()
-            assert torch.isclose(T.ToTensor()(arr_xformed), arr_pt).all(),\
-                'pytorch image should be consistent with numpy image'
+            assert torch.isclose(
+                T.ToTensor()(arr_xformed), arr_pt
+            ).all(), 'pytorch image should be consistent with numpy image'
             elt_count += 1
         assert elt_count == 1
 
     @pytest.mark.skip('Flaky test (fails intermittently)')
     def test_to_pytorch_dataloader(self, all_datatypes_tbl: catalog.Table) -> None:
-        """ Tests the dataset works well with pytorch dataloader:
-            1. compatibility with multiprocessing
-            2. compatibility of all types with default collate_fn
+        """Tests the dataset works well with pytorch dataloader:
+        1. compatibility with multiprocessing
+        2. compatibility of all types with default collate_fn
         """
         skip_test_if_not_installed('torch')
         import torch.utils.data
@@ -586,9 +574,9 @@ class TestDataFrame:
             t.c_video,
             # default collate_fn doesnt support null values, nor lists of different lengths
             # but does allow some dictionaries if they are uniform
-            c_json = restrict_json_for_default_collate(t.c_json.detections[0]),
+            c_json=restrict_json_for_default_collate(t.c_json.detections[0]),
             # images must be uniform shape for pytorch collate_fn to not fail
-            c_image=t.c_image.resize([220, 224]).convert('RGB')
+            c_image=t.c_image.resize([220, 224]).convert('RGB'),
         )
         df_size = df.count()
         ds = df.to_pytorch_dataset(image_format='pt')
@@ -599,41 +587,41 @@ class TestDataFrame:
         _ = pickle.loads(x)
 
         # test we get all rows
-        def check_recover_all_rows(ds, size : int, **kwargs):
+        def check_recover_all_rows(ds, size: int, **kwargs):
             dl = torch.utils.data.DataLoader(ds, **kwargs)
             loaded_ids = set()
             for batch in dl:
                 for row_id in batch['row_id']:
-                    val = int(row_id) # np.int -> int or will fail set equality test below.
+                    val = int(row_id)  # np.int -> int or will fail set equality test below.
                     assert val not in loaded_ids, val
                     loaded_ids.add(val)
 
             assert loaded_ids == set(range(size))
 
         # check different number of workers
-        check_recover_all_rows(ds, size=df_size, batch_size=3, num_workers=0) # within this process
-        check_recover_all_rows(ds, size=df_size, batch_size=3, num_workers=2) # two separate processes
+        check_recover_all_rows(ds, size=df_size, batch_size=3, num_workers=0)  # within this process
+        check_recover_all_rows(ds, size=df_size, batch_size=3, num_workers=2)  # two separate processes
 
         # check edge case where some workers get no rows
         short_size = 1
         df_short = df.where(t.row_id < short_size)
         ds_short = df_short.to_pytorch_dataset(image_format='pt')
-        check_recover_all_rows(ds_short, size=short_size, batch_size=13, num_workers=short_size+1)
+        check_recover_all_rows(ds_short, size=short_size, batch_size=13, num_workers=short_size + 1)
 
     def test_pytorch_dataset_caching(self, all_datatypes_tbl: catalog.Table) -> None:
-        """ Tests that dataset caching works
-            1. using the same dataset twice in a row uses the cache
-            2. adding a row to the table invalidates the cached version
-            3. changing the select list invalidates the cached version
+        """Tests that dataset caching works
+        1. using the same dataset twice in a row uses the cache
+        2. adding a row to the table invalidates the cached version
+        3. changing the select list invalidates the cached version
         """
         skip_test_if_not_installed('torch')
         skip_test_if_not_installed('pyarrow')
         t = all_datatypes_tbl
 
-        t.drop_column('c_video') # null value video column triggers internal assertions in DataRow
+        t.drop_column('c_video')  # null value video column triggers internal assertions in DataRow
         # see https://github.com/pixeltable/pixeltable/issues/38
 
-        t.drop_column('c_array') # no support yet for null array values in the pytorch dataset
+        t.drop_column('c_array')  # no support yet for null array values in the pytorch dataset
 
         def _get_mtimes(dir: Path):
             return {p.name: p.stat().st_mtime for p in dir.iterdir()}
@@ -662,6 +650,7 @@ class TestDataFrame:
         from pycocotools.coco import COCO
 
         from pixeltable.ext.functions.yolox import yolo_to_coco, yolox
+
         base_t = pxt.create_table('videos', {'video': pxt.VideoType()})
         view_t = pxt.create_view('frames', base_t, iterator=FrameIterator.create(video=base_t.video, fps=1))
         view_t.add_column(detections=yolox(view_t.frame, model_id='yolox_m'))

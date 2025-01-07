@@ -18,11 +18,13 @@ from .function import Function
 
 _logger = logging.getLogger('pixeltable')
 
+
 class FunctionRegistry:
     """
     A central registry for all Functions. Handles interactions with the backing store.
     Function are loaded from the store on demand.
     """
+
     _instance: Optional[FunctionRegistry] = None
 
     @classmethod
@@ -151,14 +153,16 @@ class FunctionRegistry:
             return self.type_methods[base_type][name]
         return None
 
-    #def create_function(self, md: schema.FunctionMd, binary_obj: bytes, dir_id: Optional[UUID] = None) -> UUID:
+    # def create_function(self, md: schema.FunctionMd, binary_obj: bytes, dir_id: Optional[UUID] = None) -> UUID:
     def create_stored_function(self, pxt_fn: Function, dir_id: Optional[UUID] = None) -> UUID:
         fn_md, binary_obj = pxt_fn.to_store()
         md = schema.FunctionMd(name=pxt_fn.name, md=fn_md, py_version=sys.version, class_name=pxt_fn.__class__.__name__)
         with env.Env.get().engine.begin() as conn:
             res = conn.execute(
-                sql.insert(schema.Function.__table__)
-                    .values(dir_id=dir_id, md=dataclasses.asdict(md), binary_obj=binary_obj))
+                sql.insert(schema.Function.__table__).values(
+                    dir_id=dir_id, md=dataclasses.asdict(md), binary_obj=binary_obj
+                )
+            )
             id = res.inserted_primary_key[0]
             _logger.info(f'Created function {pxt_fn.name} (id {id}) in store')
             self.stored_fns_by_id[id] = pxt_fn
@@ -167,8 +171,9 @@ class FunctionRegistry:
     def get_stored_function(self, id: UUID) -> Function:
         if id in self.stored_fns_by_id:
             return self.stored_fns_by_id[id]
-        stmt = sql.select(schema.Function.md, schema.Function.binary_obj, schema.Function.dir_id)\
-            .where(schema.Function.id == id)
+        stmt = sql.select(schema.Function.md, schema.Function.binary_obj, schema.Function.dir_id).where(
+            schema.Function.id == id
+        )
         with env.Env.get().engine.begin() as conn:
             row = conn.execute(stmt).fetchone()
             if row is None:
@@ -238,7 +243,5 @@ class FunctionRegistry:
     def delete_function(self, id: UUID) -> None:
         assert id is not None
         with env.Env.get().engine.begin() as conn:
-            conn.execute(
-                sql.delete(schema.Function.__table__)
-                    .where(schema.Function.id == id))
+            conn.execute(sql.delete(schema.Function.__table__).where(schema.Function.id == id))
             _logger.info(f'Deleted function with id {id} from store')

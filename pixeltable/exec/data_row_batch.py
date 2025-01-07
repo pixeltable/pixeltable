@@ -9,11 +9,13 @@ from pixeltable.utils.media_store import MediaStore
 
 _logger = logging.getLogger('pixeltable')
 
+
 class DataRowBatch:
     """Set of DataRows, indexed by rowid.
 
     Contains the metadata needed to initialize DataRows.
     """
+
     tbl: Optional[catalog.TableVersion]
     row_builder: exprs.RowBuilder
     img_slot_idxs: list[int]
@@ -27,7 +29,8 @@ class DataRowBatch:
         self.img_slot_idxs = [e.slot_idx for e in row_builder.unique_exprs if e.col_type.is_image_type()]
         # non-image media slots
         self.media_slot_idxs = [
-            e.slot_idx for e in row_builder.unique_exprs
+            e.slot_idx
+            for e in row_builder.unique_exprs
             if e.col_type.is_media_type() and not e.col_type.is_image_type()
         ]
         self.array_slot_idxs = [e.slot_idx for e in row_builder.unique_exprs if e.col_type.is_array_type()]
@@ -39,7 +42,8 @@ class DataRowBatch:
     def add_row(self, row: Optional[exprs.DataRow] = None) -> exprs.DataRow:
         if row is None:
             row = exprs.DataRow(
-                self.row_builder.num_materialized, self.img_slot_idxs, self.media_slot_idxs, self.array_slot_idxs)
+                self.row_builder.num_materialized, self.img_slot_idxs, self.media_slot_idxs, self.array_slot_idxs
+            )
         self.rows.append(row)
         return row
 
@@ -53,8 +57,10 @@ class DataRowBatch:
         return self.rows[index]
 
     def flush_imgs(
-            self, idx_range: Optional[slice] = None, stored_img_info: Optional[list[exprs.ColumnSlotIdx]] = None,
-            flushed_slot_idxs: Optional[list[int]] = None
+        self,
+        idx_range: Optional[slice] = None,
+        stored_img_info: Optional[list[exprs.ColumnSlotIdx]] = None,
+        flushed_slot_idxs: Optional[list[int]] = None,
     ) -> None:
         """Flushes images in the given range of rows."""
         assert self.tbl is not None

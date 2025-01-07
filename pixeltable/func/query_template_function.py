@@ -27,14 +27,18 @@ class QueryTemplateFunction(Function):
         var_exprs = [exprs.Variable(param.name, param.col_type) for param in params]
         template_df = template_callable(*var_exprs)
         from pixeltable import DataFrame
+
         assert isinstance(template_df, DataFrame)
         # we take params and return json
         sig = Signature(return_type=pxt.JsonType(), parameters=params)
         return QueryTemplateFunction(template_df, sig, path=path, name=name)
 
     def __init__(
-            self, template_df: Optional['pxt.DataFrame'], sig: Signature, path: Optional[str] = None,
-            name: Optional[str] = None,
+        self,
+        template_df: Optional['pxt.DataFrame'],
+        sig: Signature,
+        path: Optional[str] = None,
+        name: Optional[str] = None,
     ):
         assert sig is not None
         super().__init__([sig], self_path=path)
@@ -66,7 +70,8 @@ class QueryTemplateFunction(Function):
         bound_args = self.signature.py_signature.bind(*args, **kwargs).arguments
         # apply defaults, otherwise we might have Parameters left over
         bound_args.update(
-            {param_name: default for param_name, default in self.defaults.items() if param_name not in bound_args})
+            {param_name: default for param_name, default in self.defaults.items() if param_name not in bound_args}
+        )
         bound_df = self.template_df.bind(bound_args)
         result = bound_df._collect(self.conn)
         return list(result)
@@ -85,4 +90,5 @@ class QueryTemplateFunction(Function):
     @classmethod
     def _from_dict(cls, d: dict) -> Function:
         from pixeltable.dataframe import DataFrame
+
         return cls(DataFrame.from_dict(d['df']), Signature.from_dict(d['signature']), name=d['name'])

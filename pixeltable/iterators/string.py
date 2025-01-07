@@ -36,5 +36,5 @@ class StringSplitter(ComponentIterator):
         }
 
     @classmethod
-    def output_schema(cls,  *args: Any, **kwargs: Any) -> tuple[dict[str, ts.ColumnType], list[str]]:
+    def output_schema(cls, *args: Any, **kwargs: Any) -> tuple[dict[str, ts.ColumnType], list[str]]:
         return {'text': ts.StringType()}, []

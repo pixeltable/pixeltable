@@ -75,9 +75,7 @@ class TestOpenai:
         )
         # test with JSON output enforced
         t.add_column(
-            chat_output_4=chat_completions(
-                model='gpt-4o-mini', messages=msgs, response_format={'type': 'json_object'}
-            )
+            chat_output_4=chat_completions(model='gpt-4o-mini', messages=msgs, response_format={'type': 'json_object'})
         )
         # TODO Also test the `tools` and `tool_choice` parameters.
         validate_update_status(t.insert(input='Give me an example of a typical JSON structure.'), 1)
@@ -118,9 +116,7 @@ class TestOpenai:
             }
         ]
         t.add_column(
-            response_2=chat_completions(model='gpt-4o-mini', messages=msgs, max_tokens=300)
-            .choices[0]
-            .message.content
+            response_2=chat_completions(model='gpt-4o-mini', messages=msgs, max_tokens=300).choices[0].message.content
         )
         validate_update_status(t.insert(prompt="What's in this image?", img=SAMPLE_IMAGE_URL), 1)
         result = t.collect()['response_2'][0]

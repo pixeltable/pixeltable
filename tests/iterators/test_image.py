@@ -14,7 +14,7 @@ class TestImage:
         v = pxt.create_view(
             'test_view',
             t,
-            iterator=pxt.iterators.TileIterator.create(image=t.image, tile_size=(100, 100), overlap=(10, 10))
+            iterator=pxt.iterators.TileIterator.create(image=t.image, tile_size=(100, 100), overlap=(10, 10)),
         )
         image: PIL.Image.Image = t.collect()[0]['image']
         results = v.select(v.tile, v.tile_coord, v.tile_box).order_by(v.pos).collect()
@@ -38,9 +38,8 @@ class TestImage:
                 _ = pxt.create_view(
                     'test_view',
                     t,
-                    iterator=pxt.iterators.TileIterator.create(image=t.image, tile_size=(100, 100), overlap=overlap)
+                    iterator=pxt.iterators.TileIterator.create(image=t.image, tile_size=(100, 100), overlap=overlap),
                 )
-        assert (
-            f'overlap dimensions {list(overlap)} are not strictly smaller than tile size [100, 100]'
-            in str(exc_info.value)
+        assert f'overlap dimensions {list(overlap)} are not strictly smaller than tile size [100, 100]' in str(
+            exc_info.value
         )

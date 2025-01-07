@@ -51,8 +51,9 @@ class ColumnRef(Expr):
         super().__init__(col.col_type)
         assert col.tbl is not None
         self.col = col
-        self.is_unstored_iter_col = \
+        self.is_unstored_iter_col = (
             col.tbl.is_component_view() and col.tbl.is_iterator_column(col) and not col.is_stored
+        )
         self.iter_arg_ctx = None
         # number of rowid columns in the base table
         self.base_rowid_len = col.tbl.base.num_rowid_columns() if self.is_unstored_iter_col else 0
@@ -83,10 +84,11 @@ class ColumnRef(Expr):
         assert len(self.iter_arg_ctx.target_slot_idxs) == 1  # a single inline dict
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
-        return (
-            super()._id_attrs()
-            + [('tbl_id', self.col.tbl.id), ('col_id', self.col.id), ('perform_validation', self.perform_validation)]
-        )
+        return super()._id_attrs() + [
+            ('tbl_id', self.col.tbl.id),
+            ('col_id', self.col.id),
+            ('perform_validation', self.perform_validation),
+        ]
 
     # override
     def _retarget(self, tbl_versions: dict[UUID, catalog.TableVersion]) -> ColumnRef:
@@ -99,13 +101,17 @@ class ColumnRef(Expr):
         from .column_property_ref import ColumnPropertyRef
 
         # resolve column properties
-        if name == ColumnPropertyRef.Property.ERRORTYPE.name.lower() \
-                or name == ColumnPropertyRef.Property.ERRORMSG.name.lower():
+        if (
+            name == ColumnPropertyRef.Property.ERRORTYPE.name.lower()
+            or name == ColumnPropertyRef.Property.ERRORMSG.name.lower()
+        ):
             if not (self.col.is_computed and self.col.is_stored) and not self.col.col_type.is_media_type():
                 raise excs.Error(f'{name} only valid for a stored computed or media column: {self}')
             return ColumnPropertyRef(self, ColumnPropertyRef.Property[name.upper()])
-        if name == ColumnPropertyRef.Property.FILEURL.name.lower() \
-                or name == ColumnPropertyRef.Property.LOCALPATH.name.lower():
+        if (
+            name == ColumnPropertyRef.Property.FILEURL.name.lower()
+            or name == ColumnPropertyRef.Property.LOCALPATH.name.lower()
+        ):
             if not self.col.col_type.is_media_type():
                 raise excs.Error(f'{name} only valid for image/video/audio/document columns: {self}')
             if self.col.is_computed and not self.col.is_stored:
@@ -114,12 +120,14 @@ class ColumnRef(Expr):
 
         if self.col_type.is_json_type():
             from .json_path import JsonPath
+
             return JsonPath(self, [name])
 
         return super().__getattr__(name)
 
     def similarity(self, item: Any, *, idx: Optional[str] = None) -> Expr:
         from .similarity_expr import SimilarityExpr
+
         return SimilarityExpr(self, item, idx_name=idx)
 
     def default_column_name(self) -> Optional[str]:
@@ -205,11 +213,11 @@ class ColumnRef(Expr):
             return
 
         # if this is a new base row, we need to instantiate a new iterator
-        if self.base_rowid != data_row.pk[:self.base_rowid_len]:
+        if self.base_rowid != data_row.pk[: self.base_rowid_len]:
             row_builder.eval(data_row, self.iter_arg_ctx)
             iterator_args = data_row[self.iter_arg_ctx.target_slot_idxs[0]]
             self.iterator = self.col.tbl.iterator_cls(**iterator_args)
-            self.base_rowid = data_row.pk[:self.base_rowid_len]
+            self.base_rowid = data_row.pk[: self.base_rowid_len]
         self.iterator.set_pos(data_row.pk[self.pos_idx])
         res = next(self.iterator)
         data_row[self.slot_idx] = res[self.col.name]
@@ -223,7 +231,7 @@ class ColumnRef(Expr):
             'tbl_id': str(tbl.id),
             'tbl_version': version,
             'col_id': self.col.id,
-            'perform_validation': self.perform_validation
+            'perform_validation': self.perform_validation,
         }
 
     @classmethod

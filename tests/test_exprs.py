@@ -22,8 +22,14 @@ from pixeltable.exprs import ColumnRef, Expr
 from pixeltable.functions import cast
 from pixeltable.iterators import FrameIterator
 
-from .utils import (create_all_datatypes_tbl, create_scalars_tbl, get_image_files, reload_catalog, skip_test_if_not_installed,
-                    validate_update_status)
+from .utils import (
+    create_all_datatypes_tbl,
+    create_scalars_tbl,
+    get_image_files,
+    reload_catalog,
+    skip_test_if_not_installed,
+    validate_update_status,
+)
 
 
 class TestExprs:
@@ -58,8 +64,10 @@ class TestExprs:
     class init_exc(pxt.Aggregator):
         def __init__(self) -> None:
             self.sum = 1 / 0
+
         def update(self, val: int):
             pass
+
         def value(self) -> int:
             return 1
 
@@ -68,8 +76,10 @@ class TestExprs:
     class update_exc(pxt.Aggregator):
         def __init__(self) -> None:
             self.sum = 0
+
         def update(self, val: int):
             self.sum += 1 / val
+
         def value(self) -> int:
             return 1
 
@@ -78,8 +88,10 @@ class TestExprs:
     class value_exc(pxt.Aggregator):
         def __init__(self):
             self.sum = 0
+
         def update(self, val: int):
             self.sum += val
+
         def value(self) -> int:
             return 1 / self.sum
 
@@ -222,7 +234,7 @@ class TestExprs:
         res = img_t.select(img_t.img.localpath).collect().to_pandas()
         stored_paths = set(res.iloc[:, 0])
         assert len(stored_paths) == len(res)
-        all_paths  = set(get_image_files())
+        all_paths = set(get_image_files())
         assert stored_paths <= all_paths
 
         # errortype/-msg for image column
@@ -291,8 +303,14 @@ class TestExprs:
 
         # non-numeric types
         for op1, op2 in [
-            (t.c1, t.c2), (t.c1, 1), (t.c2, t.c1), (t.c2, 'a'),
-            (t.c1, t.c3), (t.c1, 1.0), (t.c3, t.c1), (t.c3, 'a')
+            (t.c1, t.c2),
+            (t.c1, 1),
+            (t.c2, t.c1),
+            (t.c2, 'a'),
+            (t.c1, t.c3),
+            (t.c1, 1.0),
+            (t.c3, t.c1),
+            (t.c3, 'a'),
         ]:
             with pytest.raises(excs.Error):
                 _ = t.select(op1 + op2).collect()
@@ -316,8 +334,14 @@ class TestExprs:
                 _ = t.select(op1 / op2).collect()
 
         for op1, op2 in [
-            (t.c6.f1, t.c6.f2), (t.c6.f1, t.c6.f3), (t.c6.f1, 1), (t.c6.f1, 1.0),
-            (t.c6.f2, t.c6.f1), (t.c6.f3, t.c6.f1), (t.c6.f2, 'a'), (t.c6.f3, 'a'),
+            (t.c6.f1, t.c6.f2),
+            (t.c6.f1, t.c6.f3),
+            (t.c6.f1, 1),
+            (t.c6.f1, 1.0),
+            (t.c6.f2, t.c6.f1),
+            (t.c6.f3, t.c6.f1),
+            (t.c6.f2, 'a'),
+            (t.c6.f3, 'a'),
         ]:
             with pytest.raises(excs.Error):
                 _ = t.select(op1 + op2).collect()
@@ -327,21 +351,25 @@ class TestExprs:
                 _ = t.select(op1 * op2).collect()
 
         # Test literal exprs
-        results = t.where(t.c2 == 7).select(
-            -t.c2,
-            t.c2 + 2,
-            t.c2 - 2,
-            t.c2 * 2,
-            t.c2 / 2,
-            t.c2 % 2,
-            t.c2 // 2,
-            2 + t.c2,
-            2 - t.c2,
-            2 * t.c2,
-            2 / t.c2,
-            2 % t.c2,
-            2 // t.c2,
-        ).collect()
+        results = (
+            t.where(t.c2 == 7)
+            .select(
+                -t.c2,
+                t.c2 + 2,
+                t.c2 - 2,
+                t.c2 * 2,
+                t.c2 / 2,
+                t.c2 % 2,
+                t.c2 // 2,
+                2 + t.c2,
+                2 - t.c2,
+                2 * t.c2,
+                2 / t.c2,
+                2 % t.c2,
+                2 // t.c2,
+            )
+            .collect()
+        )
         assert list(results[0].values()) == [-7, 9, 5, 14, 3.5, 1, 3, 9, -5, 14, 0.2857142857142857, 2, 0]
 
         # Test that arithmetic operations give the right answers. We do this two ways:
@@ -351,28 +379,54 @@ class TestExprs:
         primitive_ops = (t.c2, t.c3)
         forced_python_ops = (t.c2.apply(math.floor, col_type=pxt.Int), t.c3.apply(math.floor, col_type=pxt.Float))
         json_primitive_ops = (t.c6.f2, t.c6.f3)
-        json_forced_python_ops = (t.c6.f2.apply(math.floor, col_type=pxt.Int), t.c6.f3.apply(math.floor, col_type=pxt.Float))
-        for (int_operand, float_operand) in (primitive_ops, forced_python_ops, json_primitive_ops, json_forced_python_ops):
-            results = t.where(t.c2 == 7).select(
-                add_int=int_operand + (t.c2 - 4),
-                sub_int=int_operand - (t.c2 - 4),
-                mul_int=int_operand * (t.c2 - 4),
-                truediv_int=int_operand / (t.c2 - 4),
-                mod_int=int_operand % (t.c2 - 4),
-                neg_floordiv_int=(int_operand * -1) // (t.c2 - 4),
-                add_float=float_operand + (t.c3 - 4.0),
-                sub_float=float_operand - (t.c3 - 4.0),
-                mul_float=float_operand * (t.c3 - 4.0),
-                truediv_float=float_operand / (t.c3 - 4.0),
-                mod_float=float_operand % (t.c3 - 4.0),
-                floordiv_float=float_operand // (t.c3 - 4.0),
-                neg_floordiv_float=(float_operand * -1) // (t.c3 - 4.0),
-                add_int_to_nullable=int_operand + (t.c2n - 4),
-                add_float_to_nullable=float_operand + (t.c3n - 4.0),
-            ).collect()
-            assert list(results[0].values()) == [10, 4, 21, 2.3333333333333335, 1, -3, 10.0, 4.0, 21.0, 2.3333333333333335, 1.0, 2.0, -3.0, None, None], (
-                f'Failed with operands: {int_operand}, {float_operand}'
+        json_forced_python_ops = (
+            t.c6.f2.apply(math.floor, col_type=pxt.Int),
+            t.c6.f3.apply(math.floor, col_type=pxt.Float),
+        )
+        for int_operand, float_operand in (
+            primitive_ops,
+            forced_python_ops,
+            json_primitive_ops,
+            json_forced_python_ops,
+        ):
+            results = (
+                t.where(t.c2 == 7)
+                .select(
+                    add_int=int_operand + (t.c2 - 4),
+                    sub_int=int_operand - (t.c2 - 4),
+                    mul_int=int_operand * (t.c2 - 4),
+                    truediv_int=int_operand / (t.c2 - 4),
+                    mod_int=int_operand % (t.c2 - 4),
+                    neg_floordiv_int=(int_operand * -1) // (t.c2 - 4),
+                    add_float=float_operand + (t.c3 - 4.0),
+                    sub_float=float_operand - (t.c3 - 4.0),
+                    mul_float=float_operand * (t.c3 - 4.0),
+                    truediv_float=float_operand / (t.c3 - 4.0),
+                    mod_float=float_operand % (t.c3 - 4.0),
+                    floordiv_float=float_operand // (t.c3 - 4.0),
+                    neg_floordiv_float=(float_operand * -1) // (t.c3 - 4.0),
+                    add_int_to_nullable=int_operand + (t.c2n - 4),
+                    add_float_to_nullable=float_operand + (t.c3n - 4.0),
+                )
+                .collect()
             )
+            assert list(results[0].values()) == [
+                10,
+                4,
+                21,
+                2.3333333333333335,
+                1,
+                -3,
+                10.0,
+                4.0,
+                21.0,
+                2.3333333333333335,
+                1.0,
+                2.0,
+                -3.0,
+                None,
+                None,
+            ], f'Failed with operands: {int_operand}, {float_operand}'
 
         with pytest.raises(excs.Error) as exc_info:
             t.select(t.c6 + t.c2.apply(math.floor, col_type=pxt.Int)).collect()
@@ -384,10 +438,10 @@ class TestExprs:
         # (i) with primitive operators only, to ensure that the comparison operations are done in SQL when possible;
         # (ii) with a Python function call interposed, to ensure that the comparison operations are always done in Python.
         comparison_pairs = (
-            (t.c1, "test string 10"),       # string-to-string
-            (t.c2, 50),                     # int-to-int
-            (t.c3, 50.1),                   # float-to-float
-            (t.c5, datetime(2024, 7, 2)),   # datetime-to-datetime
+            (t.c1, 'test string 10'),  # string-to-string
+            (t.c2, 50),  # int-to-int
+            (t.c3, 50.1),  # float-to-float
+            (t.c5, datetime(2024, 7, 2)),  # datetime-to-datetime
         )
         for expr1, expr2 in comparison_pairs:
             forced_expr1 = expr1.apply(lambda x: x, col_type=expr1.col_type)
@@ -428,7 +482,9 @@ class TestExprs:
 
         with pytest.raises(excs.Error) as excinfo:
             _ = t.select(pxt.array([t.c1, t.c2])).collect()
-        assert 'element of type `Int` at index 1 is not compatible with type `String` of preceding elements' in str(excinfo.value)
+        assert 'element of type `Int` at index 1 is not compatible with type `String` of preceding elements' in str(
+            excinfo.value
+        )
 
     def test_json_path(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
@@ -462,9 +518,7 @@ class TestExprs:
         _ = _.show()
         print(_)
         # target expr contains global-scope dependency
-        df = t[
-            t.c6.f5['*'] >> (R * t.c6.f5[1])
-        ]
+        df = t[t.c6.f5['*'] >> (R * t.c6.f5[1])]
         res = df.show()
         print(res)
 
@@ -476,15 +530,15 @@ class TestExprs:
         print(_)
         # predicate on dict field
         _ = t[t.c6.f2 < 2].show()
-        #_ = t[t.c6.f2].show()
-        #_ = t[t.c6.f5].show()
+        # _ = t[t.c6.f2].show()
+        # _ = t[t.c6.f5].show()
         _ = t[t.c6.f6.f8].show()
         _ = t[cast(t.c6.f6.f8, pxt.Array[(4,), pxt.Float])].show()
 
         # top-level is array
-        #_ = t[t.c7['*'].f1].show()
-        #_ = t[t.c7['*'].f2].show()
-        #_ = t[t.c7['*'].f5].show()
+        # _ = t[t.c7['*'].f1].show()
+        # _ = t[t.c7['*'].f2].show()
+        # _ = t[t.c7['*'].f5].show()
         _ = t[t.c7['*'].f6.f8].show()
         _ = t[t.c7[0].f6.f8].show()
         _ = t[t.c7[:2].f6.f8].show()
@@ -497,10 +551,7 @@ class TestExprs:
         t.add_column(array_col=pxt.array([[t.c2, 1], [5, t.c2]]))
 
         def selection_equals(expr: Expr, expected: list[np.ndarray]) -> bool:
-            return all(
-                np.array_equal(x, y)
-                for x, y in zip(t.select(out=expr).collect()['out'], expected)
-            )
+            return all(np.array_equal(x, y) for x, y in zip(t.select(out=expr).collect()['out'], expected))
 
         assert selection_equals(t.array_col, [np.array([[i, 1], [5, i]]) for i in range(100)])
         assert selection_equals(t.array_col[1], [np.array([5, i]) for i in range(100)])
@@ -555,9 +606,11 @@ class TestExprs:
 
         status = t.add_column(in_test=t.c2.isin([1, 2, 3]))
         assert status.num_excs == 0
+
         def inc_pk(rows: list[dict], offset: int) -> None:
             for r in rows:
                 r['c2'] += offset
+
         inc_pk(rows, 1000)
         validate_update_status(t.insert(rows), len(rows))
 
@@ -603,10 +656,7 @@ class TestExprs:
         status = t.add_column(c2n_as_req_float=t.c2n.astype(pxt.Required[pxt.Float]), on_error='ignore')
         assert t.c2n_as_req_float.col_type == pxt.FloatType(nullable=False)
         assert status.num_excs == t.count() // 2  # Just the odd values should error out
-        errormsgs = [
-            msg for msg in t.select(out=t.c2n_as_req_float.errormsg).collect()['out']
-            if msg is not None
-        ]
+        errormsgs = [msg for msg in t.select(out=t.c2n_as_req_float.errormsg).collect()['out'] if msg is not None]
         assert len(errormsgs) == t.count() // 2
         assert all('Expected non-None value' in msg for msg in errormsgs), errormsgs
 
@@ -615,15 +665,15 @@ class TestExprs:
         img_files = img_files[:5]
         # store relative paths in the table
         parent_dir = Path(img_files[0]).parent
-        assert(all(parent_dir == Path(img_file).parent for img_file in img_files))
+        assert all(parent_dir == Path(img_file).parent for img_file in img_files)
         t = pxt.create_table('astype_test', {'rel_path': pxt.String})
         validate_update_status(t.insert({'rel_path': Path(f).name} for f in img_files), expected_rows=len(img_files))
 
         # create a computed image column constructed from the relative paths
         import pixeltable.functions as pxtf
+
         validate_update_status(
-            t.add_column(
-                img=pxtf.string.format('{0}/{1}', str(parent_dir), t.rel_path).astype(pxt.Image), stored=True)
+            t.add_column(img=pxtf.string.format('{0}/{1}', str(parent_dir), t.rel_path).astype(pxt.Image), stored=True)
         )
         loaded_imgs = t.select(t.img).collect()['img']
         orig_imgs = [PIL.Image.open(f) for f in img_files]
@@ -631,10 +681,9 @@ class TestExprs:
             assert np.array_equal(np.array(orig_img), np.array(retrieved_img))
 
         # the same for a select list item
-        loaded_imgs = (
-            t.select(img=pxtf.string.format('{0}/{1}', str(parent_dir), t.rel_path).astype(pxt.Image))
-            .collect()['img']
-        )
+        loaded_imgs = t.select(
+            img=pxtf.string.format('{0}/{1}', str(parent_dir), t.rel_path).astype(pxt.Image)
+        ).collect()['img']
         for orig_img, retrieved_img in zip(orig_imgs, loaded_imgs):
             assert np.array_equal(np.array(orig_img), np.array(retrieved_img))
 
@@ -643,8 +692,7 @@ class TestExprs:
         t['img'] = t.url.astype(pxt.Image)
         images = get_image_files(include_bad_image=True)[:5]  # bad image is at idx 0
         url_encoded_images = [
-            f'data:image/jpeg;base64,{base64.b64encode(open(img, "rb").read()).decode()}'
-            for img in images
+            f'data:image/jpeg;base64,{base64.b64encode(open(img, "rb").read()).decode()}' for img in images
         ]
 
         status = t.insert({'url': url} for url in url_encoded_images[1:])
@@ -658,20 +706,18 @@ class TestExprs:
 
         # Try inserting a non-image
         with pytest.raises(
-            excs.ExprEvalError,
-            match='data URL could not be decoded into a valid image: data:text/plain,Hello there.'
+            excs.ExprEvalError, match='data URL could not be decoded into a valid image: data:text/plain,Hello there.'
         ):
             t.insert(url='data:text/plain,Hello there.')
 
         # Try inserting a bad image
         with pytest.raises(
             excs.ExprEvalError,
-            match='data URL could not be decoded into a valid image: data:image/jpeg;base64,dGhlc2UgYXJlIHNvbWUgYmFkIGp...'
+            match='data URL could not be decoded into a valid image: data:image/jpeg;base64,dGhlc2UgYXJlIHNvbWUgYmFkIGp...',
         ):
             t.insert(url=url_encoded_images[0])
 
     def test_apply(self, test_tbl: catalog.Table) -> None:
-
         t = test_tbl
 
         # For each column c1, ..., c5, we create a new column ci_as_str that converts it to
@@ -736,14 +782,14 @@ class TestExprs:
         assert str(exc_info.value) == 'Function `f3` has multiple required parameters.'
 
         def f4() -> str:
-            return "pixeltable"
+            return 'pixeltable'
 
         with pytest.raises(excs.Error) as exc_info:
             t.c2.apply(f4)  # No positional parameters
         assert str(exc_info.value) == 'Function `f4` has no positional parameters.'
 
         def f5(**kwargs) -> str:
-            return ""
+            return ''
 
         with pytest.raises(excs.Error) as exc_info:
             t.c2.apply(f5)  # No positional parameters
@@ -805,7 +851,7 @@ class TestExprs:
         t.insert({'img': url} for url in img_urls)
         # this fails with an assertion
         # TODO: fix it
-        #res = t.where(t.img.width < 600).collect()
+        # res = t.where(t.img.width < 600).collect()
 
     def test_img_exprs(self, img_tbl) -> None:
         t = img_tbl
@@ -819,9 +865,11 @@ class TestExprs:
         print(result)
         result = t.where((t.split == 'val') & (t.img.entropy() > 1) & (t.category == 'n03445777')).show()
         print(result)
-        result = t.where(
-            (t.split == 'train') & (t.img.entropy() > 1) & (t.split == 'val') & (t.img.entropy() < 0)
-        ).select(t.img, t.split).show()
+        result = (
+            t.where((t.split == 'train') & (t.img.entropy() > 1) & (t.split == 'val') & (t.img.entropy() < 0))
+            .select(t.img, t.split)
+            .show()
+        )
         print(result)
 
     @pytest.mark.skip(reason='temporarily disabled')
@@ -844,9 +892,9 @@ class TestExprs:
         assert len(result) == 10
         # matches() with one SQL predicate and one Python predicate
         french_horn_category = 'n03394916'
-        result = t[
-            t.img.nearest('musical instrument') & (t.category == french_horn_category) & (t.img.width > 1)
-        ].show(10)
+        result = t[t.img.nearest('musical instrument') & (t.category == french_horn_category) & (t.img.width > 1)].show(
+            10
+        )
 
         with pytest.raises(excs.Error) as exc_info:
             _ = t[t.img.nearest(5)].show()
@@ -854,7 +902,9 @@ class TestExprs:
 
     # TODO: this doesn't work when combined with test_similarity(), for some reason the data table for img_tbl
     # doesn't get created; why?
-    def test_similarity2(self, img_tbl: catalog.Table, indexed_img_tbl: catalog.Table, multi_idx_img_tbl: catalog.Table) -> None:
+    def test_similarity2(
+        self, img_tbl: catalog.Table, indexed_img_tbl: catalog.Table, multi_idx_img_tbl: catalog.Table
+    ) -> None:
         t = img_tbl
         probe = t[t.img].show(1)
         img = probe[0, 0]
@@ -883,8 +933,7 @@ class TestExprs:
         assert sim1.serialize() != sim2.serialize()
 
     def test_ids(
-        self, test_tbl_exprs: list[exprs.Expr], img_tbl_exprs: list[exprs.Expr],
-        multi_img_tbl_exprs: list[exprs.Expr]
+        self, test_tbl_exprs: list[exprs.Expr], img_tbl_exprs: list[exprs.Expr], multi_img_tbl_exprs: list[exprs.Expr]
     ) -> None:
         skip_test_if_not_installed('transformers')
         d: dict[int, exprs.Expr] = {}
@@ -894,8 +943,7 @@ class TestExprs:
         assert len(d) == len(test_tbl_exprs) + len(img_tbl_exprs) + len(multi_img_tbl_exprs)
 
     def test_serialization(
-        self, test_tbl_exprs: list[exprs.Expr], img_tbl_exprs: list[exprs.Expr],
-        multi_img_tbl_exprs: list[exprs.Expr]
+        self, test_tbl_exprs: list[exprs.Expr], img_tbl_exprs: list[exprs.Expr], multi_img_tbl_exprs: list[exprs.Expr]
     ) -> None:
         """Test as_dict()/from_dict() (via serialize()/deserialize()) for all exprs."""
         skip_test_if_not_installed('transformers')
@@ -904,8 +952,8 @@ class TestExprs:
             e_deserialized = Expr.deserialize(e_serialized)
             assert e.equals(e_deserialized)
 
-    def test_print(self, test_tbl_exprs: list[exprs.Expr], img_tbl_exprs: list[exprs.Expr],
-        multi_img_tbl_exprs: list[exprs.Expr]
+    def test_print(
+        self, test_tbl_exprs: list[exprs.Expr], img_tbl_exprs: list[exprs.Expr], multi_img_tbl_exprs: list[exprs.Expr]
     ) -> None:
         skip_test_if_not_installed('transformers')
         _ = pxt.func.FunctionRegistry.get().module_fns
@@ -932,10 +980,12 @@ class TestExprs:
         # conflicting ordering requirements
         with pytest.raises(excs.Error):
             _ = t.select(
-                pxtf.sum(t.c2, group_by=t.c4, order_by=t.c3), pxtf.sum(t.c2, group_by=t.c3, order_by=t.c4)).show(100)
+                pxtf.sum(t.c2, group_by=t.c4, order_by=t.c3), pxtf.sum(t.c2, group_by=t.c3, order_by=t.c4)
+            ).show(100)
         with pytest.raises(excs.Error):
             _ = t.select(
-                pxtf.sum(t.c2, group_by=t.c4, order_by=t.c3), pxtf.sum(t.c2, group_by=t.c3, order_by=t.c4)).show(100)
+                pxtf.sum(t.c2, group_by=t.c4, order_by=t.c3), pxtf.sum(t.c2, group_by=t.c3, order_by=t.c4)
+            ).show(100)
 
         # backfill works
         t.add_column(c9=pxtf.sum(t.c2, group_by=t.c4, order_by=t.c3))
@@ -977,8 +1027,10 @@ class TestExprs:
     def test_agg(self, reset_db) -> None:
         t = create_scalars_tbl(1000)
         df = t.select().collect().to_pandas()
+
         def series_to_list(series):
             return [int(x) if pd.notna(x) else None for x in series]
+
         int_sum = pxtf.sum(t.c_int)
         _ = t.group_by(t.c_int).select(t.c_int, out=int_sum).order_by(int_sum, asc=False).limit(5).collect()
 
@@ -991,16 +1043,14 @@ class TestExprs:
         ]:
             pxt_sql_result = t.group_by(t.c_int).select(out=pxt_fn(t.c_int)).order_by(t.c_int).collect()
             pxt_py_result = (
-                t
-                .group_by(t.c_int)
+                t.group_by(t.c_int)
                 # apply(): force execution in Python
                 .select(out=pxt_fn(t.c_int.apply(lambda x: x, col_type=t.c_int.col_type)))
                 .order_by(t.c_int)
                 .collect()
             )
             pd_result = (
-                df
-                .groupby('c_int', dropna=False)
+                df.groupby('c_int', dropna=False)
                 .agg(out=('c_int', pd_fn))
                 .reset_index()
                 .sort_values('c_int', na_position='last')
@@ -1019,8 +1069,7 @@ class TestExprs:
         ]:
             int_agg = pxt_fn(t.c_int)
             pxt_sql_result = (
-                t
-                .where(t.c_int != None)
+                t.where(t.c_int != None)
                 .group_by(t.c_int)
                 .select(out=int_agg)
                 .order_by(int_agg, asc=False)
@@ -1028,8 +1077,7 @@ class TestExprs:
                 .collect()
             )
             pd_result = (
-                df
-                .groupby('c_int')
+                df.groupby('c_int')
                 .agg(out=('c_int', pd_fn))
                 .nlargest(5, 'out')
                 .reset_index()
@@ -1041,13 +1089,7 @@ class TestExprs:
         pxt_sql_result = (
             t.where(t.c_int != None).group_by(t.c_int).select(out=pxtf.sum(t.c_int)).order_by(t.c_int).collect()
         )
-        pd_result = (
-            df
-            .groupby('c_int', dropna=True)
-            .agg(out=('c_int', 'sum'))
-            .reset_index()
-            .sort_values('c_int')
-        )
+        pd_result = df.groupby('c_int', dropna=True).agg(out=('c_int', 'sum')).reset_index().sort_values('c_int')
         assert pxt_sql_result['out'] == series_to_list(pd_result['out'])
 
     def test_agg_errors(self, test_tbl: catalog.Table) -> None:
@@ -1072,8 +1114,10 @@ class TestExprs:
     class window_agg:
         def __init__(self, val: int = 0):
             self.val = val
+
         def update(self, ignore: int) -> None:
             pass
+
         def value(self) -> int:
             return self.val
 
@@ -1081,8 +1125,10 @@ class TestExprs:
     class ordered_agg:
         def __init__(self, val: int = 0):
             self.val = val
+
         def update(self, i: int) -> None:
             pass
+
         def value(self) -> int:
             return self.val
 
@@ -1090,8 +1136,10 @@ class TestExprs:
     class std_agg:
         def __init__(self, val: int = 0):
             self.val = val
+
         def update(self, i: int) -> None:
             pass
+
         def value(self) -> int:
             return self.val
 
@@ -1141,10 +1189,13 @@ class TestExprs:
             class WindowAgg:
                 def __init__(self, val: int = 0):
                     self.val = val
+
                 def update(self) -> None:
                     pass
+
                 def value(self) -> int:
                     return self.val
+
         assert 'must have at least one parameter' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
@@ -1153,10 +1204,13 @@ class TestExprs:
             class WindowAgg:
                 def __init__(self, val: int = 0):
                     self.val = val
+
                 def update(self, val: int) -> None:
                     pass
+
                 def value(self) -> int:
                     return self.val
+
         assert 'cannot have parameters with the same name: val' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
@@ -1165,10 +1219,13 @@ class TestExprs:
             class WindowAgg:
                 def __init__(self, val: int = 0):
                     self.val = val
+
                 def update(self, order_by: int) -> None:
                     pass
+
                 def value(self) -> int:
                     return self.val
+
         assert "'order_by' is a reserved parameter name" in str(exc_info.value).lower()
 
         with pytest.raises(excs.Error) as exc_info:
@@ -1177,10 +1234,13 @@ class TestExprs:
             class WindowAgg:
                 def __init__(self, val: int = 0):
                     self.val = val
+
                 def update(self, group_by: int) -> None:
                     pass
+
                 def value(self) -> int:
                     return self.val
+
         assert "'group_by' is a reserved parameter name" in str(exc_info.value).lower()
 
     def test_repr(self, reset_db) -> None:
@@ -1214,10 +1274,12 @@ class TestExprs:
             # InPredicate
             (t.c_int.isin([1, 2, 3]), 'c_int.isin([1, 2, 3])'),
             # InlineDict/List
-            (pxtf.openai.chat_completions([{'system': t.c_string}], model='test'),
-                "chat_completions([{'system': c_string}], model='test')"),
+            (
+                pxtf.openai.chat_completions([{'system': t.c_string}], model='test'),
+                "chat_completions([{'system': c_string}], model='test')",
+            ),
             # InlineArray
-            (pxt.array([1, 2, t.c_int]), "[1, 2, c_int]"),
+            (pxt.array([1, 2, t.c_int]), '[1, 2, c_int]'),
             # IsNull
             (t.c_int == None, 'c_int == None'),
             # JsonPath

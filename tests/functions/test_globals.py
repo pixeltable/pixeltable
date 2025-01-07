@@ -3,8 +3,8 @@ import numpy as np
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 
-class TestGlobals:
 
+class TestGlobals:
     def test_aggregators(self, test_tbl: pxt.Table):
         t = test_tbl
 
@@ -40,10 +40,7 @@ class TestGlobals:
             c5max=pxtf.max(t.c5),
         ).collect()
         res_direct = t.select(t.c1, t.c2, t.c3, t.c4, t.c5).collect()
-        assert res[0] == {
-            f'c{i}{op.__name__}': op(res_direct[f'c{i}'])
-            for i in range(1, 6) for op in [min, max]
-        }
+        assert res[0] == {f'c{i}{op.__name__}': op(res_direct[f'c{i}']) for i in range(1, 6) for op in [min, max]}
 
         # sum() and mean()
         res = t.select(
@@ -53,7 +50,4 @@ class TestGlobals:
             c3mean=pxtf.mean(t.c3),
         ).collect()
         res_direct = t.select(t.c2, t.c3).collect()
-        assert res[0] == {
-            f'c{i}{op.__name__}': op(res_direct[f'c{i}'])
-            for i in (2, 3) for op in (sum, np.mean)
-        }
+        assert res[0] == {f'c{i}{op.__name__}': op(res_direct[f'c{i}']) for i in (2, 3) for op in (sum, np.mean)}

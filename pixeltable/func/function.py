@@ -49,7 +49,7 @@ class Function(abc.ABC):
         signatures: list[Signature],
         self_path: Optional[str] = None,
         is_method: bool = False,
-        is_property: bool = False
+        is_property: bool = False,
     ):
         # Check that stored functions cannot be declared using `is_method` or `is_property`:
         assert not ((is_method or is_property) and self_path is None)
@@ -75,7 +75,7 @@ class Function(abc.ABC):
             return '<anonymous>'
         ptf_prefix = 'pixeltable.functions.'
         if self.self_path.startswith(ptf_prefix):
-            return self.self_path[len(ptf_prefix):]
+            return self.self_path[len(ptf_prefix) :]
         return self.self_path
 
     @property
@@ -243,9 +243,7 @@ class Function(abc.ABC):
                 raise excs.Error(f'Expected type `{param.col_type}` for parameter `{k}`; got `{expr.col_type}`')
             bindings[k] = v  # Use the original value, not the Expr (The Expr is only for validation)
 
-        residual_params = [
-            p for p in self.signature.parameters.values() if p.name not in bindings
-        ]
+        residual_params = [p for p in self.signature.parameters.values() if p.name not in bindings]
 
         # Bind each remaining parameter to a like-named variable
         for param in residual_params:

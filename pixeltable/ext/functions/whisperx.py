@@ -15,7 +15,7 @@ def transcribe(
     model: str,
     compute_type: Optional[str] = None,
     language: Optional[str] = None,
-    chunk_size: int = 30
+    chunk_size: int = 30,
 ) -> dict:
     """
     Transcribe an audio file using WhisperX.

@@ -46,8 +46,7 @@ class InlineArray(Expr):
         elif inferred_element_type.is_array_type():
             assert isinstance(inferred_element_type, ts.ArrayType)
             col_type = ts.ArrayType(
-                (len(exprs), *inferred_element_type.shape),
-                ts.ColumnType.make_type(inferred_element_type.dtype)
+                (len(exprs), *inferred_element_type.shape), ts.ColumnType.make_type(inferred_element_type.dtype)
             )
         else:
             raise excs.Error(f'Element type is not a valid dtype for an array: {inferred_element_type}')
@@ -104,7 +103,7 @@ class InlineList(Expr):
         json_schema = {
             'type': 'array',
             'prefixItems': [expr.col_type.to_json_schema() for expr in exprs],
-            'items': False  # No additional items (fixed length)
+            'items': False,  # No additional items (fixed length)
         }
 
         super().__init__(ts.JsonType(json_schema))
@@ -159,10 +158,7 @@ class InlineDict(Expr):
         try:
             json_schema = {
                 'type': 'object',
-                'properties': {
-                    key: expr.col_type.to_json_schema()
-                    for key, expr in zip(self.keys, exprs)
-                },
+                'properties': {key: expr.col_type.to_json_schema() for key, expr in zip(self.keys, exprs)},
             }
         except excs.Error:
             # InlineDicts are used to store iterator arguments, which are not required to be valid JSON types,
@@ -189,10 +185,7 @@ class InlineDict(Expr):
 
     def eval(self, data_row: DataRow, _: RowBuilder) -> None:
         assert len(self.keys) == len(self.components)
-        data_row[self.slot_idx] = {
-            key: data_row[expr.slot_idx]
-            for key, expr in zip(self.keys, self.components)
-        }
+        data_row[self.slot_idx] = {key: data_row[expr.slot_idx] for key, expr in zip(self.keys, self.components)}
 
     def to_kwargs(self) -> dict[str, Any]:
         """Deconstructs this expression into a dictionary by recursively unwrapping all Literals,

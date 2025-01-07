@@ -4,6 +4,7 @@ T = TypeVar('T')
 
 from .expr import Expr
 
+
 class ExprDict(Generic[T]):
     """
     A dictionary that maps Expr instances to values of type T.

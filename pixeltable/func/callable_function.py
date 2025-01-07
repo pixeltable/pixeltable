@@ -28,7 +28,7 @@ class CallableFunction(Function):
         self_name: Optional[str] = None,
         batch_size: Optional[int] = None,
         is_method: bool = False,
-        is_property: bool = False
+        is_property: bool = False,
     ):
         assert len(signatures) > 0
         assert len(signatures) == len(py_fns)
@@ -119,6 +119,7 @@ class CallableFunction(Function):
             # this is not a module function
             assert not self.is_method and not self.is_property
             from .function_registry import FunctionRegistry
+
             id = FunctionRegistry.get().create_stored_function(self)
             return {'id': id.hex}
         return super()._as_dict()
@@ -127,6 +128,7 @@ class CallableFunction(Function):
     def _from_dict(cls, d: dict) -> Function:
         if 'id' in d:
             from .function_registry import FunctionRegistry
+
             return FunctionRegistry.get().get_stored_function(UUID(hex=d['id']))
         return super()._from_dict(d)
 

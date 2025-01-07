@@ -111,15 +111,19 @@ class TestDirs:
         assert pxt.list_dirs(recursive=True) == dirs
         with pytest.raises(excs.Error) as exc_info:
             _ = pxt.create_dir('dir1.sub1', if_exists='replace')
-        assert ('already exists' in str(exc_info.value)
+        assert (
+            'already exists' in str(exc_info.value)
             and 'has dependents' in str(exc_info.value)
-            and 'replace_force' in str(exc_info.value))
+            and 'replace_force' in str(exc_info.value)
+        )
         assert pxt.list_dirs(recursive=True) == dirs
         with pytest.raises(excs.Error) as exc_info:
             _ = pxt.create_dir('dir1', if_exists='replace')
-        assert ('already exists' in str(exc_info.value)
+        assert (
+            'already exists' in str(exc_info.value)
             and 'has dependents' in str(exc_info.value)
-            and 'replace_force' in str(exc_info.value))
+            and 'replace_force' in str(exc_info.value)
+        )
         assert pxt.list_dirs(recursive=True) == dirs
 
         # if_exists='replace_force' should replace existing Dir,
@@ -141,8 +145,9 @@ class TestDirs:
         for _ie in ['ignore', 'replace', 'replace_force']:
             with pytest.raises(excs.Error) as exc_info:
                 pxt.create_dir('dir1.t1', if_exists=_ie)
-            assert ('already exists' in str(exc_info.value)
-                and 'not a Dir' in str(exc_info.value)), f" for if_exists='{_ie}'"
+            assert 'already exists' in str(exc_info.value) and 'not a Dir' in str(
+                exc_info.value
+            ), f" for if_exists='{_ie}'"
 
     def test_rm(self, reset_db) -> None:
         dirs = ['dir1', 'dir1.sub1', 'dir1.sub1.subsub1']

@@ -8,6 +8,7 @@ from typing import Optional
 import tempfile
 import math
 
+
 def create_test_video(
     frame_count: int,
     frame_rate: float = 1.0,
@@ -18,18 +19,18 @@ def create_test_video(
     font_file: str = '/Library/Fonts/Arial Unicode.ttf',
 ) -> Path:
     """
-        Creates an .mp4 video file such as the ones in /tests/data/test_videos
-        The video contains a frame number in each frame (for visual sanity check).
+    Creates an .mp4 video file such as the ones in /tests/data/test_videos
+    The video contains a frame number in each frame (for visual sanity check).
 
-        Args:
-            frame_count: Number of frames to create
-            frame_rate: Frame rate of the video
-            frame_width (int): Width in pixels of the video frame. Note: cost of decoding increases dramatically
-                with frame width * frame height.
-            aspect_ratio: Aspect ratio (width/height) of the video frames string of form 'width:height'
-            frame_height: Height of the video frame, if given, aspect_ratio is ignored
-            output_path: Path to save the video file
-            font_file: Path to the font file used for text.
+    Args:
+        frame_count: Number of frames to create
+        frame_rate: Frame rate of the video
+        frame_width (int): Width in pixels of the video frame. Note: cost of decoding increases dramatically
+            with frame width * frame height.
+        aspect_ratio: Aspect ratio (width/height) of the video frames string of form 'width:height'
+        frame_height: Height of the video frame, if given, aspect_ratio is ignored
+        output_path: Path to save the video file
+        font_file: Path to the font file used for text.
     """
 
     if output_path is None:

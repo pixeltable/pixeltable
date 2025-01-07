@@ -18,10 +18,7 @@ class PxtPlugin(Plugin):
         pxt.Audio: 'builtins.str',
         pxt.Document: 'builtins.str',
     }
-    __FULLNAME_MAP = {
-        f'{k.__module__}.{k.__name__}': v
-        for k, v in __TYPE_MAP.items()
-    }
+    __FULLNAME_MAP = {f'{k.__module__}.{k.__name__}': v for k, v in __TYPE_MAP.items()}
 
     def get_type_analyze_hook(self, fullname: str) -> Optional[Callable[[AnalyzeTypeContext], Type]]:
         if fullname in self.__FULLNAME_MAP:
@@ -34,20 +31,23 @@ class PxtPlugin(Plugin):
             return pxt_decorator_hook
         return None
 
+
 def plugin(version: str) -> type:
     return PxtPlugin
+
 
 def pxt_hook(ctx: AnalyzeTypeContext, subst_name: str) -> Type:
     if subst_name == 'typing.Any':
         return AnyType(TypeOfAny.special_form)
     return ctx.api.named_type(subst_name, [])
 
+
 def pxt_decorator_hook(ctx: ClassDefContext) -> bool:
     arg = nodes.Argument(nodes.Var('fn'), AnyType(TypeOfAny.special_form), None, nodes.ARG_POS)
     add_method_to_class(
         ctx.api,
         ctx.cls,
-        "to_sql",
+        'to_sql',
         args=[arg],
         return_type=AnyType(TypeOfAny.special_form),
         is_staticmethod=True,

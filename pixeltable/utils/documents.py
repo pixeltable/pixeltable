@@ -83,6 +83,7 @@ def get_xml_handle(path: str) -> Optional[bs4.BeautifulSoup]:
 def get_markdown_handle(path: str) -> Optional[dict]:
     Env.get().require_package('mistune', [3, 0])
     import mistune
+
     try:
         with open(path, encoding='utf8') as file:
             text = file.read()
@@ -91,9 +92,10 @@ def get_markdown_handle(path: str) -> Optional[dict]:
     except Exception:
         return None
 
+
 def get_txt(path: str) -> Optional[str]:
     try:
-        with open(path, "r") as f:
+        with open(path, 'r') as f:
             doc = f.read()
         return doc if doc != '' else None
     except Exception:

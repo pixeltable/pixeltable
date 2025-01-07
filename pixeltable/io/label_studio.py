@@ -47,12 +47,12 @@ class LabelStudioProject(Project):
     """
 
     def __init__(
-            self,
-            name: str,
-            project_id: int,
-            media_import_method: Literal['post', 'file', 'url'],
-            col_mapping: dict[Column, str],
-            stored_proxies: Optional[dict[Column, Column]] = None
+        self,
+        name: str,
+        project_id: int,
+        media_import_method: Literal['post', 'file', 'url'],
+        col_mapping: dict[Column, str],
+        stored_proxies: Optional[dict[Column, Column]] = None,
     ):
         """
         The constructor will NOT create a new Label Studio project; it is also used when loading
@@ -70,8 +70,10 @@ class LabelStudioProject(Project):
             try:
                 self._project = _label_studio_client().get_project(self.project_id)
             except HTTPError as exc:
-                raise excs.Error(f'Could not locate Label Studio project: {self.project_id} '
-                                 '(cannot connect to server or project no longer exists)') from exc
+                raise excs.Error(
+                    f'Could not locate Label Studio project: {self.project_id} '
+                    '(cannot connect to server or project no longer exists)'
+                ) from exc
         return self._project
 
     @property
@@ -105,8 +107,10 @@ class LabelStudioProject(Project):
         return {ANNOTATIONS_COLUMN: pxt.JsonType(nullable=True)}
 
     def sync(self, t: Table, export_data: bool, import_data: bool) -> SyncStatus:
-        _logger.info(f'Syncing Label Studio project "{self.project_title}" with table `{t._name}`'
-                     f' (export: {export_data}, import: {import_data}).')
+        _logger.info(
+            f'Syncing Label Studio project "{self.project_title}" with table `{t._name}`'
+            f' (export: {export_data}, import: {import_data}).'
+        )
         # Collect all existing tasks into a dict with entries `rowid: task`
         tasks = {tuple(task['meta']['rowid']): task for task in self.__fetch_all_tasks()}
         sync_status = SyncStatus.empty()
@@ -148,18 +152,14 @@ class LabelStudioProject(Project):
         config = self.__project_config
 
         # Columns in `t` that map to Label Studio data keys
-        t_data_cols = [
-            t_col for t_col, ext_col_name in self.col_mapping.items()
-            if ext_col_name in config.data_keys
-        ]
+        t_data_cols = [t_col for t_col, ext_col_name in self.col_mapping.items() if ext_col_name in config.data_keys]
 
         if len(t_data_cols) == 0:
             return SyncStatus.empty()
 
         # Columns in `t` that map to `rectanglelabels` preannotations
         t_rl_cols = [
-            t_col for t_col, ext_col_name in self.col_mapping.items()
-            if ext_col_name in config.rectangle_labels
+            t_col for t_col, ext_col_name in self.col_mapping.items() if ext_col_name in config.rectangle_labels
         ]
 
         # Destinations for `rectanglelabels` preannotations
@@ -180,12 +180,12 @@ class LabelStudioProject(Project):
             assert False
 
     def __update_tasks_by_post(
-            self,
-            t: Table,
-            existing_tasks: dict[tuple, dict],
-            media_col: Column,
-            t_rl_cols: list[Column],
-            rl_info: list['_RectangleLabel']
+        self,
+        t: Table,
+        existing_tasks: dict[tuple, dict],
+        media_col: Column,
+        t_rl_cols: list[Column],
+        rl_info: list['_RectangleLabel'],
     ) -> SyncStatus:
         is_stored = media_col.is_stored
         # If it's a stored column, we can use `localpath`
@@ -197,7 +197,7 @@ class LabelStudioProject(Project):
 
         for row in rows._exec():
             media_col_idx = rows._select_list_exprs[0].slot_idx
-            rl_col_idxs = [expr.slot_idx for expr in rows._select_list_exprs[1: 1 + len(t_rl_cols)]]
+            rl_col_idxs = [expr.slot_idx for expr in rows._select_list_exprs[1 : 1 + len(t_rl_cols)]]
             row_ids_in_pxt.add(row.rowid)
             if row.rowid not in existing_tasks:
                 # Upload the media file to Label Studio
@@ -239,12 +239,12 @@ class LabelStudioProject(Project):
         return sync_status.combine(deletion_sync_status)
 
     def __update_tasks_by_files(
-            self,
-            t: Table,
-            existing_tasks: dict[tuple, dict],
-            t_data_cols: list[Column],
-            t_rl_cols: list[Column],
-            rl_info: list['_RectangleLabel']
+        self,
+        t: Table,
+        existing_tasks: dict[tuple, dict],
+        t_data_cols: list[Column],
+        t_rl_cols: list[Column],
+        rl_info: list['_RectangleLabel'],
     ) -> SyncStatus:
         ext_data_cols = [self.col_mapping[col] for col in t_data_cols]
         expr_refs: dict[str, Expr] = {}  # kwargs for the select statement
@@ -301,21 +301,23 @@ class LabelStudioProject(Project):
             return {
                 'data': dict(zip(ext_data_cols, data_vals)),
                 'meta': {'rowid': row.rowid},
-                'predictions': predictions
+                'predictions': predictions,
             }
 
         for row in df._exec():
             if rl_col_idxs is None:
-                rl_col_idxs = [expr.slot_idx for expr in df._select_list_exprs[:len(t_rl_cols)]]
-                data_col_idxs = [expr.slot_idx for expr in df._select_list_exprs[len(t_rl_cols):]]
+                rl_col_idxs = [expr.slot_idx for expr in df._select_list_exprs[: len(t_rl_cols)]]
+                data_col_idxs = [expr.slot_idx for expr in df._select_list_exprs[len(t_rl_cols) :]]
             row_ids_in_pxt.add(row.rowid)
             task_info = create_task_info(row)
             # TODO(aaron-siegel): Implement more efficient update logic (currently involves a full table scan)
             if row.rowid in existing_tasks:
                 # A task for this row already exists; see if it needs an update.
                 existing_task = existing_tasks[row.rowid]
-                if task_info['data'] != existing_task['data'] or \
-                        task_info['predictions'] != existing_task['predictions']:
+                if (
+                    task_info['data'] != existing_task['data']
+                    or task_info['predictions'] != existing_task['predictions']
+                ):
                     _logger.debug(f'Updating task for rowid {row.rowid}.')
                     self.project.update_task(existing_tasks[row.rowid]['id'], **task_info)
                     tasks_updated += 1
@@ -355,7 +357,9 @@ class LabelStudioProject(Project):
         relpath = Path(localpath).relative_to(env.Env.get().home)
         return f'/data/local-files/?d={str(relpath)}'
 
-    def __delete_stale_tasks(self, existing_tasks: dict[tuple, dict], row_ids_in_pxt: set[tuple], tasks_created: int) -> SyncStatus:
+    def __delete_stale_tasks(
+        self, existing_tasks: dict[tuple, dict], row_ids_in_pxt: set[tuple], tasks_created: int
+    ) -> SyncStatus:
         deleted_rowids = set(existing_tasks.keys()) - row_ids_in_pxt
         # Sanity check the math
         assert len(deleted_rowids) == len(existing_tasks) + tasks_created - len(row_ids_in_pxt)
@@ -417,7 +421,9 @@ class LabelStudioProject(Project):
             'project_id': self.project_id,
             'media_import_method': self.media_import_method,
             'col_mapping': [[self._column_as_dict(k), v] for k, v in self.col_mapping.items()],
-            'stored_proxies': [[self._column_as_dict(k), self._column_as_dict(v)] for k, v in self.stored_proxies.items()]
+            'stored_proxies': [
+                [self._column_as_dict(k), self._column_as_dict(v)] for k, v in self.stored_proxies.items()
+            ],
         }
 
     @classmethod
@@ -427,7 +433,7 @@ class LabelStudioProject(Project):
             md['project_id'],
             md['media_import_method'],
             {cls._column_from_dict(entry[0]): entry[1] for entry in md['col_mapping']},
-            {cls._column_from_dict(entry[0]): cls._column_from_dict(entry[1]) for entry in md['stored_proxies']}
+            {cls._column_from_dict(entry[0]): cls._column_from_dict(entry[1]) for entry in md['stored_proxies']},
         )
 
     def __repr__(self) -> str:
@@ -444,8 +450,7 @@ class LabelStudioProject(Project):
         if root.tag.lower() != 'view':
             raise excs.Error('Root of Label Studio config must be a `View`')
         config = _LabelStudioConfig(
-            data_keys=cls.__parse_data_keys_config(root),
-            rectangle_labels=cls.__parse_rectangle_labels_config(root)
+            data_keys=cls.__parse_data_keys_config(root), rectangle_labels=cls.__parse_rectangle_labels_config(root)
         )
         config.validate()
         return config
@@ -474,10 +479,7 @@ class LabelStudioProject(Project):
             if element.tag.lower() == 'rectanglelabels':
                 name = element.attrib['name']
                 to_name = element.attrib['toName']
-                labels = [
-                    child.attrib['value']
-                    for child in element if child.tag.lower() == 'label'
-                ]
+                labels = [child.attrib['value'] for child in element if child.tag.lower() == 'label']
                 for label in labels:
                     if label not in coco.COCO_2017_CATEGORIES.values():
                         raise excs.Error(f'Label in `rectanglelabels` config is not a valid COCO object name: {label}')
@@ -486,11 +488,7 @@ class LabelStudioProject(Project):
 
     @classmethod
     def __coco_to_predictions(
-            cls,
-            coco_annotations: dict[str, Any],
-            from_name: str,
-            rl_info: '_RectangleLabel',
-            task_id: Optional[int] = None
+        cls, coco_annotations: dict[str, Any], from_name: str, rl_info: '_RectangleLabel', task_id: Optional[int] = None
     ) -> dict[str, Any]:
         width = coco_annotations['image']['width']
         height = coco_annotations['image']['height']
@@ -510,8 +508,8 @@ class LabelStudioProject(Project):
                     'y': entry['bbox'][1] * 100.0 / height,
                     'width': entry['bbox'][2] * 100.0 / width,
                     'height': entry['bbox'][3] * 100.0 / height,
-                    'rectanglelabels': [coco.COCO_2017_CATEGORIES[entry['category']]]
-                }
+                    'rectanglelabels': [coco.COCO_2017_CATEGORIES[entry['category']]],
+                },
             }
             for i, entry in enumerate(coco_annotations['annotations'])
             # include only the COCO labels that match a rectanglelabel name
@@ -539,15 +537,15 @@ class LabelStudioProject(Project):
 
     @classmethod
     def create(
-            cls,
-            t: Table,
-            label_config: str,
-            name: Optional[str],
-            title: Optional[str],
-            media_import_method: Literal['post', 'file', 'url'],
-            col_mapping: Optional[dict[str, str]],
-            s3_configuration: Optional[dict[str, Any]],
-            **kwargs: Any
+        cls,
+        t: Table,
+        label_config: str,
+        name: Optional[str],
+        title: Optional[str],
+        media_import_method: Literal['post', 'file', 'url'],
+        col_mapping: Optional[dict[str, str]],
+        s3_configuration: Optional[dict[str, Any]],
+        **kwargs: Any,
     ) -> 'LabelStudioProject':
         """
         Creates a new Label Studio project, using the Label Studio client configured in Pixeltable.
@@ -577,7 +575,8 @@ class LabelStudioProject(Project):
                 t[local_annotations_column] = pxt.JsonType(nullable=True)
 
         resolved_col_mapping = cls.validate_columns(
-            t, config.export_columns, {ANNOTATIONS_COLUMN: pxt.JsonType(nullable=True)}, col_mapping)
+            t, config.export_columns, {ANNOTATIONS_COLUMN: pxt.JsonType(nullable=True)}, col_mapping
+        )
 
         # Perform some additional validation
         if media_import_method == 'post' and len(config.data_keys) > 1:
@@ -591,12 +590,15 @@ class LabelStudioProject(Project):
                 raise excs.Error('`s3_configuration` must contain a `bucket` field')
             if not 'title' in s3_configuration:
                 s3_configuration['title'] = 'Pixeltable-S3-Import-Storage'
-            if ('aws_access_key_id' not in s3_configuration and
-                'aws_secret_access_key' not in s3_configuration and
-                'aws_session_token' not in s3_configuration):
+            if (
+                'aws_access_key_id' not in s3_configuration
+                and 'aws_secret_access_key' not in s3_configuration
+                and 'aws_session_token' not in s3_configuration
+            ):
                 # Attempt to fill any missing credentials from the environment
                 try:
                     import boto3
+
                     s3_credentials = boto3.Session().get_credentials().get_frozen_credentials()
                     _logger.info(f'Using AWS credentials from the environment for Label Studio project: {title}')
                     s3_configuration['aws_access_key_id'] = s3_credentials.access_key
@@ -618,8 +620,11 @@ class LabelStudioProject(Project):
             except HTTPError as exc:
                 if exc.errno == 400:
                     response: dict = json.loads(exc.response.text)
-                    if 'validation_errors' in response and 'non_field_errors' in response['validation_errors'] \
-                            and 'LOCAL_FILES_SERVING_ENABLED' in response['validation_errors']['non_field_errors'][0]:
+                    if (
+                        'validation_errors' in response
+                        and 'non_field_errors' in response['validation_errors']
+                        and 'LOCAL_FILES_SERVING_ENABLED' in response['validation_errors']['non_field_errors'][0]
+                    ):
                         raise excs.Error(
                             '`media_import_method` is set to `file`, but your Label Studio server is not configured '
                             'for local file storage.\nPlease set the `LABEL_STUDIO_LOCAL_FILES_SERVING_ENABLED` '
@@ -675,5 +680,5 @@ _LS_TAG_MAP = {
     'text': pxt.StringType(),
     'image': pxt.ImageType(),
     'video': pxt.VideoType(),
-    'audio': pxt.AudioType()
+    'audio': pxt.AudioType(),
 }

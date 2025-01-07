@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 @env.register_client('ollama')
 def _(host: str) -> 'ollama.Client':
     import ollama
+
     return ollama.Client(host=host)
 
 

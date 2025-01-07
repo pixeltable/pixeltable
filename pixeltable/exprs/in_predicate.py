@@ -26,7 +26,8 @@ class InPredicate(Expr):
         if value_set_expr is not None:
             if not value_set_expr.col_type.is_json_type():
                 raise excs.Error(
-                    f'isin(): argument must have a JSON type, but {value_set_expr} has type {value_set_expr.col_type}')
+                    f'isin(): argument must have a JSON type, but {value_set_expr} has type {value_set_expr.col_type}'
+                )
             self.components = [lhs.copy(), value_set_expr.copy()]
         else:
             assert value_set_literal is not None
@@ -95,4 +96,3 @@ class InPredicate(Expr):
         assert 'value_list' in d
         assert len(components) <= 2
         return cls(components[0], d['value_list'], components[1] if len(components) == 2 else None)
-

@@ -14,6 +14,7 @@ class ExprTemplate:
     along with various precomputed metadata. (This is analogous to a `Callable`-`Signature` pair in a
     `CallableFunction`.)
     """
+
     expr: 'pixeltable.exprs.Expr'
     signature: Signature
     param_exprs: list['pixeltable.exprs.Variable']
@@ -45,6 +46,7 @@ class ExprTemplate:
 
 class ExprTemplateFunction(Function):
     """A parameterized expression from which an executable Expr is created with a function call."""
+
     templates: list[ExprTemplate]
     self_name: str
 
@@ -70,7 +72,8 @@ class ExprTemplateFunction(Function):
         bound_args = self.signature.py_signature.bind(*args, **kwargs).arguments
         # apply defaults, otherwise we might have Parameters left over
         bound_args.update(
-            {param_name: default for param_name, default in template.defaults.items() if param_name not in bound_args})
+            {param_name: default for param_name, default in template.defaults.items() if param_name not in bound_args}
+        )
         result = template.expr.copy()
         arg_exprs: dict[exprs.Expr, exprs.Expr] = {}
         for param_name, arg in bound_args.items():
@@ -123,8 +126,9 @@ class ExprTemplateFunction(Function):
     @classmethod
     def _from_dict(cls, d: dict) -> Function:
         if 'expr' not in d:
-             return super()._from_dict(d)
+            return super()._from_dict(d)
         assert 'signature' in d and 'name' in d
         import pixeltable.exprs as exprs
+
         template = ExprTemplate(exprs.Expr.from_dict(d['expr']), Signature.from_dict(d['signature']))
         return cls([template], name=d['name'])
