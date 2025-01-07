@@ -47,6 +47,8 @@ class Tool(pydantic.BaseModel):
             }
         }
 
+    # `tool_calls` must be in standardized tool invocation format:
+    # {tool_name: {'args': {name1: value1, name2: value2, ...}}, ...}
     def invoke(self, tool_calls: 'exprs.Expr') -> 'exprs.FunctionCall':
         kwargs = {
             param.name: self.__extract_tool_arg(param, tool_calls)
@@ -74,10 +76,11 @@ class Tools(pydantic.BaseModel):
     def ser_model(self) -> list[dict[str, Any]]:
         return [tool.ser_model() for tool in self.tools]
 
-    def invoke(self, response: 'exprs.Expr') -> 'exprs.InlineDict':
+    # `tool_calls` must be in standardized tool invocation format:
+    # {tool_name: {'args': {name1: value1, name2: value2, ...}}, ...}
+    def _invoke(self, tool_calls: 'exprs.Expr') -> 'exprs.InlineDict':
         from pixeltable import exprs
 
-        tool_calls = response.choices[0].message.tool_calls
         return exprs.InlineDict({
             tool.name or tool.fn.name: tool.invoke(tool_calls)
             for tool in self.tools
@@ -85,24 +88,23 @@ class Tools(pydantic.BaseModel):
 
 
 @udf
-def _extract_str_tool_arg(tool_calls: list[dict], func_name: str, param_name: str) -> Optional[str]:
+def _extract_str_tool_arg(tool_calls: dict, func_name: str, param_name: str) -> Optional[str]:
     return str(_extract_arg(tool_calls, func_name, param_name))
 
 @udf
-def _extract_int_tool_arg(tool_calls: list[dict], func_name: str, param_name: str) -> Optional[int]:
+def _extract_int_tool_arg(tool_calls: dict, func_name: str, param_name: str) -> Optional[int]:
     return int(_extract_arg(tool_calls, func_name, param_name))
 
 @udf
-def _extract_float_tool_arg(tool_calls: list[dict], func_name: str, param_name: str) -> Optional[float]:
+def _extract_float_tool_arg(tool_calls: dict, func_name: str, param_name: str) -> Optional[float]:
     return float(_extract_arg(tool_calls, func_name, param_name))
 
 @udf
-def _extract_bool_tool_arg(tool_calls: list[dict], func_name: str, param_name: str) -> Optional[bool]:
+def _extract_bool_tool_arg(tool_calls: dict, func_name: str, param_name: str) -> Optional[bool]:
     return bool(_extract_arg(tool_calls, func_name, param_name))
 
-def _extract_arg(tool_calls: list[dict], func_name: str, param_name: str) -> Any:
-    for tool_call in tool_calls:
-        if tool_call['function']['name'] == func_name:
-            arguments = json.loads(tool_call['function']['arguments'])
-            return arguments.get(param_name)
+def _extract_arg(tool_calls: dict, func_name: str, param_name: str) -> Any:
+    if func_name in tool_calls:
+        arguments = tool_calls[func_name]['args']
+        return arguments.get(param_name)
     return None

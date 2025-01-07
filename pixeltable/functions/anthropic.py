@@ -10,7 +10,8 @@ from typing import TYPE_CHECKING, Any, Callable, Optional, TypeVar, Union
 import tenacity
 
 import pixeltable as pxt
-from pixeltable import env
+from pixeltable import env, exprs
+from pixeltable.func import Tools
 from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
@@ -47,7 +48,7 @@ def messages(
     system: Optional[str] = None,
     temperature: Optional[float] = None,
     tool_choice: Optional[list[dict]] = None,
-    tools: Optional[dict] = None,
+    tools: Optional[list[dict]] = None,
     top_k: Optional[int] = None,
     top_p: Optional[float] = None,
 ) -> dict:
@@ -77,6 +78,21 @@ def messages(
         >>> msgs = [{'role': 'user', 'content': tbl.prompt}]
         ... tbl['response'] = messages(msgs, model='claude-3-haiku-20240307')
     """
+    if tools is not None:
+        # Reformat `tools` into Anthropic format
+        tools = [
+            {
+                'name': tool['function']['name'],
+                'description': tool['function']['description'],
+                'input_schema': {
+                    'type': 'object',
+                    'properties': tool['function']['parameters']['properties'],
+                    'required': tool['function']['required'],
+                },
+            }
+            for tool in tools
+        ]
+
     return _retry(_anthropic_client().messages.create)(
         messages=messages,
         model=model,
@@ -90,6 +106,24 @@ def messages(
         top_k=_opt(top_k),
         top_p=_opt(top_p),
     ).dict()
+
+
+def invoke_tools(tools: Tools, response: exprs.Expr) -> exprs.InlineDict:
+    """Converts an Anthropic response dict to Pixeltable tool invocation format and calls `tools._invoke()`."""
+    return tools._invoke(_anthropic_response_to_pxt_tool_calls(response))
+
+
+@pxt.udf
+def _anthropic_response_to_pxt_tool_calls(response: dict) -> Optional[dict]:
+    anthropic_tool_calls = [r for r in response['content'] if r['type'] == 'tool_use']
+    if len(anthropic_tool_calls) > 0:
+        return {
+            tool_call['name']: {
+                'args': tool_call['input']
+            }
+            for tool_call in anthropic_tool_calls
+        }
+    return None
 
 
 _T = TypeVar('_T')

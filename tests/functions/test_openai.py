@@ -1,10 +1,11 @@
 from typing import Optional
+
 import pytest
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 
-from ..utils import SAMPLE_IMAGE_URL, skip_test_if_not_installed, validate_update_status
+from ..utils import SAMPLE_IMAGE_URL, skip_test_if_not_installed, stock_price, validate_update_status
 
 
 @pytest.mark.remote_api
@@ -80,7 +81,6 @@ class TestOpenai:
                 model='gpt-4o-mini', messages=msgs, response_format={'type': 'json_object'}
             )
         )
-        # TODO Also test the `tools` and `tool_choice` parameters.
         validate_update_status(t.insert(input='Give me an example of a typical JSON structure.'), 1)
         result = t.collect()
         assert len(result['chat_output'][0]['choices'][0]['message']['content']) > 0
@@ -99,7 +99,7 @@ class TestOpenai:
     def test_tool_invocations(self, reset_db) -> None:
         skip_test_if_not_installed('openai')
         TestOpenai.skip_test_if_no_openai_client()
-        from pixeltable.functions.openai import chat_completions
+        from pixeltable.functions.openai import chat_completions, invoke_tools
 
         t = pxt.create_table('test_tbl', {'prompt': pxt.String})
         messages = [{'role': 'user', 'content': t.prompt}]
@@ -110,12 +110,12 @@ class TestOpenai:
             tools=tools
         ))
         t.add_computed_column(output=t.response.choices[0].message.content)
-        t.add_computed_column(tool_calls=tools.invoke(t.response))
+        t.add_computed_column(tool_calls=invoke_tools(tools, t.response))
         t.insert(prompt='What is the stock price of NVDA today?')
         t.insert(prompt='How many grams of corn are in a bushel?')
         res = t.select(t.output, t.tool_calls).head()
 
-        # First promprt results in tool invocation + no message output
+        # First prompt results in tool invocation + no message output
         assert res[0]['output'] is None
         assert res[0]['tool_calls'] == {'stock_price': 131.17}
 
@@ -225,17 +225,3 @@ class TestOpenai:
             _ = pixeltable.functions.openai._openai_client()
         except excs.Error as exc:
             pytest.skip(str(exc))
-
-
-@pxt.udf
-def stock_price(ticker: str) -> Optional[float]:
-    """
-    Get today's stock price for a given ticker symbol.
-
-    Args:
-        ticker - The ticker symbol of the stock to look up.
-    """
-    if ticker == 'NVDA':
-        return 131.17
-    else:
-        return None
