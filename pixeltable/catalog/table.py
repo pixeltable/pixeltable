@@ -711,56 +711,78 @@ class Table(SchemaObject):
             metric: str = 'cosine'
     ) -> None:
         """
-        Add an embedding index to the table. Once the index is added, it will be automatically kept up to data as new
+        Add an embedding index to the table. Once the index is created, it will be automatically kept up to date as new
         rows are inserted into the table.
 
-        Indices are currently supported only for `String` and `Image` columns. The index must specify, at
-        minimum, an embedding of the appropriate type (string or image). It may optionally specify _both_ a string
-        and image embedding (into the same vector space); in particular, this can be used to provide similarity search
-        of text over an image column.
+        To add an embedding index, one must specify, at minimum, the column to be indexed and an embedding UDF.
+        Only `String` and `Image` columns are currently supported. Here's an example that uses a
+        [CLIP embedding][pixeltable.functions.huggingface.clip] to index an image column:
+
+        >>> from pixeltable.functions.huggingface import clip
+        ... embedding_fn = clip.using(model_id='openai/clip-vit-base-patch32')
+        ... tbl.add_embedding_index(tbl.img, embed=embedding_fn)
+
+        Once the index is created, similiarity lookups can be performed using the `similarity` pseudo-function.
+
+        >>> reference_img = PIL.Image.open('my_image.jpg')
+        ... sim = tbl.img.similarity(reference_img)
+        ... tbl.select(tbl.img, sim).order_by(sim, asc=False).limit(5)
+
+        If the embedding UDF is a multimodal embedding (supporting more than one data type), then lookups may be
+        performed using any of its supported types. In our example, CLIP supports both text and images, so we can
+        also search for images using a text description:
+
+        >>> sim = tbl.img.similarity('a picture of a train')
+        ... tbl.select(tbl.img, sim).order_by(sim, asc=False).limit(5)
 
         Args:
-            column: The name of, or reference to, the column to index; must be a `String` or `Image` column.
-            idx_name: The name of index. If not specified, a name such as `'idx0'` will be generated automatically.
-                If specified, the name must be unique for this table.
-            embed: A function to embed data; may be used to embed text, images, or for a multimodal embedding.
-            string_embed: A function to embed text.
-            image_embed: A function to embed images.
-            metric: Distance metric to use for the index; one of `'cosine'`, `'ip'`, or `'l2'`;
-                the default is `'cosine'`.
+            column: The name of, or reference to, the column to be indexed; must be a `String` or `Image` column.
+            idx_name: An optional name for the index. If not specified, a name such as `'idx0'` will be generated
+                automatically. If specified, the name must be unique for this table.
+            embed: The UDF to use for the embedding. Must be a UDF that accepts a single argument of type `String`
+                or `Image` (as appropriate for the column being indexed) and returns a fixed-size 1-dimensional
+                array of floats.
+            string_embed: An optional UDF to use for the string embedding component of this index.
+                Can be used in conjunction with `image_embed` to construct multimodal embeddings manually, by
+                specifying different embedding functions for different data types.
+            image_embed: An optional UDF to use for the image embedding component of this index.
+                Can be used in conjunction with `string_embed` to construct multimodal embeddings manually, by
+                specifying different embedding functions for different data types.
+            metric: Distance metric to use for the index; one of `'cosine'`, `'ip'`, or `'l2'`.
+                The default is `'cosine'`.
 
         Raises:
             Error: If an index with that name already exists for the table, or if the specified column does not exist.
 
         Examples:
-            Add an index to the `img` column of the table `my_table` by column name:
+            Add an index to the `img` column of the table `my_table`:
 
-            >>> tbl = pxt.get_table('my_table')
-            ... tbl.add_embedding_index('img', image_embed=my_image_func)
+            >>> from pixeltable.functions.huggingface import clip
+            ... tbl = pxt.get_table('my_table')
+            ... embedding_fn = clip.using(model_id='openai/clip-vit-base-patch32')
+            ... tbl.add_embedding_index(tbl.img, embed=embedding_fn)
 
-            Add an index to the `img` column of the table `my_table` by column reference:
-            >>> tbl = pxt.get_table('my_table')
-            ... tbl.add_embedding_index(tbl.img, image_embed=my_image_func)
+            Alternatively, the `img` column may be specified by name:
 
-            Add another index to the `img` column, using the inner product as the distance metric,
-            and with a specific name; `string_embed` is also specified in order to search with text:
+            >>> tbl.add_embedding_index('img', embed=embedding_fn)
 
-            >>> tbl.add_embedding_index(
-            ...     'img',
-            ...     idx_name='clip_idx',
-            ...     image_embed=my_image_func,
-            ...     string_embed=my_string_func,
-            ...     metric='ip'
-            ... )
-
-            Alternatively:
+            Add a second index to the `img` column, using the inner product as the distance metric,
+            and with a specific name:
 
             >>> tbl.add_embedding_index(
             ...     tbl.img,
-            ...     idx_name='clip_idx',
-            ...     image_embed=my_image_func,
-            ...     string_embed=my_string_func,
+            ...     idx_name='ip_idx',
+            ...     embed=embedding_fn,
             ...     metric='ip'
+            ... )
+
+            Add an index using separately specified string and image embeddings:
+
+            >>> tbl.add_embedding_index(
+            ...     tbl.img,
+            ...     embed=embedding_fn,
+            ...     string_embed=string_embedding_fn,
+            ...     image_embed=image_embedding_fn
             ... )
         """
         if self._tbl_version_path.is_snapshot():
