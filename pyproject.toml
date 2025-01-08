@@ -38,6 +38,7 @@ exclude = [
     ".pytest_cache",
     "tests",
     "docs",
+    "tool",
 ]
 
 [tool.poetry.dependencies]
@@ -142,7 +143,7 @@ av = [  # Lock av versions in dev
 ]
 
 [tool.poetry.plugins."mkdocstrings.python.templates"]
-extension-name = "pixeltable.tool.doc_plugins.mkdocstrings:get_templates_path"
+extension-name = "tool.doc_plugins.mkdocstrings:get_templates_path"
 
 [tool.poetry-dynamic-versioning]
 enable = true
@@ -161,7 +162,7 @@ disable_error_code = "no-any-unimported, no-any-return"
 disallow_any_unimported = true
 check_untyped_defs = true
 follow_imports = "silent"
-plugins = "pydantic.mypy, pixeltable/tool/mypy_plugin.py"
+plugins = "pydantic.mypy, tool/mypy_plugin.py"
 show_error_codes = true
 strict_optional = false
 warn_return_any = true
