@@ -1,19 +1,21 @@
-import os
-import io
-import re
 import base64
-import logging
 import getpass
+import io
+import logging
+import os
+import re
 from datetime import datetime
-from typing import Optional, Dict, List
+from typing import Dict, List, Optional
+
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 from PIL import Image
-from dotenv import load_dotenv
+from pydantic import BaseModel
+
 import pixeltable as pxt
-from pixeltable.functions.anthropic import messages
 from pixeltable.functions import image as pxt_image
+from pixeltable.functions.anthropic import messages
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -70,7 +72,7 @@ def create_messages(image_raw: str) -> list[dict]:
     }]
 
 @pxt.udf
-def parse_support_resistance(analysis: str) -> Dict[str, List[Optional[float]]]:
+def parse_support_resistance(analysis: str) -> dict[str, list[Optional[float]]]:
     try:
         support_levels = [None, None, None]
         resistance_levels = [None, None, None]
@@ -124,19 +126,19 @@ def extract_technical_indicators(analysis: str) -> dict:
 
         for line in lines:
             if 'MACD:' in line:
-                indicators['macd'] = line.split(':', 1)[1].strip()
+            indicators['macd'] = line.lstrip('MACD:').strip()
             elif 'RSI:' in line:
-                indicators['rsi'] = line.split(':', 1)[1].strip()
+            indicators['rsi'] = line.lstrip('RSI:').strip()
             elif '(MFI):' in line:
-                indicators['mfi'] = line.split(':', 1)[1].strip()
+            indicators['mfi'] = line.lstrip('(MFI):').strip()
             elif 'Stochastic:' in line:
-                indicators['stochastic'] = line.split(':', 1)[1].strip()
+            indicators['stochastic'] = line.lstrip('Stochastic:').strip()
             elif 'Volume:' in line:
-                indicators['volume'] = line.split(':', 1)[1].strip()
+            indicators['volume'] = line.lstrip('Volume:').strip()
             elif 'Current Price:' in line:
-                indicators['current_price'] = line.split(':', 1)[1].strip()
+            indicators['current_price'] = line.lstrip('Current Price:').strip()
             elif 'VWAP:' in line:
-                indicators['vwap'] = line.split(':', 1)[1].strip()
+            indicators['vwap'] = line.lstrip('VWAP:').strip()
 
         return indicators
     except Exception as e:
