@@ -126,21 +126,23 @@ def extract_technical_indicators(analysis: str) -> dict:
 
         for line in lines:
             if 'MACD:' in line:
-            indicators['macd'] = line.lstrip('MACD:').strip()
+                indicators['macd'] = line.lstrip('MACD:').strip()
             elif 'RSI:' in line:
-            indicators['rsi'] = line.lstrip('RSI:').strip()
+                indicators['rsi'] = line.lstrip('RSI:').strip()
             elif '(MFI):' in line:
-            indicators['mfi'] = line.lstrip('(MFI):').strip()
+                indicators['mfi'] = line.lstrip('(MFI):').strip()
             elif 'Stochastic:' in line:
-            indicators['stochastic'] = line.lstrip('Stochastic:').strip()
+                indicators['stochastic'] = line.lstrip('Stochastic:').strip()
             elif 'Volume:' in line:
-            indicators['volume'] = line.lstrip('Volume:').strip()
+                indicators['volume'] = line.lstrip('Volume:').strip()
             elif 'Current Price:' in line:
-            indicators['current_price'] = line.lstrip('Current Price:').strip()
+                indicators['current_price'] = line.lstrip('Current Price:').strip()
             elif 'VWAP:' in line:
-            indicators['vwap'] = line.lstrip('VWAP:').strip()
+                indicators['vwap'] = line.lstrip('VWAP:').strip()
 
+        logger.info(f"Extracted indicators: {indicators}")
         return indicators
+
     except Exception as e:
         logger.error(f"Error parsing technical indicators: {e}")
         return {
