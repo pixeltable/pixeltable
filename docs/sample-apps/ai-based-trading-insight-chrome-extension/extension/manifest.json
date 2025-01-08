@@ -23,7 +23,7 @@
     "storage"
   ],
   "host_permissions": [
-    "https://ai-based-trading-insights.onrender.com/*"
+    "http://localhost:8000/*"
   ],
   "background": {
     "service_worker": "background.js",

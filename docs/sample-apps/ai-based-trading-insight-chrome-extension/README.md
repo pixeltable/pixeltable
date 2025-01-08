@@ -81,7 +81,7 @@ python -m uvicorn main:app
 1. Open Chrome and navigate to `chrome://extensions/`
 2. Enable "Developer mode"
 3. Click "Load unpacked"
-4. Select the `dist` directory to upload all the related files
+4. Select the `extension` directory to upload all the related files
 
 ## 🔧 Technology Stack
 

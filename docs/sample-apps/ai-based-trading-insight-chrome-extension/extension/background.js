@@ -25,7 +25,7 @@ async function captureScreen() {
     const screenshot = await chrome.tabs.captureVisibleTab(null, {format: 'jpeg'});
     console.log('Screenshot captured, length:', screenshot.length);
 
-    const response = await fetch('https://ai-based-trading-insights.onrender.com/analyze', {
+    const response = await fetch('http://localhost:8000/analyze', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
