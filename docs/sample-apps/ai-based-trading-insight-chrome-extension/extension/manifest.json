@@ -20,12 +20,10 @@
   },
   "permissions": [
     "activeTab",
-    "storage",
-    "tabs",
-    "scripting"
+    "storage"
   ],
   "host_permissions": [
-    "http://localhost:8000/*"
+    "https://ai-based-trading-insights.onrender.com/*"
   ],
   "background": {
     "service_worker": "background.js",

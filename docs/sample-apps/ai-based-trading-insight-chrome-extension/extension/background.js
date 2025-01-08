@@ -6,7 +6,7 @@ function generateRequestId() {
 
 chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason === 'install' || details.reason === 'update') {
-      checkDisclaimerStatus();
+    checkDisclaimerStatus();
   }
 });
 
@@ -17,50 +17,47 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 async function captureScreen() {
-    try {
-      console.log('Starting screen capture...');
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      console.log('Active tab:', tab);
+  try {
+    console.log('Starting screen capture...');
+    const requestId = generateRequestId();
 
-      const screenshot = await chrome.tabs.captureVisibleTab(null, {format: 'jpeg'});
-      console.log('Screenshot captured, length:', screenshot.length);
+    // Using activeTab permission instead of tabs
+    const screenshot = await chrome.tabs.captureVisibleTab(null, {format: 'jpeg'});
+    console.log('Screenshot captured, length:', screenshot.length);
 
-      // Generate unique request ID
-      const requestId = generateRequestId();
-
-      const response = await fetch('http://localhost:8000/analyze', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Request-ID': requestId
-        },
-        body: JSON.stringify({
-          screenshot,
-          requestId
-        })
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Server error: ${errorText}`);
-      }
-
-      const analysis = await response.json();
-      console.log('Analysis received:', analysis);
-
-      // Store request ID in chrome.storage for verification
-      await chrome.storage.local.set({ lastRequestId: requestId });
-
-      chrome.runtime.sendMessage({
-        action: 'analysisComplete',
-        data: analysis,
+    const response = await fetch('https://ai-based-trading-insights.onrender.com/analyze', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Request-ID': requestId
+      },
+      body: JSON.stringify({
+        screenshot,
         requestId
-      });
-    } catch (error) {
-      console.error('Capture error:', error);
-      chrome.runtime.sendMessage({
-        action: 'analysisError',
-        error: error.message
-      });
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Server error: ${errorText}`);
     }
+
+    const analysis = await response.json();
+    console.log('Analysis received:', analysis);
+
+    // Store request ID
+    await chrome.storage.local.set({ lastRequestId: requestId });
+
+    chrome.runtime.sendMessage({
+      action: 'analysisComplete',
+      data: analysis,
+      requestId
+    });
+  } catch (error) {
+    console.error('Capture error:', error);
+    chrome.runtime.sendMessage({
+      action: 'analysisError',
+      error: error.message
+    });
   }
+}

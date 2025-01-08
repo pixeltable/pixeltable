@@ -205,39 +205,10 @@ document.addEventListener('DOMContentLoaded', function() {
             setLoading(true);
             resetUI();
 
-            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-            if (!tab) {
-                throw new Error('No active tab found');
-            }
-
-            const requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-            await chrome.storage.local.set({ lastRequestId: requestId });
-
-            const screenshot = await chrome.tabs.captureVisibleTab(null, { format: 'png' });
-
-            const response = await fetch('http://localhost:8000/analyze', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    screenshot,
-                    requestId
-                })
+            // Send message to background script to handle capture
+            chrome.runtime.sendMessage({
+                action: 'startAnalysis'
             });
-
-            if (!response.ok) {
-                const error = await response.text();
-                throw new Error(`Server error: ${error}`);
-            }
-
-            const data = await response.json();
-
-            if (data.request_id !== requestId) {
-                throw new Error('Response ID mismatch');
-            }
-
-            updateUI(data);
 
         } catch (error) {
             console.error('Analysis error:', error);
@@ -245,6 +216,16 @@ document.addEventListener('DOMContentLoaded', function() {
             setLoading(false);
         }
     }
+
+    // Listen for analysis results from background script
+    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+        if (message.action === 'analysisComplete') {
+            updateUI(message.data);
+        } else if (message.action === 'analysisError') {
+            showError(message.error);
+            setLoading(false);
+        }
+    });
 
     // Event Listeners
     if (elements.startButton) {
