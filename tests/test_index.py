@@ -281,17 +281,9 @@ class TestIndex:
 
         # sanity check: use the replaced index to run a query.
         # use the index hint in similarity function to ensure clip_idx is used.
-        _ = t.select(t.img.localpath).order_by(t.img.similarity(sample_img, idx='clip_idx'), asc=False).limit(3).collect()
+        _ = reload_tester.run_query(t.select(t.img.localpath).order_by(t.img.similarity(sample_img, idx='clip_idx'), asc=False).limit(3))
 
         # sanity check persistence
-        _ = reload_tester.run_query(t.select(t.img.localpath).order_by(t.img.similarity(sample_img, idx='clip_idx'), asc=False).limit(3))
-        # bug: the index hint is not used in the similarity function
-        # when we reload the metadata and run the query. PXT-382 tracks
-        # it and a fix pending under PR 411. To workaround, drop all
-        # other indexes on img column first to ensure clip_idx is used.
-        for idx in indexes:
-            if idx['_name'] != 'clip_idx':
-                t.drop_embedding_index(idx_name=idx['_name'])
         _ = reload_tester.run_reload_test()
 
     def test_embedding_basic(self, img_tbl: pxt.Table, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
