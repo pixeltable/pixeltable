@@ -456,7 +456,7 @@ class Table(SchemaObject):
             return True
         return False
 
-    def _ignore_or_drop_existing_columns(self, new_col_spec: dict[str, Any], if_exists: IfExistsParam) -> None:
+    def _ignore_or_drop_existing_columns(self, new_col_spec: dict[str, Any], if_exists: IfExistsParam) -> list[str]:
         """ Check and handle existing columns in the new column specification based on the if_exists parameter.
 
         Note that this function will remove any column names from the passed in `new_col_spec` if `if_exists='ignore'`.
@@ -487,11 +487,7 @@ class Table(SchemaObject):
                         )
                     self.drop_column(new_col_name)
                     assert new_col_name not in self._tbl_version.cols_by_name
-
-        # remove the existing columns from new_col_spec when if_exists='ignore'
-        for cname in cols_to_ignore:
-            assert cname in existing_col_names
-            del new_col_spec[cname]
+        return cols_to_ignore
 
     def add_columns(
         self,
@@ -539,9 +535,12 @@ class Table(SchemaObject):
             for col_name, spec in schema.items()
         }
         # handle existing columns based on if_exists parameter
-        self._ignore_or_drop_existing_columns(col_schema, IfExistsParam.validated(if_exists, 'if_exists'))
+        cols_to_ignore = self._ignore_or_drop_existing_columns(col_schema, IfExistsParam.validated(if_exists, 'if_exists'))
         # if all columns to be added already exist and user asked to ignore
         # existing columns, there's nothing to do.
+        for cname in cols_to_ignore:
+            assert cname in col_schema
+            del col_schema[cname]
         if len(col_schema) == 0:
             return UpdateStatus()
         new_cols = self._create_columns(col_schema)
@@ -621,8 +620,11 @@ class Table(SchemaObject):
 
         # handle existing column based on if_exists parameter
         col_to_add = {col_name: col_schema}
-        self._ignore_or_drop_existing_columns(col_to_add, IfExistsParam.validated(if_exists, 'if_exists'))
-        if len(col_to_add) == 0:
+        cols_to_ignore = self._ignore_or_drop_existing_columns(col_to_add, IfExistsParam.validated(if_exists, 'if_exists'))
+        # if the column to add already exists and user asked to ignore
+        # exiting column, there's nothing to do.
+        if len(cols_to_ignore) != 0:
+            assert cols_to_ignore[0] == col_name
             return UpdateStatus()
 
         new_col = self._create_columns(col_to_add)[0]
@@ -693,8 +695,11 @@ class Table(SchemaObject):
 
         # handle existing columns based on if_exists parameter
         col_to_add = {col_name: col_schema}
-        self._ignore_or_drop_existing_columns(col_to_add, IfExistsParam.validated(if_exists, 'if_exists'))
-        if len(col_to_add) == 0:
+        cols_to_ignore = self._ignore_or_drop_existing_columns(col_to_add, IfExistsParam.validated(if_exists, 'if_exists'))
+        # if the column to add already exists and user asked to ignore
+        # exiting column, there's nothing to do.
+        if len(cols_to_ignore) != 0:
+            assert cols_to_ignore[0] == col_name
             return UpdateStatus()
 
         new_col = self._create_columns(col_to_add)[0]
