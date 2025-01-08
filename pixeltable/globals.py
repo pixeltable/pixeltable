@@ -692,18 +692,54 @@ def tools(*args: Union[func.Function, func.tools.Tool]) -> func.tools.Tools:
     LLM tool-calling API. To use one or more UDFs as tools, wrap them in a `pxt.tools` call and pass the return value
     to an LLM API.
 
+    The UDFs can be specified directly or wrapped inside a [pxt.tool()][pixeltable.tool] invocation. If a UDF is
+    specified directly, the tool name will be the (unqualified) UDF name, and the tool description will consist of the
+    entire contents of the UDF docstring. If a UDF is wrapped in a `pxt.tool()` invocation, then the name and/or
+    description may be customized.
+
     Args:
         args: The UDFs to use as tools.
 
     Returns:
-        A `Tools` object that can be passed to an LLM tool-calling API or invoked to generate tool results.
+        A `Tools` instance that can be passed to an LLM tool-calling API or invoked to generate tool results.
+
+    Examples:
+        Create a tools instance with a single UDF:
+
+        >>> tools = pxt.tools(stock_price)
+
+        Create a tools instance with several UDFs:
+
+        >>> tools = pxt.tools(stock_price, weather_quote)
+
+        Create a tools instance, some of whose UDFs that have customized metadata:
+
+        >>> tools = pxt.tools(
+        ...     stock_price,
+        ...     pxt.tool(weather_quote, description='Returns information about the weather in a particular location.'),
+        ...     pxt.tool(traffic_quote, name='traffic_conditions'),
+        ... )
     """
     return func.tools.Tools(tools=[
         arg if isinstance(arg, func.tools.Tool) else func.tools.Tool(fn=arg)
         for arg in args
     ])
 
+
 def tool(fn: func.Function, name: Optional[str] = None, description: Optional[str] = None) -> func.tools.Tool:
+    """
+    Specifies a Pixeltable UDF to be used as an LLM tool with customizable metadata. See the documentation for
+    [pxt.tools()][pixeltable.tools] for more details.
+
+    Args:
+        fn: The UDF to use as a tool.
+        name: The name of the tool. If not specified, then the unqualified name of the UDF will be used by default.
+        description: The description of the tool. If not specified, then the entire contents of the UDF docstring
+            will be used by default.
+
+    Returns:
+        A `Tool` instance that can be passed to an LLM tool-calling API.
+    """
     if fn.self_path is None:
         raise excs.Error('Only module UDFs can be used as tools (not locally defined UDFs)')
 
