@@ -7,13 +7,13 @@ from typing import Union, _GenericAlias
 import numpy as np
 import PIL.Image
 import pytest
+import re
 
 import pixeltable as pxt
 from pixeltable.functions.huggingface import clip_image, clip_text
 
 from .utils import (assert_img_eq, clip_img_embed, clip_text_embed, e5_embed, reload_catalog,
-                    skip_test_if_not_installed, validate_update_status, ReloadTester, get_sentences, assert_resultset_eq,
-                    assert_raises_error, get_raised_error)
+                    skip_test_if_not_installed, validate_update_status, ReloadTester, get_sentences, assert_resultset_eq)
 
 
 class TestIndex:
@@ -239,23 +239,18 @@ class TestIndex:
 
         # when index name is provided, if_exists parameter is applied.
         # invalid value is rejected.
-        assert_raises_error(
-            "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']",
-            t.add_embedding_index, 'img', idx_name='clip_idx', image_embed=clip_img_embed, string_embed=clip_text_embed, if_exists='invalid'
-        )
+        with pytest.raises(pxt.Error) as exc_info:
+            t.add_embedding_index('img', idx_name='clip_idx', image_embed=clip_img_embed, string_embed=clip_text_embed, if_exists='invalid')
+        assert "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']" in str(exc_info.value).lower()
         assert len(t._list_index_info_for_test()) == initial_indexes + 3
 
         # if_exists='error' raises an error if the index name already exists.
         # by default, if_exists='error'.
         expected_err = 'duplicate index name'
-        assert_raises_error(
-            expected_err, t.add_embedding_index, 'img', idx_name='clip_idx',
-            image_embed=clip_img_embed, string_embed=clip_text_embed
-        )
-        assert_raises_error(
-            expected_err, t.add_embedding_index, 'img', idx_name='clip_idx',
-            image_embed=clip_img_embed, string_embed=clip_text_embed, if_exists='error'
-        )
+        with pytest.raises(pxt.Error, match=re.compile(expected_err, re.IGNORECASE)):
+            t.add_embedding_index('img', idx_name='clip_idx', image_embed=clip_img_embed, string_embed=clip_text_embed)
+        with pytest.raises(pxt.Error, match=re.compile(expected_err, re.IGNORECASE)):
+            t.add_embedding_index('img', idx_name='clip_idx', image_embed=clip_img_embed, string_embed=clip_text_embed, if_exists='error')
         assert len(t._list_index_info_for_test()) == initial_indexes + 3
 
         # if_exists='ignore' does nothing if the index name already exists.
@@ -269,10 +264,8 @@ class TestIndex:
         # that is not an embedding (like, default btree indexes).
         assert 'idx0' == indexes[0]['_name']
         for _ie in ['ignore', 'replace', 'replace_force']:
-            assert_raises_error(
-                'not an embedding index', t.add_embedding_index, 'img', idx_name='idx0',
-                image_embed=clip_img_embed, string_embed=clip_text_embed, if_exists=_ie
-            )
+            with pytest.raises(pxt.Error, match=re.compile('not an embedding index', re.IGNORECASE)):
+                t.add_embedding_index('img', idx_name='idx0', image_embed=clip_img_embed, string_embed=clip_text_embed, if_exists=_ie)
         indexes = t._list_index_info_for_test()
         assert len(indexes) == initial_indexes + 3
         assert 'idx0' == indexes[0]['_name']
