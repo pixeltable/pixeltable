@@ -123,6 +123,33 @@ class TestOpenai:
         assert len(res[1]['output']) > 0
         assert res[1]['tool_calls'] == {'stock_price': None}
 
+    def test_custom_tool_invocations(self, reset_db) -> None:
+        skip_test_if_not_installed('openai')
+        TestOpenai.skip_test_if_no_openai_client()
+        from pixeltable.functions.openai import chat_completions, invoke_tools
+
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String})
+        messages = [{'role': 'user', 'content': t.prompt}]
+        tools = pxt.tools(
+            pxt.tool(
+                stock_price,
+                name='banana_quantity',
+                description='Use this to compute the banana quantity of a symbol.'
+            )
+        )
+        t.add_computed_column(response=chat_completions(
+            model='gpt-4o-mini',
+            messages=messages,
+            tools=tools
+        ))
+        t.add_computed_column(output=t.response.choices[0].message.content)
+        t.add_computed_column(tool_calls=invoke_tools(tools, t.response))
+        t.insert(prompt='What is the banana quantity of the symbol NVDA?')
+        res = t.select(t.output, t.tool_calls).head()
+
+        assert res[0]['output'] is None
+        assert res[0]['tool_calls'] == {'banana_quantity': 131.17}
+
     @pytest.mark.expensive
     def test_gpt_4_vision(self, reset_db) -> None:
         skip_test_if_not_installed('openai')
