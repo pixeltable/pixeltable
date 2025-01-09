@@ -969,9 +969,9 @@ class Table(SchemaObject):
                 - `'error'`: raise an error if the index does not exist.
                 - `'ignore'`: do nothing if the index does not exist.
 
-                Note that if_not_exists parameter is only applicable when an idx_name is specified
-                and it does not exist, or when column is specified and it has no index.
-                if_not_exists does not apply to non-exisitng column.
+                Note that `if_not_exists` parameter is only applicable when an `idx_name` is specified
+                and it does not exist, or when `column` is specified and it has no index.
+                `if_not_exists` does not apply to non-exisitng column.
 
         Raises:
             Error: If `column` is specified, but the column does not exist, or it contains no
