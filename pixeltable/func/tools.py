@@ -17,6 +17,10 @@ if TYPE_CHECKING:
 # realized as LLM tools. They are implemented as Pydantic models in order to provide a canonical way of converting
 # to JSON, via the Pydantic `model_serializer` interface. In this way, they can be passed directly as UDF
 # parameters as described in the `pixeltable.tools` and `pixeltable.tool` docstrings.
+#
+# (The dataclass dict serializer is insufficiently flexible for this purpose: `Tool` contains a member of type
+# `Function`, which is not natively JSON-serializable; Pydantic provides a way of customizing its default
+# serialization behavior, whereas dataclasses do not.)
 
 class Tool(pydantic.BaseModel):
     # Allow arbitrary types so that we can include a Pixeltable function in the schema.

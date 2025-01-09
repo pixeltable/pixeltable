@@ -712,7 +712,7 @@ def tools(*args: Union[func.Function, func.tools.Tool]) -> func.tools.Tools:
 
         >>> tools = pxt.tools(stock_price, weather_quote)
 
-        Create a tools instance, some of whose UDFs that have customized metadata:
+        Create a tools instance, some of whose UDFs have customized metadata:
 
         >>> tools = pxt.tools(
         ...     stock_price,
@@ -721,7 +721,7 @@ def tools(*args: Union[func.Function, func.tools.Tool]) -> func.tools.Tools:
         ... )
     """
     return func.tools.Tools(tools=[
-        arg if isinstance(arg, func.tools.Tool) else func.tools.Tool(fn=arg)
+        arg if isinstance(arg, func.tools.Tool) else tool(arg)
         for arg in args
     ])
 
@@ -742,6 +742,8 @@ def tool(fn: func.Function, name: Optional[str] = None, description: Optional[st
     """
     if fn.self_path is None:
         raise excs.Error('Only module UDFs can be used as tools (not locally defined UDFs)')
+    if isinstance(fn, func.AggregateFunction):
+        raise excs.Error('Aggregator UDFs cannot be used as tools')
 
     return func.tools.Tool(fn=fn, name=name, description=description)
 
