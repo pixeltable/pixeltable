@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Optional, Union
 
 import sqlalchemy as sql
+from overrides import overrides
 
 from .data_row import DataRow
 from .expr import Expr
@@ -69,3 +70,6 @@ class ArraySlice(Expr):
                 index.append(el)
         return cls(components[0], tuple(index))
 
+    @overrides
+    def is_constant(self):
+        return False

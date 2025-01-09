@@ -4,6 +4,7 @@ import operator
 from typing import Any, Callable, Optional
 
 import sqlalchemy as sql
+from overrides import overrides
 
 import pixeltable.type_system as ts
 
@@ -98,3 +99,6 @@ class CompoundPredicate(Expr):
         assert 'operator' in d
         return cls(LogicalOperator(d['operator']), components)
 
+    @overrides
+    def is_constant(self):
+        return False

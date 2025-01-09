@@ -4,6 +4,7 @@ from typing import Any, Optional, Sequence
 from uuid import UUID
 
 import sqlalchemy as sql
+from overrides import overrides
 
 import pixeltable as pxt
 import pixeltable.catalog as catalog
@@ -225,6 +226,10 @@ class ColumnRef(Expr):
             'col_id': self.col.id,
             'perform_validation': self.perform_validation
         }
+
+    @overrides
+    def is_constant(self):
+        return False
 
     @classmethod
     def get_column(cls, d: dict) -> catalog.Column:

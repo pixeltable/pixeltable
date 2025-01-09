@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Optional
 
 import sqlalchemy as sql
+from overrides import overrides
 
 import pixeltable.type_system as ts
 
@@ -37,3 +38,7 @@ class IsNull(Expr):
     def _from_dict(cls, d: dict, components: list[Expr]) -> IsNull:
         assert len(components) == 1
         return cls(components[0])
+
+    @overrides
+    def is_constant(self):
+        return False

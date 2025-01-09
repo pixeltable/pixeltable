@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Optional
 
 import sqlalchemy as sql
+from overrides import overrides
 
 import pixeltable.type_system as ts
 from .data_row import DataRow
@@ -119,3 +120,6 @@ class JsonMapper(Expr):
         assert len(components) == 2
         return cls(components[0], components[1])
 
+    @overrides
+    def is_constant(self):
+        return False

@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 import sqlalchemy as sql
+from overrides import overrides
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
@@ -132,3 +133,10 @@ class ArithmeticExpr(Expr):
         assert 'operator' in d
         assert len(components) == 2
         return cls(ArithmeticOperator(d['operator']), components[0], components[1])
+
+    @overrides
+    def is_constant(self):
+        for component in self.components:
+            if not component.is_constant():
+                return False
+        return True

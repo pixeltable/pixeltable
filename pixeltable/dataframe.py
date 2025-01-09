@@ -541,9 +541,9 @@ class DataFrame:
             if isinstance(raw_expr, exprs.Expr):
                 select_list.append((raw_expr, name))
             elif isinstance(raw_expr, dict):
-                select_list.append((exprs.InlineDict(raw_expr), name))
+                select_list.append((exprs.Expr.from_object(raw_expr), name))
             elif isinstance(raw_expr, list):
-                select_list.append((exprs.InlineList(raw_expr), name))
+                select_list.append((exprs.Expr.from_object(raw_expr), name))
             else:
                 select_list.append((exprs.Literal(raw_expr), name))
             expr = select_list[-1][0]

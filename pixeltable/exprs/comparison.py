@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 import sqlalchemy as sql
+from overrides import overrides
 
 import pixeltable.exceptions as excs
 import pixeltable.index as index
@@ -121,6 +122,10 @@ class Comparison(Expr):
 
     def _as_dict(self) -> dict:
         return {'operator': self.operator.value, **super()._as_dict()}
+
+    @overrides
+    def is_constant(self):
+        return False
 
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr]) -> Comparison:

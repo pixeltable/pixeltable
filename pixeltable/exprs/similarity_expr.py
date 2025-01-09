@@ -1,6 +1,7 @@
 from typing import Any, Optional
 
 import sqlalchemy as sql
+from overrides import overrides
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
@@ -93,3 +94,7 @@ class SimilarityExpr(Expr):
         assert len(components) == 2
         assert isinstance(components[0], ColumnRef)
         return cls(components[0], components[1], idx_name=iname)
+
+    @overrides
+    def is_constant(self):
+        return False

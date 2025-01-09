@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Iterable, Optional
 
 import sqlalchemy as sql
+from overrides import overrides
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
@@ -89,6 +90,10 @@ class InPredicate(Expr):
 
     def _as_dict(self) -> dict:
         return {'value_list': self.value_list, **super()._as_dict()}
+
+    @overrides
+    def is_constant(self):
+        return False
 
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr]) -> InPredicate:

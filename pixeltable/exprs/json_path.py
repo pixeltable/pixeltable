@@ -4,6 +4,7 @@ from typing import Any, Optional, Union
 
 import jmespath
 import sqlalchemy as sql
+from overrides import overrides
 
 import pixeltable as pxt
 import pixeltable.catalog as catalog
@@ -169,5 +170,8 @@ class JsonPath(Expr):
             val = self.compiled_path.search(val)
         data_row[self.slot_idx] = val
 
+    @overrides
+    def is_constant(self):
+        return False
 
 RELATIVE_PATH_ROOT = JsonPath(None)

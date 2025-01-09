@@ -4,6 +4,7 @@ from typing import Any, Optional
 from uuid import UUID
 
 import sqlalchemy as sql
+from overrides import overrides
 
 import pixeltable.catalog as catalog
 import pixeltable.type_system as ts
@@ -89,6 +90,10 @@ class RowidRef(Expr):
             'normalized_base_id': str(self.normalized_base_id),
             'idx': self.rowid_component_idx,
         }
+
+    @overrides
+    def is_constant(self):
+        return False
 
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr]) -> RowidRef:

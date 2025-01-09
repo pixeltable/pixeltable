@@ -1,6 +1,7 @@
 from typing import Any, Optional
 
 import sqlalchemy as sql
+from overrides import overrides
 
 import pixeltable.type_system as ts
 from pixeltable.exprs import Expr, FunctionCall
@@ -62,3 +63,7 @@ class MethodRef(Expr):
 
     def __repr__(self) -> str:
         return f'{self.base_expr}.{self.method_name}'
+
+    @overrides
+    def is_constant(self):
+        return False

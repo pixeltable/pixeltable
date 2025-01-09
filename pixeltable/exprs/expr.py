@@ -341,6 +341,15 @@ class Expr(abc.ABC):
                 result.extend(cls.get_refd_columns(component_dict))
         return result
 
+    @abc.abstractmethod
+    def is_constant(self):
+        """
+           True if Expression is a constant and has no variables.
+           False otherwise.
+           When set to True, expression will be converted to a Literal
+        """
+    pass
+
     @classmethod
     def from_object(cls, o: object) -> Optional[Expr]:
         """
@@ -351,12 +360,22 @@ class Expr(abc.ABC):
         # Try to create a literal. We need to check for InlineList/InlineDict
         # first, to prevent them from inappropriately being interpreted as JsonType
         # literals.
-        if isinstance(o, list):
+        if isinstance(o, list) or isinstance(o, tuple):
             from .inline_expr import InlineList
-            return InlineList(o)
+            inline_list = InlineList(o)
+            if inline_list.is_constant():
+                from .literal import Literal
+                return Literal(o)
+            else:
+                return inline_list
         if isinstance(o, dict):
             from .inline_expr import InlineDict
-            return InlineDict(o)
+            inline_dict =  InlineDict(o)
+            if inline_dict.is_constant():
+                from .literal import Literal
+                return Literal(o)
+            else:
+                return inline_dict
         obj_type = ts.ColumnType.infer_literal_type(o)
         if obj_type is not None:
             from .literal import Literal

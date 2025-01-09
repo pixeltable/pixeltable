@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any, NoReturn
 
+from overrides import overrides
+
 import pixeltable.type_system as ts
 
 from .data_row import DataRow
@@ -44,6 +46,10 @@ class Variable(Expr):
 
     def _as_dict(self) -> dict:
         return {'name': self.name, 'type': self.col_type.as_dict(), **super()._as_dict()}
+
+    @overrides
+    def is_constant(self):
+        return False
 
     @classmethod
     def _from_dict(cls, d: dict, _: list[Expr]) -> Variable:

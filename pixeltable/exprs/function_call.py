@@ -6,6 +6,7 @@ import sys
 from typing import Any, Optional
 
 import sqlalchemy as sql
+from overrides import overrides
 
 import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
@@ -583,3 +584,7 @@ class FunctionCall(Expr):
         if isinstance(arg, InlineList) and all(isinstance(el, Literal) for el in arg.components):
             return [el.val for el in arg.components]
         return arg
+
+    @overrides
+    def is_constant(self):
+        return False

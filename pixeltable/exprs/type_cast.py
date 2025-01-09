@@ -1,6 +1,7 @@
 from typing import Any, Optional
 
 import sqlalchemy as sql
+from overrides import overrides
 
 import pixeltable.type_system as ts
 
@@ -53,3 +54,7 @@ class TypeCast(Expr):
 
     def __repr__(self) -> str:
         return f'{self._underlying}.astype({self.col_type._to_str(as_schema=True)})'
+
+    @overrides
+    def is_constant(self):
+        return False

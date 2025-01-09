@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Optional
 
 import sqlalchemy as sql
+from overrides import overrides
 
 import pixeltable.type_system as ts
 
@@ -41,3 +42,6 @@ class ObjectRef(Expr):
         # this will be called, but the value has already been materialized elsewhere
         pass
 
+    @overrides
+    def is_constant(self):
+        return False

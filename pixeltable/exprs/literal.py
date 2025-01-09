@@ -4,6 +4,7 @@ import datetime
 from typing import Any, Optional
 
 import sqlalchemy as sql
+from overrides import overrides
 
 import pixeltable.type_system as ts
 from pixeltable.env import Env
@@ -33,6 +34,9 @@ class Literal(Expr):
                     val = val.replace(tzinfo=default_tz)
             # Now convert to UTC
             val = val.astimezone(datetime.timezone.utc)
+        if isinstance(val, tuple):
+            # Tuples are stored as a list
+            val = list(val)
         self.val = val
         self.id = self._create_id()
 
@@ -78,6 +82,10 @@ class Literal(Expr):
             return {'val': encoded_val, 'val_t': self.col_type._type.name, **super()._as_dict()}
         else:
             return {'val': self.val, **super()._as_dict()}
+
+    @overrides
+    def is_constant(self):
+        return True
 
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr]) -> Literal:

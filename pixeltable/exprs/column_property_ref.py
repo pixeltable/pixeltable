@@ -4,6 +4,7 @@ import enum
 from typing import Any, Optional
 
 import sqlalchemy as sql
+from overrides import overrides
 
 import pixeltable.type_system as ts
 from pixeltable import catalog
@@ -104,3 +105,6 @@ class ColumnPropertyRef(Expr):
         assert isinstance(components[0], ColumnRef)
         return cls(components[0], cls.Property(d['prop']))
 
+    @overrides
+    def is_constant(self):
+        return False
