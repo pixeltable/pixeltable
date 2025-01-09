@@ -504,10 +504,12 @@ class Table(SchemaObject):
         Args:
             schema: A dictionary mapping column names to types.
             if_exists: Determines the behavior if a column already exists. Must be one of the following:
+
                 - `'error'`: an exception will be raised.
                 - `'ignore'`: do nothing and return.
                 - `'replace' or 'replace_force'`: drop the existing column and add the new column, if it has no dependents.
-                Note that the if_exists parameter is applied to all columns in the schema.
+
+                Note that the `if_exists` parameter is applied to all columns in the schema.
                 To apply different behaviors to different columns, please use [`add_column()`][pixeltable.Table.add_column] for each column.
 
         Returns:
@@ -572,11 +574,13 @@ class Table(SchemaObject):
             print_stats: If `True`, print execution metrics during evaluation.
             on_error: Determines the behavior if an error occurs while evaluating the column expression for at least one
                 row.
+
                 - `'abort'`: an exception will be raised and the column will not be added.
                 - `'ignore'`: execution will continue and the column will be added. Any rows
                   with errors will have a `None` value for the column, with information about the error stored in the
                   corresponding `tbl.col_name.errortype` and `tbl.col_name.errormsg` fields.
             if_exists: Determines the behavior if the column already exists. Must be one of the following:
+
                 - `'error'`: an exception will be raised.
                 - `'ignore'`: do nothing and return.
                 - `'replace' or 'replace_force'`: drop the existing column and add the new column, if it has no dependents.
@@ -651,11 +655,13 @@ class Table(SchemaObject):
             print_stats: If `True`, print execution metrics during evaluation.
             on_error: Determines the behavior if an error occurs while evaluating the column expression for at least one
                 row.
+
                 - `'abort'`: an exception will be raised and the column will not be added.
                 - `'ignore'`: execution will continue and the column will be added. Any rows
                     with errors will have a `None` value for the column, with information about the error stored in the
                     corresponding `tbl.col_name.errortype` and `tbl.col_name.errormsg` fields.
             if_exists: Determines the behavior if the column already exists. Must be one of the following:
+
                 - `'error'`: an exception will be raised.
                 - `'ignore'`: do nothing and return.
                 - `'replace' or 'replace_force'`: drop the existing column and add the new column, iff it has no dependents.
@@ -934,6 +940,7 @@ class Table(SchemaObject):
             metric: Distance metric to use for the index; one of `'cosine'`, `'ip'`, or `'l2'`;
                 the default is `'cosine'`.
             if_exists: Directive for handling an existing index with the same name. Must be one of the following:
+
                 - `'error'`: raise an error if an index with the same name already exists.
                 - `'ignore'`: do nothing if an index with the same name already exists.
                 - `'replace'` or `'replace_force'`: replace the existing index with the new one.
