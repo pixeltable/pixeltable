@@ -92,7 +92,7 @@ class ColumnRef(Expr):
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return (
             super()._id_attrs()
-            + [('tbl_id', self.col.tbl.id), ('col_id', self.col.id), ('perform_validation', self.perform_validation), ('tbl_context', self.tbl_context.id)]
+            + [('tbl_id', self.col.tbl.id), ('col_id', self.col.id), ('perform_validation', self.perform_validation)]#, ('tbl_context', self.tbl_context.id)]
         )
 
     # override
