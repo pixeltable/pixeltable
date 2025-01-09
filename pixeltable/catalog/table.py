@@ -717,9 +717,8 @@ class Table(SchemaObject):
 
         Args:
             column: The name or reference of the column to drop.
-            if_not_exists: Directive for handling a non-existent column.
+            if_not_exists: Directive for handling a non-existent column. Must be one of the following:
 
-                Must be one of the following:
                 - `'error'`: raise an error if the column does not exist.
                 - `'ignore'`: do nothing if the column does not exist.
 
