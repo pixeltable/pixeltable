@@ -702,17 +702,15 @@ class Table(SchemaObject):
             cls._verify_column(col, column_names)
             column_names.add(col.name)
 
-    def __check_column_name_exists(self, column_name: str, include_bases: bool = False, if_not_exists: IfNotExistsParam = IfNotExistsParam.ERROR) -> bool:
+    def __check_column_name_exists(self, column_name: str, include_bases: bool = False) -> None:
         col = self._tbl_version_path.get_column(column_name, include_bases)
-        if col is None and if_not_exists == IfNotExistsParam.ERROR:
+        if col is None:
             raise excs.Error(f'Column {column_name!r} unknown')
-        return col is not None
 
-    def __check_column_ref_exists(self, col_ref: ColumnRef, include_bases: bool = False, if_not_exists: IfNotExistsParam = IfNotExistsParam.ERROR) -> bool:
+    def __check_column_ref_exists(self, col_ref: ColumnRef, include_bases: bool = False) -> None:
         exists = self._tbl_version_path.has_column(col_ref.col, include_bases)
-        if not exists and if_not_exists == IfNotExistsParam.ERROR:
+        if not exists:
             raise excs.Error(f'Unknown column: {col_ref.col.qualified_name}')
-        return exists
 
     def drop_column(self, column: Union[str, ColumnRef], if_not_exists: Literal['error', 'ignore'] = 'error') -> None:
         """Drop a column from the table.
@@ -720,10 +718,10 @@ class Table(SchemaObject):
         Args:
             column: The name or reference of the column to drop.
             if_not_exists: Directive for handling a non-existent column.
+
                 Must be one of the following:
                 - `'error'`: raise an error if the column does not exist.
                 - `'ignore'`: do nothing if the column does not exist.
-                Defaults to `'error'`.
 
         Raises:
             Error: If the column does not exist and `if_exists='error'`,
@@ -746,19 +744,24 @@ class Table(SchemaObject):
             ... tbl.drop_col(tbl.col, if_not_exists='ignore')
         """
         self._check_is_dropped()
-        if self.get_metadata()['is_snapshot']:
+        if self._tbl_version_path.is_snapshot():
             raise excs.Error('Cannot drop column from a snapshot.')
         col: Column = None
         _if_not_exists = IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
         if isinstance(column, str):
-            exists = self.__check_column_name_exists(column, False, _if_not_exists)
-            if not exists and _if_not_exists == IfNotExistsParam.IGNORE:
+            col = self._tbl_version_path.get_column(column, include_bases=False)
+            if col is None:
+                if _if_not_exists == IfNotExistsParam.ERROR:
+                    raise excs.Error(f'Column {column!r} unknown')
+                assert _if_not_exists == IfNotExistsParam.IGNORE
                 return
-            assert exists
             col = self._tbl_version.cols_by_name[column]
         else:
-            exists = self.__check_column_ref_exists(column, False, _if_not_exists)
-            if not exists and _if_not_exists == IfNotExistsParam.IGNORE:
+            exists = self._tbl_version_path.has_column(column.col, include_bases=False)
+            if not exists:
+                if _if_not_exists == IfNotExistsParam.ERROR:
+                    raise excs.Error(f'Unknown column: {column.col.qualified_name}')
+                assert _if_not_exists == IfNotExistsParam.IGNORE
                 return
             col = column.col
 
@@ -868,10 +871,10 @@ class Table(SchemaObject):
             raise excs.Error('Cannot add an index to a snapshot')
         col: Column
         if isinstance(column, str):
-            _ = self.__check_column_name_exists(column, include_bases=True)
+            self.__check_column_name_exists(column, include_bases=True)
             col = self._tbl_version_path.get_column(column, include_bases=True)
         else:
-            _ = self.__check_column_ref_exists(column, include_bases=True)
+            self.__check_column_ref_exists(column, include_bases=True)
             col = column.col
 
         if idx_name is not None and idx_name in self._tbl_version.idxs_by_name:
@@ -900,12 +903,13 @@ class Table(SchemaObject):
                     The column must have only one embedding index.
             idx_name: The name of the index to drop.
             if_not_exists: Directive for handling a non-existent index. Must be one of the following:
+
                 - `'error'`: raise an error if the index does not exist.
                 - `'ignore'`: do nothing if the index does not exist.
-                Defaults to `'error'`.
-                Note that if_not_exists parameter is only applicable when an idx_name is specified
-                and it does not exist, or when column is specified and it has no index.
-                if_not_exists does not apply to non-exisitng column.
+
+                Note that `if_not_exists` parameter is only applicable when an `idx_name` is specified
+                and it does not exist, or when `column` is specified and it has no index.
+                `if_not_exists` does not apply to non-exisitng column.
 
         Raises:
             Error: If `column` is specified, but the column does not exist, or it contains no embedding
@@ -938,10 +942,10 @@ class Table(SchemaObject):
         col: Column = None
         if idx_name is None:
             if isinstance(column, str):
-                _ = self.__check_column_name_exists(column, include_bases=True)
+                self.__check_column_name_exists(column, include_bases=True)
                 col = self._tbl_version_path.get_column(column, include_bases=True)
             else:
-                _ = self.__check_column_ref_exists(column, include_bases=True)
+                self.__check_column_ref_exists(column, include_bases=True)
                 col = column.col
             assert col is not None
         self._drop_index(col=col, idx_name=idx_name, _idx_class=index.EmbeddingIndex, if_not_exists=if_not_exists)
@@ -962,9 +966,10 @@ class Table(SchemaObject):
                     The column must have only one embedding index.
             idx_name: The name of the index to drop.
             if_not_exists: Directive for handling a non-existent index. Must be one of the following:
+
                 - `'error'`: raise an error if the index does not exist.
                 - `'ignore'`: do nothing if the index does not exist.
-                Defaults to `'error'`.
+
                 Note that if_not_exists parameter is only applicable when an idx_name is specified
                 and it does not exist, or when column is specified and it has no index.
                 if_not_exists does not apply to non-exisitng column.
@@ -1000,10 +1005,10 @@ class Table(SchemaObject):
         col: Column = None
         if idx_name is None:
             if isinstance(column, str):
-                _ = self.__check_column_name_exists(column, include_bases=True)
+                self.__check_column_name_exists(column, include_bases=True)
                 col = self._tbl_version_path.get_column(column, include_bases=True)
             else:
-                _ = self.__check_column_ref_exists(column, include_bases=True)
+                self.__check_column_ref_exists(column, include_bases=True)
                 col = column.col
             assert col is not None
         self._drop_index(col=col, idx_name=idx_name, if_not_exists=if_not_exists)

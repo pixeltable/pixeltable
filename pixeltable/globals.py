@@ -104,15 +104,16 @@ def create_table(
         num_retained_versions: Number of versions of the table to retain.
         comment: An optional comment; its meaning is user-defined.
         media_validation: Media validation policy for the table.
+
             - `'on_read'`: validate media files at query time
             - `'on_write'`: validate media files during insert/update operations
         if_exists: Directive regarding how to handle if the path already exists.
             Must be one of the following:
+
             - `'error'`: raise an error
             - `'ignore'`: do nothing and return the existing table handle
             - `'replace'`: if the existing table has no views, drop and replace it with a new one
             - `'replace_force'`: drop the existing table and all its views, and create a new one
-            Default is `'error'`.
 
     Returns:
         A handle to the newly created table, or to an already existing table at the path when `if_exists='ignore'`.
@@ -216,15 +217,16 @@ def create_view(
         num_retained_versions: Number of versions of the view to retain.
         comment: Optional comment for the view.
         media_validation: Media validation policy for the view.
+
             - `'on_read'`: validate media files at query time
             - `'on_write'`: validate media files during insert/update operations
         if_exists: Directive regarding how to handle if the path already exists.
             Must be one of the following:
+
             - `'error'`: raise an error
             - `'ignore'`: do nothing and return the existing view handle
             - `'replace'`: if the existing view has no dependents, drop and replace it with a new one
             - `'replace_force'`: drop the existing view and all its dependents, and create a new one
-            Default is `'error'`.
 
     Returns:
         A handle to the [`Table`][pixeltable.Table] representing the newly created view. If the path already
@@ -325,15 +327,16 @@ def create_snapshot(
         num_retained_versions: Number of versions of the view to retain.
         comment: Optional comment for the snapshot.
         media_validation: Media validation policy for the snapshot.
+
             - `'on_read'`: validate media files at query time
             - `'on_write'`: validate media files during insert/update operations
         if_exists: Directive regarding how to handle if the path already exists.
             Must be one of the following:
+
             - `'error'`: raise an error
             - `'ignore'`: do nothing and return the existing snapshot handle
             - `'replace'`: if the existing snapshot has no dependents, drop and replace it with a new one
             - `'replace_force'`: drop the existing snapshot and all its dependents, and create a new one
-            Default is `'error'`.
 
     Returns:
         A handle to the [`Table`][pixeltable.Table] representing the newly created snapshot.
@@ -445,13 +448,16 @@ def drop_table(table: Union[str, catalog.Table], force: bool = False,
         force: If `True`, will also drop all views and sub-views of this table.
         if_not_exists: Directive regarding how to handle if the path does not exist.
             Must be one of the following:
+
             - `'error'`: raise an error
             - `'ignore'`: do nothing and return
-            Default is `'error'`.
 
     Raises:
-        Error: If the name is invalid, or name does not exist and `if_not_exists='error'`,
-            or does not designate a table object, or has dependents and `force='False'`.
+        Error: if the qualified name
+            - is invalid, or
+            - does not exist and `if_not_exists='error'`, or
+            - does not designate a table object, or
+            - designates a table object but has dependents and `force=False`.
 
     Examples:
         Drop a table by its fully qualified name:
@@ -532,11 +538,11 @@ def create_dir(path_str: str, if_exists: Literal['error', 'ignore', 'replace', '
         path_str: Path to the directory.
         if_exists: Directive regarding how to handle if the path already exists.
             Must be one of the following:
+
             - `'error'`: raise an error
             - `'ignore'`: do nothing and return the existing directory handle
             - `'replace'`: if the existing directory is empty, drop it and create a new one
             - `'replace_force'`: drop the existing directory and all its children, and create a new one
-            Default is `'error'`.
 
     Returns:
         A handle to the newly created directory, or to an already existing directory at the path when `if_exists='ignore'`.
@@ -599,9 +605,9 @@ def drop_dir(path_str: str, force: bool = False, if_not_exists: Literal['error',
             with any views or snapshots that depend on any of the dropped tables.
         if_not_exists: Directive regarding how to handle if the path does not exist.
             Must be one of the following:
+
             - `'error'`: raise an error
             - `'ignore'`: do nothing and return
-            Default is `'error'`.
 
     Raises:
         Error: If the path is invalid, or does not exist and `if_not_exists='error'`,
