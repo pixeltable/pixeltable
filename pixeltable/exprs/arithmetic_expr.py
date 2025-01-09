@@ -136,7 +136,4 @@ class ArithmeticExpr(Expr):
 
     @overrides
     def is_constant(self):
-        for component in self.components:
-            if not component.is_constant():
-                return False
-        return True
+        return False
