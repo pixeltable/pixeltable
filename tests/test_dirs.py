@@ -1,8 +1,9 @@
 import pytest
+import re
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
-from .utils import make_tbl, reload_catalog, assert_raises_error
+from .utils import make_tbl, reload_catalog
 
 
 class TestDirs:
@@ -152,8 +153,11 @@ class TestDirs:
 
         # if_not_exists='error' should raise error
         # default behavior is to raise error
-        assert_raises_error("does not exist", pxt.drop_dir, dir_name, if_not_exists='error')
-        assert_raises_error("does not exist", pxt.drop_dir, dir_name)
+        expected_err = "does not exist"
+        with pytest.raises(excs.Error, match=re.compile(expected_err, re.IGNORECASE)):
+            pxt.drop_dir(dir_name, if_not_exists='error')
+        with pytest.raises(excs.Error, match=re.compile(expected_err, re.IGNORECASE)):
+            pxt.drop_dir(dir_name)
 
         # if_not_exists='ignore' should be successful but a no-op
         pxt.drop_dir(dir_name, if_not_exists='ignore')
@@ -163,10 +167,9 @@ class TestDirs:
         assert pxt.list_dirs(recursive=True) == orig_dirs
         # invalid if_not_exists value is rejected, but only
         # when the directory doesn't exist.
-        assert_raises_error(
-            "if_not_exists must be one of: ['error', 'ignore']",
-            pxt.drop_dir, dir_name, if_not_exists='invalid'
-        )
+        with pytest.raises(excs.Error) as exc_info:
+            pxt.drop_dir(dir_name, if_not_exists='invalid')
+        assert "if_not_exists must be one of: ['error', 'ignore']" in str(exc_info.value).lower()
 
     def test_drop(self, reset_db) -> None:
         dirs = ['dir1', 'dir1.sub1', 'dir1.sub1.subsub1']
@@ -177,17 +180,22 @@ class TestDirs:
 
         # bad name
         expected_err = 'invalid path format'
-        assert_raises_error(expected_err, pxt.drop_dir, '1dir')
+        with pytest.raises(excs.Error, match=re.compile(expected_err, re.IGNORECASE)):
+            pxt.drop_dir('1dir')
         # bad path
-        assert_raises_error(expected_err, pxt.drop_dir, 'dir1..sub1')
+        with pytest.raises(excs.Error, match=re.compile(expected_err, re.IGNORECASE)):
+            pxt.drop_dir('dir1..sub1')
         # doesn't exist
         self._test_drop_if_not_exists('dir2')
         # not empty
         expected_err = 'is not empty'
-        assert_raises_error(expected_err, pxt.drop_dir, 'dir1')
-        assert_raises_error(expected_err, pxt.drop_dir, 'dir1', if_not_exists='invalid')
-        # not a directory
-        assert_raises_error("needs to be a directory but is a table", pxt.drop_dir, 't1')
+        with pytest.raises(excs.Error, match=re.compile(expected_err, re.IGNORECASE)):
+            pxt.drop_dir('dir1')
+        with pytest.raises(excs.Error, match=re.compile(expected_err, re.IGNORECASE)):
+            pxt.drop_dir('dir1', if_not_exists='invalid')
+        expected_err = "needs to be a directory but is a table"
+        with pytest.raises(excs.Error, match=re.compile(expected_err, re.IGNORECASE)):
+            pxt.drop_dir('t1')
 
         pxt.drop_dir('dir1.sub1.subsub1')
         assert pxt.list_dirs('dir1.sub1') == []
