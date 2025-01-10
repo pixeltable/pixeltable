@@ -104,7 +104,7 @@ class TestExprs:
 
     def _verify_colref(self, colref: ColumnRef, col_tbl_name: str, context_tbl_name: str) -> None:
         assert colref.col.tbl.name == col_tbl_name
-        assert colref.tbl_context.name == context_tbl_name
+        assert colref.tbl_context.tbl_name() == context_tbl_name
 
     def test_column_ref_context(self, test_tbl: catalog.Table, reload_tester: ReloadTester) -> None:
         """ Test the table context is setup and works as expected for ColumnRef expression"""
@@ -188,11 +188,8 @@ class TestExprs:
 
         assert s3.select(s3.c2).count() == 10
         assert s3.select(s3.c2).head(3)['c2'] == [90, 91, 92]
-        # not working, raises an exception that c2 is not found in test_view.
-        # looks like a effective version not set issue.
-        with pytest.raises(excs.Error) as exc_info:
-            assert s3.c2.count() == 10
-            assert s3.c2.head(3)['c2'] == [90, 91, 92]
+        assert s3.c2.count() == 10
+        assert s3.c2.head(3)['c2'] == [90, 91, 92]
         # assert exc_info == "Expression 'c2' cannot be evaluated in the context of this query's tables (test_view)"
         _ = reload_tester.run_query(s3.select(s3.v1, s3.c2))
 

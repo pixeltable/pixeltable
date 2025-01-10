@@ -16,9 +16,6 @@ from .expr import Expr
 from .row_builder import RowBuilder
 from .sql_element_cache import SqlElementCache
 
-if TYPE_CHECKING:
-    from ..catalog import TableVersion
-
 class ColumnRef(Expr):
     """A reference to a table column
 
@@ -48,16 +45,13 @@ class ColumnRef(Expr):
     pos_idx: Optional[int]
     id: int
     perform_validation: bool  # if True, performs media validation
-    tbl_context: Optional[TableVersion]
+    tbl_context: Optional[catalog.TableVersionPath]
 
-    def __init__(self, col: catalog.Column, perform_validation: Optional[bool] = None, tbl_context: Optional[TableVersion] = None):
+    def __init__(self, col: catalog.Column, perform_validation: Optional[bool] = None, tbl_context: Optional[catalog.TableVersionPath] = None):
         super().__init__(col.col_type)
         assert col.tbl is not None
         self.col = col
-        if tbl_context is not None:
-            self.tbl_context = tbl_context
-        else:
-            self.tbl_context = col.tbl
+        self.tbl_context = tbl_context
         self.is_unstored_iter_col = \
             col.tbl.is_component_view() and col.tbl.is_iterator_column(col) and not col.is_stored
         self.iter_arg_ctx = None
@@ -90,9 +84,10 @@ class ColumnRef(Expr):
         assert len(self.iter_arg_ctx.target_slot_idxs) == 1  # a single inline dict
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
+        # TODO: should tbl_context matter for ColumnRef id?
         return (
             super()._id_attrs()
-            + [('tbl_id', self.col.tbl.id), ('col_id', self.col.id), ('perform_validation', self.perform_validation)]#, ('tbl_context', self.tbl_context.id)]
+            + [('tbl_id', self.col.tbl.id), ('col_id', self.col.id), ('perform_validation', self.perform_validation)]
         )
 
     # override
@@ -100,8 +95,7 @@ class ColumnRef(Expr):
         target = tbl_versions[self.col.tbl.id]
         assert self.col.id in target.cols_by_id
         col = target.cols_by_id[self.col.id]
-        target_tbl_context = tbl_versions[self.tbl_context.id]
-        return ColumnRef(col, tbl_context=target_tbl_context)
+        return ColumnRef(col, tbl_context=self.tbl_context)
 
     def __getattr__(self, name: str) -> Expr:
         from .column_property_ref import ColumnPropertyRef
@@ -134,12 +128,14 @@ class ColumnRef(Expr):
         return str(self)
 
     def _equals(self, other: ColumnRef) -> bool:
-        return (self.col == other.col and self.perform_validation == other.perform_validation
-                and self.tbl_context.id == other.tbl_context.id
-                and self.tbl_context.version == other.tbl_context.version)
+        # TODO: should tbl_context matter for ColumnRef equality?
+        return (self.col == other.col and self.perform_validation == other.perform_validation)
 
     def _df(self) -> 'pxt.dataframe.DataFrame':
-        tbl = catalog.Catalog.get().tbls[self.tbl_context.id]
+        if self.tbl_context:
+            from pixeltable.plan import FromClause
+            return pxt.DataFrame(FromClause(tbls=[self.tbl_context]))
+        tbl = catalog.Catalog.get().tbls[self.col.tbl.id]
         return tbl.select(self)
 
     def show(self, *args, **kwargs) -> 'pxt.dataframe.DataFrameResultSet':
@@ -224,14 +220,15 @@ class ColumnRef(Expr):
         res = next(self.iterator)
         data_row[self.slot_idx] = res[self.col.name]
 
-    def get_idx_info(self) -> dict[str, 'TableVersion.IndexInfo']:
+    def get_idx_info(self) -> dict[str, 'catalog.TableVersion.IndexInfo']:
         assert self.col is not None
-        assert self.tbl_context is not None
-        idx_info = {name: info for name, info in self.tbl_context.idxs_by_name.items() if info.col == self.col}
-        print(f'----> DEBUG_A: ColumnRef.get_idx_info() {self.col.name} {self.tbl_context.name} {self.col.tbl.name} len(idx_info)={len(idx_info)}')
-        if len(idx_info) == 0:
-            return self.col.get_idx_info()
-        return idx_info
+        if self.tbl_context:
+            idx_info = {name: info for name, info in self.tbl_context.tbl_version.idxs_by_name.items() if info.col == self.col}
+            if len(idx_info) != 0:
+                return idx_info
+            # TODO: confirm.
+            # use col's index if none found in context.
+        return self.col.get_idx_info()
 
     def _as_dict(self) -> dict:
         tbl = self.col.tbl
@@ -243,8 +240,7 @@ class ColumnRef(Expr):
             'tbl_version': version,
             'col_id': self.col.id,
             'perform_validation': self.perform_validation,
-            'tbl_context_id': str(self.tbl_context.id),
-            'tbl_context_version': self.tbl_context.version if self.tbl_context.is_snapshot else None
+            'tbl_context': self.tbl_context.as_dict() if self.tbl_context is not None else None
         }
 
     @classmethod
@@ -256,12 +252,10 @@ class ColumnRef(Expr):
         return col
 
     @classmethod
-    def get_column_context(cls, d: dict) -> catalog.TableVersion:
-        if 'tbl_context_id' in d:
-            tbl_id, version = UUID(d['tbl_context_id']), d['tbl_context_version']
-        else:
-            tbl_id, version = UUID(d['tbl_id']), d['tbl_version']
-        return catalog.Catalog.get().tbl_versions[(tbl_id, version)]
+    def get_column_context(cls, d: dict) -> catalog.TableVersionPath:
+        if 'tbl_context' in d and d['tbl_context'] is not None:
+            return catalog.TableVersionPath.from_dict(d['tbl_context'])
+        return None
 
     @classmethod
     def _from_dict(cls, d: dict, _: list[Expr]) -> ColumnRef:

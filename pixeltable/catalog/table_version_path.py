@@ -81,7 +81,7 @@ class TableVersionPath:
             return None
         return self.base.find_tbl_version(id)
 
-    def get_column_ref(self, col_name: str, _context: Optional[TableVersion] = None) -> exprs.ColumnRef:
+    def get_column_ref(self, col_name: str, _context: Optional[TableVersionPath] = None) -> exprs.ColumnRef:
         """Return a ColumnRef for the given column name."""
         from pixeltable.exprs import ColumnRef
         if col_name not in self.tbl_version.cols_by_name:
@@ -89,8 +89,8 @@ class TableVersionPath:
                 raise AttributeError(f'Column {col_name} unknown')
             return self.base.get_column_ref(col_name, _context)
         col = self.tbl_version.cols_by_name[col_name]
-        _context_tbl_version = _context if _context is not None else self.tbl_version
-        return ColumnRef(col, tbl_context=_context_tbl_version)
+        _context_tbl_version_path = _context if _context is not None else self
+        return ColumnRef(col, tbl_context=_context_tbl_version_path)
 
     def columns(self) -> list[Column]:
         """Return all user columns visible in this tbl version path, including columns from bases"""
