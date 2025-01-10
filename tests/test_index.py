@@ -345,47 +345,36 @@ class TestIndex:
         _ = reload_tester.run_query(img_t.select())
 
         # test that a table with an embedding index can be reloaded
-        t = pxt.create_table('t1', {'s': pxt.String})
+        t = pxt.create_table('t1', {'i': pxt.Int, 's': pxt.String})
         sents = get_sentences(3)
-        status = t.insert({'s': s} for s in sents)
+        status = t.insert({'i': i, 's': sents[i]} for i in range(0,3))
         t.add_embedding_index('s', string_embed=pxt.functions.huggingface.sentence_transformer.using(model_id='all-mpnet-base-v2'))
         df = t.select(sim=t.s.similarity(sents[1]))
         res1 = df.collect()
         _ = reload_tester.run_query(t.select())
         _ = reload_tester.run_query(df)
+        # a basetable column referenced in the context of view
+        # should be able to use the basetable index, even if the
+        # view has no index of its own
+        v = pxt.create_view('v1', t.where(t.i>0))
+        df = v.select(sim=v.s.similarity(sents[1]))
+        _ = reload_tester.run_query(df)
+        _ = reload_tester.run_query(v.select())
 
         # test that a view with an embedding index on a base table column can be reloaded
         t = pxt.create_table('t2', {'s': pxt.String})
         status = t.insert({'s': s} for s in sents)
-        v = pxt.create_view('v', t)
+        v = pxt.create_view('v2', t)
         v.add_embedding_index('s', string_embed=pxt.functions.huggingface.sentence_transformer.using(model_id='all-mpnet-base-v2'))
         # should work irrespective of whether the column is passed by name or reference
         v.add_embedding_index(v.s, string_embed=pxt.functions.huggingface.sentence_transformer.using(model_id='all-mpnet-base-v2'))
         v.add_embedding_index(t.s, string_embed=pxt.functions.huggingface.sentence_transformer.using(model_id='all-mpnet-base-v2'))
-        # Expected to verify the following:
+        # verify the index on view can be used, and across reload.
         df = v.select(sim=v.s.similarity(sents[1], idx='idx1'))
         res2 = df.collect()
         assert_resultset_eq(res1, res2)
-        # and
         _ = reload_tester.run_query(df)
-        #
-        # But found a bug, instead. PXT-371 tracks this.
-        # RCA: The indexes above are on the view, not the base table.
-        # Since they are on a column of the base table, the code
-        # initializing the SimilarityExpr is looking for the index in
-        # the table in the ColumnRef, which is the base table.
-        # So it raises error that there's no index.
-        # Fix needs discussion.
-        #with pytest.raises(pxt.Error) as exc_info:
-        df = v.select(sim=v.s.similarity(sents[1], idx='idx2'))
-        res2 = df.collect()
-        assert_resultset_eq(res1, res2)
-        _ = reload_tester.run_query(df)
-        df = v.select(sim=v.s.similarity(sents[1], idx='idx0'))
-        res2 = df.collect()
-        assert_resultset_eq(res1, res2)
-        _ = reload_tester.run_query(df)
-        #assert 'no index found for column' in str(exc_info.value).lower()
+
         _ = reload_tester.run_query(v.select())
 
         _ = reload_tester.run_reload_test()
