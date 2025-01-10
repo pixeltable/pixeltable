@@ -459,7 +459,7 @@ class Table(SchemaObject):
     def _ignore_or_drop_existing_columns(self, new_col_spec: dict[str, Any], if_exists: IfExistsParam) -> list[str]:
         """ Check and handle existing columns in the new column specification based on the if_exists parameter.
 
-        Note that this function will remove any column names from the passed in `new_col_spec` if `if_exists='ignore'`.
+        If `if_exists='ignore'`, returns a list of existing columns, if any, in `new_col_spec`.
         """
         assert not self.get_metadata()['is_snapshot']
         existing_col_names = set(self._schema.keys())
@@ -670,7 +670,7 @@ class Table(SchemaObject):
             Information about the execution status of the operation.
 
         Raises:
-            Error: If the column name is invalid or already exists and `if_exists='error',
+            Error: If the column name is invalid or already exists and `if_exists='error'`,
                 or `if_exists='replace*'` but the column has dependents or is a basetable column.
 
         Examples:
@@ -946,7 +946,7 @@ class Table(SchemaObject):
                 - `'replace'` or `'replace_force'`: replace the existing index with the new one.
 
         Raises:
-            Error: If an index with that name already exists for the table and if_exists='error', or if the specified column does not exist.
+            Error: If an index with the specified name already exists for the table and `if_exists='error'`, or if the specified column does not exist.
 
         Examples:
             Add an index to the `img` column of the table `my_table` by column name:

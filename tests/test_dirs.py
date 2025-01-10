@@ -1,5 +1,4 @@
 import pytest
-import re
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
@@ -16,37 +15,37 @@ class TestDirs:
             assert dir._parent._path == '.'.join(name.split('.')[:-1])
 
         # invalid names
-        expected_err = 'invalid path format'
-        with pytest.raises(excs.Error, match=re.compile(expected_err, re.IGNORECASE)):
+        expected_err = r'Invalid path format'
+        with pytest.raises(excs.Error, match=expected_err):
             pxt.create_dir('1dir')
-        with pytest.raises(excs.Error, match=re.compile(expected_err, re.IGNORECASE)):
+        with pytest.raises(excs.Error, match=expected_err):
             pxt.create_dir('_dir1')
-        with pytest.raises(excs.Error, match=re.compile(expected_err, re.IGNORECASE)):
+        with pytest.raises(excs.Error, match=expected_err):
             pxt.create_dir('dir 1')
-        with pytest.raises(excs.Error, match=re.compile(expected_err, re.IGNORECASE)):
+        with pytest.raises(excs.Error, match=expected_err):
             pxt.create_dir('dir1..sub2')
-        with pytest.raises(excs.Error, match=re.compile(expected_err, re.IGNORECASE)):
+        with pytest.raises(excs.Error, match=expected_err):
             pxt.create_dir('dir1.sub2.')
-        with pytest.raises(excs.Error, match=re.compile(expected_err, re.IGNORECASE)):
+        with pytest.raises(excs.Error, match=expected_err):
             pxt.create_dir('dir1:sub2.')
 
         # existing dirs raise error by default
-        expected_err = 'already exists'
-        with pytest.raises(excs.Error, match=re.compile(expected_err, re.IGNORECASE)):
+        expected_err = r'already exists'
+        with pytest.raises(excs.Error, match=expected_err):
             pxt.create_dir('dir1')
-        with pytest.raises(excs.Error, match=re.compile(expected_err, re.IGNORECASE)):
+        with pytest.raises(excs.Error, match=expected_err):
             pxt.create_dir('dir1.sub1')
-        with pytest.raises(excs.Error, match=re.compile(expected_err, re.IGNORECASE)):
+        with pytest.raises(excs.Error, match=expected_err):
             pxt.create_dir('dir1.sub1.subsub1')
 
         # existing table
         make_tbl('dir1.t1')
-        with pytest.raises(excs.Error, match=re.compile(expected_err, re.IGNORECASE)):
+        with pytest.raises(excs.Error, match=expected_err):
             pxt.create_dir('dir1.t1')
-        with pytest.raises(excs.Error, match=re.compile("no such path", re.IGNORECASE)):
+        with pytest.raises(excs.Error, match=r"No such path"):
             pxt.create_dir('dir2.sub2')
         make_tbl('t2')
-        with pytest.raises(excs.Error, match=re.compile("not a directory", re.IGNORECASE)):
+        with pytest.raises(excs.Error, match=r"Not a directory"):
             pxt.create_dir('t2.sub2')
 
         # new client: force loading from store
