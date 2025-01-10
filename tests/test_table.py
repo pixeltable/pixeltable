@@ -1737,18 +1737,17 @@ class TestTable:
 
         # if_exists='error' raises an error if the column already exists
         # by default, if_exists='error'
-        expected_err_str = r"Duplicate column name: 'c1'"
-        with pytest.raises(excs.Error, match=expected_err_str):
+        with pytest.raises(excs.Error, match=r"Duplicate column name: 'c1'"):
             t.add_column(c1=pxt.Int)
-        with pytest.raises(excs.Error, match=expected_err_str):
+        with pytest.raises(excs.Error, match=r"Duplicate column name: 'c1'"):
             t.add_computed_column(c1=t.c2 + t.c3)
-        with pytest.raises(excs.Error, match=expected_err_str):
+        with pytest.raises(excs.Error, match=r"Duplicate column name: 'c1'"):
             t.add_columns({'c1': pxt.Int, 'non_existing_col1': pxt.String})
-        with pytest.raises(excs.Error, match=expected_err_str):
+        with pytest.raises(excs.Error, match=r"Duplicate column name: 'c1'"):
             t.add_column(c1=pxt.Int, if_exists='error')
-        with pytest.raises(excs.Error, match=expected_err_str):
+        with pytest.raises(excs.Error, match=r"Duplicate column name: 'c1'"):
             t.add_computed_column(c1=t.c2 + t.c3, if_exists='error')
-        with pytest.raises(excs.Error, match=expected_err_str):
+        with pytest.raises(excs.Error, match=r"Duplicate column name: 'c1'"):
             t.add_columns({'c1': pxt.Int, 'non_existing_col1': pxt.String}, if_exists='error')
         assert orig_cnames == t.columns
         assert_resultset_eq(t.select(t.c1).order_by(t.c1).collect(), orig_res, True)

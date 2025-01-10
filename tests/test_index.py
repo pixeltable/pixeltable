@@ -245,10 +245,9 @@ class TestIndex:
 
         # if_exists='error' raises an error if the index name already exists.
         # by default, if_exists='error'.
-        expected_err = r'Duplicate index name'
-        with pytest.raises(pxt.Error, match=expected_err):
+        with pytest.raises(pxt.Error, match=r'Duplicate index name'):
             t.add_embedding_index('img', idx_name='clip_idx', image_embed=clip_img_embed, string_embed=clip_text_embed)
-        with pytest.raises(pxt.Error, match=expected_err):
+        with pytest.raises(pxt.Error, match=r'Duplicate index name'):
             t.add_embedding_index('img', idx_name='clip_idx', image_embed=clip_img_embed, string_embed=clip_text_embed, if_exists='error')
         assert len(t._list_index_info_for_test()) == initial_indexes + 3
 

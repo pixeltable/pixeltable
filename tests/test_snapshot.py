@@ -114,8 +114,7 @@ class TestSnapshot:
         assert "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']" in str(exc_info.value).lower()
 
         # scenario 1: a snapshot exists at the path already
-        expected_err = r'already exists'
-        with pytest.raises(pxt.Error, match=expected_err):
+        with pytest.raises(pxt.Error, match=r'already exists'):
             pxt.create_snapshot(sname, t)
         # if_exists='ignore' should return the existing snapshot
         s12 = pxt.create_snapshot(sname, t, if_exists='ignore')
@@ -132,7 +131,7 @@ class TestSnapshot:
         # dependent of the snapshot iff the snapshot has additional columns
         # not present in the base table/view of that snapshot.
         v_on_s1 = pxt.create_view('test_view_on_snapshot1', s12)
-        with pytest.raises(pxt.Error, match=expected_err):
+        with pytest.raises(pxt.Error, match=r'already exists'):
             pxt.create_snapshot(sname, t)
         # if_exists='ignore' should return the existing snapshot
         s13 = pxt.create_snapshot(sname, t, if_exists='ignore')
@@ -156,7 +155,7 @@ class TestSnapshot:
 
         # scenario 3: path exists but is not a snapshot
         _ = pxt.create_table('not_snapshot', {'c1': pxt.String}, if_exists='ignore')
-        with pytest.raises(pxt.Error, match=expected_err):
+        with pytest.raises(pxt.Error, match=r'already exists'):
             pxt.create_snapshot('not_snapshot', t)
         for _ie in ['ignore', 'replace', 'replace_force']:
             with pytest.raises(excs.Error) as exc_info:
@@ -203,12 +202,11 @@ class TestSnapshot:
         assert 'cannot insert into view' in str(excinfo.value).lower()
 
         # adding column is not supported for snapshots
-        expected_err = r'Cannot add column to a snapshot'
-        with pytest.raises(pxt.Error, match=expected_err):
+        with pytest.raises(pxt.Error, match=r'Cannot add column to a snapshot'):
             snap.add_column(non_existing_col1=pxt.String)
-        with pytest.raises(pxt.Error, match=expected_err):
+        with pytest.raises(pxt.Error, match=r'Cannot add column to a snapshot'):
             snap.add_computed_column(on_existing_col1=tbl.c2 + tbl.c3)
-        with pytest.raises(pxt.Error, match=expected_err):
+        with pytest.raises(pxt.Error, match=r'Cannot add column to a snapshot'):
             snap.add_columns({'non_existing_col1': pxt.String, 'non_existing_col2': pxt.String})
 
         with pytest.raises(pxt.Error) as excinfo:
