@@ -359,13 +359,13 @@ class Planner:
             col for col in target.cols_by_id.values()
             if col.is_stored and not col in updated_cols and not col in recomputed_base_cols
         ]
-        select_list: list[exprs.Expr] = [exprs.ColumnRef(col) for col in copied_cols]
+        select_list: list[exprs.Expr] = [exprs.ColumnRef(col, tbl_context=tbl) for col in copied_cols]
         select_list.extend(update_targets.values())
 
         recomputed_exprs = \
             [c.value_expr.copy().resolve_computed_cols(resolve_cols=recomputed_base_cols) for c in recomputed_base_cols]
         # recomputed cols reference the new values of the updated cols
-        spec: dict[exprs.Expr, exprs.Expr] = {exprs.ColumnRef(col): e for col, e in update_targets.items()}
+        spec: dict[exprs.Expr, exprs.Expr] = {exprs.ColumnRef(col, tbl_context=tbl): e for col, e in update_targets.items()}
         exprs.Expr.list_substitute(recomputed_exprs, spec)
         select_list.extend(recomputed_exprs)
 
@@ -417,8 +417,8 @@ class Planner:
             col for col in target.cols_by_id.values()
             if col.is_stored and not col in updated_cols and not col in recomputed_base_cols
         ]
-        select_list: list[exprs.Expr] = [exprs.ColumnRef(col) for col in copied_cols]
-        select_list.extend(exprs.ColumnRef(col) for col in updated_cols)
+        select_list: list[exprs.Expr] = [exprs.ColumnRef(col, tbl_context=tbl) for col in copied_cols]
+        select_list.extend(exprs.ColumnRef(col, tbl_context=tbl) for col in updated_cols)
 
         recomputed_exprs = \
             [c.value_expr.copy().resolve_computed_cols(resolve_cols=recomputed_base_cols) for c in recomputed_base_cols]

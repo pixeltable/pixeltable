@@ -183,7 +183,7 @@ class DataFrame:
             a pair composed of the list of expressions and the list of corresponding names
         """
         if select_list is None:
-            select_list = [(exprs.ColumnRef(col), None) for tbl in tbls for col in tbl.columns()]
+            select_list = [(exprs.ColumnRef(col, tbl_context=tbl), None) for tbl in tbls for col in tbl.columns()]
 
         out_exprs: list[exprs.Expr] = []
         out_names: list[str] = []  # keep track of order
@@ -649,7 +649,7 @@ class DataFrame:
             rhs_col = other.get_column(col_ref.col.name, include_bases=True)
             if rhs_col is None:
                 raise excs.Error(f"'on': column {col_ref.col.name!r} not found in joined table")
-            rhs_col_ref = exprs.ColumnRef(rhs_col)
+            rhs_col_ref = exprs.ColumnRef(rhs_col, tbl_context=other)
 
             lhs_col_ref: Optional[exprs.ColumnRef] = None
             if any(tbl.has_column(col_ref.col, include_bases=True) for tbl in self._from_clause.tbls):
@@ -663,7 +663,7 @@ class DataFrame:
                         continue
                     if lhs_col_ref is not None:
                         raise excs.Error(f"'on': ambiguous column reference: {col_ref.col.name!r}")
-                    lhs_col_ref = exprs.ColumnRef(col)
+                    lhs_col_ref = exprs.ColumnRef(col, tbl_context=tbl)
                 if lhs_col_ref is None:
                     tbl_names = [tbl.tbl_name() for tbl in self._from_clause.tbls]
                     raise excs.Error(

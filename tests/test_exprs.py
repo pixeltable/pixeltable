@@ -190,8 +190,23 @@ class TestExprs:
         assert s3.select(s3.c2).head(3)['c2'] == [90, 91, 92]
         assert s3.c2.count() == 10
         assert s3.c2.head(3)['c2'] == [90, 91, 92]
-        # assert exc_info == "Expression 'c2' cannot be evaluated in the context of this query's tables (test_view)"
         _ = reload_tester.run_query(s3.select(s3.v1, s3.c2))
+
+        # the tbl_context has no impact on the id and equality
+        assert t.c2.id == v.c2.id
+        assert t.c2.id == s.c2.id
+        assert t.c2.id == s2.c2.id
+        assert t.c2.id == s3.c2.id
+        assert t.c2.equals(v.c2)
+        assert t.c2.equals(s.c2)
+        assert t.c2.equals(s2.c2)
+        assert t.c2.equals(s3.c2)
+        # the tbl_context is persisted and so the expressions
+        # will differ when serialized
+        assert t.c2.serialize() != v.c2.serialize()
+        assert t.c2.serialize() != s.c2.serialize()
+        assert t.c2.serialize() != s2.c2.serialize()
+        assert t.c2.serialize() != s3.c2.serialize()
 
         reload_tester.run_reload_test()
 

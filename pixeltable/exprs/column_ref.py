@@ -75,7 +75,7 @@ class ColumnRef(Expr):
         else:
             assert perform_validation is None or not perform_validation
         if self.perform_validation:
-            non_validating_col_ref = ColumnRef(col, perform_validation=False)
+            non_validating_col_ref = ColumnRef(col, perform_validation=False, tbl_context=self.tbl_context)
             self.components = [non_validating_col_ref]
         self.id = self._create_id()
 
