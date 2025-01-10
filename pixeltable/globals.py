@@ -117,13 +117,15 @@ def create_table(
 
     Returns:
         A handle to the newly created table, or to an already existing table at the path when `if_exists='ignore'`.
-        Please note the schema of the existing table may not match the schema provided in the call.
+            Please note the schema of the existing table may not match the schema provided in the call.
 
     Raises:
-        Error: if the path is invalid,
-            or if the path already exists and `if_exists='error'`,
-            or if the path already exists and is not a table,
-            or an error occurs while attempting to create the table.
+        Error: if
+
+            - the path is invalid, or
+            - the path already exists and `if_exists='error'`, or
+            - the path already exists and is not a table, or
+            - an error occurs while attempting to create the table.
 
     Examples:
         Create a table with an int and a string column:
@@ -234,10 +236,12 @@ def create_view(
             or the base of the existing view may not match those provided in the call.
 
     Raises:
-        Error: if the path is invalid,
-            or if the path already exists and `if_exists='error'`,
-            or if the path already exists and is not a view,
-            or an error occurs while attempting to create the view.
+        Error: if
+
+            - the path is invalid, or
+            - the path already exists and `if_exists='error'`, or
+            - the path already exists and is not a view, or
+            - an error occurs while attempting to create the view.
 
     Examples:
         Create a view `my_view` of an existing table `my_table`, filtering on rows where `col1` is greater than 10:
@@ -340,13 +344,15 @@ def create_snapshot(
 
     Returns:
         A handle to the [`Table`][pixeltable.Table] representing the newly created snapshot.
-        Please note the schema or base of the existing snapshot may not match those provided in the call.
+            Please note the schema or base of the existing snapshot may not match those provided in the call.
 
     Raises:
-        Error: if the path is invalid,
-            or if the path already exists and `if_exists='error'`,
-            or if the path already exists and is not a snapshot,
-            or an error occurs while attempting to create the snapshot.
+        Error: if
+
+            - the path is invalid, or
+            - the path already exists and `if_exists='error'`, or
+            - the path already exists and is not a snapshot, or
+            - an error occurs while attempting to create the snapshot.
 
     Examples:
         Create a snapshot `my_snapshot` of a table `my_table`:
@@ -454,6 +460,7 @@ def drop_table(table: Union[str, catalog.Table], force: bool = False,
 
     Raises:
         Error: if the qualified name
+
             - is invalid, or
             - does not exist and `if_not_exists='error'`, or
             - does not designate a table object, or
@@ -546,13 +553,15 @@ def create_dir(path_str: str, if_exists: Literal['error', 'ignore', 'replace', '
 
     Returns:
         A handle to the newly created directory, or to an already existing directory at the path when `if_exists='ignore'`.
-        Please note the existing directory may not be empty.
+            Please note the existing directory may not be empty.
 
     Raises:
-        Error: If the path is invalid,
-            or if the path already exists and `if_exists='error'`,
-            or if the path already exists and is not a directory,
-            or an error occurs while attempting to create the directory.
+        Error: If
+
+            - the path is invalid, or
+            - the path already exists and `if_exists='error'`, or
+            - the path already exists and is not a directory, or
+            - an error occurs while attempting to create the directory.
 
     Examples:
         >>> pxt.create_dir('my_dir')
@@ -610,8 +619,12 @@ def drop_dir(path_str: str, force: bool = False, if_not_exists: Literal['error',
             - `'ignore'`: do nothing and return
 
     Raises:
-        Error: If the path is invalid, or does not exist and `if_not_exists='error'`,
-            or is not designate a directory, or if the directory is not empty and `force` is False.
+        Error: If the path
+
+            - is invalid, or
+            - does not exist and `if_not_exists='error'`, or
+            - is not designate a directory, or
+            - is a direcotory but is not empty and `force=False`.
 
     Examples:
         Remove a directory, if it exists and is empty:
