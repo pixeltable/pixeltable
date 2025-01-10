@@ -152,10 +152,9 @@ class TestDirs:
 
         # if_not_exists='error' should raise error
         # default behavior is to raise error
-        expected_err = r'does not exist'
-        with pytest.raises(excs.Error, match=expected_err):
+        with pytest.raises(excs.Error, match=r'does not exist'):
             pxt.drop_dir(dir_name, if_not_exists='error')
-        with pytest.raises(excs.Error, match=expected_err):
+        with pytest.raises(excs.Error, match=r'does not exist'):
             pxt.drop_dir(dir_name)
 
         # if_not_exists='ignore' should be successful but a no-op
@@ -178,22 +177,19 @@ class TestDirs:
         make_tbl('dir1.t1')
 
         # bad name
-        expected_err = r'Invalid path format'
-        with pytest.raises(excs.Error, match=expected_err):
+        with pytest.raises(excs.Error, match=r'Invalid path format'):
             pxt.drop_dir('1dir')
         # bad path
-        with pytest.raises(excs.Error, match=expected_err):
+        with pytest.raises(excs.Error, match=r'Invalid path format'):
             pxt.drop_dir('dir1..sub1')
         # doesn't exist
         self._test_drop_if_not_exists('dir2')
         # not empty
-        expected_err = r'is not empty'
-        with pytest.raises(excs.Error, match=expected_err):
+        with pytest.raises(excs.Error, match=r'is not empty'):
             pxt.drop_dir('dir1')
-        with pytest.raises(excs.Error, match=expected_err):
+        with pytest.raises(excs.Error, match=r'is not empty'):
             pxt.drop_dir('dir1', if_not_exists='invalid')
-        expected_err = r"needs to be a directory but is a table"
-        with pytest.raises(excs.Error, match=expected_err):
+        with pytest.raises(excs.Error, match=r"needs to be a directory but is a table"):
             pxt.drop_dir('t1')
 
         pxt.drop_dir('dir1.sub1.subsub1')
