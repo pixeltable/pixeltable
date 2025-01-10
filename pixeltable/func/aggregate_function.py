@@ -139,6 +139,9 @@ class AggregateFunction(Function):
         self.init_param_names.append(init_param_names)
         return self
 
+    def _docstring(self) -> Optional[str]:
+        return inspect.getdoc(self.agg_classes[0])
+
     def help_str(self) -> str:
         res = super().help_str()
         # We need to reference agg_classes[0] rather than agg_class here, because we want this to work even if the

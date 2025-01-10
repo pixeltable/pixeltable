@@ -74,7 +74,7 @@ plugins:
               docstring_section_style: list
               docstring_style: google
               extensions:
-                pixeltable.tool.doc_plugins.griffe:PxtGriffeExtension:
+                tool.doc_plugins.griffe:PxtGriffeExtension:
               filters: ["!^_"]
               inherited_members: true
               line_length: 80

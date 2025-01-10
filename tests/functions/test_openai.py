@@ -1,9 +1,11 @@
+from typing import Optional
+
 import pytest
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 
-from ..utils import SAMPLE_IMAGE_URL, skip_test_if_not_installed, validate_update_status
+from ..utils import SAMPLE_IMAGE_URL, skip_test_if_not_installed, stock_price, validate_update_status
 
 
 @pytest.mark.remote_api
@@ -79,7 +81,6 @@ class TestOpenai:
                 model='gpt-4o-mini', messages=msgs, response_format={'type': 'json_object'}
             )
         )
-        # TODO Also test the `tools` and `tool_choice` parameters.
         validate_update_status(t.insert(input='Give me an example of a typical JSON structure.'), 1)
         result = t.collect()
         assert len(result['chat_output'][0]['choices'][0]['message']['content']) > 0
@@ -94,6 +95,60 @@ class TestOpenai:
         with pytest.raises(excs.ExprEvalError) as exc_info:
             t.insert(input='Say something interesting.')
         assert "\\'messages\\' must contain the word \\'json\\'" in str(exc_info.value)
+
+    def test_tool_invocations(self, reset_db) -> None:
+        skip_test_if_not_installed('openai')
+        TestOpenai.skip_test_if_no_openai_client()
+        from pixeltable.functions.openai import chat_completions, invoke_tools
+
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String})
+        messages = [{'role': 'user', 'content': t.prompt}]
+        tools = pxt.tools(stock_price)
+        t.add_computed_column(response=chat_completions(
+            model='gpt-4o-mini',
+            messages=messages,
+            tools=tools
+        ))
+        t.add_computed_column(output=t.response.choices[0].message.content)
+        t.add_computed_column(tool_calls=invoke_tools(tools, t.response))
+        t.insert(prompt='What is the stock price of NVDA today?')
+        t.insert(prompt='How many grams of corn are in a bushel?')
+        res = t.select(t.output, t.tool_calls).head()
+
+        # First prompt results in tool invocation + no message output
+        assert res[0]['output'] is None
+        assert res[0]['tool_calls'] == {'stock_price': 131.17}
+
+        # Second prompt results in positive length message output + no tool call
+        assert len(res[1]['output']) > 0
+        assert res[1]['tool_calls'] == {'stock_price': None}
+
+    def test_custom_tool_invocations(self, reset_db) -> None:
+        skip_test_if_not_installed('openai')
+        TestOpenai.skip_test_if_no_openai_client()
+        from pixeltable.functions.openai import chat_completions, invoke_tools
+
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String})
+        messages = [{'role': 'user', 'content': t.prompt}]
+        tools = pxt.tools(
+            pxt.tool(
+                stock_price,
+                name='banana_quantity',
+                description='Use this to compute the banana quantity of a symbol.'
+            )
+        )
+        t.add_computed_column(response=chat_completions(
+            model='gpt-4o-mini',
+            messages=messages,
+            tools=tools
+        ))
+        t.add_computed_column(output=t.response.choices[0].message.content)
+        t.add_computed_column(tool_calls=invoke_tools(tools, t.response))
+        t.insert(prompt='What is the banana quantity of the symbol NVDA?')
+        res = t.select(t.output, t.tool_calls).head()
+
+        assert res[0]['output'] is None
+        assert res[0]['tool_calls'] == {'banana_quantity': 131.17}
 
     @pytest.mark.expensive
     def test_gpt_4_vision(self, reset_db) -> None:

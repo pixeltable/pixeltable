@@ -17,6 +17,7 @@ import jsonschema
 import jsonschema.protocols
 import jsonschema.validators
 import numpy as np
+import pydantic
 import sqlalchemy as sql
 from typing import _GenericAlias  # type: ignore[attr-defined]
 from typing_extensions import _AnnotatedAlias
@@ -246,7 +247,7 @@ class ColumnType:
             if col_type is not None:
                 return col_type
             # this could still be json-serializable
-        if isinstance(val, dict) or isinstance(val, list) or isinstance(val, np.ndarray):
+        if isinstance(val, dict) or isinstance(val, list) or isinstance(val, np.ndarray) or isinstance(val, pydantic.BaseModel):
             try:
                 JsonType().validate_literal(val)
                 return JsonType(nullable=nullable)
@@ -339,7 +340,7 @@ class ColumnType:
                     return TimestampType(nullable=nullable_default)
                 if t is PIL.Image.Image:
                     return ImageType(nullable=nullable_default)
-                if issubclass(t, Sequence) or issubclass(t, Mapping):
+                if issubclass(t, Sequence) or issubclass(t, Mapping) or issubclass(t, pydantic.BaseModel):
                     return JsonType(nullable=nullable_default)
         return None
 
@@ -658,7 +659,7 @@ class JsonType(ColumnType):
         return val_type.print_value(val)
 
     def _validate_literal(self, val: Any) -> None:
-        if not isinstance(val, dict) and not isinstance(val, list):
+        if not isinstance(val, (dict, list)):
             # TODO In the future we should accept scalars too, which would enable us to remove this top-level check
             raise TypeError(f'Expected dict or list, got {val.__class__.__name__}')
         if not self.__is_valid_json(val):
@@ -679,6 +680,8 @@ class JsonType(ColumnType):
     def _create_literal(self, val: Any) -> Any:
         if isinstance(val, tuple):
             val = list(val)
+        if isinstance(val, pydantic.BaseModel):
+            return val.model_dump()
         return val
 
     def supertype(self, other: ColumnType) -> Optional[JsonType]:
@@ -867,6 +870,12 @@ class ArrayType(ColumnType):
             if n1 != n2:
                 return False
         return val.dtype == self.numpy_dtype()
+
+    def _to_json_schema(self) -> dict[str, Any]:
+        return {
+            'type': 'array',
+            'items': self.pxt_dtype._to_json_schema(),
+        }
 
     def _validate_literal(self, val: Any) -> None:
         if not isinstance(val, np.ndarray):
