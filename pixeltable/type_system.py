@@ -246,12 +246,8 @@ class ColumnType:
             if col_type is not None:
                 return col_type
             # this could still be json-serializable
-        if isinstance(val, dict) or isinstance(val, list) or isinstance(val, np.ndarray):
-            try:
-                JsonType().validate_literal(val)
-                return JsonType(nullable=nullable)
-            except TypeError:
-                return None
+        if isinstance(val, list) or isinstance(val, tuple) or isinstance(val, dict):
+            return JsonType(nullable=nullable)
         return None
 
     @classmethod

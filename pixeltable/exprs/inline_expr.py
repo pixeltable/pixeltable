@@ -5,6 +5,8 @@ from typing import Any, Iterable, Optional
 
 import numpy as np
 import sqlalchemy as sql
+from overrides import overrides
+from sympy.integrals.heurisch import components
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
@@ -83,6 +85,9 @@ class InlineArray(Expr):
             # loaded and their types are known.
             return InlineList(components)  # type: ignore[return-value]
 
+    @overrides
+    def get_constant(self):
+        return None
 
 class InlineList(Expr):
     """
@@ -92,15 +97,7 @@ class InlineList(Expr):
     def __init__(self, elements: Iterable):
         exprs = []
         for el in elements:
-            if isinstance(el, Expr):
-                exprs.append(el)
-            elif isinstance(el, list) or isinstance(el, tuple):
-                exprs.append(InlineList(el))
-            elif isinstance(el, dict):
-                exprs.append(InlineDict(el))
-            else:
-                exprs.append(Literal(el))
-
+            exprs.append(Expr.from_object(el))
         json_schema = {
             'type': 'array',
             'prefixItems': [expr.col_type.to_json_schema() for expr in exprs],
@@ -131,6 +128,12 @@ class InlineList(Expr):
     def _from_dict(cls, _: dict, components: list[Expr]) -> InlineList:
         return cls(components)
 
+    @overrides
+    def get_constant(self):
+        for comp in self.components:
+            if not isinstance(comp, Literal):
+                return None
+        return list(c.get_constant() for c in self.components)
 
 class InlineDict(Expr):
     """
@@ -146,14 +149,7 @@ class InlineDict(Expr):
             if not isinstance(key, str):
                 raise excs.Error(f'Dictionary requires string keys; {key} has type {type(key)}')
             self.keys.append(key)
-            if isinstance(val, Expr):
-                exprs.append(val)
-            elif isinstance(val, dict):
-                exprs.append(InlineDict(val))
-            elif isinstance(val, list) or isinstance(val, tuple):
-                exprs.append(InlineList(val))
-            else:
-                exprs.append(Literal(val))
+            exprs.append(Expr.from_object(val))
 
         json_schema: Optional[dict[str, Any]]
         try:
@@ -218,3 +214,10 @@ class InlineDict(Expr):
         assert len(d['keys']) == len(components)
         arg = dict(zip(d['keys'], components))
         return InlineDict(arg)
+
+    @overrides
+    def get_constant(self):
+        for comp in self.components:
+            if not isinstance(comp, Literal):
+                return None
+        return dict(zip(self.keys, [c.get_constant() for c in self.components]))

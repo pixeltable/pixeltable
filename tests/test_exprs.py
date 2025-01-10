@@ -17,7 +17,7 @@ import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.functions as pxtf
 from pixeltable import catalog, exprs
-from pixeltable.exprs import RELATIVE_PATH_ROOT as R
+from pixeltable.exprs import RELATIVE_PATH_ROOT as R, Literal
 from pixeltable.exprs import ColumnRef, Expr
 from pixeltable.functions import cast
 from pixeltable.iterators import FrameIterator
@@ -416,6 +416,54 @@ class TestExprs:
         df = t[[{'a': t.c1, 'b': {'c': t.c2}, 'd': 1, 'e': {'f': 2}}]]
         result = df.show()
         print(result)
+
+    def test_inline_constants(self, test_tbl: catalog.Table) -> None:
+        t = test_tbl
+        result = t.select([1, 2, 3])
+        print(result.show())
+        assert isinstance(next(iter(result.select_list))[0], Literal)
+
+        result = t[[ 1,
+                     (100, 100),
+                    {'a' : [t.c1, 3]},
+                    {'b' : [4 , 5]},
+                    {'c': { 'd': 6, 'e' : [7, 8], 'f' : {}, 'g' : { 'h': t.c2}}}
+                    ]]
+        print(result.show())
+        exprs = [expr[0] for expr in result.select_list]
+        assert isinstance(exprs[0], Literal)
+        assert isinstance(exprs[1], Literal)
+        assert not isinstance(exprs[2], Literal)
+        assert isinstance(exprs[3], Literal)
+        assert not isinstance(exprs[4], Literal)
+
+        result = t[[1,
+                    (100, 100),
+                    {'a': [t.c1, 3]},
+                    {'b': [4, 5]},
+                    {'c': {'d': 6, 'e': [7, 8], 'f': {}, 'g': {'h': 9}}}
+                    ]]
+        print(result.show())
+        exprs = [expr[0] for expr in result.select_list]
+        assert isinstance(exprs[0], Literal)
+        assert isinstance(exprs[1], Literal)
+        assert not isinstance(exprs[2], Literal)
+        assert isinstance(exprs[3], Literal)
+        assert isinstance(exprs[4], Literal)
+
+        result = t[[1,
+                    (100, 100),
+                    {'a': [t.c1, 3]},
+                    {'b': [4, 5]},
+                    {'c': {'d': 6, 'e': [7, 8], 'f':  (t.c1, t.c3), 'g': {'h': 9}}}
+                    ]]
+        print(result.show())
+        exprs = [expr[0] for expr in result.select_list]
+        assert isinstance(exprs[0], Literal)
+        assert isinstance(exprs[1], Literal)
+        assert not isinstance(exprs[2], Literal)
+        assert isinstance(exprs[3], Literal)
+        assert not isinstance(exprs[4], Literal)
 
     def test_inline_array(self, test_tbl: catalog.Table) -> None:
         t = test_tbl

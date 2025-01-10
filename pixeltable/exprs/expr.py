@@ -341,6 +341,9 @@ class Expr(abc.ABC):
                 result.extend(cls.get_refd_columns(component_dict))
         return result
 
+    def get_constant(self):
+        return None
+
     @classmethod
     def from_object(cls, o: object) -> Optional[Expr]:
         """
@@ -351,12 +354,24 @@ class Expr(abc.ABC):
         # Try to create a literal. We need to check for InlineList/InlineDict
         # first, to prevent them from inappropriately being interpreted as JsonType
         # literals.
-        if isinstance(o, list):
+        if isinstance(o, list) or isinstance(o, tuple):
             from .inline_expr import InlineList
-            return InlineList(o)
+            inline_seq = InlineList(o)
+            constant_seq = inline_seq.get_constant()
+            if constant_seq is not None:
+                from .literal import Literal
+                return Literal(constant_seq)
+            else:
+                return inline_seq
         if isinstance(o, dict):
             from .inline_expr import InlineDict
-            return InlineDict(o)
+            inline_dict =  InlineDict(o)
+            constant_dict = inline_dict.get_constant()
+            if constant_dict is not None:
+                from .literal import Literal
+                return Literal(constant_dict)
+            else:
+                return inline_dict
         obj_type = ts.ColumnType.infer_literal_type(o)
         if obj_type is not None:
             from .literal import Literal
