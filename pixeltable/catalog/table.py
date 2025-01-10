@@ -25,7 +25,7 @@ from ..exprs import ColumnRef
 from ..utils.description_helper import DescriptionHelper
 from ..utils.filecache import FileCache
 from .column import Column
-from .globals import _ROWID_COLUMN_NAME, MediaValidation, UpdateStatus, is_system_column_name, is_valid_identifier
+from .globals import _ROWID_COLUMN_NAME, MediaValidation, UpdateStatus, is_system_column_name, is_valid_identifier, IfNotExistsParam
 from .schema_object import SchemaObject
 from .table_version import TableVersion
 from .table_version_path import TableVersionPath
@@ -712,14 +712,19 @@ class Table(SchemaObject):
         if not exists:
             raise excs.Error(f'Unknown column: {col_ref.col.qualified_name}')
 
-    def drop_column(self, column: Union[str, ColumnRef]) -> None:
+    def drop_column(self, column: Union[str, ColumnRef], if_not_exists: Literal['error', 'ignore'] = 'error') -> None:
         """Drop a column from the table.
 
         Args:
             column: The name or reference of the column to drop.
+            if_not_exists: Directive for handling a non-existent column. Must be one of the following:
+
+                - `'error'`: raise an error if the column does not exist.
+                - `'ignore'`: do nothing if the column does not exist.
 
         Raises:
-            Error: If the column does not exist or if it is referenced by a dependent computed column.
+            Error: If the column does not exist and `if_exists='error'`,
+                or if it is referenced by a dependent computed column.
 
         Examples:
             Drop the column `col` from the table `my_table` by column name:
@@ -731,14 +736,32 @@ class Table(SchemaObject):
 
             >>> tbl = pxt.get_table('my_table')
             ... tbl.drop_column(tbl.col)
+
+            Drop the column `col` from the table `my_table` if it exists, otherwise do nothing:
+
+            >>> tbl = pxt.get_table('my_table')
+            ... tbl.drop_col(tbl.col, if_not_exists='ignore')
         """
         self._check_is_dropped()
+        if self._tbl_version_path.is_snapshot():
+            raise excs.Error('Cannot drop column from a snapshot.')
         col: Column = None
+        _if_not_exists = IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
         if isinstance(column, str):
-            self.__check_column_name_exists(column)
+            col = self._tbl_version_path.get_column(column, include_bases=False)
+            if col is None:
+                if _if_not_exists == IfNotExistsParam.ERROR:
+                    raise excs.Error(f'Column {column!r} unknown')
+                assert _if_not_exists == IfNotExistsParam.IGNORE
+                return
             col = self._tbl_version.cols_by_name[column]
         else:
-            self.__check_column_ref_exists(column)
+            exists = self._tbl_version_path.has_column(column.col, include_bases=False)
+            if not exists:
+                if _if_not_exists == IfNotExistsParam.ERROR:
+                    raise excs.Error(f'Unknown column: {column.col.qualified_name}')
+                assert _if_not_exists == IfNotExistsParam.IGNORE
+                return
             col = column.col
 
         dependent_user_cols = [c for c in col.dependent_cols if c.name is not None]
@@ -866,7 +889,9 @@ class Table(SchemaObject):
     def drop_embedding_index(
             self, *,
             column: Union[str, ColumnRef, None] = None,
-            idx_name: Optional[str] = None) -> None:
+            idx_name: Optional[str] = None,
+            if_not_exists: Literal['error', 'ignore'] = 'error'
+    ) -> None:
         """
         Drop an embedding index from the table. Either a column name or an index name (but not both) must be
         specified. If a column name or reference is specified, it must be a column containing exactly one
@@ -876,11 +901,20 @@ class Table(SchemaObject):
             column: The name of, or reference to, the column from which to drop the index.
                     The column must have only one embedding index.
             idx_name: The name of the index to drop.
+            if_not_exists: Directive for handling a non-existent index. Must be one of the following:
+
+                - `'error'`: raise an error if the index does not exist.
+                - `'ignore'`: do nothing if the index does not exist.
+
+                Note that `if_not_exists` parameter is only applicable when an `idx_name` is specified
+                and it does not exist, or when `column` is specified and it has no index.
+                `if_not_exists` does not apply to non-exisitng column.
 
         Raises:
             Error: If `column` is specified, but the column does not exist, or it contains no embedding
-                indices or multiple embedding indices.
-            Error: If `idx_name` is specified, but the index does not exist or is not an embedding index.
+                indices and `if_not_exists='error'`, or the column has multiple embedding indices.
+            Error: If `idx_name` is specified, but the index is not an embedding index, or
+                the index does not exist and `if_not_exists='error'`.
 
         Examples:
             Drop the embedding index on the `img` column of the table `my_table` by column name:
@@ -897,6 +931,9 @@ class Table(SchemaObject):
             >>> tbl = pxt.get_table('my_table')
             ... tbl.drop_embedding_index(idx_name='idx1')
 
+            Drop the embedding index `idx1` of the table `my_table` by index name, if it exists, otherwise do nothing:
+            >>> tbl = pxt.get_table('my_table')
+            ... tbl.drop_embedding_index(idx_name='idx1', if_not_exists='ignore')
         """
         if (column is None) == (idx_name is None):
             raise excs.Error("Exactly one of 'column' or 'idx_name' must be provided")
@@ -910,12 +947,14 @@ class Table(SchemaObject):
                 self.__check_column_ref_exists(column, include_bases=True)
                 col = column.col
             assert col is not None
-        self._drop_index(col=col, idx_name=idx_name, _idx_class=index.EmbeddingIndex)
+        self._drop_index(col=col, idx_name=idx_name, _idx_class=index.EmbeddingIndex, if_not_exists=if_not_exists)
 
     def drop_index(
             self, *,
             column: Union[str, ColumnRef, None] = None,
-            idx_name: Optional[str] = None) -> None:
+            idx_name: Optional[str] = None,
+            if_not_exists: Literal['error', 'ignore'] = 'error'
+    ) -> None:
         """
         Drop an index from the table. Either a column name or an index name (but not both) must be
         specified. If a column name or reference is specified, it must be a column containing exactly one index;
@@ -925,6 +964,14 @@ class Table(SchemaObject):
             column: The name of, or reference to, the column from which to drop the index.
                     The column must have only one embedding index.
             idx_name: The name of the index to drop.
+            if_not_exists: Directive for handling a non-existent index. Must be one of the following:
+
+                - `'error'`: raise an error if the index does not exist.
+                - `'ignore'`: do nothing if the index does not exist.
+
+                Note that `if_not_exists` parameter is only applicable when an `idx_name` is specified
+                and it does not exist, or when `column` is specified and it has no index.
+                `if_not_exists` does not apply to non-exisitng column.
 
         Raises:
             Error: If `column` is specified, but the column does not exist, or it contains no
@@ -946,6 +993,10 @@ class Table(SchemaObject):
             >>> tbl = pxt.get_table('my_table')
             ... tbl.drop_index(idx_name='idx1')
 
+            Drop the index `idx1` of the table `my_table` by index name, if it exists, otherwise do nothing:
+            >>> tbl = pxt.get_table('my_table')
+            ... tbl.drop_index(idx_name='idx1', if_not_exists='ignore')
+
         """
         if (column is None) == (idx_name is None):
             raise excs.Error("Exactly one of 'column' or 'idx_name' must be provided")
@@ -959,20 +1010,25 @@ class Table(SchemaObject):
                 self.__check_column_ref_exists(column, include_bases=True)
                 col = column.col
             assert col is not None
-        self._drop_index(col=col, idx_name=idx_name)
+        self._drop_index(col=col, idx_name=idx_name, if_not_exists=if_not_exists)
 
     def _drop_index(
             self, *, col: Optional[Column] = None,
             idx_name: Optional[str] = None,
-            _idx_class: Optional[type[index.IndexBase]] = None
+            _idx_class: Optional[type[index.IndexBase]] = None,
+            if_not_exists: Literal['error', 'ignore'] = 'error'
     ) -> None:
         if self._tbl_version_path.is_snapshot():
             raise excs.Error('Cannot drop an index from a snapshot')
         assert (col is None) != (idx_name is None)
 
         if idx_name is not None:
+            _if_not_exists = IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
             if idx_name not in self._tbl_version.idxs_by_name:
-                raise excs.Error(f'Index {idx_name!r} does not exist')
+                if _if_not_exists == IfNotExistsParam.ERROR:
+                    raise excs.Error(f'Index {idx_name!r} does not exist')
+                assert _if_not_exists == IfNotExistsParam.IGNORE
+                return
             idx_id = self._tbl_version.idxs_by_name[idx_name].id
         else:
             if col.tbl.id != self._tbl_version.id:
@@ -982,7 +1038,11 @@ class Table(SchemaObject):
             if _idx_class is not None:
                 idx_info = [info for info in idx_info if isinstance(info.idx, _idx_class)]
             if len(idx_info) == 0:
-                raise excs.Error(f'Column {col.name!r} does not have an index')
+                _if_not_exists = IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
+                if _if_not_exists == IfNotExistsParam.ERROR:
+                    raise excs.Error(f'Column {col.name!r} does not have an index')
+                assert _if_not_exists == IfNotExistsParam.IGNORE
+                return
             if len(idx_info) > 1:
                 raise excs.Error(f"Column {col.name!r} has multiple indices; specify 'idx_name' instead")
             idx_id = idx_info[0].id

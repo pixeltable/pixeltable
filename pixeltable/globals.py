@@ -76,9 +76,9 @@ def _get_or_drop_existing_path(
         # Any errors during drop will be raised.
         _logger.info(f"Dropping {obj_type_str} `{path_str}` to replace it.")
         if isinstance(existing_path, catalog.Dir):
-            drop_dir(path_str, force=True, ignore_errors=False)
+            drop_dir(path_str, force=True)
         else:
-            drop_table(path_str, force=True, ignore_errors=False)
+            drop_table(path_str, force=True)
         assert cat.paths.get_object(path) is None
 
     return None
@@ -104,25 +104,28 @@ def create_table(
         num_retained_versions: Number of versions of the table to retain.
         comment: An optional comment; its meaning is user-defined.
         media_validation: Media validation policy for the table.
+
             - `'on_read'`: validate media files at query time
             - `'on_write'`: validate media files during insert/update operations
         if_exists: Directive regarding how to handle if the path already exists.
             Must be one of the following:
+
             - `'error'`: raise an error
             - `'ignore'`: do nothing and return the existing table handle
             - `'replace'`: if the existing table has no views, drop and replace it with a new one
             - `'replace_force'`: drop the existing table and all its views, and create a new one
-            Default is `'error'`.
 
     Returns:
         A handle to the newly created table, or to an already existing table at the path when `if_exists='ignore'`.
-        Please note the schema of the existing table may not match the schema provided in the call.
+            Please note the schema of the existing table may not match the schema provided in the call.
 
     Raises:
-        Error: if the path is invalid,
-            or if the path already exists and `if_exists='error'`,
-            or if the path already exists and is not a table,
-            or an error occurs while attempting to create the table.
+        Error: if
+
+            - the path is invalid, or
+            - the path already exists and `if_exists='error'`, or
+            - the path already exists and is not a table, or
+            - an error occurs while attempting to create the table.
 
     Examples:
         Create a table with an int and a string column:
@@ -216,15 +219,16 @@ def create_view(
         num_retained_versions: Number of versions of the view to retain.
         comment: Optional comment for the view.
         media_validation: Media validation policy for the view.
+
             - `'on_read'`: validate media files at query time
             - `'on_write'`: validate media files during insert/update operations
         if_exists: Directive regarding how to handle if the path already exists.
             Must be one of the following:
+
             - `'error'`: raise an error
             - `'ignore'`: do nothing and return the existing view handle
             - `'replace'`: if the existing view has no dependents, drop and replace it with a new one
             - `'replace_force'`: drop the existing view and all its dependents, and create a new one
-            Default is `'error'`.
 
     Returns:
         A handle to the [`Table`][pixeltable.Table] representing the newly created view. If the path already
@@ -232,10 +236,12 @@ def create_view(
             or the base of the existing view may not match those provided in the call.
 
     Raises:
-        Error: if the path is invalid,
-            or if the path already exists and `if_exists='error'`,
-            or if the path already exists and is not a view,
-            or an error occurs while attempting to create the view.
+        Error: if
+
+            - the path is invalid, or
+            - the path already exists and `if_exists='error'`, or
+            - the path already exists and is not a view, or
+            - an error occurs while attempting to create the view.
 
     Examples:
         Create a view `my_view` of an existing table `my_table`, filtering on rows where `col1` is greater than 10:
@@ -325,25 +331,28 @@ def create_snapshot(
         num_retained_versions: Number of versions of the view to retain.
         comment: Optional comment for the snapshot.
         media_validation: Media validation policy for the snapshot.
+
             - `'on_read'`: validate media files at query time
             - `'on_write'`: validate media files during insert/update operations
         if_exists: Directive regarding how to handle if the path already exists.
             Must be one of the following:
+
             - `'error'`: raise an error
             - `'ignore'`: do nothing and return the existing snapshot handle
             - `'replace'`: if the existing snapshot has no dependents, drop and replace it with a new one
             - `'replace_force'`: drop the existing snapshot and all its dependents, and create a new one
-            Default is `'error'`.
 
     Returns:
         A handle to the [`Table`][pixeltable.Table] representing the newly created snapshot.
-        Please note the schema or base of the existing snapshot may not match those provided in the call.
+            Please note the schema or base of the existing snapshot may not match those provided in the call.
 
     Raises:
-        Error: if the path is invalid,
-            or if the path already exists and `if_exists='error'`,
-            or if the path already exists and is not a snapshot,
-            or an error occurs while attempting to create the snapshot.
+        Error: if
+
+            - the path is invalid, or
+            - the path already exists and `if_exists='error'`, or
+            - the path already exists and is not a snapshot, or
+            - an error occurs while attempting to create the snapshot.
 
     Examples:
         Create a snapshot `my_snapshot` of a table `my_table`:
@@ -436,16 +445,26 @@ def move(path: str, new_path: str) -> None:
     obj._move(new_p.name, new_dir._id)
 
 
-def drop_table(table: Union[str, catalog.Table], force: bool = False, ignore_errors: bool = False) -> None:
+def drop_table(table: Union[str, catalog.Table], force: bool = False,
+    if_not_exists: Literal['error', 'ignore'] = 'error') -> None:
     """Drop a table, view, or snapshot.
 
     Args:
         table: Fully qualified name, or handle, of the table to be dropped.
         force: If `True`, will also drop all views and sub-views of this table.
-        ignore_errors: If `True`, return silently if the table does not exist (without throwing an exception).
+        if_not_exists: Directive regarding how to handle if the path does not exist.
+            Must be one of the following:
+
+            - `'error'`: raise an error
+            - `'ignore'`: do nothing and return
 
     Raises:
-        Error: If the name does not exist or does not designate a table object, and `ignore_errors=False`.
+        Error: if the qualified name
+
+            - is invalid, or
+            - does not exist and `if_not_exists='error'`, or
+            - does not designate a table object, or
+            - designates a table object but has dependents and `force=False`.
 
     Examples:
         Drop a table by its fully qualified name:
@@ -455,19 +474,25 @@ def drop_table(table: Union[str, catalog.Table], force: bool = False, ignore_err
         >>> t = pxt.get_table('subdir.my_table')
         ... pxt.drop_table(t)
 
+        Drop a table if it exists, otherwise do nothing:
+        >>> pxt.drop_table('subdir.my_table', if_not_exists='ignore')
+
+        Drop a table and all its dependents:
+        >>> pxt.drop_table('subdir.my_table', force=True)
     """
     cat = Catalog.get()
     if isinstance(table, str):
         tbl_path_obj = catalog.Path(table)
-        try:
-            cat.paths.check_is_valid(tbl_path_obj, expected=catalog.Table)
-        except Exception as e:
-            if ignore_errors or force:
+        tbl = cat.paths.get_object(tbl_path_obj)
+        if tbl is None:
+            _if_not_exists = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
+            if _if_not_exists == catalog.IfNotExistsParam.IGNORE or force:
                 _logger.info(f'Skipped table `{table}` (does not exist).')
                 return
             else:
-                raise e
-        tbl = cat.paths[tbl_path_obj]
+                raise excs.Error(f'Table `{table}` does not exist.')
+        if not isinstance(tbl, catalog.Table):
+            raise excs.Error(f'{tbl} needs to be a {catalog.Table._display_name()} but is a {type(tbl)._display_name()}')
     else:
         tbl = table
         tbl_path_obj = catalog.Path(tbl._path)
@@ -520,21 +545,23 @@ def create_dir(path_str: str, if_exists: Literal['error', 'ignore', 'replace', '
         path_str: Path to the directory.
         if_exists: Directive regarding how to handle if the path already exists.
             Must be one of the following:
+
             - `'error'`: raise an error
             - `'ignore'`: do nothing and return the existing directory handle
             - `'replace'`: if the existing directory is empty, drop it and create a new one
             - `'replace_force'`: drop the existing directory and all its children, and create a new one
-            Default is `'error'`.
 
     Returns:
         A handle to the newly created directory, or to an already existing directory at the path when `if_exists='ignore'`.
-        Please note the existing directory may not be empty.
+            Please note the existing directory may not be empty.
 
     Raises:
-        Error: If the path is invalid,
-            or if the path already exists and `if_exists='error'`,
-            or if the path already exists and is not a directory,
-            or an error occurs while attempting to create the directory.
+        Error: If
+
+            - the path is invalid, or
+            - the path already exists and `if_exists='error'`, or
+            - the path already exists and is not a directory, or
+            - an error occurs while attempting to create the directory.
 
     Examples:
         >>> pxt.create_dir('my_dir')
@@ -578,37 +605,57 @@ def create_dir(path_str: str, if_exists: Literal['error', 'ignore', 'replace', '
         print(f'Created directory `{path_str}`.')
         return dir
 
-def drop_dir(path_str: str, force: bool = False, ignore_errors: bool = False) -> None:
+def drop_dir(path_str: str, force: bool = False, if_not_exists: Literal['error', 'ignore'] = 'error') -> None:
     """Remove a directory.
 
     Args:
         path_str: Name or path of the directory.
         force: If `True`, will also drop all tables and subdirectories of this directory, recursively, along
             with any views or snapshots that depend on any of the dropped tables.
-        ignore_errors: if `True`, will return silently instead of throwing an exception if the directory
-            does not exist.
+        if_not_exists: Directive regarding how to handle if the path does not exist.
+            Must be one of the following:
+
+            - `'error'`: raise an error
+            - `'ignore'`: do nothing and return
 
     Raises:
-        Error: If the path does not exist or does not designate a directory, or if the directory is not empty.
+        Error: If the path
+
+            - is invalid, or
+            - does not exist and `if_not_exists='error'`, or
+            - is not designate a directory, or
+            - is a direcotory but is not empty and `force=False`.
 
     Examples:
+        Remove a directory, if it exists and is empty:
         >>> pxt.drop_dir('my_dir')
 
         Remove a subdirectory:
 
         >>> pxt.drop_dir('my_dir.sub_dir')
+
+        Remove an existing directory if it is empty, but do nothing if it does not exist:
+
+        >>> pxt.drop_dir('my_dir.sub_dir', if_not_exists='ignore')
+
+        Remove an existing directory and all its contents:
+
+        >>> pxt.drop_dir('my_dir', force=True)
     """
     cat = Catalog.get()
     path = catalog.Path(path_str)
-
-    try:
-        cat.paths.check_is_valid(path, expected=catalog.Dir)
-    except Exception as e:
-        if ignore_errors or force:
-            _logger.info(f'Skipped directory `{path}` (does not exist).')
+    obj = cat.paths.get_object(path)
+    if obj is None:
+        _if_not_exists = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
+        if _if_not_exists == catalog.IfNotExistsParam.IGNORE or force:
+            _logger.info(f'Skipped directory `{path_str}` (does not exist).')
             return
         else:
-            raise e
+            raise excs.Error(f'Directory `{path_str}` does not exist.')
+
+    if not isinstance(obj, catalog.Dir):
+        raise excs.Error(
+            f'{str(path)} needs to be a {catalog.Dir._display_name()} but is a {type(obj)._display_name()}')
 
     children = cat.paths.get_children(path, child_type=None, recursive=True)
 
