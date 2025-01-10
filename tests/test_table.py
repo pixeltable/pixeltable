@@ -10,7 +10,6 @@ import pandas as pd
 import PIL
 import pytest
 from jsonschema.exceptions import ValidationError
-import re
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
@@ -579,11 +578,11 @@ class TestTable:
         assert "if_not_exists must be one of: ['error', 'ignore']" in str(exc_info.value).lower()
 
         # if_not_exists='error' should raise an error if the table exists
-        expected_err = "does not exist"
-        with pytest.raises(excs.Error, match=re.compile(expected_err, re.IGNORECASE)):
+        expected_err = r"does not exist"
+        with pytest.raises(excs.Error, match=expected_err):
             pxt.drop_table(non_existing_t, if_not_exists='error')
         # default behavior is to raise an error if the table does not exist
-        with pytest.raises(excs.Error, match=re.compile(expected_err, re.IGNORECASE)):
+        with pytest.raises(excs.Error, match=expected_err):
             pxt.drop_table(non_existing_t)
         # if_not_exists='ignore' should not raise an error
         pxt.drop_table(non_existing_t, if_not_exists='ignore')
