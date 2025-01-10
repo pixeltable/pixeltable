@@ -447,38 +447,47 @@ class TestIndex:
             img_t.drop_embedding_index()
         assert "exactly one of 'column' or 'idx_name' must be provided" in str(exc_info.value).lower()
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.Error, match=r"Index 'doesnotexist' does not exist"):
             img_t.drop_embedding_index(idx_name='doesnotexist')
-        assert "index 'doesnotexist' does not exist" in str(exc_info.value).lower()
+        with pytest.raises(pxt.Error, match=r"Index 'doesnotexist' does not exist"):
+            img_t.drop_embedding_index(idx_name='doesnotexist', if_not_exists='error')
 
+        img_t.drop_embedding_index(idx_name='doesnotexist', if_not_exists='ignore')
         with pytest.raises(pxt.Error) as exc_info:
+            img_t.drop_embedding_index(idx_name='doesnotexist', if_not_exists='invalid')
+        assert "if_not_exists must be one of: ['error', 'ignore']" in str(exc_info.value).lower()
+
+        with pytest.raises(pxt.Error, match=r"Column 'doesnotexist' unknown"):
             img_t.drop_embedding_index(column='doesnotexist')
-        assert "column 'doesnotexist' unknown" in str(exc_info.value).lower()
+        # when dropping an index via a column, if_not_exists does not
+        # apply to non-existent column; it will still raise error.
+        with pytest.raises(pxt.Error, match=r"Column 'doesnotexist' unknown"):
+            img_t.drop_embedding_index(column='doesnotexist', if_not_exists='invalid')
         with pytest.raises(AttributeError) as exc_info:
             img_t.drop_embedding_index(column=img_t.doesnotexist)
         assert 'column doesnotexist unknown' in str(exc_info.value).lower()
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.Error, match=r"Column 'img' does not have an index"):
             img_t.drop_embedding_index(column='img')
-        assert "column 'img' does not have an index" in str(exc_info.value).lower()
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.Error, match=r"Column 'img' does not have an index"):
             img_t.drop_embedding_index(column=img_t.img)
-        assert "column 'img' does not have an index" in str(exc_info.value).lower()
+        # when dropping an index via a column, if_not_exists applies if
+        # the column does not have any index to drop.
+        with pytest.raises(pxt.Error, match=r"Column 'img' does not have an index"):
+            img_t.drop_embedding_index(column='img', if_not_exists='error')
+        img_t.drop_embedding_index(column=img_t.img, if_not_exists='ignore')
 
         img_t.add_embedding_index('img', idx_name='embed0', embed=clip_embed)
         img_t.add_embedding_index('img', idx_name='embed1', embed=clip_embed)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.Error, match=r"Column 'img' has multiple indices"):
             img_t.drop_embedding_index(column='img')
-        assert "column 'img' has multiple indices" in str(exc_info.value).lower()
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.Error, match=r"Column 'img' has multiple indices"):
             img_t.drop_embedding_index(column=img_t.img)
-        assert "column 'img' has multiple indices" in str(exc_info.value).lower()
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.Error, match=r"Column 'img' has multiple indices"):
             sim = img_t.img.similarity('red truck')
             _ = img_t.order_by(sim, asc=False).limit(1).collect()
-        assert "column 'img' has multiple indices" in str(exc_info.value).lower()
 
     def run_btree_test(self, data: list, data_type: Union[type, _GenericAlias]) -> pxt.Table:
         t = pxt.create_table('btree_test', {'data': data_type})

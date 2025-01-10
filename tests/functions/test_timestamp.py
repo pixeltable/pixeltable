@@ -66,6 +66,8 @@ class TestTimestamp:
             actual = t.select(out=pxt_fn(t.dt, *args, **kwargs)).collect()['out']
             expected = [dt_fn(dt.astimezone(default_tz), *args, **kwargs) for dt in test_dts]
             assert actual == expected, debug_str()
+            # Run the same query, forcing the calculations to be done in Python (not SQL)
+            # by interposing a non-SQLizable identity function
             actual_py = t.select(
                 out=pxt_fn(t.dt.apply(lambda x: x, col_type=pxt.Timestamp), *args, **kwargs)
             ).collect()['out']

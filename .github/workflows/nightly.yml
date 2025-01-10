@@ -6,13 +6,15 @@ on:
   workflow_dispatch:
 
 env:
+  CMAKE_ARGS: '-DLLAVA_BUILD=OFF -DGGML_METAL=OFF'
   # in a PR, the secrets will be empty
   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
   FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}
+  GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
   MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+  REPLICATE_API_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
   TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
-  OPENCV_VIDEOIO_DEBUG: 1
 
 jobs:
   tests:
@@ -26,8 +28,9 @@ jobs:
         python-version: ["3.9", "3.12"]
         package-configs:
           - ""
-          - "torch torchvision torchaudio transformers sentence-transformers sentencepiece soundfile pyarrow"
-          - "openai together fireworks-ai anthropic mistralai"
+          - "pyarrow sentence-transformers sentencepiece soundfile torch torchaudio torchvision transformers"
+          - "anthropic fireworks-ai google-generativeai mistralai openai replicate together"
+          - "huggingface-hub llama-cpp-python"
           - "datasets boto3 openpyxl tiktoken pymupdf mistune 'spacy<3.8'"  # spacy 3.8 is problematic on python 3.12
           - "label_studio_sdk"
         include:

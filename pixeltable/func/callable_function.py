@@ -48,6 +48,9 @@ class CallableFunction(Function):
     def is_batched(self) -> bool:
         return self.batch_size is not None
 
+    def _docstring(self) -> Optional[str]:
+        return inspect.getdoc(self.py_fns[0])
+
     @property
     def py_fn(self) -> Callable:
         assert not self.is_polymorphic
@@ -106,11 +109,6 @@ class CallableFunction(Function):
         self.signatures.append(sig)
         self.py_fns.append(fn)
         return self
-
-    def help_str(self) -> str:
-        res = super().help_str()
-        res += '\n\n' + inspect.getdoc(self.py_fns[0])
-        return res
 
     def _as_dict(self) -> dict:
         if self.self_path is None:

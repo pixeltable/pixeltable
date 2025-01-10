@@ -4,7 +4,7 @@ from .exceptions import Error
 from .exprs import RELATIVE_PATH_ROOT
 from .func import Aggregator, Function, expr_udf, query, uda, udf
 from .globals import (array, configure_logging, create_dir, create_snapshot, create_table, create_view, drop_dir,
-                      drop_table, get_table, init, list_dirs, list_functions, list_tables, move)
+                      drop_table, get_table, init, list_dirs, list_functions, list_tables, move, tool, tools)
 from .type_system import (Array, ArrayType, Audio, AudioType, Bool, BoolType, ColumnType, Document, DocumentType, Float,
                           FloatType, Image, ImageType, Int, IntType, Json, JsonType, Required, String, StringType,
                           Timestamp, TimestampType, Video, VideoType)

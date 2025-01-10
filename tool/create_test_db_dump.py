@@ -17,7 +17,6 @@ import pixeltable.metadata as metadata
 from pixeltable.env import Env
 from pixeltable.func import Batch
 from pixeltable.io.external_store import Project
-from pixeltable.tool import embed_udf
 from pixeltable.type_system import BoolType, FloatType, ImageType, IntType, JsonType, StringType, TimestampType
 
 _logger = logging.getLogger('pixeltable')

@@ -539,6 +539,21 @@ clip_embed = clip.using(model_id='openai/clip-vit-base-patch32')
 e5_embed = sentence_transformer.using(model_id='intfloat/e5-large-v2')
 
 
+# Mock UDF for testing LLM tool invocations
+@pxt.udf
+def stock_price(ticker: str) -> Optional[float]:
+    """
+    Get today's stock price for a given ticker symbol.
+
+    Args:
+        ticker - The ticker symbol of the stock to look up.
+    """
+    if ticker == 'NVDA':
+        return 131.17
+    else:
+        return None
+
+
 SAMPLE_IMAGE_URL = (
     'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000009.jpg'
 )
