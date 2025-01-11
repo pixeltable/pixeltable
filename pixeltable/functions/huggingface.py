@@ -146,7 +146,7 @@ def cross_encoder_list(sentence1: str, sentences2: list, *, model_id: str) -> li
 @pxt.udf(batch_size=32)
 def clip(text: Batch[str], *, model_id: str) -> Batch[pxt.Array[(None,), pxt.Float]]:
     """
-    Computes a CLIP embedding for the specified text. `model_id` should be a reference to a pretrained
+    Computes a CLIP embedding for the specified text or image. `model_id` should be a reference to a pretrained
     [CLIP Model](https://huggingface.co/docs/transformers/model_doc/clip).
 
     __Requirements:__
@@ -164,7 +164,11 @@ def clip(text: Batch[str], *, model_id: str) -> Batch[pxt.Array[(None,), pxt.Flo
         Add a computed column that applies the model `openai/clip-vit-base-patch32` to an existing
         Pixeltable column `tbl.text` of the table `tbl`:
 
-        >>> tbl['result'] = clip(tbl.text, model_id='openai/clip-vit-base-patch32')
+        >>> tbl.add_computed_column(
+        ...     result=clip(tbl.text, model_id='openai/clip-vit-base-patch32')
+        ... )
+
+        The same would work with an image column `tbl.image` in place of `tbl.text`.
     """
     env.Env.get().require_package('transformers')
     device = resolve_torch_device('auto')
@@ -183,27 +187,6 @@ def clip(text: Batch[str], *, model_id: str) -> Batch[pxt.Array[(None,), pxt.Flo
 
 @clip.overload
 def _(image: Batch[PIL.Image.Image], *, model_id: str) -> Batch[pxt.Array[(None,), pxt.Float]]:
-    """
-    Computes a CLIP embedding for the specified image. `model_id` should be a reference to a pretrained
-    [CLIP Model](https://huggingface.co/docs/transformers/model_doc/clip).
-
-    __Requirements:__
-
-    - `pip install torch transformers`
-
-    Args:
-        image: The image to embed.
-        model_id: The pretrained model to use for the embedding.
-
-    Returns:
-        An array containing the output of the embedding model.
-
-    Examples:
-        Add a computed column that applies the model `openai/clip-vit-base-patch32` to an existing
-        Pixeltable column `image` of the table `tbl`:
-
-        >>> tbl['result'] = clip(tbl.image, model_id='openai/clip-vit-base-patch32')
-    """
     env.Env.get().require_package('transformers')
     device = resolve_torch_device('auto')
     import torch
