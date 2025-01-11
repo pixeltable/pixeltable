@@ -7,6 +7,7 @@ the [Working with OpenAI](https://pixeltable.readme.io/docs/working-with-openai)
 
 import base64
 import io
+import json
 import pathlib
 import uuid
 from typing import TYPE_CHECKING, Callable, Optional, TypeVar, Union
@@ -16,8 +17,8 @@ import PIL.Image
 import tenacity
 
 import pixeltable as pxt
-from pixeltable import env
-from pixeltable.func import Batch
+from pixeltable import env, exprs
+from pixeltable.func import Batch, Tools
 from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
@@ -225,6 +226,16 @@ def chat_completions(
             ]
             tbl['response'] = chat_completions(messages, model='gpt-4o-mini')
     """
+
+    if tools is not None:
+        tools = [
+            {
+                'type': 'function',
+                'function': tool
+            }
+            for tool in tools
+        ]
+
     result = _retry(_openai_client().chat.completions.create)(
         messages=messages,
         model=model,
@@ -451,6 +462,24 @@ def moderations(input: str, *, model: Optional[str] = None) -> dict:
     """
     result = _retry(_openai_client().moderations.create)(input=input, model=_opt(model))
     return result.dict()
+
+
+def invoke_tools(tools: Tools, response: exprs.Expr) -> exprs.InlineDict:
+    """Converts an OpenAI response dict to Pixeltable tool invocation format and calls `tools._invoke()`."""
+    return tools._invoke(_openai_response_to_pxt_tool_calls(response))
+
+
+@pxt.udf
+def _openai_response_to_pxt_tool_calls(response: dict) -> Optional[dict]:
+    openai_tool_calls = response['choices'][0]['message']['tool_calls']
+    if openai_tool_calls is not None:
+        return {
+            tool_call['function']['name']: {
+                'args': json.loads(tool_call['function']['arguments'])
+            }
+            for tool_call in openai_tool_calls
+        }
+    return None
 
 
 _T = TypeVar('_T')
