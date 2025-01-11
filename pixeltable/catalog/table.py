@@ -455,7 +455,7 @@ class Table(SchemaObject):
     def _ignore_or_drop_existing_columns(self, new_col_names: list[str], if_exists: IfExistsParam) -> list[str]:
         """ Check and handle existing columns in the new column specification based on the if_exists parameter.
 
-        If `if_exists='ignore'`, returns a list of existing columns, if any, in `new_col_spec`.
+        If `if_exists='ignore'`, returns a list of existing columns, if any, in `new_col_names`.
         """
         assert not self.get_metadata()['is_snapshot']
         existing_col_names = set(self._schema.keys())
