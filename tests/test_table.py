@@ -567,10 +567,10 @@ class TestTable:
         assert "if_not_exists must be one of: ['error', 'ignore']" in str(exc_info.value).lower()
 
         # if_not_exists='error' should raise an error if the table exists
-        with pytest.raises(excs.Error, match=r"does not exist"):
+        with pytest.raises(excs.Error, match=r'does not exist'):
             pxt.drop_table(non_existing_t, if_not_exists='error')
         # default behavior is to raise an error if the table does not exist
-        with pytest.raises(excs.Error, match=r"does not exist"):
+        with pytest.raises(excs.Error, match=r'does not exist'):
             pxt.drop_table(non_existing_t)
         # if_not_exists='ignore' should not raise an error
         pxt.drop_table(non_existing_t, if_not_exists='ignore')

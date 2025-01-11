@@ -40,10 +40,10 @@ class TestDirs:
         make_tbl('dir1.t1')
         with pytest.raises(excs.Error, match=r'already exists'):
             pxt.create_dir('dir1.t1')
-        with pytest.raises(excs.Error, match=r"No such path"):
+        with pytest.raises(excs.Error, match=r'No such path'):
             pxt.create_dir('dir2.sub2')
         make_tbl('t2')
-        with pytest.raises(excs.Error, match=r"Not a directory"):
+        with pytest.raises(excs.Error, match=r'Not a directory'):
             pxt.create_dir('t2.sub2')
 
         # new client: force loading from store
@@ -174,7 +174,7 @@ class TestDirs:
             pxt.drop_dir('dir1')
         with pytest.raises(excs.Error, match=r'is not empty'):
             pxt.drop_dir('dir1', if_not_exists='invalid')
-        with pytest.raises(excs.Error, match=r"needs to be a directory but is a table"):
+        with pytest.raises(excs.Error, match=r'needs to be a directory but is a table'):
             pxt.drop_dir('t1')
 
         pxt.drop_dir('dir1.sub1.subsub1')

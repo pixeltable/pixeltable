@@ -447,16 +447,12 @@ class Table(SchemaObject):
         assert col.name in self._schema.keys()
         if any(c.name is not None for c in col.dependent_cols):
             return True
-        if any(
-            (view, store)
+        return any(
+            col in store.get_local_columns()
             for view in [self] + self._get_views(recursive=True)
-            for store in view._tbl_version.external_stores.values()
-            if col in store.get_local_columns()
-        ):
-            return True
-        return False
+            for store in view._tbl_version.external_stores.values())
 
-    def _ignore_or_drop_existing_columns(self, new_col_spec: dict[str, Any], if_exists: IfExistsParam) -> list[str]:
+    def _ignore_or_drop_existing_columns(self, new_col_names: list[str], if_exists: IfExistsParam) -> list[str]:
         """ Check and handle existing columns in the new column specification based on the if_exists parameter.
 
         If `if_exists='ignore'`, returns a list of existing columns, if any, in `new_col_spec`.
@@ -464,7 +460,7 @@ class Table(SchemaObject):
         assert not self.get_metadata()['is_snapshot']
         existing_col_names = set(self._schema.keys())
         cols_to_ignore = []
-        for new_col_name in new_col_spec.keys():
+        for new_col_name in new_col_names:
             if new_col_name in existing_col_names:
                 if if_exists == IfExistsParam.ERROR:
                     raise excs.Error(f'Duplicate column name: {new_col_name!r}')
@@ -537,7 +533,7 @@ class Table(SchemaObject):
             for col_name, spec in schema.items()
         }
         # handle existing columns based on if_exists parameter
-        cols_to_ignore = self._ignore_or_drop_existing_columns(col_schema, IfExistsParam.validated(if_exists, 'if_exists'))
+        cols_to_ignore = self._ignore_or_drop_existing_columns(list(col_schema.keys()), IfExistsParam.validated(if_exists, 'if_exists'))
         # if all columns to be added already exist and user asked to ignore
         # existing columns, there's nothing to do.
         for cname in cols_to_ignore:
@@ -623,15 +619,14 @@ class Table(SchemaObject):
             col_schema['stored'] = stored
 
         # handle existing column based on if_exists parameter
-        col_to_add = {col_name: col_schema}
-        cols_to_ignore = self._ignore_or_drop_existing_columns(col_to_add, IfExistsParam.validated(if_exists, 'if_exists'))
+        cols_to_ignore = self._ignore_or_drop_existing_columns([col_name], IfExistsParam.validated(if_exists, 'if_exists'))
         # if the column to add already exists and user asked to ignore
         # exiting column, there's nothing to do.
         if len(cols_to_ignore) != 0:
             assert cols_to_ignore[0] == col_name
             return UpdateStatus()
 
-        new_col = self._create_columns(col_to_add)[0]
+        new_col = self._create_columns({col_name: col_schema})[0]
         self._verify_column(new_col, set(self._query_names))
         status = self._tbl_version.add_columns([new_col], print_stats=print_stats, on_error=on_error)
         FileCache.get().emit_eviction_warnings()
@@ -700,15 +695,14 @@ class Table(SchemaObject):
             col_schema['stored'] = stored
 
         # handle existing columns based on if_exists parameter
-        col_to_add = {col_name: col_schema}
-        cols_to_ignore = self._ignore_or_drop_existing_columns(col_to_add, IfExistsParam.validated(if_exists, 'if_exists'))
+        cols_to_ignore = self._ignore_or_drop_existing_columns([col_name], IfExistsParam.validated(if_exists, 'if_exists'))
         # if the column to add already exists and user asked to ignore
         # exiting column, there's nothing to do.
         if len(cols_to_ignore) != 0:
             assert cols_to_ignore[0] == col_name
             return UpdateStatus()
 
-        new_col = self._create_columns(col_to_add)[0]
+        new_col = self._create_columns({col_name: col_schema})[0]
         self._verify_column(new_col, set(self._query_names))
         status = self._tbl_version.add_columns([new_col], print_stats=print_stats, on_error=on_error)
         FileCache.get().emit_eviction_warnings()
