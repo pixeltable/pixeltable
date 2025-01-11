@@ -345,37 +345,52 @@ class TestIndex:
         _ = reload_tester.run_query(img_t.select())
 
         # test that a table with an embedding index can be reloaded
-        t = pxt.create_table('t1', {'i': pxt.Int, 's': pxt.String})
+        t1 = pxt.create_table('t1', {'i': pxt.Int, 's': pxt.String})
         sents = get_sentences(3)
-        status = t.insert({'i': i, 's': sents[i]} for i in range(0,3))
-        t.add_embedding_index('s', string_embed=pxt.functions.huggingface.sentence_transformer.using(model_id='all-mpnet-base-v2'))
-        df = t.select(sim=t.s.similarity(sents[1]))
+        status = t1.insert({'i': i, 's': sents[i]} for i in range(0,3))
+        t1.add_embedding_index('s', idx_name='t1i1', string_embed=pxt.functions.huggingface.sentence_transformer.using(model_id='all-mpnet-base-v2'))
+        df = t1.select(sim=t1.s.similarity(sents[1]))
         res1 = df.collect()
-        _ = reload_tester.run_query(t.select())
+        _ = reload_tester.run_query(t1.select())
         _ = reload_tester.run_query(df)
-        # a basetable column referenced in the context of view
+        # verify a basetable column referenced in the context of view
         # should be able to use the basetable index, even if the
-        # view has no index of its own
-        v = pxt.create_view('v1', t.where(t.i>0))
-        df = v.select(sim=v.s.similarity(sents[1]))
+        # view has no index of its own. should work with reload.
+        v1 = pxt.create_view('v1', t1.where(t1.i > 0))
+        df = v1.select(sim=v1.s.similarity(sents[1]))
+        res2 = df.collect()
+        assert res1['sim'][1:] == res2['sim']
         _ = reload_tester.run_query(df)
-        _ = reload_tester.run_query(v.select())
+        _ = reload_tester.run_query(v1.select())
 
         # test that a view with an embedding index on a base table column can be reloaded
-        t = pxt.create_table('t2', {'s': pxt.String})
-        status = t.insert({'s': s} for s in sents)
-        v = pxt.create_view('v2', t)
-        v.add_embedding_index('s', string_embed=pxt.functions.huggingface.sentence_transformer.using(model_id='all-mpnet-base-v2'))
+        t2 = pxt.create_table('t2', {'i': pxt.Int, 's': pxt.String})
+        status = t2.insert({'i': i, 's': sents[i]} for i in range(0,3))
+        v2 = pxt.create_view('v2', t2.where(t2.i > 0))
+        v2.add_embedding_index('s', idx_name='idx1', string_embed=pxt.functions.huggingface.sentence_transformer.using(model_id='all-mpnet-base-v2'))
         # should work irrespective of whether the column is passed by name or reference
-        v.add_embedding_index(v.s, string_embed=pxt.functions.huggingface.sentence_transformer.using(model_id='all-mpnet-base-v2'))
-        v.add_embedding_index(t.s, string_embed=pxt.functions.huggingface.sentence_transformer.using(model_id='all-mpnet-base-v2'))
-        # verify the index on view can be used, and across reload.
-        df = v.select(sim=v.s.similarity(sents[1], idx='idx1'))
-        res2 = df.collect()
-        assert_resultset_eq(res1, res2)
+        v2.add_embedding_index(v2.s, idx_name='idx2', string_embed=pxt.functions.huggingface.sentence_transformer.using(model_id='all-mpnet-base-v2'))
+        v2.add_embedding_index(t2.s, idx_name='idx3', string_embed=pxt.functions.huggingface.sentence_transformer.using(model_id='all-mpnet-base-v2'))
+        # verify the index on the view can be used, even if there's
+        # no index on the base table itself. should work with reload.
+        df = v2.select(sim=v2.s.similarity(sents[1], idx='idx1'))
+        assert_resultset_eq(df.collect(), res2)
         _ = reload_tester.run_query(df)
+        _ = reload_tester.run_query(v2.select())
 
-        _ = reload_tester.run_query(v.select())
+        # verify when both the view and the table have an index on base column,
+        # the context decides the index to use. should work with reload.
+        v1.add_embedding_index(v1.s, idx_name='v1i1', string_embed=pxt.functions.huggingface.sentence_transformer.using(model_id='all-mpnet-base-v2'))
+        # TODO: check if there's a better way to verify the index used by a query.
+        assert 't1i1' in t1.s.similarity(sents[1]).serialize()
+        assert 'v1i1' in v1.s.similarity(sents[1]).serialize()
+
+        df = t1.select(sim=t1.s.similarity(sents[1]))
+        assert_resultset_eq(df.collect(), res1)
+        _ = reload_tester.run_query(df)
+        df = v1.select(sim=v1.s.similarity(sents[1]))
+        assert_resultset_eq(df.collect(), res2)
+        _ = reload_tester.run_query(df)
 
         _ = reload_tester.run_reload_test()
 

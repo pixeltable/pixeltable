@@ -482,7 +482,7 @@ class Planner:
         # retrieve all stored cols and all target exprs
         recomputed_cols = set(recompute_targets.copy())
         copied_cols = [col for col in target.cols_by_id.values() if col.is_stored and not col in recomputed_cols]
-        select_list: list[exprs.Expr] = [exprs.ColumnRef(col) for col in copied_cols]
+        select_list: list[exprs.Expr] = [exprs.ColumnRef(col, tbl_context=view) for col in copied_cols]
         # resolve recomputed exprs to stored columns in the base
         recomputed_exprs = \
             [c.value_expr.copy().resolve_computed_cols(resolve_cols=recomputed_cols) for c in recomputed_cols]

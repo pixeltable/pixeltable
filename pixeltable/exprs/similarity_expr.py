@@ -25,15 +25,12 @@ class SimilarityExpr(Expr):
         self.components = [col_ref, item_expr]
 
         # determine index to use
-        idx_info = col_ref.get_idx_info()
+        embedding_idx_info = col_ref.get_idx_info(idx_name)
         from pixeltable import index
-        embedding_idx_info = {
-            info.name: info for info in idx_info.values() if isinstance(info.idx, index.EmbeddingIndex)
-        }
         if len(embedding_idx_info) == 0:
             raise excs.Error(f'No index found for column {col_ref.col!r}')
-        if idx_name is not None and idx_name not in embedding_idx_info:
-            raise excs.Error(f'Index {idx_name!r} not found for column {col_ref.col.name!r}')
+        if idx_name is not None:
+            assert idx_name in embedding_idx_info
         if len(embedding_idx_info) > 1:
             if idx_name is None:
                 raise excs.Error(

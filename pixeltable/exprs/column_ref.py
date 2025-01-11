@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Optional, Sequence, TYPE_CHECKING
+from typing import Any, Optional, Sequence
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -84,7 +84,7 @@ class ColumnRef(Expr):
         assert len(self.iter_arg_ctx.target_slot_idxs) == 1  # a single inline dict
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
-        # TODO: should tbl_context matter for ColumnRef id?
+        # TODO: confirm. tbl_context should not matter for ColumnRef id.
         return (
             super()._id_attrs()
             + [('tbl_id', self.col.tbl.id), ('col_id', self.col.id), ('perform_validation', self.perform_validation)]
@@ -128,7 +128,7 @@ class ColumnRef(Expr):
         return str(self)
 
     def _equals(self, other: ColumnRef) -> bool:
-        # TODO: should tbl_context matter for ColumnRef equality?
+        # TODO: confirm. tbl_context should not matter for ColumnRef equality.
         return (self.col == other.col and self.perform_validation == other.perform_validation)
 
     def _df(self) -> 'pxt.dataframe.DataFrame':
@@ -220,15 +220,32 @@ class ColumnRef(Expr):
         res = next(self.iterator)
         data_row[self.slot_idx] = res[self.col.name]
 
-    def get_idx_info(self) -> dict[str, 'catalog.TableVersion.IndexInfo']:
+    def get_idx_info(self, idx_name: str) -> dict[str, 'catalog.TableVersion.IndexInfo']:
         assert self.col is not None
+        from pixeltable import index
+
+        if idx_name is not None:
+            # looking for a specific index.
+            # first check the index in the table context
+            if self.tbl_context:
+                embedding_idx_info = self.tbl_context.tbl_version._get_embedding_idx_info(self.col)
+                if idx_name in embedding_idx_info:
+                    return embedding_idx_info
+            # not found in the table context, check in the columns' context
+            embedding_idx_info = self.col.tbl._get_embedding_idx_info(self.col)
+            if idx_name not in embedding_idx_info:
+                # not found in either, error
+                raise excs.Error(f'Index {idx_name!r} not found for column {self.col.name!r}')
+            return embedding_idx_info
+
+        # looking for any index
+        # first check the index in the table context
         if self.tbl_context:
-            idx_info = {name: info for name, info in self.tbl_context.tbl_version.idxs_by_name.items() if info.col == self.col}
-            if len(idx_info) != 0:
-                return idx_info
-            # TODO: confirm.
-            # use col's index if none found in context.
-        return self.col.get_idx_info()
+            embedding_idx_info = self.tbl_context.tbl_version._get_embedding_idx_info(self.col)
+            if len(embedding_idx_info) != 0:
+                return embedding_idx_info
+        # none found in the table context, check in the columns' context
+        return self.col.tbl._get_embedding_idx_info(self.col)
 
     def _as_dict(self) -> dict:
         tbl = self.col.tbl
@@ -262,4 +279,4 @@ class ColumnRef(Expr):
         col = cls.get_column(d)
         perform_validation = d['perform_validation']
         tbl_context = cls.get_column_context(d)
-        return cls(col, perform_validation=perform_validation,tbl_context=tbl_context)
+        return cls(col, perform_validation=perform_validation, tbl_context=tbl_context)

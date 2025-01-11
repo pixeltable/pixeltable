@@ -483,6 +483,12 @@ class TableVersion:
 
         return status
 
+    def _get_embedding_idx_info(self, col: Column) -> dict[str, IndexInfo]:
+        return {
+            name: info for name, info in self.idxs_by_name.items()
+            if info.col == col and isinstance(info.idx, index.EmbeddingIndex)
+        }
+
     def drop_index(self, idx_id: int) -> None:
         assert not self.is_snapshot
         assert idx_id in self.idx_md
