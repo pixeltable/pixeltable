@@ -212,16 +212,11 @@ video_table.insert([{'video': '/video.mp4'}])
 frames_view = pxt.create_view(
     'frames', video_table, iterator=FrameIterator.create(video=video_table.video))
 
-@pxt.expr_udf
-def embed_image(img: PIL.Image.Image):
-    return clip_image(img, model_id='openai/clip-vit-base-patch32')
-
-@pxt.expr_udf
-def str_embed(s: str):
-    return clip_text(s, model_id='openai/clip-vit-base-patch32')
-
 # Create an index on the 'frame' column that allows text and image search
-frames_view.add_embedding_index('frame', string_embed=str_embed, image_embed=embed_image)
+frames_view.add_embedding_index(
+     'frame',
+     embedding=clip.using(model_id='openai/clip-vit-base-patch32')
+)
 
 # Now we will retrieve images based on a sample image
 sample_image = '/image.jpeg'
