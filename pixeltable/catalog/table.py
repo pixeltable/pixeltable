@@ -729,7 +729,7 @@ class Table(SchemaObject):
 
     def add_embedding_index(
             self, column: Union[str, ColumnRef], *, idx_name: Optional[str] = None,
-            embed: Optional[pxt.Function] = None,
+            embedding: Optional[pxt.Function] = None,
             string_embed: Optional[pxt.Function] = None, image_embed: Optional[pxt.Function] = None,
             metric: str = 'cosine'
     ) -> None:
@@ -743,7 +743,7 @@ class Table(SchemaObject):
 
         >>> from pixeltable.functions.huggingface import clip
         ... embedding_fn = clip.using(model_id='openai/clip-vit-base-patch32')
-        ... tbl.add_embedding_index(tbl.img, embed=embedding_fn)
+        ... tbl.add_embedding_index(tbl.img, embedding=embedding_fn)
 
         Once the index is created, similiarity lookups can be performed using the `similarity` pseudo-function.
 
@@ -783,11 +783,11 @@ class Table(SchemaObject):
             >>> from pixeltable.functions.huggingface import clip
             ... tbl = pxt.get_table('my_table')
             ... embedding_fn = clip.using(model_id='openai/clip-vit-base-patch32')
-            ... tbl.add_embedding_index(tbl.img, embed=embedding_fn)
+            ... tbl.add_embedding_index(tbl.img, embedding=embedding_fn)
 
             Alternatively, the `img` column may be specified by name:
 
-            >>> tbl.add_embedding_index('img', embed=embedding_fn)
+            >>> tbl.add_embedding_index('img', embedding=embedding_fn)
 
             Add a second index to the `img` column, using the inner product as the distance metric,
             and with a specific name:
@@ -795,7 +795,7 @@ class Table(SchemaObject):
             >>> tbl.add_embedding_index(
             ...     tbl.img,
             ...     idx_name='ip_idx',
-            ...     embed=embedding_fn,
+            ...     embedding=embedding_fn,
             ...     metric='ip'
             ... )
 
@@ -803,7 +803,6 @@ class Table(SchemaObject):
 
             >>> tbl.add_embedding_index(
             ...     tbl.img,
-            ...     embed=embedding_fn,
             ...     string_embed=string_embedding_fn,
             ...     image_embed=image_embedding_fn
             ... )
@@ -823,7 +822,7 @@ class Table(SchemaObject):
         from pixeltable.index import EmbeddingIndex
 
         # create the EmbeddingIndex instance to verify args
-        idx = EmbeddingIndex(col, metric=metric, embed=embed, string_embed=string_embed, image_embed=image_embed)
+        idx = EmbeddingIndex(col, metric=metric, embed=embedding, string_embed=string_embed, image_embed=image_embed)
         status = self._tbl_version.add_index(col, idx_name=idx_name, idx=idx)
         # TODO: how to deal with exceptions here? drop the index and raise?
         FileCache.get().emit_eviction_warnings()
