@@ -762,7 +762,7 @@ class Table(SchemaObject):
             column: The name of, or reference to, the column to be indexed; must be a `String` or `Image` column.
             idx_name: An optional name for the index. If not specified, a name such as `'idx0'` will be generated
                 automatically. If specified, the name must be unique for this table.
-            embed: The UDF to use for the embedding. Must be a UDF that accepts a single argument of type `String`
+            embedding: The UDF to use for the embedding. Must be a UDF that accepts a single argument of type `String`
                 or `Image` (as appropriate for the column being indexed) and returns a fixed-size 1-dimensional
                 array of floats.
             string_embed: An optional UDF to use for the string embedding component of this index.

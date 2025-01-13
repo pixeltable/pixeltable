@@ -71,7 +71,7 @@ class TestIndex:
             if use_separate_embeddings:
                 embed_args = {'string_embed': clip_embed, 'image_embed': clip_embed}
             else:
-                embed_args = {'embed': clip_embed}
+                embed_args = {'embedding': clip_embed}
             t.add_embedding_index('img', idx_name=iname, metric=metric, **embed_args)
 
             df = (
