@@ -1,3 +1,4 @@
+from typing import Optional
 import pytest
 
 import pixeltable as pxt
@@ -37,22 +38,39 @@ class TestAnthropic:
         skip_test_if_no_client('anthropic')
         from pixeltable.functions.anthropic import invoke_tools, messages
 
-        t = pxt.create_table('test_tbl', {'prompt': pxt.String})
-        msgs = [{'role': 'user', 'content': t.prompt}]
         tools = pxt.tools(stock_price)
-        t.add_computed_column(response=messages(
-            model='claude-3-haiku-20240307',
-            messages=msgs,
-            tools=tools
-        ))
-        t.add_computed_column(tool_calls=invoke_tools(tools, t.response))
-        t.insert(prompt='What is the stock price of NVDA today?')
-        t.insert(prompt='How many grams of corn are in a bushel?')
-        res = t.select(t.response, t.tool_calls).head()
+        tool_choice_opts: list[Optional[pxt.func.ToolChoice]] = [
+            None,
+            tools.choice(auto=True),
+            tools.choice(required=True),
+            tools.choice(tool='stock_price'),
+            tools.choice(tool=stock_price),
+        ]
 
-        # First prompt results in tool invocation
-        # (with Anthropic, there may also be a text response such as 'Ok, let me look up the stock price.')
-        assert res[0]['tool_calls'] == {'stock_price': 131.17}
+        for tool_choice in tool_choice_opts:
+            print(f'Testing with tool choice: {tool_choice}')
 
-        # Second prompt results in no tool invocation
-        assert res[1]['tool_calls'] == {'stock_price': None}
+            pxt.drop_table('test_tbl', if_not_exists='ignore')
+            t = pxt.create_table('test_tbl', {'prompt': pxt.String})
+            msgs = [{'role': 'user', 'content': t.prompt}]
+            t.add_computed_column(response=messages(
+                model='claude-3-5-sonnet-20241022',
+                messages=msgs,
+                tools=tools,
+                tool_choice=tool_choice,
+            ))
+            t.add_computed_column(tool_calls=invoke_tools(tools, t.response))
+            t.insert(prompt='What is the stock price of NVDA today?')
+            t.insert(prompt='How many grams of corn are in a bushel?')
+            res = t.select(t.response, t.tool_calls).head()
+
+            # First prompt results in tool invocation
+            # (with Anthropic, there may also be a text response such as 'Ok, let me look up the stock price.')
+            assert res[0]['tool_calls'] == {'stock_price': 131.17}
+
+            if tool_choice is None or tool_choice.auto:
+                # Second prompt results in no tool invocation
+                assert res[1]['tool_calls'] == {'stock_price': None}
+            else:
+                # Second prompt results in tool invocation
+                assert res[1]['tool_calls'] == {'stock_price': 0.0}

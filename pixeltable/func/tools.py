@@ -1,9 +1,8 @@
-from dataclasses import dataclass
-import dataclasses
-import json
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Literal, Optional, Union
 
 import pydantic
+
+import pixeltable.exceptions as excs
 
 from .function import Function
 from .signature import Parameter
@@ -75,6 +74,13 @@ class Tool(pydantic.BaseModel):
         assert False
 
 
+class ToolChoice(pydantic.BaseModel):
+    auto: bool
+    required: bool
+    tool: Optional[str]
+    parallel_tool_calls: bool
+
+
 class Tools(pydantic.BaseModel):
     tools: list[Tool]
 
@@ -92,8 +98,27 @@ class Tools(pydantic.BaseModel):
             for tool in self.tools
         })
 
-    def __getitem__(self, idx: int) -> Tool:
-        return self.tools[idx]
+    def choice(
+        self,
+        auto: bool = False,
+        required: bool = False,
+        tool: Union[str, Function, None] = None,
+        parallel_tool_calls: bool = False,
+    ) -> ToolChoice:
+        if sum([auto, required, tool is not None]) != 1:
+            raise excs.Error('Exactly one of `auto`, `required`, or `tool` must be specified.')
+        tool_name: Optional[str] = None
+        if tool is not None:
+            try:
+                tool_obj = next(
+                    t for t in self.tools
+                    if (isinstance(tool, Function) and t.fn == tool)
+                    or (isinstance(tool, str) and (t.name or t.fn.name) == tool)
+                )
+                tool_name = tool_obj.name or tool_obj.fn.name
+            except StopIteration:
+                raise excs.Error(f'That tool is not in the specified list of tools: {tool}')
+        return ToolChoice(auto=auto, required=required, tool=tool_name, parallel_tool_calls=parallel_tool_calls)
 
 
 @udf

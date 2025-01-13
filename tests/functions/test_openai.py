@@ -101,62 +101,46 @@ class TestOpenai:
         TestOpenai.skip_test_if_no_openai_client()
         from pixeltable.functions.openai import chat_completions, invoke_tools
 
-        t = pxt.create_table('test_tbl', {'prompt': pxt.String})
-        messages = [{'role': 'user', 'content': t.prompt}]
         tools = pxt.tools(stock_price)
+        tool_choice_opts: list[Optional[pxt.func.ToolChoice]] = [
+            None,
+            tools.choice(auto=True),
+            tools.choice(required=True),
+            tools.choice(tool='stock_price'),
+            tools.choice(tool=stock_price),
+        ]
 
-        # Basic tool usage (tool choice defaults to 'auto')
-        t.add_computed_column(response=chat_completions(
-            model='gpt-4o-mini',
-            messages=messages,
-            tools=tools
-        ))
-        t.add_computed_column(output=t.response.choices[0].message.content)
-        t.add_computed_column(tool_calls=invoke_tools(tools, t.response))
+        for tool_choice in tool_choice_opts:
+            print(f'Testing with tool choice: {tool_choice}')
 
-        # Tool choice 'none'
-        t.add_computed_column(response_no_tools=chat_completions(
-            model='gpt-4o-mini',
-            messages=messages,
-            tools=tools,
-            tool_choice='none'
-        ))
-        t.add_computed_column(output_no_tools=t.response_no_tools.choices[0].message.content)
-        t.add_computed_column(tool_calls_no_tools=invoke_tools(tools, t.response_no_tools))
+            pxt.drop_table('test_tbl', if_not_exists='ignore')
+            t = pxt.create_table('test_tbl', {'prompt': pxt.String})
+            messages = [{'role': 'user', 'content': t.prompt}]
+            t.add_computed_column(response=chat_completions(
+                model='gpt-4o-mini',
+                messages=messages,
+                tools=tools,
+                tool_choice=tool_choice
+            ))
+            t.add_computed_column(output=t.response.choices[0].message.content)
+            t.add_computed_column(tool_calls=invoke_tools(tools, t.response))
 
-        # Tool choice specified function
-        t.add_computed_column(response_forced=chat_completions(
-            model='gpt-4o-mini',
-            messages=messages,
-            tools=tools,
-            tool_choice=tools[0]
-        ))
-        t.add_computed_column(output_forced=t.response_forced.choices[0].message.content)
-        t.add_computed_column(tool_calls_forced=invoke_tools(tools, t.response_forced))
+            t.insert(prompt='What is the stock price of NVDA today?')
+            t.insert(prompt='How many grams of corn are in a bushel?')
+            res = t.select(t.output, t.tool_calls).head()
 
-        t.insert(prompt='What is the stock price of NVDA today?')
-        t.insert(prompt='How many grams of corn are in a bushel?')
-        res = t.select(t.output, t.tool_calls, t.output_no_tools, t.tool_calls_no_tools, t.output_forced, t.tool_calls_forced).head()
+            # First prompt results in tool invocation + no message output
+            assert res[0]['output'] is None
+            assert res[0]['tool_calls'] == {'stock_price': 131.17}
 
-        # First prompt results in tool invocation + no message output
-        assert res[0]['output'] is None
-        assert res[0]['tool_calls'] == {'stock_price': 131.17}
-
-        # Second prompt results in positive length message output + no tool call
-        assert len(res[1]['output']) > 0
-        assert res[1]['tool_calls'] == {'stock_price': None}
-
-        # Now check the 'none' tool choice
-        assert len(res[0]['output_no_tools']) > 0
-        assert res[0]['tool_calls_no_tools'] == {'stock_price': None}
-        assert len(res[1]['output_no_tools']) > 0
-        assert res[1]['tool_calls_no_tools'] == {'stock_price': None}
-
-        # Now the forced tool usage
-        assert res[0]['output_forced'] is None
-        assert res[0]['tool_calls_forced'] == {'stock_price': 131.17}
-        assert res[1]['output_forced'] is None
-        assert res[1]['tool_calls_forced'] == {'stock_price': 0.0}  # Tool was called, but with some bogus symbol
+            if tool_choice is None or tool_choice.auto:
+                # Second prompt results in no tool invocation + positive length message output
+                assert len(res[1]['output']) > 0
+                assert res[1]['tool_calls'] == {'stock_price': None}
+            else:
+                # Forced invocation; second prompt results in tool invocation + no message output
+                assert res[1]['output'] is None
+                assert res[1]['tool_calls'] == {'stock_price': 0.0}  # On a random symbol, not NVDA
 
     def test_custom_tool_invocations(self, reset_db) -> None:
         skip_test_if_not_installed('openai')

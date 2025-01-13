@@ -194,7 +194,7 @@ def chat_completions(
     temperature: Optional[float] = None,
     top_p: Optional[float] = None,
     tools: Optional[list[dict]] = None,
-    tool_choice: Optional[pxt.Json] = None,
+    tool_choice: Optional[dict] = None,
     user: Optional[str] = None,
 ) -> dict:
     """
@@ -236,11 +236,18 @@ def chat_completions(
             for tool in tools
         ]
 
-    if isinstance(tool_choice, dict):
-        tool_choice = {
-            'type': 'function',
-            'function': {'name': tool_choice['name']}
-        }
+    tool_choice_: Union[str, dict, None] = None
+    if tool_choice is not None:
+        if tool_choice['auto']:
+            tool_choice_ = 'auto'
+        elif tool_choice['required']:
+            tool_choice_ = 'required'
+        else:
+            assert tool_choice['tool'] is not None
+            tool_choice_ = {
+                'type': 'function',
+                'function': {'name': tool_choice['tool']}
+            }
 
     result = _retry(_openai_client().chat.completions.create)(
         messages=messages,
@@ -258,7 +265,7 @@ def chat_completions(
         temperature=_opt(temperature),
         top_p=_opt(top_p),
         tools=_opt(tools),
-        tool_choice=_opt(tool_choice),
+        tool_choice=_opt(tool_choice_),
         user=_opt(user),
     )
     return result.dict()
