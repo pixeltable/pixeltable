@@ -1,11 +1,11 @@
-from typing import Optional
+from typing import Literal, Optional
 
 import pytest
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 
-from ..utils import SAMPLE_IMAGE_URL, skip_test_if_not_installed, stock_price, validate_update_status
+from ..utils import SAMPLE_IMAGE_URL, skip_test_if_not_installed, validate_update_status
 
 
 @pytest.mark.remote_api
@@ -96,14 +96,24 @@ class TestOpenai:
             t.insert(input='Say something interesting.')
         assert "\\'messages\\' must contain the word \\'json\\'" in str(exc_info.value)
 
-    def test_tool_invocations(self, reset_db) -> None:
+    @pytest.mark.parametrize('udf_type', ['module', 'local'])
+    def test_tool_invocations(self, udf_type: Literal['module', 'local'], reset_db) -> None:
         skip_test_if_not_installed('openai')
         TestOpenai.skip_test_if_no_openai_client()
         from pixeltable.functions.openai import chat_completions, invoke_tools
 
+        if udf_type == 'module':
+            from ..utils import stock_price
+            tools = pxt.tools(stock_price)
+        else:
+            @pxt.udf(_force_stored=True)
+            def stock_price(symbol: str) -> Optional[float]:
+                # Give it a different answer than the module UDF to be sure we're disambiguating
+                return 147.57 if symbol == 'NVDA' else None
+            tools = pxt.tools(stock_price)
+
         t = pxt.create_table('test_tbl', {'prompt': pxt.String})
         messages = [{'role': 'user', 'content': t.prompt}]
-        tools = pxt.tools(stock_price)
         t.add_computed_column(response=chat_completions(
             model='gpt-4o-mini',
             messages=messages,
@@ -117,7 +127,7 @@ class TestOpenai:
 
         # First prompt results in tool invocation + no message output
         assert res[0]['output'] is None
-        assert res[0]['tool_calls'] == {'stock_price': 131.17}
+        assert res[0]['tool_calls'] == {'stock_price': 131.17 if udf_type == 'module' else 147.57}
 
         # Second prompt results in positive length message output + no tool call
         assert len(res[1]['output']) > 0
@@ -127,6 +137,7 @@ class TestOpenai:
         skip_test_if_not_installed('openai')
         TestOpenai.skip_test_if_no_openai_client()
         from pixeltable.functions.openai import chat_completions, invoke_tools
+        from ..utils import stock_price
 
         t = pxt.create_table('test_tbl', {'prompt': pxt.String})
         messages = [{'role': 'user', 'content': t.prompt}]
