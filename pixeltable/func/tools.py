@@ -92,6 +92,9 @@ class Tools(pydantic.BaseModel):
             for tool in self.tools
         })
 
+    def __getitem__(self, idx: int) -> Tool:
+        return self.tools[idx]
+
 
 @udf
 def _extract_str_tool_arg(tool_calls: dict, func_name: str, param_name: str) -> Optional[str]:

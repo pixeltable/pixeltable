@@ -104,6 +104,8 @@ class TestOpenai:
         t = pxt.create_table('test_tbl', {'prompt': pxt.String})
         messages = [{'role': 'user', 'content': t.prompt}]
         tools = pxt.tools(stock_price)
+
+        # Basic tool usage (tool choice defaults to 'auto')
         t.add_computed_column(response=chat_completions(
             model='gpt-4o-mini',
             messages=messages,
@@ -111,9 +113,30 @@ class TestOpenai:
         ))
         t.add_computed_column(output=t.response.choices[0].message.content)
         t.add_computed_column(tool_calls=invoke_tools(tools, t.response))
+
+        # Tool choice 'none'
+        t.add_computed_column(response_no_tools=chat_completions(
+            model='gpt-4o-mini',
+            messages=messages,
+            tools=tools,
+            tool_choice='none'
+        ))
+        t.add_computed_column(output_no_tools=t.response_no_tools.choices[0].message.content)
+        t.add_computed_column(tool_calls_no_tools=invoke_tools(tools, t.response_no_tools))
+
+        # Tool choice specified function
+        t.add_computed_column(response_forced=chat_completions(
+            model='gpt-4o-mini',
+            messages=messages,
+            tools=tools,
+            tool_choice=tools[0]
+        ))
+        t.add_computed_column(output_forced=t.response_forced.choices[0].message.content)
+        t.add_computed_column(tool_calls_forced=invoke_tools(tools, t.response_forced))
+
         t.insert(prompt='What is the stock price of NVDA today?')
         t.insert(prompt='How many grams of corn are in a bushel?')
-        res = t.select(t.output, t.tool_calls).head()
+        res = t.select(t.output, t.tool_calls, t.output_no_tools, t.tool_calls_no_tools, t.output_forced, t.tool_calls_forced).head()
 
         # First prompt results in tool invocation + no message output
         assert res[0]['output'] is None
@@ -122,6 +145,18 @@ class TestOpenai:
         # Second prompt results in positive length message output + no tool call
         assert len(res[1]['output']) > 0
         assert res[1]['tool_calls'] == {'stock_price': None}
+
+        # Now check the 'none' tool choice
+        assert len(res[0]['output_no_tools']) > 0
+        assert res[0]['tool_calls_no_tools'] == {'stock_price': None}
+        assert len(res[1]['output_no_tools']) > 0
+        assert res[1]['tool_calls_no_tools'] == {'stock_price': None}
+
+        # Now the forced tool usage
+        assert res[0]['output_forced'] is None
+        assert res[0]['tool_calls_forced'] == {'stock_price': 131.17}
+        assert res[1]['output_forced'] is None
+        assert res[1]['tool_calls_forced'] == {'stock_price': 0.0}  # Tool was called, but with some bogus symbol
 
     def test_custom_tool_invocations(self, reset_db) -> None:
         skip_test_if_not_installed('openai')

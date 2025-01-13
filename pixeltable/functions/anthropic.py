@@ -47,7 +47,7 @@ def messages(
     stop_sequences: Optional[list[str]] = None,
     system: Optional[str] = None,
     temperature: Optional[float] = None,
-    tool_choice: Optional[list[dict]] = None,
+    tool_choice: Optional[pxt.Json] = None,
     tools: Optional[list[dict]] = None,
     top_k: Optional[int] = None,
     top_p: Optional[float] = None,
