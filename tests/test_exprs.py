@@ -319,35 +319,63 @@ class TestExprs:
         assert len(results['output'][0]['content'][0]['text']) > 0
         assert len(results['output2'][0]['content'][0]['text']) > 0
 
+    def test_a(self, reset_db) -> None:
+        from pixeltable.functions.openai import chat_completions
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        msgs = [{'role': 'system', 'content': 'You are a helpful assistant.'}, {'role': 'user', 'content': t.input}]
+        t.add_column(input_msgs=msgs)
+        t.add_column(chat_output=chat_completions(model='gpt-4o-mini', messages=t.input_msgs))
+        validate_update_status(t.insert({'input': "How's everything going today?"} for _ in range(10)))
+        #validate_update_status(t.insert({'input': "How's everything going today?"} for _ in range(100)))
+        results = t.select(t.chat_output, t.chat_output.errormsg).collect()
+        pass
+
     @pxt.udf
-    def create_prompt(word1: str, word2: str) -> list:
+    def anthropic_prompt(word1: str, word2: str) -> list:
         return [
             {'role': 'user',
              'content': f'Generate a single sentence that uses both of these words: {word1} and {word2}. The sentence should be natural and make sense.'}
         ]
 
-    def test_w(self, test_tbl: catalog.Table) -> None:
+    @pxt.udf
+    def openai_prompt(word1: str, word2: str) -> list:
+        return [
+            {'role': 'system', 'content': 'You are a creative writer who creates natural-sounding sentences.'},
+            {
+            'role': 'user',
+                'content': f'Generate a single sentence that uses both of these words: {word1} and {word2}. The sentence should be natural and make sense.'
+            }
+        ]
+
+
+    def test_w(self, reset_db) -> None:
         t = pxt.create_table('sentence_tbl', {'word1': pxt.String, 'word2': pxt.String})
 
         with open('/usr/share/dict/american-english') as f:
             wordlist = [word.strip() for word in f]
 
-        t['messages'] = self.create_prompt(t.word1, t.word2)
-        t['sentence'] = pxtf.anthropic.messages(
-            messages=t.messages,
+        t.add_computed_column(claude_prompt=self.anthropic_prompt(t.word1, t.word2))
+        t.add_computed_column(chatgpt_prompt=self.openai_prompt(t.word1, t.word2))
+        t.add_computed_column(claude_sentence=pxtf.anthropic.messages(
+            messages=t.claude_prompt,
             model='claude-3-haiku-20240307',
             max_tokens=100,
             temperature=0.7,
             system='You are a creative writer who creates natural-sounding sentences.'
-        )
+        ))
+        t.add_computed_column(chatgpt_sentence=pxtf.openai.chat_completions(
+            messages=t.chatgpt_prompt,
+            model='gpt-4o-mini',
+            max_tokens=100,
+            temperature=0.7,
+        ))
 
         rows = (
             {'word1': w1, 'word2': w2}
-            for _ in range(2)
+            for _ in range(1000)
             for w1, w2 in [random.sample(wordlist, k=2)]
         )
         status = t.insert(rows, on_error='ignore')
-        _ = t.select(t.word1, t.word2, t.messages, t.sentence).collect()
         pass
 
     def test_s(self, test_tbl: catalog.Table) -> None:
@@ -358,6 +386,31 @@ class TestExprs:
             with pytest.raises(excs.Error) as exc_info:
                 _ = t.select(op1 / op2).collect()
             pass
+
+    def test_image_generations(self, reset_db) -> None:
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        from pixeltable.functions.openai import image_generations
+
+        t.add_column(img=image_generations(t.input))
+        # Test dall-e-2 options
+        t.add_column(img_2=image_generations(t.input, model='dall-e-2', size='512x512', user='pixeltable'))
+        # image size information was captured correctly
+        type_info = t._schema
+        assert type_info['img_2'].size == (512, 512)
+
+        validate_update_status(t.insert(input='A friendly dinosaur playing tennis in a cornfield'), 1)
+        assert t.collect()['img'][0].size == (1024, 1024)
+        assert t.collect()['img_2'][0].size == (512, 512)
+
+    def test_moderations(self, reset_db) -> None:
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        from pixeltable.functions.openai import moderations
+
+        t.add_column(moderation=moderations(input=t.input))
+        t.add_column(moderation_2=moderations(input=t.input, model='text-moderation-stable'))
+        validate_update_status(t.insert(input='Say something interesting.'), 1)
+        _ = t.head()
+
 
     def test_arithmetic_exprs(self, test_tbl: catalog.Table) -> None:
         t = test_tbl

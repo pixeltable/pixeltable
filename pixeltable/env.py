@@ -41,7 +41,7 @@ class Env:
     """
 
     _instance: Optional[Env] = None
-    _log_fmt_str = '%(asctime)s [%(thread)d] %(levelname)s %(name)s %(filename)s:%(lineno)d: %(message)s'
+    _log_fmt_str = '%(asctime)s %(levelname)s %(name)s %(filename)s:%(lineno)d: %(message)s'
 
     _home: Optional[Path]
     _media_dir: Optional[Path]
@@ -777,8 +777,11 @@ class PackageInfo:
 
 
 TIME_FORMAT = '%H:%M.%S %f'
+
+
 @dataclass
 class RateLimitsInfo:
+    """Resource pool made up of rate limits for different resources."""
     resource_limits: dict[str, RateLimitInfo]
 
     def is_initialized(self) -> bool:
@@ -790,12 +793,12 @@ class RateLimitsInfo:
     def record(self, **kwargs) -> None:
         now = datetime.datetime.now(tz=datetime.timezone.utc)
         if len(self.resource_limits) == 0:
-            self.resource_limits = {k: RateLimitInfo(k, now, *v) for k, v in kwargs.items()}
+            self.resource_limits = {k: RateLimitInfo(k, now, *v) for k, v in kwargs.items() if v is not None}
+            # TODO: remove
             for info in self.resource_limits.values():
                 _logger.debug(f'Init {info.resource} rate limit: rem={info.remaining} reset={info.reset_at.strftime(TIME_FORMAT)} delta={(info.reset_at - now).total_seconds()}')
         else:
-            assert set(self.resource_limits.keys()) == set(kwargs.keys())
-            for k, v in kwargs.items():
+            for k, v in [(k, v) for k, v in kwargs.items() if v is not None]:
                 self.resource_limits[k].update(now, *v)
 
 
@@ -816,4 +819,5 @@ class RateLimitInfo:
         self.remaining = remaining
         reset_delta = reset_at - self.reset_at
         self.reset_at = reset_at
+        # TODO: remove
         _logger.debug(f'Update {self.resource} rate limit: rem={self.remaining} reset={self.reset_at.strftime(TIME_FORMAT)} reset_delta={reset_delta.total_seconds()} recorded_delta={(self.reset_at - recorded_at).total_seconds()}')

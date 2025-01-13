@@ -5,14 +5,18 @@ first `pip install openai` and configure your OpenAI credentials, as described i
 the [Working with OpenAI](https://pixeltable.readme.io/docs/working-with-openai) tutorial.
 """
 
+import httpx
 import base64
+import datetime
 import io
+import json
 import pathlib
+import re
 import uuid
 from typing import TYPE_CHECKING, Callable, Optional, TypeVar, Union
 
-import numpy as np
 import PIL.Image
+import numpy as np
 import tenacity
 
 import pixeltable as pxt
@@ -25,13 +29,24 @@ if TYPE_CHECKING:
 
 
 @env.register_client('openai')
-def _(api_key: str) -> 'openai.OpenAI':
+def _(api_key: str) -> tuple['openai.OpenAI', 'openai.AsyncOpenAI']:
     import openai
-    return openai.OpenAI(api_key=api_key)
+    return (
+        openai.OpenAI(api_key=api_key),
+        openai.AsyncOpenAI(
+            api_key=api_key,
+            # recommended to increase limits for async client to avoid connection errors
+            http_client=httpx.AsyncClient(limits=httpx.Limits(max_keepalive_connections=100, max_connections=500)),
+        )
+    )
 
 
 def _openai_client() -> 'openai.OpenAI':
-    return env.Env.get().get_client('openai')
+    return env.Env.get().get_client('openai')[0]
+
+
+def _async_openai_client() -> 'openai.AsyncOpenAI':
+    return env.Env.get().get_client('openai')[1]
 
 
 # Exponential backoff decorator using tenacity.
@@ -44,6 +59,100 @@ def _retry(fn: Callable) -> Callable:
         wait=tenacity.wait_random_exponential(multiplier=1, max=60),
         stop=tenacity.stop_after_attempt(20),
     )(fn)
+
+
+# models that share rate limits; see https://platform.openai.com/settings/organization/limits for details
+_shared_rate_limits = {
+    'gpt-4-turbo': [
+        'gpt-4-turbo',
+        'gpt-4-turbo-latest',
+        'gpt-4-turbo-2024-04-09',
+        'gpt-4-turbo-preview',
+        'gpt-4-0125-preview',
+        'gpt-4-1106-preview'
+    ],
+    'gpt-4o': [
+       'gpt-4o',
+       'gpt-4o-latest',
+       'gpt-4o-2024-05-13',
+       'gpt-4o-2024-08-06',
+       'gpt-4o-2024-11-20',
+       'gpt-4o-audio-preview',
+       'gpt-4o-audio-preview-2024-10-01',
+       'gpt-4o-audio-preview-2024-12-17'
+    ],
+    'gpt-4o-mini': [
+        'gpt-4o-mini',
+        'gpt-4o-mini-latest',
+        'gpt-4o-mini-2024-07-18',
+        'gpt-4o-mini-audio-preview',
+        'gpt-4o-mini-audio-preview-2024-12-17'
+    ],
+    'gpt-4o-mini-realtime-preview': [
+        'gpt-4o-mini-realtime-preview',
+        'gpt-4o-mini-realtime-preview-latest',
+        'gpt-4o-mini-realtime-preview-2024-12-17'
+    ]
+}
+
+
+def _resource_pool(model: str) -> str:
+    for model_family, models in _shared_rate_limits.items():
+        if model in models:
+            return f'openai:{model_family}'
+    return f'openai:{model}'
+
+
+def _parse_header_duration(duration_str):
+    # examples: 1d2h3ms, 4m5.6s
+    # fractional seconds can be reported as 0.5s or 500ms
+    pattern = re.compile(r'(?:(\d+)d)?(?:(\d+)h)?(?:(\d+)ms)|(?:(\d+)m)?(?:([\d.]+)s)?')
+    match = pattern.match(duration_str)
+    if not match:
+        raise ValueError("Invalid duration format")
+
+    days = int(match.group(1) or 0)
+    hours = int(match.group(2) or 0)
+    milliseconds = int(match.group(3) or 0)
+    minutes = int(match.group(4) or 0)
+    seconds = float(match.group(5) or 0)
+
+    return datetime.timedelta(
+        days=days,
+        hours=hours,
+        minutes=minutes,
+        seconds=seconds,
+        milliseconds=milliseconds
+    )
+
+
+def _report_header_info(headers: dict[str, str], resource_pool: str, *, requests: bool = True, tokens: bool = True):
+    assert requests or tokens
+    now = datetime.datetime.now(tz=datetime.timezone.utc)
+
+    requests_info: Optional[tuple[int, int, datetime.datetime]] = None
+    if requests:
+        requests_limit_str = headers.get('x-ratelimit-limit-requests')
+        requests_limit = int(requests_limit_str) if requests_limit_str is not None else None
+        requests_remaining_str = headers.get('x-ratelimit-remaining-requests')
+        requests_remaining = int(requests_remaining_str) if requests_remaining_str is not None else None
+        requests_reset_str = headers.get('x-ratelimit-reset-requests')
+        requests_reset_ts = now + _parse_header_duration(requests_reset_str)
+        requests_info = (requests_limit, requests_remaining, requests_reset_ts)
+
+    tokens_info: Optional[tuple[int, int, datetime.datetime]] = None
+    if tokens:
+        tokens_limit_str = headers.get('x-ratelimit-limit-tokens')
+        tokens_limit = int(tokens_limit_str) if tokens_limit_str is not None else None
+        tokens_remaining_str = headers.get('x-ratelimit-remaining-tokens')
+        tokens_remaining = int(tokens_remaining_str) if tokens_remaining_str is not None else None
+        tokens_reset_str = headers.get('x-ratelimit-reset-tokens')
+        tokens_reset_ts = now + _parse_header_duration(tokens_reset_str)
+        tokens_info = (tokens_limit, tokens_remaining, tokens_reset_ts)
+
+    rate_limits_info = env.Env.get().get_resource_pool_info(resource_pool)
+    assert isinstance(rate_limits_info, env.RateLimitsInfo)
+    rate_limits_info.record(requests=requests_info, tokens=tokens_info)
 
 
 #####################################
@@ -90,6 +199,11 @@ def speech(
     return output_filename
 
 
+# @speech.resource_pool
+# def _(model: str) -> str:
+#     return _resource_pool(model)
+
+
 @pxt.udf
 def transcriptions(
     audio: pxt.Audio,
@@ -129,6 +243,11 @@ def transcriptions(
         file=file, model=model, language=_opt(language), prompt=_opt(prompt), temperature=_opt(temperature)
     )
     return transcription.dict()
+
+
+# @transcriptions.resource_pool
+# def _(model: str) -> str:
+#     return _resource_pool(model)
 
 
 @pxt.udf
@@ -171,12 +290,17 @@ def translations(
     return translation.dict()
 
 
+# @translations.resource_pool
+# def _(model: str) -> str:
+#     return _resource_pool(model)
+
+
 #####################################
 # Chat Endpoints
 
 
 @pxt.udf
-def chat_completions(
+async def chat_completions(
     messages: list,
     *,
     model: str,
@@ -184,8 +308,8 @@ def chat_completions(
     logit_bias: Optional[dict[str, int]] = None,
     logprobs: Optional[bool] = None,
     top_logprobs: Optional[int] = None,
-    max_tokens: Optional[int] = None,
-    n: Optional[int] = None,
+    max_tokens: Optional[int] = 1024,
+    n: Optional[int] = 1,
     presence_penalty: Optional[float] = None,
     response_format: Optional[dict] = None,
     seed: Optional[int] = None,
@@ -225,7 +349,7 @@ def chat_completions(
             ]
             tbl['response'] = chat_completions(messages, model='gpt-4o-mini')
     """
-    result = _retry(_openai_client().chat.completions.create)(
+    result = await _async_openai_client().chat.completions.with_raw_response.create(
         messages=messages,
         model=model,
         frequency_penalty=_opt(frequency_penalty),
@@ -243,8 +367,16 @@ def chat_completions(
         tools=_opt(tools),
         tool_choice=_opt(tool_choice),
         user=_opt(user),
+        timeout=10
     )
-    return result.dict()
+
+    _report_header_info(result.headers, _resource_pool(model))
+    return json.loads(result.text)
+
+
+@chat_completions.resource_pool
+def _(model: str) -> str:
+    return _resource_pool(model)
 
 
 @pxt.udf
@@ -291,6 +423,11 @@ def vision(prompt: str, image: PIL.Image.Image, *, model: str) -> str:
     return result.choices[0].message.content
 
 
+# @vision.resource_pool
+# def _(model: str) -> str:
+#     return _resource_pool(model)
+
+
 #####################################
 # Embeddings Endpoints
 
@@ -302,7 +439,7 @@ _embedding_dimensions_cache: dict[str, int] = {
 
 
 @pxt.udf(batch_size=32)
-def embeddings(
+async def embeddings(
     input: Batch[str], *, model: str, dimensions: Optional[int] = None, user: Optional[str] = None
 ) -> Batch[pxt.Array[(None,), pxt.Float]]:
     """
@@ -332,10 +469,10 @@ def embeddings(
 
         >>> tbl['embed'] = embeddings(tbl.text, model='text-embedding-3-small')
     """
-    result = _retry(_openai_client().embeddings.create)(
+    result = await _async_openai_client().embeddings.with_raw_response.create(
         input=input, model=model, dimensions=_opt(dimensions), user=_opt(user), encoding_format='float'
     )
-    return [np.array(data.embedding, dtype=np.float64) for data in result.data]
+    return [np.array(data['embedding'], dtype=np.float64) for data in json.loads(result.content)['data']]
 
 
 @embeddings.conditional_return_type
@@ -348,6 +485,11 @@ def _(model: str, dimensions: Optional[int] = None) -> pxt.ArrayType:
     return pxt.ArrayType((dimensions,), dtype=pxt.FloatType(), nullable=False)
 
 
+@embeddings.resource_pool
+def _(model: str) -> str:
+    return _resource_pool(model)
+
+
 #####################################
 # Images Endpoints
 
@@ -356,7 +498,7 @@ def _(model: str, dimensions: Optional[int] = None) -> pxt.ArrayType:
 def image_generations(
     prompt: str,
     *,
-    model: Optional[str] = None,
+    model: str = 'dall-e-2',
     quality: Optional[str] = None,
     size: Optional[str] = None,
     style: Optional[str] = None,
@@ -418,12 +560,17 @@ def _(size: Optional[str] = None) -> pxt.ImageType:
     return pxt.ImageType(size=(width, height))
 
 
+# @image_generations.resource_pool
+# def _(model: str) -> str:
+#     return _resource_pool(model)
+
+
 #####################################
 # Moderations Endpoints
 
 
 @pxt.udf
-def moderations(input: str, *, model: Optional[str] = None) -> dict:
+def moderations(input: str, *, model: str = 'omni-moderation-latest') -> dict:
     """
     Classifies if text is potentially harmful.
 
@@ -451,6 +598,11 @@ def moderations(input: str, *, model: Optional[str] = None) -> dict:
     """
     result = _retry(_openai_client().moderations.create)(input=input, model=_opt(model))
     return result.dict()
+
+
+# @moderations.resource_pool
+# def _(model: str) -> str:
+#     return _resource_pool(model)
 
 
 _T = TypeVar('_T')

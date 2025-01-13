@@ -89,14 +89,24 @@ class Function(abc.ABC):
         """Override this to do custom validation of the arguments"""
         pass
 
+    def _get_callable_args(self, callable: Callable, kwargs: dict[str, Any]) -> dict[str, Any]:
+        """Return the kwargs to pass to callable, given kwargs passed to this function"""
+        bound_args = self.signature.py_signature.bind(**kwargs).arguments
+        # add defaults to bound_args, if not already present
+        bound_args.update({
+            name: param.default
+            for name, param in self.signature.parameters.items() if name not in bound_args and param.has_default()
+        })
+        result: dict[str, Any] = {}
+        sig = inspect.signature(callable)
+        for param in sig.parameters.values():
+            if param.name in bound_args:
+                result[param.name] = bound_args[param.name]
+        return result
+
     def call_resource_pool(self, kwargs: dict[str, Any]) -> str:
         """Return the resource pool to use for calling this function with the given arguments"""
-        bound_args = self.signature.py_signature.bind(**kwargs)
-        kw_args: dict[str, Any] = {}
-        sig = inspect.signature(self._resource_pool)
-        for param in sig.parameters.values():
-            if param.name in bound_args.arguments:
-                kw_args[param.name] = bound_args.arguments[param.name]
+        kw_args = self._get_callable_args(self._resource_pool, kwargs)
         return self._resource_pool(**kw_args)
 
     def call_return_type(self, kwargs: dict[str, Any]) -> ts.ColumnType:

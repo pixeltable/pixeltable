@@ -67,6 +67,7 @@ def udf(*args, **kwargs):
                 substitute_fn=substitute_fn,
                 is_method=is_method,
                 is_property=is_property,
+                resource_pool=resource_pool,
                 force_stored=force_stored
             )
 

@@ -54,10 +54,17 @@ class ExecNode(abc.ABC):
         pass
 
     def __iter__(self) -> Iterator[DataRowBatch]:
-        # TODO: utilize the existing event loop if available (eg, in a Jupyter setting)
-        _logger.debug(f'creating event loop for thread {threading.current_thread().ident}')
+        try:
+            # check if we are already in an event loop (eg, Jupyter's); if so, patch it to allow nested event loops
+            _ = asyncio.get_event_loop()
+            import nest_asyncio
+            nest_asyncio.apply()
+        except RuntimeError:
+            pass
+
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
+
         aiter = self.__aiter__()
         try:
             while True:

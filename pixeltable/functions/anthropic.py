@@ -98,8 +98,8 @@ async def messages(
         tools=_opt(tools),
         top_k=_opt(top_k),
         top_p=_opt(top_p),
-        timeout=5,
-        extra_headers={'X-Stainless-Raw-Response': 'true'},
+        timeout=10,
+        extra_headers={'X-Stainless-Raw-Response': 'true'},  # get headers back
     )
 
     requests_limit_str = result.headers.get('anthropic-ratelimit-requests-limit')
@@ -124,7 +124,7 @@ async def messages(
     if retry_after_str is not None:
         _logger.debug(f'retry-after: {retry_after_str}')
 
-    resource_pool_id = f'rate-limits:anthropic-{model}'
+    resource_pool_id = f'anthropic:{model}'
     rate_limits_info = env.Env.get().get_resource_pool_info(resource_pool_id)
     assert isinstance(rate_limits_info, env.RateLimitsInfo)
     rate_limits_info.record(
@@ -138,7 +138,7 @@ async def messages(
 
 @messages.resource_pool
 def _(model: str) -> str:
-    return f'rate-limits:anthropic-{model}'
+    return f'anthropic:{model}'
 
 _T = TypeVar('_T')
 

@@ -33,6 +33,11 @@ class FunctionCall(Expr):
     args: list[tuple[Optional[int], Optional[Any]]]
     kwargs: dict[str, tuple[Optional[int], Optional[Any]]]
 
+    # maps each parameter name to tuple containing
+    # - argument's index in components, if present in the call
+    # - default value, if the argument is not present in the call
+    param_values: dict[str, tuple[Optional[int], Optional[Any]]]
+
     arg_types: list[ts.ColumnType]
     kwarg_types: dict[str, ts.ColumnType]
     group_by_start_idx: int
@@ -83,6 +88,7 @@ class FunctionCall(Expr):
         # construct components, args, kwargs
         self.args = []
         self.kwargs = {}
+        self.param_values = {}
 
         # we record the types of non-variable parameters for runtime type checks
         self.arg_types = []
@@ -96,9 +102,11 @@ class FunctionCall(Expr):
             arg = bound_args[py_param.name]
             if isinstance(arg, Expr):
                 self.args.append((len(self.components), None))
+                self.param_values[py_param.name] = (len(self.components), None)
                 self.components.append(arg.copy())
             else:
                 self.args.append((None, arg))
+                self.param_values[py_param.name] = (None, arg)
             if py_param.kind != inspect.Parameter.VAR_POSITIONAL and py_param.kind != inspect.Parameter.VAR_KEYWORD:
                 self.arg_types.append(signature.parameters[py_param.name].col_type)
             processed_args.add(py_param.name)
@@ -109,11 +117,20 @@ class FunctionCall(Expr):
                 arg = bound_args[param_name]
                 if isinstance(arg, Expr):
                     self.kwargs[param_name] = (len(self.components), None)
+                    self.param_values[param_name] = (len(self.components), None)
                     self.components.append(arg.copy())
                 else:
                     self.kwargs[param_name] = (None, arg)
+                    self.param_values[param_name] = (None, arg)
                 if fn.signature.py_signature.parameters[param_name].kind != inspect.Parameter.VAR_KEYWORD:
                     self.kwarg_types[param_name] = signature.parameters[param_name].col_type
+
+        # fill in default values for parameters that don't have explicit arguments
+        for param in fn.signature.parameters.values():
+            if param.name not in self.param_values:
+                self.param_values[param.name] = (
+                    (None, None) if param.default is inspect.Parameter.empty else (None, param.default)
+                )
 
         # window function state:
         # self.components[self.group_by_start_idx:self.group_by_stop_idx] contains group_by exprs
@@ -404,6 +421,12 @@ class FunctionCall(Expr):
                     return None
                 args.append(val)
         return args, kwargs
+
+    def get_param_value(self, param_name: str, data_row: DataRow) -> Any:
+        assert param_name in self.param_values
+        component_idx, default_val = self.param_values[param_name]
+        slot_idx = self.components[component_idx].slot_idx if component_idx is not None else None
+        return default_val if slot_idx is None else data_row[slot_idx]
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         if isinstance(self.fn, func.ExprTemplateFunction):
