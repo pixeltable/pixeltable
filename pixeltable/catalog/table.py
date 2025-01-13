@@ -452,7 +452,7 @@ class Table(SchemaObject):
             for view in [self] + self._get_views(recursive=True)
             for store in view._tbl_version.external_stores.values())
 
-    def _ignore_or_drop_existing_columns(self, new_col_names: Sequence[str], if_exists: IfExistsParam) -> list[str]:
+    def _ignore_or_drop_existing_columns(self, new_col_names: list[str], if_exists: IfExistsParam) -> list[str]:
         """ Check and handle existing columns in the new column specification based on the if_exists parameter.
 
         If `if_exists='ignore'`, returns a list of existing columns, if any, in `new_col_names`.
@@ -533,7 +533,7 @@ class Table(SchemaObject):
             for col_name, spec in schema.items()
         }
         # handle existing columns based on if_exists parameter
-        cols_to_ignore = self._ignore_or_drop_existing_columns(col_schema.keys(), IfExistsParam.validated(if_exists, 'if_exists'))
+        cols_to_ignore = self._ignore_or_drop_existing_columns(list(col_schema.keys()), IfExistsParam.validated(if_exists, 'if_exists'))
         # if all columns to be added already exist and user asked to ignore
         # existing columns, there's nothing to do.
         for cname in cols_to_ignore:
