@@ -10,6 +10,7 @@ import pandas as pd
 import PIL
 import pytest
 from jsonschema.exceptions import ValidationError
+import re
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
@@ -22,8 +23,8 @@ from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.media_store import MediaStore
 
 from .utils import (assert_resultset_eq, create_table_data, get_audio_files, get_documents, get_image_files,
-                    get_multimedia_commons_video_uris, get_video_files, make_tbl, read_data_file, reload_catalog,
-                    skip_test_if_not_installed, strip_lines, validate_update_status, ReloadTester)
+                    get_video_files, make_tbl, read_data_file, reload_catalog, skip_test_if_not_installed, strip_lines,
+                    validate_update_status, get_multimedia_commons_video_uris, ReloadTester)
 
 
 class TestTable:
@@ -67,28 +68,22 @@ class TestTable:
         tbl = pxt.create_table('test', schema)
         _ = pxt.create_table('dir1.test', schema)
 
-        with pytest.raises(excs.Error) as exc_info:
-            _ = pxt.create_table('1test', schema)
-        assert 'Invalid path format' in str(exc_info.value)
-        with pytest.raises(excs.Error) as exc_info:
-            _ = pxt.create_table('bad name', {'c1': pxt.String})
-        assert 'Invalid path format' in str(exc_info.value)
-        with pytest.raises(excs.Error) as exc_info:
-            _ = pxt.create_table('test', schema)
-        assert 'already exists' in str(exc_info.value)
-        with pytest.raises(excs.Error) as exc_info:
-            _ = pxt.create_table('dir2.test2', schema)
-        assert 'No such path' in str(exc_info.value)
+        with pytest.raises(excs.Error, match=r'Invalid path format'):
+            pxt.create_table('1test', schema)
+        with pytest.raises(excs.Error, match=r'Invalid path format'):
+            pxt.create_table('bad name', {'c1': pxt.String})
+        with pytest.raises(excs.Error, match=r'already exists'):
+            pxt.create_table('test', schema)
+        with pytest.raises(excs.Error, match=r'No such path'):
+            pxt.create_table('dir2.test2', schema)
 
         _ = pxt.list_tables()
         _ = pxt.list_tables('dir1')
 
-        with pytest.raises(excs.Error) as exc_info:
-            _ = pxt.list_tables('1dir')
-        assert 'Invalid path format' in str(exc_info.value)
-        with pytest.raises(excs.Error) as exc_info:
-            _ = pxt.list_tables('dir2')
-        assert 'No such path' in str(exc_info.value)
+        with pytest.raises(excs.Error, match=r'Invalid path format'):
+            pxt.list_tables('1dir')
+        with pytest.raises(excs.Error, match=r'No such path'):
+            pxt.list_tables('dir2')
 
         # test loading with new client
         _ = reload_tester.run_query(tbl.select())
@@ -105,27 +100,21 @@ class TestTable:
         pxt.drop_table('test2')
         pxt.drop_table('dir1.test')
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(excs.Error, match=r'Table `test` does not exist'):
             pxt.drop_table('test')
-        assert 'table `test` does not exist' in str(exc_info.value).lower()
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(excs.Error, match=r'Table `dir1.test2` does not exist'):
             pxt.drop_table('dir1.test2')
-        assert 'table `dir1.test2` does not exist' in str(exc_info.value).lower()
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(excs.Error, match=r'Invalid path format'):
             pxt.drop_table('.test2')
-        assert 'invalid path format' in str(exc_info.value).lower()
 
-        with pytest.raises(excs.Error) as exc_info:
-            _ = pxt.create_table('bad_col_name', {'pos': pxt.Int})
-        assert "'pos' is a reserved name in pixeltable" in str(exc_info.value).lower()
+        with pytest.raises(excs.Error, match=r"'pos' is a reserved name in Pixeltable"):
+            pxt.create_table('bad_col_name', {'pos': pxt.Int})
 
-        with pytest.raises(excs.Error) as exc_info:
-            _ = pxt.create_table('test', {'add_column': pxt.Int})
-        assert "'add_column' is a reserved name in pixeltable" in str(exc_info.value).lower()
+        with pytest.raises(excs.Error, match=r"'add_column' is a reserved name in Pixeltable"):
+            pxt.create_table('test', {'add_column': pxt.Int})
 
-        with pytest.raises(excs.Error) as exc_info:
-            _ = pxt.create_table('test', {'insert': pxt.Int})
-        assert "'insert' is a reserved name in pixeltable" in str(exc_info.value).lower()
+        with pytest.raises(excs.Error, match=r"'insert' is a reserved name in Pixeltable"):
+            pxt.create_table('test', {'insert': pxt.Int})
 
     def test_create_if_exists(self, reset_db: None, reload_tester: ReloadTester) -> None:
         """ Test the if_exists parameter of create_table API """
@@ -143,10 +132,12 @@ class TestTable:
 
         # invalid if_exists value is rejected
         with pytest.raises(excs.Error) as exc_info:
-            _ = pxt.create_table('test', schema, if_exists='invalid')
-        assert "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']" in str(exc_info.value)
+            pxt.create_table('test', schema, if_exists='invalid')
+        assert  "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']" in str(exc_info.value).lower()
 
         # scenario 1: a table exists at the path already
+        with pytest.raises(excs.Error, match=r'already exists'):
+            pxt.create_table('test', schema)
         with pytest.raises(excs.Error) as exc_info:
             _ = pxt.create_table('test', schema)
         assert 'already exists' in str(exc_info.value)
@@ -178,9 +169,8 @@ class TestTable:
         assert len(view.select().collect()) == 3
 
         # scenario 2: a table exists at the path, but has dependency
-        with pytest.raises(excs.Error) as exc_info:
-            _ = pxt.create_table('test', schema)
-        assert 'already exists' in str(exc_info.value)
+        with pytest.raises(excs.Error, match=r'already exists'):
+            pxt.create_table('test', schema)
         assert len(tbl.select().collect()) == 3
         # if_exists='ignore' should return the existing table
         tbl2 = pxt.create_table('test', schema, if_exists='ignore')
@@ -190,10 +180,9 @@ class TestTable:
         # if_exists='replace' cannot drop a table with a dependent view.
         # it should raise an error and recommend using 'replace_force'
         with pytest.raises(excs.Error) as exc_info:
-            _ = pxt.create_table('test', schema, if_exists='replace')
-        assert ('already exists' in str(exc_info.value)
-            and 'has dependents' in str(exc_info.value)
-            and 'replace_force' in str(exc_info.value))
+            pxt.create_table('test', schema, if_exists='replace')
+        err_msg = str(exc_info.value).lower()
+        assert 'already exists' in err_msg and 'has dependents' in err_msg and 'replace_force' in err_msg
         # if_exists='replace_force' should drop the existing table
         # and its dependent view.
         tbl = pxt.create_table('test', schema, if_exists='replace_force')
@@ -213,9 +202,9 @@ class TestTable:
         assert len(tbl.select().collect()) == 1
         for _ie in ['ignore', 'replace', 'replace_force']:
             with pytest.raises(excs.Error) as exc_info:
-                _ = pxt.create_table('dir1', schema, if_exists=_ie)
-            assert ('already exists' in str(exc_info.value)
-                and 'is not a Table' in str(exc_info.value))
+                pxt.create_table('dir1', schema, if_exists=_ie)
+            err_msg = str(exc_info.value).lower()
+            assert 'already exists' in err_msg and 'is not a table' in err_msg
             assert len(tbl.select().collect()) == 1, f"with if_exists={_ie}"
             assert 'dir1' in pxt.list_dirs(), f"with if_exists={_ie}"
 
@@ -578,10 +567,10 @@ class TestTable:
         assert "if_not_exists must be one of: ['error', 'ignore']" in str(exc_info.value).lower()
 
         # if_not_exists='error' should raise an error if the table exists
-        with pytest.raises(excs.Error, match=r"does not exist"):
+        with pytest.raises(excs.Error, match=r'does not exist'):
             pxt.drop_table(non_existing_t, if_not_exists='error')
         # default behavior is to raise an error if the table does not exist
-        with pytest.raises(excs.Error, match=r"does not exist"):
+        with pytest.raises(excs.Error, match=r'does not exist'):
             pxt.drop_table(non_existing_t)
         # if_not_exists='ignore' should not raise an error
         pxt.drop_table(non_existing_t, if_not_exists='ignore')
@@ -1751,6 +1740,97 @@ class TestTable:
         _ = reload_tester.run_query(t1.where(~t1.bool_computed).select())
 
         _ = reload_tester.run_reload_test()
+
+    def test_add_column_if_exists(self, test_tbl: catalog.Table, reload_tester: ReloadTester) -> None:
+        """ Test the if_exists parameter of add_column. """
+        t = test_tbl
+        orig_cnames = t.columns
+        orig_res = t.select(t.c1).order_by(t.c1).collect()
+
+        # invalid if_exists is rejected
+        expected_err_str = "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']"
+        with pytest.raises(excs.Error, match=re.escape(expected_err_str)):
+            t.add_column(non_existing_col1=pxt.Int, if_exists='invalid')
+        with pytest.raises(excs.Error, match=re.escape(expected_err_str)):
+            t.add_computed_column(non_existing_col1=t.c2 + t.c3, if_exists='invalid')
+        with pytest.raises(excs.Error, match=re.escape(expected_err_str)):
+            t.add_columns({'non_existing_col1': pxt.Int, 'non_existing_col2': pxt.String}, if_exists='invalid')
+        assert orig_cnames == t.columns
+
+        # if_exists='error' raises an error if the column already exists
+        # by default, if_exists='error'
+        with pytest.raises(excs.Error, match=r"Duplicate column name: 'c1'"):
+            t.add_column(c1=pxt.Int)
+        with pytest.raises(excs.Error, match=r"Duplicate column name: 'c1'"):
+            t.add_computed_column(c1=t.c2 + t.c3)
+        with pytest.raises(excs.Error, match=r"Duplicate column name: 'c1'"):
+            t.add_columns({'c1': pxt.Int, 'non_existing_col1': pxt.String})
+        with pytest.raises(excs.Error, match=r"Duplicate column name: 'c1'"):
+            t.add_column(c1=pxt.Int, if_exists='error')
+        with pytest.raises(excs.Error, match=r"Duplicate column name: 'c1'"):
+            t.add_computed_column(c1=t.c2 + t.c3, if_exists='error')
+        with pytest.raises(excs.Error, match=r"Duplicate column name: 'c1'"):
+            t.add_columns({'c1': pxt.Int, 'non_existing_col1': pxt.String}, if_exists='error')
+        assert orig_cnames == t.columns
+        assert_resultset_eq(t.select(t.c1).order_by(t.c1).collect(), orig_res, True)
+
+        # if_exists='ignore' does nothing if the column already exists
+        t.add_column(c1=pxt.Int, if_exists='ignore')
+        assert orig_cnames == t.columns
+        assert_resultset_eq(t.select(t.c1).order_by(t.c1).collect(), orig_res, True)
+
+        t.add_computed_column(c1=t.c2+1, if_exists='ignore')
+        assert orig_cnames == t.columns
+        assert_resultset_eq(t.select(t.c1).order_by(t.c1).collect(), orig_res, True)
+
+        t.add_columns({'c1': pxt.Int, 'non_existing_col1': pxt.String}, if_exists='ignore')
+        assert 'c1' in t.columns
+        assert_resultset_eq(t.select(t.c1).order_by(t.c1).collect(), orig_res, True)
+        assert 'non_existing_col1' in t.columns
+
+        # if_exists='replace' replaces the column if it has no dependents
+        t.add_columns({'c1': pxt.Int, 'non_existing_col2': pxt.String}, if_exists='replace')
+        assert 'c1' in t.columns
+        assert t.select(t.c1).collect()[0] == {'c1': None}
+        assert 'non_existing_col2' in t.columns
+        before_cnames = t.columns
+
+        t.add_column(c1=10, if_exists='replace')
+        assert set(t.columns) == set(before_cnames)
+        assert 'c1' in t.columns
+        assert t.select(t.c1).collect()[0] != orig_res[0]
+        assert t.select(t.c1).collect()[0] == {'c1': 10}
+
+        # revert restores the state back wrt the underlying persistence.
+        # so it will revert the add_column operation and drop the column
+        # and not restore the original column it replaced.
+        t.revert()
+        assert 'c1' not in t.columns
+
+        t.add_column(c1=10)
+        assert set(t.columns) == set(before_cnames)
+        assert 'c1' in t.columns
+        assert t.select(t.c1).collect()[0] == {'c1': 10}
+
+        t.add_computed_column(c1=t.c2 + t.c3, if_exists='replace')
+        assert set(t.columns) == set(before_cnames)
+        assert 'c1' in t.columns
+        assert t.select(t.c1).collect()[0] != {'c1': 10}
+        assert t.select().order_by(t.c1).collect()[0]['c1'] == t.select().order_by(t.c1).collect()[0]['c2'] + t.select().order_by(t.c1).collect()[0]['c3']
+
+        # replace will raise an error if the column has dependents
+        t.add_computed_column(non_existing_col3=t.c1+10)
+        with pytest.raises(excs.Error) as exc_info:
+            t.add_column(c1=pxt.Int, if_exists='replace')
+        error_msg = str(exc_info.value).lower()
+        assert 'already exists' in error_msg and 'has dependents' in error_msg
+        assert 'c1' in t.columns
+        assert t.select(t.c1).collect()[0] != {'c1': 10}
+        assert t.select().order_by(t.c1).collect()[0]['c1'] == t.select().order_by(t.c1).collect()[0]['c2'] + t.select().order_by(t.c1).collect()[0]['c3']
+
+        _ = reload_tester.run_query(t.select(t.c1))
+
+        reload_tester.run_reload_test()
 
     def test_add_column_setitem(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
