@@ -16,16 +16,21 @@ def create_messages(input_query: str) -> List[Dict[str, str]]:
     }]
 
 @pxt.udf
-def create_summary_messages(tool_results: Dict) -> List[Dict[str, str]]:
+def create_summary_messages(input_query: str, results: Dict) -> List[Dict[str, str]]:
     return [{
         'role': 'system',
-        'content': get_summary_prompt(tool_results)
+        'content': get_summary_prompt(results)
+    }, {
+        'role': 'user',
+        'content': input_query
     }]
 
 def create_research_table():
     """Create and configure research table with computed columns."""
+    # Initialize embedding index
     setup_embedding_index()
 
+    # Create base table
     research_table = pxt.create_table(
         'research.queries',
         {
@@ -33,14 +38,19 @@ def create_research_table():
         }
     )
 
+    # Set up tools
     tools = pxt.tools(
         get_stock_data,
         search_news,
         search_documents
     )
 
-    # Add computed columns
-    research_table.add_computed_column(messages=create_messages(research_table.input))
+    # Initial query analysis
+    research_table.add_computed_column(
+        messages=create_messages(research_table.input)
+    )
+
+    # Get LLM response with tools
     research_table.add_computed_column(
         response=openai.chat_completions(
             model='gpt-4o-mini',
@@ -49,9 +59,26 @@ def create_research_table():
             max_tokens=1000
         )
     )
-    research_table.add_computed_column(tool_results=openai.invoke_tools(tools, research_table.response))
-    research_table.add_computed_column(final_answer=research_table.response.choices[0].message.content)
-    research_table.add_computed_column(summary_messages=create_summary_messages(research_table.tool_results))
+
+    # Execute tools based on LLM response
+    research_table.add_computed_column(
+        tool_results=openai.invoke_tools(tools, research_table.response)
+    )
+
+    # Extract initial answer
+    research_table.add_computed_column(
+        initial_answer=research_table.response.choices[0].message.content
+    )
+
+    # Create messages for summary
+    research_table.add_computed_column(
+        summary_messages=create_summary_messages(
+            research_table.input,  # Pass input query
+            research_table.tool_results  # Pass tool results
+        )
+    )
+
+    # Generate final summary
     research_table.add_computed_column(
         final_summary=openai.chat_completions(
             messages=research_table.summary_messages,

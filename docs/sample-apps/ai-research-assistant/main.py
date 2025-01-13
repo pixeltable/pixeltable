@@ -21,11 +21,16 @@ def process_query(query: str) -> None:
         research_table = create_research_table()
 
     research_table.insert([{'input': query}])
+
+    # Get results - using initial_answer instead of final_answer
     result = research_table.select(
-        research_table.final_answer,
+        research_table.initial_answer,  # Changed from final_answer
         research_table.final_summary
     ).tail(1)
 
+    # Display results
+    logger.info("\nAnalysis:")
+    logger.info(result['initial_answer'][0])  # Changed from final_answer
     logger.info("\nSummary:")
     logger.info(result['final_summary'][0])
 
