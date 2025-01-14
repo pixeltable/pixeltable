@@ -4,7 +4,7 @@ import pytest
 
 import pixeltable as pxt
 
-from ..utils import skip_test_if_no_client, skip_test_if_not_installed, stock_price, validate_update_status, weather
+from ..utils import skip_test_if_no_client, skip_test_if_not_installed, stock_price, validate_update_status
 
 
 @pytest.mark.remote_api
@@ -39,6 +39,22 @@ class TestAnthropic:
         skip_test_if_not_installed('anthropic')
         skip_test_if_no_client('anthropic')
         from pixeltable.functions.anthropic import invoke_tools, messages
+
+        # stock_price is a module UDF and weather is a local UDF, so we test both
+        @pxt.udf(_force_stored=True)
+        def weather(city: str) -> Optional[str]:
+            """
+            Get today's weather forecast for a given city.
+
+            Args:
+                city - The name of the city to look up.
+            """
+            if city == 'San Francisco':
+                return 'Cloudy with a chance of meatballs'
+            elif city == 'None':
+                return None
+            else:
+                return 'Unknown city'
 
         tools = pxt.tools(stock_price, weather)
         tool_choice_opts: list[Optional[pxt.func.ToolChoice]] = [

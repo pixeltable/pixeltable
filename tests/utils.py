@@ -560,22 +560,6 @@ def stock_price(ticker: str) -> float:
         return 0.0
 
 
-@pxt.udf
-def weather(city: str) -> Optional[str]:
-    """
-    Get today's weather forecast for a given city.
-
-    Args:
-        city - The name of the city to look up.
-    """
-    if city == 'San Francisco':
-        return 'Cloudy with a chance of meatballs'
-    elif city == 'None':
-        return None
-    else:
-        return 'Unknown city'
-
-
 SAMPLE_IMAGE_URL = (
     'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000009.jpg'
 )
