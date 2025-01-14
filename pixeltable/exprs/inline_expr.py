@@ -5,8 +5,6 @@ from typing import Any, Iterable, Optional
 
 import numpy as np
 import sqlalchemy as sql
-from overrides import overrides
-from sympy.integrals.heurisch import components
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
@@ -85,7 +83,6 @@ class InlineArray(Expr):
             # loaded and their types are known.
             return InlineList(components)  # type: ignore[return-value]
 
-    @overrides
     def get_constant(self):
         for comp in self.components:
             if not isinstance(comp, Literal):
@@ -132,7 +129,6 @@ class InlineList(Expr):
     def _from_dict(cls, _: dict, components: list[Expr]) -> InlineList:
         return cls(components)
 
-    @overrides
     def get_constant(self):
         for comp in self.components:
             if not isinstance(comp, Literal):
@@ -219,7 +215,6 @@ class InlineDict(Expr):
         arg = dict(zip(d['keys'], components))
         return InlineDict(arg)
 
-    @overrides
     def get_constant(self):
         for comp in self.components:
             if not isinstance(comp, Literal):
