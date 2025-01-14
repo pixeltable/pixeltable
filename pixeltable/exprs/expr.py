@@ -342,7 +342,21 @@ class Expr(abc.ABC):
         return result
 
     def get_constant(self):
+        """
+         If expression is constant return the associated value which will be converted to a Literal
+        """
         return None
+
+    @classmethod
+    def from_array(cls, elements:Iterable)-> Optional[Expr]:
+        from .inline_expr import InlineArray
+        inline_array = InlineArray(elements)
+        constant_array = inline_array.get_constant()
+        if constant_array is not None:
+            from .literal import Literal
+            return Literal(constant_array, inline_array.col_type)
+        else:
+            return inline_array
 
     @classmethod
     def from_object(cls, o: object) -> Optional[Expr]:

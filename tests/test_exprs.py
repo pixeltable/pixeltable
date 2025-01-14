@@ -465,6 +465,14 @@ class TestExprs:
         assert isinstance(exprs[3], Literal)
         assert not isinstance(exprs[4], Literal)
 
+        result = t.select(pxt.array([[1, 2, 3], [4, 5, 6]]))
+        print(result.show())
+        exprs = [expr[0] for expr in result.select_list]
+        assert isinstance(exprs[0], Literal)
+        col_type = next(iter(result.schema.values()))
+        assert col_type.is_array_type()
+        assert isinstance(col_type, pxt.ArrayType)
+
     def test_inline_array(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         result = t.select(pxt.array([[t.c2, 1], [t.c2, 2]])).show()

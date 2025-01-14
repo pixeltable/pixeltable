@@ -29,7 +29,7 @@ class InlineArray(Expr):
             if isinstance(el, Expr):
                 exprs.append(el)
             elif isinstance(el, list) or isinstance(el, tuple):
-                exprs.append(InlineArray(el))
+                exprs.append(Expr.from_array(el))
             else:
                 exprs.append(Literal(el))
 
@@ -87,7 +87,11 @@ class InlineArray(Expr):
 
     @overrides
     def get_constant(self):
-        return None
+        for comp in self.components:
+            if not isinstance(comp, Literal):
+                return None
+        return np.array([c.get_constant() for c in self.components])
+
 
 class InlineList(Expr):
     """

@@ -4,7 +4,7 @@ import datetime
 from typing import Any, Optional
 
 import sqlalchemy as sql
-from overrides import overrides
+from numpy import ndarray
 
 import pixeltable.type_system as ts
 from pixeltable.env import Env
@@ -80,10 +80,12 @@ class Literal(Expr):
             # stored as UTC in the database)
             encoded_val = self.val.isoformat()
             return {'val': encoded_val, 'val_t': self.col_type._type.name, **super()._as_dict()}
+        elif self.col_type.is_array_type():
+            assert isinstance(self.val, ndarray)
+            return {'val': self.val.tolist(), **super()._as_dict()}
         else:
             return {'val': self.val, **super()._as_dict()}
 
-    @overrides
     def get_constant(self):
         return self.val
 
