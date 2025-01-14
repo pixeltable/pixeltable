@@ -4,7 +4,7 @@ import datetime
 from typing import Any, Optional
 
 import sqlalchemy as sql
-from numpy import ndarray
+import numpy as np
 
 import pixeltable.type_system as ts
 from pixeltable.env import Env
@@ -81,8 +81,8 @@ class Literal(Expr):
             encoded_val = self.val.isoformat()
             return {'val': encoded_val, 'val_t': self.col_type._type.name, **super()._as_dict()}
         elif self.col_type.is_array_type():
-            assert isinstance(self.val, ndarray)
-            return {'val': self.val.tolist(), **super()._as_dict()}
+            assert isinstance(self.val, np.ndarray)
+            return {'val': self.val.tolist(), 'val_t': self.col_type._type.name, **super()._as_dict()}
         else:
             return {'val': self.val, **super()._as_dict()}
 
@@ -94,10 +94,12 @@ class Literal(Expr):
         assert 'val' in d
         if 'val_t' in d:
             val_t = d['val_t']
-            # Currently the only special-cased literal type is TIMESTAMP
-            assert val_t == ts.ColumnType.Type.TIMESTAMP.name
-            dt = datetime.datetime.fromisoformat(d['val'])
-            assert dt.tzinfo == datetime.timezone.utc  # Must be UTC in the database
-            return cls(dt)
+            if val_t == ts.ColumnType.Type.TIMESTAMP.name:
+                dt = datetime.datetime.fromisoformat(d['val'])
+                assert dt.tzinfo == datetime.timezone.utc  # Must be UTC in the database
+                return cls(dt)
+            elif val_t == ts.ColumnType.Type.ARRAY.name:
+                arrays = np.array(d['val'])
+                return cls(arrays)
         else:
             return cls(d['val'])

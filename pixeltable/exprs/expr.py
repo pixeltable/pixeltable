@@ -355,6 +355,7 @@ class Expr(abc.ABC):
         if constant_array is not None:
             from .literal import Literal
             return Literal(constant_array, inline_array.col_type)
+            #return inline_array
         else:
             return inline_array
 

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import copy
 from typing import Any, Iterable, Optional
 
 import numpy as np
