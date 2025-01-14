@@ -552,10 +552,28 @@ def stock_price(ticker: str) -> float:
     """
     if ticker == 'NVDA':
         return 131.17
+    elif ticker == 'None':
+        return None
     else:
         # Return 0.0 instead of None, to distinguish between these two cases: the tool not being called, and the tool
         # being called on a symbol other than NVDA
         return 0.0
+
+
+@pxt.udf
+def weather(city: str) -> Optional[str]:
+    """
+    Get today's weather forecast for a given city.
+
+    Args:
+        city - The name of the city to look up.
+    """
+    if city == 'San Francisco':
+        return 'Cloudy with a chance of meatballs'
+    elif city == 'None':
+        return None
+    else:
+        return 'Unknown city'
 
 
 SAMPLE_IMAGE_URL = (

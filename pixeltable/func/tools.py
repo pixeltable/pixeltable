@@ -103,7 +103,7 @@ class Tools(pydantic.BaseModel):
         auto: bool = False,
         required: bool = False,
         tool: Union[str, Function, None] = None,
-        parallel_tool_calls: bool = False,
+        parallel_tool_calls: bool = True,
     ) -> ToolChoice:
         if sum([auto, required, tool is not None]) != 1:
             raise excs.Error('Exactly one of `auto`, `required`, or `tool` must be specified.')
