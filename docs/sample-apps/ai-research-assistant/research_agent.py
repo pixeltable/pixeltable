@@ -1,7 +1,7 @@
 from typing import Dict, List
 import pixeltable as pxt
 from pixeltable.functions import openai
-from tools import get_stock_data, search_news, search_documents
+from tools import web_search_and_ingest, get_stock_data, search_news, search_documents
 from embeddings import setup_embedding_index
 from prompts import get_research_prompt, get_summary_prompt
 
@@ -40,6 +40,7 @@ def create_research_table():
 
     # Set up tools
     tools = pxt.tools(
+        web_search_and_ingest,
         get_stock_data,
         search_news,
         search_documents
