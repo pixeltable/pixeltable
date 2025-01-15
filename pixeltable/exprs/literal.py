@@ -50,6 +50,9 @@ class Literal(Expr):
             assert isinstance(self.val, datetime.datetime)
             default_tz = Env.get().default_time_zone
             return f"'{self.val.astimezone(default_tz).isoformat()}'"
+        if self.col_type.is_array_type():
+            assert isinstance(self.val, np.ndarray)
+            return str(self.val.tolist())
         return str(self.val)
 
     def __repr__(self) -> str:
