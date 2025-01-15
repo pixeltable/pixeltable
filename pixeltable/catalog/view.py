@@ -16,7 +16,7 @@ from pixeltable.iterators import ComponentIterator
 
 from .catalog import Catalog
 from .column import Column
-from .globals import _POS_COLUMN_NAME, UpdateStatus, MediaValidation
+from .globals import _POS_COLUMN_NAME, MediaValidation, UpdateStatus
 from .table import Table
 from .table_version import TableVersion
 from .table_version_path import TableVersionPath
@@ -166,11 +166,11 @@ class View(Table):
             return view
 
     @classmethod
-    def _verify_column(cls, col: Column, existing_column_names: set[str]) -> None:
+    def _verify_column(cls, col: Column) -> None:
         # make sure that columns are nullable or have a default
         if not col.col_type.nullable and not col.is_computed:
             raise excs.Error(f'Column {col.name}: non-computed columns in views must be nullable')
-        super()._verify_column(col, existing_column_names)
+        super()._verify_column(col)
 
     @classmethod
     def _get_snapshot_path(cls, tbl_version_path: TableVersionPath) -> TableVersionPath:
