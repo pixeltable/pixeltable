@@ -51,6 +51,31 @@ class MediaValidation(enum.Enum):
             val_strs = ', '.join(f'{s.lower()!r}' for s in cls.__members__.keys())
             raise excs.Error(f'{error_prefix} must be one of: [{val_strs}]')
 
+class IfExistsParam(enum.Enum):
+    ERROR = 0
+    IGNORE = 1
+    REPLACE = 2
+    REPLACE_FORCE = 3
+
+    @classmethod
+    def validated(cls, param_val: str, param_name: str) -> IfExistsParam:
+        try:
+            return cls[param_val.upper()]
+        except KeyError:
+            val_strs = ', '.join(f'{s.lower()!r}' for s in cls.__members__.keys())
+            raise excs.Error(f'{param_name} must be one of: [{val_strs}]')
+
+class IfNotExistsParam(enum.Enum):
+    ERROR = 0
+    IGNORE = 1
+
+    @classmethod
+    def validated(cls, param_val: str, param_name: str) -> IfNotExistsParam:
+        try:
+            return cls[param_val.upper()]
+        except KeyError:
+            val_strs = ', '.join(f'{s.lower()!r}' for s in cls.__members__.keys())
+            raise excs.Error(f'{param_name} must be one of: [{val_strs}]')
 
 def is_valid_identifier(name: str) -> bool:
     return name.isidentifier() and not name.startswith('_')

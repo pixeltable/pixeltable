@@ -6,13 +6,15 @@ on:
   workflow_dispatch:
 
 env:
+  CMAKE_ARGS: '-DLLAVA_BUILD=OFF -DGGML_METAL=OFF'
   # in a PR, the secrets will be empty
   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
   FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}
+  GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
   MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+  REPLICATE_API_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
   TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
-  OPENCV_VIDEOIO_DEBUG: 1
 
 jobs:
   tests:
@@ -26,8 +28,9 @@ jobs:
         python-version: ["3.9", "3.12"]
         package-configs:
           - ""
-          - "torch torchvision torchaudio transformers sentence-transformers sentencepiece soundfile pyarrow"
-          - "openai together fireworks-ai anthropic mistralai"
+          - "pyarrow sentence-transformers sentencepiece soundfile torch torchaudio torchvision transformers"
+          - "anthropic fireworks-ai google-generativeai mistralai openai replicate together"
+          - "huggingface-hub llama-cpp-python"
           - "datasets boto3 openpyxl tiktoken pymupdf mistune 'spacy<3.8'"  # spacy 3.8 is problematic on python 3.12
           - "label_studio_sdk"
         include:
@@ -65,14 +68,6 @@ jobs:
           sudo rm -rf "$AGENT_TOOLSDIRECTORY"
           sudo rm -rf /opt/hostedtoolcache
           df -h
-      - name: Create user runtime dir
-        if: ${{ matrix.os == 'ubuntu-arm64' || matrix.os == 'ubuntu-x64-t4' }}
-        # pgserver needs this dir, and it doesn't seem to exist on ubuntu-arm64 or t4 instances for some reason.
-        # It seems that on some instances it's /run/user/1000 and on others, /run/user/1001. To be safe, we
-        # ensure that both exist and have proper permissions.
-        run: |
-          sudo mkdir -p /run/user/1000 /run/user/1001
-          sudo chmod a+rwx /run/user/1000 /run/user/1001
       - name: Install conda
         uses: conda-incubator/setup-miniconda@v3
         with:

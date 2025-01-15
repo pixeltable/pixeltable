@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import inspect
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Sequence
 from uuid import UUID
 import asyncio
 
 import cloudpickle  # type: ignore[import-untyped]
+
+import pixeltable.exceptions as excs
 
 from .function import Function
 from .signature import Signature
@@ -24,22 +26,27 @@ class CallableFunction(Function):
 
     def __init__(
         self,
-        signature: Signature,
-        py_fn: Callable,
+        signatures: list[Signature],
+        py_fns: list[Callable],
         self_path: Optional[str] = None,
         self_name: Optional[str] = None,
         batch_size: Optional[int] = None,
         is_method: bool = False,
         is_property: bool = False
     ):
-        assert py_fn is not None
-        self.py_fn = py_fn
+        assert len(signatures) > 0
+        assert len(signatures) == len(py_fns)
+        if self_path is None and len(signatures) > 1:
+            raise excs.Error('Multiple signatures are only allowed for module UDFs (not locally defined UDFs)')
+        self.py_fns = py_fns
         self.self_name = self_name
         self.batch_size = batch_size
-        if inspect.iscoroutinefunction(py_fn):
-            pass
-        self.__doc__ = py_fn.__doc__
-        super().__init__(signature, self_path=self_path, is_method=is_method, is_property=is_property)
+        self.__doc__ = self.py_fns[0].__doc__
+        super().__init__(signatures, self_path=self_path, is_method=is_method, is_property=is_property)
+
+    def _update_as_overload_resolution(self, signature_idx: int) -> None:
+        assert len(self.py_fns) > signature_idx
+        self.py_fns = [self.py_fns[signature_idx]]
 
     @property
     def is_batched(self) -> bool:
@@ -63,7 +70,16 @@ class CallableFunction(Function):
         else:
             return await self.py_fn(*args, **kwargs)
 
-    def exec(self, *args: Any, **kwargs: Any) -> Any:
+    def _docstring(self) -> Optional[str]:
+        return inspect.getdoc(self.py_fns[0])
+
+    @property
+    def py_fn(self) -> Callable:
+        assert not self.is_polymorphic
+        return self.py_fns[0]
+
+    def exec(self, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:
+        assert not self.is_polymorphic
         if self.is_batched:
             # Pack the batched parameters into singleton lists
             constant_param_names = [p.name for p in self.signature.constant_parameters]
@@ -97,13 +113,14 @@ class CallableFunction(Function):
         batched_kwargs = {k: v for k, v in kwargs.items() if k not in constant_param_names}
         return await self.py_fn(*args, **constant_kwargs, **batched_kwargs)
 
-    def exec_batch(self, *args: Any, **kwargs: Any) -> list:
+    def exec_batch(self, args: list[Any], kwargs: dict[str, Any]) -> list:
         """Execute the function with the given arguments and return the result.
         The arguments are expected to be batched: if the corresponding parameter has type T,
         then the argument should have type T if it's a constant parameter, or list[T] if it's
         a batched parameter.
         """
         assert self.is_batched
+        assert not self.is_polymorphic
         # Unpack the constant parameters
         constant_param_names = [p.name for p in self.signature.constant_parameters]
         constant_kwargs = {k: v[0] for k, v in kwargs.items() if k in constant_param_names}
@@ -125,10 +142,21 @@ class CallableFunction(Function):
     def name(self) -> str:
         return self.self_name
 
-    def help_str(self) -> str:
-        res = super().help_str()
-        res += '\n\n' + inspect.getdoc(self.py_fn)
-        return res
+    def overload(self, fn: Callable) -> CallableFunction:
+        if self.self_path is None:
+            raise excs.Error('`overload` can only be used with module UDFs (not locally defined UDFs)')
+        if self.is_batched:
+            raise excs.Error('`overload` cannot be used with batched functions')
+        if self.is_method or self.is_property:
+            raise excs.Error('`overload` cannot be used with `is_method` or `is_property`')
+        if self._has_resolved_fns:
+            raise excs.Error('New `overload` not allowed after the UDF has already been called')
+        if self._conditional_return_type is not None:
+            raise excs.Error('New `overload` not allowed after a conditional return type has been specified')
+        sig = Signature.create(fn)
+        self.signatures.append(sig)
+        self.py_fns.append(fn)
+        return self
 
     def _as_dict(self) -> dict:
         if self.self_path is None:
@@ -147,6 +175,7 @@ class CallableFunction(Function):
         return super()._from_dict(d)
 
     def to_store(self) -> tuple[dict, bytes]:
+        assert not self.is_polymorphic  # multi-signature UDFs not allowed for stored fns
         md = {
             'signature': self.signature.as_dict(),
             'batch_size': self.batch_size,
@@ -159,12 +188,15 @@ class CallableFunction(Function):
         assert callable(py_fn)
         sig = Signature.from_dict(md['signature'])
         batch_size = md['batch_size']
-        return CallableFunction(sig, py_fn, self_name=name, batch_size=batch_size)
+        return CallableFunction([sig], [py_fn], self_name=name, batch_size=batch_size)
 
     def validate_call(self, bound_args: dict[str, Any]) -> None:
-        import pixeltable.exprs as exprs
+        from pixeltable import exprs
+
+        assert not self.is_polymorphic
         if self.is_batched:
-            for param in self.signature.constant_parameters:
+            signature = self.signatures[0]
+            for param in signature.constant_parameters:
                 if param.name in bound_args and isinstance(bound_args[param.name], exprs.Expr):
                     raise ValueError(
                         f'{self.display_name}(): '

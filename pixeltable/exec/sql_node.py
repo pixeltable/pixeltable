@@ -262,7 +262,7 @@ class SqlNode(ExecNode):
             explain_str = '\n'.join([str(row) for row in explain_result])
             _logger.debug(f'SqlScanNode explain:\n{explain_str}')
         except Exception as e:
-            _logger.warning(f'EXPLAIN failed')
+            _logger.warning(f'EXPLAIN failed with error: {e}')
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
         # run the query; do this here rather than in _open(), exceptions are only expected during iteration

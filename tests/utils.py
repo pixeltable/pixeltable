@@ -524,11 +524,11 @@ def make_test_arrow_table(output_path: Path) -> str:
     return str(output_path / 'test.parquet')
 
 
-def assert_img_eq(img1: PIL.Image.Image, img2: PIL.Image.Image) -> None:
-    assert img1.mode == img2.mode
-    assert img1.size == img2.size
+def assert_img_eq(img1: PIL.Image.Image, img2: PIL.Image.Image, context: str) -> None:
+    assert img1.mode == img2.mode, context
+    assert img1.size == img2.size, context
     diff = PIL.ImageChops.difference(img1, img2)
-    assert diff.getbbox() is None
+    assert diff.getbbox() is None, context
 
 
 def reload_catalog() -> None:
@@ -539,6 +539,21 @@ def reload_catalog() -> None:
 clip_img_embed = clip_image.using(model_id='openai/clip-vit-base-patch32')
 clip_text_embed = clip_text.using(model_id='openai/clip-vit-base-patch32')
 e5_embed = sentence_transformer.using(model_id='intfloat/e5-large-v2')
+
+
+# Mock UDF for testing LLM tool invocations
+@pxt.udf
+def stock_price(ticker: str) -> Optional[float]:
+    """
+    Get today's stock price for a given ticker symbol.
+
+    Args:
+        ticker - The ticker symbol of the stock to look up.
+    """
+    if ticker == 'NVDA':
+        return 131.17
+    else:
+        return None
 
 
 SAMPLE_IMAGE_URL = (

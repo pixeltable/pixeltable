@@ -147,6 +147,7 @@ class TestHuggingface:
         assert status.num_excs == 0
         verify_row(t.tail(1)[0])
 
+    @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Not supported on Linux ARM')
     def test_detr_for_object_detection(self, reset_db) -> None:
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import detr_for_object_detection
@@ -166,6 +167,7 @@ class TestHuggingface:
         assert 'bowl' in label_text
         assert 'broccoli' in label_text
 
+    @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Not supported on Linux ARM')
     def test_vit_for_image_classification(self, reset_db) -> None:
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import vit_for_image_classification

@@ -55,33 +55,33 @@ class TestExprs:
         return a + b
 
     # error in agg.init()
-    @pxt.uda(update_types=[pxt.IntType()], value_type=pxt.IntType())
+    @pxt.uda
     class init_exc(pxt.Aggregator):
-        def __init__(self):
+        def __init__(self) -> None:
             self.sum = 1 / 0
-        def update(self, val):
+        def update(self, val: int):
             pass
-        def value(self):
+        def value(self) -> int:
             return 1
 
     # error in agg.update()
-    @pxt.uda(update_types=[pxt.IntType()], value_type=pxt.IntType())
+    @pxt.uda
     class update_exc(pxt.Aggregator):
-        def __init__(self):
+        def __init__(self) -> None:
             self.sum = 0
-        def update(self, val):
+        def update(self, val: int):
             self.sum += 1 / val
-        def value(self):
+        def value(self) -> int:
             return 1
 
     # error in agg.value()
-    @pxt.uda(update_types=[pxt.IntType()], value_type=pxt.IntType())
+    @pxt.uda
     class value_exc(pxt.Aggregator):
         def __init__(self):
             self.sum = 0
-        def update(self, val):
+        def update(self, val: int):
             self.sum += val
-        def value(self):
+        def value(self) -> int:
             return 1 / self.sum
 
     def test_basic(self, test_tbl: catalog.Table) -> None:
@@ -995,7 +995,7 @@ class TestExprs:
 
     # TODO: this doesn't work when combined with test_similarity(), for some reason the data table for img_tbl
     # doesn't get created; why?
-    def test_similarity2(self, img_tbl: catalog.Table) -> None:
+    def test_similarity2(self, img_tbl: catalog.Table, indexed_img_tbl: catalog.Table, multi_idx_img_tbl: catalog.Table) -> None:
         t = img_tbl
         probe = t[t.img].show(1)
         img = probe[0, 0]
@@ -1005,42 +1005,52 @@ class TestExprs:
         with pytest.raises(AttributeError):
             _ = t[t.img.nearest('musical instrument')].show(10)
 
+        t1 = indexed_img_tbl
+        # for a table with a single embedding index, whether we
+        # specify the index or not, the similarity expression
+        # would use that index. So these exressions should be equivalent.
+        sim1 = t1.img.similarity('red truck')
+        sim2 = t1.img.similarity('red truck', idx='img_idx0')
+        assert sim1.id == sim2.id
+        assert sim1.serialize() == sim2.serialize()
+
+        t2 = multi_idx_img_tbl
+        # for a table with multiple embedding indexes, the index
+        # to use must be specified to the similarity expression.
+        # So similarity expressions using different indexes should differ.
+        sim1 = t2.img.similarity('red truck', idx='img_idx1')
+        sim2 = t2.img.similarity('red truck', idx='img_idx2')
+        assert sim1.id != sim2.id
+        assert sim1.serialize() != sim2.serialize()
+
     def test_ids(
-            self, test_tbl: catalog.Table, test_tbl_exprs: list[exprs.Expr],
-            img_tbl: catalog.Table, img_tbl_exprs: list[exprs.Expr]
+        self, test_tbl_exprs: list[exprs.Expr], img_tbl_exprs: list[exprs.Expr],
+        multi_img_tbl_exprs: list[exprs.Expr]
     ) -> None:
         skip_test_if_not_installed('transformers')
         d: dict[int, exprs.Expr] = {}
-        for e in test_tbl_exprs:
+        for e in test_tbl_exprs + img_tbl_exprs + multi_img_tbl_exprs:
             assert e.id is not None
             d[e.id] = e
-        for e in img_tbl_exprs:
-            assert e.id is not None
-            d[e.id] = e
-        assert len(d) == len(test_tbl_exprs) + len(img_tbl_exprs)
+        assert len(d) == len(test_tbl_exprs) + len(img_tbl_exprs) + len(multi_img_tbl_exprs)
 
     def test_serialization(
-            self, test_tbl_exprs: list[exprs.Expr], img_tbl_exprs: list[exprs.Expr]
+        self, test_tbl_exprs: list[exprs.Expr], img_tbl_exprs: list[exprs.Expr],
+        multi_img_tbl_exprs: list[exprs.Expr]
     ) -> None:
         """Test as_dict()/from_dict() (via serialize()/deserialize()) for all exprs."""
         skip_test_if_not_installed('transformers')
-        for e in test_tbl_exprs:
+        for e in test_tbl_exprs + img_tbl_exprs + multi_img_tbl_exprs:
             e_serialized = e.serialize()
             e_deserialized = Expr.deserialize(e_serialized)
             assert e.equals(e_deserialized)
 
-        for e in img_tbl_exprs:
-            e_serialized = e.serialize()
-            e_deserialized = Expr.deserialize(e_serialized)
-            assert e.equals(e_deserialized)
-
-    def test_print(self, test_tbl_exprs: list[exprs.Expr], img_tbl_exprs: list[exprs.Expr]) -> None:
+    def test_print(self, test_tbl_exprs: list[exprs.Expr], img_tbl_exprs: list[exprs.Expr],
+        multi_img_tbl_exprs: list[exprs.Expr]
+    ) -> None:
         skip_test_if_not_installed('transformers')
         _ = pxt.func.FunctionRegistry.get().module_fns
-        for e in test_tbl_exprs:
-            _ = str(e)
-            print(_)
-        for e in img_tbl_exprs:
+        for e in test_tbl_exprs + img_tbl_exprs + multi_img_tbl_exprs:
             _ = str(e)
             print(_)
 
@@ -1200,9 +1210,7 @@ class TestExprs:
             # nested aggregates
             _ = t.group_by(t.c2 % 2).select(sum(count(t.c2))).collect()
 
-    @pxt.uda(
-        init_types=[pxt.IntType()], update_types=[pxt.IntType()], value_type=pxt.IntType(),
-        allows_window=True, requires_order_by=False)
+    @pxt.uda(allows_window=True, requires_order_by=False)
     class window_agg:
         def __init__(self, val: int = 0):
             self.val = val
@@ -1211,9 +1219,7 @@ class TestExprs:
         def value(self) -> int:
             return self.val
 
-    @pxt.uda(
-        init_types=[pxt.IntType()], update_types=[pxt.IntType()], value_type=pxt.IntType(),
-        requires_order_by=True, allows_window=True)
+    @pxt.uda(requires_order_by=True, allows_window=True)
     class ordered_agg:
         def __init__(self, val: int = 0):
             self.val = val
@@ -1222,9 +1228,7 @@ class TestExprs:
         def value(self) -> int:
             return self.val
 
-    @pxt.uda(
-        init_types=[pxt.IntType()], update_types=[pxt.IntType()], value_type=pxt.IntType(),
-        requires_order_by=False, allows_window=False)
+    @pxt.uda(requires_order_by=False, allows_window=False)
     class std_agg:
         def __init__(self, val: int = 0):
             self.val = val
@@ -1274,20 +1278,8 @@ class TestExprs:
         assert 'group_by(): only one table can be specified' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
-            # missing init type
-            @pxt.uda(update_types=[pxt.IntType()], value_type=pxt.IntType())
-            class WindowAgg:
-                def __init__(self, val: int = 0):
-                    self.val = val
-                def update(self, ignore: int) -> None:
-                    pass
-                def value(self) -> int:
-                    return self.val
-        assert 'init_types must be a list of' in str(exc_info.value)
-
-        with pytest.raises(excs.Error) as exc_info:
             # missing update parameter
-            @pxt.uda(init_types=[pxt.IntType()], update_types=[], value_type=pxt.IntType())
+            @pxt.uda
             class WindowAgg:
                 def __init__(self, val: int = 0):
                     self.val = val
@@ -1298,20 +1290,8 @@ class TestExprs:
         assert 'must have at least one parameter' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
-            # missing update type
-            @pxt.uda(init_types=[pxt.IntType()], update_types=[pxt.IntType()], value_type=pxt.IntType())
-            class WindowAgg:
-                def __init__(self, val: int = 0):
-                    self.val = val
-                def update(self, i1: int, i2: int) -> None:
-                    pass
-                def value(self) -> int:
-                    return self.val
-        assert 'update_types must be a list of' in str(exc_info.value)
-
-        with pytest.raises(excs.Error) as exc_info:
             # duplicate parameter names
-            @pxt.uda(init_types=[pxt.IntType()], update_types=[pxt.IntType()], value_type=pxt.IntType())
+            @pxt.uda
             class WindowAgg:
                 def __init__(self, val: int = 0):
                     self.val = val
@@ -1323,7 +1303,7 @@ class TestExprs:
 
         with pytest.raises(excs.Error) as exc_info:
             # reserved parameter name
-            @pxt.uda(init_types=[pxt.IntType()], update_types=[pxt.IntType()], value_type=pxt.IntType())
+            @pxt.uda
             class WindowAgg:
                 def __init__(self, val: int = 0):
                     self.val = val
@@ -1331,11 +1311,11 @@ class TestExprs:
                     pass
                 def value(self) -> int:
                     return self.val
-        assert 'order_by is reserved' in str(exc_info.value).lower()
+        assert "'order_by' is a reserved parameter name" in str(exc_info.value).lower()
 
         with pytest.raises(excs.Error) as exc_info:
             # reserved parameter name
-            @pxt.uda(init_types=[pxt.IntType()], update_types=[pxt.IntType()], value_type=pxt.IntType())
+            @pxt.uda
             class WindowAgg:
                 def __init__(self, val: int = 0):
                     self.val = val
@@ -1343,7 +1323,7 @@ class TestExprs:
                     pass
                 def value(self) -> int:
                     return self.val
-        assert 'group_by is reserved' in str(exc_info.value).lower()
+        assert "'group_by' is a reserved parameter name" in str(exc_info.value).lower()
 
     def test_repr(self, reset_db) -> None:
         t = create_all_datatypes_tbl()

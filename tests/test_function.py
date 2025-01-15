@@ -1,4 +1,5 @@
 from typing import Optional
+import typing
 
 import numpy as np
 import pytest
@@ -9,11 +10,14 @@ import pixeltable.func as func
 from pixeltable import catalog
 from pixeltable.func import Batch, Function, FunctionRegistry
 
-from .utils import assert_resultset_eq, reload_catalog, validate_update_status
+from .utils import assert_resultset_eq, reload_catalog, validate_update_status, ReloadTester
 
 
 def dummy_fn(i: int) -> int:
     return i
+
+
+T = typing.TypeVar('T')
 
 class TestFunction:
     @pxt.udf
@@ -21,7 +25,7 @@ class TestFunction:
         """A UDF."""
         return x + 1
 
-    @pxt.uda(value_type=pxt.IntType(), update_types=[pxt.IntType()])
+    @pxt.uda
     class agg:
         """An aggregator."""
         def __init__(self):
@@ -36,6 +40,7 @@ class TestFunction:
         d = self.func.as_dict()
         FunctionRegistry.get().clear_cache()
         deserialized = Function.from_dict(d)
+        assert isinstance(deserialized, func.CallableFunction)
         # TODO: add Function.exec() and then use that
         assert deserialized.py_fn(1) == 2
 
@@ -307,10 +312,10 @@ class TestFunction:
         assert pb1.arity == 3
         assert pb2.arity == 2
         assert pb3.arity == 1
-        assert len(pb1.signature.required_parameters) == 2
-        assert len(pb2.signature.required_parameters) == 1
-        assert len(pb3.signature.required_parameters) == 0
-        assert pb2.signature.required_parameters[0].name == 'p2'
+        assert len(pb1.signatures[0].required_parameters) == 2
+        assert len(pb2.signatures[0].required_parameters) == 1
+        assert len(pb3.signatures[0].required_parameters) == 0
+        assert pb2.signatures[0].required_parameters[0].name == 'p2'
 
         t = pxt.create_table('test', {'c1': pxt.String, 'c2': pxt.String, 'c3': pxt.String})
         t.insert(c1='a', c2='b', c3='c')
@@ -438,6 +443,203 @@ class TestFunction:
     def test_udf_docstring(self) -> None:
         assert self.func.__doc__ == "A UDF."
         assert self.agg.__doc__ == "An aggregator."
+
+    @pxt.udf
+    def overloaded_udf(x: str, y: str, z: str = 'a') -> str:
+        return x + y
+
+    @overloaded_udf.overload
+    def _(x: int, y: int, z: str = 'a') -> int:
+        return x + y + 1
+
+    @overloaded_udf.overload
+    def _(x: float, y: float) -> float:
+        return x + y + 2.0
+
+    @pxt.udf(type_substitutions=({T: str}, {T: int}, {T: float}))
+    def typevar_udf(x: T, y: T, z: str = 'a') -> T:
+        return x + y
+
+    def test_overloaded_udf(self, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
+        t = test_tbl
+        fc_str = self.overloaded_udf(t.c1, t.c1)
+        fc_int = self.overloaded_udf(t.c2, t.c2)
+        fc_float = self.overloaded_udf(t.c3, t.c3)
+
+        # Check that the correct signature is selected for various argument types
+        assert len(self.overloaded_udf.signatures) == 3
+        assert fc_str.fn.signature == self.overloaded_udf.signatures[0]
+        assert fc_str.col_type.is_string_type()
+        assert fc_int.fn.signature == self.overloaded_udf.signatures[1]
+        assert fc_int.col_type.is_int_type()
+        assert fc_float.fn.signature == self.overloaded_udf.signatures[2]
+        assert fc_float.col_type.is_float_type()
+
+        from pixeltable.functions.string import format
+
+        # Check that the correct Python function is invoked for each signature
+        res = t.select(fc_str, fc_int, fc_float).order_by(t.c2).collect()
+        res_direct = t.select(format('{0}{1}', t.c1, t.c1), t.c2 + t.c2 + 1, t.c3 + t.c3 + 2.0).order_by(t.c2).collect()
+        assert_resultset_eq(res, res_direct)
+
+        validate_update_status(t.add_computed_column(fc_str=fc_str))
+        validate_update_status(t.add_computed_column(fc_int=fc_int))
+        validate_update_status(t.add_computed_column(fc_float=fc_float))
+        res_cc = reload_tester.run_query(t.select(t.fc_str, t.fc_int, t.fc_float).order_by(t.c2))
+        assert_resultset_eq(res_cc, res_direct)
+
+        # Check that .using() works correctly with overloaded UDFs: it should keep only the
+        # signatures for which the substitution is valid
+        fn = self.overloaded_udf.using(z='b')
+        fc_str2 = fn(t.c1, t.c1)
+        fc_int2 = fn(t.c2, t.c2)
+
+        assert len(fn.signatures) == 2
+        assert fc_str2.fn.signature == fn.signatures[0]
+        assert fc_str2.col_type.is_string_type()
+        assert fc_int2.fn.signature == fn.signatures[1]
+        assert fc_int2.col_type.is_int_type()
+
+        with pytest.raises(excs.Error) as exc_info:
+            fn(t.c3, t.c3)
+        assert 'has no matching signature' in str(exc_info.value)
+
+        res = t.select(fc_str2, fc_int2).order_by(t.c2).collect()
+        res_direct = t.select(format('{0}{1}', t.c1, t.c1), t.c2 + t.c2 + 1).order_by(t.c2).collect()
+        assert_resultset_eq(res, res_direct)
+
+        validate_update_status(t.add_computed_column(fc_str2=fc_str2))
+        validate_update_status(t.add_computed_column(fc_int2=fc_int2))
+        res_cc = reload_tester.run_query(t.select(t.fc_str2, t.fc_int2).order_by(t.c2))
+        assert_resultset_eq(res_cc, res_direct)
+
+        fc_str3 = self.typevar_udf(t.c1, t.c1)
+        fc_int3 = self.typevar_udf(t.c2, t.c2)
+        fc_float3 = self.typevar_udf(t.c3, t.c3)
+
+        assert len(self.typevar_udf.signatures) == 3
+        assert fc_str3.fn.signature == self.typevar_udf.signatures[0]
+        assert fc_str3.col_type.is_string_type()
+        assert fc_int3.fn.signature == self.typevar_udf.signatures[1]
+        assert fc_int3.col_type.is_int_type()
+        assert fc_float3.fn.signature == self.typevar_udf.signatures[2]
+        assert fc_float3.col_type.is_float_type()
+
+        res = t.select(fc_str3, fc_int3, fc_float3).order_by(t.c2).collect()
+        res_direct = t.select(format('{0}{1}', t.c1, t.c1), t.c2 + t.c2, t.c3 + t.c3).order_by(t.c2).collect()
+        assert_resultset_eq(res, res_direct)
+
+        validate_update_status(t.add_computed_column(fc_str3=fc_str3))
+        validate_update_status(t.add_computed_column(fc_int3=fc_int3))
+        validate_update_status(t.add_computed_column(fc_float3=fc_float3))
+        res_cc = reload_tester.run_query(t.select(t.fc_str3, t.fc_int3, t.fc_float3).order_by(t.c2))
+        assert_resultset_eq(res_cc, res_direct)
+
+        reload_tester.run_reload_test()
+
+
+    @pxt.uda
+    class overloaded_uda(pxt.Aggregator):
+        def __init__(self) -> None:
+            self.sum = ''
+
+        def update(self, x: str) -> None:
+            self.sum += x
+
+        def value(self) -> str:
+            return self.sum
+
+    @overloaded_uda.overload
+    class _(pxt.Aggregator):
+        def __init__(self) -> None:
+            self.sum = 0
+
+        def update(self, x: int) -> None:
+            self.sum += x + 1
+
+        def value(self) -> int:
+            return self.sum
+
+    @overloaded_uda.overload
+    class _(pxt.Aggregator):
+        def __init__(self) -> None:
+            self.sum = 0.0
+
+        def update(self, x: float) -> None:
+            self.sum += x + 2.0
+
+        def value(self) -> float:
+            return self.sum
+
+    @pxt.uda(type_substitutions=({T: str}, {T: int}, {T: float}))
+    class typevar_uda(pxt.Aggregator, typing.Generic[T]):
+        def __init__(self) -> None:
+            self.max = None
+
+        def update(self, x: T) -> None:
+            if self.max is None or x > self.max:
+                self.max = x
+
+        def value(self) -> T:
+            return self.max
+
+    def test_overloaded_uda(self, test_tbl: pxt.Table) -> None:
+        t = test_tbl
+        fc_str = self.overloaded_uda(t.c1)
+        fc_int = self.overloaded_uda(t.c2)
+        fc_float = self.overloaded_uda(t.c3)
+
+        # Check that the correct signature is selected for various argument types
+        assert len(self.overloaded_uda.signatures) == 3
+        assert fc_str.fn.signature == self.overloaded_uda.signatures[0]
+        assert fc_str.col_type.is_string_type()
+        assert fc_int.fn.signature == self.overloaded_uda.signatures[1]
+        assert fc_int.col_type.is_int_type()
+        assert fc_float.fn.signature == self.overloaded_uda.signatures[2]
+        assert fc_float.col_type.is_float_type()
+
+        res = t.order_by(t.c2).select(c1=fc_str, c2=fc_int, c3=fc_float).collect()
+        res_direct = t.order_by(t.c2).select(t.c1, t.c2, t.c3).collect()
+        assert len(res) == 1
+        assert res[0] == {
+            'c1': ''.join(res_direct['c1']),
+            'c2': sum(res_direct['c2']) + len(res_direct['c2']),
+            'c3': sum(res_direct['c3']) + 2.0 * len(res_direct['c3']),
+        }
+
+        fc_str2 = self.typevar_uda(t.c1)
+        fc_int2 = self.typevar_uda(t.c2)
+        fc_float2 = self.typevar_uda(t.c3)
+
+        assert len(self.typevar_uda.signatures) == 3
+        assert fc_str2.fn.signature == self.typevar_uda.signatures[0]
+        assert fc_str2.col_type.is_string_type()
+        assert fc_int2.fn.signature == self.typevar_uda.signatures[1]
+        assert fc_int2.col_type.is_int_type()
+        assert fc_float2.fn.signature == self.typevar_uda.signatures[2]
+        assert fc_float2.col_type.is_float_type()
+
+        res = t.order_by(t.c2).select(c1=fc_str2, c2=fc_int2, c3=fc_float2).collect()
+        res_direct = t.order_by(t.c2).select(t.c1, t.c2, t.c3).collect()
+        assert len(res) == 1
+        assert res[0] == {
+            'c1': max(res_direct['c1']),
+            'c2': max(res_direct['c2']),
+            'c3': max(res_direct['c3']),
+        }
+
+    def test_tool_errors(self):
+        @pxt.udf(_force_stored=True)
+        def local_udf(name: str) -> str:
+            return ''
+
+        with pytest.raises(excs.Error) as exc_info:
+            pxt.tools(local_udf)
+        assert 'Only module UDFs can be used as tools' in str(exc_info.value)
+
+        with pytest.raises(excs.Error) as exc_info:
+            pxt.tools(pxt.functions.sum)
+        assert 'Aggregator UDFs cannot be used as tools' in str(exc_info.value)
 
 
 @pxt.udf
