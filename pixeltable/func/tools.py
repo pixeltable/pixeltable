@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, Literal, Optional, Union
+from typing import TYPE_CHECKING, Any, Callable, Literal, Optional, Union
 
 import pydantic
 
@@ -123,22 +123,24 @@ class Tools(pydantic.BaseModel):
 
 @udf
 def _extract_str_tool_arg(tool_calls: dict, func_name: str, param_name: str) -> Optional[str]:
-    return str(_extract_arg(tool_calls, func_name, param_name))
+    return _extract_arg(str, tool_calls, func_name, param_name)
 
 @udf
 def _extract_int_tool_arg(tool_calls: dict, func_name: str, param_name: str) -> Optional[int]:
-    return int(_extract_arg(tool_calls, func_name, param_name))
+    return _extract_arg(int, tool_calls, func_name, param_name)
 
 @udf
 def _extract_float_tool_arg(tool_calls: dict, func_name: str, param_name: str) -> Optional[float]:
-    return float(_extract_arg(tool_calls, func_name, param_name))
+    return _extract_arg(float, tool_calls, func_name, param_name)
 
 @udf
 def _extract_bool_tool_arg(tool_calls: dict, func_name: str, param_name: str) -> Optional[bool]:
-    return bool(_extract_arg(tool_calls, func_name, param_name))
+    return _extract_arg(bool, tool_calls, func_name, param_name)
 
-def _extract_arg(tool_calls: dict, func_name: str, param_name: str) -> Any:
+def _extract_arg(eval: Callable, tool_calls: dict, func_name: str, param_name: str) -> Any:
     if func_name in tool_calls:
         arguments = tool_calls[func_name]['args']
-        return arguments.get(param_name)
+        if param_name in arguments:
+            return eval(arguments[param_name])
+        return None
     return None

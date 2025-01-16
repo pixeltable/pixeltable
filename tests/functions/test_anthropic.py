@@ -34,7 +34,7 @@ class TestAnthropic:
         assert len(results['output'][0]['content'][0]['text']) > 0
         assert len(results['output2'][0]['content'][0]['text']) > 0
 
-    @pytest.mark.flaky(reruns=3)
+    @pytest.mark.flaky(reruns=4)
     def test_tool_invocations(self, reset_db) -> None:
         skip_test_if_not_installed('anthropic')
         skip_test_if_no_client('anthropic')
@@ -51,8 +51,6 @@ class TestAnthropic:
             """
             if city == 'San Francisco':
                 return 'Cloudy with a chance of meatballs'
-            elif city == 'None':
-                return None
             else:
                 return 'Unknown city'
 

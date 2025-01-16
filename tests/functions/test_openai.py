@@ -113,8 +113,6 @@ class TestOpenai:
             """
             if city == 'San Francisco':
                 return 'Cloudy with a chance of meatballs'
-            elif city == 'None':
-                return None
             else:
                 return 'Unknown city'
 

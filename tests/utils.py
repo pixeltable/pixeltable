@@ -550,8 +550,6 @@ def stock_price(ticker: str) -> float:
     """
     if ticker == 'NVDA':
         return 131.17
-    elif ticker == 'None':
-        return None
     else:
         # Return 0.0 instead of None, to distinguish between these two cases: the tool not being called, and the tool
         # being called on a symbol other than NVDA
