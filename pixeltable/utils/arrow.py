@@ -1,10 +1,12 @@
+import datetime
 import logging
 from typing import Any, Iterator, Optional, Union
 
+import more_itertools
 import numpy as np
 import pyarrow as pa
-import datetime
 
+import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable.env import Env
 
@@ -90,6 +92,16 @@ def to_pydict(batch: pa.RecordBatch) -> dict[str, Union[list, np.ndarray]]:
             out[name] = col.to_pylist()
 
     return out
+
+
+def to_pa_tables(df: pxt.DataFrame, batch_size: int = 1_000) -> Iterator[pa.Table]:
+    schema = to_arrow_schema(df._schema)
+    for rows in more_itertools.batched((list(row) for row in df._exec()), batch_size):
+        cols = {
+            col_name: [row[idx] for row in rows]
+            for idx, col_name in enumerate(df._schema.keys())
+        }
+        yield pa.Table.from_pydict(cols, schema=schema)
 
 
 def iter_tuples(batch: pa.RecordBatch) -> Iterator[dict[str, Any]]:
