@@ -1,6 +1,6 @@
 import dataclasses
 import logging
-from typing import Any, Iterable, Optional, Union, Literal, Type
+from typing import Any, Iterable, Literal, Optional, Union
 from uuid import UUID
 
 import pandas as pd
@@ -26,7 +26,7 @@ def init() -> None:
 
 def _get_or_drop_existing_path(
     path_str: str,
-    expected_obj_type: Type[catalog.SchemaObject],
+    expected_obj_type: type[catalog.SchemaObject],
     expected_snapshot: bool,
     if_exists: catalog.IfExistsParam
 ) -> Optional[catalog.SchemaObject]:
@@ -289,6 +289,11 @@ def create_view(
 
     if additional_columns is None:
         additional_columns = {}
+    else:
+        # additional columns should not be in the base table
+        for col_name in additional_columns.keys():
+            if col_name in [c.name for c in tbl_version_path.columns()]:
+                raise excs.Error(f"Column {col_name!r} already exists in the base table {tbl_version_path.get_column(col_name).tbl.name}.")
     if iterator is None:
         iterator_class, iterator_args = None, None
     else:
