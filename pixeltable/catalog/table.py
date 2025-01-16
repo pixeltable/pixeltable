@@ -853,7 +853,7 @@ class Table(SchemaObject):
             if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error'
     ) -> None:
         """
-        Add an embedding index to the table. Once the index is created, it will be automatically kept up to date as new
+        Add an embedding index to the table. Once the index is created, it will be automatically kept up-to-date as new
         rows are inserted into the table.
 
         To add an embedding index, one must specify, at minimum, the column to be indexed and an embedding UDF.
@@ -878,7 +878,6 @@ class Table(SchemaObject):
         ... tbl.select(tbl.img, sim).order_by(sim, asc=False).limit(5)
 
         Args:
-<<<<<<< HEAD
             column: The name of, or reference to, the column to be indexed; must be a `String` or `Image` column.
             idx_name: An optional name for the index. If not specified, a name such as `'idx0'` will be generated
                 automatically. If specified, the name must be unique for this table.
@@ -893,20 +892,11 @@ class Table(SchemaObject):
                 specifying different embedding functions for different data types.
             metric: Distance metric to use for the index; one of `'cosine'`, `'ip'`, or `'l2'`.
                 The default is `'cosine'`.
-=======
-            column: The name of, or reference to, the column to index; must be a `String` or `Image` column.
-            idx_name: The name of index. If not specified, a name such as `'idx0'` will be generated automatically.
-                If specified, the name must be unique for this table.
-            string_embed: A function to embed text; required if the column is a `String` column.
-            image_embed: A function to embed images; required if the column is an `Image` column.
-            metric: Distance metric to use for the index; one of `'cosine'`, `'ip'`, or `'l2'`;
-                the default is `'cosine'`.
             if_exists: Directive for handling an existing index with the same name. Must be one of the following:
 
                 - `'error'`: raise an error if an index with the same name already exists.
                 - `'ignore'`: do nothing if an index with the same name already exists.
                 - `'replace'` or `'replace_force'`: replace the existing index with the new one.
->>>>>>> main
 
         Raises:
             Error: If an index with the specified name already exists for the table and `if_exists='error'`, or if the specified column does not exist.
