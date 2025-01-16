@@ -89,7 +89,7 @@ class Literal(Expr):
         else:
             return {'val': self.val, **super()._as_dict()}
 
-    def get_constant(self):
+    def as_constant(self) -> Any:
         return self.val
 
     @classmethod

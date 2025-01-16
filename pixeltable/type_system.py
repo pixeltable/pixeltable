@@ -246,7 +246,7 @@ class ColumnType:
             if col_type is not None:
                 return col_type
             # this could still be json-serializable
-        if isinstance(val, list) or isinstance(val, tuple) or isinstance(val, dict):
+        if isinstance(val, (list, tuple, dict)):
             return JsonType(nullable=nullable)
         return None
 
@@ -862,7 +862,7 @@ class ArrayType(ColumnType):
                 continue
             if n1 != n2:
                 return False
-        return val.dtype == self.numpy_dtype()
+        return np.issubdtype(val.dtype, self.numpy_dtype())
 
     def _validate_literal(self, val: Any) -> None:
         if not isinstance(val, np.ndarray):

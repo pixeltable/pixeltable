@@ -341,21 +341,20 @@ class Expr(abc.ABC):
                 result.extend(cls.get_refd_columns(component_dict))
         return result
 
-    def get_constant(self):
+    def as_constant(self) -> None:
         """
-         If expression is constant return the associated value which will be converted to a Literal
+         If expression is a constant then return the associated value which will be converted to a Literal
         """
         return None
 
     @classmethod
-    def from_array(cls, elements:Iterable)-> Optional[Expr]:
+    def from_array(cls, elements : Iterable) -> Optional[Expr]:
         from .inline_expr import InlineArray
         inline_array = InlineArray(elements)
-        constant_array = inline_array.get_constant()
+        constant_array = inline_array.as_constant()
         if constant_array is not None:
             from .literal import Literal
             return Literal(constant_array, inline_array.col_type)
-            #return inline_array
         else:
             return inline_array
 
@@ -369,10 +368,10 @@ class Expr(abc.ABC):
         # Try to create a literal. We need to check for InlineList/InlineDict
         # first, to prevent them from inappropriately being interpreted as JsonType
         # literals.
-        if isinstance(o, list) or isinstance(o, tuple):
+        if isinstance(o, (list, tuple)):
             from .inline_expr import InlineList
             inline_seq = InlineList(o)
-            constant_seq = inline_seq.get_constant()
+            constant_seq = inline_seq.as_constant()
             if constant_seq is not None:
                 from .literal import Literal
                 return Literal(constant_seq)
@@ -380,8 +379,8 @@ class Expr(abc.ABC):
                 return inline_seq
         if isinstance(o, dict):
             from .inline_expr import InlineDict
-            inline_dict =  InlineDict(o)
-            constant_dict = inline_dict.get_constant()
+            inline_dict = InlineDict(o)
+            constant_dict = inline_dict.as_constant()
             if constant_dict is not None:
                 from .literal import Literal
                 return Literal(constant_dict)

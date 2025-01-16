@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+import numpy
 import numpy as np
 import pandas as pd
 import PIL.Image
@@ -421,14 +422,14 @@ class TestExprs:
         t = test_tbl
         result = t.select([1, 2, 3])
         print(result.show())
-        assert isinstance(next(iter(result.select_list))[0], Literal)
+        assert isinstance(result.select_list[0][0], Literal)
 
-        result = t[[ 1,
-                     (100, 100),
-                    {'a' : [t.c1, 3]},
-                    {'b' : [4 , 5]},
-                    {'c': { 'd': 6, 'e' : [7, 8], 'f' : {}, 'g' : { 'h': t.c2}}}
-                    ]]
+        result = t.select(1,
+                          (100, 100),
+                          {'a' : [t.c1, 3]},
+                          {'b' : [4 , 5]},
+                          {'c': { 'd': 6, 'e' : [7, 8], 'f' : {}, 'g' : { 'h': t.c2}}}
+                          )
         print(result.show())
         exprs = [expr[0] for expr in result.select_list]
         assert isinstance(exprs[0], Literal)
@@ -437,12 +438,12 @@ class TestExprs:
         assert isinstance(exprs[3], Literal)
         assert not isinstance(exprs[4], Literal)
 
-        result = t[[1,
-                    (100, 100),
-                    {'a': [t.c1, 3]},
-                    {'b': [4, 5]},
-                    {'c': {'d': 6, 'e': [7, 8], 'f': {}, 'g': {'h': 9}}}
-                    ]]
+        result = t.select(1,
+                          (100, 100),
+                          {'a': [t.c1, 3]},
+                          {'b': [4, 5]},
+                          {'c': {'d': 6, 'e': [7, 8], 'f': {}, 'g': {'h': 9}}}
+                          )
         print(result.show())
         exprs = [expr[0] for expr in result.select_list]
         assert isinstance(exprs[0], Literal)
@@ -451,12 +452,12 @@ class TestExprs:
         assert isinstance(exprs[3], Literal)
         assert isinstance(exprs[4], Literal)
 
-        result = t[[1,
-                    (100, 100),
-                    {'a': [t.c1, 3]},
-                    {'b': [4, 5]},
-                    {'c': {'d': 6, 'e': [7, 8], 'f':  (t.c1, t.c3), 'g': {'h': 9}}}
-                    ]]
+        result = t.select(1,
+                          (100, 100),
+                          {'a': [t.c1, 3]},
+                          {'b': [4, 5]},
+                          {'c': {'d': 6, 'e': [7, 8], 'f':  (t.c1, t.c3), 'g': {'h': 9}}}
+                          )
         print(result.show())
         exprs = [expr[0] for expr in result.select_list]
         assert isinstance(exprs[0], Literal)
