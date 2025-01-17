@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any, Callable, Iterator, Optional, TypeVar, Un
 from uuid import UUID
 
 import sqlalchemy as sql
+from mypyc.irbuild.util import is_constant
 from typing_extensions import _AnnotatedAlias, Self
 
 import pixeltable.catalog as catalog
@@ -341,10 +342,19 @@ class Expr(abc.ABC):
                 result.extend(cls.get_refd_columns(component_dict))
         return result
 
-    def as_constant(self) -> None:
+    def is_constant(self) -> bool:
+        """Returns True if this expr is a constant."""
+        return all(comp.is_constant() for comp in self.components)
+
+    def _as_constant(self) -> Optional[Any]:
+        return None
+
+    def as_constant(self) -> Optional[Any]:
         """
-         If expression is a constant then return the associated value which will be converted to a Literal
+        If expression is a constant then return the associated value which will be converted to a Literal.
         """
+        if self.is_constant():
+            return self._as_constant()
         return None
 
     @classmethod
@@ -363,33 +373,36 @@ class Expr(abc.ABC):
         """
         Try to turn a literal object into an Expr.
         """
-        if isinstance(o, Expr):
-            return o
         # Try to create a literal. We need to check for InlineList/InlineDict
         # first, to prevent them from inappropriately being interpreted as JsonType
         # literals.
-        if isinstance(o, (list, tuple)):
-            from .inline_expr import InlineList
-            inline_seq = InlineList(o)
-            constant_seq = inline_seq.as_constant()
-            if constant_seq is not None:
+        if isinstance(o, (list, tuple, dict, Expr)):
+            expr = None
+            if isinstance(o, (list, tuple)):
+                from .inline_expr import InlineList
+                expr = InlineList(o)
+            elif isinstance(o, dict):
+                from .inline_expr import InlineDict
+                expr = InlineDict(o)
+            elif isinstance(o, Expr):
+                expr = o
                 from .literal import Literal
-                return Literal(constant_seq)
-            else:
-                return inline_seq
-        if isinstance(o, dict):
-            from .inline_expr import InlineDict
-            inline_dict = InlineDict(o)
-            constant_dict = inline_dict.as_constant()
-            if constant_dict is not None:
+                if isinstance(expr, Literal):
+                    return expr
+            # Check if the expression is constant
+            if expr is not None:
+                expr_value = expr.as_constant()
+                if expr_value is not None:
+                    from .literal import Literal
+                    return Literal(expr_value)
+                else:
+                    return expr
+        else:
+            # convert scaler to a literal
+            obj_type = ts.ColumnType.infer_literal_type(o)
+            if obj_type is not None:
                 from .literal import Literal
-                return Literal(constant_dict)
-            else:
-                return inline_dict
-        obj_type = ts.ColumnType.infer_literal_type(o)
-        if obj_type is not None:
-            from .literal import Literal
-            return Literal(o, col_type=obj_type)
+                return Literal(o, col_type=obj_type)
         return None
 
     @abc.abstractmethod

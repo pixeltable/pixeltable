@@ -82,13 +82,9 @@ class InlineArray(Expr):
             # loaded and their types are known.
             return InlineList(components)  # type: ignore[return-value]
 
-    def as_constant(self) -> Optional[np.ndarray]:
-        for comp in self.components:
-            if not isinstance(comp, Literal):
-                return None
+    def _as_constant(self) -> Optional[np.ndarray]:
         assert isinstance(self.col_type, ts.ArrayType)
         return np.array([c.as_constant() for c in self.components], dtype=self.col_type.numpy_dtype())
-
 
 class InlineList(Expr):
     """
@@ -129,11 +125,8 @@ class InlineList(Expr):
     def _from_dict(cls, _: dict, components: list[Expr]) -> InlineList:
         return cls(components)
 
-    def as_constant(self) -> Optional[list[Any]]:
-        for comp in self.components:
-            if not isinstance(comp, Literal):
-                return None
-        return list(c.as_constant() for c in self.components)
+    def _as_constant(self) -> Optional[list[Any]]:
+       return list(c.as_constant() for c in self.components)
 
 class InlineDict(Expr):
     """
@@ -215,8 +208,5 @@ class InlineDict(Expr):
         arg = dict(zip(d['keys'], components))
         return InlineDict(arg)
 
-    def as_constant(self) -> Optional[dict[str, Any]]:
-        for comp in self.components:
-            if not isinstance(comp, Literal):
-                return None
+    def _as_constant(self) -> Optional[dict[str, Any]]:
         return dict(zip(self.keys, (c.as_constant() for c in self.components)))

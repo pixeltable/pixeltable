@@ -21,9 +21,10 @@ from pixeltable.exprs import RELATIVE_PATH_ROOT as R, Literal
 from pixeltable.exprs import ColumnRef, Expr
 from pixeltable.functions import cast
 from pixeltable.iterators import FrameIterator
+from .conftest import reload_tester
 
 from .utils import (create_all_datatypes_tbl, create_scalars_tbl, get_image_files, reload_catalog, skip_test_if_not_installed,
-                    validate_update_status)
+                    validate_update_status, ReloadTester)
 
 
 class TestExprs:
@@ -417,6 +418,25 @@ class TestExprs:
         result = df.show()
         print(result)
 
+    def test_constant_literals(self, test_tbl: catalog.Table, reload_tester: ReloadTester) -> None:
+        t = test_tbl
+        t.add_computed_column(cc0=datetime.now()) #timestamp
+        t.add_computed_column(cc1=100) # integer
+        t.add_computed_column(cc2="abc") # string
+        t.add_computed_column(cc3=10.4) # floating point
+        t.add_computed_column(cc4=(100,200)) #tuple of integer
+        t.add_computed_column(cc5={'a': 'str100', 'b': 3.14, 'c' : [1,2,3], 'd' : { 'e': (.99, 100.1)}})
+        t.add_computed_column(cc6=pxt.array([100.1, 200.1, 300.1])) # one dimensional floating point array
+        t.add_computed_column(cc7=pxt.array(['abc', 'bcd', 'efg'])) # one dimensional string array
+        # list if list (integers)
+        t.add_computed_column(cc8=[[[1, 2, 3], [4, 5, 6]], [[10, 20, 30], [40, 50, 60]], [[100, 200, 300], [400, 500, 600]]])
+        # multidimensional string arrays
+        t.add_computed_column(cc9=pxt.array([[['a1', 'b2', 'c3'], ["a4", "b5", "c6"]], [['a10', 'b20', 'c30'], ["a40", "b50", "c60"]],
+                                             [['a100', 'b200', 'c300'], ['a400', 'b500', 'c600']]]))
+        results = reload_tester.run_query(t.select(t.cc0, t.cc1, t.cc2, t.cc3, t.cc4, t.cc5, t.cc6, t.cc7, t.cc8, t.cc9))
+        print(results.schema)
+        reload_tester.run_reload_test()
+
     def test_inline_constants(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         result = t.select([1, 2, 3])
@@ -424,11 +444,11 @@ class TestExprs:
         assert isinstance(result.select_list[0][0], Literal)
 
         result = t.select(1,
-                          (100, 100),
-                          {'a' : [t.c1, 3]},
-                          {'b' : [4 , 5]},
-                          {'c': { 'd': 6, 'e' : [7, 8], 'f' : {}, 'g' : { 'h': t.c2}}}
-                          )
+                                                  (100, 100),
+                                                  {'a' : [t.c1, 3]},
+                                                  {'b' : [4 , 5]},
+                                                  {'c': { 'd': 6, 'e' : [7, 8], 'f' : {}, 'g' : { 'h': t.c2}}}
+                                                  )
         print(result.show())
         exprs = [expr[0] for expr in result.select_list]
         assert isinstance(exprs[0], Literal)
@@ -438,11 +458,11 @@ class TestExprs:
         assert not isinstance(exprs[4], Literal)
 
         result = t.select(1,
-                          (100, 100),
-                          {'a': [t.c1, 3]},
-                          {'b': [4, 5]},
-                          {'c': {'d': 6, 'e': [7, 8], 'f': {}, 'g': {'h': 9}}}
-                          )
+                                                  (100, 100),
+                                                  {'a': [t.c1, 3]},
+                                                  {'b': [4, 5]},
+                                                  {'c': {'d': 6, 'e': [7, 8], 'f': {}, 'g': {'h': 9}}}
+                                                  )
         print(result.show())
         exprs = [expr[0] for expr in result.select_list]
         assert isinstance(exprs[0], Literal)
@@ -452,11 +472,11 @@ class TestExprs:
         assert isinstance(exprs[4], Literal)
 
         result = t.select(1,
-                          (100, 100),
-                          {'a': [t.c1, 3]},
-                          {'b': [4, 5]},
-                          {'c': {'d': 6, 'e': [7, 8], 'f':  (t.c1, t.c3), 'g': {'h': 9}}}
-                          )
+                                                  (100, 100),
+                                                  {'a': [t.c1, 3]},
+                                                  {'b': [4, 5]},
+                                                  {'c': {'d': 6, 'e': [7, 8], 'f':  (t.c1, t.c3), 'g': {'h': 9}}}
+                                                  )
         print(result.show())
         exprs = [expr[0] for expr in result.select_list]
         assert isinstance(exprs[0], Literal)

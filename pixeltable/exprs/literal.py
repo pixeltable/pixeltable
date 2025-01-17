@@ -74,7 +74,7 @@ class Literal(Expr):
         data_row[self.slot_idx] = self.val
 
     def _as_dict(self) -> dict:
-        # For some types, we need to explictly record their type, because JSON does not know
+        # For some types, we need to explicitly record their type, because JSON does not know
         # how to interpret them unambiguously
         if self.col_type.is_timestamp_type():
             assert isinstance(self.val, datetime.datetime)
@@ -89,8 +89,11 @@ class Literal(Expr):
         else:
             return {'val': self.val, **super()._as_dict()}
 
-    def as_constant(self) -> Any:
+    def _as_constant(self) -> Any:
         return self.val
+
+    def is_constant(self) -> bool:
+        return True
 
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr]) -> Literal:
