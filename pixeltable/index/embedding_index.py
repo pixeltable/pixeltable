@@ -37,30 +37,89 @@ class EmbeddingIndex(IndexBase):
         Metric.L2: 'vector_l2_ops'
     }
 
+    metric: Metric
+    value_expr: exprs.FunctionCall
+    string_embed: Optional[func.Function]
+    image_embed: Optional[func.Function]
+    string_embed_signature_idx: int
+    image_embed_signature_idx: int
+    index_col_type: pgvector.sqlalchemy.Vector
+
     def __init__(
-            self, c: catalog.Column, metric: str, string_embed: Optional[func.Function] = None,
-            image_embed: Optional[func.Function] = None):
+        self,
+        c: catalog.Column,
+        metric: str,
+        embed: Optional[func.Function] = None,
+        string_embed: Optional[func.Function] = None,
+        image_embed: Optional[func.Function] = None,
+    ):
+        if embed is None and string_embed is None and image_embed is None:
+            raise excs.Error('At least one of `embed`, `string_embed`, or `image_embed` must be specified')
         metric_names = [m.name.lower() for m in self.Metric]
         if metric.lower() not in metric_names:
             raise excs.Error(f'Invalid metric {metric}, must be one of {metric_names}')
         if not c.col_type.is_string_type() and not c.col_type.is_image_type():
             raise excs.Error(f'Embedding index requires string or image column')
-        if c.col_type.is_string_type() and string_embed is None:
-                raise excs.Error(f"Text embedding function is required for column {c.name} (parameter 'string_embed')")
-        if c.col_type.is_image_type() and image_embed is None:
-            raise excs.Error(f"Image embedding function is required for column {c.name} (parameter 'image_embed')")
+
+        self.string_embed = None
+        self.image_embed = None
+
+        # Resolve the specific embedding functions corresponding to the user-provided `string_embed`, `image_embed`,
+        # and/or `embed`. For string embeddings, `string_embed` will be used if specified; otherwise, `embed` will
+        # be used as a fallback, if it has a matching signature. Likewise for image embeddings.
+
         if string_embed is not None:
-            # verify signature
-            self._validate_embedding_fn(string_embed, 'string_embed', ts.ColumnType.Type.STRING)
+            # `string_embed` is specified; it MUST be valid.
+            self.string_embed = self._resolve_embedding_fn(string_embed, ts.ColumnType.Type.STRING)
+            if self.string_embed is None:
+                raise excs.Error(
+                    f'The function `{string_embed.name}` is not a valid string embedding: '
+                    'it must take a single string parameter'
+                )
+        elif embed is not None:
+            # `embed` is specified; see if it has a string signature.
+            self.string_embed = self._resolve_embedding_fn(embed, ts.ColumnType.Type.STRING)
+
         if image_embed is not None:
-            # verify signature
-            self._validate_embedding_fn(image_embed, 'image_embed', ts.ColumnType.Type.IMAGE)
+            # `image_embed` is specified; it MUST be valid.
+            self.image_embed = self._resolve_embedding_fn(image_embed, ts.ColumnType.Type.IMAGE)
+            if self.image_embed is None:
+                raise excs.Error(
+                    f'The function `{image_embed.name}` is not a valid image embedding: '
+                    'it must take a single image parameter'
+                )
+        elif embed is not None:
+            # `embed` is specified; see if it has an image signature.
+            self.image_embed = self._resolve_embedding_fn(embed, ts.ColumnType.Type.IMAGE)
+
+        if self.string_embed is None and self.image_embed is None:
+            # No string OR image signature was found. This can only happen if `embed` was specified and
+            # contains no matching signatures.
+            assert embed is not None
+            raise excs.Error(
+                f'The function `{embed.name}` is not a valid embedding: '
+                'it must take a single string or image parameter'
+            )
+
+        # Now validate the return types of the embedding functions.
+
+        if self.string_embed is not None:
+            self._validate_embedding_fn(self.string_embed, ts.ColumnType.Type.STRING)
+
+        if self.image_embed is not None:
+            self._validate_embedding_fn(self.image_embed, ts.ColumnType.Type.IMAGE)
+
+        if c.col_type.is_string_type() and self.string_embed is None:
+            raise excs.Error(f"Text embedding function is required for column {c.name} (parameter 'string_embed')")
+        if c.col_type.is_image_type() and self.image_embed is None:
+            raise excs.Error(f"Image embedding function is required for column {c.name} (parameter 'image_embed')")
 
         self.metric = self.Metric[metric.upper()]
-        self.value_expr = string_embed(exprs.ColumnRef(c)) if c.col_type.is_string_type() else image_embed(exprs.ColumnRef(c))
+        self.value_expr = (
+            self.string_embed(exprs.ColumnRef(c)) if c.col_type.is_string_type()
+            else self.image_embed(exprs.ColumnRef(c))
+        )
         assert isinstance(self.value_expr.col_type, ts.ArrayType)
-        self.string_embed = string_embed
-        self.image_embed = image_embed
         vector_size = self.value_expr.col_type.shape[0]
         assert vector_size is not None
         self.index_col_type = pgvector.sqlalchemy.Vector(vector_size)
@@ -91,10 +150,10 @@ class EmbeddingIndex(IndexBase):
         assert isinstance(item, (str, PIL.Image.Image))
         if isinstance(item, str):
             assert self.string_embed is not None
-            embedding = self.string_embed.exec(item)
+            embedding = self.string_embed.exec([item], {})
         if isinstance(item, PIL.Image.Image):
             assert self.image_embed is not None
-            embedding = self.image_embed.exec(item)
+            embedding = self.image_embed.exec([item], {})
 
         if self.metric == self.Metric.COSINE:
             return val_column.sa_col.cosine_distance(embedding) * -1 + 1
@@ -110,10 +169,10 @@ class EmbeddingIndex(IndexBase):
         embedding: Optional[np.ndarray] = None
         if isinstance(item, str):
             assert self.string_embed is not None
-            embedding = self.string_embed.exec(item)
+            embedding = self.string_embed.exec([item], {})
         if isinstance(item, PIL.Image.Image):
             assert self.image_embed is not None
-            embedding = self.image_embed.exec(item)
+            embedding = self.image_embed.exec([item], {})
         assert embedding is not None
 
         if self.metric == self.Metric.COSINE:
@@ -132,34 +191,47 @@ class EmbeddingIndex(IndexBase):
         return 'embedding'
 
     @classmethod
-    def _validate_embedding_fn(cls, embed_fn: func.Function, name: str, expected_type: ts.ColumnType.Type) -> None:
-        """Validate the signature"""
+    def _resolve_embedding_fn(cls, embed_fn: func.Function, expected_type: ts.ColumnType.Type) -> Optional[func.Function]:
+        """Find an overload resolution for `embed_fn` that matches the given type."""
         assert isinstance(embed_fn, func.Function)
-        sig = embed_fn.signature
+        for resolved_fn in embed_fn._resolved_fns:
+            # The embedding function must be a 1-ary function of the correct type. But it's ok if the function signature
+            # has more than one parameter, as long as it has at most one *required* parameter.
+            sig = resolved_fn.signature
+            if (len(sig.parameters) >= 1
+                and len(sig.required_parameters) <= 1
+                and sig.parameters_by_pos[0].col_type.type_enum == expected_type):
+                return resolved_fn
+        return None
 
-        # The embedding function must be a 1-ary function of the correct type. But it's ok if the function signature
-        # has more than one parameter, as long as it has at most one *required* parameter.
-        if (len(sig.parameters) == 0
-            or len(sig.required_parameters) > 1
-            or sig.parameters_by_pos[0].col_type.type_enum != expected_type):
-            raise excs.Error(
-                f'{name} must take a single {expected_type.name.lower()} parameter, but has signature {sig}')
+    @classmethod
+    def _validate_embedding_fn(cls, embed_fn: func.Function, expected_type: ts.ColumnType.Type) -> None:
+        """Validate the given embedding function."""
+        assert not embed_fn.is_polymorphic
+        sig = embed_fn.signature
 
         # validate return type
         param_name = sig.parameters_by_pos[0].name
         if expected_type == ts.ColumnType.Type.STRING:
-            return_type = embed_fn.call_return_type({param_name: 'dummy'})
+            return_type = embed_fn.call_return_type([], {param_name: 'dummy'})
         else:
             assert expected_type == ts.ColumnType.Type.IMAGE
             img = PIL.Image.new('RGB', (512, 512))
-            return_type = embed_fn.call_return_type({param_name: img})
+            return_type = embed_fn.call_return_type([], {param_name: img})
+
         assert return_type is not None
         if not isinstance(return_type, ts.ArrayType):
-            raise excs.Error(f'{name} must return an array, but returns {return_type}')
-        else:
-            shape = return_type.shape
-            if len(shape) != 1 or shape[0] == None:
-                raise excs.Error(f'{name} must return a 1D array of a specific length, but returns {return_type}')
+            raise excs.Error(
+                f'The function `{embed_fn.name}` is not a valid embedding: '
+                f'it must return an array, but returns {return_type}'
+            )
+
+        shape = return_type.shape
+        if len(shape) != 1 or shape[0] == None:
+            raise excs.Error(
+                f'The function `{embed_fn.name}` is not a valid embedding: '
+                f'it must return a 1-dimensional array of a specific length, but returns {return_type}'
+            )
 
     def as_dict(self) -> dict:
         return {

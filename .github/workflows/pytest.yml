@@ -29,6 +29,7 @@ env:
   # API keys for various services. In a PR, these secrets will be empty.
   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
   FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}
+  GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
   MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
   REPLICATE_API_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
@@ -67,6 +68,11 @@ jobs:
             python-version: "3.9"
             test-category: "py"
             poetry-options: ""
+          # Python 3.13 (minimal installation, without --with dev)
+          - os: ubuntu-22.04
+            python-version: "3.13"
+            test-category: "py"
+            poetry-options: ""
           # Notebook tests
           - os: ubuntu-22.04
             python-version: "3.9"
@@ -96,12 +102,6 @@ jobs:
           sudo rm -rf "$AGENT_TOOLSDIRECTORY"
           sudo rm -rf /opt/hostedtoolcache
           df -h
-      - name: Create user runtime dir
-        if: ${{ matrix.os == 'ubuntu-arm64' || matrix.os == 'ubuntu-x64-t4' }}
-        # pgserver needs this dir, and it doesn't seem to exist on ubuntu-arm64 or t4 instances for some reason.
-        run: |
-          sudo mkdir -p /run/user/1001
-          sudo chmod a+rwx /run/user/1001
       - name: Install conda
         uses: conda-incubator/setup-miniconda@v3
         with:
@@ -144,10 +144,13 @@ jobs:
       - name: Install the project dependencies
         # Retry 3 times to be resilient against transient connectivity issues.
         run: ./scripts/retry.sh 3 60 poetry install ${{ matrix.poetry-options }}
-      - name: Install yolox
+      - name: Install YOLOX
         # Yolox cannot be installed with poetry and only seems to work with python <= 3.10 and not on ubuntu-arm64
         if: ${{ matrix.poetry-options != '' && matrix.python-version == '3.9' && matrix.os == 'ubuntu-22.04' }}
-        run: python -m pip install git+https://github.com/Megvii-BaseDetection/YOLOX@ac58e0a
+        run: python -m pip install git+https://github.com/Megvii-BaseDetection/YOLOX@ac58e0a protobuf==5.27.0
+      - name: Install WhisperX
+        if: ${{ matrix.poetry-options != '' && matrix.python-version != '3.13' && matrix.os != 'ubuntu-x64-t4' }}
+        run: python -m pip install git+https://github.com/m-bain/whisperX.git@f2da2f8 typer==0.9.0
       - name: Ensure pytest is installed
         # This is necessary for running the tests without --with dev
         if: ${{ matrix.poetry-options == '' }}

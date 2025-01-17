@@ -7,11 +7,14 @@ import random
 import typing
 from collections import deque
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 import numpy as np
 import PIL.Image
+import datetime
 
+import pixeltable as pxt
+from pixeltable.env import Env
 import pixeltable.exceptions as exc
 import pixeltable.type_system as ts
 from pixeltable.utils.transactional_directory import transactional_directory
@@ -39,28 +42,44 @@ def _write_batch(value_batch: dict[str, deque], schema: pa.Schema, output_path: 
     parquet.write_table(tab, str(output_path))
 
 
-def save_parquet(df: pxt.DataFrame, dest_path: Path, partition_size_bytes: int = 100_000_000) -> None:
+def export_parquet(
+            table_or_df: Union[pxt.Table, pxt.DataFrame],
+            parquet_path: Path,
+            partition_size_bytes: int = 100_000_000,
+            inline_images: bool = False
+            ) -> None:
     """
-    Internal method to stream dataframe data to parquet format.
-    Does not materialize the dataset to memory.
+    Exports a dataframe's data to one or more Parquet files. Requires pyarrow to be installed.
 
-    It preserves pixeltable type metadata in a json file, which would otherwise
+    It additionally writes the pixeltable metadata in a json file, which would otherwise
     not be available in the parquet format.
 
-    Images are stored inline in a compressed format in their parquet file.
-
     Args:
-        df : dataframe to save.
-        dest_path : path to directory to save the parquet files to.
-        partition_size_bytes : maximum target size for each chunk. Default 100_000_000 bytes.
+        table_or_df : Table or Dataframe to export.
+        parquet_path : Path to directory to write the parquet files to.
+        partition_size_bytes : The maximum target size for each chunk. Default 100_000_000 bytes.
+        inline_images : If True, images are stored inline in the parquet file. This is useful
+                        for small images, to be imported as pytorch dataset. But can be inefficient
+                        for large images, and cannot be imported into pixeltable.
+                        If False, will raise an error if the Dataframe has any image column.
+                        Default False.
     """
     from pixeltable.utils.arrow import to_arrow_schema
+
+    df: pxt.DataFrame
+    if isinstance(table_or_df, pxt.catalog.Table):
+        df = table_or_df._df()
+    else:
+        df = table_or_df
 
     type_dict = {k: v.as_dict() for k, v in df.schema.items()}
     arrow_schema = to_arrow_schema(df.schema)
 
+    if not inline_images and any(col_type.is_image_type() for col_type in df.schema.values()):
+        raise exc.Error('Cannot export Dataframe with image columns when inline_images is False')
+
     # store the changes atomically
-    with transactional_directory(dest_path) as temp_path:
+    with transactional_directory(parquet_path) as temp_path:
         # dump metadata json file so we can inspect what was the source of the parquet file later on.
         json.dump(df.as_dict(), (temp_path / '.pixeltable.json').open('w'))
         json.dump(type_dict, (temp_path / '.pixeltable.column_types.json').open('w'))  # keep type metadata
@@ -111,6 +130,7 @@ def save_parquet(df: pxt.DataFrame, dest_path: Path, partition_size_bytes: int =
                 elif col_type.is_bool_type():
                     length = 1
                 elif col_type.is_timestamp_type():
+                    val = val.astimezone(datetime.timezone.utc)
                     length = 8
                 else:
                     assert False, f'unknown type {col_type} for {col_name}'
@@ -139,7 +159,7 @@ def parquet_schema_to_pixeltable_schema(parquet_path: str) -> dict[str, Optional
 
 
 def import_parquet(
-    table_path: str,
+    table: str,
     *,
     parquet_path: str,
     schema_overrides: Optional[dict[str, ts.ColumnType]] = None,
@@ -148,7 +168,7 @@ def import_parquet(
     """Creates a new base table from a Parquet file or set of files. Requires pyarrow to be installed.
 
     Args:
-        table_path: Path to the table.
+        table: Fully qualified name of the table to import the data into.
         parquet_path: Path to an individual Parquet file or directory of Parquet files.
         schema_overrides: If specified, then for each (name, type) pair in `schema_overrides`, the column with
             name `name` will be given type `type`, instead of being inferred from the Parquet dataset. The keys in
@@ -157,7 +177,7 @@ def import_parquet(
         kwargs: Additional arguments to pass to `create_table`.
 
     Returns:
-        A handle to the newly created [`Table`][pixeltable.Table].
+        A handle to the newly created table.
     """
     from pyarrow import parquet
 
@@ -176,11 +196,11 @@ def import_parquet(
         if v is None:
             raise exc.Error(f'Could not infer pixeltable type for column {k} from parquet file')
 
-    if table_path in pxt.list_tables():
-        raise exc.Error(f'Table {table_path} already exists')
+    if table in pxt.list_tables():
+        raise exc.Error(f'Table {table} already exists')
 
     try:
-        tmp_name = f'{table_path}_tmp_{random.randint(0, 100000000)}'
+        tmp_name = f'{table}_tmp_{random.randint(0, 100000000)}'
         tab = pxt.create_table(tmp_name, schema, **kwargs)
         for fragment in parquet_dataset.fragments:  # type: ignore[attr-defined]
             for batch in fragment.to_batches():
@@ -190,5 +210,5 @@ def import_parquet(
         _logger.error(f'Error while inserting Parquet file into table: {e}')
         raise e
 
-    pxt.move(tmp_name, table_path)
-    return pxt.get_table(table_path)
+    pxt.move(tmp_name, table)
+    return pxt.get_table(table)

@@ -43,6 +43,7 @@ nav:
   - Model and Inference Functions:
     - anthropic: pixeltable/functions/anthropic.md
     - fireworks: pixeltable/functions/fireworks.md
+    - gemini: pixeltable/functions/gemini.md
     - huggingface: pixeltable/functions/huggingface.md
     - llama_cpp: pixeltable/functions/llama_cpp.md
     - mistralai: pixeltable/functions/mistralai.md
@@ -73,7 +74,7 @@ plugins:
               docstring_section_style: list
               docstring_style: google
               extensions:
-                pixeltable.tool.doc_plugins.griffe:PxtGriffeExtension:
+                tool.doc_plugins.griffe:PxtGriffeExtension:
               filters: ["!^_"]
               inherited_members: true
               line_length: 80

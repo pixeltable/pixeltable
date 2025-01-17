@@ -23,3 +23,4 @@ from .similarity_expr import SimilarityExpr
 from .sql_element_cache import SqlElementCache
 from .type_cast import TypeCast
 from .variable import Variable
+from .globals import ComparisonOperator, LogicalOperator, ArithmeticOperator

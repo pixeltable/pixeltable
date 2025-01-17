@@ -46,7 +46,7 @@ class ColumnPropertyRef(Expr):
         assert isinstance(col_ref, ColumnRef)
         return col_ref
 
-    def __str__(self) -> str:
+    def __repr__(self) -> str:
         return f'{self._col_ref}.{self.prop.name.lower()}'
 
     def is_error_prop(self) -> bool:

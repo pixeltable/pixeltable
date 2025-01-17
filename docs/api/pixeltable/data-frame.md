@@ -11,6 +11,7 @@ Another difference to pandas is that query execution needs to be initiated expli
 | Query Construction                          |                                                        |
 |---------------------------------------------|--------------------------------------------------------|
 | [`select`][pixeltable.DataFrame.select]     | Select output expressions                              |
+| [`join`][pixeltable.DataFrame.join]         | Join to another table                                  |
 | [`where`][pixeltable.DataFrame.where]       | Filter table rows                                      |
 | [`group_by`][pixeltable.DataFrame.group_by] | Group table rows in order to apply aggregate functions |
 | [`order_by`][pixeltable.DataFrame.order_by] | Order output rows                                      |
@@ -38,6 +39,7 @@ Another difference to pandas is that query execution needs to be initiated expli
       - limit
       - order_by
       - select
+      - join
       - show
       - tail
       - to_pytorch_dataset

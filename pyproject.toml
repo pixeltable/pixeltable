@@ -5,14 +5,40 @@ build-backend = "poetry_dynamic_versioning.backend"
 [tool.poetry]
 name = "pixeltable"
 version = "0.0.0"
-description = "Pixeltable: The Multimodal AI Data Plane"
+description = "AI Data Infrastructure: Declarative, Multimodal, and Incremental"
+license = "Apache-2.0"
 authors = ["Pixeltable, Inc. <contact@pixeltable.com>"]
 readme = "README.md"
+homepage = "https://pixeltable.com/"
+repository = "https://github.com/pixeltable/pixeltable"
+documentation = "https://docs.pixeltable.com/"
+keywords = [
+    "data-science", "machine-learning", "database", "ai", "computer-vision",
+    "chatbot", "ml", "artificial-intelligence", "feature-engineering", "multimodal",
+    "mlops", "feature-store", "vector-database", "llm", "genai"
+]
+classifiers = [
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Database",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 exclude = [
     ".pytype",
     ".pytest_cache",
     "tests",
     "docs",
+    "tool",
 ]
 
 [tool.poetry.dependencies]
@@ -22,10 +48,11 @@ pandas = ">=2.0,<3.0"
 pillow = ">=9.3.0"
 tqdm = ">=4.64"
 toml = ">=0.10"
+jsonschema = ">=4.1.0"
 jmespath = "^1.0.1"
 more-itertools = "^10.2"
 cloudpickle = "^2.2.1"
-psycopg = { extras = ["binary"], version = "==3.1.18" }
+psycopg = { extras = ["binary"], version = ">=3.1.18" }
 psutil = "^5.9.5"
 sqlalchemy = "^2.0.23"
 pgvector = "^0.2.1"
@@ -39,7 +66,8 @@ tenacity = "^8.2"
 puremagic = ">=1.20"
 pymupdf = "^1.24.1"
 ftfy = "^6.2.0"
-pixeltable-pgserver = "==0.2.7"
+pydantic = ">=2.7.4"  # Required minimum version to work with spacy + python 3.12
+pixeltable-pgserver = "==0.2.9"
 
 [tool.poetry.group.dev]
 optional = true
@@ -57,6 +85,7 @@ pandas-stubs = ">=2.0"
 pyarrow-stubs = "^10.0.1.7"
 types-beautifulsoup4 = ">=4.2"
 types-jmespath = ">=1.0"
+types-jsonschema = ">=4.1.0"
 types-pillow = ">=10.0"
 types-pyyaml = "^6.0.1"
 types-requests = ">=2.31.0"
@@ -89,25 +118,32 @@ together = "^1.3.1"
 fireworks-ai = "^0.13.0"
 mistralai = "^1.2.1"
 replicate = "^1.0.2"
+google-generativeai = "^0.8.3"
 boto3 = "==1.35.5"  # Locking a specific version of boto3 dramatically improves `poetry lock` runtimes
 spacy = ">=3.7"
-pydantic = ">=2.7.4"  # Required minimum version to work with spacy + python 3.12
 sentencepiece = ">=0.2.0"
 tiktoken = ">=0.7"
 sentence-transformers = "^2.0.0"
 transformers = "^4.20"
 timm = "^1.0.11"
-datasets = ">=2.15.0"
+datasets = ">=3.2.0"
 openpyxl = ">=3.1"  # Excel (.xlsx) support
 openai-whisper = ">=20240930"
-whisperx = { git = "https://github.com/m-bain/whisperX.git", rev = "f2da2f8" }
 label-studio-sdk = "^0.0.32"
 fiftyone = "^1.0.0"
-ollama = ">=0.3.3"
+ollama = ">=0.4.0"
 llama-cpp-python = ">=0.3.1"
+psycopg = [  # Lock psycopg versions in dev to ensure proper behavior with all Python versions
+    { extras = ["binary"], version = "==3.1.18", python = "<3.13" },
+    { extras = ["binary"], version = "==3.2.3", python = ">=3.13" }
+]
+av = [  # Lock av versions in dev
+    { version = "==11.0.0", python = "<3.13" },
+    { version = "==13.1.0", python = ">=3.13" }
+]
 
 [tool.poetry.plugins."mkdocstrings.python.templates"]
-extension-name = "pixeltable.tool.doc_plugins.mkdocstrings:get_templates_path"
+extension-name = "tool.doc_plugins.mkdocstrings:get_templates_path"
 
 [tool.poetry-dynamic-versioning]
 enable = true
@@ -126,7 +162,7 @@ disable_error_code = "no-any-unimported, no-any-return"
 disallow_any_unimported = true
 check_untyped_defs = true
 follow_imports = "silent"
-plugins = "pydantic.mypy, pixeltable/tool/mypy_plugin.py"
+plugins = "pydantic.mypy, tool/mypy_plugin.py"
 show_error_codes = true
 strict_optional = false
 warn_return_any = true
@@ -173,6 +209,8 @@ filterwarnings = [
     "ignore:The 'strip_cdata' option of HTMLParser:DeprecationWarning",
     # This one is raised by mongoengine, which is required by fiftyone:
     "ignore:No uuidRepresentation is specified! Falling back to 'pythonLegacy' which is the default for pymongo 3.x:DeprecationWarning",
+    # This one is raised by huggingface-hub:
+    "ignore:`resume_download` is deprecated and will be removed:FutureWarning",
 ]
 
 [tool.ruff]

@@ -1,4 +1,8 @@
-from typing import Any, Iterable, Optional, Sequence
+from __future__ import annotations
+
+import dataclasses
+import enum
+from typing import Any, Iterable, Optional, Sequence, Literal
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -38,13 +42,46 @@ def _get_combined_ordering(
     return result
 
 
+class JoinType(enum.Enum):
+    INNER = 0
+    LEFT = 1
+    # TODO: implement
+    # RIGHT = 2
+    FULL_OUTER = 3
+    CROSS = 4
+
+    LiteralType = Literal['inner', 'left', 'full_outer', 'cross']
+
+    @classmethod
+    def validated(cls, name: str, error_prefix: str) -> JoinType:
+        try:
+            return cls[name.upper()]
+        except KeyError:
+            val_strs = ', '.join(f'{s.lower()!r}' for s in cls.__members__.keys())
+            raise excs.Error(f'{error_prefix} must be one of: [{val_strs}]')
+
+
+@dataclasses.dataclass
+class JoinClause:
+    """Corresponds to a single 'JOIN ... ON (...)' clause in a SELECT statement; excludes the joined table."""
+    join_type: JoinType
+    join_predicate: Optional[exprs.Expr]  # None for join_type == CROSS
+
+
+@dataclasses.dataclass
+class FromClause:
+    """Corresponds to the From-clause ('FROM <tbl> JOIN ... ON (...) JOIN ...') of a SELECT statement """
+    tbls: list[catalog.TableVersionPath]
+    join_clauses: list[JoinClause] = dataclasses.field(default_factory=list)
+
+
 class Analyzer:
     """
     Performs semantic analysis of a query and stores the analysis state.
     """
 
-    tbl: catalog.TableVersionPath
-    all_exprs: list[exprs.Expr]
+    from_clause: FromClause
+    all_exprs: list[exprs.Expr]  # union of all exprs, aside from sql_where_clause
     select_list: list[exprs.Expr]
     group_by_clause: Optional[list[exprs.Expr]]  # None for non-aggregate queries; [] for agg query w/o grouping
     grouping_exprs: list[exprs.Expr]  # [] for non-aggregate queries or agg query w/o grouping
@@ -63,12 +100,12 @@ class Analyzer:
     agg_order_by: list[exprs.Expr]
 
     def __init__(
-            self, tbl: catalog.TableVersionPath, select_list: Sequence[exprs.Expr],
+            self, from_clause: FromClause, select_list: Sequence[exprs.Expr],
             where_clause: Optional[exprs.Expr] = None, group_by_clause: Optional[list[exprs.Expr]] = None,
             order_by_clause: Optional[list[tuple[exprs.Expr, bool]]] = None):
         if order_by_clause is None:
             order_by_clause = []
-        self.tbl = tbl
+        self.from_clause = from_clause
         self.sql_elements = exprs.SqlElementCache()
 
         # remove references to unstored computed cols
@@ -88,6 +125,9 @@ class Analyzer:
 
         # all exprs that are evaluated in Python; not executable
         self.all_exprs = self.select_list.copy()
+        for join_clause in from_clause.join_clauses:
+            if join_clause.join_predicate is not None:
+                self.all_exprs.append(join_clause.join_predicate)
         if self.group_by_clause is not None:
             self.all_exprs.extend(self.group_by_clause)
         self.all_exprs.extend(e for e, _ in self.order_by_clause)
@@ -316,7 +356,8 @@ class Planner:
             recomputed_cols = {c for c in recomputed_cols if c.is_stored}
         recomputed_base_cols = {col for col in recomputed_cols if col.tbl == target}
         copied_cols = [
-            col for col in target.cols if col.is_stored and not col in updated_cols and not col in recomputed_base_cols
+            col for col in target.cols_by_id.values()
+            if col.is_stored and not col in updated_cols and not col in recomputed_base_cols
         ]
         select_list: list[exprs.Expr] = [exprs.ColumnRef(col) for col in copied_cols]
         select_list.extend(update_targets.values())
@@ -329,7 +370,7 @@ class Planner:
         select_list.extend(recomputed_exprs)
 
         # we need to retrieve the PK columns of the existing rows
-        plan = cls.create_query_plan(tbl, select_list, where_clause=where_clause, ignore_errors=True)
+        plan = cls.create_query_plan(FromClause(tbls=[tbl]), select_list, where_clause=where_clause, ignore_errors=True)
         all_base_cols = copied_cols + updated_cols + list(recomputed_base_cols)  # same order as select_list
         # update row builder with column information
         for i, col in enumerate(all_base_cols):
@@ -373,7 +414,8 @@ class Planner:
         recomputed_cols = {c for c in recomputed_cols if c.is_stored}
         recomputed_base_cols = {col for col in recomputed_cols if col.tbl == target}
         copied_cols = [
-            col for col in target.cols if col.is_stored and not col in updated_cols and not col in recomputed_base_cols
+            col for col in target.cols_by_id.values()
+            if col.is_stored and not col in updated_cols and not col in recomputed_base_cols
         ]
         select_list: list[exprs.Expr] = [exprs.ColumnRef(col) for col in copied_cols]
         select_list.extend(exprs.ColumnRef(col) for col in updated_cols)
@@ -387,13 +429,12 @@ class Planner:
         # - SqlLookupNode to retrieve the existing rows
         # - RowUpdateNode to update the retrieved rows
         # - ExprEvalNode to evaluate the remaining output exprs
-        analyzer = Analyzer(tbl, select_list)
+        analyzer = Analyzer(FromClause(tbls=[tbl]), select_list)
         sql_exprs = list(exprs.Expr.list_subexprs(
             analyzer.all_exprs, filter=analyzer.sql_elements.contains, traverse_matches=False))
         row_builder = exprs.RowBuilder(analyzer.all_exprs, [], sql_exprs)
         analyzer.finalize(row_builder)
         sql_lookup_node = exec.SqlLookupNode(tbl, row_builder, sql_exprs, sa_key_cols, key_vals)
-        delete_where_clause = sql_lookup_node.where_clause
         col_vals = [{col: row[col].val for col in updated_cols} for row in batch]
         row_update_node = exec.RowUpdateNode(tbl, key_vals, len(rowids) > 0, col_vals, row_builder, sql_lookup_node)
         plan: exec.ExecNode = row_update_node
@@ -412,7 +453,8 @@ class Planner:
         plan.set_ctx(ctx)
         recomputed_user_cols = [c for c in recomputed_cols if c.name is not None]
         return (
-            plan, row_update_node, delete_where_clause, list(updated_cols) + recomputed_user_cols, recomputed_user_cols
+            plan, row_update_node, sql_lookup_node.where_clause_element, list(updated_cols) + recomputed_user_cols,
+            recomputed_user_cols
         )
 
     @classmethod
@@ -439,7 +481,7 @@ class Planner:
         target = view.tbl_version  # the one we need to update
         # retrieve all stored cols and all target exprs
         recomputed_cols = set(recompute_targets.copy())
-        copied_cols = [col for col in target.cols if col.is_stored and not col in recomputed_cols]
+        copied_cols = [col for col in target.cols_by_id.values() if col.is_stored and not col in recomputed_cols]
         select_list: list[exprs.Expr] = [exprs.ColumnRef(col) for col in copied_cols]
         # resolve recomputed exprs to stored columns in the base
         recomputed_exprs = \
@@ -448,7 +490,8 @@ class Planner:
 
         # we need to retrieve the PK columns of the existing rows
         plan = cls.create_query_plan(
-            view, select_list, where_clause=target.predicate, ignore_errors=True, exact_version_only=view.get_bases())
+            FromClause(tbls=[view]), select_list, where_clause=target.predicate, ignore_errors=True,
+            exact_version_only=view.get_bases())
         for i, col in enumerate(copied_cols + list(recomputed_cols)):  # same order as select_list
             plan.row_builder.add_table_column(col, select_list[i].slot_idx)
         # TODO: avoid duplication with view_load_plan() logic (where does this belong?)
@@ -459,7 +502,7 @@ class Planner:
 
     @classmethod
     def create_view_load_plan(
-            cls, view: catalog.TableVersionPath, propagates_insert: bool = False
+        cls, view: catalog.TableVersionPath, propagates_insert: bool = False
     ) -> tuple[exec.ExecNode, int]:
         """Creates a query plan for populating a view.
 
@@ -479,7 +522,7 @@ class Planner:
         # - we can ignore stored non-computed columns because they have a default value that is supplied directly by
         #   the store
         target = view.tbl_version  # the one we need to populate
-        stored_cols = [c for c in target.cols if c.is_stored]
+        stored_cols = [c for c in target.cols_by_id.values() if c.is_stored]
         # 2. for component views: iterator args
         iterator_args = [target.iterator_args] if target.iterator_args is not None else []
 
@@ -489,16 +532,16 @@ class Planner:
         # 1. materialize exprs computed from the base that are needed for stored view columns
         # 2. if it's an iterator view, expand the base rows into component rows
         # 3. materialize stored view columns that haven't been produced by step 1
-        base_output_exprs = [e for e in row_builder.default_eval_ctx.exprs if e.is_bound_by(view.base)]
+        base_output_exprs = [e for e in row_builder.default_eval_ctx.exprs if e.is_bound_by([view.base])]
         view_output_exprs = [
             e for e in row_builder.default_eval_ctx.target_exprs
-            if e.is_bound_by(view) and not e.is_bound_by(view.base)
+            if e.is_bound_by([view]) and not e.is_bound_by([view.base])
         ]
         # if we're propagating an insert, we only want to see those base rows that were created for the current version
-        base_analyzer = Analyzer(view, base_output_exprs, where_clause=target.predicate)
+        base_analyzer = Analyzer(FromClause(tbls=[view.base]), base_output_exprs, where_clause=target.predicate)
         base_eval_ctx = row_builder.create_eval_ctx(base_analyzer.all_exprs)
         plan = cls._create_query_plan(
-            view.base, row_builder=row_builder, analyzer=base_analyzer, eval_ctx=base_eval_ctx, with_pk=True,
+            row_builder=row_builder, analyzer=base_analyzer, eval_ctx=base_eval_ctx, with_pk=True,
             exact_version_only=view.get_bases() if propagates_insert else [])
         exec_ctx = plan.ctx
         if target.is_component_view():
@@ -512,6 +555,13 @@ class Planner:
         exec_ctx.ignore_errors = True
         plan.set_ctx(exec_ctx)
         return plan, len(row_builder.default_eval_ctx.target_exprs)
+
+    @classmethod
+    def _verify_join_clauses(cls, analyzer: Analyzer) -> None:
+        """Verify that join clauses are expressible in SQL"""
+        for join_clause in analyzer.from_clause.join_clauses:
+            if join_clause.join_predicate is not None and analyzer.sql_elements.get(join_clause.join_predicate) is None:
+                raise excs.Error(f'Join predicate {join_clause.join_predicate} not expressible in SQL')
 
     @classmethod
     def _verify_ordering(cls, analyzer: Analyzer, verify_agg: bool) -> None:
@@ -551,9 +601,7 @@ class Planner:
         return s1 <= s2
 
     @classmethod
-    def _insert_prefetch_node(
-            cls, tbl_id: UUID, output_exprs: list[exprs.Expr], row_builder: exprs.RowBuilder, input: exec.ExecNode
-    ) -> exec.ExecNode:
+    def _insert_prefetch_node(cls, tbl_id: UUID, row_builder: exprs.RowBuilder, input: exec.ExecNode) -> exec.ExecNode:
         """Returns a CachePrefetchNode into the plan if needed, otherwise returns input"""
         # we prefetch external files for all media ColumnRefs, even those that aren't part of the dependencies
         # of output_exprs: if unstored iterator columns are present, we might need to materialize ColumnRefs that
@@ -570,7 +618,7 @@ class Planner:
 
     @classmethod
     def create_query_plan(
-            cls, tbl: catalog.TableVersionPath, select_list: Optional[list[exprs.Expr]] = None,
+            cls, from_clause: FromClause, select_list: Optional[list[exprs.Expr]] = None,
             where_clause: Optional[exprs.Expr] = None, group_by_clause: Optional[list[exprs.Expr]] = None,
             order_by_clause: Optional[list[tuple[exprs.Expr, bool]]] = None, limit: Optional[int] = None,
             ignore_errors: bool = False, exact_version_only: Optional[list[catalog.TableVersion]] = None
@@ -586,7 +634,7 @@ class Planner:
         if exact_version_only is None:
             exact_version_only = []
         analyzer = Analyzer(
-            tbl, select_list, where_clause=where_clause, group_by_clause=group_by_clause,
+            from_clause, select_list, where_clause=where_clause, group_by_clause=group_by_clause,
             order_by_clause=order_by_clause)
         row_builder = exprs.RowBuilder(analyzer.all_exprs, [], [])
 
@@ -595,7 +643,7 @@ class Planner:
         # with_pk: for now, we always retrieve the PK, because we need it for the file cache
         eval_ctx = row_builder.create_eval_ctx(analyzer.select_list)
         plan = cls._create_query_plan(
-            tbl, row_builder, analyzer=analyzer, eval_ctx=eval_ctx, limit=limit, with_pk=True,
+            row_builder=row_builder, analyzer=analyzer, eval_ctx=eval_ctx, limit=limit, with_pk=True,
             exact_version_only=exact_version_only)
         plan.ctx.ignore_errors = ignore_errors
         select_list.clear()
@@ -604,10 +652,9 @@ class Planner:
 
     @classmethod
     def _create_query_plan(
-            cls, tbl: catalog.TableVersionPath, row_builder: exprs.RowBuilder, analyzer: Analyzer,
-            eval_ctx: exprs.RowBuilder.EvalCtx,
-            limit: Optional[int] = None, with_pk: bool = False,
-            exact_version_only: Optional[list[catalog.TableVersion]] = None
+        cls, row_builder: exprs.RowBuilder, analyzer: Analyzer, eval_ctx: exprs.RowBuilder.EvalCtx,
+        limit: Optional[int] = None, with_pk: bool = False,
+        exact_version_only: Optional[list[catalog.TableVersion]] = None
     ) -> exec.ExecNode:
         """
         Create plan to materialize eval_ctx.
@@ -619,7 +666,6 @@ class Planner:
         """
         if exact_version_only is None:
             exact_version_only = []
-        assert isinstance(tbl, catalog.TableVersionPath)
         sql_elements = analyzer.sql_elements
         is_python_agg = (
             not sql_elements.contains_all(analyzer.agg_fn_calls)
@@ -627,17 +673,19 @@ class Planner:
         )
         ctx = exec.ExecContext(row_builder)
         cls._verify_ordering(analyzer, verify_agg=is_python_agg)
+        cls._verify_join_clauses(analyzer)
 
-        # materialized with SQL scan:
+        # materialized with SQL table scans (ie, single-table SELECT statements):
         # - select list subexprs that aren't aggregates
-        # - Where clause conjuncts that can't be run in SQL
+        # - join clause subexprs
+        # - subexprs of Where clause conjuncts that can't be run in SQL
         # - all grouping exprs, if any aggregate function call can't be run in SQL (in that case, they all have to be
         #   run in Python)
         candidates = list(exprs.Expr.list_subexprs(
             analyzer.select_list,
             filter=lambda e: (
-                sql_elements.contains(e)
-                and not e._contains(cls=exprs.FunctionCall, filter=lambda e: bool(e.is_agg_fn_call))
+                    sql_elements.contains(e)
+                    and not e._contains(cls=exprs.FunctionCall, filter=lambda e: bool(e.is_agg_fn_call))
             ),
             traverse_matches=False))
         if analyzer.filter is not None:
@@ -647,15 +695,44 @@ class Planner:
             candidates.extend(exprs.Expr.list_subexprs(
                 analyzer.group_by_clause, filter=lambda e: sql_elements.contains(e), traverse_matches=False))
         # not isinstance(...): we don't want to materialize Literals via a Select
-        sql_scan_exprs = exprs.ExprSet(e for e in candidates if not isinstance(e, exprs.Literal))
+        sql_exprs = exprs.ExprSet(e for e in candidates if not isinstance(e, exprs.Literal))
 
-        plan = exec.SqlScanNode(
-            tbl, row_builder, select_list=sql_scan_exprs, where_clause=analyzer.sql_where_clause,
-            filter=analyzer.filter, set_pk=with_pk, exact_version_only=exact_version_only)
+        # create table scans; each scan produces subexprs of (sql_exprs + join clauses)
+        join_exprs = exprs.ExprSet(
+            join_clause.join_predicate
+            for join_clause in analyzer.from_clause.join_clauses
+            if join_clause.join_predicate is not None)
+        scan_target_exprs = sql_exprs | join_exprs
+        tbl_scan_plans: list[exec.SqlScanNode] = []
+        plan: exec.ExecNode
+        for tbl in analyzer.from_clause.tbls:
+            # materialize all subexprs of scan_target_exprs that are bound by tbl
+            tbl_scan_exprs = exprs.ExprSet(
+                exprs.Expr.list_subexprs(
+                    scan_target_exprs,
+                    filter=lambda e: e.is_bound_by([tbl]) and not isinstance(e, exprs.Literal),
+                    traverse_matches=False))
+            plan = exec.SqlScanNode(
+                tbl, row_builder, select_list=tbl_scan_exprs,
+                set_pk=with_pk, exact_version_only=exact_version_only)
+            tbl_scan_plans.append(plan)
+
+        if len(analyzer.from_clause.join_clauses) > 0:
+            plan = exec.SqlJoinNode(
+                row_builder, inputs=tbl_scan_plans, join_clauses=analyzer.from_clause.join_clauses,
+                select_list=sql_exprs)
+        else:
+            plan = tbl_scan_plans[0]
+
+        if analyzer.sql_where_clause is not None:
+            plan.set_where(analyzer.sql_where_clause)
+        if analyzer.filter is not None:
+            plan.set_py_filter(analyzer.filter)
         if len(analyzer.window_fn_calls) > 0:
             # we need to order the input for window functions
-            plan.add_order_by(analyzer.get_window_fn_ob_clause())
-        plan = cls._insert_prefetch_node(tbl.tbl_version.id, analyzer.select_list, row_builder, plan)
+            plan.set_order_by(analyzer.get_window_fn_ob_clause())
+
+        plan = cls._insert_prefetch_node(tbl.tbl_version.id, row_builder, plan)
 
         if analyzer.group_by_clause is not None:
             # we're doing grouping aggregation; the input of the AggregateNode are the grouping exprs plus the
@@ -663,9 +740,9 @@ class Planner:
             agg_input = exprs.ExprSet(analyzer.grouping_exprs.copy())
             for fn_call in analyzer.agg_fn_calls:
                 agg_input.update(fn_call.components)
-            if not sql_scan_exprs.issuperset(agg_input):
+            if not sql_exprs.issuperset(agg_input):
                 # we need an ExprEvalNode
-                plan = exec.ExprEvalNode(row_builder, agg_input, sql_scan_exprs, input=plan)
+                plan = exec.ExprEvalNode(row_builder, agg_input, sql_exprs, input=plan)
 
             # batch size for aggregation input: this could be the entire table, so we need to divide it into
             # smaller batches; at the same time, we need to make the batches large enough to amortize the
@@ -689,16 +766,17 @@ class Planner:
                     # we need an ExprEvalNode to evaluate the remaining output exprs
                     plan = exec.ExprEvalNode(row_builder, eval_ctx.target_exprs, agg_output, input=plan)
         else:
-            if not exprs.ExprSet(sql_scan_exprs).issuperset(exprs.ExprSet(eval_ctx.target_exprs)):
+            if not exprs.ExprSet(sql_exprs).issuperset(exprs.ExprSet(eval_ctx.target_exprs)):
                 # we need an ExprEvalNode to evaluate the remaining output exprs
-                plan = exec.ExprEvalNode(row_builder, eval_ctx.target_exprs, sql_scan_exprs, input=plan)
+                plan = exec.ExprEvalNode(row_builder, eval_ctx.target_exprs, sql_exprs, input=plan)
             # we're returning everything to the user, so we might as well do it in a single batch
             ctx.batch_size = 0
 
-        sql_node = plan.get_sql_node()
-        assert sql_node is not None
         if len(analyzer.order_by_clause) > 0:
-            sql_node.add_order_by(analyzer.order_by_clause)
+            # we have the last SqlNode we created produce the ordering
+            sql_node = plan.get_node(exec.SqlNode)
+            assert sql_node is not None
+            sql_node.set_order_by(analyzer.order_by_clause)
 
         if limit is not None:
             plan.set_limit(limit)
@@ -708,7 +786,7 @@ class Planner:
 
     @classmethod
     def analyze(cls, tbl: catalog.TableVersionPath, where_clause: exprs.Expr) -> Analyzer:
-        return Analyzer(tbl, [], where_clause=where_clause)
+        return Analyzer(FromClause(tbls=[tbl]), [], where_clause=where_clause)
 
     @classmethod
     def create_add_column_plan(
@@ -721,9 +799,9 @@ class Planner:
         """
         assert isinstance(tbl, catalog.TableVersionPath)
         row_builder = exprs.RowBuilder(output_exprs=[], columns=[col], input_exprs=[])
-        analyzer = Analyzer(tbl, row_builder.default_eval_ctx.target_exprs)
+        analyzer = Analyzer(FromClause(tbls=[tbl]), row_builder.default_eval_ctx.target_exprs)
         plan = cls._create_query_plan(
-            tbl, row_builder=row_builder, analyzer=analyzer, eval_ctx=row_builder.default_eval_ctx, with_pk=True)
+            row_builder=row_builder, analyzer=analyzer, eval_ctx=row_builder.default_eval_ctx, with_pk=True)
         plan.ctx.batch_size = 16
         plan.ctx.show_pbar = True
         plan.ctx.ignore_errors = True

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Optional, overload
+from typing import Any, Callable, Optional, Sequence, overload
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 
 from .callable_function import CallableFunction
-from .expr_template_function import ExprTemplateFunction
+from .expr_template_function import ExprTemplateFunction, ExprTemplate
 from .function import Function
 from .function_registry import FunctionRegistry
 from .globals import validate_symbol_path
@@ -21,13 +21,14 @@ def udf(decorated_fn: Callable) -> Function: ...
 # Decorator schema invoked with parentheses: @pxt.udf(**kwargs)
 @overload
 def udf(
-        *,
-        batch_size: Optional[int] = None,
-        substitute_fn: Optional[Callable] = None,
-        is_method: bool = False,
-        is_property: bool = False,
-        _force_stored: bool = False
-) -> Callable[[Callable], Function]: ...
+    *,
+    batch_size: Optional[int] = None,
+    substitute_fn: Optional[Callable] = None,
+    is_method: bool = False,
+    is_property: bool = False,
+    type_substitutions: Optional[Sequence[dict]] = None,
+    _force_stored: bool = False
+) -> Callable[[Callable], CallableFunction]: ...
 
 
 def udf(*args, **kwargs):
@@ -52,6 +53,7 @@ def udf(*args, **kwargs):
         substitute_fn = kwargs.pop('substitute_fn', None)
         is_method = kwargs.pop('is_method', None)
         is_property = kwargs.pop('is_property', None)
+        type_substitutions = kwargs.pop('type_substitutions', None)
         force_stored = kwargs.pop('_force_stored', False)
         if len(kwargs) > 0:
             raise excs.Error(f'Invalid @udf decorator kwargs: {", ".join(kwargs.keys())}')
@@ -65,6 +67,7 @@ def udf(*args, **kwargs):
                 substitute_fn=substitute_fn,
                 is_method=is_method,
                 is_property=is_property,
+                type_substitutions=type_substitutions,
                 force_stored=force_stored
             )
 
@@ -79,9 +82,10 @@ def make_function(
     substitute_fn: Optional[Callable] = None,
     is_method: bool = False,
     is_property: bool = False,
+    type_substitutions: Optional[Sequence[dict]] = None,
     function_name: Optional[str] = None,
     force_stored: bool = False
-) -> Function:
+) -> CallableFunction:
     """
     Constructs a `CallableFunction` from the specified parameters.
     If `substitute_fn` is specified, then `decorated_fn`
@@ -104,25 +108,43 @@ def make_function(
     # Display name to use for error messages
     errmsg_name = function_name if function_path is None else function_path
 
-    sig = Signature.create(decorated_fn, param_types, return_type)
+    signatures: list[Signature]
+    if type_substitutions is None:
+        sig = Signature.create(decorated_fn, param_types, return_type)
 
-    # batched functions must have a batched return type
-    # TODO: remove 'Python' from the error messages when we have full inference with Annotated types
-    if batch_size is not None and not sig.is_batched:
-        raise excs.Error(f'{errmsg_name}(): batch_size is specified; Python return type must be a `Batch`')
-    if batch_size is not None and len(sig.batched_parameters) == 0:
-        raise excs.Error(f'{errmsg_name}(): batch_size is specified; at least one Python parameter must be `Batch`')
-    if batch_size is None and len(sig.batched_parameters) > 0:
-        raise excs.Error(f'{errmsg_name}(): batched parameters in udf, but no `batch_size` given')
+        # batched functions must have a batched return type
+        # TODO: remove 'Python' from the error messages when we have full inference with Annotated types
+        if batch_size is not None and not sig.is_batched:
+            raise excs.Error(f'{errmsg_name}(): batch_size is specified; Python return type must be a `Batch`')
+        if batch_size is not None and len(sig.batched_parameters) == 0:
+            raise excs.Error(f'{errmsg_name}(): batch_size is specified; at least one Python parameter must be `Batch`')
+        if batch_size is None and len(sig.batched_parameters) > 0:
+            raise excs.Error(f'{errmsg_name}(): batched parameters in udf, but no `batch_size` given')
 
-    if is_method and is_property:
-        raise excs.Error(f'Cannot specify both `is_method` and `is_property` (in function `{function_name}`)')
-    if is_property and len(sig.parameters) != 1:
-        raise excs.Error(
-            f"`is_property=True` expects a UDF with exactly 1 parameter, but `{function_name}` has {len(sig.parameters)}"
-        )
-    if (is_method or is_property) and function_path is None:
-        raise excs.Error('Stored functions cannot be declared using `is_method` or `is_property`')
+        if is_method and is_property:
+            raise excs.Error(f'Cannot specify both `is_method` and `is_property` (in function `{function_name}`)')
+        if is_property and len(sig.parameters) != 1:
+            raise excs.Error(
+                f"`is_property=True` expects a UDF with exactly 1 parameter, but `{function_name}` has {len(sig.parameters)}"
+            )
+        if (is_method or is_property) and function_path is None:
+            raise excs.Error('Stored functions cannot be declared using `is_method` or `is_property`')
+
+        signatures = [sig]
+    else:
+        if function_path is None:
+            raise excs.Error(
+                f'{errmsg_name}(): type substitutions can only be used with module UDFs (not locally defined UDFs)'
+            )
+        if batch_size is not None:
+            raise excs.Error(f'{errmsg_name}(): type substitutions cannot be used with batched functions')
+        if is_method is not None or is_property is not None:
+            # TODO: Support this for `is_method`?
+            raise excs.Error(f'{errmsg_name}(): type substitutions cannot be used with `is_method` or `is_property`')
+        signatures = [
+            Signature.create(decorated_fn, param_types, return_type, type_substitutions=subst)
+            for subst in type_substitutions
+        ]
 
     if substitute_fn is None:
         py_fn = decorated_fn
@@ -132,8 +154,8 @@ def make_function(
         py_fn = substitute_fn
 
     result = CallableFunction(
-        signature=sig,
-        py_fn=py_fn,
+        signatures=signatures,
+        py_fns=[py_fn] * len(signatures),  # All signatures share the same Python function
         self_path=function_path,
         self_name=function_name,
         batch_size=batch_size,
@@ -171,12 +193,12 @@ def expr_udf(*args: Any, **kwargs: Any) -> Any:
         import pixeltable.exprs as exprs
         var_exprs = [exprs.Variable(param.name, param.col_type) for param in sig.parameters.values()]
         # call the function with the parameter expressions to construct an Expr with parameters
-        template = py_fn(*var_exprs)
-        assert isinstance(template, exprs.Expr)
-        sig.return_type = template.col_type
+        expr = py_fn(*var_exprs)
+        assert isinstance(expr, exprs.Expr)
+        sig.return_type = expr.col_type
         if function_path is not None:
             validate_symbol_path(function_path)
-        return ExprTemplateFunction(template, sig, self_path=function_path, name=py_fn.__name__)
+        return ExprTemplateFunction([ExprTemplate(expr, sig)], self_path=function_path, name=py_fn.__name__)
 
     if len(args) == 1:
         assert len(kwargs) == 0 and callable(args[0])

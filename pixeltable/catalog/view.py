@@ -16,7 +16,7 @@ from pixeltable.iterators import ComponentIterator
 
 from .catalog import Catalog
 from .column import Column
-from .globals import _POS_COLUMN_NAME, UpdateStatus, MediaValidation
+from .globals import _POS_COLUMN_NAME, MediaValidation, UpdateStatus
 from .table import Table
 from .table_version import TableVersion
 from .table_version_path import TableVersionPath
@@ -59,7 +59,7 @@ class View(Table):
 
         # verify that filter can be evaluated in the context of the base
         if predicate is not None:
-            if not predicate.is_bound_by(base):
+            if not predicate.is_bound_by([base]):
                 raise excs.Error(f'Filter cannot be computed in the context of the base {base.tbl_name()}')
             # create a copy that we can modify and store
             predicate = predicate.copy()
@@ -69,7 +69,7 @@ class View(Table):
             if not col.is_computed:
                 continue
             # make sure that the value can be computed in the context of the base
-            if col.value_expr is not None and not col.value_expr.is_bound_by(base):
+            if col.value_expr is not None and not col.value_expr.is_bound_by([base]):
                 raise excs.Error(
                     f'Column {col.name}: value expression cannot be computed in the context of the base {base.tbl_name()}')
 
@@ -166,13 +166,11 @@ class View(Table):
             return view
 
     @classmethod
-    def _verify_column(
-            cls, col: Column, existing_column_names: set[str], existing_query_names: Optional[set[str]] = None
-    ) -> None:
+    def _verify_column(cls, col: Column) -> None:
         # make sure that columns are nullable or have a default
         if not col.col_type.nullable and not col.is_computed:
             raise excs.Error(f'Column {col.name}: non-computed columns in views must be nullable')
-        super()._verify_column(col, existing_column_names, existing_query_names)
+        super()._verify_column(col)
 
     @classmethod
     def _get_snapshot_path(cls, tbl_version_path: TableVersionPath) -> TableVersionPath:

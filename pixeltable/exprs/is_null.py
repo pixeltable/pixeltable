@@ -18,7 +18,7 @@ class IsNull(Expr):
         self.components = [e]
         self.id = self._create_id()
 
-    def __str__(self) -> str:
+    def __repr__(self) -> str:
         return f'{str(self.components[0])} == None'
 
     def _equals(self, other: IsNull) -> bool:

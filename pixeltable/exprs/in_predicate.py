@@ -61,7 +61,7 @@ class InPredicate(Expr):
                 pass
         return result
 
-    def __str__(self) -> str:
+    def __repr__(self) -> str:
         if self.value_list is not None:
             return f'{self.components[0]}.isin({self.value_list})'
         return f'{self.components[0]}.isin({self.components[1]})'

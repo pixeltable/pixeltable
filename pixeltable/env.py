@@ -8,6 +8,7 @@ import importlib.util
 import inspect
 import logging
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -275,6 +276,7 @@ class Env:
         if self._config.get_bool_value('hide_warnings'):
             # Disable more warnings
             warnings.simplefilter('ignore', category=UserWarning)
+            warnings.simplefilter('ignore', category=FutureWarning)
 
         # configure _logger to log to a file
         self._logfilename = datetime.datetime.now().strftime('%Y%m%d_%H%M%S') + '.log'
@@ -311,8 +313,12 @@ class Env:
         self._db_name = os.environ.get('PIXELTABLE_DB', 'pixeltable')
         self._pgdata_dir = Path(os.environ.get('PIXELTABLE_PGDATA', str(self._home / 'pgdata')))
 
-        # in pixeltable_pgserver.get_server(): cleanup_mode=None will leave db on for debugging purposes
-        self._db_server = pixeltable_pgserver.get_server(self._pgdata_dir, cleanup_mode=None)
+        # cleanup_mode=None will leave the postgres process running after Python exits
+        # cleanup_mode='stop' will terminate the postgres process when Python exits
+        # On Windows, we need cleanup_mode='stop' because child processes are killed automatically when the parent
+        # process (such as Terminal or VSCode) exits, potentially leaving it in an unusable state.
+        cleanup_mode = 'stop' if platform.system() == 'Windows' else None
+        self._db_server = pixeltable_pgserver.get_server(self._pgdata_dir, cleanup_mode=cleanup_mode)
         self._db_url = self._db_server.get_uri(database=self._db_name, driver='psycopg')
 
         tz_name = self.config.get_string_value('time_zone')
@@ -357,7 +363,7 @@ class Env:
             self.db_url,
             echo=echo,
             future=True,
-            isolation_level='AUTOCOMMIT',
+            isolation_level='REPEATABLE READ',
             connect_args=connect_args,
         )
         self._logger.info(f'Created SQLAlchemy engine at: {self.db_url}')
@@ -496,6 +502,7 @@ class Env:
         self.__register_package('datasets')
         self.__register_package('fiftyone')
         self.__register_package('fireworks', library_name='fireworks-ai')
+        self.__register_package('google.generativeai', library_name='google-generativeai')
         self.__register_package('huggingface_hub', library_name='huggingface-hub')
         self.__register_package('label_studio_sdk', library_name='label-studio-sdk')
         self.__register_package('llama_cpp', library_name='llama-cpp-python')
@@ -505,6 +512,7 @@ class Env:
         self.__register_package('openai')
         self.__register_package('openpyxl')
         self.__register_package('pyarrow')
+        self.__register_package('pydantic')
         self.__register_package('replicate')
         self.__register_package('sentencepiece')
         self.__register_package('sentence_transformers', library_name='sentence-transformers')
@@ -520,8 +528,14 @@ class Env:
         self.__register_package('yolox', library_name='git+https://github.com/Megvii-BaseDetection/YOLOX@ac58e0a')
 
     def __register_package(self, package_name: str, library_name: Optional[str] = None) -> None:
+        is_installed: bool
+        try:
+            is_installed = importlib.util.find_spec(package_name) is not None
+        except ModuleNotFoundError:
+            # This can happen if the parent of `package_name` is not installed.
+            is_installed = False
         self.__optional_packages[package_name] = PackageInfo(
-            is_installed=importlib.util.find_spec(package_name) is not None,
+            is_installed=is_installed,
             library_name=library_name or package_name  # defaults to package_name unless specified otherwise
         )
 
@@ -577,7 +591,7 @@ class Env:
         self._logger.info(f'Ensuring spaCy model is installed: {filename}')
         ret = subprocess.run([sys.executable, '-m', 'pip', 'install', '-qU', url], check=False)
         if ret.returncode != 0:
-            self._logger.warn(f'pip install failed for spaCy model: {filename}')
+            self._logger.warning(f'pip install failed for spaCy model: {filename}')
         try:
             self._logger.info(f'Loading spaCy model: {spacy_model}')
             self._spacy_nlp = spacy.load(spacy_model)

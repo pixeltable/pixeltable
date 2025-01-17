@@ -1,15 +1,13 @@
 from __future__ import annotations
 
 import abc
-from typing import TYPE_CHECKING, Iterable, Iterator, Optional
+from typing import TYPE_CHECKING, Iterable, Iterator, Optional, TypeVar
 
 import pixeltable.exprs as exprs
 
 from .data_row_batch import DataRowBatch
 from .exec_context import ExecContext
 
-if TYPE_CHECKING:
-    from pixeltable import exec
 
 class ExecNode(abc.ABC):
     """Base class of all execution nodes"""
@@ -77,12 +75,13 @@ class ExecNode(abc.ABC):
     def _close(self) -> None:
         pass
 
-    def get_sql_node(self) -> Optional['exec.SqlNode']:
-        from .sql_node import SqlNode
-        if isinstance(self, SqlNode):
+    T = TypeVar('T', bound='ExecNode')
+
+    def get_node(self, node_class: type[T]) -> Optional[T]:
+        if isinstance(self, node_class):
             return self
         if self.input is not None:
-            return self.input.get_sql_node()
+            return self.input.get_node(node_class)
         return None
 
     def set_limit(self, limit: int) -> None:

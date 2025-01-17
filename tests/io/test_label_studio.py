@@ -289,9 +289,9 @@ class TestLabelStudio:
         t.delete(where=(t.id >= 5))  # Delete all but 5 rows so that the test isn't too slow
 
         validate_update_status(
-            t.add_column(detect=detr_for_object_detection(t.image_col, model_id='facebook/detr-resnet-50'))
+            t.add_computed_column(detect=detr_for_object_detection(t.image_col, model_id='facebook/detr-resnet-50'))
         )
-        validate_update_status(t.add_column(preannotations=detr_to_coco(t.image_col, t.detect)))
+        validate_update_status(t.add_computed_column(preannotations=detr_to_coco(t.image_col, t.detect)))
 
         sync_status = pxt.io.create_label_studio_project(
             t,
@@ -326,7 +326,7 @@ class TestLabelStudio:
         from pixeltable.io.label_studio import LabelStudioProject
 
         t = ls_image_table
-        t['annotations_col'] = pxt.Json
+        t.add_column(annotations_col=pxt.Json)
         v1 = pxt.create_view('view_1', t.where(t.id < 20))
         v2 = pxt.create_view('view_2', v1.where(t.id < 10))
 
@@ -374,9 +374,9 @@ class TestLabelStudio:
         )
         assert not v.frame.col.is_stored
         assert v.count() == 10
-        v['rot_frame'] = v.frame.rotate(180)
-        v['header'] = format('Frame Number {0}', v.frame_idx)
-        v['text'] = pxt.String
+        v.add_computed_column(rot_frame=v.frame.rotate(180))
+        v.add_computed_column(header=format('Frame Number {0}', v.frame_idx))
+        v.add_column(text=pxt.String)
         v.update({'text': 'Initial text'})
 
         sync_status = pxt.io.create_label_studio_project(v, self.test_config_complex, media_import_method='file', name='complex_project')
@@ -416,7 +416,7 @@ class TestLabelStudio:
         from pixeltable.io.label_studio import LabelStudioProject
 
         t = ls_image_table
-        t['annotations_col'] = pxt.Json
+        t.add_column(annotations_col=pxt.Json)
 
         with pytest.raises(excs.Error) as exc_info:
             pxt.io.create_label_studio_project(t, self.test_config_with_text, media_import_method='post', col_mapping={'image_col': 'image'})
@@ -440,7 +440,7 @@ def ls_image_table(init_ls, reset_db) -> pxt.InsertableTable:
         'test_ls_sync',
         {'id': pxt.Int, 'image_col': pxt.Image}
     )
-    t.add_column(rot_image_col=t.image_col.rotate(180), stored=False)
+    t.add_computed_column(rot_image_col=t.image_col.rotate(180), stored=False)
     # 30 rows, a mix of URLs and locally stored image files
     images = [SAMPLE_IMAGE_URL, *get_image_files()[:29]]
     status = t.insert({'id': n, 'image_col': image} for n, image in enumerate(images))

@@ -7,22 +7,22 @@ import urllib.parse
 from pathlib import Path
 from typing import Any, Hashable, Optional
 
-import PIL.Image
 import more_itertools
 import numpy as np
 import pandas as pd
+import PIL.Image
 import pytest
 
 import pixeltable as pxt
 from pixeltable import exprs
 import pixeltable.exceptions as excs
+import pixeltable.utils.s3 as s3_util
 from pixeltable import catalog
 from pixeltable.catalog.globals import UpdateStatus
 from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
-from pixeltable.functions.huggingface import clip_image, clip_text, sentence_transformer
+from pixeltable.functions.huggingface import clip, sentence_transformer
 from pixeltable.io import SyncStatus
-import pixeltable.utils.s3 as s3_util
 
 
 def make_default_type(t: pxt.ColumnType.Type) -> pxt.ColumnType:
@@ -140,7 +140,7 @@ def create_test_tbl(name: str = 'test_tbl') -> catalog.Table:
         'c7': pxt.Required[pxt.Json],
     }
     t = pxt.create_table(name, schema, primary_key='c2')
-    t.add_column(c8=pxt.array([[1, 2, 3], [4, 5, 6]]))
+    t.add_computed_column(c8=pxt.array([[1, 2, 3], [4, 5, 6]]))
 
     num_rows = 100
     d1 = {
@@ -396,20 +396,28 @@ def get_sentences(n: int = 100) -> list[str]:
     return [q['question'].replace("'", '') for q in questions_list[:n]]
 
 
-def assert_resultset_eq(r1: DataFrameResultSet, r2: DataFrameResultSet) -> None:
+def assert_resultset_eq(r1: DataFrameResultSet, r2: DataFrameResultSet, compare_col_names: bool = False) -> None:
     assert len(r1) == len(r2)
-    assert len(r1.schema) == len(r2.schema)  # we don't care about the actual column names
+    assert len(r1.schema) == len(r2.schema)
     assert all(type1.matches(type2) for type1, type2 in zip(r1.schema.values(), r2.schema.values()))
+    if compare_col_names:
+        assert r1.schema.keys() == r2.schema.keys()
     for r1_col, r2_col in zip(r1.schema, r2.schema):
-        # only compare column values
+        # compare column values
         s1 = r1[r1_col]
         s2 = r2[r2_col]
         if r1.schema[r1_col].is_float_type():
-            assert np.allclose(np.array(s1), np.array(s2))
+            # To handle None values in float columns, we need to set the dtype and allow NaN comparison
+            assert np.allclose(np.array(s1, dtype=float), np.array(s2, dtype=float), equal_nan=True)
         elif r1.schema[r1_col].is_array_type():
             assert all(np.array_equal(a1, a2) for a1, a2 in zip(s1, s2))
         else:
             assert s1 == s2
+
+
+def strip_lines(s: str) -> str:
+    lines = s.split('\n')
+    return '\n'.join(line.strip() for line in lines)
 
 
 def skip_test_if_not_installed(package) -> None:
@@ -450,7 +458,7 @@ def validate_sync_status(
         assert status.num_excs == expected_num_excs, status
 
 
-def make_test_arrow_table(output_path: Path) -> None:
+def make_test_arrow_table(output_path: Path) -> str:
     import pyarrow as pa
     from pyarrow import parquet
 
@@ -508,13 +516,20 @@ def make_test_arrow_table(output_path: Path) -> None:
 
     test_table = pa.Table.from_pydict(value_dict, schema=schema)
     parquet.write_table(test_table, str(output_path / 'test.parquet'))
+    # read it back and verify the tables match
+    read_table = parquet.read_table(str(output_path / 'test.parquet'))
+    assert read_table.num_rows == test_table.num_rows
+    assert set(read_table.column_names) == set(test_table.column_names)
+    assert read_table.schema.equals(test_table.schema)
+    assert read_table.equals(test_table)
+    return str(output_path / 'test.parquet')
 
 
-def assert_img_eq(img1: PIL.Image.Image, img2: PIL.Image.Image) -> None:
-    assert img1.mode == img2.mode
-    assert img1.size == img2.size
+def assert_img_eq(img1: PIL.Image.Image, img2: PIL.Image.Image, context: str) -> None:
+    assert img1.mode == img2.mode, context
+    assert img1.size == img2.size, context
     diff = PIL.ImageChops.difference(img1, img2)  # type: ignore[attr-defined]
-    assert diff.getbbox() is None
+    assert diff.getbbox() is None, context
 
 
 def reload_catalog() -> None:
@@ -522,11 +537,56 @@ def reload_catalog() -> None:
     pxt.init()
 
 
-clip_img_embed = clip_image.using(model_id='openai/clip-vit-base-patch32')
-clip_text_embed = clip_text.using(model_id='openai/clip-vit-base-patch32')
+clip_embed = clip.using(model_id='openai/clip-vit-base-patch32')
 e5_embed = sentence_transformer.using(model_id='intfloat/e5-large-v2')
+
+
+# Mock UDF for testing LLM tool invocations
+@pxt.udf
+def stock_price(ticker: str) -> Optional[float]:
+    """
+    Get today's stock price for a given ticker symbol.
+
+    Args:
+        ticker - The ticker symbol of the stock to look up.
+    """
+    if ticker == 'NVDA':
+        return 131.17
+    else:
+        return None
 
 
 SAMPLE_IMAGE_URL = (
     'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000009.jpg'
 )
+
+
+class ReloadTester:
+    """Utility to verify that queries return identical results after a catalog reload"""
+
+    df_info: list[tuple[dict[str, Any], DataFrameResultSet]]  # list of (df.as_dict(), df.collect())
+
+    def __init__(self):
+        self.df_info = []
+
+    def clear(self) -> None:
+        self.df_info = []
+
+    def run_query(self, df: pxt.DataFrame) -> DataFrameResultSet:
+        df_dict = df.as_dict()
+        result_set = df.collect()
+        self.df_info.append((df_dict, result_set))
+        return result_set
+
+    def run_reload_test(self, clear: bool = True) -> None:
+        reload_catalog()
+        for df_dict, result_set in self.df_info:
+            df = pxt.DataFrame.from_dict(df_dict)
+            new_result_set = df.collect()
+            try:
+                assert_resultset_eq(result_set, new_result_set, compare_col_names=True)
+            except Exception as e:
+                s = f'Reload test failed for query:\n{df}\n{e}'
+                raise RuntimeError(s) from e
+        if clear:
+            self.clear()

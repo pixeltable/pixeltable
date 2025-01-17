@@ -9,6 +9,7 @@ import uuid
 from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, Optional
 from uuid import UUID
 
+import jsonschema.exceptions
 import sqlalchemy as sql
 import sqlalchemy.orm as orm
 
@@ -173,6 +174,14 @@ class TableVersion:
     def __hash__(self) -> int:
         return hash(self.id)
 
+    def _get_column(self, tbl_id: UUID, col_id: int) -> Column:
+        if self.id == tbl_id:
+            return self.cols_by_id[col_id]
+        else:
+            if self.base is None:
+                raise excs.Error(f'Unknown table id: {tbl_id}')
+            return self.base._get_column(tbl_id, col_id)
+
     def create_snapshot_copy(self) -> TableVersion:
         """Create a snapshot copy of this TableVersion"""
         assert not self.is_snapshot
@@ -335,7 +344,7 @@ class TableVersion:
             # instantiate index object
             cls_name = md.class_fqn.rsplit('.', 1)[-1]
             cls = getattr(index_module, cls_name)
-            idx_col = self.cols_by_id[md.indexed_col_id]
+            idx_col = self._get_column(UUID(md.indexed_col_tbl_id), md.indexed_col_id)
             idx = cls.from_dict(idx_col, md.init_args)
 
             # fix up the sa column type of the index value and undo columns
@@ -457,7 +466,8 @@ class TableVersion:
         idx_cls = type(idx)
         idx_md = schema.IndexMd(
             id=idx_id, name=idx_name,
-            indexed_col_id=col.id, index_val_col_id=val_col.id, index_val_undo_col_id=undo_col.id,
+            indexed_col_id=col.id, indexed_col_tbl_id=str(col.tbl.id),
+            index_val_col_id=val_col.id, index_val_undo_col_id=undo_col.id,
             schema_version_add=self.schema_version, schema_version_drop=None,
             class_fqn=idx_cls.__module__ + '.' + idx_cls.__name__, init_args=idx.as_dict())
         idx_info = self.IndexInfo(id=idx_id, name=idx_name, idx=idx, col=col, val_col=val_col, undo_col=undo_col)
@@ -485,7 +495,10 @@ class TableVersion:
         idx_md.schema_version_drop = self.schema_version
         assert idx_md.name in self.idxs_by_name
         idx_info = self.idxs_by_name[idx_md.name]
+        # remove this index entry from the active indexes (in memory)
+        # and the index metadata (in persistent table metadata)
         del self.idxs_by_name[idx_md.name]
+        del self.idx_md[idx_id]
 
         with Env.get().engine.begin() as conn:
             self._drop_columns([idx_info.val_col, idx_info.undo_col])
@@ -819,7 +832,7 @@ class TableVersion:
                 if error_if_not_exists:
                     raise excs.Error(f'batch_update(): {len(unmatched_rows)} row(s) not found')
                 if insert_if_not_exists:
-                    insert_status = self.insert(unmatched_rows, None, print_stats=False, fail_on_exception=False)
+                    insert_status = self.insert(unmatched_rows, None, conn=conn, print_stats=False, fail_on_exception=False)
                     result += insert_status
             return result
 
@@ -846,10 +859,11 @@ class TableVersion:
                 raise excs.Error(f'Column {col_name} is a primary key column and cannot be updated')
 
             # make sure that the value is compatible with the column type
+            value_expr: exprs.Expr
             try:
                 # check if this is a literal
-                value_expr: exprs.Expr = exprs.Literal(val, col_type=col.col_type)
-            except TypeError:
+                value_expr = exprs.Literal(val, col_type=col.col_type)
+            except (TypeError, jsonschema.exceptions.ValidationError):
                 if not allow_exprs:
                     raise excs.Error(
                         f'Column {col_name}: value {val!r} is not a valid literal for this column '
@@ -858,11 +872,11 @@ class TableVersion:
                 value_expr = exprs.Expr.from_object(val)
                 if value_expr is None:
                     raise excs.Error(f'Column {col_name}: value {val!r} is not a recognized literal or expression')
-                if not col.col_type.matches(value_expr.col_type):
-                    raise excs.Error((
+                if not col.col_type.is_supertype_of(value_expr.col_type, ignore_nullable=True):
+                    raise excs.Error(
                         f'Type of value {val!r} ({value_expr.col_type}) is not compatible with the type of column '
                         f'{col_name} ({col.col_type})'
-                    ))
+                    )
             update_targets[col] = value_expr
 
         return update_targets

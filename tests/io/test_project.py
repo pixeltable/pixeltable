@@ -77,7 +77,7 @@ class TestProject:
             Project.validate_columns(t3, export_img_cols, import_img_cols, {'spec_img': 'import_img'})
         assert 'Column `spec_img` cannot be imported from external column `import_img`' in str(exc_info.value)
 
-        t3['computed_img'] = t3.img.rotate(180)
+        t3.add_computed_column(computed_img=t3.img.rotate(180))
         with pytest.raises(excs.Error) as exc_info:
             Project.validate_columns(t3, export_img_cols, import_img_cols, {'computed_img': 'import_img'})
         assert (
@@ -112,8 +112,8 @@ class TestProject:
     def test_stored_proxies(self, reset_db, with_reloads: bool) -> None:
         schema = {'img': pxt.Image, 'other_img': pxt.Image}
         t = pxt.create_table('test_store', schema)
-        t.add_column(rot_img=t.img.rotate(180), stored=False)
-        t.add_column(rot_other_img=t.other_img.rotate(180), stored=False)
+        t.add_computed_column(rot_img=t.img.rotate(180), stored=False)
+        t.add_computed_column(rot_other_img=t.other_img.rotate(180), stored=False)
         image_files = get_image_files()[:10]
         other_image_files = get_image_files()[-10:]
         t.insert(

@@ -17,10 +17,10 @@ class TestVision:
 
         files = get_video_files()
         video_t.insert(video=files[-1])
-        v.add_column(frame_s=v.frame.resize([640, 480]))
-        v.add_column(detections_a=yolox(v.frame_s, model_id='yolox_nano'))
-        v.add_column(detections_b=yolox(v.frame_s, model_id='yolox_s'))
-        v.add_column(gt=yolox(v.frame_s, model_id='yolox_m'))
+        v.add_computed_column(frame_s=v.frame.resize([640, 480]))
+        v.add_computed_column(detections_a=yolox(v.frame_s, model_id='yolox_nano'))
+        v.add_computed_column(detections_b=yolox(v.frame_s, model_id='yolox_s'))
+        v.add_computed_column(gt=yolox(v.frame_s, model_id='yolox_m'))
         from pixeltable.functions.vision import draw_bounding_boxes, eval_detections, mean_ap
 
         res = v.select(
@@ -28,12 +28,12 @@ class TestVision:
                 v.detections_a.bboxes, v.detections_a.labels, v.detections_a.scores, v.gt.bboxes, v.gt.labels
             )
         ).show()
-        v.add_column(
+        v.add_computed_column(
             eval_a=eval_detections(
                 v.detections_a.bboxes, v.detections_a.labels, v.detections_a.scores, v.gt.bboxes, v.gt.labels
             )
         )
-        v.add_column(
+        v.add_computed_column(
             eval_b=eval_detections(
                 v.detections_b.bboxes, v.detections_b.labels, v.detections_b.scores, v.gt.bboxes, v.gt.labels, min_iou=0.8
             )
@@ -54,8 +54,8 @@ class TestVision:
 
         files = get_video_files()
         video_t.insert(video=files[-1])
-        v.add_column(frame_s=v.frame.resize([640, 480]))
-        v.add_column(detections_a=yolox(v.frame_s, model_id='yolox_nano'))
+        v.add_computed_column(frame_s=v.frame.resize([640, 480]))
+        v.add_computed_column(detections_a=yolox(v.frame_s, model_id='yolox_nano'))
 
         from pixeltable.functions.vision import draw_bounding_boxes
 

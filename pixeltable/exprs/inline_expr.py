@@ -56,7 +56,7 @@ class InlineArray(Expr):
         self.components.extend(exprs)
         self.id = self._create_id()
 
-    def __str__(self) -> str:
+    def __repr__(self) -> str:
         elem_strs = [str(expr) for expr in self.components]
         return f'[{", ".join(elem_strs)}]'
 
@@ -101,11 +101,17 @@ class InlineList(Expr):
             else:
                 exprs.append(Literal(el))
 
-        super().__init__(ts.JsonType())
+        json_schema = {
+            'type': 'array',
+            'prefixItems': [expr.col_type.to_json_schema() for expr in exprs],
+            'items': False  # No additional items (fixed length)
+        }
+
+        super().__init__(ts.JsonType(json_schema))
         self.components.extend(exprs)
         self.id = self._create_id()
 
-    def __str__(self) -> str:
+    def __repr__(self) -> str:
         elem_strs = [str(expr) for expr in self.components]
         return f'[{", ".join(elem_strs)}]'
 
@@ -149,11 +155,25 @@ class InlineDict(Expr):
             else:
                 exprs.append(Literal(val))
 
-        super().__init__(ts.JsonType())
+        json_schema: Optional[dict[str, Any]]
+        try:
+            json_schema = {
+                'type': 'object',
+                'properties': {
+                    key: expr.col_type.to_json_schema()
+                    for key, expr in zip(self.keys, exprs)
+                },
+            }
+        except excs.Error:
+            # InlineDicts are used to store iterator arguments, which are not required to be valid JSON types,
+            # so we can't always construct a valid schema.
+            json_schema = None
+
+        super().__init__(ts.JsonType(json_schema))
         self.components.extend(exprs)
         self.id = self._create_id()
 
-    def __str__(self) -> str:
+    def __repr__(self) -> str:
         item_strs = list(f"'{key}': {str(expr)}" for key, expr in zip(self.keys, self.components))
         return '{' + ', '.join(item_strs) + '}'
 

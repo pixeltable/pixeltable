@@ -16,7 +16,9 @@ from pixeltable.metadata import SystemInfo, create_system_info
 from pixeltable.metadata.schema import Dir, Function, Table, TableSchemaVersion, TableVersion
 from pixeltable.utils.filecache import FileCache
 
-from .utils import create_all_datatypes_tbl, create_img_tbl, create_test_tbl, reload_catalog, skip_test_if_not_installed
+from .utils import (
+    create_all_datatypes_tbl, create_img_tbl, create_test_tbl, reload_catalog, skip_test_if_not_installed, ReloadTester
+)
 
 
 @pytest.fixture(scope='session')
@@ -87,6 +89,10 @@ def test_tbl(reset_db) -> catalog.Table:
     return create_test_tbl()
 
 @pytest.fixture(scope='function')
+def reload_tester(init_env) -> ReloadTester:
+    return ReloadTester()
+
+@pytest.fixture(scope='function')
 def test_tbl_exprs(test_tbl: catalog.Table) -> list[exprs.Expr]:
     t = test_tbl
     return [
@@ -140,7 +146,15 @@ def img_tbl_exprs(indexed_img_tbl: catalog.Table) -> list[exprs.Expr]:
         t.img.rotate(90).resize([224, 224]),
         t.img.fileurl,
         t.img.localpath,
-        t.img.similarity('red truck'),
+        t.img.similarity('red truck', idx='img_idx0')
+    ]
+
+@pytest.fixture(scope='function')
+def multi_img_tbl_exprs(multi_idx_img_tbl: catalog.Table) -> list[exprs.Expr]:
+    t = multi_idx_img_tbl
+    return [
+        t.img.similarity('red truck', idx='img_idx1'),
+        t.img.similarity('red truck', idx='img_idx2'),
     ]
 
 @pytest.fixture(scope='function')
@@ -151,6 +165,15 @@ def small_img_tbl(reset_db) -> catalog.Table:
 def indexed_img_tbl(reset_db) -> pxt.Table:
     skip_test_if_not_installed('transformers')
     t = create_img_tbl('indexed_img_tbl', num_rows=40)
-    from .utils import clip_img_embed, clip_text_embed
-    t.add_embedding_index('img', metric='cosine', image_embed=clip_img_embed, string_embed=clip_text_embed)
+    from .utils import clip_embed
+    t.add_embedding_index('img', idx_name='img_idx0', metric='cosine', image_embed=clip_embed, string_embed=clip_embed)
+    return t
+
+@pytest.fixture(scope='function')
+def multi_idx_img_tbl(reset_db) -> pxt.Table:
+    skip_test_if_not_installed('transformers')
+    t = create_img_tbl('multi_idx_img_tbl', num_rows=4)
+    from .utils import clip_embed
+    t.add_embedding_index('img', idx_name='img_idx1', metric='cosine', image_embed=clip_embed, string_embed=clip_embed)
+    t.add_embedding_index('img', idx_name='img_idx2', metric='cosine', image_embed=clip_embed, string_embed=clip_embed)
     return t

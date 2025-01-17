@@ -368,7 +368,7 @@ class RowBuilder:
                 if not ignore_errors:
                     input_vals = [data_row[d.slot_idx] for d in expr.dependencies()]
                     raise excs.ExprEvalError(
-                        expr, f'expression {expr}', data_row.get_exc(expr.slot_idx), exc_tb, input_vals, 0)
+                        expr, f'expression {expr}', data_row.get_exc(expr.slot_idx), exc_tb, input_vals, 0) from exc
 
     def create_table_row(self, data_row: DataRow, exc_col_ids: set[int]) -> tuple[dict[str, Any], int]:
         """Create a table row from the slots that have an output column assigned

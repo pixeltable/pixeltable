@@ -190,6 +190,7 @@ class Expr(abc.ABC):
                 return new.copy()
         for i in range(len(self.components)):
             self.components[i] = self.components[i].substitute(spec)
+        self.id = self._create_id()
         return self
 
     @classmethod
@@ -216,12 +217,12 @@ class Expr(abc.ABC):
                 return result
             result = result.substitute({ref: ref.col.value_expr for ref in target_col_refs})
 
-    def is_bound_by(self, tbl: catalog.TableVersionPath) -> bool:
-        """Returns True if this expr can be evaluated in the context of tbl."""
+    def is_bound_by(self, tbls: list[catalog.TableVersionPath]) -> bool:
+        """Returns True if this expr can be evaluated in the context of tbls."""
         from .column_ref import ColumnRef
         col_refs = self.subexprs(ColumnRef)
         for col_ref in col_refs:
-            if not tbl.has_column(col_ref.col):
+            if not any(tbl.has_column(col_ref.col) for tbl in tbls):
                 return False
         return True
 
@@ -235,7 +236,7 @@ class Expr(abc.ABC):
             self.components[i] = self.components[i]._retarget(tbl_versions)
         return self
 
-    def __str__(self) -> str:
+    def __repr__(self) -> str:
         return f'<Expression of type {type(self)}>'
 
     def display_str(self, inline: bool = True) -> str:
@@ -450,7 +451,13 @@ class Expr(abc.ABC):
 
     def astype(self, new_type: Union[ts.ColumnType, type, _AnnotatedAlias]) -> 'exprs.TypeCast':
         from pixeltable.exprs import TypeCast
-        return TypeCast(self, ts.ColumnType.normalize_type(new_type))
+        # Interpret the type argument the same way we would if given in a schema
+        col_type = ts.ColumnType.normalize_type(new_type, nullable_default=True, allow_builtin_types=False)
+        if not self.col_type.nullable:
+            # This expression is non-nullable; we can prove that the output is non-nullable, regardless of
+            # whether new_type is given as nullable.
+            col_type = col_type.copy(nullable=False)
+        return TypeCast(self, col_type)
 
     def apply(self, fn: Callable, *, col_type: Union[ts.ColumnType, type, _AnnotatedAlias, None] = None) -> 'exprs.FunctionCall':
         if col_type is not None:

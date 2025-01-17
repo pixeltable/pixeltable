@@ -6,7 +6,7 @@ import pytest
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 
-from .utils import assert_resultset_eq, clip_img_embed, create_img_tbl, create_test_tbl, reload_catalog
+from .utils import ReloadTester, assert_resultset_eq, clip_embed, create_img_tbl, create_test_tbl, reload_catalog
 
 
 class TestSnapshot:
@@ -93,6 +93,103 @@ class TestSnapshot:
                     snap = pxt.create_snapshot(snap_path, query, additional_columns=schema)
                     self.run_basic_test(tbl, query, snap, extra_items=extra_items, reload_md=reload_md)
 
+        # adding column with same name as a base table column at
+        # the time of creating a snapshot will raise an error now.
+        tbl = create_test_tbl(name=tbl_path)
+        assert 'c1' in tbl.columns
+        with pytest.raises(pxt.Error, match=r"Column 'c1' already exists in the base table"):
+            pxt.create_snapshot('snap2', tbl, additional_columns={'c1': pxt.Int})
+
+    def __test_create_if_exists(self, sname: str, t: pxt.Table, s: pxt.Table) -> None:
+        """ Helper function for testing if_exists parameter while creating a snaphot.
+
+        Args:
+            sname: name of an existing snapshot
+            t: base table or view of the snapshot
+            s: handle to the existing snapshot
+        """
+        id_before = s._id
+        # invalid if_exists value is rejected
+        with pytest.raises(excs.Error) as exc_info:
+            pxt.create_snapshot(sname, t, if_exists='invalid')
+        assert "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']" in str(exc_info.value).lower()
+
+        # scenario 1: a snapshot exists at the path already
+        with pytest.raises(pxt.Error, match=r'already exists'):
+            pxt.create_snapshot(sname, t)
+        # if_exists='ignore' should return the existing snapshot
+        s12 = pxt.create_snapshot(sname, t, if_exists='ignore')
+        assert s12 == s
+        assert s12._id == id_before
+        # if_exists='replace' should drop the existing snapshot and create a new one
+        s12 = pxt.create_snapshot(sname, t, additional_columns={'s1': pxt.Int}, if_exists='replace')
+        assert s12 != s
+        assert s12._id != id_before
+        id_before = s12._id
+
+        # scenario 2: a snapshot exists at the path, but has dependency
+        # Note that when a view is created on a snapshot, the view is
+        # dependent of the snapshot iff the snapshot has additional columns
+        # not present in the base table/view of that snapshot.
+        v_on_s1 = pxt.create_view('test_view_on_snapshot1', s12)
+        with pytest.raises(pxt.Error, match=r'already exists'):
+            pxt.create_snapshot(sname, t)
+        # if_exists='ignore' should return the existing snapshot
+        s13 = pxt.create_snapshot(sname, t, if_exists='ignore')
+        assert s13 == s12
+        assert s13._id == id_before
+        assert 'test_view_on_snapshot1' in pxt.list_tables()
+        # if_exists='replace' cannot drop a snapshot with a dependent view.
+        # it should raise an error and recommend using 'replace_force'
+        with pytest.raises(excs.Error) as exc_info:
+            pxt.create_snapshot(sname, t, if_exists='replace')
+        err_msg = str(exc_info.value).lower()
+        assert 'already exists' in err_msg and 'has dependents' in err_msg and 'replace_force' in err_msg
+        assert 'test_view_on_snapshot1' in pxt.list_tables()
+        # if_exists='replace_force' should drop the existing snapshot and
+        # its dependent views and create a new one
+        s13 = pxt.create_snapshot(sname, t, if_exists='replace_force')
+        assert s13 != s12
+        assert s13._id != id_before
+        assert v_on_s1._is_dropped
+        assert 'test_view_on_snapshot1' not in pxt.list_tables()
+
+        # scenario 3: path exists but is not a snapshot
+        _ = pxt.create_table('not_snapshot', {'c1': pxt.String}, if_exists='ignore')
+        with pytest.raises(pxt.Error, match=r'already exists'):
+            pxt.create_snapshot('not_snapshot', t)
+        for _ie in ['ignore', 'replace', 'replace_force']:
+            with pytest.raises(excs.Error) as exc_info:
+                pxt.create_snapshot('not_snapshot', t, if_exists=_ie)
+            err_msg = str(exc_info.value).lower()
+            assert 'already exists' in err_msg and 'is not a snapshot' in err_msg
+            assert 'not_snapshot' in pxt.list_tables(), f"with if_exists={_ie}"
+
+    def test_create_if_exists(self, reset_db, reload_tester: ReloadTester) -> None:
+        """Test the if_exists parameter while creating a snapshot."""
+        t = create_test_tbl()
+        v = pxt.create_view('test_view', t)
+        s1 = pxt.create_snapshot('test_snap_t', t)
+        s2 = pxt.create_snapshot('test_snap_v', v)
+        id_before = {'test_snap_t': s1._id, 'test_snap_v': s2._id}
+        self.__test_create_if_exists('test_snap_t', t, s1)
+        self.__test_create_if_exists('test_snap_v', v, s2)
+        # sanity check persistence
+        _ = reload_tester.run_query(t.select())
+        _ = reload_tester.run_query(v.select())
+        # get the snapshot handles again, they would be replaced at the end of __test_create_if_exists
+        s1 = pxt.get_table('test_snap_t')
+        s2 = pxt.get_table('test_snap_v')
+        id_before = {'test_snap_t': s1._id, 'test_snap_v': s2._id}
+        _ = reload_tester.run_query(s1.select())
+        _ = reload_tester.run_query(s2.select())
+        reload_tester.run_reload_test()
+        # get the snapshot handles again after reload
+        s1 = pxt.get_table('test_snap_t')
+        s2 = pxt.get_table('test_snap_v')
+        assert s1._id == id_before['test_snap_t']
+        assert s2._id == id_before['test_snap_v']
+
     def test_errors(self, reset_db) -> None:
         tbl = create_test_tbl()
         snap = pxt.create_snapshot('snap', tbl)
@@ -104,6 +201,14 @@ class TestSnapshot:
         with pytest.raises(pxt.Error) as excinfo:
             _ = snap.insert(c3=1.0)
         assert 'cannot insert into view' in str(excinfo.value).lower()
+
+        # adding column is not supported for snapshots
+        with pytest.raises(pxt.Error, match=r'Cannot add column to a snapshot'):
+            snap.add_column(non_existing_col1=pxt.String)
+        with pytest.raises(pxt.Error, match=r'Cannot add column to a snapshot'):
+            snap.add_computed_column(on_existing_col1=tbl.c2 + tbl.c3)
+        with pytest.raises(pxt.Error, match=r'Cannot add column to a snapshot'):
+            snap.add_columns({'non_existing_col1': pxt.String, 'non_existing_col2': pxt.String})
 
         with pytest.raises(pxt.Error) as excinfo:
             _ = snap.delete()
@@ -124,7 +229,7 @@ class TestSnapshot:
         with pytest.raises(pxt.Error) as excinfo:
             img_tbl = create_img_tbl()
             snap = pxt.create_snapshot('img_snap', img_tbl)
-            snap.add_embedding_index('img', image_embed=clip_img_embed)
+            snap.add_embedding_index('img', image_embed=clip_embed)
         assert 'cannot add an index to a snapshot' in str(excinfo.value).lower()
 
     def test_views_of_snapshots(self, reset_db) -> None:

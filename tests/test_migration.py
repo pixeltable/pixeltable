@@ -6,6 +6,7 @@ import platform
 import subprocess
 import sys
 from datetime import datetime
+from typing import Any, Optional
 
 import pixeltable_pgserver
 import pytest
@@ -16,6 +17,7 @@ from pixeltable.env import Env
 from pixeltable.exprs import FunctionCall, Literal
 from pixeltable.func import CallableFunction
 from pixeltable.metadata import VERSION, SystemInfo
+from pixeltable.metadata.converters.util import convert_table_md
 from pixeltable.metadata.notes import VERSION_NOTES
 
 from .conftest import clean_db
@@ -49,8 +51,9 @@ class TestMigration:
                 info = toml.load(fp)
                 old_version = info['pixeltable-dump']['metadata-version']
                 assert isinstance(old_version, int)
-                _logger.info(f'Migrating from version: {old_version} -> {VERSION}')
-                versions_found.append(old_version)
+
+            _logger.info(f'Migrating from version: {old_version} -> {VERSION}')
+            versions_found.append(old_version)
 
             # For this test we need the raw DB URL, without a driver qualifier. (The driver qualifier is needed by
             # SQLAlchemy, but command-line Postgres won't know how to interpret it.)
@@ -72,6 +75,13 @@ class TestMigration:
             with orm.Session(env.engine) as session:
                 md = session.query(SystemInfo).one().md
                 assert md['schema_version'] == old_version
+
+            # Older database artifacts may contain references to UDFs that exist solely as part of the DB migration
+            # test framework (and are not part of the Pixeltable UDF library), but have been moved or renamed. We
+            # perform a manual database "migration" to alter these specific UDF names before proceeding with the
+            # main part of the migration test.
+            with orm.Session(env.engine) as session:
+                convert_table_md(env.engine, substitution_fn=self.__substitute_md)
 
             env._upgrade_metadata()
 
@@ -95,14 +105,33 @@ class TestMigration:
             if old_version >= 19:
                 self._run_v19_tests()
 
+            self._verify_v24(old_version)
+
         _logger.info(f'Verified DB dumps with versions: {versions_found}')
         assert VERSION in versions_found, (
             f'No DB dump found for current schema version {VERSION}. You can generate one with:\n'
-            f'`python pixeltable/tool/create_test_db_dump.py`\n'
+            f'`python tool/create_test_db_dump.py`\n'
             f'`mv target/*.dump.gz target/*.toml tests/data/dbdumps`')
         assert VERSION in VERSION_NOTES, (
             f'No version notes found for current schema version {VERSION}. '
             f'Please add them to pixeltable/metadata/notes.py.')
+
+    @classmethod
+    def _verify_v24(cls, upgraded_from: int) -> None:
+        """Verify the conversion to version 24."""
+        for t in pxt.list_tables():
+            tbl = pxt.get_table(t)
+            assert tbl is not None
+            tbl_id = tbl._tbl_version.id
+            for idx in tbl._tbl_version.idx_md.values():
+                # Verify that indexed_col_tbl_id is set for all indexes
+                # from version 24 onwards.
+                assert idx.indexed_col_tbl_id is not None
+                # Any version before 24 would be missing indexed_col_tbl_id.
+                # Verify that indexed_col_tbl_id is set to the table id after
+                # upgrade in that case.
+                if upgraded_from < 24:
+                    assert idx.indexed_col_tbl_id == str(tbl_id)
 
     @classmethod
     def _run_v12_tests(cls) -> None:
@@ -220,3 +249,9 @@ class TestMigration:
         validate_update_status(status)
         inline_list_mixed = t.where(t.c2 == 21).select(t.base_table_inline_list_mixed).head(1)['base_table_inline_list_mixed'][0]
         assert inline_list_mixed == [1, 'a', 'test string 21', [1, 'a', 'test string 21'], 1, 'a']
+
+    @staticmethod
+    def __substitute_md(k: Optional[str], v: Any) -> Optional[tuple[Optional[str], Any]]:
+        if k == 'path' and v == 'pixeltable.tool.embed_udf.clip_text_embed':
+            return 'path', 'tool.embed_udf.clip_text_embed'
+        return None

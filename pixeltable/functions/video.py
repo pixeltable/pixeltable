@@ -47,13 +47,7 @@ _format_defaults = {  # format -> (codec, ext)
 #         output_container.mux(packet)
 
 
-@pxt.uda(
-    init_types=[pxt.IntType()],
-    update_types=[pxt.ImageType()],
-    value_type=pxt.VideoType(),
-    requires_order_by=True,
-    allows_window=False,
-)
+@pxt.uda(requires_order_by=True)
 class make_video(pxt.Aggregator):
     """
     Aggregator that creates a video from a sequence of images.
@@ -80,7 +74,7 @@ class make_video(pxt.Aggregator):
         for packet in self.stream.encode(av_frame):
             self.container.mux(packet)
 
-    def value(self) -> str:
+    def value(self) -> pxt.Video:
         for packet in self.stream.encode():
             self.container.mux(packet)
         self.container.close()
@@ -132,7 +126,7 @@ def _get_metadata(path: str) -> dict:
         assert isinstance(container, av.container.InputContainer)
         streams_info = [__get_stream_metadata(stream) for stream in container.streams]
         result = {
-            'bit_exact': container.bit_exact,
+            'bit_exact': getattr(container, 'bit_exact', False),
             'bit_rate': container.bit_rate,
             'size': container.size,
             'metadata': container.metadata,

@@ -63,8 +63,9 @@ Learn how to create tables, populate them with data, and enhance them with built
 | 10-Minute Tour of Pixeltable    | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/pixeltable-basics.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> </a> | Tables and Data Operations    | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/fundamentals/tables-and-data-operations.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> </a> |
 | User-Defined Functions (UDFs)    | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/feature-guides/udfs-in-pixeltable.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> </a> | Object Detection Models | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/use-cases/object-detection-in-videos.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> </a> |
 | Incremental Prompt Engineering | <a target="_blank" href="https://colab.research.google.com/github/mistralai/cookbook/blob/main/third_party/Pixeltable/incremental_prompt_engineering_and_model_comparison.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Github"/> | Working with External Files    | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/feature-guides/working-with-external-files.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> </a> |
-| Integrating with Label Studio    | <a target="_blank" href="https://pixeltable.readme.io/docs/label-studio"> <img src="https://img.shields.io/badge/Documentation-013056" alt="Visit our documentation"/></a> | Audio/Video Transcript Indexing    | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/use-cases/audio-transcriptions.ipynb">  <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> |
-| Multimodal Application    | <a target="_blank" href="https://huggingface.co/spaces/Pixeltable/Multimodal-Powerhouse"> <img src="https://img.shields.io/badge/Hugging Face-FF7D04" alt="Visit our documentation"/></a> | Document Indexing and RAG    | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/use-cases/rag-demo.ipynb">  <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> |
+| Integrating with Label Studio    | <a target="_blank" href="https://pixeltable.readme.io/docs/label-studio"> <img src="https://img.shields.io/badge/📚 Documentation-013056" alt="Visit our documentation"/></a> | Audio/Video Transcript Indexing    | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/use-cases/audio-transcriptions.ipynb">  <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> |
+| Multimodal Application    | <a target="_blank" href="https://huggingface.co/spaces/Pixeltable/Multimodal-Powerhouse"> <img src="https://img.shields.io/badge/🤗-Gradio App-FF7D04" alt="Visit our Hugging Face Space"/></a> | Document Indexing and RAG    | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/use-cases/rag-demo.ipynb">  <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> |
+| Context-Aware Discord Bot    | <a target="_blank" href="https://github.com/pixeltable/pixeltable/blob/main/docs/sample-apps/context-aware-discord-bot"> <img src="https://img.shields.io/badge/%F0%9F%92%AC-Discord Bot-%235865F2.svg" alt="Visit our documentation"/></a> | Image/Text Similarity Search  | <a target="_blank" href="https://github.com/pixeltable/pixeltable/tree/main/docs/sample-apps/text-and-image-similarity-search-nextjs-fastapi">  <img src="https://img.shields.io/badge/🖥️-Next.js + FastAPI-black.svg" alt="Open In Colab"/> |
 
 ## 🧱 Code Samples
 
@@ -200,7 +201,7 @@ Learn how to interact with inference services such as [Together AI](https://pixe
 
 ```python
 import pixeltable as pxt
-from pixeltable.functions.huggingface import clip_image, clip_text
+from pixeltable.functions.huggingface import clip
 from pixeltable.iterators import FrameIterator
 import PIL.Image
 
@@ -211,16 +212,8 @@ video_table.insert([{'video': '/video.mp4'}])
 frames_view = pxt.create_view(
     'frames', video_table, iterator=FrameIterator.create(video=video_table.video))
 
-@pxt.expr_udf
-def embed_image(img: PIL.Image.Image):
-    return clip_image(img, model_id='openai/clip-vit-base-patch32')
-
-@pxt.expr_udf
-def str_embed(s: str):
-    return clip_text(s, model_id='openai/clip-vit-base-patch32')
-
 # Create an index on the 'frame' column that allows text and image search
-frames_view.add_embedding_index('frame', string_embed=str_embed, image_embed=embed_image)
+frames_view.add_embedding_index('frame', embed=clip.using('openai/clip-vit-base-patch32'))
 
 # Now we will retrieve images based on a sample image
 sample_image = '/image.jpeg'

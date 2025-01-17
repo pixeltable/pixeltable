@@ -127,10 +127,10 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
 
         # count() doesn't yet support non-SQL Where clauses
         n = len(t.where(t.s.contains('Codd')).collect())
-        t['s2'] = t.s.replace('Codd', 'Mohan')
+        t.add_computed_column(s2=t.s.replace('Codd', 'Mohan'))
         m = len(t.where(t.s2.contains('Mohan')).collect())
         assert n == m
-        t['s3'] = t.s.replace('C.dd', 'Mohan', regex=True)
+        t.add_computed_column(s3=t.s.replace('C.dd', 'Mohan', regex=True))
         o = len(t.where(t.s3.contains('Mohan')).collect())
         assert n == o
 
@@ -150,7 +150,7 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
         validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
 
         # count() doesn't yet support non-SQL Where clauses
-        status = t.add_column(parts=t.s.partition('IBM'))
+        status = t.add_computed_column(parts=t.s.partition('IBM'))
         assert status.num_excs == 0
         res = t.where(t.s.contains('IBM')).select(t.s, t.parts).collect()
         for row in res:
@@ -164,7 +164,7 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
         validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
 
         # count() doesn't yet support non-SQL Where clauses
-        status = t.add_column(parts=t.s.rpartition('IBM'))
+        status = t.add_computed_column(parts=t.s.rpartition('IBM'))
         assert status.num_excs == 0
         res = t.where(t.s.contains('IBM')).select(t.s, t.parts).collect()
         for row in res:
@@ -277,9 +277,9 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
         t = pxt.create_table('test_tbl', {'input': pxt.String})
         from pixeltable.functions.string import format
 
-        t.add_column(s1=format('ABC {0}', t.input))
-        t.add_column(s2=format('DEF {this}', this=t.input))
-        t.add_column(s3=format('GHI {0} JKL {this}', t.input, this=t.input))
+        t.add_computed_column(s1=format('ABC {0}', t.input))
+        t.add_computed_column(s2=format('DEF {this}', this=t.input))
+        t.add_computed_column(s3=format('GHI {0} JKL {this}', t.input, this=t.input))
         status = t.insert(input='MNO')
         assert status.num_rows == 1
         assert status.num_excs == 0
