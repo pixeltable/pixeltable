@@ -541,7 +541,7 @@ e5_embed = sentence_transformer.using(model_id='intfloat/e5-large-v2')
 
 # Mock UDF for testing LLM tool invocations
 @pxt.udf
-def stock_price(ticker: str) -> Optional[float]:
+def stock_price(ticker: str) -> float:
     """
     Get today's stock price for a given ticker symbol.
 
@@ -551,7 +551,9 @@ def stock_price(ticker: str) -> Optional[float]:
     if ticker == 'NVDA':
         return 131.17
     else:
-        return None
+        # Return 0.0 instead of None, to distinguish between these two cases: the tool not being called, and the tool
+        # being called on a symbol other than NVDA
+        return 0.0
 
 
 SAMPLE_IMAGE_URL = (

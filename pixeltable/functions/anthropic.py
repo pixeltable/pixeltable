@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Callable, Optional, TypeVar, Union
 import tenacity
 
 import pixeltable as pxt
+import pixeltable.exceptions as excs
 from pixeltable import env, exprs
 from pixeltable.func import Tools
 from pixeltable.utils.code import local_public_names
@@ -47,7 +48,7 @@ def messages(
     stop_sequences: Optional[list[str]] = None,
     system: Optional[str] = None,
     temperature: Optional[float] = None,
-    tool_choice: Optional[list[dict]] = None,
+    tool_choice: Optional[dict] = None,
     tools: Optional[list[dict]] = None,
     top_k: Optional[int] = None,
     top_p: Optional[float] = None,
@@ -93,6 +94,18 @@ def messages(
             for tool in tools
         ]
 
+    tool_choice_: Optional[dict] = None
+    if tool_choice is not None:
+        if tool_choice['auto']:
+            tool_choice_ = {'type': 'auto'}
+        elif tool_choice['required']:
+            tool_choice_ = {'type': 'any'}
+        else:
+            assert tool_choice['tool'] is not None
+            tool_choice_ = {'type': 'tool', 'name': tool_choice['tool']}
+        if not tool_choice['parallel_tool_calls']:
+            tool_choice_['disable_parallel_tool_use'] = True
+
     return _retry(_anthropic_client().messages.create)(
         messages=messages,
         model=model,
@@ -101,7 +114,7 @@ def messages(
         stop_sequences=_opt(stop_sequences),
         system=_opt(system),
         temperature=_opt(temperature),
-        tool_choice=_opt(tool_choice),
+        tool_choice=_opt(tool_choice_),
         tools=_opt(tools),
         top_k=_opt(top_k),
         top_p=_opt(top_p),

@@ -792,8 +792,6 @@ def tool(fn: func.Function, name: Optional[str] = None, description: Optional[st
     Returns:
         A `Tool` instance that can be passed to an LLM tool-calling API.
     """
-    if fn.self_path is None:
-        raise excs.Error('Only module UDFs can be used as tools (not locally defined UDFs)')
     if isinstance(fn, func.AggregateFunction):
         raise excs.Error('Aggregator UDFs cannot be used as tools')
 

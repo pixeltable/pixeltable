@@ -5,5 +5,5 @@ from .function import Function
 from .function_registry import FunctionRegistry
 from .query_template_function import QueryTemplateFunction, query
 from .signature import Batch, Parameter, Signature
-from .tools import Tool, Tools
+from .tools import Tool, ToolChoice, Tools
 from .udf import expr_udf, make_function, udf
