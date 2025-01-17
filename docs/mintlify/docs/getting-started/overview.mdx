@@ -1,0 +1,122 @@
+---
+title: "Overview"
+---
+
+Pixeltable is a production-ready declarative database for end-to-end AI workflows.
+
+```bash
+pip install -U pixeltable
+```
+## Unified AI Workflows
+<AccordionGroup>
+  <Accordion title="Storage" icon="hard-drive">
+    Persistent version-controlled storage for your data
+    ```python
+    import pixeltable as pxt
+
+    # Organize tables in a directory
+    pxt.drop_dir('chatbot', force=True)
+    pxt.create_dir('chatbot')
+
+    # Define your schema with Type-safe columns
+    video_table = pxt.create_table("chatbot.videos", {"video": pxt.Video})
+    ```
+  </Accordion>
+
+  <Accordion title="Incremental Updates" icon="tower-broadcast">
+    Smart, event-driven, incremental updates
+
+    ```python
+    videos = [
+        'https://github.com/pixeltable/pixeltable/raw/release/docs/source/data/audio-transcription-demo/'
+        f'Lex-Fridman-Podcast-430-Excerpt-{n}.mp4'
+        for n in range(3)
+    ]
+
+    video_table.insert({'video': video} for video in videos)
+    ```
+  </Accordion>    
+
+  <Accordion title="Multimodal Preprocessing" icon="wand-magic-sparkles">
+    Automated data preprocessing for multimodal data
+
+    ```python
+    from pixeltable.functions.video import extract_audio
+    from pixeltable.functions.audio import transcribe
+
+    # Extract audio from video
+    video_table.add_computed_column(
+        audio=extract_audio(video_table.video, format='mp3')
+    )
+
+    # Extract transcription from audio
+    video_table.add_computed_column(
+        transcription=whisper.transcribe(
+            audio=video_table.audio,
+            model='base.en'
+        )
+    )    
+    ```
+  </Accordion>
+
+  <Accordion title="Built-in Vector Database" icon="layer-group">
+    Vector database for efficient similarity search
+
+    ```python
+    from pixeltable.functions.video import extract_audio
+    from pixeltable.functions.audio import transcribe
+
+    # Extract audio from video
+    video_table.add_computed_column(
+        audio=extract_audio(video_table.video, format='mp3')
+    )
+
+    # Extract transcription from audio
+    video_table.add_computed_column(
+        transcription=whisper.transcribe(
+            audio=video_table.audio,
+            model='base.en'
+        )
+    )    
+    ```
+  </Accordion>
+
+  <Accordion title="Agent Workflows" icon="robot">
+    Inference with Agents
+    ```python
+    import pixeltable as pxt
+
+    # Define your schema with Type-safe columns
+    video_table = pxt.create_table("chatbot.videos", {"video": pxt.Video})
+    ```
+  </Accordion>
+
+  <Accordion title="Evals" icon="square-poll-vertical">
+    Extremely simple evaluation for your AI workflows
+    ```python
+    import pixeltable as pxt
+
+    # Define your schema with Type-safe columns
+    video_table = pxt.create_table("chatbot.videos", {"video": pxt.Video})
+    ```
+  </Accordion>
+
+  <Accordion title="Deploy" icon="rocket">
+    Production-ready deployment templates
+  </Accordion>  
+
+</AccordionGroup>
+
+## Explore Pixeltable
+
+<CardGroup cols={3}>
+  <Card title="Installation" icon="download">
+    Install python package
+  </Card>
+  <Card title="Quick Start" icon="play">
+    Build your first table
+  </Card>
+  <Card title="Examples" icon="lightbulb">
+    Full stack AI workflows
+  </Card>  
+</CardGroup>

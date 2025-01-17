@@ -6,16 +6,19 @@
     "dark": "/logo/pxt-dark.svg"
   },
   "modeToggle": {
-    "default": "light",
+    "default": "dark",
     "isHidden": true
   },
   "colors": {
-    "primary": "#4F46E5",
-    "light": "#4F46E5",
-    "dark": "#4F46E5",
+    "primary": "#3B82F6",
+    "light": "#60A5FA",
+    "dark": "#2563EB",
     "anchors": {
-      "from": "#000000",
+      "from": "#4F46E5",
       "to": "#FFFFFF"
+    },
+    "background": {
+      "dark": "#181C1F"
     }
   },
   "font": {
@@ -39,94 +42,170 @@
     {
       "name": "Hiring",
       "url": "https://jobs.gusto.com/postings/pixeltable-inc-member-of-technical-staff-360acae7-6e57-4aa2-bd03-83c9dafb7bbc"
-    } 
+    }
   ],
   "topbarCtaButton": {
     "type": "github",
     "url": "https://github.com/pixeltable/pixeltable"
-  },  
+  },
   "navigation": [
     {
       "group": "Getting Started",
       "pages": [
-        "docs/getting-started/introduction",
+        "docs/getting-started/overview",
         "docs/getting-started/installation",
-        "docs/getting-started/data-types",
-        "docs/getting-started/getting-help",
-        "docs/getting-started/faq"
+        "docs/getting-started/quick-start"
       ]
     },
     {
-      "group": "Examples",
+      "group": "Documentation",
       "pages": [
-        "docs/examples/multimodal-chat",
-        "docs/examples/incremental-prompt-engineering-and-model-comparison-with-mistral-using-pixeltable",
-        "docs/document-indexing-and-rag",
-        "docs/rag-operations",
-        "docs/incremental-prompt-engineering-and-model-comparison-with-mistral-using-pixeltable",
-        "docs/object-detection-in-videos",
-        "docs/transcribing-and-indexing-audio-and-video"      
-      ]
-    },
-    {
-      "group": "Learning Pixeltable",
-      "pages": [
-        "docs/tables-and-data-operations",
         {
           "group": "Fundamentals",
           "pages": [
-            "docs/tables-and-data-operations",
-            "docs/computed-columns",
-            "docs/queries-and-expressions"
+            "docs/documentation/table-operations/overview",
+            "docs/documentation/table-operations/aggregation",
+            "docs/documentation/table-operations/collect",
+            "docs/documentation/table-operations/describe",
+            "docs/documentation/table-operations/insert",
+            "docs/documentation/table-operations/list-tables",
+            "docs/documentation/table-operations/query",
+            "docs/documentation/table-operations/show",
+            "docs/documentation/table-operations/user-defined-functions"
+          ]
+        },        
+        {          
+          "group": "Flows",
+          "pages": [
+            "docs/documentation/flows/overview",
+            {
+              "group": "Chat",
+              "pages": [
+                "docs/documentation/chat/overview",
+                "docs/documentation/chat/audio",
+                "docs/documentation/chat/basic",
+                "docs/documentation/chat/image",
+                "docs/documentation/chat/pdf",
+                "docs/documentation/chat/website"
+              ]
+            },             
+            {
+              "group": "Memory",
+              "pages": [
+                "docs/documentation/flows/knowledge/temporal",
+                "docs/documentation/flows/knowledge/contextual",
+                "docs/documentation/flows/knowledge/mixed",
+                "docs/documentation/flows/knowledge/multimodal",
+                "docs/documentation/flows/knowledge/agentic",
+                "docs/documentation/flows/knowledge/basic"
+
+              ]
+            },            
+            {
+              "group": "Knowledge",
+              "pages": [
+                "docs/documentation/flows/knowledge/audio",
+                "docs/documentation/flows/knowledge/image",
+                "docs/documentation/flows/knowledge/PDF",
+                "docs/documentation/flows/knowledge/text",
+                "docs/documentation/flows/knowledge/docx",
+                "docs/documentation/flows/knowledge/website"
+              ]
+            },
+            {
+              "group": "Tools",
+              "pages": [
+                "docs/documentation/flows/tools/calculator",
+                "docs/documentation/flows/tools/finance",
+                "docs/documentation/flows/tools/web-search"
+              ]
+            },           
+            {
+              "group": "Teams",
+              "pages": [
+                "docs/documentation/flows/multi/team"
+              ]
+            }
           ]
         },
         {
-          "group": "Feature Guides",
+          "group": "Integrations",
           "pages": [
-            "docs/embedding-vector-indexes",
-            "docs/user-defined-functions-udfs",
-            "docs/working-with-external-files",
-            "docs/time-zones"
+            "docs/documentation/models/overview",
+            {
+              "group": "Audio",
+              "pages": [
+                "docs/documentation/models/audio/whisper"
+              ]
+            },
+            {
+              "group": "Chat",
+              "pages": [
+                "docs/documentation/models/chat/anthropic",
+                "docs/documentation/models/chat/fireworks",
+                "docs/documentation/models/chat/gemini",
+                "docs/documentation/models/chat/llamacpp",
+                "docs/documentation/models/chat/mistral",
+                "docs/documentation/models/chat/ollama",
+                "docs/documentation/models/chat/openai",
+                "docs/documentation/models/chat/replicate",
+                "docs/documentation/models/chat/together"
+              ]
+            },
+            {
+              "group": "Computer Vision",
+              "pages": [
+                "docs/documentation/models/computer-vision/label-studio",
+                "docs/documentation/models/computer-vision/voxel51",
+                "docs/documentation/models/computer-vision/yolox"
+              ]
+            },
+            {
+              "group": "Embeddings",
+              "pages": [
+                "docs/documentation/models/embedding/openai"
+              ]
+            },
+            {
+              "group": "Pandas",
+              "pages": [
+                "docs/documentation/models/pandas/overview"
+              ]
+            },
+            {
+              "group": "Polars",
+              "pages": [
+                "docs/documentation/models/polars/overview"
+              ]
+            }            
           ]
-        }
+        },
+        {
+          "group": "Retrieval",
+          "pages": [
+            "docs/documentation/retrieval/overview",
+            "docs/documentation/retrieval/text",
+            "docs/documentation/retrieval/image",
+            "docs/documentation/retrieval/advanced"
+          ]
+        },
+        {
+          "group": "Pixel Agents",
+          "pages": [
+            "docs/documentation/pixelagent/overview",
+            "docs/documentation/pixelagent/customizable",
+            "docs/documentation/pixelagent/agent-builder",
+            "docs/documentation/pixelagent/teams",
+            "docs/documentation/pixelagent/api-reference"
+          ]
+        }        
       ]
     },
     {
-      "group": "Integrations",
+      "group": "Support",
       "pages": [
-        "docs/integrations/working-with-anthropic",
-        {
-          "group": "LLMs",
-          "pages": [
-            "docs/integrations/LLMs/working-with-anthropic",
-            "docs/integrations/LLMs/working-with-fireworks",
-            "docs/integrations/LLMs/gemini",
-            "docs/integrations/LLMs/working-with-openai",
-            "docs/integrations/LLMs/working-with-llamacpp",
-            "docs/integrations/LLMs/mistral-ai",
-            "docs/integrations/LLMs/working-with-ollama",
-            "docs/integrations/LLMs/working-with-together-ai",
-            "docs/integrations/LLMs/working-with-replicate"
-          ]
-        },
-        {
-          "group": "Computer Vision",
-          "pages": [
-            "docs/integrations/CV/using-label-studio-for-annotations-with-pixeltable",
-            "docs/integrations/CV/working-with-fiftyone",
-            "docs/integrations/CV/working-with-yolox"
-          ]
-        },
-        "docs/integrations/LLMs/working-with-huggingface",
-        "docs/integrations/pandas",
-        "docs/integrations/whisper"
-      ]
-    },
-    {
-      "group": "Community & Support",
-      "pages": [
-        "docs/contributions-discussions",
-        "docs/faq"
+        "docs/support/getting-help",
+        "docs/support/faq"
       ]
     }
   ]
