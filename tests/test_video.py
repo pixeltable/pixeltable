@@ -27,7 +27,7 @@ class TestVideo:
     ) -> tuple[catalog.InsertableTable, catalog.Table]:
         base_t, view_t = self.create_tbls()
 
-        view_t.add_column(transform=view_t.frame.rotate(90), stored=stored)
+        view_t.add_computed_column(transform=view_t.frame.rotate(90), stored=stored)
         base_t.insert({'video': p} for p in paths)
         total_num_rows = view_t.count()
         result = view_t.where(view_t.frame_idx >= 5).select(view_t.frame_idx, view_t.frame, view_t.transform).collect()
@@ -101,19 +101,19 @@ class TestVideo:
         video_filepaths = get_video_files()
         base_t, view_t = self.create_tbls()
         # c2 and c4 depend directly on c1, c3 depends on it indirectly
-        view_t.add_column(c1=view_t.frame.resize([224, 224]))
-        view_t.add_column(c2=view_t.c1.rotate(10))
-        view_t.add_column(c3=view_t.c2.rotate(20))
-        view_t.add_column(c4=view_t.c1.rotate(30))
+        view_t.add_computed_column(c1=view_t.frame.resize([224, 224]))
+        view_t.add_computed_column(c2=view_t.c1.rotate(10))
+        view_t.add_computed_column(c3=view_t.c2.rotate(20))
+        view_t.add_computed_column(c4=view_t.c1.rotate(30))
         for name in ['c1', 'c2', 'c3', 'c4']:
             assert view_t._tbl_version_path.tbl_version.cols_by_name[name].is_stored
         base_t.insert({'video': p} for p in video_filepaths)
-        _ = view_t[view_t.c1, view_t.c2, view_t.c3, view_t.c4].collect()
+        _ = view_t.select(view_t.c1, view_t.c2, view_t.c3, view_t.c4).collect()
 
     def test_get_metadata(self, reset_db) -> None:
         video_filepaths = get_video_files()
         base_t = pxt.create_table('video_tbl', {'video': pxt.Video})
-        base_t['metadata'] = base_t.video.get_metadata()
+        base_t.add_computed_column(metadata=base_t.video.get_metadata())
         validate_update_status(base_t.insert({'video': p} for p in video_filepaths), expected_rows=len(video_filepaths))
         result = base_t.where(base_t.metadata.size == 2234371).select(base_t.metadata).collect()['metadata'][0]
         assert result == {
@@ -225,7 +225,7 @@ class TestVideo:
 
         _ = view_t.select(make_video(view_t.pos, view_t.frame)).group_by(base_t).show()
         # the same without frame col
-        view_t.add_column(transformed=view_t.frame.rotate(30), stored=True)
+        view_t.add_computed_column(transformed=view_t.frame.rotate(30), stored=True)
         _ = view_t.select(make_video(view_t.pos, view_t.transformed)).group_by(base_t).show()
 
         with pytest.raises(excs.Error):
@@ -244,13 +244,13 @@ class TestVideo:
 
         # make sure it works
         _ = view_t.select(self.agg_fn(view_t.pos, view_t.frame, group_by=base_t)).show()
-        status = view_t.add_column(agg=self.agg_fn(view_t.pos, view_t.frame, group_by=base_t))
+        status = view_t.add_computed_column(agg=self.agg_fn(view_t.pos, view_t.frame, group_by=base_t))
         assert status.num_excs == 0
         _ = view_t.select(make_video(view_t.pos, view_t.agg)).group_by(base_t).show()
 
         # image cols computed with a window function currently need to be stored
         with pytest.raises(excs.Error):
-            view_t.add_column(agg2=self.agg_fn(view_t.pos, view_t.frame, group_by=base_t), stored=False)
+            view_t.add_computed_column(agg2=self.agg_fn(view_t.pos, view_t.frame, group_by=base_t), stored=False)
 
         # reload from store
         reload_catalog()

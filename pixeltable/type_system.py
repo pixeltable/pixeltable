@@ -659,9 +659,6 @@ class JsonType(ColumnType):
         return val_type.print_value(val)
 
     def _validate_literal(self, val: Any) -> None:
-        if not isinstance(val, (dict, list)):
-            # TODO In the future we should accept scalars too, which would enable us to remove this top-level check
-            raise TypeError(f'Expected dict or list, got {val.__class__.__name__}')
         if not self.__is_valid_json(val):
             raise TypeError(f'That literal is not a valid Pixeltable JSON object: {val}')
         if self.__validator is not None:
@@ -886,7 +883,7 @@ class ArrayType(ColumnType):
                 f'got ndarray({val.shape}, dtype={val.dtype})'))
 
     def _create_literal(self, val: Any) -> Any:
-        if isinstance(val, (list,tuple)):
+        if isinstance(val, (list, tuple)):
             # map python float to whichever numpy float is
             # declared for this type, rather than assume float64
             return np.array(val, dtype=self.numpy_dtype())

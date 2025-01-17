@@ -1,4 +1,3 @@
-import importlib
 from typing import Any, Optional
 
 import sqlalchemy as sql
@@ -23,7 +22,7 @@ def __substitute_md(k: Optional[str], v: Any) -> Optional[tuple[Optional[str], A
                             'pixeltable.func.expr_template_function.ExprTemplateFunction']):
         if 'path' in v:
             assert 'signature' not in v
-            f = resolve_symbol(v['path'])
+            f = resolve_symbol(__substitute_path(v['path']))
             assert isinstance(f, func.Function)
             v['signature'] = f.signatures[0].as_dict()
         return k, v
@@ -45,3 +44,13 @@ def __substitute_md(k: Optional[str], v: Any) -> Optional[tuple[Optional[str], A
         return k, v
 
     return None
+
+
+def __substitute_path(path: str) -> str:
+    # Starting with version 25, function signatures are preserved in metadata. To migrate from older
+    # versions, it's necessary to resolve the function symbol to get the signature. The following
+    # adjustment is necessary for function names that are stored in db artifacts of version < 25, but
+    # have changed in some version > 25.
+    if path in ['pixeltable.functions.huggingface.clip_text', 'pixeltable.functions.huggingface.clip_image']:
+        return 'pixeltable.functions.huggingface.clip'
+    return path

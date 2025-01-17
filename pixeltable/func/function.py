@@ -128,6 +128,7 @@ class Function(abc.ABC):
                 for idx in range(len(self.signatures)):
                     resolution = cast(Self, copy(self))
                     resolution.signatures = [self.signatures[idx]]
+                    resolution.__resolved_fns = [resolution]  # Resolves to itself
                     resolution._update_as_overload_resolution(idx)
                     self.__resolved_fns.append(resolution)
 
@@ -227,13 +228,12 @@ class Function(abc.ABC):
 
     def conditional_return_type(self, fn: Callable[..., ts.ColumnType]) -> Callable[..., ts.ColumnType]:
         """Instance decorator for specifying a conditional return type for this function"""
-        if self.is_polymorphic:
-            raise excs.Error('`conditional_return_type` is not supported for functions with multiple signatures')
         # verify that call_return_type only has parameters that are also present in the signature
-        sig = inspect.signature(fn)
-        for param in sig.parameters.values():
-            if param.name not in self.signature.parameters:
-                raise ValueError(f'`conditional_return_type` has parameter `{param.name}` that is not in the signature')
+        fn_sig = inspect.signature(fn)
+        for param in fn_sig.parameters.values():
+            for self_sig in self.signatures:
+                if param.name not in self_sig.parameters:
+                    raise ValueError(f'`conditional_return_type` has parameter `{param.name}` that is not in a signature')
         self._conditional_return_type = fn
         return fn
 

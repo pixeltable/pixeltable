@@ -165,15 +165,15 @@ def small_img_tbl(reset_db) -> catalog.Table:
 def indexed_img_tbl(reset_db) -> pxt.Table:
     skip_test_if_not_installed('transformers')
     t = create_img_tbl('indexed_img_tbl', num_rows=40)
-    from .utils import clip_img_embed, clip_text_embed
-    t.add_embedding_index('img', idx_name='img_idx0', metric='cosine', image_embed=clip_img_embed, string_embed=clip_text_embed)
+    from .utils import clip_embed
+    t.add_embedding_index('img', idx_name='img_idx0', metric='cosine', image_embed=clip_embed, string_embed=clip_embed)
     return t
 
 @pytest.fixture(scope='function')
 def multi_idx_img_tbl(reset_db) -> pxt.Table:
     skip_test_if_not_installed('transformers')
     t = create_img_tbl('multi_idx_img_tbl', num_rows=4)
-    from .utils import clip_img_embed, clip_text_embed
-    t.add_embedding_index('img', idx_name='img_idx1', metric='cosine', image_embed=clip_img_embed, string_embed=clip_text_embed)
-    t.add_embedding_index('img', idx_name='img_idx2', metric='cosine', image_embed=clip_img_embed, string_embed=clip_text_embed)
+    from .utils import clip_embed
+    t.add_embedding_index('img', idx_name='img_idx1', metric='cosine', image_embed=clip_embed, string_embed=clip_embed)
+    t.add_embedding_index('img', idx_name='img_idx2', metric='cosine', image_embed=clip_embed, string_embed=clip_embed)
     return t

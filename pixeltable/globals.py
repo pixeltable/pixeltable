@@ -1,6 +1,6 @@
 import dataclasses
 import logging
-from typing import Any, Iterable, Optional, Union, Literal, Type
+from typing import Any, Iterable, Literal, Optional, Union
 from uuid import UUID
 
 import pandas as pd
@@ -26,7 +26,7 @@ def init() -> None:
 
 def _get_or_drop_existing_path(
     path_str: str,
-    expected_obj_type: Type[catalog.SchemaObject],
+    expected_obj_type: type[catalog.SchemaObject],
     expected_snapshot: bool,
     if_exists: catalog.IfExistsParam
 ) -> Optional[catalog.SchemaObject]:
@@ -792,8 +792,6 @@ def tool(fn: func.Function, name: Optional[str] = None, description: Optional[st
     Returns:
         A `Tool` instance that can be passed to an LLM tool-calling API.
     """
-    if fn.self_path is None:
-        raise excs.Error('Only module UDFs can be used as tools (not locally defined UDFs)')
     if isinstance(fn, func.AggregateFunction):
         raise excs.Error('Aggregator UDFs cannot be used as tools')
 

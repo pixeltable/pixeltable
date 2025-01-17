@@ -145,8 +145,6 @@ class CallableFunction(Function):
     def overload(self, fn: Callable) -> CallableFunction:
         if self.self_path is None:
             raise excs.Error('`overload` can only be used with module UDFs (not locally defined UDFs)')
-        if self.is_batched:
-            raise excs.Error('`overload` cannot be used with batched functions')
         if self.is_method or self.is_property:
             raise excs.Error('`overload` cannot be used with `is_method` or `is_property`')
         if self._has_resolved_fns:
