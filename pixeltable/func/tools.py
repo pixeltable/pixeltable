@@ -144,10 +144,10 @@ def _extract_bool_tool_arg(tool_calls: dict[str, Any], func_name: str, param_nam
 T = TypeVar('T')
 
 
-def _extract_arg(eval: Callable[[Any], T], tool_calls: dict[str, Any], func_name: str, param_name: str) -> Optional[T]:
+def _extract_arg(eval_fn: Callable[[Any], T], tool_calls: dict[str, Any], func_name: str, param_name: str) -> Optional[T]:
     if func_name in tool_calls:
         arguments = tool_calls[func_name]['args']
         if param_name in arguments:
-            return eval(arguments[param_name])
+            return eval_fn(arguments[param_name])
         return None
     return None
