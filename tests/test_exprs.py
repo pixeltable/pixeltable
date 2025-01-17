@@ -5,7 +5,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
@@ -19,11 +19,11 @@ import pixeltable.functions as pxtf
 from pixeltable import catalog, exprs
 from pixeltable.exprs import RELATIVE_PATH_ROOT as R
 from pixeltable.exprs import ColumnRef, Expr
-from pixeltable.functions import cast
+from pixeltable.functions.globals import cast
 from pixeltable.iterators import FrameIterator
 
-from .utils import (create_all_datatypes_tbl, create_scalars_tbl, get_image_files, reload_catalog, skip_test_if_not_installed,
-                    validate_update_status)
+from .utils import (create_all_datatypes_tbl, create_scalars_tbl, get_image_files, reload_catalog,
+                    skip_test_if_not_installed, validate_update_status)
 
 
 class TestExprs:
@@ -69,7 +69,7 @@ class TestExprs:
         def __init__(self) -> None:
             self.sum = 0
         def update(self, val: int):
-            self.sum += 1 / val
+            self.sum += 1 // val
         def value(self) -> int:
             return 1
 
@@ -264,7 +264,7 @@ class TestExprs:
         t.add_computed_column(c5=self.optional_params_fn(t.c1, t.c2))
 
         # data that tests all combinations of nulls
-        data = [{'c1': 1.0, 'c2': 1.0}, {'c1': 1.0, 'c2': None}, {'c1': None, 'c2': 1.0}, {'c1': None, 'c2': None}]
+        data: list[dict[str, Any]] = [{'c1': 1.0, 'c2': 1.0}, {'c1': 1.0, 'c2': None}, {'c1': None, 'c2': 1.0}, {'c1': None, 'c2': None}]
         validate_update_status(t.insert(data), expected_rows=4)
         result = t.collect()
         assert result['c3'] == [2.0, None, None, None]
@@ -397,10 +397,11 @@ class TestExprs:
                     b=b_expr,
                     eq=a_expr == b_expr,
                     ne=a_expr != b_expr,
-                    lt=a_expr < b_expr,
-                    le=a_expr <= b_expr,
-                    gt=a_expr > b_expr,
-                    ge=a_expr >= b_expr,
+                    # One or the other of a_expr or b_expr will always be an Expr, but mypy doesn't understand that
+                    lt=a_expr < b_expr,  # type: ignore[operator]
+                    le=a_expr <= b_expr,  # type: ignore[operator]
+                    gt=a_expr > b_expr,  # type: ignore[operator]
+                    ge=a_expr >= b_expr,  # type: ignore[operator]
                 ).collect()
                 a_results = results['a']
                 b_results = results['b']
@@ -477,7 +478,7 @@ class TestExprs:
         #_ = t[t.c6.f2].show()
         #_ = t[t.c6.f5].show()
         _ = t.select(t.c6.f6.f8).show()
-        _ = t.select(cast(t.c6.f6.f8, pxt.Array[(4,), pxt.Float])).show()
+        _ = t.select(cast(t.c6.f6.f8, pxt.Array[(4,), pxt.Float])).show()  # type: ignore[misc]
 
         # top-level is array
         #_ = t[t.c7['*'].f1].show()
@@ -487,7 +488,7 @@ class TestExprs:
         _ = t.select(t.c7[0].f6.f8).show()
         _ = t.select(t.c7[:2].f6.f8).show()
         _ = t.select(t.c7[::-1].f6.f8).show()
-        _ = t.select(cast(t.c7['*'].f6.f8, pxt.Array[(2, 4), pxt.Float])).show()
+        _ = t.select(cast(t.c7['*'].f6.f8, pxt.Array[(2, 4), pxt.Float])).show()  # type: ignore[misc]
         print(_)
 
     def test_arrays(self, test_tbl: catalog.Table) -> None:

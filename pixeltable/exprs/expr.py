@@ -508,6 +508,10 @@ class Expr(abc.ABC):
                 # Return the `MethodRef` object itself; it requires arguments to become a `FunctionCall`
                 return method_ref
 
+    def __rshift__(self, other: object) -> 'exprs.Expr':
+        # Implemented here for type-checking purposes
+        raise excs.Error('The `>>` operator can only be applied to Json expressions')
+
     def __bool__(self) -> bool:
         raise TypeError(
             'Pixeltable expressions cannot be used in conjunction with Python boolean operators (and/or/not)')

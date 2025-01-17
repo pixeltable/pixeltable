@@ -217,7 +217,7 @@ def create_all_datatypes_tbl() -> catalog.Table:
     pxt.Array.bythn(11)
     schema = {
         'row_id': pxt.Required[pxt.Int],
-        'c_array': pxt.Array[(10,), pxt.Float],
+        'c_array': pxt.Array[(10,), pxt.Float],  # type: ignore[misc]
         'c_bool': pxt.Bool,
         'c_float': pxt.Float,
         'c_image': pxt.Image,
@@ -462,6 +462,13 @@ def make_test_arrow_table(output_path: Path) -> str:
     import pyarrow as pa
     from pyarrow import parquet
 
+    float_array = [
+        [1.0, 2.0],
+        [10.0, 20.0],
+        [100.0, 200.0],
+        [1000.0, 2000.0],
+        [10000.0, 20000.0],
+    ]
     value_dict: dict[str, list] = {
         'c_id': [1, 2, 3, 4, 5],
         'c_int64': [-10, -20, -30, -40, None],
@@ -478,28 +485,10 @@ def make_test_arrow_table(output_path: Path) -> str:
         ],
         # The pyarrow fixed_shape_tensor type does not support NULLs (currently can write them but not read them)
         # So, no nulls in this column
-        'c_array_float32': [
-            [
-                1.0,
-                2.0,
-            ],
-            [
-                10.0,
-                20.0,
-            ],
-            [
-                100.0,
-                200.0,
-            ],
-            [
-                1000.0,
-                2000.0,
-            ],
-            [10000.0, 20000.0],
-        ],
+        'c_array_float32': float_array,
     }
 
-    arr_size = len(value_dict['c_array_float32'][0])
+    arr_size = len(float_array[0])
     tensor_type = pa.fixed_shape_tensor(pa.float32(), (arr_size,))
 
     fields = [
