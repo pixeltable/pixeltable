@@ -111,7 +111,7 @@ class TestSnapshot:
         id_before = s._id
         # invalid if_exists value is rejected
         with pytest.raises(excs.Error) as exc_info:
-            pxt.create_snapshot(sname, t, if_exists='invalid')
+            pxt.create_snapshot(sname, t, if_exists='invalid')  # type: ignore[arg-type]
         assert "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']" in str(exc_info.value).lower()
 
         # scenario 1: a snapshot exists at the path already
@@ -160,7 +160,7 @@ class TestSnapshot:
             pxt.create_snapshot('not_snapshot', t)
         for _ie in ['ignore', 'replace', 'replace_force']:
             with pytest.raises(excs.Error) as exc_info:
-                pxt.create_snapshot('not_snapshot', t, if_exists=_ie)
+                pxt.create_snapshot('not_snapshot', t, if_exists=_ie)  # type: ignore[arg-type]
             err_msg = str(exc_info.value).lower()
             assert 'already exists' in err_msg and 'is not a snapshot' in err_msg
             assert 'not_snapshot' in pxt.list_tables(), f"with if_exists={_ie}"
@@ -223,7 +223,7 @@ class TestSnapshot:
         assert 'cannot update a snapshot' in str(excinfo.value).lower()
 
         with pytest.raises(pxt.Error) as excinfo:
-            _ = snap.revert()
+            snap.revert()
         assert 'cannot revert a snapshot' in str(excinfo.value).lower()
 
         with pytest.raises(pxt.Error) as excinfo:
