@@ -80,7 +80,7 @@ class TestExprs:
             self.sum = 0
         def update(self, val: int):
             self.sum += val
-        def value(self) -> int:
+        def value(self) -> float:
             return 1 / self.sum
 
     def test_basic(self, test_tbl: catalog.Table) -> None:
@@ -977,7 +977,7 @@ class TestExprs:
         df = t.select().collect().to_pandas()
         def series_to_list(series):
             return [int(x) if pd.notna(x) else None for x in series]
-        int_sum = pxtf.sum(t.c_int)
+        int_sum: Expr = pxtf.sum(t.c_int)
         _ = t.group_by(t.c_int).select(t.c_int, out=int_sum).order_by(int_sum, asc=False).limit(5).collect()
 
         for pxt_fn, pd_fn in [
@@ -1067,7 +1067,7 @@ class TestExprs:
             _ = t.group_by(t.c2 % 2).select(sum(count(t.c2))).collect()
 
     @pxt.uda(allows_window=True, requires_order_by=False)
-    class window_agg:
+    class window_agg(pxt.Aggregator):
         def __init__(self, val: int = 0):
             self.val = val
         def update(self, ignore: int) -> None:
@@ -1076,7 +1076,7 @@ class TestExprs:
             return self.val
 
     @pxt.uda(requires_order_by=True, allows_window=True)
-    class ordered_agg:
+    class ordered_agg(pxt.Aggregator):
         def __init__(self, val: int = 0):
             self.val = val
         def update(self, i: int) -> None:
@@ -1085,7 +1085,7 @@ class TestExprs:
             return self.val
 
     @pxt.uda(requires_order_by=False, allows_window=False)
-    class std_agg:
+    class std_agg(pxt.Aggregator):
         def __init__(self, val: int = 0):
             self.val = val
         def update(self, i: int) -> None:
@@ -1136,7 +1136,7 @@ class TestExprs:
         with pytest.raises(excs.Error) as exc_info:
             # missing update parameter
             @pxt.uda
-            class WindowAgg:
+            class WindowAgg1(pxt.Aggregator):
                 def __init__(self, val: int = 0):
                     self.val = val
                 def update(self) -> None:
@@ -1148,7 +1148,7 @@ class TestExprs:
         with pytest.raises(excs.Error) as exc_info:
             # duplicate parameter names
             @pxt.uda
-            class WindowAgg:
+            class WindowAgg2(pxt.Aggregator):
                 def __init__(self, val: int = 0):
                     self.val = val
                 def update(self, val: int) -> None:
@@ -1160,7 +1160,7 @@ class TestExprs:
         with pytest.raises(excs.Error) as exc_info:
             # reserved parameter name
             @pxt.uda
-            class WindowAgg:
+            class WindowAgg3(pxt.Aggregator):
                 def __init__(self, val: int = 0):
                     self.val = val
                 def update(self, order_by: int) -> None:
@@ -1172,7 +1172,7 @@ class TestExprs:
         with pytest.raises(excs.Error) as exc_info:
             # reserved parameter name
             @pxt.uda
-            class WindowAgg:
+            class WindowAgg4(pxt.Aggregator):
                 def __init__(self, val: int = 0):
                     self.val = val
                 def update(self, group_by: int) -> None:

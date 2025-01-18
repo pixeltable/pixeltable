@@ -1,9 +1,9 @@
 from typing import Callable, Optional
 
 from mypy import nodes
-from mypy.plugin import AnalyzeTypeContext, ClassDefContext, Plugin, MethodSigContext
+from mypy.plugin import AnalyzeTypeContext, ClassDefContext, FunctionContext, MethodSigContext, Plugin
 from mypy.plugins.common import add_method_to_class
-from mypy.types import AnyType, NoneType, Type, TypeOfAny, FunctionLike
+from mypy.types import AnyType, FunctionLike, Instance, NoneType, Type, TypeOfAny
 
 import pixeltable as pxt
 
@@ -27,6 +27,9 @@ class PxtPlugin(Plugin):
         for k, v in __TYPE_MAP.items()
     }
 
+    def get_function_hook(self, fullname: str) -> Optional[Callable[[FunctionContext], Type]]:
+        return adjust_uda_type
+
     def get_type_analyze_hook(self, fullname: str) -> Optional[Callable[[AnalyzeTypeContext], Type]]:
         if fullname in self.__FULLNAME_MAP:
             subst_name = self.__FULLNAME_MAP[fullname]
@@ -45,6 +48,22 @@ class PxtPlugin(Plugin):
 
 def plugin(version: str) -> type:
     return PxtPlugin
+
+_AGGREGATOR_FULLNAME = f'{pxt.Aggregator.__module__}.{pxt.Aggregator.__name__}'
+_FN_CALL_FULLNAME = f'{pxt.exprs.Expr.__module__}.{pxt.exprs.Expr.__name__}'
+
+def adjust_uda_type(ctx: FunctionContext) -> Type:
+    # Mypy doesn't understand that a class with a @uda decorator isn't actually a class, so it assumes
+    # that sum(expr), for example, actually returns an instance of sum. We correct this by changing the
+    # return type of any subclass of `Aggregator` to `FunctionCall`.
+    ret_type = ctx.default_return_type
+    if isinstance(ret_type, Instance):
+        if (
+            ret_type.type.fullname == _AGGREGATOR_FULLNAME
+            or any(base.type.fullname == _AGGREGATOR_FULLNAME for base in ret_type.type.bases)
+        ):
+            ret_type = AnyType(TypeOfAny.special_form)
+    return ret_type
 
 def pxt_hook(ctx: AnalyzeTypeContext, subst_name: str) -> Type:
     if subst_name == 'typing.Any':
@@ -65,16 +84,16 @@ def pxt_decorator_hook(ctx: ClassDefContext) -> bool:
     add_method_to_class(
         ctx.api,
         ctx.cls,
-        "to_sql",
-        args=[fn_arg],
-        return_type=AnyType(TypeOfAny.special_form),
-        is_staticmethod=True,
+        "__init__",
+        args=[args_arg, kwargs_arg],
+        return_type=NoneType(),
     )
     add_method_to_class(
         ctx.api,
         ctx.cls,
-        "__init__",
-        args=[args_arg, kwargs_arg],
-        return_type=NoneType(),
+        "to_sql",
+        args=[fn_arg],
+        return_type=AnyType(TypeOfAny.special_form),
+        is_staticmethod=True,
     )
     return True
