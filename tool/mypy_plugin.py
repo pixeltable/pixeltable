@@ -11,6 +11,7 @@ import pixeltable as pxt
 class PxtPlugin(Plugin):
     __UDA_FULLNAME = f'{pxt.uda.__module__}.{pxt.uda.__name__}'
     __ARRAY_GETITEM_FULLNAME = f'{pxt.Array.__module__}.{pxt.Array.__name__}.__class_getitem__'
+    __ADD_COLUMN_FULLNAME = f'{pxt.Table.__module__}.{pxt.Table.__name__}.{pxt.Table.add_column.__name__}'
     __ADD_COMPUTED_COLUMN_FULLNAME = (
         f'{pxt.Table.__module__}.{pxt.Table.__name__}.{pxt.Table.add_computed_column.__name__}'
     )
@@ -37,7 +38,7 @@ class PxtPlugin(Plugin):
         return None
 
     def get_method_signature_hook(self, fullname: str) -> Optional[Callable[[MethodSigContext], FunctionLike]]:
-        if fullname == self.__ADD_COMPUTED_COLUMN_FULLNAME:
+        if fullname in [self.__ADD_COLUMN_FULLNAME, self.__ADD_COMPUTED_COLUMN_FULLNAME]:
             return pxt_method_hook
         return None
 
