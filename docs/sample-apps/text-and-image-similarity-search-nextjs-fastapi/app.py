@@ -17,7 +17,8 @@ import PIL.Image
 # Local imports
 import pixeltable as pxt
 from pixeltable.iterators import FrameIterator
-from pixeltable.functions.huggingface import clip_image, clip_text
+from pixeltable.functions.huggingface import clip
+from pixeltable.func import Batch
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -39,12 +40,19 @@ TEMP_DIR = tempfile.mkdtemp()
 
 # Embedding functions
 @pxt.expr_udf
-def embed_image(img: PIL.Image.Image):
-    return clip_image(img, model_id='openai/clip-vit-base-patch32')
+def embed_image(img: Batch[PIL.Image.Image]):
+    """
+    Embeds an image using the CLIP model. Expects input as a Batch of images.
+    """
+    return clip(img, model_id='openai/clip-vit-base-patch32')
 
 @pxt.expr_udf
-def str_embed(s: str):
-    return clip_text(s, model_id='openai/clip-vit-base-patch32')
+def str_embed(s: Batch[str]):
+    """
+    Embeds a string using the CLIP model. Expects input as a Batch of strings.
+    """
+    return clip(s, model_id='openai/clip-vit-base-patch32')
+
 
 # Initialize Pixeltable
 pxt.drop_dir('video_search', force=True)
