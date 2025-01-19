@@ -18,7 +18,6 @@ import PIL.Image
 import pixeltable as pxt
 from pixeltable.iterators import FrameIterator
 from pixeltable.functions.huggingface import clip
-from pixeltable.func import Batch
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -38,22 +37,6 @@ app.add_middleware(
 # Create temp directory
 TEMP_DIR = tempfile.mkdtemp()
 
-# Embedding functions
-@pxt.expr_udf
-def embed_image(img: Batch[PIL.Image.Image]):
-    """
-    Embeds an image using the CLIP model. Expects input as a Batch of images.
-    """
-    return clip(img, model_id='openai/clip-vit-base-patch32')
-
-@pxt.expr_udf
-def str_embed(s: Batch[str]):
-    """
-    Embeds a string using the CLIP model. Expects input as a Batch of strings.
-    """
-    return clip(s, model_id='openai/clip-vit-base-patch32')
-
-
 # Initialize Pixeltable
 pxt.drop_dir('video_search', force=True)
 pxt.create_dir('video_search')
@@ -71,12 +54,8 @@ frames_view = pxt.create_view(
     iterator=FrameIterator.create(video=video_table.video, fps=1)
 )
 
-# Add embedding index
-frames_view.add_embedding_index(
-    'frame',
-    string_embed=str_embed,
-    image_embed=embed_image
-)
+# Create an index on the 'frame' column that allows text and image search
+frames_view.add_embedding_index('frame', embed=clip.using('openai/clip-vit-base-patch32'))
 
 @app.post("/api/process-video")
 async def process_video(file: UploadFile = File(...)):

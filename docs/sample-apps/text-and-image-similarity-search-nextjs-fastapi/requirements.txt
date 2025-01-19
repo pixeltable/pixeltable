@@ -2,7 +2,7 @@
 fastapi==0.109.2
 uvicorn==0.27.1
 python-multipart==0.0.9
-pixeltable==0.3
+pixeltable==0.3.0
 
 # Image processing
 Pillow==10.2.0
