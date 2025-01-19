@@ -154,7 +154,7 @@ audio_chunks.add_embedding_index(
 logger.info("Added embedding index")
 
 
-@conversations.query
+@pxt.query
 def get_chat_history():
     return conversations.order_by(
         conversations.timestamp
@@ -185,7 +185,7 @@ def create_messages(history: list[dict], prompt: str) -> list[dict]:
     return messages
 
 # Setup similarity search query
-@chunks_view.query
+@pxt.query
 def get_relevant_chunks(query_text: str):
     sim = chunks_view.text.similarity(query_text)
     return (
@@ -193,7 +193,7 @@ def get_relevant_chunks(query_text: str):
     )
 
 
-@transcription_chunks.query
+@pxt.query
 def get_relevant_transcript_chunks(query_text: str):
     sim = transcription_chunks.text.similarity(query_text)
     return (
@@ -203,7 +203,7 @@ def get_relevant_transcript_chunks(query_text: str):
     )
 
 
-@audio_chunks.query
+@pxt.query
 def get_relevant_audio_chunks(query_text: str):
     sim = audio_chunks.text.similarity(query_text)
     return (
@@ -214,16 +214,16 @@ def get_relevant_audio_chunks(query_text: str):
 
 
 # Add computed columns
-docs_table.add_computed_column(context_doc=chunks_view.queries.get_relevant_chunks(docs_table.question))
-docs_table.add_computed_column(context_video=transcription_chunks.queries.get_relevant_transcript_chunks(docs_table.question))
-docs_table.add_computed_column(context_audio=audio_chunks.queries.get_relevant_audio_chunks(docs_table.question))
+docs_table.add_computed_column(context_doc=get_relevant_chunks(docs_table.question))
+docs_table.add_computed_column(context_video=get_relevant_transcript_chunks(docs_table.question))
+docs_table.add_computed_column(context_audio=get_relevant_audio_chunks(docs_table.question))
 docs_table.add_computed_column(prompt=create_prompt(
     docs_table.context_doc,
     docs_table.context_video,
     docs_table.context_audio,
     docs_table.question,
 ))
-docs_table.add_computed_column(chat_history=conversations.queries.get_chat_history())
+docs_table.add_computed_column(chat_history=get_chat_history())
 docs_table.add_computed_column(messages=create_messages(
     docs_table.chat_history,
     docs_table.prompt
