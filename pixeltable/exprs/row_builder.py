@@ -71,10 +71,10 @@ class RowBuilder:
     _exc_dependents: list[set[int]]
 
     # dependents[i] = direct dependents of expr with slot idx i; dependents[i, j] == True: expr j depends on expr i
-    dependents: np.ndarray
-    transitive_dependents: np.ndarray
+    dependents: np.ndarray  # of bool
+    transitive_dependents: np.ndarray  # of bool
     # dependencies[i] = direct dependencies of expr with slot idx i; transpose of dependents
-    dependencies: np.ndarray
+    dependencies: np.ndarray  # of bool
 
     # records the output_expr that a subexpr belongs to
     # (a subexpr can be shared across multiple output exprs)

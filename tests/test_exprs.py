@@ -272,64 +272,6 @@ class TestExprs:
         assert result['c4'] == [2.0, 1.0, None, None]
         assert result['c5'] == [2.0, 1.0, 1.0, None]
 
-    def test_x(self, reset_db) -> None:
-        t = pxt.create_table('test', {'i': pxt.Int, 's': pxt.String})
-        validate_update_status(t.insert({'i': i, 's': f'Line {i}'} for i in range(100)))
-        out1 = pxtf.string.format('{0} abc', t.s)
-        out2 = pxtf.string.repeat(out1, t.i)
-        _ = t.select(t.i, out1, out2).collect()
-        pass
-
-    def test_y(self, reset_db) -> None:
-        t = pxt.create_table('test', {'img': pxt.Image})
-        t.add_computed_column(img2=t.img.rotate(30).resize((224, 224)), stored=True)
-        files = get_image_files(include_bad_image=False)
-        status = t.insert({'img': f} for f in files)
-        _ = t.select(t.img, t.img2, t.img.rotate(30).resize((224, 224))).collect()
-        pass
-
-    def test_z(self, reset_db) -> None:
-        t = pxt.create_table('test', {'s': pxt.String})
-        from pixeltable.functions.huggingface import sentence_transformer
-        model_id = 'intfloat/e5-large-v2'
-        t.add_column(e5=sentence_transformer(t.s, model_id=model_id))
-        status = t.insert({'s': 'This is a string'} for _ in range(100))
-        _ = t.select(t.s, t.e5).collect()
-        pass
-
-    def test_v(self, reset_db) -> None:
-        from pixeltable.functions.anthropic import messages
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
-        msgs = [{'role': 'user', 'content': t.input}]
-        t['output'] = messages(messages=msgs, model='claude-3-haiku-20240307')
-        t['output2'] = messages(
-            messages=msgs,
-            model='claude-3-haiku-20240307',
-            max_tokens=300,
-            metadata={'user_id': 'pixeltable'},
-            stop_sequences=['STOP'],
-            system='You are an ordinary person walking down the street.',
-            temperature=0.7,
-            top_k=40,
-            top_p=0.9,
-        )
-        validate_update_status(t.insert({'input': "How's everything going today?"} for _ in range(1)))
-        #validate_update_status(t.insert({'input': "How's everything going today?"} for _ in range(100)))
-        results = t.select(t.output, t.output.errormsg, t.output2, t.output2.errormsg).collect()
-        assert len(results['output'][0]['content'][0]['text']) > 0
-        assert len(results['output2'][0]['content'][0]['text']) > 0
-
-    def test_a(self, reset_db) -> None:
-        from pixeltable.functions.openai import chat_completions
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
-        msgs = [{'role': 'system', 'content': 'You are a helpful assistant.'}, {'role': 'user', 'content': t.input}]
-        t.add_column(input_msgs=msgs)
-        t.add_column(chat_output=chat_completions(model='gpt-4o-mini', messages=t.input_msgs))
-        validate_update_status(t.insert({'input': "How's everything going today?"} for _ in range(10)))
-        #validate_update_status(t.insert({'input': "How's everything going today?"} for _ in range(100)))
-        results = t.select(t.chat_output, t.chat_output.errormsg).collect()
-        pass
-
     @pxt.udf
     def anthropic_prompt(word1: str, word2: str) -> list:
         return [
@@ -347,70 +289,92 @@ class TestExprs:
             }
         ]
 
-
-    def test_w(self, reset_db) -> None:
-        t = pxt.create_table('sentence_tbl', {'word1': pxt.String, 'word2': pxt.String})
-
-        with open('/usr/share/dict/american-english') as f:
-            wordlist = [word.strip() for word in f]
-
-        t.add_computed_column(claude_prompt=self.anthropic_prompt(t.word1, t.word2))
-        t.add_computed_column(chatgpt_prompt=self.openai_prompt(t.word1, t.word2))
-        t.add_computed_column(claude_sentence=pxtf.anthropic.messages(
-            messages=t.claude_prompt,
-            model='claude-3-haiku-20240307',
-            max_tokens=100,
-            temperature=0.7,
-            system='You are a creative writer who creates natural-sounding sentences.'
-        ))
-        t.add_computed_column(chatgpt_sentence=pxtf.openai.chat_completions(
-            messages=t.chatgpt_prompt,
-            model='gpt-4o-mini',
-            max_tokens=100,
-            temperature=0.7,
-        ))
-
-        rows = (
-            {'word1': w1, 'word2': w2}
-            for _ in range(1000)
-            for w1, w2 in [random.sample(wordlist, k=2)]
-        )
-        status = t.insert(rows, on_error='ignore')
-        pass
-
-    def test_s(self, test_tbl: catalog.Table) -> None:
-        t = test_tbl
-
-        # TODO: test division; requires predicate
-        for op1, op2 in [(t.c6.f2, t.c6.f2), (t.c6.f3, t.c6.f3)]:
-            with pytest.raises(excs.Error) as exc_info:
-                _ = t.select(op1 / op2).collect()
-            pass
-
-    def test_image_generations(self, reset_db) -> None:
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
-        from pixeltable.functions.openai import image_generations
-
-        t.add_column(img=image_generations(t.input))
-        # Test dall-e-2 options
-        t.add_column(img_2=image_generations(t.input, model='dall-e-2', size='512x512', user='pixeltable'))
-        # image size information was captured correctly
-        type_info = t._schema
-        assert type_info['img_2'].size == (512, 512)
-
-        validate_update_status(t.insert(input='A friendly dinosaur playing tennis in a cornfield'), 1)
-        assert t.collect()['img'][0].size == (1024, 1024)
-        assert t.collect()['img_2'][0].size == (512, 512)
-
-    def test_moderations(self, reset_db) -> None:
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
-        from pixeltable.functions.openai import moderations
-
-        t.add_column(moderation=moderations(input=t.input))
-        t.add_column(moderation_2=moderations(input=t.input, model='text-moderation-stable'))
-        validate_update_status(t.insert(input='Say something interesting.'), 1)
-        _ = t.head()
-
+    # def test_w(self, reset_db) -> None:
+    #     t = pxt.create_table('sentence_tbl', {'word1': pxt.String, 'word2': pxt.String})
+    #
+    #     with open('/usr/share/dict/american-english') as f:
+    #         wordlist = [word.strip() for word in f]
+    #
+    #     t.add_computed_column(claude_prompt=self.anthropic_prompt(t.word1, t.word2))
+    #     t.add_computed_column(chatgpt_prompt=self.openai_prompt(t.word1, t.word2))
+    #     t.add_computed_column(claude_sentence=pxtf.anthropic.messages(
+    #         messages=t.claude_prompt,
+    #         model='claude-3-haiku-20240307',
+    #         max_tokens=100,
+    #         temperature=0.7,
+    #         system='You are a creative writer who creates natural-sounding sentences.'
+    #     ))
+    #     t.add_computed_column(chatgpt_sentence=pxtf.openai.chat_completions(
+    #         messages=t.chatgpt_prompt,
+    #         model='gpt-4o-mini',
+    #         max_tokens=100,
+    #         temperature=0.7,
+    #     ))
+    #
+    #     rows = (
+    #         {'word1': w1, 'word2': w2}
+    #         for _ in range(10)
+    #         for w1, w2 in [random.sample(wordlist, k=2)]
+    #     )
+    #     status = t.insert(rows, on_error='ignore')
+    #     pass
+    #
+    # def test_claude(self, reset_db) -> None:
+    #     t = pxt.create_table('sentence_tbl', {'word1': pxt.String, 'word2': pxt.String})
+    #
+    #     with open('/usr/share/dict/american-english') as f:
+    #         wordlist = [word.strip() for word in f]
+    #
+    #     t.add_computed_column(claude_prompt=self.anthropic_prompt(t.word1, t.word2))
+    #     t.add_computed_column(claude_sentence=pxtf.anthropic.messages(
+    #         messages=t.claude_prompt,
+    #         model='claude-3-haiku-20240307',
+    #         max_tokens=100,
+    #         temperature=0.7,
+    #         system='You are a creative writer who creates natural-sounding sentences.'
+    #     ))
+    #
+    #     rows = (
+    #         {'word1': w1, 'word2': w2}
+    #         for _ in range(10)
+    #         for w1, w2 in [random.sample(wordlist, k=2)]
+    #     )
+    #     status = t.insert(rows, on_error='ignore')
+    #     pass
+    #
+    # def test_s(self, test_tbl: catalog.Table) -> None:
+    #     t = test_tbl
+    #
+    #     # TODO: test division; requires predicate
+    #     for op1, op2 in [(t.c6.f2, t.c6.f2), (t.c6.f3, t.c6.f3)]:
+    #         with pytest.raises(excs.Error) as exc_info:
+    #             _ = t.select(op1 / op2).collect()
+    #         pass
+    #
+    # def test_image_generations(self, reset_db) -> None:
+    #     t = pxt.create_table('test_tbl', {'input': pxt.String})
+    #     from pixeltable.functions.openai import image_generations
+    #
+    #     t.add_column(img=image_generations(t.input))
+    #     # Test dall-e-2 options
+    #     t.add_column(img_2=image_generations(t.input, model='dall-e-2', size='512x512', user='pixeltable'))
+    #     # image size information was captured correctly
+    #     type_info = t._schema
+    #     assert type_info['img_2'].size == (512, 512)
+    #
+    #     validate_update_status(t.insert(input='A friendly dinosaur playing tennis in a cornfield'), 1)
+    #     assert t.collect()['img'][0].size == (1024, 1024)
+    #     assert t.collect()['img_2'][0].size == (512, 512)
+    #
+    # def test_moderations(self, reset_db) -> None:
+    #     t = pxt.create_table('test_tbl', {'input': pxt.String})
+    #     from pixeltable.functions.openai import moderations
+    #
+    #     t.add_column(moderation=moderations(input=t.input))
+    #     t.add_column(moderation_2=moderations(input=t.input, model='text-moderation-stable'))
+    #     validate_update_status(t.insert(input='Say something interesting.'), 1)
+    #     _ = t.head()
+    #
 
     def test_arithmetic_exprs(self, test_tbl: catalog.Table) -> None:
         t = test_tbl

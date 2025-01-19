@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-import threading
 import abc
 import asyncio
 import logging
-from typing import Iterable, Iterator, Optional, TypeVar, AsyncIterator, AsyncIterable
-from concurrent.futures import ThreadPoolExecutor
+from typing import Iterable, Iterator, Optional, TypeVar, AsyncIterator
 
 import pixeltable.exprs as exprs
 from .data_row_batch import DataRowBatch
@@ -57,7 +55,7 @@ class ExecNode(abc.ABC):
         try:
             # check if we are already in an event loop (eg, Jupyter's); if so, patch it to allow nested event loops
             _ = asyncio.get_event_loop()
-            import nest_asyncio
+            import nest_asyncio  # type: ignore
             nest_asyncio.apply()
         except RuntimeError:
             pass

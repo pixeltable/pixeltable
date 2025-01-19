@@ -20,7 +20,7 @@ class CallableFunction(Function):
     - references to lambdas and functions defined in notebooks, which are pickled and serialized to the store
     - functions that are defined in modules are serialized via the default mechanism
     """
-    py_fn: Callable
+    py_fns: list[Callable]
     self_name: Optional[str]
     batch_size: Optional[int]
 

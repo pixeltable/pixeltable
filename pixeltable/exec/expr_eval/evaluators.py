@@ -165,7 +165,7 @@ class FnCallEvaluator(Evaluator):
             if self.fn.is_async:
                 result_batch = await self.fn.aexec_batch(*arg_batches, **kwarg_batches)
             else:
-                result_batch = self.fn.exec_batch(*arg_batches, **kwarg_batches)
+                result_batch = self.fn.exec_batch(arg_batches, kwarg_batches)
         except Exception as exc:
             _, _, exc_tb = sys.exc_info()
             for row in rows:

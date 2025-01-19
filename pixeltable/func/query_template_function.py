@@ -18,6 +18,10 @@ if TYPE_CHECKING:
 
 class QueryTemplateFunction(Function):
     """A parameterized query/DataFrame from which an executable DataFrame is created with a function call."""
+    template_df: Optional['DataFrame']
+    self_name: Optional[str]
+    conn: Optional[sql.engine.Connection]
+    defaults: dict[str, exprs.Literal]
 
     @classmethod
     def create(
@@ -48,10 +52,10 @@ class QueryTemplateFunction(Function):
         # if we're running as part of an ongoing update operation, we need to use the same connection, otherwise
         # we end up with a deadlock
         # TODO: figure out a more general way to make execution state available
-        self.conn: Optional[sql.engine.Connection] = None
+        self.conn = None
 
         # convert defaults to Literals
-        self.defaults: dict[str, exprs.Literal] = {}  # key: param name, value: default value converted to a Literal
+        self.defaults = {}  # key: param name, value: default value converted to a Literal
         param_types = self.template_df.parameters()
         for param in [p for p in sig.parameters.values() if p.has_default()]:
             assert param.name in param_types
@@ -70,7 +74,6 @@ class QueryTemplateFunction(Function):
         return True
 
     async def aexec(self, *args: Any, **kwargs: Any) -> Any:
-    #def exec(self, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:
         #assert not self.is_polymorphic
         bound_args = self.signature.py_signature.bind(*args, **kwargs).arguments
         # apply defaults, otherwise we might have Parameters left over

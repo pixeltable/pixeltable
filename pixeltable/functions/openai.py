@@ -5,7 +5,6 @@ first `pip install openai` and configure your OpenAI credentials, as described i
 the [Working with OpenAI](https://pixeltable.readme.io/docs/working-with-openai) tutorial.
 """
 
-import httpx
 import base64
 import datetime
 import io
@@ -13,9 +12,10 @@ import json
 import pathlib
 import re
 import uuid
-from typing import TYPE_CHECKING, Any, Callable, Optional, TypeVar, Union
+from typing import TYPE_CHECKING, Callable, Optional, TypeVar, Union, cast, Any
 
 import PIL.Image
+import httpx
 import numpy as np
 import tenacity
 
@@ -99,15 +99,46 @@ _shared_rate_limits = {
 def _resource_pool(model: str) -> str:
     for model_family, models in _shared_rate_limits.items():
         if model in models:
-            return f'openai:{model_family}'
-    return f'openai:{model}'
+            return f'rate-limits:openai:{model_family}'
+    return f'rate-limits:openai:{model}'
+
+
+class OpenAIRateLimitsInfo(env.RateLimitsInfo):
+
+    import openai
+    retryable_errors = (
+        openai.RateLimitError, openai.APITimeoutError, openai.UnprocessableEntityError, openai.InternalServerError
+    )
+
+    def get_request_resources(self, messages: list, max_tokens: Optional[int], n: Optional[int]) -> dict[str, int]:
+        completion_tokens = n * max_tokens
+
+        num_tokens = 0.0
+        for message in messages:
+            num_tokens += 4  # every message follows <im_start>{role/name}\n{content}<im_end>\n
+            for key, value in message.items():
+                num_tokens += len(value) / 4
+                if key == "name":  # if there's a name, the role is omitted
+                    num_tokens -= 1  # role is always required and always 1 token
+        num_tokens += 2  # every reply is primed with <im_start>assistant
+        return {'requests': 1, 'tokens': int(num_tokens) + completion_tokens}
+
+    def get_retry_delay(self, exc: Exception) -> Optional[float]:
+        import openai
+
+        if not isinstance(exc, self.retryable_errors):
+            return None
+        assert isinstance(exc, openai.APIError)
+        return 1.0
+
+
+# RE pattern for duration in '*-reset' headers;
+# examples: 1d2h3ms, 4m5.6s; # fractional seconds can be reported as 0.5s or 500ms
+_header_duration_pattern = re.compile(r'(?:(\d+)d)?(?:(\d+)h)?(?:(\d+)ms)|(?:(\d+)m)?(?:([\d.]+)s)?')
 
 
 def _parse_header_duration(duration_str):
-    # examples: 1d2h3ms, 4m5.6s
-    # fractional seconds can be reported as 0.5s or 500ms
-    pattern = re.compile(r'(?:(\d+)d)?(?:(\d+)h)?(?:(\d+)ms)|(?:(\d+)m)?(?:([\d.]+)s)?')
-    match = pattern.match(duration_str)
+    match = _header_duration_pattern.match(duration_str)
     if not match:
         raise ValueError("Invalid duration format")
 
@@ -126,7 +157,7 @@ def _parse_header_duration(duration_str):
     )
 
 
-def _report_header_info(headers: dict[str, str], resource_pool: str, *, requests: bool = True, tokens: bool = True):
+def _report_header_info(headers: httpx.Headers, resource_pool: str, *, requests: bool = True, tokens: bool = True):
     assert requests or tokens
     now = datetime.datetime.now(tz=datetime.timezone.utc)
 
@@ -150,7 +181,7 @@ def _report_header_info(headers: dict[str, str], resource_pool: str, *, requests
         tokens_reset_ts = now + _parse_header_duration(tokens_reset_str)
         tokens_info = (tokens_limit, tokens_remaining, tokens_reset_ts)
 
-    rate_limits_info = env.Env.get().get_resource_pool_info(resource_pool)
+    rate_limits_info = env.Env.get().get_resource_pool_info(resource_pool, OpenAIRateLimitsInfo)
     assert isinstance(rate_limits_info, env.RateLimitsInfo)
     rate_limits_info.record(requests=requests_info, tokens=tokens_info)
 
@@ -199,11 +230,6 @@ def speech(
     return output_filename
 
 
-# @speech.resource_pool
-# def _(model: str) -> str:
-#     return _resource_pool(model)
-
-
 @pxt.udf
 def transcriptions(
     audio: pxt.Audio,
@@ -245,11 +271,6 @@ def transcriptions(
     return transcription.dict()
 
 
-# @transcriptions.resource_pool
-# def _(model: str) -> str:
-#     return _resource_pool(model)
-
-
 @pxt.udf
 def translations(
     audio: pxt.Audio,
@@ -288,11 +309,6 @@ def translations(
         file=file, model=model, prompt=_opt(prompt), temperature=_opt(temperature)
     )
     return translation.dict()
-
-
-# @translations.resource_pool
-# def _(model: str) -> str:
-#     return _resource_pool(model)
 
 
 #####################################
@@ -375,6 +391,7 @@ async def chat_completions(
     if tool_choice is not None and not tool_choice['parallel_tool_calls']:
         extra_body = {'parallel_tool_calls': False}
 
+    # cast(Any, ...): avoid mypy errors
     result = await _async_openai_client().chat.completions.with_raw_response.create(
         messages=messages,
         model=model,
@@ -385,25 +402,21 @@ async def chat_completions(
         max_tokens=_opt(max_tokens),
         n=_opt(n),
         presence_penalty=_opt(presence_penalty),
-        response_format=_opt(response_format),
+        response_format=_opt(cast(Any, response_format)),
         seed=_opt(seed),
         stop=_opt(stop),
         temperature=_opt(temperature),
         top_p=_opt(top_p),
-        tools=_opt(tools),
-        tool_choice=_opt(tool_choice_),
+        tools=_opt(cast(Any, tools)),
+        tool_choice=_opt(cast(Any, tool_choice_)),
         user=_opt(user),
-        timeout=10
+        timeout=10,
         extra_body=extra_body,
     )
 
     _report_header_info(result.headers, _resource_pool(model))
     return json.loads(result.text)
 
-
-@chat_completions.resource_pool
-def _(model: str) -> str:
-    return _resource_pool(model)
 
 
 @pxt.udf
@@ -448,11 +461,6 @@ def vision(prompt: str, image: PIL.Image.Image, *, model: str) -> str:
     ]
     result = _retry(_openai_client().chat.completions.create)(messages=messages, model=model)
     return result.choices[0].message.content
-
-
-# @vision.resource_pool
-# def _(model: str) -> str:
-#     return _resource_pool(model)
 
 
 #####################################
@@ -510,11 +518,6 @@ def _(model: str, dimensions: Optional[int] = None) -> pxt.ArrayType:
             return pxt.ArrayType((None,), dtype=pxt.FloatType(), nullable=False)
         dimensions = _embedding_dimensions_cache.get(model, None)
     return pxt.ArrayType((dimensions,), dtype=pxt.FloatType(), nullable=False)
-
-
-@embeddings.resource_pool
-def _(model: str) -> str:
-    return _resource_pool(model)
 
 
 #####################################
@@ -587,11 +590,6 @@ def _(size: Optional[str] = None) -> pxt.ImageType:
     return pxt.ImageType(size=(width, height))
 
 
-# @image_generations.resource_pool
-# def _(model: str) -> str:
-#     return _resource_pool(model)
-
-
 #####################################
 # Moderations Endpoints
 
@@ -627,9 +625,16 @@ def moderations(input: str, *, model: str = 'omni-moderation-latest') -> dict:
     return result.dict()
 
 
+# @speech.resource_pool
+# @transcriptions.resource_pool
+# @translations.resource_pool
+@chat_completions.resource_pool
+# @vision.resource_pool
+@embeddings.resource_pool
+# @image_generations.resource_pool
 # @moderations.resource_pool
-# def _(model: str) -> str:
-#     return _resource_pool(model)
+def _(model: str) -> str:
+    return _resource_pool(model)
 
 
 def invoke_tools(tools: Tools, response: exprs.Expr) -> exprs.InlineDict:

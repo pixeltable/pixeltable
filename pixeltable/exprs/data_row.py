@@ -121,8 +121,9 @@ class DataRow:
         return (self.excs != None).any()
 
     def get_exc(self, slot_idx: int) -> Optional[Exception]:
-        assert isinstance(self.excs[slot_idx], (Exception, type(None)))
-        return self.excs[slot_idx]
+        exc = self.excs[slot_idx]
+        assert exc is None or isinstance(exc, Exception)
+        return exc
 
     def get_first_exc(self) -> Optional[Exception]:
         mask = self.excs != None
@@ -140,10 +141,10 @@ class DataRow:
         self.file_paths[slot_idx] = None
         self.file_urls[slot_idx] = None
 
-    def __len__(self) -> int:
-        assert False  # do we need this?
-        return self.vals.shape[0]
-        #return len(self.vals)
+    # def __len__(self) -> int:
+    #     assert False  # do we need this?
+    #     return self.vals.shape[0]
+    #     #return len(self.vals)
 
     def __getitem__(self, index: object) -> Any:
         """Returns in-memory value, ie, what is needed for expr evaluation"""

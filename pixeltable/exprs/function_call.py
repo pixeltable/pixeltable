@@ -3,7 +3,7 @@ from __future__ import annotations
 import inspect
 import json
 import sys
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 import sqlalchemy as sql
 
@@ -34,9 +34,10 @@ class FunctionCall(Expr):
     args: list[tuple[Optional[int], Optional[Any]]]
     kwargs: dict[str, tuple[Optional[int], Optional[Any]]]
 
-    # maps each parameter name to tuple containing
-    # - argument's index in components, if present in the call
-    # - default value, if the argument is not present in the call
+    # maps each parameter name to tuple representing the value it has in the call:
+    # - argument's index in components, if an argument is given in the call
+    # - default value, if no argument given in the call
+    # (in essence, this combines init()'s bound_args and default values)
     param_values: dict[str, tuple[Optional[int], Optional[Any]]]
 
     arg_types: list[ts.ColumnType]
@@ -429,11 +430,18 @@ class FunctionCall(Expr):
                 args.append(val)
         return args, kwargs
 
-    def get_param_value(self, param_name: str, data_row: DataRow) -> Any:
-        assert param_name in self.param_values
-        component_idx, default_val = self.param_values[param_name]
-        slot_idx = self.components[component_idx].slot_idx if component_idx is not None else None
-        return default_val if slot_idx is None else data_row[slot_idx]
+    def get_param_values(self, param_names: Sequence[str], data_row: DataRow) -> dict[str, Any]:
+        """Return a dict mapping each param name to its value when this FunctionCall is evaluated against data_row."""
+        assert all(name in self.param_values for name in param_names)
+        result: dict[str, Any] = {}
+        for param_name in param_names:
+            component_idx, default_val = self.param_values[param_name]
+            if component_idx is None:
+                result[param_name] = default_val
+            else:
+                slot_idx = self.components[component_idx].slot_idx
+                result[param_name] = data_row[slot_idx]
+        return result
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         if isinstance(self.fn, func.ExprTemplateFunction):

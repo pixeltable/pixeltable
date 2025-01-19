@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import abc
 import importlib
 import inspect
+from abc import abstractmethod, ABC
 from copy import copy
 from typing import TYPE_CHECKING, Any, Callable, Optional, Sequence, cast
 
@@ -12,7 +12,6 @@ from typing_extensions import Self
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
-
 from .globals import resolve_symbol
 from .signature import Signature
 
@@ -20,7 +19,7 @@ if TYPE_CHECKING:
     from .expr_template_function import ExprTemplate, ExprTemplateFunction
 
 
-class Function(abc.ABC):
+class Function(ABC):
     """Base class for Pixeltable's function interface.
 
     A function in Pixeltable is an object that has a signature and implements __call__().
@@ -44,6 +43,9 @@ class Function(abc.ABC):
     # parameter names as the original function. Each parameter is going to be of type sql.ColumnElement.
     _to_sql: Callable[..., Optional[sql.ColumnElement]]
 
+    # Returns the resource pool to use for calling this function with the given arguments.
+    # Overriden for specific Function instances via the resource_pool() decorator. The override must accept a subset
+    # of the parameters of the original function, with the same type.
     _resource_pool: Callable[..., Optional[str]]
 
 
@@ -63,10 +65,9 @@ class Function(abc.ABC):
         self.is_method = is_method
         self.is_property = is_property
         self._conditional_return_type = None
+        self.__resolved_fns = []
         self._to_sql = self.__default_to_sql
         self._resource_pool = self.__default_resource_pool
-
-        self.__resolved_fns = []
 
     @property
     def name(self) -> str:
@@ -97,9 +98,8 @@ class Function(abc.ABC):
         return len(self.signature.parameters)
 
     @property
-    @abc.abstractmethod
-    def is_async(self) -> bool:
-        pass
+    @abstractmethod
+    def is_async(self) -> bool: ...
 
     def _docstring(self) -> Optional[str]:
         return None
@@ -297,7 +297,6 @@ class Function(abc.ABC):
 
         return ExprTemplate(call, new_signature)
 
-    @abc.abstractmethod
     def exec(self, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:
         """Execute the function with the given arguments and return the result."""
         raise NotImplementedError()

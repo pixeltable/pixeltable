@@ -777,7 +777,7 @@ class Planner:
                 # we need an ExprEvalNode to evaluate the remaining output exprs
                 plan = exec.ExprEvalNode(row_builder, eval_ctx.target_exprs, sql_exprs, input=plan)
             # we're returning everything to the user, so we might as well do it in a single batch
-            # TODO: fix batching
+            # TODO: return smaller batches in order to increase inter-ExecNode parallelism
             ctx.batch_size = 0
 
         sql_node = plan.get_node(exec.SqlNode)
