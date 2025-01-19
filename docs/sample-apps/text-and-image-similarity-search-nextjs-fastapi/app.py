@@ -55,7 +55,7 @@ frames_view = pxt.create_view(
 )
 
 # Create an index on the 'frame' column that allows text and image search
-frames_view.add_embedding_index('frame', embed=clip.using('openai/clip-vit-base-patch32'))
+frames_view.add_embedding_index('frame', embedding=clip.using(model_id='openai/clip-vit-base-patch32'))
 
 @app.post("/api/process-video")
 async def process_video(file: UploadFile = File(...)):
