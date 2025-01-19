@@ -1,0 +1,145 @@
+---
+title: "Quick Start"
+description: "Get started with Pixeltable by building a simple chatbot"
+---
+
+## Build a Chatbot with Pixeltable
+
+<Steps>
+  <Step title="Install Pixeltable">
+    Simple [installation](/docs/overview/installation).
+
+    ```bash
+    pip install pixeltable
+    ```
+  </Step>
+
+  <Step title="Create a Table">
+    First, we'll create a table for our chatbot:
+
+    ```python
+    import pixeltable as pxt
+    from pixeltable.functions import openai
+
+    # Create directory
+    pxt.drop_dir("chatbot", force=True)
+    pxt.create_dir("chatbot")
+
+    # Create table
+    conversations = pxt.create_table(
+        path_str="chatbot.conversations", 
+        schema_or_df={"prompt": pxt.String}, 
+        if_exists="ignore"
+    )
+    ```
+  </Step>
+
+  <Step title="Configure Message Structure">
+    Next, we'll set up the message structure for our chatbot:
+
+    ```python
+    # Create messages format
+    conversations.add_computed_column(
+        messages=[{"role": "user", "content": conversations.prompt}]
+    )
+
+    # Configure OpenAI integration
+    conversations.add_computed_column(
+        response=openai.chat_completions(
+            messages=conversations.messages,
+            model="gpt-4o-mini",
+        )
+    )
+
+    # Parse response
+    conversations.add_computed_column(
+        answer=conversations.response.choices[0].message.content
+    )
+    ```
+  </Step>
+
+  <Step title="Test the Chatbot">
+    Finally, let's test our chatbot with a simple prompt:
+
+    ```python
+    # Insert a test prompt
+    conversations.insert(
+        [{"prompt": "Write a haiku about dogs."}]
+    )
+
+    # Display the results
+    print(conversations.collect())
+    ```
+  </Step>
+</Steps>
+
+## What Just Happened?
+
+You've created more than just a chatbot. Here's what Pixeltable automatically handled for you:
+
+<Steps>
+  <Step title="Persistent Storage">
+    Your conversations are automatically stored with type-safety. No need to worry about databases or schemas.
+    ```python
+    conversations = pxt.create_table(
+        path_str="chatbot.conversations", 
+        schema_or_df={"prompt": pxt.String}, 
+        if_exists="ignore"
+    )
+    ```
+  </Step>
+  
+  <Step title="Smart Updates">
+    Each new message triggers automatic updates through your AI pipeline. No manual processing needed.
+    ```python
+    conversations.insert([{"prompt": "Write a haiku about dogs."}])
+    ```
+  </Step>
+
+  <Step title="Versioning">
+    Every change to your data and model responses is automatically versioned. Experiment freely.
+  </Step>
+
+  <Step title="Automated DAG Orchestration">
+    Computations run in parallel with automatic dependency management. Scale effortlessly.
+    ```python
+    conversations.add_computed_column(
+        response=openai.chat_completions(
+            messages=conversations.messages,
+            model="gpt-4o-mini",
+        )
+    )
+    ```
+  </Step>
+</Steps>
+
+## Next Steps
+
+<Steps>
+  <Step title="Core Concepts">
+    Master the fundamentals:
+    - [Tables](/docs/documentation/fundamentals/tables)
+    - [Data](/docs/documentation/fundamentals/data)
+    - [Compute](/docs/documentation/fundamentals/compute)
+    - [Explore](/docs/documentation/fundamentals/explore)
+    - [Search](/docs/documentation/fundamentals/search)
+  </Step>
+
+  <Step title="Build Workflows">
+    Create powerful AI pipelines:
+    - [Auto-indexed Retrieval](/docs/documentation/flows/knowledge/text)
+    - [Audio Processing](/docs/documentation/flows/knowledge/audio)
+    - [Image Understanding](/docs/documentation/flows/knowledge/image)
+    - [Document Analysis](/docs/documentation/flows/knowledge/PDF)
+    - [Multimodal Chat](/docs/documentation/chat/basic)
+  </Step>
+
+  <Step title="Go Further">
+    Explore advanced use cases:
+    - [Knowledge](/docs/documentation/flows/knowledge/basic)
+    - [Memory](/docs/documentation/flows/knowledge/temporal)
+    - [Tools](/docs/documentation/flows/tools/calculator)
+  </Step>
+</Steps>
+
+Check out our [Models](/docs/documentation/models/overview) to see what you can build.

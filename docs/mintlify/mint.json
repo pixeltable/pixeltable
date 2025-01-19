@@ -50,11 +50,11 @@
   },
   "navigation": [
     {
-      "group": "Getting Started",
+      "group": "Overview",
       "pages": [
-        "docs/getting-started/overview",
-        "docs/getting-started/installation",
-        "docs/getting-started/quick-start"
+        "docs/overview/pixeltable",
+        "docs/overview/installation",
+        "docs/overview/quick-start"
       ]
     },
     {
@@ -63,19 +63,15 @@
         {
           "group": "Fundamentals",
           "pages": [
-            "docs/documentation/table-operations/overview",
-            "docs/documentation/table-operations/aggregation",
-            "docs/documentation/table-operations/collect",
-            "docs/documentation/table-operations/describe",
-            "docs/documentation/table-operations/insert",
-            "docs/documentation/table-operations/list-tables",
-            "docs/documentation/table-operations/query",
-            "docs/documentation/table-operations/show",
-            "docs/documentation/table-operations/user-defined-functions"
+            "docs/documentation/fundamentals/tables",
+            "docs/documentation/fundamentals/data",
+            "docs/documentation/fundamentals/compute",
+            "docs/documentation/fundamentals/explore",
+            "docs/documentation/fundamentals/search"
           ]
         },        
         {          
-          "group": "Flows",
+          "group": "Workflows",
           "pages": [
             "docs/documentation/flows/overview",
             {
