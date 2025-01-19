@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import abc
 import asyncio
-import inspect
 import datetime
+import inspect
 import logging
 import sys
 from dataclasses import dataclass
-from typing import Optional, Awaitable, Sequence
+from typing import Optional, Awaitable, Collection
 
 from pixeltable import env
 from .globals import Scheduler, FnCallArgs, Dispatcher
@@ -94,16 +93,17 @@ class RateLimitsScheduler(Scheduler):
                 item = None
                 # if this was the first request, it created the pool_info
                 if self.pool_info is None:
-                    self.pool_info = env.Env.get().get_resource_pool_info(self.resource_pool,  env.RateLimitsInfo)
+                    self.pool_info = env.Env.get().get_resource_pool_info(self.resource_pool, None)
+                    assert isinstance(self.pool_info, env.RateLimitsInfo)
                     assert hasattr(self.pool_info, 'get_request_resources')
-                    sig = inspect.signature(self.pool_info.get_request_resources)
+                    sig = inspect.signature(self.pool_info.get_request_resources)  # type: ignore
                     self.get_request_resources_param_names = [p.name for p in sig.parameters.values()]
                     self.est_usage = {r: 0 for r in self._resources}
                 continue
 
             # check rate limits
             kwargs = item.request.fn_call.get_param_values(self.get_request_resources_param_names, item.request.row)
-            request_resources = self.pool_info.get_request_resources(**kwargs)
+            request_resources = self.pool_info.get_request_resources(**kwargs)  # type: ignore
             limits_info = self._check_resource_limits(request_resources)
             if limits_info is not None:
                 # limits_info's resource is exhausted, wait for capacity to free up
@@ -155,7 +155,7 @@ class RateLimitsScheduler(Scheduler):
             item = None
 
     @property
-    def _resources(self) -> Sequence[str]:
+    def _resources(self) -> Collection[str]:
         return self.pool_info.resource_limits.keys() if self.pool_info is not None else []
 
     def _check_resource_limits(self, request_resources: dict[str, int]) -> Optional[env.RateLimitInfo]:
