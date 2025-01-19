@@ -2,6 +2,7 @@ import datetime
 import math
 import os
 import random
+import re
 from typing import Union, _GenericAlias
 
 import av  # type: ignore[import-untyped]
@@ -10,7 +11,6 @@ import pandas as pd
 import PIL
 import pytest
 from jsonschema.exceptions import ValidationError
-import re
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
@@ -22,9 +22,9 @@ from pixeltable.iterators import FrameIterator
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.media_store import MediaStore
 
-from .utils import (assert_resultset_eq, create_table_data, get_audio_files, get_documents, get_image_files,
-                    get_video_files, make_tbl, read_data_file, reload_catalog, skip_test_if_not_installed, strip_lines,
-                    validate_update_status, get_multimedia_commons_video_uris, ReloadTester)
+from .utils import (ReloadTester, assert_resultset_eq, create_table_data, get_audio_files, get_documents,
+                    get_image_files, get_multimedia_commons_video_uris, get_video_files, make_tbl, read_data_file,
+                    reload_catalog, skip_test_if_not_installed, strip_lines, validate_update_status)
 
 
 class TestTable:
@@ -328,7 +328,7 @@ class TestTable:
         # we are testing a nonsensical scenario: a computed column that references a read-validated media column,
         # which forces validation
         on_read_tbl = pxt.create_table('read_validated', schema, media_validation='on_read')
-        on_read_tbl.add_column(md=on_read_tbl.media.get_metadata())
+        on_read_tbl.add_computed_column(md=on_read_tbl.media.get_metadata())
         status = on_read_tbl.insert(({**r, 'stage': 0} for r in rows), on_error='ignore')
         assert status.num_excs == 1
         on_read_res_1 = (
@@ -366,7 +366,7 @@ class TestTable:
         assert t1.collect() == df1.collect()
 
         from pixeltable.functions import sum
-        t.add_column(c2mod=t.c2 % 5)
+        t.add_computed_column(c2mod=t.c2 % 5)
         df2 = t.group_by(t.c2mod).select(t.c2mod, sum(t.c2))
         t2 = pxt.create_table('test2', df2)
         assert t2._schema == df2.schema
@@ -627,7 +627,7 @@ class TestTable:
             assert tup.img == tup.img_literal
 
         # Test adding stored image transformation
-        tbl.add_column(rotated=tbl.img.rotate(30), stored=True)
+        tbl.add_computed_column(rotated=tbl.img.rotate(30), stored=True)
         assert MediaStore.count(tbl._id) == 2 * n_sample_rows
 
         # Test MediaStore.stats()
@@ -845,7 +845,7 @@ class TestTable:
         cache_stats = FileCache.get().stats()
         assert cache_stats.num_requests == 0, f'{str(cache_stats)} tbl_id={tbl._id}'
         # add computed column to make sure that external files are cached locally during insert
-        tbl.add_column(rotated=tbl.img.rotate(30), stored=True)
+        tbl.add_computed_column(rotated=tbl.img.rotate(30), stored=True)
         urls = [
             's3://open-images-dataset/validation/3c02ca9ec9b2b77b.jpg',
             's3://open-images-dataset/validation/3c13e0015b6c3bcf.jpg',
@@ -911,14 +911,14 @@ class TestTable:
         skip_test_if_not_installed('boto3')
         tbl = pxt.create_table('test_tbl', {'payload': pxt.Int, 'video': pxt.Video})
         view = pxt.create_view('test_view', tbl, iterator=FrameIterator.create(video=tbl.video, fps=0))
-        view.add_column(c1=view.frame.rotate(30), stored=True)
-        view.add_column(c2=view.c1.rotate(40), stored=False)
-        view.add_column(c3=view.c2.rotate(50), stored=True)
+        view.add_computed_column(c1=view.frame.rotate(30), stored=True)
+        view.add_computed_column(c2=view.c1.rotate(40), stored=False)
+        view.add_computed_column(c3=view.c2.rotate(50), stored=True)
         # a non-materialized column that refers to another non-materialized column
-        view.add_column(c4=view.c2.rotate(60), stored=False)
+        view.add_computed_column(c4=view.c2.rotate(60), stored=False)
 
         # cols computed with window functions are stored by default
-        view.add_column(c5=self.window_fn(view.frame_idx, 1, group_by=view.video))
+        view.add_computed_column(c5=self.window_fn(view.frame_idx, 1, group_by=view.video))
 
         # reload to make sure that metadata gets restored correctly
         reload_catalog()
@@ -1053,13 +1053,12 @@ class TestTable:
 
         # incompatible schema
         for (col_name, col_type), value_col_name in zip(
-            schema.items(), ['c2', 'c3', 'c5', 'c5', 'c6', 'c7', 'c2', 'c2']
+            schema.items(), ['c2', 'c3', 'c5', 'c5', 'c6', 'c5', 'c2', 'c2']
         ):
             pxt.drop_table(tbl_name, if_not_exists='ignore')
             t = pxt.create_table(tbl_name, {col_name: col_type})
-            with pytest.raises(excs.Error) as exc_info:
+            with pytest.raises(excs.Error, match='expected|not a valid Pixeltable JSON object') as exc_info:
                 t.insert({col_name: r[value_col_name]} for r in rows)
-            assert 'expected' in str(exc_info.value).lower()
 
         # rows not list of dicts
         pxt.drop_table(tbl_name, if_not_exists='ignore')
@@ -1088,7 +1087,7 @@ class TestTable:
         def bad_udf(x: str) -> str:
             assert False
         t = pxt.create_table('test', {'str_col': pxt.String})
-        t.add_column(bad=bad_udf(t.str_col))  # Succeeds because the table has no data
+        t.add_computed_column(bad=bad_udf(t.str_col))  # Succeeds because the table has no data
         t.drop_column('bad')
         t.insert(str_col='Hello there.') # Succeeds because column 'bad' is dropped
         pxt.drop_table('test')
@@ -1228,9 +1227,9 @@ class TestTable:
         t.revert()
 
         # update column that is used in computed cols
-        t.add_column(computed1=t.c3 + 1)
-        t.add_column(computed2=t.computed1 + 1)
-        t.add_column(computed3=t.c3 + 3)
+        t.add_computed_column(computed1=t.c3 + 1)
+        t.add_computed_column(computed2=t.computed1 + 1)
+        t.add_computed_column(computed3=t.c3 + 3)
 
         # cascade=False
         computed1 = t.order_by(t.computed1).collect().to_pandas()['computed1']
@@ -1312,12 +1311,12 @@ class TestTable:
 
     def test_cascading_update(self, test_tbl: pxt.InsertableTable) -> None:
         t = test_tbl
-        t.add_column(d1=t.c3 - 1)
+        t.add_computed_column(d1=t.c3 - 1)
         # add column that can be updated
         t.add_column(c10=pxt.Float)
         t.update({'c10': t.c3})
         # computed column that depends on two columns: exercise duplicate elimination during query construction
-        t.add_column(d2=t.c3 - t.c10)
+        t.add_computed_column(d2=t.c3 - t.c10)
         r1 = t.where(t.c2 < 5).select(t.c3 + 1.0, t.c10 - 1.0, t.c3, 2.0).order_by(t.c2).collect()
         t.update({'c4': True, 'c3': t.c3 + 1.0, 'c10': t.c10 - 1.0}, where=t.c2 < 5, cascade=True)
         r2 = t.where(t.c2 < 5).select(t.c3, t.c10, t.d1, t.d2).order_by(t.c2).collect()
@@ -1361,22 +1360,22 @@ class TestTable:
     def test_computed_cols(self, reset_db: None) -> None:
         schema = {'c1': pxt.Int, 'c2': pxt.Float, 'c3': pxt.Json}
         t: pxt.InsertableTable = pxt.create_table('test', schema)
-        status = t.add_column(c4=t.c1 + 1)
+        status = t.add_computed_column(c4=t.c1 + 1)
         assert status.num_excs == 0
-        status = t.add_column(c5=t.c4 + 1)
+        status = t.add_computed_column(c5=t.c4 + 1)
         assert status.num_excs == 0
-        status = t.add_column(c6=t.c1 / t.c2)
+        status = t.add_computed_column(c6=t.c1 / t.c2)
         assert status.num_excs == 0
-        status = t.add_column(c7=t.c6 * t.c2)
+        status = t.add_computed_column(c7=t.c6 * t.c2)
         assert status.num_excs == 0
-        status = t.add_column(c8=t.c3.detections['*'].bounding_box)
+        status = t.add_computed_column(c8=t.c3.detections['*'].bounding_box)
         assert status.num_excs == 0
-        status = t.add_column(c9=t.c2.apply(math.sqrt, col_type=pxt.Float))
+        status = t.add_computed_column(c9=t.c2.apply(math.sqrt, col_type=pxt.Float))
         assert status.num_excs == 0
 
         # unstored cols that compute window functions aren't currently supported
         with pytest.raises(excs.Error):
-            t.add_column(c10=pxtf.sum(t.c1, group_by=t.c1), stored=False)
+            t.add_computed_column(c10=pxtf.sum(t.c1, group_by=t.c1), stored=False)
 
         # Column.dependent_cols are computed correctly
         assert len(t.c1.col.dependent_cols) == 3
@@ -1426,13 +1425,13 @@ class TestTable:
         rows = [{'c1': i} for i in range(100)]
         status = t.insert(rows)
         assert status.num_rows == len(rows)
-        status = t.add_column(c2=t.c1 + 1)
+        status = t.add_computed_column(c2=t.c1 + 1)
         assert status.num_excs == 0
         # call with positional arg
-        status = t.add_column(c3=self.add1(t.c1))
+        status = t.add_computed_column(c3=self.add1(t.c1))
         assert status.num_excs == 0
         # call with keyword arg
-        status = t.add_column(c4=self.add1(a=t.c1))
+        status = t.add_computed_column(c4=self.add1(a=t.c1))
         assert status.num_excs == 0
 
         # TODO: how to verify the output?
@@ -1460,30 +1459,30 @@ class TestTable:
         schema = {'c2': pxt.Int}
         rows = list(test_tbl.select(test_tbl.c2).collect())
         t = pxt.create_table('test_insert', schema)
-        status = t.add_column(add1=self.f2(self.f1(t.c2)))
+        status = t.add_computed_column(add1=self.f2(self.f1(t.c2)))
         assert status.num_excs == 0
         status = t.insert(rows, on_error='ignore')
         assert status.num_excs >= 10
         assert 'test_insert.add1' in status.cols_with_excs
         assert t.where(t.add1.errortype != None).count() == 10
 
-        # exception during add_column()
+        # exception during add_computed_column()
         t = pxt.create_table('test_add_column', schema)
         status = t.insert(rows)
         assert status.num_rows == 100
         assert status.num_excs == 0
 
         with pytest.raises(excs.Error) as exc:
-            t.add_column(add1=self.f2(self.f1(t.c2)))
+            t.add_computed_column(add1=self.f2(self.f1(t.c2)))
         assert 'division by zero' in str(exc.value)
 
         # on_error='abort' is the default
         with pytest.raises(excs.Error) as exc:
-            t.add_column(add1=self.f2(self.f1(t.c2)), on_error='abort')
+            t.add_computed_column(add1=self.f2(self.f1(t.c2)), on_error='abort')
         assert 'division by zero' in str(exc.value)
 
         # on_error='ignore' stores the exception in errortype/errormsg
-        status = t.add_column(add1=self.f2(self.f1(t.c2)), on_error='ignore')
+        status = t.add_computed_column(add1=self.f2(self.f1(t.c2)), on_error='ignore')
         assert status.num_excs == 10
         assert 'test_add_column.add1' in status.cols_with_excs
         assert t.where(t.add1.errortype != None).count() == 10
@@ -1527,34 +1526,34 @@ class TestTable:
     def test_computed_img_cols(self, reset_db: None) -> None:
         schema = {'img': pxt.Image}
         t = pxt.create_table('test', schema)
-        t.add_column(c2=t.img.width)
+        t.add_computed_column(c2=t.img.width)
         # c3 is not stored by default
-        t.add_column(c3=t.img.rotate(90), stored=False)
+        t.add_computed_column(c3=t.img.rotate(90), stored=False)
         self._test_computed_img_cols(t, stores_img_col=False)
 
         t = pxt.create_table('test2', schema)
         # c3 is now stored
-        t.add_column(c3=t.img.rotate(90))
+        t.add_computed_column(c3=t.img.rotate(90))
         self._test_computed_img_cols(t, stores_img_col=True)
-        _ = t[t.c3.errortype].collect()
+        _ = t.select(t.c3.errortype).collect()
 
         # computed img col with exceptions
         t = pxt.create_table('test3', schema)
-        t.add_column(c3=self.img_fn_with_exc(t.img))
+        t.add_computed_column(c3=self.img_fn_with_exc(t.img))
         rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
         rows = [{'img': r['img']} for r in rows[:20]]
         t.insert(rows, on_error='ignore')
-        _ = t[t.c3.errortype].collect()
+        _ = t.select(t.c3.errortype).collect()
 
     def test_computed_window_fn(self, reset_db: None, test_tbl: catalog.Table) -> None:
         t = test_tbl
         # backfill
-        t.add_column(c9=pxtf.sum(t.c2, group_by=t.c4, order_by=t.c3))
+        t.add_computed_column(c9=pxtf.sum(t.c2, group_by=t.c4, order_by=t.c3))
 
         schema = {'c2': pxt.Int, 'c3': pxt.Float, 'c4': pxt.Bool}
         new_t = pxt.create_table('insert_test', schema)
-        new_t.add_column(c5=t.c2.apply(lambda x: x * x, col_type=pxt.Int))
-        new_t.add_column(c6=pxtf.sum(new_t.c5, group_by=new_t.c4, order_by=new_t.c3))
+        new_t.add_computed_column(c5=t.c2.apply(lambda x: x * x, col_type=pxt.Int))
+        new_t.add_computed_column(c6=pxtf.sum(new_t.c5, group_by=new_t.c4, order_by=new_t.c3))
         rows = list(t.select(t.c2, t.c4, t.c3).collect())
         new_t.insert(rows)
         _ = new_t.collect()
@@ -1613,10 +1612,6 @@ class TestTable:
             _ = t.add_column(insert=pxt.Int)
         assert "'insert' is a reserved name in pixeltable" in str(excs_info.value).lower()
 
-        with pytest.raises(excs.Error) as exc_info:
-            _ = t.add_column(add2=pxt.Int, stored=False)
-        assert 'stored=false only applies' in str(exc_info.value).lower()
-
         # duplicate name
         with pytest.raises(excs.Error) as exc_info:
             _ = t.add_column(c1=pxt.Int)
@@ -1628,7 +1623,7 @@ class TestTable:
         with pytest.raises(excs.Error):
             _ = t.add_column(c5=pxt.Image, stored=False)
         with pytest.raises(excs.Error):
-            _ = t.add_column(c5=(t.c2 + t.c3), stored=False)
+            _ = t.add_computed_column(c5=(t.c2 + t.c3), stored=False)
 
         # make sure this is still true after reloading the metadata
         reload_catalog()
@@ -1651,7 +1646,7 @@ class TestTable:
         t1 = pxt.create_table('test1', {'c1': pxt.Int})
         t1.insert([{'c1': 1}, {'c1': 2}])
         assert t1.count() == 2
-        t1.add_column(bool_const=False)
+        t1.add_computed_column(bool_const=False)
         assert t1.where(~t1.bool_const).count() == 2
         res = t1.collect()
         assert res['bool_const'] == [False, False]
@@ -1665,7 +1660,7 @@ class TestTable:
         validate_update_status(t2.insert([{'c1': 1}, {'c1': 2}]), expected_rows=2)
         v = pxt.create_view('test_view', t2)
         assert v.count() == 2
-        v.add_column(bool_const=True)
+        v.add_computed_column(bool_const=True)
         assert v.where(v.bool_const).count() == 2
         res = v.collect()
         assert res['bool_const'] == [True, True]
@@ -1684,7 +1679,7 @@ class TestTable:
         assert res['col_0'] == [False, True, True, True]
 
         # test adding a bool column with a computed value
-        t1.add_column(bool_computed=t1.c1 > 1)
+        t1.add_computed_column(bool_computed=t1.c1 > 1)
         res = t1.collect()
         assert res['bool_computed'] == [False, True, True, True]
         res = t1.where(t1.bool_computed).collect()
@@ -1795,7 +1790,7 @@ class TestTable:
         assert 'non_existing_col2' in t.columns
         before_cnames = t.columns
 
-        t.add_column(c1=10, if_exists='replace')
+        t.add_computed_column(c1=10, if_exists='replace')
         assert set(t.columns) == set(before_cnames)
         assert 'c1' in t.columns
         assert t.select(t.c1).collect()[0] != orig_res[0]
@@ -1807,7 +1802,7 @@ class TestTable:
         t.revert()
         assert 'c1' not in t.columns
 
-        t.add_column(c1=10)
+        t.add_computed_column(c1=10)
         assert set(t.columns) == set(before_cnames)
         assert 'c1' in t.columns
         assert t.select(t.c1).collect()[0] == {'c1': 10}
@@ -1831,54 +1826,6 @@ class TestTable:
         _ = reload_tester.run_query(t.select(t.c1))
 
         reload_tester.run_reload_test()
-
-    def test_add_column_setitem(self, test_tbl: catalog.Table) -> None:
-        t = test_tbl
-        num_orig_cols = len(t.columns)
-        t['add1'] = pxt.Int
-        assert len(t.columns) == num_orig_cols + 1
-        t['computed1'] = t.c2 + 1
-        assert len(t.columns) == num_orig_cols + 2
-
-        with pytest.raises(excs.Error) as exc_info:
-            _ = t['pos'] = pxt.String
-        assert "'pos' is a reserved name in pixeltable" in str(exc_info.value).lower()
-
-        with pytest.raises(excs.Error) as exc_info:
-            _ = t['add_column'] = pxt.String
-        assert "'add_column' is a reserved name in pixeltable" in str(exc_info.value).lower()
-
-        with pytest.raises(excs.Error) as exc_info:
-            _ = t[2] = pxt.String
-        assert 'must be a string' in str(exc_info.value).lower()
-
-        with pytest.raises(excs.Error) as exc_info:
-            _ = t['add 2'] = pxt.String
-        assert 'invalid column name' in str(exc_info.value).lower()
-
-        with pytest.raises(excs.Error) as exc_info:
-            _ = t['add2'] = {'value': t.c2 + 1, 'type': pxt.String}
-        assert 'column spec must be a columntype, expr, or type' in str(exc_info.value).lower()
-
-        # duplicate name
-        with pytest.raises(excs.Error) as exc_info:
-            _ = t['c1'] = pxt.Int
-        assert 'duplicate column name' in str(exc_info.value).lower()
-
-        # make sure this is still true after reloading the metadata
-        reload_catalog()
-        t = pxt.get_table(t._name)
-        assert len(t.columns) == num_orig_cols + 2
-
-        # revert() works
-        t.revert()
-        t.revert()
-        assert len(t.columns) == num_orig_cols
-
-        # make sure this is still true after reloading the metadata once more
-        reload_catalog()
-        t = pxt.get_table(t._name)
-        assert len(t.columns) == num_orig_cols
 
     def __test_drop_column_if_not_exists(self, t: catalog.Table, non_existing_col: Union[str, ColumnRef]) -> None:
         """ Test the if_not_exists parameter of drop_column API """
@@ -2042,22 +1989,22 @@ class TestTable:
 
     def test_add_computed_column(self, test_tbl: catalog.Table, reload_tester: ReloadTester) -> None:
         t = test_tbl
-        status = t.add_column(add1=t.c2 + 10)
+        status = t.add_computed_column(add1=t.c2 + 10)
         assert status.num_excs == 0
         _ = t.show()
 
         # TODO(aaron-siegel): This has to be commented out. See explanation in test_exprs.py.
         # with pytest.raises(excs.Error):
-        #     t.add_column(add2=(t.c2 - 10) / (t.c3 - 10))
+        #     t.add_computed_column(add2=(t.c2 - 10) / (t.c3 - 10))
 
         # with exception in Python for c6.f2 == 10
-        status = t.add_column(add2=(t.c6.f2 - 10) / (t.c6.f2 - 10), on_error='ignore')
+        status = t.add_computed_column(add2=(t.c6.f2 - 10) / (t.c6.f2 - 10), on_error='ignore')
         assert status.num_excs == 1
         result = t.where(t.add2.errortype != None).select(t.c6.f2, t.add2, t.add2.errortype, t.add2.errormsg).show()
         assert len(result) == 1
 
         # test case: exceptions in dependencies prevent execution of dependent exprs
-        status = t.add_column(add3=self.f2(self.f1(t.c2)), on_error='ignore')
+        status = t.add_computed_column(add3=self.f2(self.f1(t.c2)), on_error='ignore')
         assert status.num_excs == 10
         result = t.where(t.add3.errortype != None).select(t.c2, t.add3, t.add3.errortype, t.add3.errormsg).show()
         assert len(result) == 10
@@ -2086,10 +2033,10 @@ class TestTable:
         )
 
         # Ensure that arithmetic and (non-nullable) function call expressions inherit nullability from their arguments
-        t.add_column(arith=t.c1 + 1)
-        t.add_column(arith_r=t.c1_r + 1)
-        t.add_column(func=t.c2.upper())
-        t.add_column(func_r=t.c2_r.upper())
+        t.add_computed_column(arith=t.c1 + 1)
+        t.add_computed_column(arith_r=t.c1_r + 1)
+        t.add_computed_column(func=t.c2.upper())
+        t.add_computed_column(func_r=t.c2_r.upper())
 
         assert t.get_metadata()['schema'] == {
             'c1': pxt.IntType(nullable=True),
@@ -2109,7 +2056,7 @@ class TestTable:
         pxt.create_dir('test_dir')
         v2 = pxt.create_view('test_subview', v, comment='This is an intriguing table comment.')
         fn = lambda x: np.full((3, 4), x)
-        v2.add_column(computed1=v2.c2.apply(fn, col_type=pxt.Array[(3, 4), pxt.Int]))
+        v2.add_computed_column(computed1=v2.c2.apply(fn, col_type=pxt.Array[(3, 4), pxt.Int]))
         v2.add_embedding_index(
             'c1',
             string_embed=pxt.functions.huggingface.sentence_transformer.using(model_id='all-mpnet-base-v2')
@@ -2261,10 +2208,6 @@ class TestTable:
         with pytest.raises(excs.Error) as exc_info:
             _ = t.order_by(t.c1)
         assert expected_err_msg in str(exc_info.value).lower()
-        # RESOLVE: the t.queries and t.query() APIs dont seem to work.
-        # hits an assrtion failure in the code.
-        #t.query('select c1 from test')
-        #t.queries(['select c1 from test', 'select c2 from test'])
 
         with pytest.raises(excs.Error) as exc_info:
             _ = t.collect()

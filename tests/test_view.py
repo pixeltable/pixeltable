@@ -23,12 +23,12 @@ class TestView:
     def create_tbl(self) -> catalog.InsertableTable:
         """Create table with computed columns"""
         t = create_test_tbl()
-        t.add_column(d1=t.c3 - 1)
+        t.add_computed_column(d1=t.c3 - 1)
         # add column that can be updated
         t.add_column(c10=pxt.Float)
         t.update({'c10': t.c3})
         # computed column that depends on two columns: exercise duplicate elimination during query construction
-        t.add_column(d2=t.c3 - t.c10)
+        t.add_computed_column(d2=t.c3 - t.c10)
         return t
 
     def test_errors(self, reset_db) -> None:
@@ -72,8 +72,8 @@ class TestView:
             v.select(v.v1).order_by(v.v1).collect(),
             t.select(t.c3 * 2.0).where(t.c2 < 10).order_by(t.c2).collect())
         # computed columns that don't reference the base table
-        v.add_column(v3=v.v1 * 2.0)
-        v.add_column(v4=v.v2[0])
+        v.add_computed_column(v3=v.v1 * 2.0)
+        v.add_computed_column(v4=v.v2[0])
 
         def check_view(t: pxt.Table, v: pxt.Table) -> None:
             assert v._base == t
@@ -119,8 +119,8 @@ class TestView:
 
         # check alternate view creation syntax (via a DataFrame)
         v2 = pxt.create_view('test_view_alt', t.where(t.c2 < 10), additional_columns=schema)
-        validate_update_status(v2.add_column(v3=v2.v1 * 2.0), expected_rows=10)
-        validate_update_status(v2.add_column(v4=v2.v2[0]), expected_rows=10)
+        validate_update_status(v2.add_computed_column(v3=v2.v1 * 2.0), expected_rows=10)
+        validate_update_status(v2.add_computed_column(v4=v2.v2[0]), expected_rows=10)
         check_view(t, v2)
 
         # test delete view
@@ -215,7 +215,7 @@ class TestView:
 
         # create a view and add a column with default value
         v = pxt.create_view('test_view', t, additional_columns={'v1': pxt.Int})
-        v.add_column(vcol='xxx')
+        v.add_computed_column(vcol='xxx')
         assert 'vcol' in v.columns
         assert v.select(v.vcol).collect()[0]['vcol'] == 'xxx'
 
@@ -303,7 +303,7 @@ class TestView:
             assert col_name in v.columns
             assert v.select(getattr(v, col_name)).collect()[0][col_name] is None
             assert non_existing_col4 in v.columns
-            v.add_column(**{col_name: 'aaa'}, if_exists='replace')
+            v.add_computed_column(**{col_name: 'aaa'}, if_exists='replace')
             assert col_name in v.columns
             assert v.select(getattr(v, col_name)).collect()[0][col_name] == 'aaa'
             v.add_computed_column(**{col_name: t.c2 + t.c3}, if_exists='replace')
@@ -313,11 +313,11 @@ class TestView:
 
             # if_exists='replace' will raise an error and not replace if the column has a dependency.
             col_ref = getattr(v, col_name)
-            v.add_column(**{non_existing_col5: col_ref + 12.3})
+            v.add_computed_column(**{non_existing_col5: col_ref + 12.3})
             assert v.select(getattr(v, non_existing_col5)).collect()[0][non_existing_col5] == row0[col_name] + 12.3
             expected_err = f"Column {col_name!r} already exists and has dependents."
             with pytest.raises(excs.Error, match=expected_err):
-                v.add_column(**{col_name: 'bbb'}, if_exists='replace')
+                v.add_computed_column(**{col_name: 'bbb'}, if_exists='replace')
 
     def test_from_dataframe(self, reset_db) -> None:
         t = self.create_tbl()
@@ -569,8 +569,8 @@ class TestView:
             v.select(v.v1).order_by(v.c2).collect(),
             t.select(t.c3 * 2.0).order_by(t.c2).collect())
         # computed columns that don't reference the base table
-        v.add_column(v3=v.v1 * 2.0)
-        v.add_column(v4=v.v2[0])
+        v.add_computed_column(v3=v.v1 * 2.0)
+        v.add_computed_column(v4=v.v2[0])
 
         # use view md after reload
         reload_catalog()
@@ -661,8 +661,8 @@ class TestView:
 
         check_view(snap, v)
         # computed columns that don't reference the base table
-        v.add_column(v3=v.v1 * 2.0)
-        v.add_column(v4=v.v2[0])
+        v.add_computed_column(v3=v.v1 * 2.0)
+        v.add_computed_column(v4=v.v2[0])
         assert v.count() == t.where(t.c2 < 10).count()
 
         # use view md after reload
@@ -723,8 +723,8 @@ class TestView:
         check(s, v, view_s)
 
         # add more columns
-        v.add_column(v3=v.v1 * 2.0)
-        v.add_column(v4=v.v2[0])
+        v.add_computed_column(v3=v.v1 * 2.0)
+        v.add_computed_column(v4=v.v2[0])
         check(s, v, view_s)
         assert set(view_s._schema.keys()) == set(orig_view_cols)
 
@@ -759,13 +759,13 @@ class TestView:
         # TODO: use non-None default values once we have them
         t = pxt.create_table('table_1', {'id': pxt.Int, 'json_0': pxt.Json})
         # computed column depends on nullable non-computed column json_0
-        t.add_column(computed_0=t.json_0.a)
+        t.add_computed_column(computed_0=t.json_0.a)
         validate_update_status(t.insert(id=0, json_0={'a': 'b'}), expected_rows=1)
         assert t.where(t.computed_0 == None).count() == 0
 
         v = pxt.create_view('view_1', t.where(t.id >= 0), additional_columns={'json_1': pxt.Json})
         # computed column depends on nullable non-computed column json_1
-        validate_update_status(v.add_column(computed_1=v.json_1.a))
+        validate_update_status(v.add_computed_column(computed_1=v.json_1.a))
         assert v.where(v.computed_1 == None).count() == 1
         validate_update_status(v.update({'json_1': {'a': 'b'}}), expected_rows=1)
         assert v.where(v.computed_1 == None).count() == 0

@@ -6,7 +6,8 @@ import pytest
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 
-from .utils import (assert_resultset_eq, clip_img_embed, create_img_tbl, create_test_tbl, reload_catalog, ReloadTester)
+from .utils import ReloadTester, assert_resultset_eq, clip_embed, create_img_tbl, create_test_tbl, reload_catalog
+
 
 class TestSnapshot:
     def run_basic_test(
@@ -228,7 +229,7 @@ class TestSnapshot:
         with pytest.raises(pxt.Error) as excinfo:
             img_tbl = create_img_tbl()
             snap = pxt.create_snapshot('img_snap', img_tbl)
-            snap.add_embedding_index('img', image_embed=clip_img_embed)
+            snap.add_embedding_index('img', image_embed=clip_embed)
         assert 'cannot add an index to a snapshot' in str(excinfo.value).lower()
 
     def test_views_of_snapshots(self, reset_db) -> None:

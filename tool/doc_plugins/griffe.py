@@ -1,10 +1,12 @@
 import ast
+import inspect
 import warnings
-from typing import Optional, Union
+from typing import Union
 
 import griffe
 import griffe.expressions
 from griffe import Extension, Object, ObjectNode
+from mkdocstrings_handlers.python import rendering
 
 import pixeltable as pxt
 
@@ -49,3 +51,40 @@ class PxtGriffeExtension(Extension):
                 continue
             pxt_param = udf.signatures[0].parameters[griffe_param.name]
             griffe_param.annotation = str(pxt_param.col_type)
+        # Document additional signatures for polymorphic functions
+        if len(udf.signatures) > 1:
+            polymorphic_signatures = [self.__signature_str(udf.name, sig) for sig in udf.signatures[1:]]
+            func.docstring.value = '\n'.join(polymorphic_signatures + [func.docstring.value])
+
+    def __signature_str(self, name: str, sig: pxt.func.Signature) -> str:
+        """
+        Constructs a signature block for a Pixeltable UDF. This is used to document additional signatures
+        beyond the first for polymorphic UDFs. (Mkdocstrings will only generate the first.)
+        """
+        param_strs = []
+        printed_varargs = False
+        for param in sig.parameters.values():
+            if param.kind == inspect._ParameterKind.KEYWORD_ONLY and not printed_varargs:
+                param_strs.append('*')
+                printed_varargs = True
+            param_strs.append(self.__param_str(param))
+            if param.kind == inspect._ParameterKind.VAR_POSITIONAL:
+                printed_varargs = True
+        params_str = f'({", ".join(param_strs)}) -> {sig.get_return_type()}'
+        signature_str = rendering._format_signature(name, params_str, line_length=80)
+        return f'```python\n{signature_str}\n```\n'
+
+    def __param_str(self, param: pxt.func.Parameter) -> str:
+        prec: str
+        default: str
+        if param.kind == inspect._ParameterKind.VAR_POSITIONAL:
+            prec = '*'
+        elif param.kind == inspect._ParameterKind.VAR_KEYWORD:
+            prec = '**'
+        else:
+            prec = ''
+        if param.default is inspect.Parameter.empty:
+            default = ''
+        else:
+            default = f' = {param.default}'
+        return f'{prec}{param.name}: {param.col_type}{default}'

@@ -42,10 +42,6 @@ class TestDataFrame:
         res2 = t.select().collect()
         assert len(res1) > 0 and res1 == res2
 
-        res1 = t[t.c1, t.c2, t.c3].collect()
-        res2 = t.select(t.c1, t.c2, t.c3).collect()
-        assert len(res1) > 0 and res1 == res2
-
         res1 = t.where(t.c2 < 10).select(t.c1, t.c2, t.c3).collect()
 
         res3 = t.where(t.c2 < 10).select(c1=t.c1, c2=t.c2, c3=t.c3).collect()
@@ -664,7 +660,7 @@ class TestDataFrame:
         from pixeltable.ext.functions.yolox import yolo_to_coco, yolox
         base_t = pxt.create_table('videos', {'video': pxt.VideoType()})
         view_t = pxt.create_view('frames', base_t, iterator=FrameIterator.create(video=base_t.video, fps=1))
-        view_t.add_column(detections=yolox(view_t.frame, model_id='yolox_m'))
+        view_t.add_computed_column(detections=yolox(view_t.frame, model_id='yolox_m'))
         base_t.insert(video=get_video_files()[0])
 
         query = view_t.select({'image': view_t.frame, 'annotations': yolo_to_coco(view_t.detections)})

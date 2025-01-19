@@ -6,23 +6,22 @@ import random
 import urllib.parse
 from pathlib import Path
 from typing import Any, Optional
-import dataclasses
 
-import PIL.Image
 import more_itertools
 import numpy as np
 import pandas as pd
+import PIL.Image
 import pytest
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
+import pixeltable.utils.s3 as s3_util
 from pixeltable import catalog
 from pixeltable.catalog.globals import UpdateStatus
 from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
-from pixeltable.functions.huggingface import clip_image, clip_text, sentence_transformer
+from pixeltable.functions.huggingface import clip, sentence_transformer
 from pixeltable.io import SyncStatus
-import pixeltable.utils.s3 as s3_util
 
 
 def make_default_type(t: pxt.ColumnType.Type) -> pxt.ColumnType:
@@ -139,7 +138,7 @@ def create_test_tbl(name: str = 'test_tbl') -> catalog.Table:
         'c7': pxt.Required[pxt.Json],
     }
     t = pxt.create_table(name, schema, primary_key='c2')
-    t.add_column(c8=pxt.array([[1, 2, 3], [4, 5, 6]]))
+    t.add_computed_column(c8=pxt.array([[1, 2, 3], [4, 5, 6]]))
 
     num_rows = 100
     d1 = {
@@ -536,14 +535,13 @@ def reload_catalog() -> None:
     pxt.init()
 
 
-clip_img_embed = clip_image.using(model_id='openai/clip-vit-base-patch32')
-clip_text_embed = clip_text.using(model_id='openai/clip-vit-base-patch32')
+clip_embed = clip.using(model_id='openai/clip-vit-base-patch32')
 e5_embed = sentence_transformer.using(model_id='intfloat/e5-large-v2')
 
 
 # Mock UDF for testing LLM tool invocations
 @pxt.udf
-def stock_price(ticker: str) -> Optional[float]:
+def stock_price(ticker: str) -> float:
     """
     Get today's stock price for a given ticker symbol.
 
@@ -553,7 +551,9 @@ def stock_price(ticker: str) -> Optional[float]:
     if ticker == 'NVDA':
         return 131.17
     else:
-        return None
+        # Return 0.0 instead of None, to distinguish between these two cases: the tool not being called, and the tool
+        # being called on a symbol other than NVDA
+        return 0.0
 
 
 SAMPLE_IMAGE_URL = (
