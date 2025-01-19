@@ -35,7 +35,11 @@ description: "Get started with Pixeltable by building a simple chatbot"
   </Step>
 
   <Step title="Configure Message Structure">
-    Next, we'll set up the message structure for our chatbot:
+    Next we'll define columns which will handle the interaction between the user and the chatbot.
+
+    <Note>
+      Pixeltable automatically builds a dependency graph and handles storage for the interaction.
+    </Note>
 
     ```python
     # Create messages format
@@ -78,39 +82,44 @@ description: "Get started with Pixeltable by building a simple chatbot"
 You've created more than just a chatbot. Here's what Pixeltable automatically handled for you:
 
 <Steps>
-  <Step title="Persistent Storage">
-    Your conversations are automatically stored with type-safety. No need to worry about databases or schemas.
+  <Step title="Persistent Storage and Versioning" icon="database">
+    Your conversations are automatically stored with type-safety. Every change to your data and table are automatically versioned. Experiment freely.
     ```python
-    conversations = pxt.create_table(
-        path_str="chatbot.conversations", 
-        schema_or_df={"prompt": pxt.String}, 
-        if_exists="ignore"
+    conversations = pxt.get_table("chatbot.conversations")
+    ```
+  </Step>
+
+  <Step title="Automated DAG Orchestration" icon="diagram-project">
+    Our query planner automatically builds a DAG to handle complex workflows with ease.
+    ```python
+    # Create messages format
+    conversations.add_computed_column(
+        messages=[{"role": "user", "content": conversations.prompt}]
     )
-    ```
-  </Step>
-  
-  <Step title="Smart Updates">
-    Each new message triggers automatic updates through your AI pipeline. No manual processing needed.
-    ```python
-    conversations.insert([{"prompt": "Write a haiku about dogs."}])
-    ```
-  </Step>
 
-  <Step title="Versioning">
-    Every change to your data and model responses is automatically versioned. Experiment freely.
-  </Step>
-
-  <Step title="Automated DAG Orchestration">
-    Computations run in parallel with automatic dependency management. Scale effortlessly.
-    ```python
+    # Configure OpenAI integration
     conversations.add_computed_column(
         response=openai.chat_completions(
             messages=conversations.messages,
             model="gpt-4o-mini",
         )
     )
+
+    # Parse response
+    conversations.add_computed_column(
+        answer=conversations.response.choices[0].message.content
+    )
+    ```
+  </Step>  
+  
+  <Step title="Smart Incremental Updates" icon="rotate">
+    Each new message automatically gets processed and stored.
+    ```python
+    conversations.insert([{"prompt": "Write a haiku about dogs."}])
     ```
   </Step>
+
+
 </Steps>
 
 ## Next Steps
