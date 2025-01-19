@@ -10,82 +10,26 @@ from duckduckgo_search import DDGS
 
 logger = logging.getLogger(__name__)
 
-@pxt.udf
-def web_search_and_ingest(query: str, max_results: int = 5) -> Dict[str, Any]:
-    """
-    Search web using DuckDuckGo and ingest PDFs into Pixeltable
-
-    Args:
-        query: Search query
-        max_results: Maximum number of results to return
-
-    Returns:
-        Dict containing ingestion results and status
-    """
-    ingested_docs = []
-
+@pxt.udf 
+def web_search_and_ingest(query: str) -> Dict[str, Any]:
+    docs_table = pxt.get_table('research.documents')
+    
     try:
-        docs_table = pxt.get_table('research.documents')
-
-        # Search PDFs using DuckDuckGo
         with DDGS() as ddgs:
-            search_results = list(ddgs.text(
-                f"{query} filetype:pdf",
-                max_results=max_results
-            ))
+            news_results = ddgs.news(query, max_results=5)
+            
+            for result in news_results:
+                article_url = result.get('link') or result.get('url')
+                if article_url:
+                    docs_table.insert([{'document': article_url}])
 
-        # Process each search result
-        for result in search_results:
-            pdf_url = result['link']
-            try:
-                # Download PDF content with timeout
-                pdf_response = requests.get(pdf_url, timeout=10)
-                if pdf_response.status_code != 200:
-                    logger.warning(f"Failed to download PDF from {pdf_url}: Status {pdf_response.status_code}")
-                    continue
-
-                # Save to temp file with unique suffix
-                suffix = pdf_url.split('/')[-1][-20:] if '/' in pdf_url else 'document.pdf'
-                with tempfile.NamedTemporaryFile(suffix=f'-{suffix}', delete=False) as tmp:
-                    tmp.write(pdf_response.content)
-                    tmp_path = tmp.name
-
-                # Insert into documents table
-                docs_table.insert([{
-                    'document': tmp_path
-                }])
-
-                # Track successful ingestion
-                ingested_docs.append({
-                    'url': pdf_url,
-                    'local_path': tmp_path,
-                    'title': result.get('title', 'Unknown')
-                })
-
-                logger.info(f"Successfully ingested document from {pdf_url}")
-
-            except requests.exceptions.RequestException as e:
-                logger.error(f"Request error for {pdf_url}: {str(e)}")
-                continue
-            except Exception as e:
-                logger.error(f"Error processing document from {pdf_url}: {str(e)}")
-                continue
-
-        return {
-            'success': True,
-            'ingested_documents': ingested_docs,
-            'total_ingested': len(ingested_docs),
-            'message': f"Successfully ingested {len(ingested_docs)} documents"
-        }
+        return {'success': True}
 
     except Exception as e:
-        error_msg = f"Web search and ingest error: {str(e)}"
-        logger.error(error_msg)
+        logger.error(f"Error: {str(e)}")
         return {
             'success': False,
-            'error': error_msg,
-            'ingested_documents': ingested_docs,
-            'total_ingested': len(ingested_docs)
+            'error': str(e)
         }
 
 @pxt.udf

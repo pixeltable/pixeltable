@@ -15,7 +15,7 @@ When analyzing: "{input_query}"
 """
 
 SUMMARY_PROMPT = """Synthesize the gathered information into a clear, coherent narrative that directly addresses the original query.
-Present the insights in a natural, flowing manner, highlighting key findings, significant details, and meaningful connections.
+Present the insights in a natural, flowing manner, highlighting key findings, significant details, and meaningful connections. Clearly specify the sources of information and the tools used to generate each insight.
 Ensure the response is well-structured, informative, and reads like a thoughtful, comprehensive analysis:
 {tool_results}
 """

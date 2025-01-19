@@ -8,11 +8,7 @@ def setup_document_table():
     BASE_URL = 'https://github.com/pixeltable/pixeltable/raw/release/docs/resources/rag-demo/'
     DOCUMENT_NAMES = [
         'Argus-Market-Digest-June-2024.pdf',
-        'Argus-Market-Watch-June-2024.pdf',
-        'Company-Research-Alphabet.pdf',
-        'Jefferson-Amazon.pdf',
-        'Mclean-Equity-Alphabet.pdf',
-        'Zacks-Nvidia-Repeport.pdf',
+        'Zacks-Nvidia-Repeport.pdf'
     ]
 
     # Initialize Pixeltable

@@ -5,3 +5,4 @@ python-dotenv>=1.0.0
 openai>=1.59.6
 sentence-transformers>=3.3.1
 duckduckgo_search>=7.2.0
+spacy>=3.2.1

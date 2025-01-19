@@ -79,6 +79,11 @@ def create_research_table():
         )
     )
 
+    research_table.add_computed_column(news_results=research_table.tool_results['search_news'])
+    research_table.add_computed_column(stock_results=research_table.tool_results['get_stock_data'])
+    research_table.add_computed_column(doc_results=research_table.tool_results['search_documents']) 
+    research_table.add_computed_column(web_results=research_table.tool_results['web_search_and_ingest'])
+
     # Generate final summary
     research_table.add_computed_column(
         final_summary=openai.chat_completions(
