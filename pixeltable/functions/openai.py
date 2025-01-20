@@ -13,7 +13,7 @@ import logging
 import pathlib
 import re
 import uuid
-from typing import TYPE_CHECKING, Callable, Optional, TypeVar, Union, cast, Any
+from typing import TYPE_CHECKING, Callable, Optional, TypeVar, Union, cast, Any, Type
 
 import PIL.Image
 import httpx
@@ -107,13 +107,14 @@ def _resource_pool(model: str) -> str:
 
 
 class OpenAIRateLimitsInfo(env.RateLimitsInfo):
-    import openai
-    retryable_errors = (
-        openai.RateLimitError, openai.APITimeoutError, openai.UnprocessableEntityError, openai.InternalServerError
-    )
+    retryable_errors: tuple[Type[Exception], ...]
 
     def __init__(self, get_request_resources: Callable[..., dict[str, int]]):
         super().__init__(get_request_resources)
+        import openai
+        self.retryable_errors = (
+            openai.RateLimitError, openai.APITimeoutError, openai.UnprocessableEntityError, openai.InternalServerError
+        )
 
     def get_retry_delay(self, exc: Exception) -> Optional[float]:
         import openai
