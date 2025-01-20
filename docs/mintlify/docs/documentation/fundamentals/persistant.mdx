@@ -1,0 +1,115 @@
+---
+title: 'Types and Persistence'
+description: 'Understanding persistence and type systems in Pixeltable'
+icon: 'database'
+---
+
+<Note>
+This guide builds on the table we created in [Tables and Data Operations](/docs/documentation/fundamentals/tables-and-operations). Make sure you have the `films` table set up before proceeding.
+</Note>
+
+## Key Differences from Pandas
+
+<AccordionGroup>
+  <Accordion title="Persistence" icon="database">
+    Unlike Pandas DataFrames which exist in memory, **Pixeltable is a database**. Your data persists across Python sessions.
+
+    <Note>
+    On cloud platforms (Colab/Kaggle), data persists for the session duration. On local/server installations, data persists indefinitely.
+    </Note>
+  </Accordion>
+
+  <Accordion title="Type System" icon="code-branch">
+    Pixeltable uses a strong type system where every column must have a defined type:
+
+    <CardGroup cols={2}>
+      <Card title="Basic Types" icon="code">
+        - `String`
+        - `Int`
+        - `Float`
+        - `Bool`
+      </Card>
+      <Card title="Complex Types" icon="layer-group">
+        - `Array` (numerical arrays)
+        - `Json` (valid JSON structures)
+        - Media types: `Image`, `Video`, `Audio`, `Document`
+      </Card>
+    </CardGroup>
+  </Accordion>
+</AccordionGroup>
+
+## Demonstrating Persistence
+
+<Steps>
+
+  <Step title="Recover Table Reference">
+    Reconnect to your table using `get_table`:
+    ```python
+    import pixeltable as pxt
+    
+    films_t = pxt.get_table('fundamentals.films')
+    films_t.collect()
+    ```
+
+    <Frame>
+    | film_name | year | revenue |
+    |-----------|------|---------|
+    | Jurassic Park | 1993 | 1037.5 |
+    | Titanic | 1997 | 2257.8 |
+    | Avengers: Endgame | 2019 | 2797.5 |
+    | Inside Out 2 | 2024 | 1462.7 |
+    </Frame>
+  </Step>
+
+  <Step title="List Available Tables">
+    View all tables in your database:
+    ```python
+    pxt.list_tables()
+    # Returns: ['fundamentals.films']
+    ```
+  </Step>
+</Steps>
+
+## Working with Schemas
+
+<Tabs>
+  <Tab title="View Schema">
+    Use either `describe()` or simply print the table object:
+    ```python
+    films_t.describe()
+    ```
+
+    <Frame>
+    | Column Name | Type | Computed With |
+    |------------|------|---------------|
+    | film_name | String | |
+    | year | Int | |
+    | revenue | Float | |
+    </Frame>
+  </Tab>
+  
+  <Tab title="Schema Components">
+    Each schema contains:
+    - Column names
+    - Data types
+    - Computed With (covered in next section on Computed Columns)
+  </Tab>
+</Tabs>
+
+## Additional Resources
+
+<CardGroup cols={3}>
+  <Card title="API Documentation" icon="book" href="https://pixeltable.github.io/pixeltable/">
+    Complete Pixeltable API reference
+  </Card>
+  <Card title="Table Class" icon="table" href="https://pixeltable.github.io/pixeltable/api/table/">
+    Table class documentation
+  </Card>
+  <Card title="Cheat Sheet" icon="file" href="https://pixeltable.github.io/pixeltable/api-cheat-sheet/">
+    Quick API reference guide
+  </Card>
+</CardGroup>
+
+<Tip>
+Use `describe()` frequently while developing to verify your table structure and ensure columns have the correct types.
+</Tip>

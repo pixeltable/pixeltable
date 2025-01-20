@@ -1,0 +1,143 @@
+---
+title: 'Filtering and Selecting Data'
+description: 'Learn how to query and transform data in Pixeltable using where() and select()'
+icon: 'filter'
+---
+
+<Note>
+This guide builds on the chatbot table we created in the previous section. Make sure you have the `conversations` table set up with some test data.
+</Note>
+
+## Data Selection Methods
+
+<Tabs>
+  <Tab title="Filtering Rows">
+    Use `where()` to filter rows based on conditions:
+    ```python
+    # Get all conversations containing the word "weather"
+    conversations.where(
+        conversations.prompt.contains('weather')
+    ).collect()
+    ```
+    
+    <Frame>
+    | id | prompt | note | answer |
+    |----|--------|------|--------|
+    | 2 | What's the weather like? | Weather query | I don't have access to real-time weather data... |
+    </Frame>
+  </Tab>
+
+  <Tab title="Selecting Columns">
+    Use `select()` to choose specific columns:
+    ```python
+    # Get only prompts and answers
+    conversations.select(
+        conversations.prompt, 
+        conversations.answer
+    ).collect()
+    ```
+
+    <Frame>
+    | prompt | answer |
+    |--------|---------|
+    | Tell me a joke. | Why don't scientists trust atoms? Because they make up everything! |
+    | What's the weather like? | I don't have access to real-time weather data... |
+    </Frame>
+  </Tab>
+
+  <Tab title="Combining Methods">
+    Chain `where()` and `select()` for precise queries:
+    ```python
+    # Find jokes and show only prompts
+    conversations.where(
+        conversations.prompt.contains('joke')
+    ).select(
+        conversations.prompt
+    ).collect()
+    ```
+
+    <Frame>
+    | prompt |
+    |--------|
+    | Tell me a joke. |
+    </Frame>
+  </Tab>
+</Tabs>
+
+## Advanced Queries
+
+<AccordionGroup>
+  <Accordion title="Transform Response Data" icon="wand-magic-sparkles">
+    You can transform the AI response data:
+    ```python
+    # Extract response length and show with prompt
+    conversations.select(
+        conversations.prompt,
+        response_length=conversations.answer.len()
+    ).collect()
+    ```
+
+    <Frame>
+    | prompt | response_length |
+    |--------|----------------|
+    | Tell me a joke. | 63 |
+    | What's the weather like? | 42 |
+    </Frame>
+  </Accordion>
+
+  <Accordion title="Complex Filtering" icon="filter">
+    Combine multiple conditions:
+    ```python
+    # Find long answers to non-weather queries
+    conversations.where(
+        (conversations.answer.len() > 50) &
+        ~conversations.prompt.contains('weather')
+    ).collect()
+    ```
+
+    <Frame>
+    | id | prompt | note | answer |
+    |----|--------|------|--------|
+    | 1 | Tell me a joke. | Funny joke prompt | Why don't scientists trust atoms? Because they make up everything! |
+    </Frame>
+  </Accordion>
+
+  <Accordion title="Response Analysis" icon="magnifying-glass-chart">
+    Analyze AI responses:
+    ```python
+    # Get response statistics
+    conversations.select(
+        total_prompts=conversations.id.count(),
+        avg_response_length=conversations.answer.len().avg(),
+        max_response_length=conversations.answer.len().max()
+    ).collect()
+    ```
+
+    <Frame>
+    | total_prompts | avg_response_length | max_response_length |
+    |---------------|-------------------|-------------------|
+    | 2 | 52.5 | 63 |
+    </Frame>
+  </Accordion>
+</AccordionGroup>
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Text Operations" icon="text-size">
+    Use `contains()`, `len()`, and other string functions to analyze text data.
+  </Card>
+  <Card title="Aggregations" icon="chart-simple">
+    Apply `count()`, `avg()`, `max()`, and other aggregations to analyze data patterns.
+  </Card>
+  <Card title="Boolean Logic" icon="code-compare">
+    Combine conditions with `&` (and), `|` (or), and `~` (not) operators.
+  </Card>
+  <Card title="Column Selection" icon="table-columns">
+    Choose and transform specific columns using `select()` with custom names.
+  </Card>
+</CardGroup>
+
+<Tip>
+Use chained operations (`where().select()`) to build complex queries step by step. This makes your code more readable and maintainable.
+</Tip>

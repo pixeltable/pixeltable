@@ -1,0 +1,181 @@
+---
+title: 'Tables'
+description: 'Learn the fundamentals of working with Pixeltable tables'
+icon: 'table'
+---
+
+<Note>
+All data in Pixeltable is stored in tables. While similar to SQL tables, Pixeltable tables offer additional capabilities for AI workflows.
+</Note>
+
+## Build your first table
+
+<Steps>
+  <Step title="Install Pixeltable" href="/docs/overview/installation">
+    ```python
+    pip install pixeltable openai
+    ```
+  </Step>
+
+  <Step title="Set OpenAI API Key">
+    ```python
+    import os
+    os.environ["OPENAI_API_KEY"] = "sk-..."
+    ```
+  </Step>
+
+  <Step title="Create a Directory">
+    Directories in Pixeltable act as namespaces for organizing your tables.
+    ```python
+    import pixeltable as pxt
+    from pixeltable.functions import openai
+
+    # Create a clean environment
+    pxt.drop_dir('chatbot', force=True)
+    pxt.create_dir('chatbot')
+    ```
+  </Step>
+
+  <Step title="Create Your Table">
+      Define a table and build an automated processing pipeline with computed columns.
+
+      <CodeGroup>
+      ```python Base Table
+      # Create base table with input data
+      conversations = pxt.create_table(
+          path_str="chatbot.conversations",
+          schema_or_df={
+              "prompt": pxt.String,  # Input column
+              "note": pxt.String,    
+              "id": pxt.Int
+          }
+      )
+      ```
+
+      ```python Automated Pipeline
+      # Pixeltable automatically creates and executes a DAG based on dependencies
+      
+      # Stage 1: Format messages for OpenAI
+      conversations.add_computed_column(
+          messages=[{"role": "user", "content": conversations.prompt}]
+      )
+      
+      # Stage 2: Call OpenAI API
+      conversations.add_computed_column(
+          response=openai.chat_completions(
+              messages=conversations.messages,
+              model="gpt-4o-mini"
+          )
+      )
+      
+      # Stage 3: Extract final answer (executes after API response)
+      conversations.add_computed_column(
+          answer=conversations.response.choices[0].message.content
+      )
+      ```
+      </CodeGroup>
+
+      <Note>
+      Computed columns form an automatic processing pipeline:
+      1. When you insert a new `prompt`, Pixeltable detects column dependencies
+      2. The DAG executes in order: messages → API call → answer extraction
+      3. Results are cached and only recomputed when source data changes
+      </Note>
+  </Step>
+
+  <Step title="Insert and View Data">
+    ```python
+    # Insert data
+    conversations.insert([
+        {"prompt": "Tell me a joke.", "note": "Initial prompt", "id": 1},
+        {"prompt": "What's the weather like?", "note": "Weather query", "id": 2}
+    ])
+    
+    # View results
+    conversations.collect()
+    ```
+
+    <Frame>
+    | id | prompt | note | answer |
+    |----|--------|------|---------|
+    | 1 | Tell me a joke. | Initial prompt | Why don't scientists trust atoms? Because they make up everything! |
+    | 2 | What's the weather like? | Weather query | I don't have access to real-time weather data... |
+    </Frame>
+  </Step>
+</Steps>
+
+## Updating and Deleting Data
+
+<CardGroup cols={1}>
+  <Card title="Single Updates" icon="pen-to-square">
+    Update specific columns using expressions or constant values.
+    ```python
+    # Update using string replacement
+    conversations.update({
+        'prompt': conversations.prompt.replace(
+            'weather', 'climate'
+        )
+    })
+    ```
+  </Card>
+
+  <Card title="Batch Updates" icon="layer-group">
+    Update multiple rows with different values simultaneously.
+    ```python
+    updates = [
+        {'id': 1, 'note': 'Funny joke prompt'},
+        {'id': 2, 'note': 'Climate question'}
+    ]
+    conversations.batch_update(updates)
+    ```
+  </Card>
+
+  <Card title="Conditional Updates" icon="filter">
+    Use `where()` to update specific rows.
+    ```python
+    conversations.where(
+        conversations.id == 1
+    ).update({
+        'note': 'VIP prompt'
+    })
+    ```
+  </Card>
+
+  <Card title="Deleting Data" icon="trash">
+    Delete rows with conditions to avoid accidental deletions.
+    ```python
+    # Delete specific rows
+    conversations.where(
+        conversations.id == 2
+    ).delete()
+    
+    # Delete all rows (use with caution!)
+    # conversations.delete()
+    ```
+  </Card>
+</CardGroup>
+
+<Warning>
+Always use a `where()` clause with `delete()`. Without it, the entire table will be deleted!
+</Warning>
+
+## Key Concepts
+
+<CardGroup cols={2}>
+  <Card title="Table Schema" icon="table-list">
+    Every table starts with a basic schema defining column names and data types. Add computed columns to extend functionality.
+  </Card>
+  <Card title="Data Operations" icon="database">
+    Basic operations include `insert()`, `update()`, `delete()`, and `collect()`. Use `where()` for targeted operations.
+  </Card>
+  <Card title="Computed Columns" icon="gears">
+    Add derived data using `add_computed_column()`. These columns automatically update based on their source columns.
+  </Card>
+  <Card title="Directories" icon="folder-tree">
+    Tables live in directories that act as namespaces, helping you organize your data.
+  </Card>
+</CardGroup>
+
+<Tip>
+Use `batch_update()` when you need to update multiple rows with different values efficiently.
+</Tip>

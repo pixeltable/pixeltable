@@ -1,0 +1,170 @@
+---
+title: 'Computed Columns'
+description: 'Learn how to add and manage computed columns with smart incremental updates'
+icon: 'calculator'
+---
+
+<Note>
+Computed columns are one of Pixeltable's most powerful features, combining automatic calculations with smart incremental updates. Think of them as your data pipeline automated.
+</Note>
+
+## Getting Started
+
+<Steps>
+  <Step title="Install Required Packages">
+    ```python
+    pip install -qU pixeltable torch transformers
+    ```
+  </Step>
+
+  <Step title="Setup Environment">
+    ```python
+    import pixeltable as pxt
+    
+    # Create a clean environment
+    pxt.drop_dir('fundamentals', force=True)
+    pxt.create_dir('fundamentals')
+    ```
+  </Step>
+
+  <Step title="Import Sample Data">
+    ```python
+    pop_t = pxt.io.import_csv(
+        'fundamentals.population',
+        'https://github.com/pixeltable/pixeltable/raw/main/docs/source/data/world-population-data.csv'
+    )
+    ```
+  </Step>
+</Steps>
+
+## Smart Incremental Updates
+
+<AccordionGroup>
+  <Accordion title="How It Works" icon="gears">
+    Pixeltable maintains a Directed Acyclic Graph (DAG) of your computed columns:
+    1. Each computed column is a node in the graph
+    2. Dependencies flow from source columns to computed columns
+    3. Updates automatically propagate through the graph
+    4. Only affected rows are recomputed
+  </Accordion>
+
+  <Accordion title="Example Pipeline" icon="diagram-project">
+    ```python
+    # Create initial computed column
+    pop_t.add_computed_column(
+        yoy_change=(pop_t.pop_2023 - pop_t.pop_2022)
+    )
+    
+    # Add dependent column
+    pop_t.add_computed_column(
+        yoy_percent_change=(100 * pop_t.yoy_change / pop_t.pop_2022)
+    )
+    
+    # Add new data - updates propagate automatically
+    pop_t.insert(
+        country='California',
+        pop_2023=39110000,
+        pop_2022=39030000,
+    )
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Building Data Pipelines
+
+<Tabs>
+  <Tab title="Basic Pipeline">
+    Create a simple calculation pipeline:
+    ```python
+    # First transformation
+    pop_t.add_computed_column(
+        yoy_change=(pop_t.pop_2023 - pop_t.pop_2022)
+    )
+    
+    # Dependent transformation
+    pop_t.add_computed_column(
+        yoy_percent_change=(100 * pop_t.yoy_change / pop_t.pop_2022)
+    )
+    ```
+  </Tab>
+  
+  <Tab title="Complex Pipeline">
+    Chain multiple computations together:
+    ```python
+    # Calculate year-over-year change
+    pop_t.add_computed_column(
+        yoy_change=(pop_t.pop_2023 - pop_t.pop_2022)
+    )
+    
+    # Calculate percentage change
+    pop_t.add_computed_column(
+        yoy_percent_change=(100 * pop_t.yoy_change / pop_t.pop_2022)
+    )
+    
+    # Calculate growth category
+    pop_t.add_computed_column(
+        growth_category=pxt.case(
+            pop_t.yoy_percent_change > 1, "High Growth",
+            pop_t.yoy_percent_change > 0, "Growing",
+            "Declining"
+        )
+    )
+    ```
+  </Tab>
+</Tabs>
+
+## Feature Highlights
+
+<CardGroup cols={2}>
+  <Card title="Automatic DAG" icon="diagram-project">
+    Pixeltable builds and maintains the dependency graph automatically
+  </Card>
+  <Card title="Smart Updates" icon="rotate">
+    Only affected rows are recomputed when data changes
+  </Card>
+  <Card title="Type Safety" icon="shield-check">
+    Computed columns maintain type safety throughout the pipeline
+  </Card>
+  <Card title="Persistent Storage" icon="database">
+    Results are automatically stored and versioned
+  </Card>
+</CardGroup>
+
+## Real-World Applications
+
+<AccordionGroup>
+  <Accordion title="AI Pipelines" icon="robot">
+    Similar to our [chatbot example](/docs/documentation/chat/basic), you can create AI pipelines:
+    ```python
+    conversations.add_computed_column(
+        messages=[{"role": "user", "content": conversations.prompt}]
+    )
+    conversations.add_computed_column(
+        response=openai.chat_completions(
+            messages=conversations.messages,
+            model="gpt-4o-mini",
+        )
+    )
+    ```
+  </Accordion>
+  
+  <Accordion title="Data Transformations" icon="wand-magic-sparkles">
+    Chain multiple data transformations:
+    ```python
+    # Calculate growth metrics
+    data.add_computed_column(growth=data.current - data.previous)
+    data.add_computed_column(momentum=data.growth.rolling_average(window=3))
+    data.add_computed_column(
+        signal=pxt.case(
+            data.momentum > 0, "Uptrend",
+            data.momentum < 0, "Downtrend",
+            "Neutral"
+        )
+    )
+    ```
+  </Accordion>
+</AccordionGroup>
+
+<Tip>
+Think of computed columns as building blocks for your data pipeline. Each column can depend on others, creating a powerful and maintainable data transformation workflow.
+</Tip>

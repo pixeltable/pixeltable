@@ -63,11 +63,10 @@
         {
           "group": "Fundamentals",
           "pages": [
-            "docs/documentation/fundamentals/tables",
-            "docs/documentation/fundamentals/data",
-            "docs/documentation/fundamentals/compute",
-            "docs/documentation/fundamentals/explore",
-            "docs/documentation/fundamentals/search"
+            "docs/documentation/fundamentals/tables-and-operations",
+            "docs/documentation/fundamentals/filtering-and-selecting",
+            "docs/documentation/fundamentals/persistant",
+            "docs/documentation/fundamentals/computed-columns"
           ]
         },        
         {          
@@ -114,12 +113,6 @@
                 "docs/documentation/flows/tools/calculator",
                 "docs/documentation/flows/tools/finance",
                 "docs/documentation/flows/tools/web-search"
-              ]
-            },           
-            {
-              "group": "Teams",
-              "pages": [
-                "docs/documentation/flows/multi/team"
               ]
             }
           ]
@@ -174,15 +167,6 @@
                 "docs/documentation/models/polars/overview"
               ]
             }            
-          ]
-        },
-        {
-          "group": "Retrieval",
-          "pages": [
-            "docs/documentation/retrieval/overview",
-            "docs/documentation/retrieval/text",
-            "docs/documentation/retrieval/image",
-            "docs/documentation/retrieval/advanced"
           ]
         },
         {
