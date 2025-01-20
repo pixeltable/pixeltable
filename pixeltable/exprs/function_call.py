@@ -430,17 +430,23 @@ class FunctionCall(Expr):
                 args.append(val)
         return args, kwargs
 
-    def get_param_values(self, param_names: Sequence[str], data_row: DataRow) -> dict[str, Any]:
-        """Return a dict mapping each param name to its value when this FunctionCall is evaluated against data_row."""
+    def get_param_values(self, param_names: Sequence[str], data_rows: list[DataRow]) -> list[dict[str, Any]]:
+        """
+        Returns a list of dicts mapping each param name to its value when this FunctionCall is evaluated against
+        data_rows
+        """
         assert all(name in self.param_values for name in param_names)
-        result: dict[str, Any] = {}
-        for param_name in param_names:
-            component_idx, default_val = self.param_values[param_name]
-            if component_idx is None:
-                result[param_name] = default_val
-            else:
-                slot_idx = self.components[component_idx].slot_idx
-                result[param_name] = data_row[slot_idx]
+        result: list[dict[str, Any]] = []
+        for row in data_rows:
+            d: dict[str, Any] = {}
+            for param_name in param_names:
+                component_idx, default_val = self.param_values[param_name]
+                if component_idx is None:
+                    d[param_name] = default_val
+                else:
+                    slot_idx = self.components[component_idx].slot_idx
+                    d[param_name] = row[slot_idx]
+            result.append(d)
         return result
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:

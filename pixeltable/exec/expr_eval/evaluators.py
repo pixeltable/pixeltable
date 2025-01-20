@@ -5,7 +5,7 @@ import datetime
 import itertools
 import logging
 import sys
-from typing import Iterator, Any, Optional, Callable
+from typing import Iterator, Any, Optional, Callable, cast
 
 from pixeltable import exprs
 from pixeltable import func
@@ -62,7 +62,7 @@ class FnCallEvaluator(Evaluator):
     - adaptive batching: finding the optimal batch size based on observed execution times
     """
     fn_call: exprs.FunctionCall
-    fn: func.Function
+    fn: func.CallableFunction
     scalar_py_fn: Optional[Callable]  # only set for non-batching CallableFunctions
 
     # only set if fn.is_batched
@@ -72,7 +72,7 @@ class FnCallEvaluator(Evaluator):
     def __init__(self, fn_call: exprs.FunctionCall, dispatcher: Dispatcher):
         super().__init__(dispatcher)
         self.fn_call = fn_call
-        self.fn = fn_call.fn
+        self.fn = cast(func.CallableFunction, fn_call.fn)
         if isinstance(self.fn, func.CallableFunction) and self.fn.is_batched:
             self.input_queue =  asyncio.Queue[FnCallArgs]()
             # we're not supplying sample arguments there, they're ignored anyway
@@ -100,7 +100,8 @@ class FnCallEvaluator(Evaluator):
                 skip_rows.append(row)
             else:
                 args, kwargs = args_kwargs
-                queue_items.append(FnCallArgs(self.fn_call, row, args, kwargs))
+                queue_item = FnCallArgs(self.fn_call, [row], args=args, kwargs=kwargs)
+                queue_items.append(queue_item)
 
         if len(skip_rows) > 0:
             self.dispatcher.dispatch(skip_rows)
@@ -124,11 +125,21 @@ class FnCallEvaluator(Evaluator):
                     for item in batch_items:
                         self.input_queue.put_nowait(item)
                     return
-                task = asyncio.create_task(self.eval_batch(batch_items))
-                self.dispatcher.tasks.add(task)
-                task.add_done_callback(self.dispatcher.tasks.discard)
+
+                _logger.debug(f'Creating batch of size {len(batch_items)} for slot {slot_idx}')
+                batched_call_item = self._create_batch_call_args(batch_items)
+                if self.fn_call.resource_pool is not None:
+                    # hand the call off to the resource pool's scheduler
+                    scheduler = self.dispatcher.schedulers[self.fn_call.resource_pool]
+                    scheduler.submit(batched_call_item)
+                else:
+                    task = asyncio.create_task(self.eval_batch(batched_call_item))
+                    self.dispatcher.tasks.add(task)
+                    task.add_done_callback(self.dispatcher.tasks.discard)
+
         elif self.fn.is_async:
             if self.fn_call.resource_pool is not None:
+                # hand the call off to the resource pool's scheduler
                 scheduler = self.dispatcher.schedulers[self.fn_call.resource_pool]
                 for item in queue_items:
                     scheduler.submit(item)
@@ -149,36 +160,43 @@ class FnCallEvaluator(Evaluator):
         while not self.input_queue.empty():
             yield self.input_queue.get_nowait()
 
-    async def eval_batch(self, items: list[FnCallArgs]) -> None:
-        arg_batches: list[list[Optional[Any]]] = [[None] * len(items) for _ in range(len(self.fn_call.args))]
-        kwarg_batches: dict[str, list[Optional[Any]]] = {k: [None] * len(items) for k in self.fn_call.kwargs.keys()}
-
+    def _create_batch_call_args(self, items: list[FnCallArgs]) -> FnCallArgs:
+        """Roll items into a single batched FnCallArgs"""
+        batch_args: list[list[Optional[Any]]] = [[None] * len(items) for _ in range(len(self.fn_call.args))]
+        batch_kwargs: dict[str, list[Optional[Any]]] = {k: [None] * len(items) for k in self.fn_call.kwargs.keys()}
         assert isinstance(self.fn, func.CallableFunction)
         for i, item in enumerate(items):
             for j in range(len(item.args)):
-                arg_batches[j][i] = item.args[j]
+                batch_args[j][i] = item.args[j]
             for k in item.kwargs.keys():
-                kwarg_batches[k][i] = item.kwargs[k]
-        rows = [item.row for item in items]
+                batch_kwargs[k][i] = item.kwargs[k]
+        return FnCallArgs(self.fn_call, [item.row for item in items], batch_args=batch_args, batch_kwargs=batch_kwargs)
+
+    async def eval_batch(self, batched_item: FnCallArgs) -> None:
         result_batch: list[Any]
         try:
             if self.fn.is_async:
-                result_batch = await self.fn.aexec_batch(*arg_batches, **kwarg_batches)
+                result_batch = await self.fn.aexec_batch(*batched_item.batch_args, **batched_item.batch_kwargs)
             else:
-                result_batch = self.fn.exec_batch(arg_batches, kwarg_batches)
+                # check for cancellation before starting something potentially long-running
+                if asyncio.current_task().cancelled() or self.dispatcher.exc_event.is_set():
+                    return
+                result_batch = self.fn.exec_batch(batched_item.batch_args, batched_item.batch_kwargs)
         except Exception as exc:
             _, _, exc_tb = sys.exc_info()
-            for row in rows:
+            for row in batched_item.rows:
                 row.set_exc(self.fn_call.slot_idx, exc)
-            self.dispatcher.dispatch_exc(rows, self.fn_call.slot_idx, exc_tb)
+            self.dispatcher.dispatch_exc(batched_item.rows, self.fn_call.slot_idx, exc_tb)
             return
 
-        for i, row in enumerate(rows):
+        for i, row in enumerate(batched_item.rows):
             row[self.fn_call.slot_idx] = result_batch[i]
-        self.dispatcher.dispatch(rows)
+        self.dispatcher.dispatch(batched_item.rows)
 
     async def eval_async(self, item: FnCallArgs) -> None:
-        assert not item.row.has_val[self.fn_call.slot_idx] and not item.row.has_exc(self.fn_call.slot_idx)
+        assert len(item.rows) == 1
+        assert not item.row.has_val[self.fn_call.slot_idx]
+        assert not item.row.has_exc(self.fn_call.slot_idx)
 
         try:
             start_ts = datetime.datetime.now()
@@ -193,12 +211,15 @@ class FnCallEvaluator(Evaluator):
                 _logger.debug(f'RateLimitError: {exc}')
             _, _, exc_tb = sys.exc_info()
             item.row.set_exc(self.fn_call.slot_idx, exc)
-            self.dispatcher.dispatch_exc([item.row], self.fn_call.slot_idx, exc_tb)
+            self.dispatcher.dispatch_exc(item.rows, self.fn_call.slot_idx, exc_tb)
 
     async def eval(self, items: list[FnCallArgs]) -> None:
         rows_with_excs: set[int] = set()  # records idxs into 'rows'
         for idx, item in enumerate(items):
-            assert not item.row.has_val[self.fn_call.slot_idx] and not item.row.has_exc(self.fn_call.slot_idx)
+            assert len(item.rows) == 1
+            assert not item.row.has_val[self.fn_call.slot_idx]
+            assert not item.row.has_exc(self.fn_call.slot_idx)
+            # check for cancellation before starting something potentially long-running
             if asyncio.current_task().cancelled() or self.dispatcher.exc_event.is_set():
                 return
             try:
@@ -207,14 +228,16 @@ class FnCallEvaluator(Evaluator):
                 _, _, exc_tb = sys.exc_info()
                 item.row.set_exc(self.fn_call.slot_idx, exc)
                 rows_with_excs.add(idx)
-                self.dispatcher.dispatch_exc([item.row], self.fn_call.slot_idx, exc_tb)
+                self.dispatcher.dispatch_exc(item.rows, self.fn_call.slot_idx, exc_tb)
         self.dispatcher.dispatch([items[i].row for i in range(len(items)) if i not in rows_with_excs])
 
     def _close(self) -> None:
-        """Create a task for the remaining queued items"""
+        """Create a task for the incomplete batch of queued items, if any"""
+        _logger.debug(f'FnCallEvaluator.close(): slot_idx={self.fn_call.slot_idx}')
         if self.input_queue is None or self.input_queue.empty():
             return
-        task = asyncio.create_task(self.eval_batch(list(self._queued_items())))
+        batched_call_item = self._create_batch_call_args(list(self._queued_items()))
+        task = asyncio.create_task(self.eval_batch(batched_call_item))
         self.dispatcher.tasks.add(task)
         task.add_done_callback(self.dispatcher.tasks.discard)
 

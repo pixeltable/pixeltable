@@ -9,6 +9,7 @@ import base64
 import datetime
 import io
 import json
+import logging
 import pathlib
 import re
 import uuid
@@ -26,6 +27,8 @@ from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
     import openai
+
+_logger = logging.getLogger('pixeltable')
 
 
 @env.register_client('openai')
@@ -72,14 +75,14 @@ _shared_rate_limits = {
         'gpt-4-1106-preview'
     ],
     'gpt-4o': [
-       'gpt-4o',
-       'gpt-4o-latest',
-       'gpt-4o-2024-05-13',
-       'gpt-4o-2024-08-06',
-       'gpt-4o-2024-11-20',
-       'gpt-4o-audio-preview',
-       'gpt-4o-audio-preview-2024-10-01',
-       'gpt-4o-audio-preview-2024-12-17'
+        'gpt-4o',
+        'gpt-4o-latest',
+        'gpt-4o-2024-05-13',
+        'gpt-4o-2024-08-06',
+        'gpt-4o-2024-11-20',
+        'gpt-4o-audio-preview',
+        'gpt-4o-audio-preview-2024-10-01',
+        'gpt-4o-audio-preview-2024-12-17'
     ],
     'gpt-4o-mini': [
         'gpt-4o-mini',
@@ -104,24 +107,13 @@ def _resource_pool(model: str) -> str:
 
 
 class OpenAIRateLimitsInfo(env.RateLimitsInfo):
-
     import openai
     retryable_errors = (
         openai.RateLimitError, openai.APITimeoutError, openai.UnprocessableEntityError, openai.InternalServerError
     )
 
-    def get_request_resources(self, messages: list, max_tokens: Optional[int], n: Optional[int]) -> dict[str, int]:
-        completion_tokens = n * max_tokens
-
-        num_tokens = 0.0
-        for message in messages:
-            num_tokens += 4  # every message follows <im_start>{role/name}\n{content}<im_end>\n
-            for key, value in message.items():
-                num_tokens += len(value) / 4
-                if key == "name":  # if there's a name, the role is omitted
-                    num_tokens -= 1  # role is always required and always 1 token
-        num_tokens += 2  # every reply is primed with <im_start>assistant
-        return {'requests': 1, 'tokens': int(num_tokens) + completion_tokens}
+    def __init__(self, get_request_resources: Callable[..., dict[str, int]]):
+        super().__init__(get_request_resources)
 
     def get_retry_delay(self, exc: Exception) -> Optional[float]:
         import openai
@@ -157,7 +149,9 @@ def _parse_header_duration(duration_str):
     )
 
 
-def _report_header_info(headers: httpx.Headers, resource_pool: str, *, requests: bool = True, tokens: bool = True):
+def _get_header_info(
+        headers: httpx.Headers, *, requests: bool = True, tokens: bool = True
+) -> tuple[Optional[tuple[int, int, datetime.datetime]], Optional[tuple[int, int, datetime.datetime]]]:
     assert requests or tokens
     now = datetime.datetime.now(tz=datetime.timezone.utc)
 
@@ -181,9 +175,7 @@ def _report_header_info(headers: httpx.Headers, resource_pool: str, *, requests:
         tokens_reset_ts = now + _parse_header_duration(tokens_reset_str)
         tokens_info = (tokens_limit, tokens_remaining, tokens_reset_ts)
 
-    rate_limits_info = env.Env.get().get_resource_pool_info(resource_pool, OpenAIRateLimitsInfo)
-    assert isinstance(rate_limits_info, env.RateLimitsInfo)
-    rate_limits_info.record(requests=requests_info, tokens=tokens_info)
+    return requests_info, tokens_info
 
 
 #####################################
@@ -192,7 +184,7 @@ def _report_header_info(headers: httpx.Headers, resource_pool: str, *, requests:
 
 @pxt.udf
 def speech(
-    input: str, *, model: str, voice: str, response_format: Optional[str] = None, speed: Optional[float] = None
+        input: str, *, model: str, voice: str, response_format: Optional[str] = None, speed: Optional[float] = None
 ) -> pxt.Audio:
     """
     Generates audio from the input text.
@@ -315,6 +307,22 @@ def translations(
 # Chat Endpoints
 
 
+def _chat_completions_get_request_resources(
+        messages: list, max_tokens: Optional[int], n: Optional[int]
+) -> dict[str, int]:
+    completion_tokens = n * max_tokens
+
+    num_tokens = 0.0
+    for message in messages:
+        num_tokens += 4  # every message follows <im_start>{role/name}\n{content}<im_end>\n
+        for key, value in message.items():
+            num_tokens += len(value) / 4
+            if key == "name":  # if there's a name, the role is omitted
+                num_tokens -= 1  # role is always required and always 1 token
+    num_tokens += 2  # every reply is primed with <im_start>assistant
+    return {'requests': 1, 'tokens': int(num_tokens) + completion_tokens}
+
+
 @pxt.udf
 async def chat_completions(
     messages: list,
@@ -414,9 +422,13 @@ async def chat_completions(
         extra_body=extra_body,
     )
 
-    _report_header_info(result.headers, _resource_pool(model))
-    return json.loads(result.text)
+    resource_pool = _resource_pool(model)
+    requests_info, tokens_info = _get_header_info(result.headers)
+    rate_limits_info = env.Env.get().get_resource_pool_info(resource_pool, lambda: OpenAIRateLimitsInfo(
+        _chat_completions_get_request_resources))
+    rate_limits_info.record(requests=requests_info, tokens=tokens_info)
 
+    return json.loads(result.text)
 
 
 @pxt.udf
@@ -473,6 +485,11 @@ _embedding_dimensions_cache: dict[str, int] = {
 }
 
 
+def _embeddings_get_request_resources(input: list[str]) -> dict[str, int]:
+    input_len = sum(len(s) for s in input)
+    return {'requests': 1, 'tokens': int(input_len / 4)}
+
+
 @pxt.udf(batch_size=32)
 async def embeddings(
     input: Batch[str], *, model: str, dimensions: Optional[int] = None, user: Optional[str] = None
@@ -504,9 +521,15 @@ async def embeddings(
 
         >>> tbl['embed'] = embeddings(tbl.text, model='text-embedding-3-small')
     """
+    _logger.debug(f'embeddings: batch_size={len(input)}')
     result = await _async_openai_client().embeddings.with_raw_response.create(
         input=input, model=model, dimensions=_opt(dimensions), user=_opt(user), encoding_format='float'
     )
+    resource_pool = _resource_pool(model)
+    requests_info, tokens_info = _get_header_info(result.headers)
+    rate_limits_info = env.Env.get().get_resource_pool_info(
+        resource_pool, lambda: OpenAIRateLimitsInfo(_embeddings_get_request_resources))
+    rate_limits_info.record(requests=requests_info, tokens=tokens_info)
     return [np.array(data['embedding'], dtype=np.float64) for data in json.loads(result.content)['data']]
 
 
@@ -584,7 +607,7 @@ def _(size: Optional[str] = None) -> pxt.ImageType:
     if x_pos == -1:
         return pxt.ImageType()
     try:
-        width, height = int(size[:x_pos]), int(size[x_pos + 1 :])
+        width, height = int(size[:x_pos]), int(size[x_pos + 1:])
     except ValueError:
         return pxt.ImageType()
     return pxt.ImageType(size=(width, height))

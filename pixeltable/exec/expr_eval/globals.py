@@ -2,17 +2,37 @@ import abc
 import asyncio
 from dataclasses import dataclass
 from types import TracebackType
-from typing import Any, Protocol
+from typing import Any, Protocol, Optional
 
 from pixeltable import exprs
+from pixeltable import func
 
 
 @dataclass
 class FnCallArgs:
+    """Container for everything needed to execute a FunctionCall against one or more DataRows"""
     fn_call: exprs.FunctionCall
-    row: exprs.DataRow
-    args: list[Any]
-    kwargs: dict[str, Any]
+    rows: list[exprs.DataRow]  # len(rows) == 1 for single call, >1 for batch call
+    # single call
+    args: Optional[list[Any]] = None
+    kwargs: Optional[dict[str, Any]] = None
+    # batch call
+    batch_args: Optional[list[list[Optional[Any]]]] = None
+    batch_kwargs: Optional[dict[str, list[Optional[Any]]]] = None
+
+    @property
+    def pxt_fn(self) -> func.CallableFunction:
+        assert isinstance(self.fn_call.fn, func.CallableFunction)
+        return self.fn_call.fn
+
+    @property
+    def is_batched(self) -> bool:
+        return self.batch_args is not None
+
+    @property
+    def row(self) -> exprs.DataRow:
+        assert len(self.rows) == 1
+        return self.rows[0]
 
 
 class Scheduler(abc.ABC):

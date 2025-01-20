@@ -620,12 +620,13 @@ class Env:
         return self._tmp_dir / f'{uuid.uuid4()}{extension}'
 
 
-    def get_resource_pool_info(self, pool_id: str, pool_info_cls: Optional[Type[T]]) -> T:
+    #def get_resource_pool_info(self, pool_id: str, pool_info_cls: Optional[Type[T]]) -> T:
+    def get_resource_pool_info(self, pool_id: str, make_pool_info: Optional[Callable[[], T]] = None) -> T:
         """Returns the info object for the given id, creating it if necessary."""
         info = self._resource_pool_info.get(pool_id)
         if info is None:
-            assert pool_info_cls is not None
-            info = pool_info_cls()
+            assert make_pool_info is not None
+            info = make_pool_info()
             self._resource_pool_info[pool_id] = info
         return info
 
@@ -792,8 +793,11 @@ TIME_FORMAT = '%H:%M.%S %f'
 
 @dataclass
 class RateLimitsInfo:
-    """Base class for resource pools made up of rate limits for different resources."""
+    """
+    Base class for resource pools made up of rate limits for different resources.
+    """
 
+    get_request_resources: Callable[..., dict[str, int]]
     resource_limits: dict[str, RateLimitInfo] = field(default_factory=dict)
 
     def is_initialized(self) -> bool:

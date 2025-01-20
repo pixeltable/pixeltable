@@ -147,10 +147,10 @@ class ExprEvalNode(ExecNode):
                     self.row_pos_map[id(row)] = self.num_input_rows + idx
             self.num_input_rows += len(batch)
             self.avail_input_rows += len(batch)
+            _logger.debug(f'adding input: batch_size={len(batch)} #input_rows={self.num_input_rows} #avail={self.avail_input_rows}')
         except StopAsyncIteration:
             self.input_complete = True
-            for evaluator in self.slot_evaluators.values():
-                evaluator.close()
+            _logger.debug(f'finished input: #input_rows={self.num_input_rows}, #avail={self.avail_input_rows}')
         except excs.Error as err:
             self.error = err
             self.exc_event.set()
@@ -197,7 +197,8 @@ class ExprEvalNode(ExecNode):
         _logger.debug(
             f'{prefix}: #in-flight={self.num_in_flight} #complete={self.completed_rows.qsize()} '
             f'#output-buffer={self.output_buffer.num_rows} #ready={self.output_buffer.num_ready} '
-            f'total-buffered={self.total_buffered} #avail={self.avail_input_rows}'
+            f'total-buffered={self.total_buffered} #avail={self.avail_input_rows} '
+            f'#input={self.num_input_rows} #output={self.num_output_rows}'
         )
 
     def _init_schedulers(self) -> None:
@@ -239,7 +240,6 @@ class ExprEvalNode(ExecNode):
             while True:
                 # process completed rows before doing anything else
                 while not self.completed_rows.empty():
-                    #self._log_state('processing completed')
                     # move completed rows to output buffer
                     while not self.completed_rows.empty():
                         row = self.completed_rows.get_nowait()
@@ -273,6 +273,12 @@ class ExprEvalNode(ExecNode):
 
                     assert self.output_buffer.num_rows == 0
                     return
+
+                if self.input_complete and self.avail_input_rows == 0:
+                    # no more input rows to dispatch, but we're still waiting for rows to finish:
+                    # close  all slot evaluators to flush queued rows
+                    for evaluator in self.slot_evaluators.values():
+                        evaluator.close()
 
                 # we don't have a full batch of rows at this point and need to wait
                 aws = {exc_event_aw}  # always wait for an exception

@@ -8,9 +8,9 @@ the [Working with Anthropic](https://pixeltable.readme.io/docs/working-with-anth
 import datetime
 import json
 import logging
-from typing import TYPE_CHECKING, Any, Callable, Optional, TypeVar, Union, cast, Iterable
+from typing import TYPE_CHECKING, Any, Optional, TypeVar, Union, cast, Iterable
 
-import tenacity
+import httpx
 
 import pixeltable as pxt
 from pixeltable import env, exprs
@@ -25,25 +25,22 @@ _logger = logging.getLogger('pixeltable')
 @env.register_client('anthropic')
 def _(api_key: str) -> 'anthropic.AsyncAnthropic':
     import anthropic
-    return anthropic.AsyncAnthropic(api_key=api_key)
+    return anthropic.AsyncAnthropic(
+        api_key=api_key,
+        # recommended to increase limits for async client to avoid connection errors
+        http_client = httpx.AsyncClient(limits=httpx.Limits(max_keepalive_connections=100, max_connections=500)))
 
 
 def _anthropic_client() -> 'anthropic.AsyncAnthropic':
     return env.Env.get().get_client('anthropic')
 
 
-def _retry(fn: Callable) -> Callable:
-    import anthropic
-    return tenacity.retry(
-        retry=tenacity.retry_if_exception_type(anthropic.RateLimitError),
-        wait=tenacity.wait_random_exponential(multiplier=1, max=60),
-        stop=tenacity.stop_after_attempt(20),
-    )(fn)
-
-
 class AnthropicRateLimitsInfo(env.RateLimitsInfo):
 
-    def get_request_resources(self, messages: dict, max_tokens: int) -> dict[str, int]:
+    def __init__(self):
+        super().__init__(self._get_request_resources)
+
+    def _get_request_resources(self, messages: dict, max_tokens: int) -> dict[str, int]:
         input_len = 0
         for message in messages:
             if 'role' in message:

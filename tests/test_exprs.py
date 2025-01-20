@@ -304,19 +304,25 @@ class TestExprs:
     #         temperature=0.7,
     #         system='You are a creative writer who creates natural-sounding sentences.'
     #     ))
+    #     t.add_computed_column(
+    #         claude_embed=pxtf.openai.embeddings(t.claude_sentence.content[0].text, model='text-embedding-3-small'))
     #     t.add_computed_column(chatgpt_sentence=pxtf.openai.chat_completions(
     #         messages=t.chatgpt_prompt,
     #         model='gpt-4o-mini',
     #         max_tokens=100,
     #         temperature=0.7,
     #     ))
+    #     t.add_computed_column(
+    #         chatgpt_embed=pxtf.openai.embeddings(
+    #             t.chatgpt_sentence.choices[0].message.content, model='text-embedding-3-small'))
     #
     #     rows = (
     #         {'word1': w1, 'word2': w2}
-    #         for _ in range(10)
+    #         for _ in range(2)
     #         for w1, w2 in [random.sample(wordlist, k=2)]
     #     )
     #     status = t.insert(rows, on_error='ignore')
+    #     _ = t.select(t.claude_embed, t.chatgpt_embed).collect()
     #     pass
     #
     # def test_claude(self, reset_db) -> None:
