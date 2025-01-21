@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 import abc
 import asyncio
 import logging
@@ -61,6 +62,8 @@ class ExecNode(abc.ABC):
             pass
 
         loop = asyncio.new_event_loop()
+        if 'pytest' in sys.modules:
+            loop.set_debug(True)
         asyncio.set_event_loop(loop)
 
         aiter = self.__aiter__()
