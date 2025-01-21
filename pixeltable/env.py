@@ -278,6 +278,10 @@ class Env:
             warnings.simplefilter('ignore', category=UserWarning)
             warnings.simplefilter('ignore', category=FutureWarning)
 
+        verbose = self._config.get_bool_value('verbose')
+        if verbose is not None and verbose is False:
+            self.configure_logging(to_stdout=False, level=logging.WARN)
+
         # configure _logger to log to a file
         self._logfilename = datetime.datetime.now().strftime('%Y%m%d_%H%M%S') + '.log'
         fh = logging.FileHandler(self._log_dir / self._logfilename, mode='w')
