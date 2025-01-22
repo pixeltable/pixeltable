@@ -10,7 +10,7 @@
     "isHidden": true
   },
   "colors": {
-    "primary": "#3B82F6",
+    "primary": "#3B82F6", 
     "light": "#60A5FA",
     "dark": "#2563EB",
     "anchors": {
@@ -48,6 +48,16 @@
     "type": "github",
     "url": "https://github.com/pixeltable/pixeltable"
   },
+  "tabs": [
+    {
+      "name": "API Reference",
+      "url": "https://pixeltable.github.io/pixeltable/"
+    },
+    {
+      "name": "AI Ops",
+      "url": "documentation"
+    }
+  ],  
   "navigation": [
     {
       "group": "Overview",
@@ -57,130 +67,115 @@
         "docs/overview/quick-start"
       ]
     },
-    {
-      "group": "Documentation",
-      "pages": [
         {
           "group": "Fundamentals",
           "pages": [
-            "docs/documentation/fundamentals/tables-and-operations",
-            "docs/documentation/fundamentals/filtering-and-selecting",
-            "docs/documentation/fundamentals/persistant",
-            "docs/documentation/fundamentals/computed-columns"
+            "docs/fundamentals/tables-and-operations",
+            "docs/fundamentals/filtering-and-selecting",
+            "docs/fundamentals/persistant",
+            "docs/fundamentals/computed-columns"
           ]
         },        
         {          
           "group": "Workflows",
           "pages": [
-            "docs/documentation/flows/overview",
+            "docs/flows/overview",
             {
-              "group": "Chat",
+              "group": "AI Engineering",
               "pages": [
-                "docs/documentation/chat/overview",
-                "docs/documentation/chat/audio",
-                "docs/documentation/chat/basic",
-                "docs/documentation/chat/image",
-                "docs/documentation/chat/pdf",
-                "docs/documentation/chat/website"
-              ]
-            },             
-            {
-              "group": "Memory",
-              "pages": [
-                "docs/documentation/flows/knowledge/temporal",
-                "docs/documentation/flows/knowledge/contextual",
-                "docs/documentation/flows/knowledge/mixed",
-                "docs/documentation/flows/knowledge/multimodal",
-                "docs/documentation/flows/knowledge/agentic",
-                "docs/documentation/flows/knowledge/basic"
-
-              ]
-            },            
-            {
-              "group": "Knowledge",
-              "pages": [
-                "docs/documentation/flows/knowledge/audio",
-                "docs/documentation/flows/knowledge/image",
-                "docs/documentation/flows/knowledge/PDF",
-                "docs/documentation/flows/knowledge/text",
-                "docs/documentation/flows/knowledge/docx",
-                "docs/documentation/flows/knowledge/website"
-              ]
-            },
-            {
-              "group": "Tools",
-              "pages": [
-                "docs/documentation/flows/tools/calculator",
-                "docs/documentation/flows/tools/finance",
-                "docs/documentation/flows/tools/web-search"
-              ]
-            }
-          ]
-        },
-        {
-          "group": "Integrations",
-          "pages": [
-            "docs/documentation/models/overview",
-            {
-              "group": "Audio",
-              "pages": [
-                "docs/documentation/models/audio/whisper"
+                "docs/workflows/aiops/overview",
+                {
+                  "group": "Chat",
+                  "pages": [
+                    "docs/workflows/aiops/chat/overview",
+                    "docs/workflows/aiops/chat/multimodal",
+                    "docs/workflows/aiops/chat/memory",
+                    "docs/workflows/aiops/chat/knowledge",
+                    "docs/workflows/aiops/chat/tools"
+                  ]
+                },
+                {
+                  "group": "Search Engines",
+                  "pages": [
+                    "docs/workflows/aiops/search/overview",
+                    "docs/workflows/aiops/search/image",
+                    "docs/workflows/aiops/search/video",
+                    "docs/workflows/aiops/search/audio",
+                    "docs/workflows/aiops/search/pdf",
+                    "docs/workflows/aiops/search/website"
+                  ]
+                },
+                {
+                  "group": "Agents",
+                  "pages": [
+                    "docs/workflows/agents/overview",
+                    "docs/workflows/agents/customizable",
+                    "docs/workflows/agents/agent-builder",
+                    "docs/workflows/agents/teams",
+                    "docs/workflows/agents/api-reference"
+                  ]
+                }                                
               ]
             },
             {
-              "group": "Chat",
+              "group": "Data Science",
               "pages": [
-                "docs/documentation/models/chat/anthropic",
-                "docs/documentation/models/chat/fireworks",
-                "docs/documentation/models/chat/gemini",
-                "docs/documentation/models/chat/llamacpp",
-                "docs/documentation/models/chat/mistral",
-                "docs/documentation/models/chat/ollama",
-                "docs/documentation/models/chat/openai",
-                "docs/documentation/models/chat/replicate",
-                "docs/documentation/models/chat/together"
-              ]
-            },
-            {
-              "group": "Computer Vision",
-              "pages": [
-                "docs/documentation/models/computer-vision/label-studio",
-                "docs/documentation/models/computer-vision/voxel51",
-                "docs/documentation/models/computer-vision/yolox"
-              ]
-            },
-            {
-              "group": "Embeddings",
-              "pages": [
-                "docs/documentation/models/embedding/openai"
-              ]
-            },
-            {
-              "group": "Pandas",
-              "pages": [
-                "docs/documentation/models/pandas/overview"
-              ]
-            },
-            {
-              "group": "Polars",
-              "pages": [
-                "docs/documentation/models/polars/overview"
+                "docs/workflows/datascience/overview",
+                "docs/workflows/datascience/data-ingestion",
+                "docs/workflows/datascience/feature-engineering",
+                "docs/workflows/datascience/inference",                
+                "docs/workflows/datascience/computer-vision",
+                "docs/workflows/datascience/evaluation"
               ]
             }            
           ]
         },
         {
-          "group": "Pixel Agents",
+          "group": "Integrations",
           "pages": [
-            "docs/documentation/pixelagent/overview",
-            "docs/documentation/pixelagent/customizable",
-            "docs/documentation/pixelagent/agent-builder",
-            "docs/documentation/pixelagent/teams",
-            "docs/documentation/pixelagent/api-reference"
+            "docs/models/overview",
+            {
+              "group": "Audio",
+              "pages": [
+                "docs/models/audio/whisper"
+              ]
+            },
+            {
+              "group": "Chat",
+              "pages": [
+                "docs/models/chat/anthropic",
+                "docs/models/chat/fireworks",
+                "docs/models/chat/gemini",
+                "docs/models/chat/llamacpp",
+                "docs/models/chat/mistral",
+                "docs/models/chat/ollama",
+                "docs/models/chat/openai",
+                "docs/models/chat/replicate",
+                "docs/models/chat/together"
+              ]
+            },
+            {
+              "group": "Computer Vision",
+              "pages": [
+                "docs/models/computer-vision/label-studio",
+                "docs/models/computer-vision/voxel51",
+                "docs/models/computer-vision/yolox"
+              ]
+            },
+            {
+              "group": "Embeddings",
+              "pages": [
+                "docs/models/embedding/openai"
+              ]
+            },
+            {
+              "group": "Pandas",
+              "pages": [
+                "docs/models/pandas/overview"
+              ]
+            }          
           ]
-        }        
-      ]
-    },
+        },
     {
       "group": "Support",
       "pages": [
