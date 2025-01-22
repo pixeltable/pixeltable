@@ -17,7 +17,14 @@ _logger = logging.getLogger('pixeltable')
 
 class RateLimitsScheduler(Scheduler):
     """
-    Scheduler for FunctionCalls with a RateLimitsInfo pool
+    Scheduler for FunctionCalls with a RateLimitsInfo pool, which provides information about actual resource usage.
+
+    Scheduling strategy:
+    - try to stay below resource limits by utilizing reported RateLimitInfo.remaining
+    - also take into account the estimated resource usage for in-flight requests
+      (obtained via RateLimitsInfo.get_request_resources())
+    - issue synchronous requests when we don't have a RateLimitsInfo yet or when we depleted a resource and need to
+      wait for a reset
 
     TODO:
     - limit the number of in-flight requests based on the open file limit
@@ -71,10 +78,6 @@ class RateLimitsScheduler(Scheduler):
 
     def submit(self, item: FnCallArgs) -> None:
         self.queue.put_nowait(self.QueueItem(item, 0))
-
-    def close(self) -> None:
-        # TODO: do we need this?
-        return
 
     async def _main_loop(self) -> None:
         item: Optional[RateLimitsScheduler.QueueItem] = None

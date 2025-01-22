@@ -793,10 +793,22 @@ TIME_FORMAT = '%H:%M.%S %f'
 @dataclass
 class RateLimitsInfo:
     """
-    Base class for resource pools made up of rate limits for different resources.
+    Abstract base class for resource pools made up of rate limits for different resources.
+
+    Rate limits and currently remaining resources are periodically reported via record().
+
+    Subclasses provide operational customization via:
+    - get_retry_delay()
+    - get_request_resources(self, ...) -> dict[str, int]
+    with parameters that are a subset of those of the udf that creates the subclass's instance
     """
 
+    # get_request_resources:
+    # - Returns estimated resources needed for a specific request (ie, a single udf call) as a dict (key: resource name)
+    # - parameters are a subset of those of the udf
+    # - this is not a class method because the signature depends on the instantiating udf
     get_request_resources: Callable[..., dict[str, int]]
+
     resource_limits: dict[str, RateLimitInfo] = field(default_factory=dict)
 
     def is_initialized(self) -> bool:
@@ -822,13 +834,10 @@ class RateLimitsInfo:
         """Returns number of seconds to wait before retry, or None if not retryable"""
         pass
 
-    # subclasses also need to implement
-    # def get_request_resources(self, ...) -> dict[str, int]
-    # with parameters that are a subset of those of the udf that creates the subclass's instance
-
 
 @dataclass
 class RateLimitInfo:
+    """Container for rate limit-related information for a single resource."""
     resource: str
     recorded_at: datetime.datetime
     limit: int

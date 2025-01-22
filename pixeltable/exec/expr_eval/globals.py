@@ -12,7 +12,7 @@ from pixeltable import func
 class FnCallArgs:
     """Container for everything needed to execute a FunctionCall against one or more DataRows"""
     fn_call: exprs.FunctionCall
-    rows: list[exprs.DataRow]  # len(rows) == 1 for single call, >1 for batch call
+    rows: list[exprs.DataRow]
     # single call
     args: Optional[list[Any]] = None
     kwargs: Optional[dict[str, Any]] = None
@@ -56,11 +56,17 @@ class Scheduler(abc.ABC):
 
 
 class Dispatcher(Protocol):
-    """Row dispatcher used by Evaluators as a post-processing step after slot materialization"""
+    """
+    Row dispatcher used by Evaluators/Schedulers for post-processing after slot materialization and for task management.
+
+    Task management: all tasks need to be recorded in tasks and have done_cb registered with add_done_callback()
+    Exceptions: evaluators/schedulers need to check exc_event prior to starting long-running (non-interruptible)
+        computations
+    """
     tasks: set[asyncio.Task]
     row_builder: exprs.RowBuilder
     exc_event: asyncio.Event
-    schedulers: dict[str, Scheduler]
+    schedulers: dict[str, Scheduler]  # key: resource pool id
 
     def dispatch(self, rows: list[exprs.DataRow]) -> None:
         """Dispatches row slots to the appropriate schedulers; does not block"""
@@ -94,11 +100,8 @@ class Evaluator(abc.ABC):
 
     @abc.abstractmethod
     def schedule(self, rows: list[exprs.DataRow], slot_idx: int) -> None:
-        """
-        Create tasks to evaluate the expression in the given slot for the given rows; must not block.
-
-        """
-        pass
+        """Create tasks to evaluate the expression in the given slot for the given rows; must not block."""
+        ...
 
     def _close(self) -> None:
         """Close the evaluator; must not block"""

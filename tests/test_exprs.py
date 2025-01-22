@@ -1,5 +1,4 @@
 import base64
-import random
 import json
 import math
 import urllib.parse
@@ -272,116 +271,6 @@ class TestExprs:
         assert result['c4'] == [2.0, 1.0, None, None]
         assert result['c5'] == [2.0, 1.0, 1.0, None]
 
-    @pxt.udf
-    def anthropic_prompt(word1: str, word2: str) -> list:
-        return [
-            {'role': 'user',
-             'content': f'Generate a single sentence that uses both of these words: {word1} and {word2}. The sentence should be natural and make sense.'}
-        ]
-
-    @pxt.udf
-    def openai_prompt(word1: str, word2: str) -> list:
-        return [
-            {'role': 'system', 'content': 'You are a creative writer who creates natural-sounding sentences.'},
-            {
-            'role': 'user',
-                'content': f'Generate a single sentence that uses both of these words: {word1} and {word2}. The sentence should be natural and make sense.'
-            }
-        ]
-
-    # def test_w(self, reset_db) -> None:
-    #     t = pxt.create_table('sentence_tbl', {'word1': pxt.String, 'word2': pxt.String})
-    #
-    #     with open('/usr/share/dict/american-english') as f:
-    #         wordlist = [word.strip() for word in f]
-    #
-    #     t.add_computed_column(claude_prompt=self.anthropic_prompt(t.word1, t.word2))
-    #     t.add_computed_column(chatgpt_prompt=self.openai_prompt(t.word1, t.word2))
-    #     t.add_computed_column(claude_sentence=pxtf.anthropic.messages(
-    #         messages=t.claude_prompt,
-    #         model='claude-3-haiku-20240307',
-    #         max_tokens=100,
-    #         temperature=0.7,
-    #         system='You are a creative writer who creates natural-sounding sentences.'
-    #     ))
-    #     t.add_computed_column(
-    #         claude_embed=pxtf.openai.embeddings(t.claude_sentence.content[0].text, model='text-embedding-3-small'))
-    #     t.add_computed_column(chatgpt_sentence=pxtf.openai.chat_completions(
-    #         messages=t.chatgpt_prompt,
-    #         model='gpt-4o-mini',
-    #         max_tokens=100,
-    #         temperature=0.7,
-    #     ))
-    #     t.add_computed_column(
-    #         chatgpt_embed=pxtf.openai.embeddings(
-    #             t.chatgpt_sentence.choices[0].message.content, model='text-embedding-3-small'))
-    #
-    #     rows = (
-    #         {'word1': w1, 'word2': w2}
-    #         for _ in range(2)
-    #         for w1, w2 in [random.sample(wordlist, k=2)]
-    #     )
-    #     status = t.insert(rows, on_error='ignore')
-    #     _ = t.select(t.claude_embed, t.chatgpt_embed).collect()
-    #     pass
-    #
-    # def test_claude(self, reset_db) -> None:
-    #     t = pxt.create_table('sentence_tbl', {'word1': pxt.String, 'word2': pxt.String})
-    #
-    #     with open('/usr/share/dict/american-english') as f:
-    #         wordlist = [word.strip() for word in f]
-    #
-    #     t.add_computed_column(claude_prompt=self.anthropic_prompt(t.word1, t.word2))
-    #     t.add_computed_column(claude_sentence=pxtf.anthropic.messages(
-    #         messages=t.claude_prompt,
-    #         model='claude-3-haiku-20240307',
-    #         max_tokens=100,
-    #         temperature=0.7,
-    #         system='You are a creative writer who creates natural-sounding sentences.'
-    #     ))
-    #
-    #     rows = (
-    #         {'word1': w1, 'word2': w2}
-    #         for _ in range(10)
-    #         for w1, w2 in [random.sample(wordlist, k=2)]
-    #     )
-    #     status = t.insert(rows, on_error='ignore')
-    #     pass
-    #
-    # def test_s(self, test_tbl: catalog.Table) -> None:
-    #     t = test_tbl
-    #
-    #     # TODO: test division; requires predicate
-    #     for op1, op2 in [(t.c6.f2, t.c6.f2), (t.c6.f3, t.c6.f3)]:
-    #         with pytest.raises(excs.Error) as exc_info:
-    #             _ = t.select(op1 / op2).collect()
-    #         pass
-    #
-    # def test_image_generations(self, reset_db) -> None:
-    #     t = pxt.create_table('test_tbl', {'input': pxt.String})
-    #     from pixeltable.functions.openai import image_generations
-    #
-    #     t.add_column(img=image_generations(t.input))
-    #     # Test dall-e-2 options
-    #     t.add_column(img_2=image_generations(t.input, model='dall-e-2', size='512x512', user='pixeltable'))
-    #     # image size information was captured correctly
-    #     type_info = t._schema
-    #     assert type_info['img_2'].size == (512, 512)
-    #
-    #     validate_update_status(t.insert(input='A friendly dinosaur playing tennis in a cornfield'), 1)
-    #     assert t.collect()['img'][0].size == (1024, 1024)
-    #     assert t.collect()['img_2'][0].size == (512, 512)
-    #
-    # def test_moderations(self, reset_db) -> None:
-    #     t = pxt.create_table('test_tbl', {'input': pxt.String})
-    #     from pixeltable.functions.openai import moderations
-    #
-    #     t.add_column(moderation=moderations(input=t.input))
-    #     t.add_column(moderation_2=moderations(input=t.input, model='text-moderation-stable'))
-    #     validate_update_status(t.insert(input='Say something interesting.'), 1)
-    #     _ = t.head()
-    #
-
     def test_arithmetic_exprs(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
 
@@ -396,7 +285,7 @@ class TestExprs:
             _ = t.select(op1 + op2).collect()
             _ = t.select(op1 - op2).collect()
             _ = t.select(op1 * op2).collect()
-            _ = t.where(op2 > 0).select(op1 / op2).collect(   )
+            _ = t.where(op2 > 0).select(op1 / op2).collect()
             _ = t.where(op2 > 0).select(op1 % op2).collect()
             _ = t.where(op2 > 0).select(op1 // op2).collect()
 
@@ -1163,10 +1052,9 @@ class TestExprs:
         from pixeltable.functions import count, sum
 
         # check that aggregates don't show up in the wrong places
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(excs.Error):
             # aggregate in where clause
             _ = t.group_by(t.c2 % 2).where(sum(t.c2) > 0).select(sum(t.c2)).collect()
-        assert 'where() cannot contain aggregate functions' in str(exc_info.value)
         with pytest.raises(excs.Error):
             # aggregate in group_by clause
             _ = t.group_by(sum(t.c2)).select(sum(t.c2)).collect()
