@@ -107,25 +107,25 @@ class TestTypes:
             Document: (DocumentType(nullable=False), 'Document'),
 
             # Pixeltable types with specialized parameters
-            Array[(None,), Int]: (ArrayType((None,), dtype=IntType(), nullable=False), 'Array[(None,), Int]'),
-            Array[(5, None, 3), Float]: (ArrayType((5, None, 3), dtype=FloatType(), nullable=False), 'Array[(5, None, 3), Float]'),
-            Image[(100, 200)]: (ImageType(width=100, height=200, mode=None, nullable=False), 'Image[(100, 200)]'),
-            Image[(100, None)]: (ImageType(width=100, height=None, mode=None, nullable=False), 'Image[(100, None)]'),
-            Image[(None, 200)]: (ImageType(width=None, height=200, mode=None, nullable=False), 'Image[(None, 200)]'),
-            Image[(100, 200), 'RGB']: (ImageType(width=100, height=200, mode='RGB', nullable=False), "Image[(100, 200), 'RGB']"),
-            Image['RGB']: (ImageType(height=None, width=None, mode='RGB', nullable=False), "Image['RGB']"),
+            Array[(None,), Int]: (ArrayType((None,), dtype=IntType(), nullable=False), 'Array[(None,), Int]'),  # type: ignore[misc]
+            Array[(5, None, 3), Float]: (ArrayType((5, None, 3), dtype=FloatType(), nullable=False), 'Array[(5, None, 3), Float]'),  # type: ignore[misc]
+            Image[(100, 200)]: (ImageType(width=100, height=200, mode=None, nullable=False), 'Image[(100, 200)]'),  # type: ignore[misc]
+            Image[(100, None)]: (ImageType(width=100, height=None, mode=None, nullable=False), 'Image[(100, None)]'),  # type: ignore[misc]
+            Image[(None, 200)]: (ImageType(width=None, height=200, mode=None, nullable=False), 'Image[(None, 200)]'),  # type: ignore[misc]
+            Image[(100, 200), 'RGB']: (ImageType(width=100, height=200, mode='RGB', nullable=False), "Image[(100, 200), 'RGB']"),  # type: ignore[misc]
+            Image['RGB']: (ImageType(height=None, width=None, mode='RGB', nullable=False), "Image['RGB']"),  # type: ignore[misc]
         }
         for py_type, (pxt_type, string) in test_cases.items():
             assert not pxt_type.nullable
             nullable_pxt_type = pxt_type.copy(nullable=True)
 
             assert ColumnType.from_python_type(py_type) == pxt_type
-            assert ColumnType.from_python_type(Required[py_type]) == pxt_type
+            assert ColumnType.from_python_type(Required[py_type]) == pxt_type  # type: ignore[valid-type]
             assert ColumnType.from_python_type(Optional[py_type]) == nullable_pxt_type
             assert ColumnType.from_python_type(Union[None, py_type]) == nullable_pxt_type
 
             assert ColumnType.from_python_type(py_type, nullable_default=True) == nullable_pxt_type
-            assert ColumnType.from_python_type(Required[py_type], nullable_default=True) == pxt_type
+            assert ColumnType.from_python_type(Required[py_type], nullable_default=True) == pxt_type    # type: ignore[valid-type]
             assert ColumnType.from_python_type(Optional[py_type], nullable_default=True) == nullable_pxt_type
             assert ColumnType.from_python_type(Union[None, py_type], nullable_default=True) == nullable_pxt_type
 
@@ -173,10 +173,10 @@ class TestTypes:
             b: int
             c: Optional[bool]
 
-        json_type = ColumnType.from_python_type(Json[SampleModel.model_json_schema()])
+        json_type = ColumnType.from_python_type(Json[SampleModel.model_json_schema()])  # type: ignore[misc]
         assert isinstance(json_type, JsonType)
         assert(str(json_type) == 'Json[SampleModel]')
 
         with pytest.raises(jsonschema.exceptions.SchemaError) as exc_info:
-            Json[self.bad_json_schema]
+            Json[self.bad_json_schema]  # type: ignore[misc]
         assert "'junk' is not valid under any of the given schemas" in str(exc_info.value)

@@ -73,7 +73,7 @@ class TestDirs:
 
         # invalid if_exists value is rejected
         with pytest.raises(excs.Error) as exc_info:
-            pxt.create_dir('dir1', if_exists='invalid')
+            pxt.create_dir('dir1', if_exists='invalid')  # type: ignore[arg-type]
         assert "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']" in str(exc_info.value).lower()
 
         # scenrio 1: path already has a directory
@@ -151,7 +151,7 @@ class TestDirs:
         # invalid if_not_exists value is rejected, but only
         # when the directory doesn't exist.
         with pytest.raises(excs.Error) as exc_info:
-            pxt.drop_dir(dir_name, if_not_exists='invalid')
+            pxt.drop_dir(dir_name, if_not_exists='invalid')  # type: ignore[arg-type]
         assert "if_not_exists must be one of: ['error', 'ignore']" in str(exc_info.value).lower()
 
     def test_drop(self, reset_db) -> None:
@@ -173,7 +173,7 @@ class TestDirs:
         with pytest.raises(excs.Error, match=r'is not empty'):
             pxt.drop_dir('dir1')
         with pytest.raises(excs.Error, match=r'is not empty'):
-            pxt.drop_dir('dir1', if_not_exists='invalid')
+            pxt.drop_dir('dir1', if_not_exists='invalid')  # type: ignore[arg-type]
         with pytest.raises(excs.Error, match=r'needs to be a directory but is a table'):
             pxt.drop_dir('t1')
 

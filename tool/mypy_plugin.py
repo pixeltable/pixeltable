@@ -2,7 +2,7 @@ from typing import Callable, Optional
 
 from mypy import nodes
 from mypy.plugin import AnalyzeTypeContext, ClassDefContext, FunctionContext, MethodSigContext, Plugin
-from mypy.plugins.common import add_method_to_class
+from mypy.plugins.common import add_attribute_to_class, add_method_to_class
 from mypy.types import AnyType, FunctionLike, Instance, NoneType, Type, TypeOfAny
 
 import pixeltable as pxt
@@ -79,6 +79,7 @@ def pxt_method_hook(ctx: MethodSigContext) -> FunctionLike:
     return sig.copy_modified(arg_names=new_arg_names, arg_types=new_arg_types, arg_kinds=new_arg_kinds)
 
 def pxt_decorator_hook(ctx: ClassDefContext) -> bool:
+    list_type = ctx.api.named_type('builtins.list', [AnyType(TypeOfAny.special_form)])
     fn_arg = nodes.Argument(nodes.Var('fn'), AnyType(TypeOfAny.special_form), None, nodes.ARG_POS)
     args_arg = nodes.Argument(nodes.Var('args'), AnyType(TypeOfAny.special_form), None, nodes.ARG_STAR)
     kwargs_arg = nodes.Argument(nodes.Var('kwargs'), AnyType(TypeOfAny.special_form), None, nodes.ARG_STAR2)
@@ -96,5 +97,20 @@ def pxt_decorator_hook(ctx: ClassDefContext) -> bool:
         args=[fn_arg],
         return_type=AnyType(TypeOfAny.special_form),
         is_staticmethod=True,
+    )
+    add_method_to_class(
+        ctx.api,
+        ctx.cls,
+        "overload",
+        args=[fn_arg],
+        return_type=AnyType(TypeOfAny.special_form),
+        is_staticmethod=True,
+    )
+    add_attribute_to_class(
+        ctx.api,
+        ctx.cls,
+        "signatures",
+        typ=list_type,
+        is_classvar=True,
     )
     return True
