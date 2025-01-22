@@ -346,10 +346,10 @@ class Expr(abc.ABC):
         """Returns True if this expr is a constant."""
         return all(comp.is_constant() for comp in self.components)
 
-    def _as_constant(self) -> Optional[Any]:
+    def _as_constant(self) -> Any:
         return None
 
-    def as_constant(self) -> Optional[Any]:
+    def as_constant(self) -> Any:
         """
         If expression is a constant then return the associated value which will be converted to a Literal.
         """
@@ -358,7 +358,7 @@ class Expr(abc.ABC):
         return None
 
     @classmethod
-    def from_array(cls, elements : Iterable) -> Optional[Expr]:
+    def from_array(cls, elements: Iterable) -> Optional[Expr]:
         from .inline_expr import InlineArray
         inline_array = InlineArray(elements)
         constant_array = inline_array.as_constant()
@@ -398,7 +398,7 @@ class Expr(abc.ABC):
                 else:
                     return expr
         else:
-            # convert scaler to a literal
+            # convert scalar to a literal
             obj_type = ts.ColumnType.infer_literal_type(o)
             if obj_type is not None:
                 from .literal import Literal

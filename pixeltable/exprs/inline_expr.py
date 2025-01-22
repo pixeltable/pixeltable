@@ -92,9 +92,8 @@ class InlineList(Expr):
     """
 
     def __init__(self, elements: Iterable):
-        exprs = []
-        for el in elements:
-            exprs.append(Expr.from_object(el))
+        exprs = [Expr.from_object(el) for el in elements]
+
         json_schema = {
             'type': 'array',
             'prefixItems': [expr.col_type.to_json_schema() for expr in exprs],
