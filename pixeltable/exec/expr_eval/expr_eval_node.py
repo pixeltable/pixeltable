@@ -391,11 +391,13 @@ class ExprEvalNode(ExecNode):
             _logger.debug(f'Scheduling {len(ready_rows)} rows for slot {slot_idx}')
             self.slot_evaluators[slot_idx].schedule(ready_rows, slot_idx)
 
-    def done_cb(self, f: asyncio.Future) -> None:
-        self.tasks.discard(f)
+    def done_cb(self, t: asyncio.Task) -> None:
+        self.tasks.discard(t)
         # end the main loop if we had an unhandled exception
         try:
-            f.result()
+            t.result()
+        except asyncio.CancelledError:
+            pass
         except Exception as exc:
             stack_trace = traceback.format_exc()
             self.error = excs.Error(f'Exception in task: {exc}\n{stack_trace}')

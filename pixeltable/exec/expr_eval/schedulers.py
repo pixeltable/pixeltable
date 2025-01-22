@@ -93,6 +93,9 @@ class RateLimitsScheduler(Scheduler):
                 # if this was the first request, it created the pool_info
                 if self.pool_info is None:
                     self.pool_info = env.Env.get().get_resource_pool_info(self.resource_pool, None)
+                    if self.pool_info is None:
+                        # we still don't have rate limits, wait for the next request
+                        continue
                     assert isinstance(self.pool_info, env.RateLimitsInfo)
                     assert hasattr(self.pool_info, 'get_request_resources')
                     sig = inspect.signature(self.pool_info.get_request_resources)  # type: ignore
@@ -205,7 +208,7 @@ class RateLimitsScheduler(Scheduler):
 
             self.dispatcher.dispatch(request.rows)
         except Exception as exc:
-            if num_retries < self.MAX_RETRIES:
+            if num_retries < self.MAX_RETRIES and self.pool_info is not None:
                 retry_delay = self.pool_info.get_retry_delay(exc)
                 if retry_delay is not None:
                     self.total_retried += 1

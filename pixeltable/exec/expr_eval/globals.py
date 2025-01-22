@@ -57,6 +57,7 @@ class Scheduler(abc.ABC):
 
 class Dispatcher(Protocol):
     """Row dispatcher used by Evaluators as a post-processing step after slot materialization"""
+    tasks: set[asyncio.Task]
     row_builder: exprs.RowBuilder
     exc_event: asyncio.Event
     schedulers: dict[str, Scheduler]
@@ -69,7 +70,7 @@ class Dispatcher(Protocol):
         """Propagates exception in slot_with_exc to all dependent slots and dispatches the rest; does not block"""
         ...
 
-    def done_cb(self, f: asyncio.Future) -> None:
+    def done_cb(self, f: asyncio.Task) -> None:
         """Callback for task completion; does not block"""
         ...
 
