@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import sys
 import abc
 import asyncio
 import logging
+import sys
 from typing import Iterable, Iterator, Optional, TypeVar, AsyncIterator
 
 import pixeltable.exprs as exprs
@@ -62,9 +62,10 @@ class ExecNode(abc.ABC):
             pass
 
         loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
         if 'pytest' in sys.modules:
             loop.set_debug(True)
-        asyncio.set_event_loop(loop)
 
         aiter = self.__aiter__()
         try:

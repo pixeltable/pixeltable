@@ -33,7 +33,7 @@ class DefaultExprEvaluator(Evaluator):
         assert self.e.slot_idx >= 0
         task = asyncio.create_task(self.eval(rows))
         self.dispatcher.tasks.add(task)
-        task.add_done_callback(self.dispatcher.tasks.discard)
+        task.add_done_callback(self.dispatcher.done_cb)
 
     async def eval(self, rows: list[exprs.DataRow]) -> None:
         rows_with_excs: set[int] = set()  # records idxs into rows
@@ -135,7 +135,7 @@ class FnCallEvaluator(Evaluator):
                 else:
                     task = asyncio.create_task(self.eval_batch(batched_call_item))
                     self.dispatcher.tasks.add(task)
-                    task.add_done_callback(self.dispatcher.tasks.discard)
+                    task.add_done_callback(self.dispatcher.done_cb)
 
         elif self.fn.is_async:
             if self.fn_call.resource_pool is not None:
@@ -148,13 +148,13 @@ class FnCallEvaluator(Evaluator):
                 for item in queue_items:
                     task = asyncio.create_task(self.eval_async(item))
                     self.dispatcher.tasks.add(task)
-                    task.add_done_callback(self.dispatcher.tasks.discard)
+                    task.add_done_callback(self.dispatcher.done_cb)
 
         else:
             # create a single task for all rows
             task = asyncio.create_task(self.eval(queue_items))
             self.dispatcher.tasks.add(task)
-            task.add_done_callback(self.dispatcher.tasks.discard)
+            task.add_done_callback(self.dispatcher.done_cb)
 
     def _queued_items(self) -> Iterator[FnCallArgs]:
         while not self.input_queue.empty():
@@ -239,5 +239,5 @@ class FnCallEvaluator(Evaluator):
         batched_call_item = self._create_batch_call_args(list(self._queued_items()))
         task = asyncio.create_task(self.eval_batch(batched_call_item))
         self.dispatcher.tasks.add(task)
-        task.add_done_callback(self.dispatcher.tasks.discard)
+        task.add_done_callback(self.dispatcher.done_cb)
 

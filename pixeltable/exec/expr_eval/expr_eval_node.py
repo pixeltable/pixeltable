@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import traceback
 from types import TracebackType
 from typing import Iterable, AsyncIterator, Optional, Union
 
@@ -389,3 +390,13 @@ class ExprEvalNode(ExecNode):
             ready_rows = [rows[i] for i in ready_rows_v.nonzero()[0]]
             _logger.debug(f'Scheduling {len(ready_rows)} rows for slot {slot_idx}')
             self.slot_evaluators[slot_idx].schedule(ready_rows, slot_idx)
+
+    def done_cb(self, f: asyncio.Future) -> None:
+        self.tasks.discard(f)
+        # end the main loop if we had an unhandled exception
+        try:
+            f.result()
+        except Exception as exc:
+            stack_trace = traceback.format_exc()
+            self.error = excs.Error(f'Exception in task: {exc}\n{stack_trace}')
+            self.exc_event.set()

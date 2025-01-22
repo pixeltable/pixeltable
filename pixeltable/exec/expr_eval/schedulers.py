@@ -56,6 +56,7 @@ class RateLimitsScheduler(Scheduler):
         self.dispatcher = dispatcher
         self.loop_task = asyncio.create_task(self._main_loop())
         self.dispatcher.tasks.add(self.loop_task)
+        self.loop_task.add_done_callback(self.dispatcher.done_cb)
         self.pool_info = None  # initialized in _main_loop by the first request
         self.est_usage = {}
         self.num_in_flight = 0
@@ -148,7 +149,7 @@ class RateLimitsScheduler(Scheduler):
             self.num_in_flight += 1
             task = asyncio.create_task(self._exec(item.request, item.num_retries, is_task=True))
             self.dispatcher.tasks.add(task)
-            task.add_done_callback(self.dispatcher.tasks.discard)
+            task.add_done_callback(self.dispatcher.done_cb)
             item = None
 
     @property
