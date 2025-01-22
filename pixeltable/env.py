@@ -17,6 +17,7 @@ import uuid
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
+from sys import stdout
 from typing import TYPE_CHECKING, Any, Callable, Optional, TypeVar
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -27,6 +28,7 @@ from tqdm import TqdmWarning
 
 import pixeltable.exceptions as excs
 from pixeltable import metadata
+from pixeltable.utils.console_output import ConsoleLogger, ConsoleMessageFilter, ConsoleOutputHandler, get_level
 from pixeltable.utils.http_server import make_server
 
 if TYPE_CHECKING:
@@ -61,6 +63,7 @@ class Env:
     _httpd: Optional[http.server.HTTPServer]
     _http_address: Optional[str]
     _logger: logging.Logger
+    _console_logger: logging.Logger
     _default_log_level: int
     _logfilename: Optional[str]
     _log_to_stdout: bool
@@ -139,6 +142,11 @@ class Env:
     @property
     def default_time_zone(self) -> Optional[ZoneInfo]:
         return self._default_time_zone
+
+    @property
+    def console_logger(self) -> logging.Logger:
+        return self._console_logger
+
 
     @default_time_zone.setter
     def default_time_zone(self, tz: Optional[ZoneInfo]) -> None:
@@ -278,9 +286,13 @@ class Env:
             warnings.simplefilter('ignore', category=UserWarning)
             warnings.simplefilter('ignore', category=FutureWarning)
 
-        verbose = self._config.get_bool_value('verbose')
-        if verbose is not None and verbose is False:
-            self.configure_logging(to_stdout=False, level=logging.WARN)
+        # Set verbose level for user visible console messages
+        verbosity = get_level(self._config.get_string_value('verbosity'))
+        stdout_handler = ConsoleOutputHandler(stream=stdout)
+        stdout_handler.setLevel(verbosity)
+        stdout_handler.addFilter(ConsoleMessageFilter())
+        self._logger.addHandler(stdout_handler)
+        self._console_logger = ConsoleLogger(self._logger)
 
         # configure _logger to log to a file
         self._logfilename = datetime.datetime.now().strftime('%Y%m%d_%H%M%S') + '.log'

@@ -362,7 +362,7 @@ class Table(SchemaObject):
             from IPython.display import display
             display(self._repr_html_())
         else:
-            print(repr(self))
+            env.Env.get().console_logger.info(repr(self))
 
     def _drop(self) -> None:
         cat = catalog.Catalog.get()
@@ -1345,7 +1345,7 @@ class Table(SchemaObject):
             raise excs.Error(f'Table `{self._name}` already has an external store with that name: {store.name}')
         _logger.info(f'Linking external store `{store.name}` to table `{self._name}`')
         self._tbl_version.link_external_store(store)
-        print(f'Linked external store `{store.name}` to table `{self._name}`.')
+        env.Env.get().console_logger.info(f'Linked external store `{store.name}` to table `{self._name}`.')
 
     def unlink_external_stores(
             self,
@@ -1381,7 +1381,7 @@ class Table(SchemaObject):
 
         for store in stores:
             self._tbl_version.unlink_external_store(store, delete_external_data=delete_external_data)
-            print(f'Unlinked external store from table `{self._name}`: {store}')
+            _logger(f'Unlinked external store from table `{self._name}`: {store}')
 
     def sync(
             self,
