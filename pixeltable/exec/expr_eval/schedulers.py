@@ -98,7 +98,7 @@ class RateLimitsScheduler(Scheduler):
                         continue
                     assert isinstance(self.pool_info, env.RateLimitsInfo)
                     assert hasattr(self.pool_info, 'get_request_resources')
-                    sig = inspect.signature(self.pool_info.get_request_resources)  # type: ignore
+                    sig = inspect.signature(self.pool_info.get_request_resources)
                     self.get_request_resources_param_names = [p.name for p in sig.parameters.values()]
                     self.est_usage = {r: 0 for r in self._resources}
                 continue
