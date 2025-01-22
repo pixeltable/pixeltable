@@ -92,6 +92,16 @@ class Function(abc.ABC):
         assert not self.is_polymorphic
         return len(self.signature.parameters)
 
+    def _docstring(self) -> Optional[str]:
+        return None
+
+    def help_str(self) -> str:
+        docstring = self._docstring()
+        display = self.display_name + str(self.signatures[0])
+        if docstring is None:
+            return display
+        return f'{display}\n\n{docstring}'
+
     @property
     def _resolved_fns(self) -> list[Self]:
         """
@@ -109,6 +119,7 @@ class Function(abc.ABC):
                 for idx in range(len(self.signatures)):
                     resolution = cast(Self, copy(self))
                     resolution.signatures = [self.signatures[idx]]
+                    resolution.__resolved_fns = [resolution]  # Resolves to itself
                     resolution._update_as_overload_resolution(idx)
                     self.__resolved_fns.append(resolution)
 
@@ -128,9 +139,6 @@ class Function(abc.ABC):
         simply updating `self.signatures`.
         """
         raise NotImplementedError()
-
-    def help_str(self) -> str:
-        return self.display_name + str(self.signatures[0])
 
     def __call__(self, *args: Any, **kwargs: Any) -> 'pxt.exprs.FunctionCall':
         from pixeltable import exprs
@@ -191,13 +199,12 @@ class Function(abc.ABC):
 
     def conditional_return_type(self, fn: Callable[..., ts.ColumnType]) -> Callable[..., ts.ColumnType]:
         """Instance decorator for specifying a conditional return type for this function"""
-        if self.is_polymorphic:
-            raise excs.Error('`conditional_return_type` is not supported for functions with multiple signatures')
         # verify that call_return_type only has parameters that are also present in the signature
-        sig = inspect.signature(fn)
-        for param in sig.parameters.values():
-            if param.name not in self.signature.parameters:
-                raise ValueError(f'`conditional_return_type` has parameter `{param.name}` that is not in the signature')
+        fn_sig = inspect.signature(fn)
+        for param in fn_sig.parameters.values():
+            for self_sig in self.signatures:
+                if param.name not in self_sig.parameters:
+                    raise ValueError(f'`conditional_return_type` has parameter `{param.name}` that is not in a signature')
         self._conditional_return_type = fn
         return fn
 
@@ -284,7 +291,7 @@ class Function(abc.ABC):
         """Print source code"""
         print('source not available')
 
-    def as_dict(self) -> dict:
+    def as_dict(self) -> dict[str, Any]:
         """
         Return a serialized reference to the instance that can be passed to json.dumps() and converted back
         to an instance with from_dict().

@@ -10,7 +10,9 @@ from typing import TYPE_CHECKING, Any, Callable, Optional, TypeVar, Union
 import tenacity
 
 import pixeltable as pxt
-from pixeltable import env
+import pixeltable.exceptions as excs
+from pixeltable import env, exprs
+from pixeltable.func import Tools
 from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
@@ -46,8 +48,8 @@ def messages(
     stop_sequences: Optional[list[str]] = None,
     system: Optional[str] = None,
     temperature: Optional[float] = None,
-    tool_choice: Optional[list[dict]] = None,
-    tools: Optional[dict] = None,
+    tool_choice: Optional[dict] = None,
+    tools: Optional[list[dict]] = None,
     top_k: Optional[int] = None,
     top_p: Optional[float] = None,
 ) -> dict:
@@ -77,6 +79,33 @@ def messages(
         >>> msgs = [{'role': 'user', 'content': tbl.prompt}]
         ... tbl['response'] = messages(msgs, model='claude-3-haiku-20240307')
     """
+    if tools is not None:
+        # Reformat `tools` into Anthropic format
+        tools = [
+            {
+                'name': tool['name'],
+                'description': tool['description'],
+                'input_schema': {
+                    'type': 'object',
+                    'properties': tool['parameters']['properties'],
+                    'required': tool['required'],
+                },
+            }
+            for tool in tools
+        ]
+
+    tool_choice_: Optional[dict] = None
+    if tool_choice is not None:
+        if tool_choice['auto']:
+            tool_choice_ = {'type': 'auto'}
+        elif tool_choice['required']:
+            tool_choice_ = {'type': 'any'}
+        else:
+            assert tool_choice['tool'] is not None
+            tool_choice_ = {'type': 'tool', 'name': tool_choice['tool']}
+        if not tool_choice['parallel_tool_calls']:
+            tool_choice_['disable_parallel_tool_use'] = True
+
     return _retry(_anthropic_client().messages.create)(
         messages=messages,
         model=model,
@@ -85,11 +114,29 @@ def messages(
         stop_sequences=_opt(stop_sequences),
         system=_opt(system),
         temperature=_opt(temperature),
-        tool_choice=_opt(tool_choice),
+        tool_choice=_opt(tool_choice_),
         tools=_opt(tools),
         top_k=_opt(top_k),
         top_p=_opt(top_p),
     ).dict()
+
+
+def invoke_tools(tools: Tools, response: exprs.Expr) -> exprs.InlineDict:
+    """Converts an Anthropic response dict to Pixeltable tool invocation format and calls `tools._invoke()`."""
+    return tools._invoke(_anthropic_response_to_pxt_tool_calls(response))
+
+
+@pxt.udf
+def _anthropic_response_to_pxt_tool_calls(response: dict) -> Optional[dict]:
+    anthropic_tool_calls = [r for r in response['content'] if r['type'] == 'tool_use']
+    if len(anthropic_tool_calls) > 0:
+        return {
+            tool_call['name']: {
+                'args': tool_call['input']
+            }
+            for tool_call in anthropic_tool_calls
+        }
+    return None
 
 
 _T = TypeVar('_T')

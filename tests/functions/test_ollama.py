@@ -17,12 +17,12 @@ class TestOllama:
         t = pxt.create_table('test_tbl', {'input': pxt.String})
 
         # msgs = [{'role': 'user', 'content': t.input}]
-        t['output'] = generate(t.input, model='qwen2.5:0.5b')
-        t['output2'] = generate(
+        t.add_computed_column(output=generate(t.input, model='qwen2.5:0.5b'))
+        t.add_computed_column(output2=generate(
             t.input,
             model='qwen2.5:0.5b',
             options={'temperature': 1.0, 'max_tokens': 300, 'top_p': 0.9, 'top_k': 40},
-        )
+        ))
         validate_update_status(t.insert(input='The average July rainfall in Topeka is '))
         results = t.collect()
         assert len(results['output'][0]['response']) > 0
@@ -40,12 +40,12 @@ class TestOllama:
             {'role': 'user', 'content': t.input}
         ]
 
-        t['output'] = chat(msgs, model='qwen2.5:0.5b')
-        t['output2'] = chat(
+        t.add_computed_column(output=chat(msgs, model='qwen2.5:0.5b'))
+        t.add_computed_column(output2=chat(
             msgs,
             model='qwen2.5:0.5b',
             options={'temperature': 1.0, 'max_tokens': 300, 'top_p': 0.9, 'top_k': 40},
-        )
+        ))
         validate_update_status(t.insert(input='What are the spiciest varieties of peppers?'))
         results = t.collect()
         assert len(results['output'][0]['message']['content']) > 0
@@ -58,7 +58,7 @@ class TestOllama:
 
         t = pxt.create_table('test_tbl', {'input': pxt.String})
 
-        t['output'] = embed(t.input, model='qwen2.5:0.5b')
+        t.add_computed_column(output=embed(t.input, model='qwen2.5:0.5b'))
         validate_update_status(t.insert(input='I am a purple cloud.'))
         results = t.collect()
         assert isinstance(results['output'][0], np.ndarray)

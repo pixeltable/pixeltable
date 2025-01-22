@@ -1,9 +1,11 @@
+from typing import Optional
+
 import pytest
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 
-from ..utils import SAMPLE_IMAGE_URL, skip_test_if_not_installed, validate_update_status
+from ..utils import SAMPLE_IMAGE_URL, skip_test_if_not_installed, stock_price, validate_update_status
 
 
 @pytest.mark.remote_api
@@ -15,16 +17,16 @@ class TestOpenai:
         t = pxt.create_table('test_tbl', {'input': pxt.String})
         from pixeltable.functions.openai import speech, transcriptions, translations
 
-        t.add_column(speech=speech(t.input, model='tts-1', voice='onyx'))
-        t.add_column(speech_2=speech(t.input, model='tts-1', voice='onyx', response_format='flac', speed=1.05))
-        t.add_column(transcription=transcriptions(t.speech, model='whisper-1'))
-        t.add_column(
+        t.add_computed_column(speech=speech(t.input, model='tts-1', voice='onyx'))
+        t.add_computed_column(speech_2=speech(t.input, model='tts-1', voice='onyx', response_format='flac', speed=1.05))
+        t.add_computed_column(transcription=transcriptions(t.speech, model='whisper-1'))
+        t.add_computed_column(
             transcription_2=transcriptions(
                 t.speech, model='whisper-1', language='en', prompt='Transcribe the contents of this recording.'
             )
         )
-        t.add_column(translation=translations(t.speech, model='whisper-1'))
-        t.add_column(
+        t.add_computed_column(translation=translations(t.speech, model='whisper-1'))
+        t.add_computed_column(
             translation_2=translations(
                 t.speech,
                 model='whisper-1',
@@ -51,12 +53,12 @@ class TestOpenai:
         from pixeltable.functions.openai import chat_completions
 
         msgs = [{'role': 'system', 'content': 'You are a helpful assistant.'}, {'role': 'user', 'content': t.input}]
-        t.add_column(input_msgs=msgs)
-        t.add_column(chat_output=chat_completions(model='gpt-4o-mini', messages=t.input_msgs))
+        t.add_computed_column(input_msgs=msgs)
+        t.add_computed_column(chat_output=chat_completions(model='gpt-4o-mini', messages=t.input_msgs))
         # with inlined messages
-        t.add_column(chat_output_2=chat_completions(model='gpt-4o-mini', messages=msgs))
+        t.add_computed_column(chat_output_2=chat_completions(model='gpt-4o-mini', messages=msgs))
         # test a bunch of the parameters
-        t.add_column(
+        t.add_computed_column(
             chat_output_3=chat_completions(
                 model='gpt-4o-mini',
                 messages=msgs,
@@ -74,12 +76,11 @@ class TestOpenai:
             )
         )
         # test with JSON output enforced
-        t.add_column(
+        t.add_computed_column(
             chat_output_4=chat_completions(
                 model='gpt-4o-mini', messages=msgs, response_format={'type': 'json_object'}
             )
         )
-        # TODO Also test the `tools` and `tool_choice` parameters.
         validate_update_status(t.insert(input='Give me an example of a typical JSON structure.'), 1)
         result = t.collect()
         assert len(result['chat_output'][0]['choices'][0]['message']['content']) > 0
@@ -95,6 +96,137 @@ class TestOpenai:
             t.insert(input='Say something interesting.')
         assert "\\'messages\\' must contain the word \\'json\\'" in str(exc_info.value)
 
+    @pytest.mark.flaky(reruns=3)
+    def test_tool_invocations(self, reset_db) -> None:
+        skip_test_if_not_installed('openai')
+        TestOpenai.skip_test_if_no_openai_client()
+        from pixeltable.functions.openai import chat_completions, invoke_tools
+
+        # stock_price is a module UDF and weather is a local UDF, so we test both
+        @pxt.udf(_force_stored=True)
+        def weather(city: str) -> Optional[str]:
+            """
+            Get today's weather forecast for a given city.
+
+            Args:
+                city - The name of the city to look up.
+            """
+            if city == 'San Francisco':
+                return 'Cloudy with a chance of meatballs'
+            else:
+                return 'Unknown city'
+
+        tools = pxt.tools(stock_price, weather)
+        tool_choice_opts: list[Optional[pxt.func.ToolChoice]] = [
+            None,
+            tools.choice(auto=True),
+            tools.choice(required=True),
+            tools.choice(tool='stock_price'),
+            tools.choice(tool=weather),
+            tools.choice(required=True, parallel_tool_calls=False),
+        ]
+
+        for tool_choice in tool_choice_opts:
+            pxt.drop_table('test_tbl', if_not_exists='ignore')
+            t = pxt.create_table('test_tbl', {'prompt': pxt.String})
+            messages = [{'role': 'user', 'content': t.prompt}]
+            t.add_computed_column(response=chat_completions(
+                model='gpt-4o-mini',
+                messages=messages,
+                tools=tools,
+                tool_choice=tool_choice
+            ))
+            t.add_computed_column(output=t.response.choices[0].message.content)
+            t.add_computed_column(tool_calls=invoke_tools(tools, t.response))
+
+            t.insert(prompt='What is the stock price of NVDA today?')
+            t.insert(prompt='What is the weather in San Francisco?')
+            t.insert(prompt='What is the stock price of NVDA today, and what is the weather in San Francisco?')
+            t.insert(prompt='How many grams of corn are in a bushel?')
+            res = t.select(t.response, t.tool_calls).head()
+            print(f'Responses with tool_choice equal to: {tool_choice}')
+            print(res[0]['response'])
+            print(res[1]['response'])
+            print(res[2]['response'])
+            print(res[3]['response'])
+
+            # Request for stock price: works except when tool_choice is set explicitly to weather
+            print('Checking stock price inquiry')
+            if tool_choice is None or tool_choice.tool != 'weather':
+                assert res[0]['tool_calls'] == {'stock_price': 131.17, 'weather': None}
+            else:  # Explicitly set to weather; we may or may not get stock price also
+                assert res[0]['tool_calls'] in [
+                    {'stock_price': None, 'weather': 'Unknown city'},
+                    {'stock_price': 131.17, 'weather': 'Unknown city'},
+                ]
+
+            # Request for weather: works except when tool_choice is set explicitly to stock_price
+            print('Checking weather inquiry')
+            if tool_choice is None or tool_choice.tool != 'stock_price':
+                assert res[1]['tool_calls'] == {'stock_price': None, 'weather': 'Cloudy with a chance of meatballs'}
+            else:  # Explicitly set to stock_price; we may or may not get weather also
+                assert res[1]['tool_calls'] in [
+                    {'stock_price': 0.0, 'weather': None},
+                    {'stock_price': 0.0, 'weather': 'Cloudy with a chance of meatballs'},
+                ]
+
+            # Request for both stock price and weather
+            print('Checking double inquiry')
+            if tool_choice is None or (tool_choice.parallel_tool_calls and tool_choice.tool is None):
+                # Both tools invoked in parallel
+                assert res[2]['tool_calls'] == {'stock_price': 131.17, 'weather': 'Cloudy with a chance of meatballs'}
+            elif tool_choice.tool == 'stock_price':
+                assert res[2]['tool_calls'] == {'stock_price': 131.17, 'weather': None}
+            elif tool_choice.tool == 'weather':
+                assert res[2]['tool_calls'] == {'stock_price': None, 'weather': 'Cloudy with a chance of meatballs'}
+            else:
+                # Only one tool invoked, but it's not specified which
+                assert not tool_choice.parallel_tool_calls
+                assert res[2]['tool_calls'] in [
+                    {'stock_price': 131.17, 'weather': None},
+                    {'stock_price': None, 'weather': 'Cloudy with a chance of meatballs'},
+                ]
+
+            print('Checking random question')
+            if tool_choice is None or tool_choice.auto:
+                assert res[3]['tool_calls'] == {'stock_price': None, 'weather': None}
+            elif tool_choice.tool == 'stock_price':
+                assert res[3]['tool_calls'] == {'stock_price': 0.0, 'weather': None}
+            elif tool_choice.tool == 'weather':
+                assert res[3]['tool_calls'] == {'stock_price': None, 'weather': 'Unknown city'}
+            else:
+                assert res[3]['tool_calls'] in [
+                    {'stock_price': 0.0, 'weather': None},
+                    {'stock_price': None, 'weather': 'Unknown city'},
+                ]
+
+    def test_custom_tool_invocations(self, reset_db) -> None:
+        skip_test_if_not_installed('openai')
+        TestOpenai.skip_test_if_no_openai_client()
+        from pixeltable.functions.openai import chat_completions, invoke_tools
+
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String})
+        messages = [{'role': 'user', 'content': t.prompt}]
+        tools = pxt.tools(
+            pxt.tool(
+                stock_price,
+                name='banana_quantity',
+                description='Use this to compute the banana quantity of a symbol.'
+            )
+        )
+        t.add_computed_column(response=chat_completions(
+            model='gpt-4o-mini',
+            messages=messages,
+            tools=tools
+        ))
+        t.add_computed_column(output=t.response.choices[0].message.content)
+        t.add_computed_column(tool_calls=invoke_tools(tools, t.response))
+        t.insert(prompt='What is the banana quantity of the symbol NVDA?')
+        res = t.select(t.output, t.tool_calls).head()
+
+        assert res[0]['output'] is None
+        assert res[0]['tool_calls'] == {'banana_quantity': 131.17}
+
     @pytest.mark.expensive
     def test_gpt_4_vision(self, reset_db) -> None:
         skip_test_if_not_installed('openai')
@@ -103,7 +235,7 @@ class TestOpenai:
         from pixeltable.functions.openai import chat_completions, vision
         from pixeltable.functions.string import format
 
-        t.add_column(response=vision(prompt="What's in this image?", image=t.img, model='gpt-4o-mini'))
+        t.add_computed_column(response=vision(prompt="What's in this image?", image=t.img, model='gpt-4o-mini'))
         # Also get the response the low-level way, by calling chat_completions
         msgs = [
             {
@@ -117,7 +249,7 @@ class TestOpenai:
                 ],
             }
         ]
-        t.add_column(
+        t.add_computed_column(
             response_2=chat_completions(model='gpt-4o-mini', messages=msgs, max_tokens=300)
             .choices[0]
             .message.content
@@ -132,8 +264,8 @@ class TestOpenai:
         from pixeltable.functions.openai import embeddings
 
         t = pxt.create_table('test_tbl', {'input': pxt.String})
-        t.add_column(ada_embed=embeddings(model='text-embedding-ada-002', input=t.input))
-        t.add_column(
+        t.add_computed_column(ada_embed=embeddings(model='text-embedding-ada-002', input=t.input))
+        t.add_computed_column(
             text_3=embeddings(model='text-embedding-3-small', input=t.input, dimensions=1024, user='pixeltable')
         )
         type_info = t._schema
@@ -148,8 +280,8 @@ class TestOpenai:
         t = pxt.create_table('test_tbl', {'input': pxt.String})
         from pixeltable.functions.openai import moderations
 
-        t.add_column(moderation=moderations(input=t.input))
-        t.add_column(moderation_2=moderations(input=t.input, model='text-moderation-stable'))
+        t.add_computed_column(moderation=moderations(input=t.input))
+        t.add_computed_column(moderation_2=moderations(input=t.input, model='text-moderation-stable'))
         validate_update_status(t.insert(input='Say something interesting.'), 1)
         _ = t.head()
 
@@ -160,9 +292,9 @@ class TestOpenai:
         t = pxt.create_table('test_tbl', {'input': pxt.String})
         from pixeltable.functions.openai import image_generations
 
-        t.add_column(img=image_generations(t.input))
+        t.add_computed_column(img=image_generations(t.input))
         # Test dall-e-2 options
-        t.add_column(img_2=image_generations(t.input, model='dall-e-2', size='512x512', user='pixeltable'))
+        t.add_computed_column(img_2=image_generations(t.input, model='dall-e-2', size='512x512', user='pixeltable'))
         # image size information was captured correctly
         type_info = t._schema
         assert type_info['img_2'].size == (512, 512)
@@ -179,7 +311,7 @@ class TestOpenai:
         from pixeltable.functions.openai import image_generations
 
         # Test dall-e-3 options
-        t.add_column(
+        t.add_computed_column(
             img_3=image_generations(
                 t.input, model='dall-e-3', quality='hd', size='1792x1024', style='natural', user='pixeltable'
             )

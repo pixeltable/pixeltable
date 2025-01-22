@@ -17,7 +17,6 @@ import pixeltable.metadata as metadata
 from pixeltable.env import Env
 from pixeltable.func import Batch
 from pixeltable.io.external_store import Project
-from pixeltable.tool import embed_udf
 from pixeltable.type_system import BoolType, FloatType, ImageType, IntType, JsonType, StringType, TimestampType
 
 _logger = logging.getLogger('pixeltable')
@@ -193,112 +192,112 @@ class Dumper:
         assert t.base_table_image_rot.col in project.stored_proxies
 
     def __add_expr_columns(self, t: pxt.Table, col_prefix: str, include_expensive_functions=False) -> None:
-        def add_column(col_name: str, col_expr: Any, stored: bool = True) -> None:
-            t.add_column(**{f'{col_prefix}_{col_name}': col_expr}, stored=stored)
+        def add_computed_column(col_name: str, col_expr: Any, stored: bool = True) -> None:
+            t.add_computed_column(**{f'{col_prefix}_{col_name}': col_expr}, stored=stored)
 
         # arithmetic_expr
-        add_column('plus', t.c2 + 6)
-        add_column('minus', t.c2 - 5)
-        add_column('times', t.c3 * 1.2)
-        add_column('div', t.c3 / 1.7)
-        add_column('mod', t.c2 % 11)
+        add_computed_column('plus', t.c2 + 6)
+        add_computed_column('minus', t.c2 - 5)
+        add_computed_column('times', t.c3 * 1.2)
+        add_computed_column('div', t.c3 / 1.7)
+        add_computed_column('mod', t.c2 % 11)
 
         # column_property_ref
-        add_column('fileurl', t.c8.fileurl)
-        add_column('localpath', t.c8.localpath)
+        add_computed_column('fileurl', t.c8.fileurl)
+        add_computed_column('localpath', t.c8.localpath)
 
         # comparison
-        add_column('lt', t.c2 < t.c3)
-        add_column('le', t.c2 <= t.c3)
-        add_column('gt', t.c2 > t.c3)
-        add_column('ge', t.c2 >= t.c3)
-        add_column('ne', t.c2 != t.c3)
-        add_column('eq', t.c2 == t.c3)
+        add_computed_column('lt', t.c2 < t.c3)
+        add_computed_column('le', t.c2 <= t.c3)
+        add_computed_column('gt', t.c2 > t.c3)
+        add_computed_column('ge', t.c2 >= t.c3)
+        add_computed_column('ne', t.c2 != t.c3)
+        add_computed_column('eq', t.c2 == t.c3)
 
         # compound_predicate
-        add_column('and', (t.c2 >= 5) & (t.c2 < 8))
-        add_column('or', (t.c2 > 1) | t.c4)
-        add_column('not', ~(t.c2 > 20))
+        add_computed_column('and', (t.c2 >= 5) & (t.c2 < 8))
+        add_computed_column('or', (t.c2 > 1) | t.c4)
+        add_computed_column('not', ~(t.c2 > 20))
 
         # function_call
-        add_column('function_call', pxt.functions.string.format('{0} {key}', t.c1, key=t.c1))  # library function
-        add_column('test_udf', test_udf_stored(t.c2))  # stored udf
-        add_column('test_udf_batched', test_udf_stored_batched(t.c1, upper=False))  # batched stored udf
+        add_computed_column('function_call', pxt.functions.string.format('{0} {key}', t.c1, key=t.c1))  # library function
+        add_computed_column('test_udf', test_udf_stored(t.c2))  # stored udf
+        add_computed_column('test_udf_batched', test_udf_stored_batched(t.c1, upper=False))  # batched stored udf
         if include_expensive_functions:
             # batched library function
-            add_column('batched', pxt.functions.huggingface.clip_text(t.c1, model_id='openai/clip-vit-base-patch32'))
+            add_computed_column('batched', pxt.functions.huggingface.clip(t.c1, model_id='openai/clip-vit-base-patch32'))
 
         # image_member_access
-        add_column('image_mode', t.c8.mode)
-        add_column('image_rot', t.c8.rotate(180), stored=False)
+        add_computed_column('image_mode', t.c8.mode)
+        add_computed_column('image_rot', t.c8.rotate(180), stored=False)
 
         # in_predicate
-        add_column('isin_1', t.c1.isin(['test string 1', 'test string 2', 'test string 3']))
-        add_column('isin_2', t.c2.isin([1, 2, 3, 4, 5]))
-        add_column('isin_3', t.c2.isin(t.c6.f5))
+        add_computed_column('isin_1', t.c1.isin(['test string 1', 'test string 2', 'test string 3']))
+        add_computed_column('isin_2', t.c2.isin([1, 2, 3, 4, 5]))
+        add_computed_column('isin_3', t.c2.isin(t.c6.f5))
 
         # inline_array, inline_list, inline_dict
-        add_column('inline_array_1', pxt.array([[1, 2, 3], [4, 5, 6]]))
-        add_column('inline_array_2', pxt.array([['a', 'b', 'c'], ['d', 'e', 'f']]))
-        add_column('inline_array_exprs', pxt.array([[t.c2, t.c2 + 1], [t.c2 + 2, t.c2]]))
-        add_column('inline_array_mixed', pxt.array([[1, t.c2], [3, t.c2]]))
-        add_column('inline_list_1', [[1, 2, 3], [4, 5, 6]])
-        add_column('inline_list_2', [['a', 'b', 'c'], ['d', 'e', 'f']])
-        add_column('inline_list_exprs', [t.c1, [t.c1n, t.c2]])
-        add_column('inline_list_mixed', [1, 'a', t.c1, [1, 'a', t.c1n], 1, 'a'])
-        add_column('inline_dict', {'int': 22, 'dict': {'key': 'val'}, 'expr': t.c1})
+        add_computed_column('inline_array_1', pxt.array([[1, 2, 3], [4, 5, 6]]))
+        add_computed_column('inline_array_2', pxt.array([['a', 'b', 'c'], ['d', 'e', 'f']]))
+        add_computed_column('inline_array_exprs', pxt.array([[t.c2, t.c2 + 1], [t.c2 + 2, t.c2]]))
+        add_computed_column('inline_array_mixed', pxt.array([[1, t.c2], [3, t.c2]]))
+        add_computed_column('inline_list_1', [[1, 2, 3], [4, 5, 6]])
+        add_computed_column('inline_list_2', [['a', 'b', 'c'], ['d', 'e', 'f']])
+        add_computed_column('inline_list_exprs', [t.c1, [t.c1n, t.c2]])
+        add_computed_column('inline_list_mixed', [1, 'a', t.c1, [1, 'a', t.c1n], 1, 'a'])
+        add_computed_column('inline_dict', {'int': 22, 'dict': {'key': 'val'}, 'expr': t.c1})
 
         # is_null
-        add_column('isnull', t.c1 == None)
+        add_computed_column('isnull', t.c1 == None)
 
         # json_mapper and json_path
-        add_column('json_mapper', t.c6[3])
-        add_column('json_path', t.c6.f1)
-        add_column('json_path_nested', t.c6.f6.f7)
-        add_column('json_path_star', t.c6.f5['*'])
-        add_column('json_path_idx', t.c6.f5[3])
-        add_column('json_path_slice', t.c6.f5[1:3:2])
+        add_computed_column('json_mapper', t.c6[3])
+        add_computed_column('json_path', t.c6.f1)
+        add_computed_column('json_path_nested', t.c6.f6.f7)
+        add_computed_column('json_path_star', t.c6.f5['*'])
+        add_computed_column('json_path_idx', t.c6.f5[3])
+        add_computed_column('json_path_slice', t.c6.f5[1:3:2])
 
         # literal
-        add_column('str_const', 'str')
-        add_column('int_const', 5)
-        add_column('float_const', 5.0)
-        add_column('timestamp_const_1', datetime.datetime.now())
-        add_column('timestamp_const_2', datetime.datetime.now().astimezone(ZoneInfo('America/Anchorage')))
+        add_computed_column('str_const', 'str')
+        add_computed_column('int_const', 5)
+        add_computed_column('float_const', 5.0)
+        add_computed_column('timestamp_const_1', datetime.datetime.now())
+        add_computed_column('timestamp_const_2', datetime.datetime.now().astimezone(ZoneInfo('America/Anchorage')))
 
         # type_cast
-        add_column('astype', t.c2.astype(FloatType()))
+        add_computed_column('astype', t.c2.astype(FloatType()))
 
         # .apply
-        add_column('c2_to_string', t.c2.apply(str))
-        add_column('c6_to_string', t.c6.apply(json.dumps))
-        add_column('c6_back_to_json', t[f'{col_prefix}_c6_to_string'].apply(json.loads))
+        add_computed_column('c2_to_string', t.c2.apply(str))
+        add_computed_column('c6_to_string', t.c6.apply(json.dumps))
+        add_computed_column('c6_back_to_json', t[f'{col_prefix}_c6_to_string'].apply(json.loads))
 
         t.add_embedding_index(
             f'{col_prefix}_function_call',
-            string_embed=pxt.functions.huggingface.clip_text.using(model_id='openai/clip-vit-base-patch32')
+            string_embed=pxt.functions.huggingface.clip.using(model_id='openai/clip-vit-base-patch32')
         )
 
         if t.get_metadata()['is_view']:
             # Add an embedding index to the view that is on a column in the base table
             t.add_embedding_index(
                 'base_table_function_call',
-                string_embed=pxt.functions.huggingface.clip_text.using(model_id='openai/clip-vit-base-patch32')
+                string_embed=pxt.functions.huggingface.clip.using(model_id='openai/clip-vit-base-patch32')
             )
 
         # query()
-        @t.query
+        @pxt.query
         def q1(i: int):
             # this breaks; TODO: why?
             #return t.where(t.c2 < i)
             return t.where(t.c2 < i).select(t.c1, t.c2)
-        add_column('query_output', t.queries.q1(t.c2))
+        add_computed_column('query_output', q1(t.c2))
 
-        @t.query
+        @pxt.query
         def q2(s: str):
             sim = t[f'{col_prefix}_function_call'].similarity(s)
             return t.order_by(sim, asc=False).select(t[f'{col_prefix}_function_call']).limit(5)
-        add_column('sim_output', t.queries.q2(t.c1))
+        add_computed_column('sim_output', q2(t.c1))
 
 
 @pxt.udf(_force_stored=True)

@@ -7,17 +7,18 @@ the [Working with OpenAI](https://pixeltable.readme.io/docs/working-with-openai)
 
 import base64
 import io
+import json
 import pathlib
 import uuid
-from typing import TYPE_CHECKING, Callable, Optional, TypeVar, Union
+from typing import TYPE_CHECKING, Any, Callable, Optional, TypeVar, Union
 
 import numpy as np
 import PIL.Image
 import tenacity
 
 import pixeltable as pxt
-from pixeltable import env
-from pixeltable.func import Batch
+from pixeltable import env, exprs
+from pixeltable.func import Batch, Tools
 from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
@@ -225,6 +226,33 @@ def chat_completions(
             ]
             tbl['response'] = chat_completions(messages, model='gpt-4o-mini')
     """
+
+    if tools is not None:
+        tools = [
+            {
+                'type': 'function',
+                'function': tool
+            }
+            for tool in tools
+        ]
+
+    tool_choice_: Union[str, dict, None] = None
+    if tool_choice is not None:
+        if tool_choice['auto']:
+            tool_choice_ = 'auto'
+        elif tool_choice['required']:
+            tool_choice_ = 'required'
+        else:
+            assert tool_choice['tool'] is not None
+            tool_choice_ = {
+                'type': 'function',
+                'function': {'name': tool_choice['tool']}
+            }
+
+    extra_body: Optional[dict[str, Any]] = None
+    if tool_choice is not None and not tool_choice['parallel_tool_calls']:
+        extra_body = {'parallel_tool_calls': False}
+
     result = _retry(_openai_client().chat.completions.create)(
         messages=messages,
         model=model,
@@ -241,8 +269,9 @@ def chat_completions(
         temperature=_opt(temperature),
         top_p=_opt(top_p),
         tools=_opt(tools),
-        tool_choice=_opt(tool_choice),
+        tool_choice=_opt(tool_choice_),
         user=_opt(user),
+        extra_body=extra_body,
     )
     return result.dict()
 
@@ -451,6 +480,24 @@ def moderations(input: str, *, model: Optional[str] = None) -> dict:
     """
     result = _retry(_openai_client().moderations.create)(input=input, model=_opt(model))
     return result.dict()
+
+
+def invoke_tools(tools: Tools, response: exprs.Expr) -> exprs.InlineDict:
+    """Converts an OpenAI response dict to Pixeltable tool invocation format and calls `tools._invoke()`."""
+    return tools._invoke(_openai_response_to_pxt_tool_calls(response))
+
+
+@pxt.udf
+def _openai_response_to_pxt_tool_calls(response: dict) -> Optional[dict]:
+    openai_tool_calls = response['choices'][0]['message']['tool_calls']
+    if openai_tool_calls is not None:
+        return {
+            tool_call['function']['name']: {
+                'args': json.loads(tool_call['function']['arguments'])
+            }
+            for tool_call in openai_tool_calls
+        }
+    return None
 
 
 _T = TypeVar('_T')

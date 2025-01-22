@@ -30,7 +30,7 @@ class TestAudio:
     def test_extract(self, reset_db) -> None:
         video_filepaths = get_video_files()
         video_t = pxt.create_table('videos', {'video': pxt.Video})
-        video_t.add_column(audio=video_t.video.extract_audio())
+        video_t.add_computed_column(audio=video_t.video.extract_audio())
 
         # one of the 3 videos doesn't have audio
         status = video_t.insert({'video': p} for p in video_filepaths)
@@ -62,7 +62,7 @@ class TestAudio:
     def test_get_metadata(self, reset_db) -> None:
         audio_filepaths = get_audio_files()
         base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio})
-        base_t['metadata'] = base_t.audio.get_metadata()
+        base_t.add_computed_column(metadata=base_t.audio.get_metadata())
         validate_update_status(base_t.insert({'audio': p} for p in audio_filepaths), expected_rows=len(audio_filepaths))
         result = base_t.where(base_t.metadata.size == 2568827).select(base_t.metadata).collect()['metadata'][0]
         assert result == {

@@ -14,8 +14,8 @@ class TestTogether:
         t = pxt.create_table('test_tbl', {'input': pxt.String})
         from pixeltable.functions.together import completions
 
-        t.add_column(output=completions(prompt=t.input, model='meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo', stop=['\n']))
-        t.add_column(
+        t.add_computed_column(output=completions(prompt=t.input, model='meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo', stop=['\n']))
+        t.add_computed_column(
             output_2=completions(
                 prompt=t.input,
                 model='meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo',
@@ -45,8 +45,8 @@ class TestTogether:
         messages = [{'role': 'user', 'content': t.input}]
         from pixeltable.functions.together import chat_completions
 
-        t.add_column(output=chat_completions(messages=messages, model='meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo', stop=['\n']))
-        t.add_column(
+        t.add_computed_column(output=chat_completions(messages=messages, model='meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo', stop=['\n']))
+        t.add_computed_column(
             output_2=chat_completions(
                 messages=messages,
                 model='meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo',
@@ -74,7 +74,7 @@ class TestTogether:
         t = pxt.create_table('test_tbl', {'input': pxt.String})
         from pixeltable.functions.together import embeddings
 
-        t.add_column(embed=embeddings(input=t.input, model='togethercomputer/m2-bert-80M-8k-retrieval'))
+        t.add_computed_column(embed=embeddings(input=t.input, model='togethercomputer/m2-bert-80M-8k-retrieval'))
         validate_update_status(t.insert(input='Together AI provides a variety of embeddings models.'), 1)
         assert len(t.collect()['embed'][0]) > 0
 
@@ -85,8 +85,8 @@ class TestTogether:
         t = pxt.create_table('test_tbl', {'input': pxt.String, 'negative_prompt': pxt.String})
         from pixeltable.functions.together import image_generations
 
-        t.add_column(img=image_generations(t.input, model='stabilityai/stable-diffusion-xl-base-1.0'))
-        t.add_column(
+        t.add_computed_column(img=image_generations(t.input, model='stabilityai/stable-diffusion-xl-base-1.0'))
+        t.add_computed_column(
             img_2=image_generations(
                 t.input,
                 model='stabilityai/stable-diffusion-xl-base-1.0',

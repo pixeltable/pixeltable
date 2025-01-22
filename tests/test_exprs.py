@@ -184,24 +184,24 @@ class TestExprs:
 
         # error in expr that's handled in Python
         with pytest.raises(excs.Error):
-            _ = t[(t.c6.f2 + 1) / (t.c2 - 10)].show()
+            _ = t.select((t.c6.f2 + 1) / (t.c2 - 10)).show()
 
         # the same, but with an inline function
         with pytest.raises(excs.Error):
-            _ = t[self.div_0_error(t.c2 + 1, t.c2)].show()
+            _ = t.select(self.div_0_error(t.c2 + 1, t.c2)).show()
 
         # error in agg.init()
         with pytest.raises(excs.Error) as exc_info:
-            _ = t[self.init_exc(t.c2)].show()
+            _ = t.select(self.init_exc(t.c2)).show()
         assert 'division by zero' in str(exc_info.value)
 
         # error in agg.update()
         with pytest.raises(excs.Error):
-            _ = t[self.update_exc(t.c2 - 10)].show()
+            _ = t.select(self.update_exc(t.c2 - 10)).show()
 
         # error in agg.value()
         with pytest.raises(excs.Error):
-            _ = t[t.c2 <= 2][self.value_exc(t.c2 - 1)].show()
+            _ = t.where(t.c2 <= 2).select(self.value_exc(t.c2 - 1)).show()
 
     def test_props(self, test_tbl: catalog.Table, img_tbl: catalog.Table) -> None:
         t = test_tbl
@@ -250,7 +250,7 @@ class TestExprs:
             assert 'only valid for' in str(excinfo.value)
 
         # fileurl/localpath doesn't apply to unstored computed img columns
-        img_t.add_column(c9=img_t.img.rotate(30), stored=False)
+        img_t.add_computed_column(c9=img_t.img.rotate(30), stored=False)
         with pytest.raises(excs.Error) as excinfo:
             _ = img_t.select(img_t.c9.localpath).show()
         assert 'computed unstored' in str(excinfo.value)
@@ -260,9 +260,9 @@ class TestExprs:
         schema = {'c1': pxt.Float, 'c2': pxt.Float}
         t = pxt.create_table('test', schema)
 
-        t.add_column(c3=self.required_params_fn(t.c1, t.c2))
-        t.add_column(c4=self.mixed_params_fn(t.c1, t.c2))
-        t.add_column(c5=self.optional_params_fn(t.c1, t.c2))
+        t.add_computed_column(c3=self.required_params_fn(t.c1, t.c2))
+        t.add_computed_column(c4=self.mixed_params_fn(t.c1, t.c2))
+        t.add_computed_column(c5=self.optional_params_fn(t.c1, t.c2))
 
         # data that tests all combinations of nulls
         data = [{'c1': 1.0, 'c2': 1.0}, {'c1': 1.0, 'c2': None}, {'c1': None, 'c2': 1.0}, {'c1': None, 'c2': None}]
@@ -414,7 +414,7 @@ class TestExprs:
 
     def test_inline_dict(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
-        df = t[[{'a': t.c1, 'b': {'c': t.c2}, 'd': 1, 'e': {'f': 2}}]]
+        df = t.select({'a': t.c1, 'b': {'c': t.c2}, 'd': 1, 'e': {'f': 2}})
         result = df.show()
         print(result)
 
@@ -508,15 +508,15 @@ class TestExprs:
 
     def test_json_path(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
-        t['attr'] = t.c6.f5
-        t['item'] = t['c6']['f5']
-        t['index'] = t['c6'].f5[2]
-        t['slice_all'] = t.c6.f5[:]
-        t['slice_to'] = t.c6.f5[:7]
-        t['slice_from'] = t.c6.f5[3:]
-        t['slice_range'] = t.c6.f5[3:7]
-        t['slice_range_step'] = t.c6.f5[3:7:2]
-        t['slice_range_step_item'] = t['c6'].f5[3:7:2]
+        t.add_computed_column(attr=t.c6.f5)
+        t.add_computed_column(item=t['c6']['f5'])
+        t.add_computed_column(index=t['c6'].f5[2])
+        t.add_computed_column(slice_all=t.c6.f5[:])
+        t.add_computed_column(slice_to=t.c6.f5[:7])
+        t.add_computed_column(slice_from=t.c6.f5[3:])
+        t.add_computed_column(slice_range=t.c6.f5[3:7])
+        t.add_computed_column(slice_range_step=t.c6.f5[3:7:2])
+        t.add_computed_column(slice_range_step_item=t['c6'].f5[3:7:2])
         res = t.collect()
         orig = res['attr']
         assert all(res['item'][i] == orig[i] for i in range(len(res)))
@@ -531,46 +531,44 @@ class TestExprs:
     def test_json_mapper(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         # top-level is dict
-        df = t[t.c6.f5['*'] >> (R + 1)]
+        df = t.select(t.c6.f5['*'] >> (R + 1))
         res = df.show()
         print(res)
-        _ = t[t.c7['*'].f5 >> [R[3], R[2], R[1], R[0]]]
+        _ = t.select(t.c7['*'].f5 >> [R[3], R[2], R[1], R[0]])
         _ = _.show()
         print(_)
         # target expr contains global-scope dependency
-        df = t[
-            t.c6.f5['*'] >> (R * t.c6.f5[1])
-        ]
+        df = t.select(t.c6.f5['*'] >> (R * t.c6.f5[1]))
         res = df.show()
         print(res)
 
     def test_dicts(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         # top-level is dict
-        _ = t[t.c6.f1]
+        _ = t.select(t.c6.f1)
         _ = _.show()
         print(_)
         # predicate on dict field
-        _ = t[t.c6.f2 < 2].show()
+        _ = t.select(t.c6.f2 < 2).show()
         #_ = t[t.c6.f2].show()
         #_ = t[t.c6.f5].show()
-        _ = t[t.c6.f6.f8].show()
-        _ = t[cast(t.c6.f6.f8, pxt.Array[(4,), pxt.Float])].show()
+        _ = t.select(t.c6.f6.f8).show()
+        _ = t.select(cast(t.c6.f6.f8, pxt.Array[(4,), pxt.Float])).show()
 
         # top-level is array
         #_ = t[t.c7['*'].f1].show()
         #_ = t[t.c7['*'].f2].show()
-        #_ = t[t.c7['*'].f5].show()
-        _ = t[t.c7['*'].f6.f8].show()
-        _ = t[t.c7[0].f6.f8].show()
-        _ = t[t.c7[:2].f6.f8].show()
-        _ = t[t.c7[::-1].f6.f8].show()
-        _ = t[cast(t.c7['*'].f6.f8, pxt.Array[(2, 4), pxt.Float])].show()
+        #_ = t.select(t.c7['*'].f5).show()
+        _ = t.select(t.c7['*'].f6.f8).show()
+        _ = t.select(t.c7[0].f6.f8).show()
+        _ = t.select(t.c7[:2].f6.f8).show()
+        _ = t.select(t.c7[::-1].f6.f8).show()
+        _ = t.select(cast(t.c7['*'].f6.f8, pxt.Array[(2, 4), pxt.Float])).show()
         print(_)
 
     def test_arrays(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
-        t.add_column(array_col=pxt.array([[t.c2, 1], [5, t.c2]]))
+        t.add_computed_column(array_col=pxt.array([[t.c2, 1], [5, t.c2]]))
 
         def selection_equals(expr: Expr, expected: list[np.ndarray]) -> bool:
             return all(
@@ -629,7 +627,7 @@ class TestExprs:
             _ = t.where(t.c2.isin(t.c1)).collect()
         assert 'c1 has type String' in str(excinfo.value)
 
-        status = t.add_column(in_test=t.c2.isin([1, 2, 3]))
+        status = t.add_computed_column(in_test=t.c2.isin([1, 2, 3]))
         assert status.num_excs == 0
         def inc_pk(rows: list[dict], offset: int) -> None:
             for r in rows:
@@ -647,7 +645,7 @@ class TestExprs:
         t = test_tbl
 
         # Convert int to float
-        validate_update_status(t.add_column(c2_as_float=t.c2.astype(pxt.Float)))
+        validate_update_status(t.add_computed_column(c2_as_float=t.c2.astype(pxt.Float)))
         assert t.c2_as_float.col_type == pxt.FloatType(nullable=False)
         data = t.select(t.c2, t.c2_as_float).collect()
         for row in data:
@@ -656,7 +654,7 @@ class TestExprs:
             assert row['c2'] == row['c2_as_float']
 
         # Compound expression
-        validate_update_status(t.add_column(compound_as_float=(t.c2 + 1).astype(pxt.Float)))
+        validate_update_status(t.add_computed_column(compound_as_float=(t.c2 + 1).astype(pxt.Float)))
         assert t.compound_as_float.col_type == pxt.FloatType(nullable=False)
         data = t.select(t.c2, t.compound_as_float).collect()
         for row in data:
@@ -664,7 +662,7 @@ class TestExprs:
             assert row['c2'] + 1 == row['compound_as_float']
 
         # Type conversion error
-        status = t.add_column(c2_as_string=t.c2.astype(pxt.String), on_error='ignore')
+        status = t.add_computed_column(c2_as_string=t.c2.astype(pxt.String), on_error='ignore')
         assert status.num_excs == t.count()
         errormsgs = t.select(out=t.c2_as_string.errormsg).collect()['out']
         assert all('Expected string, got int' in msg for msg in errormsgs), errormsgs
@@ -672,11 +670,11 @@ class TestExprs:
         # Convert a nullable column
         validate_update_status(t.add_column(c2n=pxt.Int))
         t.where(t.c2 % 2 == 0).update({'c2n': t.c2})  # set even values; keep odd values as None
-        validate_update_status(t.add_column(c2n_as_float=t.c2n.astype(pxt.Float)))
+        validate_update_status(t.add_computed_column(c2n_as_float=t.c2n.astype(pxt.Float)))
         assert t.c2n_as_float.col_type == pxt.FloatType(nullable=True)
 
         # Cast nullable to required
-        status = t.add_column(c2n_as_req_float=t.c2n.astype(pxt.Required[pxt.Float]), on_error='ignore')
+        status = t.add_computed_column(c2n_as_req_float=t.c2n.astype(pxt.Required[pxt.Float]), on_error='ignore')
         assert t.c2n_as_req_float.col_type == pxt.FloatType(nullable=False)
         assert status.num_excs == t.count() // 2  # Just the odd values should error out
         errormsgs = [
@@ -698,7 +696,7 @@ class TestExprs:
         # create a computed image column constructed from the relative paths
         import pixeltable.functions as pxtf
         validate_update_status(
-            t.add_column(
+            t.add_computed_column(
                 img=pxtf.string.format('{0}/{1}', str(parent_dir), t.rel_path).astype(pxt.Image), stored=True)
         )
         loaded_imgs = t.select(t.img).collect()['img']
@@ -716,7 +714,7 @@ class TestExprs:
 
     def test_astype_str_to_img_data_url(self, reset_db) -> None:
         t = pxt.create_table('astype_test', {'url': pxt.String})
-        t['img'] = t.url.astype(pxt.Image)
+        t.add_computed_column(img=t.url.astype(pxt.Image))
         images = get_image_files(include_bad_image=True)[:5]  # bad image is at idx 0
         url_encoded_images = [
             f'data:image/jpeg;base64,{base64.b64encode(open(img, "rb").read()).decode()}'
@@ -747,7 +745,6 @@ class TestExprs:
             t.insert(url=url_encoded_images[0])
 
     def test_apply(self, test_tbl: catalog.Table) -> None:
-
         t = test_tbl
 
         # For each column c1, ..., c5, we create a new column ci_as_str that converts it to
@@ -756,14 +753,14 @@ class TestExprs:
         for col_id in range(1, 6):
             col_name = f'c{col_id}'
             str_col_name = f'c{col_id}_str'
-            status = t.add_column(**{str_col_name: t[col_name].apply(str)})
+            status = t.add_computed_column(**{str_col_name: t[col_name].apply(str)})
             assert status.num_excs == 0
             data = t.select(t[col_name], t[str_col_name]).collect()
             for row in data:
                 assert row[str_col_name] == str(row[col_name])
 
         # Test a compound expression with apply
-        status = t.add_column(c2_plus_1_str=(t.c2 + 1).apply(str))
+        status = t.add_computed_column(c2_plus_1_str=(t.c2 + 1).apply(str))
         assert status.num_excs == 0
         data = t.select(t.c2, t.c2_plus_1_str).collect()
         for row in data:
@@ -774,9 +771,9 @@ class TestExprs:
             col_name = f'c{col_id}'
             str_col_name = f'c{col_id}_str'
             back_to_json_col_name = f'c{col_id}_back_to_json'
-            status = t.add_column(**{str_col_name: t[col_name].apply(json.dumps)})
+            status = t.add_computed_column(**{str_col_name: t[col_name].apply(json.dumps)})
             assert status.num_excs == 0
-            status = t.add_column(**{back_to_json_col_name: t[str_col_name].apply(json.loads)})
+            status = t.add_computed_column(**{back_to_json_col_name: t[str_col_name].apply(json.loads)})
             assert status.num_excs == 0
             data = t.select(t[col_name], t[str_col_name], t[back_to_json_col_name]).collect()
             for row in data:
@@ -792,14 +789,14 @@ class TestExprs:
         assert 'Column type of `f1` cannot be inferred.' in str(exc_info.value)
 
         # ... but works if the type is specified explicitly.
-        status = t.add_column(c2_str_f1=t.c2.apply(f1, col_type=pxt.String))
+        status = t.add_computed_column(c2_str_f1=t.c2.apply(f1, col_type=pxt.String))
         assert status.num_excs == 0
 
         # Test that the return type of a function can be successfully inferred.
         def f2(x) -> str:
             return str(x)
 
-        status = t.add_column(c2_str_f2=t.c2.apply(f2))
+        status = t.add_computed_column(c2_str_f2=t.c2.apply(f2))
         assert status.num_excs == 0
 
         # Test various validation failures.
@@ -844,13 +841,13 @@ class TestExprs:
 
     def test_select_list(self, img_tbl) -> None:
         t = img_tbl
-        result = t[t.img].show(n=100)
+        result = t.select(t.img).show(n=100)
         _ = result._repr_html_()
-        df = t[[t.img, t.img.rotate(60)]]
+        df = t.select(t.img, t.img.rotate(60))
         _ = df.show(n=100)._repr_html_()
 
         with pytest.raises(excs.Error):
-            _ = t[t.img.rotate]
+            _ = t.select(t.img.rotate)
 
     def test_img_members(self, img_tbl) -> None:
         t = img_tbl
@@ -909,14 +906,14 @@ class TestExprs:
         result = t.where(t.img.nearest(img)).show(10)
         assert len(result) == 10
         # nearest() with one SQL predicate and one Python predicate
-        result = t[t.img.nearest(img) & (t.category == probe[0, 1]) & (t.img.width > 1)].show(10)
+        result = t.select(t.img.nearest(img) & (t.category == probe[0, 1]) & (t.img.width > 1)).show(10)
         # TODO: figure out how to verify results
 
         with pytest.raises(excs.Error) as exc_info:
-            _ = t[t.img.nearest(img)].order_by(t.category).show()
+            _ = t.select(t.img.nearest(img)).order_by(t.category).show()
         assert 'cannot be used in conjunction with' in str(exc_info.value)
 
-        result = t[t.img.nearest('musical instrument')].show(10)
+        result = t.select(t.img.nearest('musical instrument')).show(10)
         assert len(result) == 10
         # matches() with one SQL predicate and one Python predicate
         french_horn_category = 'n03394916'
@@ -925,20 +922,20 @@ class TestExprs:
         ].show(10)
 
         with pytest.raises(excs.Error) as exc_info:
-            _ = t[t.img.nearest(5)].show()
+            _ = t.select(t.img.nearest(5)).show()
         assert 'requires' in str(exc_info.value)
 
     # TODO: this doesn't work when combined with test_similarity(), for some reason the data table for img_tbl
     # doesn't get created; why?
     def test_similarity2(self, img_tbl: catalog.Table, indexed_img_tbl: catalog.Table, multi_idx_img_tbl: catalog.Table) -> None:
         t = img_tbl
-        probe = t[t.img].show(1)
+        probe = t.select(t.img).show(1)
         img = probe[0, 0]
 
         with pytest.raises(AttributeError):
-            _ = t[t.img.nearest(img)].show(10)
+            _ = t.select(t.img.nearest(img)).show(10)
         with pytest.raises(AttributeError):
-            _ = t[t.img.nearest('musical instrument')].show(10)
+            _ = t.select(t.img.nearest('musical instrument')).show(10)
 
         t1 = indexed_img_tbl
         # for a table with a single embedding index, whether we
@@ -1014,7 +1011,7 @@ class TestExprs:
                 pxtf.sum(t.c2, group_by=t.c4, order_by=t.c3), pxtf.sum(t.c2, group_by=t.c3, order_by=t.c4)).show(100)
 
         # backfill works
-        t.add_column(c9=pxtf.sum(t.c2, group_by=t.c4, order_by=t.c3))
+        t.add_computed_column(c9=pxtf.sum(t.c2, group_by=t.c4, order_by=t.c3))
         _ = t.c9.col.has_window_fn_call()
 
         # ordering conflict between frame extraction and window fn
@@ -1032,7 +1029,7 @@ class TestExprs:
             'c4': pxt.Bool,
         }
         new_t = pxt.create_table('insert_test', schema)
-        new_t.add_column(c2_sum=pxtf.sum(new_t.c2, group_by=new_t.c4, order_by=new_t.c3))
+        new_t.add_computed_column(c2_sum=pxtf.sum(new_t.c2, group_by=new_t.c4, order_by=new_t.c3))
         rows = list(t.select(t.c2, t.c4, t.c3).collect())
         new_t.insert(rows)
         _ = new_t.collect()
@@ -1041,7 +1038,7 @@ class TestExprs:
         t = test_tbl
 
         # create a json column with an InlineDict; the type will have a type spec
-        t.add_column(json_col={'a': t.c1, 'b': t.c2})
+        t.add_computed_column(json_col={'a': t.c1, 'b': t.c2})
         res = t.select(out=pxtf.json.make_list(t.json_col)).collect()
         assert len(res) == 1
         val = res[0]['out']

@@ -62,7 +62,7 @@ class TestFunction:
         @pxt.udf(_force_stored=True)
         def f1(a: int, b: float) -> float:
             return a + b
-        t['f1'] = f1(t.c1, t.c2)
+        t.add_computed_column(f1=f1(t.c1, t.c2))
 
         func.FunctionRegistry.get().clear_cache()
         reload_catalog()
@@ -82,49 +82,49 @@ class TestFunction:
     def test_call(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
 
-        r0 = t[t.c2, t.c3].collect().to_pandas()
+        r0 = t.select(t.c2, t.c3).collect().to_pandas()
         # positional params with default args
-        r1 = t[self.f1(t.c2, t.c3)].collect().to_pandas()['f1']
+        r1 = t.select(self.f1(t.c2, t.c3)).collect().to_pandas()['f1']
         assert np.all(r1 == r0.c2 + r0.c3 + 1.0)
         # kw args only
-        r2 = t[self.f1(c=0.0, b=t.c3, a=t.c2)].collect().to_pandas()['f1']
+        r2 = t.select(self.f1(c=0.0, b=t.c3, a=t.c2)).collect().to_pandas()['f1']
         assert np.all(r1 == r2)
         # overriding default args
-        r3 = t[self.f1(d=0.0, c=1.0, b=t.c3, a=t.c2)].collect().to_pandas()['f1']
+        r3 = t.select(self.f1(d=0.0, c=1.0, b=t.c3, a=t.c2)).collect().to_pandas()['f1']
         assert np.all(r2 == r3)
         # overriding default with positional arg
-        r4 = t[self.f1(t.c2, t.c3, 0.0)].collect().to_pandas()['f1']
+        r4 = t.select(self.f1(t.c2, t.c3, 0.0)).collect().to_pandas()['f1']
         assert np.all(r3 == r4)
         # overriding default with positional arg and kw arg
-        r5 = t[self.f1(t.c2, t.c3, 1.0, d=0.0)].collect().to_pandas()['f1']
+        r5 = t.select(self.f1(t.c2, t.c3, 1.0, d=0.0)).collect().to_pandas()['f1']
         assert np.all(r4 == r5)
         # d is kwarg
-        r6 = t[self.f1(t.c2, d=1.0, b=t.c3)].collect().to_pandas()['f1']
+        r6 = t.select(self.f1(t.c2, d=1.0, b=t.c3)).collect().to_pandas()['f1']
         assert np.all(r5 == r6)
         # d is Expr kwarg
-        r6 = t[self.f1(1, d=t.c3, b=t.c3)].collect().to_pandas()['f1']
+        r6 = t.select(self.f1(1, d=t.c3, b=t.c3)).collect().to_pandas()['f1']
         assert np.all(r5 == r6)
 
         # test handling of Nones
-        r0 = t[self.f2(1, t.c3)].collect().to_pandas()['f2']
-        r1 = t[self.f2(None, t.c3, 2.0)].collect().to_pandas()['f2']
+        r0 = t.select(self.f2(1, t.c3)).collect().to_pandas()['f2']
+        r1 = t.select(self.f2(None, t.c3, 2.0)).collect().to_pandas()['f2']
         assert np.all(r0 == r1)
-        r2 = t[self.f2(2, t.c3, None)].collect().to_pandas()['f2']
+        r2 = t.select(self.f2(2, t.c3, None)).collect().to_pandas()['f2']
         assert np.all(r1 == r2)
         # kwarg with None
-        r3 = t[self.f2(c=None, a=t.c2)].collect().to_pandas()['f2']
+        r3 = t.select(self.f2(c=None, a=t.c2)).collect().to_pandas()['f2']
         # kwarg with Expr
-        r4 = t[self.f2(c=t.c3, a=None)].collect().to_pandas()['f2']
+        r4 = t.select(self.f2(c=t.c3, a=None)).collect().to_pandas()['f2']
         assert np.all(r3 == r4)
 
         with pytest.raises(TypeError) as exc_info:
-            _ = t[self.f1(t.c2, c=0.0)].collect()
+            _ = t.select(self.f1(t.c2, c=0.0)).collect()
         assert "'b'" in str(exc_info.value)
         with pytest.raises(TypeError) as exc_info:
-            _ = t[self.f1(t.c2)].collect()
+            _ = t.select(self.f1(t.c2)).collect()
         assert "'b'" in str(exc_info.value)
         with pytest.raises(TypeError) as exc_info:
-            _ = t[self.f1(c=1.0, a=t.c2)].collect()
+            _ = t.select(self.f1(c=1.0, a=t.c2)).collect()
         assert "'b'" in str(exc_info.value)
 
         # bad default value
@@ -203,12 +203,12 @@ class TestFunction:
         rows = [{'c1': i, 'c2': i + 0.5} for i in range(100)]
         validate_update_status(t.insert(rows))
 
-        @t.query
+        @pxt.query
         def lt_x(x: int) -> int:
             return t.where(t.c2 < x).select(t.c2, t.c1)
 
-        res1 = t.select(out=t.queries.lt_x(t.c1)).order_by(t.c2).collect()
-        validate_update_status(t.add_column(query1=t.queries.lt_x(t.c1)))
+        res1 = t.select(out=lt_x(t.c1)).order_by(t.c2).collect()
+        validate_update_status(t.add_computed_column(query1=lt_x(t.c1)))
         _ = t.select(t.query1).collect()
 
         reload_catalog()
@@ -243,19 +243,19 @@ class TestFunction:
         ])
 
         # # TODO: make this work
-        # @chunks.query
+        # @pxt.query
         # def retrieval(n: int):
         #     """ simply returns 2 passages from the table"""
         #     return chunks.select(chunks.text).limit(n)
 
-        @chunks.query
+        @pxt.query
         def retrieval(s: str, n: int):
             """ simply returns 2 passages from the table"""
             return chunks.select(chunks.text).limit(2)
 
-        res = queries.select(queries.i, out=chunks.queries.retrieval(queries.query_text, queries.i)).collect()
+        res = queries.select(queries.i, out=retrieval(queries.query_text, queries.i)).collect()
         assert all(len(out) == 2 for out in res['out'])
-        validate_update_status(queries.add_column(chunks=chunks.queries.retrieval(queries.query_text, queries.i)))
+        validate_update_status(queries.add_computed_column(chunks=retrieval(queries.query_text, queries.i)))
         res = queries.select(queries.i, queries.chunks).collect()
         assert all(len(c) == 2 for c in res['chunks'])
 
@@ -273,33 +273,9 @@ class TestFunction:
         rows = [{'a': i, 'b': i + 1} for i in range(100)]
         validate_update_status(t.insert(rows), expected_rows=len(rows))
 
-        # query name conflicts with column name
-        with pytest.raises(excs.Error) as exc_info:
-            @t.query
-            def a(x: int, y: int) -> int:
-                return t.order_by(t.a).where(t.a > x).select(c=t.a + y).limit(10)
-        assert 'conflicts with existing column' in str(exc_info.value).lower()
-
-        @t.query
+        @pxt.query
         def c(x: int, y: int) -> int:
             return t.order_by(t.a).where(t.a > x).select(c=t.a + y).limit(10)
-
-        # duplicate query name
-        with pytest.raises(excs.Error) as exc_info:
-            @t.query
-            def c(x: int, y: int) -> int:
-                return t.order_by(t.a).where(t.a > x).select(c=t.a + y).limit(10)
-        assert 'duplicate query name' in str(exc_info.value).lower()
-
-        # column name conflicts with query name
-        with pytest.raises(excs.Error) as exc_info:
-            t.add_column(c=pxt.Int)
-        assert 'conflicts with a registered query' in str(exc_info.value).lower()
-
-        # unknown query
-        with pytest.raises(AttributeError) as exc_info:
-            _ = t.queries.not_a_query
-        assert "table 'test' has no query with that name: 'not_a_query'" in str(exc_info.value).lower()
 
     @pxt.udf
     def binding_test_udf(p1: str, p2: str, p3: str, p4: str = 'default') -> str:
@@ -434,7 +410,7 @@ class TestFunction:
             @udf6.conditional_return_type
             def _(wrong_param: str) -> pxt.ColumnType:
                 return pxt.StringType()
-        assert '`wrong_param` that is not in the signature' in str(exc_info.value).lower()
+        assert '`wrong_param` that is not in a signature' in str(exc_info.value).lower()
 
         with pytest.raises(excs.Error) as exc_info:
             from .module_with_duplicate_udf import duplicate_udf
@@ -627,6 +603,11 @@ class TestFunction:
             'c2': max(res_direct['c2']),
             'c3': max(res_direct['c3']),
         }
+
+    def test_tool_errors(self):
+        with pytest.raises(excs.Error) as exc_info:
+            pxt.tools(pxt.functions.sum)
+        assert 'Aggregator UDFs cannot be used as tools' in str(exc_info.value)
 
 
 @pxt.udf

@@ -947,18 +947,6 @@ class DataFrame:
         if self.limit_val is not None:
             raise excs.Error(f'Cannot use `{op_name}` after `limit`')
 
-    def __getitem__(self, index: Union[exprs.Expr, Sequence[exprs.Expr]]) -> DataFrame:
-        """
-        Allowed:
-        - [list[Expr]]/[tuple[Expr]]: setting the select list
-        - [Expr]: setting a single-col select list
-        """
-        if isinstance(index, exprs.Expr):
-            return self.select(index)
-        if isinstance(index, Sequence):
-            return self.select(*index)
-        raise TypeError(f'Invalid index type: {type(index)}')
-
     def as_dict(self) -> dict[str, Any]:
         """
         Returns:
