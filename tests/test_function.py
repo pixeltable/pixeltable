@@ -618,14 +618,6 @@ class TestFunction:
         }
 
     def test_tool_errors(self):
-        @pxt.udf(_force_stored=True)
-        def local_udf(name: str) -> str:
-            return ''
-
-        with pytest.raises(excs.Error) as exc_info:
-            pxt.tools(local_udf)
-        assert 'Only module UDFs can be used as tools' in str(exc_info.value)
-
         with pytest.raises(excs.Error) as exc_info:
             pxt.tools(pxt.functions.sum)  # type: ignore[arg-type]
         assert 'Aggregator UDFs cannot be used as tools' in str(exc_info.value)

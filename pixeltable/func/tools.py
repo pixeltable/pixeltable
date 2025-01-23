@@ -1,9 +1,8 @@
-from dataclasses import dataclass
-import dataclasses
-import json
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Callable, Literal, Optional, TypeVar, Union
 
 import pydantic
+
+import pixeltable.exceptions as excs
 
 from .function import Function
 from .signature import Parameter
@@ -75,6 +74,13 @@ class Tool(pydantic.BaseModel):
         assert False
 
 
+class ToolChoice(pydantic.BaseModel):
+    auto: bool
+    required: bool
+    tool: Optional[str]
+    parallel_tool_calls: bool
+
+
 class Tools(pydantic.BaseModel):
     tools: list[Tool]
 
@@ -92,25 +98,56 @@ class Tools(pydantic.BaseModel):
             for tool in self.tools
         })
 
+    def choice(
+        self,
+        auto: bool = False,
+        required: bool = False,
+        tool: Union[str, Function, None] = None,
+        parallel_tool_calls: bool = True,
+    ) -> ToolChoice:
+        if sum([auto, required, tool is not None]) != 1:
+            raise excs.Error('Exactly one of `auto`, `required`, or `tool` must be specified.')
+        tool_name: Optional[str] = None
+        if tool is not None:
+            try:
+                tool_obj = next(
+                    t for t in self.tools
+                    if (isinstance(tool, Function) and t.fn == tool)
+                    or (isinstance(tool, str) and (t.name or t.fn.name) == tool)
+                )
+                tool_name = tool_obj.name or tool_obj.fn.name
+            except StopIteration:
+                raise excs.Error(f'That tool is not in the specified list of tools: {tool}')
+        return ToolChoice(auto=auto, required=required, tool=tool_name, parallel_tool_calls=parallel_tool_calls)
+
 
 @udf
-def _extract_str_tool_arg(tool_calls: dict, func_name: str, param_name: str) -> Optional[str]:
-    return str(_extract_arg(tool_calls, func_name, param_name))
+def _extract_str_tool_arg(tool_calls: dict[str, Any], func_name: str, param_name: str) -> Optional[str]:
+    return _extract_arg(str, tool_calls, func_name, param_name)
+
 
 @udf
-def _extract_int_tool_arg(tool_calls: dict, func_name: str, param_name: str) -> Optional[int]:
-    return int(_extract_arg(tool_calls, func_name, param_name))
+def _extract_int_tool_arg(tool_calls: dict[str, Any], func_name: str, param_name: str) -> Optional[int]:
+    return _extract_arg(int, tool_calls, func_name, param_name)
+
 
 @udf
-def _extract_float_tool_arg(tool_calls: dict, func_name: str, param_name: str) -> Optional[float]:
-    return float(_extract_arg(tool_calls, func_name, param_name))
+def _extract_float_tool_arg(tool_calls: dict[str, Any], func_name: str, param_name: str) -> Optional[float]:
+    return _extract_arg(float, tool_calls, func_name, param_name)
+
 
 @udf
-def _extract_bool_tool_arg(tool_calls: dict, func_name: str, param_name: str) -> Optional[bool]:
-    return bool(_extract_arg(tool_calls, func_name, param_name))
+def _extract_bool_tool_arg(tool_calls: dict[str, Any], func_name: str, param_name: str) -> Optional[bool]:
+    return _extract_arg(bool, tool_calls, func_name, param_name)
 
-def _extract_arg(tool_calls: dict, func_name: str, param_name: str) -> Any:
+
+T = TypeVar('T')
+
+
+def _extract_arg(eval_fn: Callable[[Any], T], tool_calls: dict[str, Any], func_name: str, param_name: str) -> Optional[T]:
     if func_name in tool_calls:
         arguments = tool_calls[func_name]['args']
-        return arguments.get(param_name)
+        if param_name in arguments:
+            return eval_fn(arguments[param_name])
+        return None
     return None

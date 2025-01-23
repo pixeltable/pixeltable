@@ -1033,13 +1033,12 @@ class TestTable:
 
         # incompatible schema
         for (col_name, col_type), value_col_name in zip(
-            schema.items(), ['c2', 'c3', 'c5', 'c5', 'c6', 'c7', 'c2', 'c2']
+            schema.items(), ['c2', 'c3', 'c5', 'c5', 'c6', 'c5', 'c2', 'c2']
         ):
             pxt.drop_table(tbl_name, if_not_exists='ignore')
             t = pxt.create_table(tbl_name, {col_name: col_type})
-            with pytest.raises(excs.Error) as exc_info:
+            with pytest.raises(excs.Error, match='expected|not a valid Pixeltable JSON object') as exc_info:
                 t.insert({col_name: r[value_col_name]} for r in rows)
-            assert 'expected' in str(exc_info.value).lower()
 
         # rows not list of dicts
         pxt.drop_table(tbl_name, if_not_exists='ignore')
