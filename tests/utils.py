@@ -5,7 +5,7 @@ import os
 import random
 import urllib.parse
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Hashable, Optional
 
 import more_itertools
 import numpy as np
@@ -14,6 +14,7 @@ import PIL.Image
 import pytest
 
 import pixeltable as pxt
+from pixeltable import exprs
 import pixeltable.exceptions as excs
 import pixeltable.utils.s3 as s3_util
 from pixeltable import catalog
@@ -38,7 +39,7 @@ def make_default_type(t: pxt.ColumnType.Type) -> pxt.ColumnType:
     assert False
 
 
-def make_tbl(name: str = 'test', col_names: Optional[list[str]] = None) -> catalog.InsertableTable:
+def make_tbl(name: str = 'test', col_names: Optional[list[str]] = None) -> pxt.Table:
     if col_names is None:
         col_names = ['c1']
     schema: dict[str, pxt.ColumnType] = {}
@@ -114,6 +115,7 @@ def create_table_data(
         if col_type.is_json_type():
             col_data = [sample_dict] * num_rows
         if col_type.is_array_type():
+            assert isinstance(col_type, pxt.ArrayType)
             col_data = [np.ones(col_type.shape, dtype=col_type.numpy_dtype()) for i in range(num_rows)]
         if col_type.is_image_type():
             image_path = get_image_files()[0]
@@ -214,7 +216,7 @@ def create_all_datatypes_tbl() -> catalog.Table:
     """Creates a table with all supported datatypes."""
     schema = {
         'row_id': pxt.Required[pxt.Int],
-        'c_array': pxt.Array[(10,), pxt.Float],
+        'c_array': pxt.Array[(10,), pxt.Float],  # type: ignore[misc]
         'c_bool': pxt.Bool,
         'c_float': pxt.Float,
         'c_image': pxt.Image,
@@ -290,7 +292,7 @@ def read_data_file(dir_name: str, file_name: str, path_col_names: Optional[list[
     for col_name in path_col_names:
         assert col_name in df.columns
         df[col_name] = df.apply(lambda r: str(abs_path / r[col_name]), axis=1)
-    return df.to_dict(orient='records')
+    return df.to_dict(orient='records')  # type: ignore[return-value]
 
 
 def get_video_files(include_bad_video: bool = False) -> list[str]:
@@ -343,7 +345,7 @@ def get_image_files(include_bad_image: bool = False) -> list[str]:
 
 
 def __image_mode(path: str) -> str:
-    image: PIL.Image = PIL.Image.open(path)
+    image = PIL.Image.open(path)
     try:
         return image.mode
     finally:
@@ -459,7 +461,14 @@ def make_test_arrow_table(output_path: Path) -> str:
     import pyarrow as pa
     from pyarrow import parquet
 
-    value_dict = {
+    float_array = [
+        [1.0, 2.0],
+        [10.0, 20.0],
+        [100.0, 200.0],
+        [1000.0, 2000.0],
+        [10000.0, 20000.0],
+    ]
+    value_dict: dict[str, list] = {
         'c_id': [1, 2, 3, 4, 5],
         'c_int64': [-10, -20, -30, -40, None],
         'c_int32': [-1, -2, -3, -4, None],
@@ -475,42 +484,23 @@ def make_test_arrow_table(output_path: Path) -> str:
         ],
         # The pyarrow fixed_shape_tensor type does not support NULLs (currently can write them but not read them)
         # So, no nulls in this column
-        'c_array_float32': [
-            [
-                1.0,
-                2.0,
-            ],
-            [
-                10.0,
-                20.0,
-            ],
-            [
-                100.0,
-                200.0,
-            ],
-            [
-                1000.0,
-                2000.0,
-            ],
-            [10000.0, 20000.0],
-        ],
+        'c_array_float32': float_array,
     }
 
-    arr_size = len(value_dict['c_array_float32'][0])
+    arr_size = len(float_array[0])
     tensor_type = pa.fixed_shape_tensor(pa.float32(), (arr_size,))
 
-    schema = pa.schema(
-        [
-            ('c_id', pa.int32()),
-            ('c_int64', pa.int64()),
-            ('c_int32', pa.int32()),
-            ('c_float32', pa.float32()),
-            ('c_string', pa.string()),
-            ('c_boolean', pa.bool_()),
-            ('c_timestamp', pa.timestamp('us')),
-            ('c_array_float32', tensor_type),
-        ]
-    )
+    fields = [
+        ('c_id', pa.int32()),
+        ('c_int64', pa.int64()),
+        ('c_int32', pa.int32()),
+        ('c_float32', pa.float32()),
+        ('c_string', pa.string()),
+        ('c_boolean', pa.bool_()),
+        ('c_timestamp', pa.timestamp('us')),
+        ('c_array_float32', tensor_type),
+    ]
+    schema = pa.schema(fields)  # type: ignore[arg-type]
 
     test_table = pa.Table.from_pydict(value_dict, schema=schema)
     parquet.write_table(test_table, str(output_path / 'test.parquet'))
@@ -526,7 +516,7 @@ def make_test_arrow_table(output_path: Path) -> str:
 def assert_img_eq(img1: PIL.Image.Image, img2: PIL.Image.Image, context: str) -> None:
     assert img1.mode == img2.mode, context
     assert img1.size == img2.size, context
-    diff = PIL.ImageChops.difference(img1, img2)
+    diff = PIL.ImageChops.difference(img1, img2)  # type: ignore[attr-defined]
     assert diff.getbbox() is None, context
 
 

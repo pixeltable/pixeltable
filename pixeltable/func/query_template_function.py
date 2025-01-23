@@ -93,11 +93,12 @@ class QueryTemplateFunction(Function):
 
 
 @overload
-def query(self, py_fn: Callable) -> QueryTemplateFunction: ...
+def query(py_fn: Callable) -> QueryTemplateFunction: ...
 
 @overload
 def query(
-    self, *, param_types: Optional[list[ts.ColumnType]] = None
+    *,
+    param_types: Optional[list[ts.ColumnType]] = None
 ) -> Callable[[Callable], QueryTemplateFunction]: ...
 
 def query(*args: Any, **kwargs: Any) -> Any:

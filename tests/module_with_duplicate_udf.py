@@ -4,6 +4,6 @@ from pixeltable import udf
 def duplicate_udf(n: int) -> int:
     return n + 1
 
-@udf
+@udf  # type: ignore[no-redef]
 def duplicate_udf(n: int) -> int:
     return n + 2
