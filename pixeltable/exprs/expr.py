@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, Any, Callable, Iterator, Optional, TypeVar, Un
 from uuid import UUID
 
 import sqlalchemy as sql
-from mypyc.irbuild.util import is_constant
 from typing_extensions import _AnnotatedAlias, Self
 
 import pixeltable.catalog as catalog
