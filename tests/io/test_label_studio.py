@@ -14,7 +14,6 @@ import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable import InsertableTable
 from pixeltable.functions.string import format
-from pixeltable.io.label_studio import LabelStudioProject
 
 from ..utils import (SAMPLE_IMAGE_URL, get_audio_files, get_image_files, get_video_files, reload_catalog,
                      skip_test_if_not_installed, validate_sync_status, validate_update_status)
@@ -88,6 +87,8 @@ class TestLabelStudio:
     @pytest.mark.xdist_group('label_studio')
     def test_label_studio_project(self, ls_image_table: pxt.InsertableTable) -> None:
         skip_test_if_not_installed('label_studio_sdk')
+        from pixeltable.io.label_studio import LabelStudioProject
+
         t = ls_image_table
 
         pxt.io.create_label_studio_project(

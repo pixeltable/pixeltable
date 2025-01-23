@@ -13,7 +13,6 @@ import pixeltable as pxt
 from pixeltable import catalog
 from pixeltable import exceptions as excs
 from pixeltable.iterators import FrameIterator
-from pixeltable.utils.pytorch import PixeltablePytorchDataset
 
 from .utils import (get_audio_files, get_documents, get_video_files, skip_test_if_not_installed, strip_lines,
                     validate_update_status)
@@ -627,6 +626,8 @@ class TestDataFrame:
         """
         skip_test_if_not_installed('torch')
         skip_test_if_not_installed('pyarrow')
+        from pixeltable.utils.pytorch import PixeltablePytorchDataset
+
         t = all_datatypes_tbl
 
         t.drop_column('c_video') # null value video column triggers internal assertions in DataRow
