@@ -12,7 +12,7 @@ import pixeltable.exceptions as excs
 from ..utils import skip_test_if_not_installed
 
 if TYPE_CHECKING:
-    import datasets
+    import datasets  # type: ignore[import-untyped]
 
 
 @pytest.mark.skipif(
@@ -47,7 +47,7 @@ class TestHfDatasets:
                 # so filter out that column.
                 # cr subdir has a small number of rows, avoid running out of space in CI runner
                 # see https://huggingface.co/datasets/Cohere/wikipedia-2023-11-embed-multilingual-v3/tree/main/cr
-                'schema_override': {'emb': pxt.Array[(1024,), pxt.Float]},
+                'schema_override': {'emb': pxt.Array[(1024,), pxt.Float]},  # type: ignore[misc]
             },
             # example of dataset dictionary with multiple splits
             {
@@ -90,7 +90,7 @@ class TestHfDatasets:
         assert set(df.schema.keys()) == (set(hf_dataset.features.keys()) | {split_column_name})
 
         # immutable so we can use it as in a set
-        DatasetTuple = namedtuple('DatasetTuple', ' '.join(hf_dataset.features.keys()))
+        DatasetTuple = namedtuple('DatasetTuple', ' '.join(hf_dataset.features.keys()))  # type: ignore[misc]
         acc_dataset: set[DatasetTuple] = set()
         for tup in hf_dataset:
             immutable_tup = {}

@@ -13,8 +13,10 @@ import pixeltable as pxt
 from pixeltable import catalog
 from pixeltable import exceptions as excs
 from pixeltable.iterators import FrameIterator
+from pixeltable.utils.pytorch import PixeltablePytorchDataset
 
-from .utils import get_audio_files, get_documents, get_video_files, skip_test_if_not_installed, strip_lines, validate_update_status
+from .utils import (get_audio_files, get_documents, get_video_files, skip_test_if_not_installed, strip_lines,
+                    validate_update_status)
 
 
 class TestDataFrame:
@@ -64,7 +66,7 @@ class TestDataFrame:
 
         # where clause needs to be a predicate
         with pytest.raises(excs.Error) as exc_info:
-            _ = t.where(15).select(t.c2).collect()
+            _ = t.where(15).select(t.c2).collect()  # type: ignore[arg-type]
         assert 'requires a pixeltable expression' in str(exc_info.value).lower()
 
         # duplicate select list
@@ -178,11 +180,11 @@ class TestDataFrame:
         t1, t2, t3 = self.create_join_tbls(1000)
 
         with pytest.raises(excs.Error) as exc_info:
-            _ = t1.join(t2, on=(t2.id, 17)).collect()
+            _ = t1.join(t2, on=(t2.id, 17)).collect()  # type: ignore[arg-type]
         assert "must be a sequence of column references or a boolean expression" in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
-            _ = t1.join(t2, on=(15, 27)).collect()
+            _ = t1.join(t2, on=(15, 27)).collect()  # type: ignore[arg-type]
         assert "must be a sequence of column references or a boolean expression" in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
@@ -273,7 +275,7 @@ class TestDataFrame:
 
         # invalid expr in order_by()
         with pytest.raises(excs.Error) as exc_info:
-            _ = t.order_by(datetime.datetime.now()).collect()
+            _ = t.order_by(datetime.datetime.now()).collect()  # type: ignore[arg-type]
         assert 'Invalid expression' in str(exc_info.value)
 
     def test_head_tail(self, test_tbl: catalog.Table) -> None:
@@ -487,6 +489,7 @@ class TestDataFrame:
             arrval = tup['c_array']
             assert isinstance(arrval, np.ndarray)
             col_type = df.schema['c_array']
+            assert isinstance(col_type, pxt.ArrayType)
             assert arrval.dtype == col_type.numpy_dtype()
             assert arrval.shape == col_type.shape
             assert arrval.dtype == np.float32
@@ -507,7 +510,7 @@ class TestDataFrame:
         skip_test_if_not_installed('torchvision')
         skip_test_if_not_installed('pyarrow')
         import torch
-        import torchvision.transforms as T
+        import torchvision.transforms as T  # type: ignore[import-untyped]
 
         W, H = 220, 224 # make different from each other
         t = all_datatypes_tbl
@@ -636,9 +639,11 @@ class TestDataFrame:
 
         #  check result cached
         ds1 = t.to_pytorch_dataset(image_format='pt')
+        assert isinstance(ds1, PixeltablePytorchDataset)
         ds1_mtimes = _get_mtimes(ds1.path)
 
         ds2 = t.to_pytorch_dataset(image_format='pt')
+        assert isinstance(ds2, PixeltablePytorchDataset)
         ds2_mtimes = _get_mtimes(ds2.path)
         assert ds2.path == ds1.path, 'result should be cached'
         assert ds2_mtimes == ds1_mtimes, 'no extra file system work should have occurred'
@@ -647,10 +652,12 @@ class TestDataFrame:
         t_size = t.count()
         t.insert(row_id=t_size)
         ds3 = t.to_pytorch_dataset(image_format='pt')
+        assert isinstance(ds3, PixeltablePytorchDataset)
         assert ds3.path != ds1.path, 'different path should be used'
 
         # check select list invalidation
         ds4 = t.select(t.row_id).to_pytorch_dataset(image_format='pt')
+        assert isinstance(ds4, PixeltablePytorchDataset)
         assert ds4.path != ds3.path, 'different select list, hence different path should be used'
 
     def test_to_coco(self, reset_db) -> None:

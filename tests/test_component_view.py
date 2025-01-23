@@ -111,8 +111,6 @@ class TestComponentView:
         assert np.all(res['pos'] == res['frame_idx'])
 
         video_url = video_t.select(video_t.video.fileurl).collect()[0, 0]
-        result = view_t.where(view_t.video == video_url).select(view_t.frame, view_t.frame_idx) \
-            .collect()
         result = view_t.where(view_t.video == video_url).select(view_t.frame_idx).order_by(view_t.frame_idx) \
             .collect().to_pandas()
         assert len(result) > 0

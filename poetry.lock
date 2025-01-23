@@ -9153,6 +9153,17 @@ files = [
 ]
 
 [[package]]
+name = "types-pycocotools"
+version = "2.0.0.20240806"
+description = "Typing stubs for pycocotools"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "types-pycocotools-2.0.0.20240806.tar.gz", hash = "sha256:3ca05291f808f56b38cd4c5a0d04c3c9ebfdd739861d90cd121c02c54ecdfab0"},
+    {file = "types_pycocotools-2.0.0.20240806-py3-none-any.whl", hash = "sha256:b1cd00c52b544937158fcde34c21deaaa0d283eceb170a3eb35eb49ad633a6ca"},
+]
+
+[[package]]
 name = "types-python-dateutil"
 version = "2.9.0.20240316"
 description = "Typing stubs for python-dateutil"
@@ -9905,4 +9916,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.9,<4.0"
-content-hash = "80037e3dd3418f223f2bb7b05c82751149d6eb2090eb62906f6c32dd39cd89c2"
+content-hash = "08535b8f45259a64217ced8d84d03bbbe8def5885dec2bc5223ec8bb13eb0206"

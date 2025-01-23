@@ -14,6 +14,7 @@ import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable import InsertableTable
 from pixeltable.functions.string import format
+from pixeltable.io.label_studio import LabelStudioProject
 
 from ..utils import (SAMPLE_IMAGE_URL, get_audio_files, get_image_files, get_video_files, reload_catalog,
                      skip_test_if_not_installed, validate_sync_status, validate_update_status)
@@ -99,6 +100,7 @@ class TestLabelStudio:
             sync_immediately=False
         )
         store = t._tbl_version.external_stores['test_project']
+        assert isinstance(store, LabelStudioProject)
         assert store.name == 'test_project'
         assert store.project_title == 'Test Project'
         assert store.get_export_columns() == {'image': pxt.ImageType(), 'text': pxt.StringType()}
@@ -434,7 +436,7 @@ class TestLabelStudio:
 
 
 @pytest.fixture(scope='function')
-def ls_image_table(init_ls, reset_db) -> pxt.InsertableTable:
+def ls_image_table(init_ls, reset_db) -> pxt.Table:
     skip_test_if_not_installed('label_studio_sdk')
     t = pxt.create_table(
         'test_ls_sync',
@@ -449,7 +451,7 @@ def ls_image_table(init_ls, reset_db) -> pxt.InsertableTable:
 
 
 @pytest.fixture(scope='function')
-def ls_video_table(init_ls, reset_db) -> pxt.InsertableTable:
+def ls_video_table(init_ls, reset_db) -> pxt.Table:
     skip_test_if_not_installed('label_studio_sdk')
     t = pxt.create_table(
         'test_ls_sync',
@@ -468,7 +470,7 @@ def ls_video_table(init_ls, reset_db) -> pxt.InsertableTable:
 
 
 @pytest.fixture(scope='function')
-def ls_audio_table(init_ls, reset_db) -> pxt.InsertableTable:
+def ls_audio_table(init_ls, reset_db) -> pxt.Table:
     skip_test_if_not_installed('label_studio_sdk')
     t = pxt.create_table(
         'test_ls_sync',
@@ -497,7 +499,7 @@ def init_ls(init_env) -> Iterator[None]:
     subprocess.run(f'{python_binary} -m pip install --upgrade pip'.split(' '), check=True)
     subprocess.run(f'{python_binary} -m pip install --no-cache-dir label-studio=={ls_version}'.split(' '), check=True)
     _logger.info('Spawning Label Studio pytest fixture.')
-    import label_studio_sdk
+    import label_studio_sdk  # type: ignore[import-untyped]
     ls_process = subprocess.Popen([
         ls_binary,
         'start',

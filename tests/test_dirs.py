@@ -125,7 +125,7 @@ class TestDirs:
         make_tbl('dir1.t1')
         for _ie in ['ignore', 'replace', 'replace_force']:
             with pytest.raises(excs.Error) as exc_info:
-                pxt.create_dir('dir1.t1', if_exists=_ie)
+                pxt.create_dir('dir1.t1', if_exists=_ie)  # type: ignore[arg-type]
             err_msg = str(exc_info.value).lower()
             assert 'already exists' in err_msg and 'not a dir' in err_msg, f" for if_exists='{_ie}'"
 
