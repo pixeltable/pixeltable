@@ -13,7 +13,7 @@ from pixeltable import env
 
 @env.register_client('gemini')
 def _(api_key: str) -> None:
-    import google.generativeai as genai  # type: ignore[import-untyped]
+    import google.generativeai as genai
     genai.configure(api_key=api_key)
 
 
