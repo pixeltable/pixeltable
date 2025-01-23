@@ -63,7 +63,7 @@ class Env:
     _httpd: Optional[http.server.HTTPServer]
     _http_address: Optional[str]
     _logger: logging.Logger
-    _console_logger: logging.Logger
+    _console_logger: ConsoleLogger
     _default_log_level: int
     _logfilename: Optional[str]
     _log_to_stdout: bool
@@ -142,11 +142,6 @@ class Env:
     @property
     def default_time_zone(self) -> Optional[ZoneInfo]:
         return self._default_time_zone
-
-    @property
-    def console_logger(self) -> logging.Logger:
-        return self._console_logger
-
 
     @default_time_zone.setter
     def default_time_zone(self, tz: Optional[ZoneInfo]) -> None:
@@ -228,6 +223,10 @@ class Env:
             return True
         else:
             return False
+
+    @property
+    def console_logger(self) -> ConsoleLogger:
+        return self._console_logger
 
     def _set_up(self, echo: bool = False, reinit_db: bool = False) -> None:
         if self._initialized:

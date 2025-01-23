@@ -1,9 +1,5 @@
 import logging
 
-from datasets.naming import camelcase_to_snakecase
-from sympy.strategies.core import switch
-
-
 def map_level(verbosity: int) -> int:
     """
         Map verbosity level to logging level.
@@ -31,12 +27,12 @@ class ConsoleOutputHandler(logging.StreamHandler):
         self.stream.write(record.msg)
 
 class ConsoleMessageFilter(logging.Filter):
-    def filter(self, record):
+    def filter(self, record: logging.LogRecord) -> bool:
         if hasattr(record, 'user_visible') and record.user_visible:
             return True
         return False
 
 class ConsoleLogger(logging.LoggerAdapter):
-    def __init__(self, logger):
+    def __init__(self, logger:logging.Logger):
         super().__init__(logger, extra={'user_visible' : True})
 
