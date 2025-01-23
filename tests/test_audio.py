@@ -4,6 +4,7 @@ import av
 
 import pixeltable as pxt
 import pixeltable.env as env
+from pixeltable.iterators.audio import AudioIterator
 from pixeltable.utils.media_store import MediaStore
 
 from .utils import get_audio_files, get_video_files, validate_update_status
@@ -87,3 +88,47 @@ class TestAudio:
             'metadata': {'encoder': 'Lavf61.1.100'},
             'bit_exact': False
         }
+
+    def test_audio_iterator_on_audio(self, reset_db) -> None:
+        pxt.drop_dir("audio_chunking", force=True)
+        pxt.create_dir("audio_chunking")
+        audio_filepaths = get_audio_files()
+        base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio})
+        validate_update_status(base_t.insert({'audio': p} for p in audio_filepaths), expected_rows=len(audio_filepaths))
+        audio_chunk_view = pxt.create_view(
+            "audio_chunking.audio_chunks",
+            base_t,
+            iterator = AudioIterator.create(
+                audio=base_t.audio,
+                chunk_duration = 5.0,
+                overlap = 1.0,
+                min_chunk_duration = 1.0,
+                drop_incomplete_chunks=True
+            ))
+        print(audio_chunk_view.count())
+
+    def test_audio_iterator_on_videos(self, reset_db) -> None:
+        pxt.drop_dir("audio_chunking", force=True)
+        pxt.create_dir("audio_chunking")
+        video_filepaths = get_video_files()
+        video_t = pxt.create_table('videos', {'video': pxt.Video})
+        status = video_t.insert({'video': p} for p in video_filepaths)
+        print(status)
+        # extract audio
+        video_t.add_computed_column(audio=video_t.video.extract_audio(format='mp3'))
+
+        audio_chunk_view = pxt.create_view(
+            'audio_chunking.audio_chunks',
+            video_t,
+            iterator=AudioIterator.create(
+                audio=video_t.audio,
+                chunk_duration=5.0,
+                overlap=1.0,
+                min_chunk_duration=1.0
+            )
+        )
+        print(audio_chunk_view.count())
+
+
+
+
