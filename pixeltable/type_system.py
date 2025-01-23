@@ -246,8 +246,8 @@ class ColumnType:
             col_type = ArrayType.from_literal(val, nullable=nullable)
             if col_type is not None:
                 return col_type
-            # this could still be json-serializable
-        if isinstance(val, dict) or isinstance(val, list) or isinstance(val, np.ndarray) or isinstance(val, pydantic.BaseModel):
+        # this could still be json-serializable
+        if isinstance(val, (list, tuple, dict, np.ndarray, pydantic.BaseModel)):
             try:
                 JsonType().validate_literal(val)
                 return JsonType(nullable=nullable)
@@ -866,7 +866,7 @@ class ArrayType(ColumnType):
                 continue
             if n1 != n2:
                 return False
-        return val.dtype == self.numpy_dtype()
+        return np.issubdtype(val.dtype, self.numpy_dtype())
 
     def _to_json_schema(self) -> dict[str, Any]:
         return {
