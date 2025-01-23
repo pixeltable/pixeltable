@@ -214,7 +214,6 @@ def create_img_tbl(name: str = 'test_img_tbl', num_rows: int = 0) -> catalog.Tab
 
 def create_all_datatypes_tbl() -> catalog.Table:
     """Creates a table with all supported datatypes."""
-    pxt.Array.bythn(11)
     schema = {
         'row_id': pxt.Required[pxt.Int],
         'c_array': pxt.Array[(10,), pxt.Float],  # type: ignore[misc]
