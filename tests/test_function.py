@@ -210,7 +210,7 @@ class TestFunction:
         validate_update_status(t.insert(rows))
 
         @pxt.query
-        def lt_x(x: int) -> int:
+        def lt_x(x: int) -> pxt.DataFrame:
             return t.where(t.c2 < x).select(t.c2, t.c1)
 
         res1 = t.select(out=lt_x(t.c1)).order_by(t.c2).collect()
@@ -280,7 +280,7 @@ class TestFunction:
         validate_update_status(t.insert(rows), expected_rows=len(rows))
 
         @pxt.query
-        def c(x: int, y: int) -> int:
+        def c(x: int, y: int) -> pxt.DataFrame:
             return t.order_by(t.a).where(t.a > x).select(c=t.a + y).limit(10)
 
     @staticmethod
@@ -430,19 +430,20 @@ class TestFunction:
         assert self.func.__doc__ == "A UDF."
         assert self.agg.__doc__ == "An aggregator."
 
-    @pxt.udf
+    @pxt.udf  # type: ignore[misc]
     def overloaded_udf(x: str, y: str, z: str = 'a') -> str:
         return x + y
 
+    @staticmethod
     @overloaded_udf.overload
     def _(x: int, y: int, z: str = 'a') -> int:
         return x + y + 1
 
+    @staticmethod
     @overloaded_udf.overload
     def _(x: float, y: float) -> float:
         return x + y + 2.0
 
-    @staticmethod
     @pxt.udf(type_substitutions=({T: str}, {T: int}, {T: float}))
     def typevar_udf(x: T, y: T, z: str = 'a') -> T:
         return x + y  # type: ignore[operator]
@@ -558,7 +559,7 @@ class TestFunction:
         def value(self) -> float:
             return self.sum
 
-    @pxt.uda(type_substitutions=({T: str}, {T: int}, {T: float}))
+    @pxt.uda(type_substitutions=({T: str}, {T: int}, {T: float}))  # type: ignore[misc]
     class typevar_uda(pxt.Aggregator, typing.Generic[T]):
         max: Optional[T]
 

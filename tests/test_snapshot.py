@@ -89,7 +89,7 @@ class TestSnapshot:
                         'v2': tbl.c3.apply(lambda x: x * 2.0, col_type=pxt.Float)
                     } if has_cols else {}
                     extra_items = {'v1': tbl.c3 * 2.0, 'v2': tbl.c3 * 2.0} if has_cols else {}
-                    query = tbl.where(tbl.c2 < 10) if has_filter else tbl
+                    query: Union[pxt.Table, pxt.DataFrame] = tbl.where(tbl.c2 < 10) if has_filter else tbl
                     snap = pxt.create_snapshot(snap_path, query, additional_columns=schema)
                     self.run_basic_test(tbl, query, snap, extra_items=extra_items, reload_md=reload_md)
 

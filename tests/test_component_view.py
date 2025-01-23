@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Union
 
 import numpy as np
 import pandas as pd
@@ -229,7 +229,7 @@ class TestComponentView:
         orig_resultset = view_query.collect()
 
         # create snapshot of view
-        query = view_t.where(view_t.frame_idx < 10) if has_filter else view_t
+        query: Union[pxt.Table, pxt.DataFrame] = view_t.where(view_t.frame_idx < 10) if has_filter else view_t
         schema = {'c1': view_t.cropped.width * view_t.cropped.height} if has_column else {}
         snap_t = pxt.create_snapshot(snap_path, query, additional_columns=schema)
         snap_cols = [snap_t.c1] if has_column else []
