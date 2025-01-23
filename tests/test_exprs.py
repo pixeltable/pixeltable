@@ -253,6 +253,12 @@ class TestExprs:
         with pytest.raises(excs.Error) as excinfo:
             _ = img_t.select(img_t.c9.localpath).show()
         assert 'computed unstored' in str(excinfo.value)
+        with pytest.raises(excs.Error) as excinfo:
+            _ = img_t.select(img_t.c9.errormsg).show()
+        assert 'only valid for' in str(excinfo.value)
+        with pytest.raises(excs.Error) as excinfo:
+            _ = img_t.select(img_t.c9.errortype).show()
+        assert 'only valid for' in str(excinfo.value)
 
     def test_null_args(self, reset_db) -> None:
         # create table with two columns
