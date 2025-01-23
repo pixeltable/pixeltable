@@ -366,7 +366,7 @@ class Env:
             schema.base_metadata.create_all(self._sa_engine)
             metadata.create_system_info(self._sa_engine)
 
-        print(f'Connected to Pixeltable database at: {self.db_url}')
+        self.console_logger.info(f'Connected to Pixeltable database at: {self.db_url}')
 
         # we now have a home directory and db; start other services
         self._set_up_runtime()

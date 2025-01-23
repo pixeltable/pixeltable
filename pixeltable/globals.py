@@ -606,8 +606,7 @@ def create_dir(path_str: str, if_exists: Literal['error', 'ignore', 'replace', '
         dir = catalog.Dir(dir_record.id, parent._id, path.name)
         cat.paths[path] = dir
         session.commit()
-        _logger.info(f'Created directory `{path_str}`.')
-        print(f'Created directory `{path_str}`.')
+        Env.get().console_logger.info(f'Created directory `{path_str}`.')
         return dir
 
 def drop_dir(path_str: str, force: bool = False, if_not_exists: Literal['error', 'ignore'] = 'error') -> None:
