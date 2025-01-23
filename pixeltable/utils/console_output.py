@@ -1,27 +1,33 @@
 import logging
 
-def get_level(level_str: str, default: int = logging.INFO) -> int:
-    """
-    Simple function to get logging level from string
+from datasets.naming import camelcase_to_snakecase
+from sympy.strategies.core import switch
 
+
+def map_level(verbosity: int) -> int:
+    """
+        Map verbosity level to logging level.
+        0 - minimum logging - warn and above
+        1 - default logging - info and above
+        2 - more logging - debug and above
     Args:
-        level_str: Level string (e.g., 'INFO', 'DEBUG')
-        default: Default level to use if conversion fails
 
     Returns:
         Logging level as integer
     """
-    try:
-        return getattr(logging, level_str.upper())
-    except (AttributeError, TypeError):
-        return default
+    if verbosity == 0:
+        return logging.WARN
+    if verbosity == 1:
+        return logging.INFO
+    if verbosity == 2:
+        return logging.DEBUG
+    return logging.INFO
 
 class ConsoleOutputHandler(logging.StreamHandler):
     def __init__(self, stream):
         super().__init__(stream)
 
     def emit(self, record):
-        #TODO : should we prefix system console messages with PXT or similar?
         self.stream.write(record.msg)
 
 class ConsoleMessageFilter(logging.Filter):

@@ -7,6 +7,7 @@ from typing import Callable
 import sqlalchemy as sql
 import sqlalchemy.orm as orm
 
+from pixeltable.env import Env
 from .schema import SystemInfo, SystemInfoMd
 
 # current version of the metadata; this is incremented whenever the metadata schema changes
@@ -47,7 +48,7 @@ def upgrade_md(engine: sql.engine.Engine) -> None:
         while md_version < VERSION:
             if md_version not in converter_cbs:
                 raise RuntimeError(f'No metadata converter for version {md_version}')
-            print(f'Converting metadata from version {md_version} to {md_version + 1}')
+            Env.get().console_logger.info(f'Converting metadata from version {md_version} to {md_version + 1}')
             converter_cbs[md_version](engine)
             md_version += 1
         # update system info

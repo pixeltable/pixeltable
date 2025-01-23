@@ -28,7 +28,7 @@ from tqdm import TqdmWarning
 
 import pixeltable.exceptions as excs
 from pixeltable import metadata
-from pixeltable.utils.console_output import ConsoleLogger, ConsoleMessageFilter, ConsoleOutputHandler, get_level
+from pixeltable.utils.console_output import ConsoleLogger, ConsoleMessageFilter, ConsoleOutputHandler, map_level
 from pixeltable.utils.http_server import make_server
 
 if TYPE_CHECKING:
@@ -287,7 +287,7 @@ class Env:
             warnings.simplefilter('ignore', category=FutureWarning)
 
         # Set verbose level for user visible console messages
-        verbosity = get_level(self._config.get_string_value('verbosity'))
+        verbosity = map_level(self._config.get_int_value('verbosity'))
         stdout_handler = ConsoleOutputHandler(stream=stdout)
         stdout_handler.setLevel(verbosity)
         stdout_handler.addFilter(ConsoleMessageFilter())
