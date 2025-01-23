@@ -107,5 +107,4 @@ class Literal(Expr):
             elif val_t == ts.ColumnType.Type.ARRAY.name:
                 arrays = np.array(d['val'])
                 return cls(arrays)
-        else:
-            return cls(d['val'])
+        return cls(d['val'])

@@ -376,7 +376,7 @@ class Expr(abc.ABC):
         # first, to prevent them from inappropriately being interpreted as JsonType
         # literals.
         if isinstance(o, (list, tuple, dict, Expr)):
-            expr = None
+            expr: Optional[Expr] = None
             if isinstance(o, (list, tuple)):
                 from .inline_expr import InlineList
                 expr = InlineList(o)
