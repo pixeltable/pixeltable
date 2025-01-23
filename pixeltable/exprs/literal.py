@@ -4,6 +4,7 @@ import datetime
 from typing import Any, Optional
 
 import sqlalchemy as sql
+import numpy as np
 
 import pixeltable.type_system as ts
 from pixeltable.env import Env
@@ -33,6 +34,9 @@ class Literal(Expr):
                     val = val.replace(tzinfo=default_tz)
             # Now convert to UTC
             val = val.astimezone(datetime.timezone.utc)
+        if isinstance(val, tuple):
+            # Tuples are stored as a list
+            val = list(val)
         self.val = val
         self.id = self._create_id()
 
@@ -46,6 +50,9 @@ class Literal(Expr):
             assert isinstance(self.val, datetime.datetime)
             default_tz = Env.get().default_time_zone
             return f"'{self.val.astimezone(default_tz).isoformat()}'"
+        if self.col_type.is_array_type():
+            assert isinstance(self.val, np.ndarray)
+            return str(self.val.tolist())
         return str(self.val)
 
     def __repr__(self) -> str:
@@ -67,7 +74,7 @@ class Literal(Expr):
         data_row[self.slot_idx] = self.val
 
     def _as_dict(self) -> dict:
-        # For some types, we need to explictly record their type, because JSON does not know
+        # For some types, we need to explicitly record their type, because JSON does not know
         # how to interpret them unambiguously
         if self.col_type.is_timestamp_type():
             assert isinstance(self.val, datetime.datetime)
@@ -76,18 +83,28 @@ class Literal(Expr):
             # stored as UTC in the database)
             encoded_val = self.val.isoformat()
             return {'val': encoded_val, 'val_t': self.col_type._type.name, **super()._as_dict()}
+        elif self.col_type.is_array_type():
+            assert isinstance(self.val, np.ndarray)
+            return {'val': self.val.tolist(), 'val_t': self.col_type._type.name, **super()._as_dict()}
         else:
             return {'val': self.val, **super()._as_dict()}
+
+    def _as_constant(self) -> Any:
+        return self.val
+
+    def is_constant(self) -> bool:
+        return True
 
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr]) -> Literal:
         assert 'val' in d
         if 'val_t' in d:
             val_t = d['val_t']
-            # Currently the only special-cased literal type is TIMESTAMP
-            assert val_t == ts.ColumnType.Type.TIMESTAMP.name
-            dt = datetime.datetime.fromisoformat(d['val'])
-            assert dt.tzinfo == datetime.timezone.utc  # Must be UTC in the database
-            return cls(dt)
-        else:
-            return cls(d['val'])
+            if val_t == ts.ColumnType.Type.TIMESTAMP.name:
+                dt = datetime.datetime.fromisoformat(d['val'])
+                assert dt.tzinfo == datetime.timezone.utc  # Must be UTC in the database
+                return cls(dt)
+            elif val_t == ts.ColumnType.Type.ARRAY.name:
+                arrays = np.array(d['val'])
+                return cls(arrays)
+        return cls(d['val'])

@@ -341,26 +341,67 @@ class Expr(abc.ABC):
                 result.extend(cls.get_refd_columns(component_dict))
         return result
 
+    def is_constant(self) -> bool:
+        """Returns True if this expr is a constant."""
+        return all(comp.is_constant() for comp in self.components)
+
+    def _as_constant(self) -> Any:
+        return None
+
+    def as_constant(self) -> Any:
+        """
+        If expression is a constant then return the associated value which will be converted to a Literal.
+        """
+        if self.is_constant():
+            return self._as_constant()
+        return None
+
+    @classmethod
+    def from_array(cls, elements: Iterable) -> Optional[Expr]:
+        from .inline_expr import InlineArray
+        inline_array = InlineArray(elements)
+        constant_array = inline_array.as_constant()
+        if constant_array is not None:
+            from .literal import Literal
+            return Literal(constant_array, inline_array.col_type)
+        else:
+            return inline_array
+
     @classmethod
     def from_object(cls, o: object) -> Optional[Expr]:
         """
         Try to turn a literal object into an Expr.
         """
-        if isinstance(o, Expr):
-            return o
         # Try to create a literal. We need to check for InlineList/InlineDict
         # first, to prevent them from inappropriately being interpreted as JsonType
         # literals.
-        if isinstance(o, list):
-            from .inline_expr import InlineList
-            return InlineList(o)
-        if isinstance(o, dict):
-            from .inline_expr import InlineDict
-            return InlineDict(o)
-        obj_type = ts.ColumnType.infer_literal_type(o)
-        if obj_type is not None:
-            from .literal import Literal
-            return Literal(o, col_type=obj_type)
+        if isinstance(o, (list, tuple, dict, Expr)):
+            expr: Optional[Expr] = None
+            if isinstance(o, (list, tuple)):
+                from .inline_expr import InlineList
+                expr = InlineList(o)
+            elif isinstance(o, dict):
+                from .inline_expr import InlineDict
+                expr = InlineDict(o)
+            elif isinstance(o, Expr):
+                expr = o
+                from .literal import Literal
+                if isinstance(expr, Literal):
+                    return expr
+            # Check if the expression is constant
+            if expr is not None:
+                expr_value = expr.as_constant()
+                if expr_value is not None:
+                    from .literal import Literal
+                    return Literal(expr_value)
+                else:
+                    return expr
+        else:
+            # convert scalar to a literal
+            obj_type = ts.ColumnType.infer_literal_type(o)
+            if obj_type is not None:
+                from .literal import Literal
+                return Literal(o, col_type=obj_type)
         return None
 
     @abc.abstractmethod

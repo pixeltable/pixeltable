@@ -10,6 +10,7 @@ import traceback
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Hashable, Iterator, Optional, Sequence, Union, Literal
 
+import numpy as np
 import pandas as pd
 import pandas.io.formats.style
 import sqlalchemy as sql
@@ -540,10 +541,10 @@ class DataFrame:
         for raw_expr, name in base_list:
             if isinstance(raw_expr, exprs.Expr):
                 select_list.append((raw_expr, name))
-            elif isinstance(raw_expr, dict):
-                select_list.append((exprs.InlineDict(raw_expr), name))
-            elif isinstance(raw_expr, list):
-                select_list.append((exprs.InlineList(raw_expr), name))
+            elif isinstance(raw_expr, (dict, list, tuple)):
+                select_list.append((exprs.Expr.from_object(raw_expr), name))
+            elif isinstance(raw_expr, np.ndarray):
+                select_list.append((exprs.Expr.from_array(raw_expr), name))
             else:
                 select_list.append((exprs.Literal(raw_expr), name))
             expr = select_list[-1][0]
