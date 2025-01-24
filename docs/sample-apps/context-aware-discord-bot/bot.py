@@ -91,7 +91,7 @@ class PixelTableBot:
             # Add prompt column
             @pxt.udf
             def create_prompt(context: list[dict], question: str) -> str:
-                context_str = '\n'.join(f"{msg['username']}: {msg['text']}" for msg in context if msg['sim'] > 0.3)
+                context_str = '\n'.join(f'{msg["username"]}: {msg["text"]}' for msg in context if msg['sim'] > 0.3)
                 return f'Context:\n{context_str}\n\nQuestion: {question}'
 
             self.chat_table.add_computed_column(prompt=create_prompt(self.chat_table.context, self.chat_table.question))

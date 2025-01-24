@@ -320,7 +320,7 @@ class ScreenshotRequest(BaseModel):
 @app.post('/analyze')
 async def analyze_screenshot(request: ScreenshotRequest):
     try:
-        request_id = request.requestId or f"auto_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{os.urandom(4).hex()}"
+        request_id = request.requestId or f'auto_{datetime.now().strftime("%Y%m%d_%H%M%S")}_{os.urandom(4).hex()}'
         logger.info(f'Processing analysis request: {request_id}')
 
         base64_data = request.screenshot.split(',')[1] if ',' in request.screenshot else request.screenshot
@@ -358,7 +358,7 @@ async def analyze_screenshot(request: ScreenshotRequest):
         }
 
     except Exception as e:
-        logger.error(f"Analysis error for request {request_id if 'request_id' in locals() else 'unknown'}: {str(e)}")
+        logger.error(f'Analysis error for request {request_id if "request_id" in locals() else "unknown"}: {str(e)}')
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -353,7 +353,7 @@ def get_multimedia_commons_video_uris(n: int = 10) -> list[str]:
         for obj in page['Contents']:
             if len(uris) >= n:
                 return uris
-            uri = f"s3://{bucket_name}/{obj['Key']}"
+            uri = f's3://{bucket_name}/{obj["Key"]}'
             uris.append(uri)
     return uris
 

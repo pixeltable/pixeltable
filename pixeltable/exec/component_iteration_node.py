@@ -91,5 +91,5 @@ class ComponentIterationNode(ExecNode):
         if len(component_dict) != len(self.iterator_output_fields):
             missing_fields = set(self.refd_output_slot_idxs.keys()) - set(component_dict.keys())
             raise excs.Error(
-                f'Invalid output of {self.view.iterator_cls.__name__}: ' f'missing fields {", ".join(missing_fields)}'
+                f'Invalid output of {self.view.iterator_cls.__name__}: missing fields {", ".join(missing_fields)}'
             )

@@ -220,6 +220,7 @@ filterwarnings = [
 ]
 
 [tool.ruff]
+exclude = ["*.ipynb"]  # For now, exclude notebooks
 line-length = 120
 
 [tool.ruff.lint]
@@ -233,5 +234,6 @@ known-first-party = ["pixeltable"]
 split-on-trailing-comma = false
 
 [tool.ruff.format]
+line-ending = "lf"
 quote-style = "single"
 skip-magic-trailing-comma = true

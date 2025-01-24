@@ -115,7 +115,7 @@ class AggregateFunction(Function):
         duplicate_params = set(p.name for p in init_params) & set(p.name for p in update_params)
         if len(duplicate_params) > 0:
             raise excs.Error(
-                f'__init__() and update() cannot have parameters with the same name: ' f'{", ".join(duplicate_params)}'
+                f'__init__() and update() cannot have parameters with the same name: {", ".join(duplicate_params)}'
             )
         params = update_params + init_params  # init_params are keyword-only and come last
         init_param_names = [p.name for p in init_params]

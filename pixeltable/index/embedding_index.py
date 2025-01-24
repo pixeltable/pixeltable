@@ -93,8 +93,7 @@ class EmbeddingIndex(IndexBase):
             # contains no matching signatures.
             assert embed is not None
             raise excs.Error(
-                f'The function `{embed.name}` is not a valid embedding: '
-                'it must take a single string or image parameter'
+                f'The function `{embed.name}` is not a valid embedding: it must take a single string or image parameter'
             )
 
         # Now validate the return types of the embedding functions.

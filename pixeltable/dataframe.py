@@ -411,7 +411,7 @@ class DataFrame:
         )
 
     def _raise_expr_eval_err(self, e: excs.ExprEvalError) -> NoReturn:
-        msg = f'In row {e.row_num} the {e.expr_msg} encountered exception ' f'{type(e.exc).__name__}:\n{str(e.exc)}'
+        msg = f'In row {e.row_num} the {e.expr_msg} encountered exception {type(e.exc).__name__}:\n{str(e.exc)}'
         if len(e.input_vals) > 0:
             input_msgs = [
                 f"'{d}' = {d.col_type.print_value(e.input_vals[i])}" for i, d in enumerate(e.expr.dependencies())
@@ -585,7 +585,7 @@ class DataFrame:
             if not expr.is_bound_by(self._from_clause.tbls):
                 raise excs.Error(
                     f"Expression '{expr}' cannot be evaluated in the context of this query's tables "
-                    f"({','.join(tbl.tbl_name() for tbl in self._from_clause.tbls)})"
+                    f'({",".join(tbl.tbl_name() for tbl in self._from_clause.tbls)})'
                 )
 
         # check user provided names do not conflict among themselves or with auto-generated ones

@@ -88,11 +88,11 @@ class PathDict:
             if component not in self.dir_contents[dir._id]:
                 if i == len(path.components) - 1:
                     return None
-                raise excs.Error(f'No such path: {".".join(path.components[:i + 1])}')
+                raise excs.Error(f'No such path: {".".join(path.components[: i + 1])}')
             schema_obj = self.dir_contents[dir._id][component]
             if i < len(path.components) - 1:
                 if not isinstance(schema_obj, Dir):
-                    raise excs.Error(f'Not a directory: {".".join(path.components[:i + 1])}')
+                    raise excs.Error(f'Not a directory: {".".join(path.components[: i + 1])}')
                 dir = schema_obj
         return schema_obj
 

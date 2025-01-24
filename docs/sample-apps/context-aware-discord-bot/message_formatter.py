@@ -25,7 +25,7 @@ class MessageFormatter:
             # Add formatted field
             embed.add_field(
                 name=f'Result {i} ({score}% match)',
-                value=f"From: {result['username']}\n```{result['text'][:200]}```",
+                value=f'From: {result["username"]}\n```{result["text"][:200]}```',
                 inline=False,
             )
 
@@ -47,7 +47,7 @@ class MessageFormatter:
             context_text = []
             for i, ctx in enumerate(context, 1):
                 score = round(float(ctx['sim']) * 100, 1)
-                context_text.append(f"{i}. {ctx['username']} ({score}% relevance)\n" f"```{ctx['text'][:150]}```")
+                context_text.append(f'{i}. {ctx["username"]} ({score}% relevance)\n```{ctx["text"][:150]}```')
 
             embed.add_field(
                 name='🧠 Relevant Context',

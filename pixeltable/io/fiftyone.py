@@ -133,7 +133,7 @@ class PxtImageDatasetImporter(foud.LabeledImageDatasetImporter):
     def __as_fo_classifications(self, data: list) -> list[fo.Classification]:
         if not isinstance(data, list) or any('label' not in entry for entry in data):
             raise excs.Error(
-                f'Invalid classifications data: {data}\n' "(Expected a list of dicts, each containing a 'label' key)"
+                f"Invalid classifications data: {data}\n(Expected a list of dicts, each containing a 'label' key)"
             )
         return [fo.Classification(label=entry['label'], confidence=entry.get('confidence')) for entry in data]
 
