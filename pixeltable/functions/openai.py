@@ -668,15 +668,15 @@ def invoke_tools(tools: Tools, response: exprs.Expr) -> exprs.InlineDict:
 
 @pxt.udf
 def _openai_response_to_pxt_tool_calls(response: dict) -> Optional[dict]:
+    if 'tool_calls' not in response['choices'][0]['message'] or response['choices'][0]['message']['tool_calls'] is None:
+        return None
     openai_tool_calls = response['choices'][0]['message']['tool_calls']
-    if openai_tool_calls is not None:
-        return {
-            tool_call['function']['name']: {
-                'args': json.loads(tool_call['function']['arguments'])
-            }
-            for tool_call in openai_tool_calls
+    return {
+        tool_call['function']['name']: {
+            'args': json.loads(tool_call['function']['arguments'])
         }
-    return None
+        for tool_call in openai_tool_calls
+    }
 
 
 _T = TypeVar('_T')
