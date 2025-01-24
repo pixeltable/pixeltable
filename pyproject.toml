@@ -158,6 +158,7 @@ files = ["pixeltable/__version__.py"]
 
 [tool.isort]
 line_length = 120
+split_on_trailing_comma = false
 
 [tool.mypy]
 allow_redefinition = true
@@ -225,7 +226,10 @@ ignore = ["PLC0415", "PLR0904", "PLR0912", "PLR0913", "PLR0914", "PLR0915", "PLR
 preview = true
 
 [tool.ruff.lint.isort]
+combine-as-imports = true
 known-first-party = ["pixeltable"]
+split-on-trailing-comma = false
 
 [tool.ruff.format]
 quote-style = "single"
+skip-magic-trailing-comma = true
