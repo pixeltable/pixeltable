@@ -269,7 +269,9 @@ class TestOpenai:
             text_3=embeddings(model='text-embedding-3-small', input=t.input, dimensions=1024, user='pixeltable')
         )
         type_info = t._schema
+        assert isinstance(type_info['ada_embed'], pxt.ArrayType)
         assert type_info['ada_embed'].shape == (1536,)
+        assert isinstance(type_info['text_3'], pxt.ArrayType)
         assert type_info['text_3'].shape == (1024,)
         validate_update_status(t.insert(input='Say something interesting.'), 1)
         _ = t.head()
@@ -297,6 +299,7 @@ class TestOpenai:
         t.add_computed_column(img_2=image_generations(t.input, model='dall-e-2', size='512x512', user='pixeltable'))
         # image size information was captured correctly
         type_info = t._schema
+        assert isinstance(type_info['img_2'], pxt.ImageType)
         assert type_info['img_2'].size == (512, 512)
 
         validate_update_status(t.insert(input='A friendly dinosaur playing tennis in a cornfield'), 1)

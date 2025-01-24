@@ -1,5 +1,5 @@
-from typing import Optional
 import typing
+from typing import Optional
 
 import numpy as np
 import pytest
@@ -10,7 +10,7 @@ import pixeltable.func as func
 from pixeltable import catalog
 from pixeltable.func import Batch, Function, FunctionRegistry
 
-from .utils import assert_resultset_eq, reload_catalog, validate_update_status, ReloadTester
+from .utils import ReloadTester, assert_resultset_eq, reload_catalog, validate_update_status
 
 
 def dummy_fn(i: int) -> int:
@@ -20,13 +20,14 @@ def dummy_fn(i: int) -> int:
 T = typing.TypeVar('T')
 
 class TestFunction:
+    @staticmethod
     @pxt.udf
     def func(x: int) -> int:
         """A UDF."""
         return x + 1
 
     @pxt.uda
-    class agg:
+    class agg(pxt.Aggregator):
         """An aggregator."""
         def __init__(self):
             self.sum = 0
@@ -71,12 +72,14 @@ class TestFunction:
         assert status.num_rows == len(rows)
         assert status.num_excs == 0
 
+    @staticmethod
     @pxt.udf
     def f1(a: int, b: float, c: float = 0.0, d: float = 1.0) -> float:
         return a + b + c + d
 
+    @staticmethod
     @pxt.udf
-    def f2(a: Optional[int], b: float = 0.0, c: Optional[float] = 1.0) -> int:
+    def f2(a: Optional[int], b: float = 0.0, c: Optional[float] = 1.0) -> float:
         return (0.0 if a is None else a) + b + (0.0 if c is None else c)
 
     def test_call(self, test_tbl: catalog.Table) -> None:
@@ -130,7 +133,7 @@ class TestFunction:
         # bad default value
         with pytest.raises(excs.Error) as exc_info:
             @pxt.udf
-            def f1(a: int, b: float, c: float = '') -> float:
+            def f1(a: int, b: float, c: float = '') -> float:  # type: ignore[assignment]
                 return a + b + c
         assert 'default value' in str(exc_info.value).lower()
         # missing param type
@@ -152,14 +155,17 @@ class TestFunction:
                 return order_by
         assert 'reserved' in str(exc_info.value)
 
+    @staticmethod
     @pxt.udf(is_method=True)
     def increment(n: int) -> int:
         return n + 1
 
+    @staticmethod
     @pxt.udf(is_property=True)
     def successor(n: int) -> int:
         return n + 1
 
+    @staticmethod
     @pxt.udf(is_method=True)
     def append(s: str, suffix: str) -> str:
         return s + suffix
@@ -204,7 +210,7 @@ class TestFunction:
         validate_update_status(t.insert(rows))
 
         @pxt.query
-        def lt_x(x: int) -> int:
+        def lt_x(x: int) -> pxt.DataFrame:
             return t.where(t.c2 < x).select(t.c2, t.c1)
 
         res1 = t.select(out=lt_x(t.c1)).order_by(t.c2).collect()
@@ -274,9 +280,10 @@ class TestFunction:
         validate_update_status(t.insert(rows), expected_rows=len(rows))
 
         @pxt.query
-        def c(x: int, y: int) -> int:
+        def c(x: int, y: int) -> pxt.DataFrame:
             return t.order_by(t.a).where(t.a > x).select(c=t.a + y).limit(10)
 
+    @staticmethod
     @pxt.udf
     def binding_test_udf(p1: str, p2: str, p3: str, p4: str = 'default') -> str:
         return f'{p1} {p2} {p3} {p4}'
@@ -313,14 +320,17 @@ class TestFunction:
             _ = pb1(p1='a')
         assert 'missing a required argument' in str(exc_info.value).lower()
 
+    @staticmethod
     @pxt.expr_udf
     def add1(x: int) -> int:
         return x + 1
 
+    @staticmethod
     @pxt.expr_udf
     def add2(x: int, y: int):
         return x + y
 
+    @staticmethod
     @pxt.expr_udf
     def add2_with_default(x: int, y: int = 1) -> int:
         return x + y
@@ -361,13 +371,13 @@ class TestFunction:
                 return x + y
         assert 'missing type for parameter y' in str(exc_info.value).lower()
 
-        with pytest.raises(TypeError) as exc_info:
+        with pytest.raises(TypeError) as t_exc_info:
             # signature has correct parameter kind
             @pxt.expr_udf
             def add1(*, x: int) -> int:
                 return x
             _ = t.select(add1(t.c2)).collect()
-        assert 'takes 0 positional arguments' in str(exc_info.value).lower()
+        assert 'takes 0 positional arguments' in str(t_exc_info.value).lower()
 
         res1 = t.select(out=self.add2_with_default(t.c2)).order_by(t.c2).collect()
         res2 = t.select(out=self.add2(t.c2, 1)).order_by(t.c2).collect()
@@ -406,11 +416,11 @@ class TestFunction:
                 return ''
         assert 'cannot infer pixeltable type for parameter untyped' in str(exc_info.value).lower()
 
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValueError) as v_exc_info:
             @udf6.conditional_return_type
             def _(wrong_param: str) -> pxt.ColumnType:
                 return pxt.StringType()
-        assert '`wrong_param` that is not in a signature' in str(exc_info.value).lower()
+        assert '`wrong_param` that is not in a signature' in str(v_exc_info.value).lower()
 
         with pytest.raises(excs.Error) as exc_info:
             from .module_with_duplicate_udf import duplicate_udf
@@ -420,21 +430,23 @@ class TestFunction:
         assert self.func.__doc__ == "A UDF."
         assert self.agg.__doc__ == "An aggregator."
 
-    @pxt.udf
+    @pxt.udf  # type: ignore[misc]
     def overloaded_udf(x: str, y: str, z: str = 'a') -> str:
         return x + y
 
+    @staticmethod
     @overloaded_udf.overload
     def _(x: int, y: int, z: str = 'a') -> int:
         return x + y + 1
 
+    @staticmethod
     @overloaded_udf.overload
     def _(x: float, y: float) -> float:
         return x + y + 2.0
 
     @pxt.udf(type_substitutions=({T: str}, {T: int}, {T: float}))
     def typevar_udf(x: T, y: T, z: str = 'a') -> T:
-        return x + y
+        return x + y  # type: ignore[operator]
 
     def test_overloaded_udf(self, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
         t = test_tbl
@@ -526,7 +538,7 @@ class TestFunction:
             return self.sum
 
     @overloaded_uda.overload
-    class _(pxt.Aggregator):
+    class _(pxt.Aggregator):  # type: ignore[no-redef]
         def __init__(self) -> None:
             self.sum = 0
 
@@ -537,7 +549,7 @@ class TestFunction:
             return self.sum
 
     @overloaded_uda.overload
-    class _(pxt.Aggregator):
+    class _(pxt.Aggregator):  # type: ignore[no-redef]
         def __init__(self) -> None:
             self.sum = 0.0
 
@@ -547,13 +559,15 @@ class TestFunction:
         def value(self) -> float:
             return self.sum
 
-    @pxt.uda(type_substitutions=({T: str}, {T: int}, {T: float}))
+    @pxt.uda(type_substitutions=({T: str}, {T: int}, {T: float}))  # type: ignore[misc]
     class typevar_uda(pxt.Aggregator, typing.Generic[T]):
+        max: Optional[T]
+
         def __init__(self) -> None:
             self.max = None
 
         def update(self, x: T) -> None:
-            if self.max is None or x > self.max:
+            if self.max is None or x > self.max:  # type: ignore[operator]
                 self.max = x
 
         def value(self) -> T:
@@ -606,7 +620,7 @@ class TestFunction:
 
     def test_tool_errors(self):
         with pytest.raises(excs.Error) as exc_info:
-            pxt.tools(pxt.functions.sum)
+            pxt.tools(pxt.functions.sum)  # type: ignore[arg-type]
         assert 'Aggregator UDFs cannot be used as tools' in str(exc_info.value)
 
 

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import abc
 import importlib
 import inspect
+from abc import abstractmethod, ABC
 from copy import copy
 from typing import TYPE_CHECKING, Any, Callable, Optional, Sequence, cast
 
@@ -12,7 +12,6 @@ from typing_extensions import Self
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
-
 from .globals import resolve_symbol
 from .signature import Signature
 
@@ -20,7 +19,7 @@ if TYPE_CHECKING:
     from .expr_template_function import ExprTemplate, ExprTemplateFunction
 
 
-class Function(abc.ABC):
+class Function(ABC):
     """Base class for Pixeltable's function interface.
 
     A function in Pixeltable is an object that has a signature and implements __call__().
@@ -44,6 +43,12 @@ class Function(abc.ABC):
     # parameter names as the original function. Each parameter is going to be of type sql.ColumnElement.
     _to_sql: Callable[..., Optional[sql.ColumnElement]]
 
+    # Returns the resource pool to use for calling this function with the given arguments.
+    # Overriden for specific Function instances via the resource_pool() decorator. The override must accept a subset
+    # of the parameters of the original function, with the same type.
+    _resource_pool: Callable[..., Optional[str]]
+
+
     def __init__(
         self,
         signatures: list[Signature],
@@ -60,9 +65,9 @@ class Function(abc.ABC):
         self.is_method = is_method
         self.is_property = is_property
         self._conditional_return_type = None
-        self._to_sql = self.__default_to_sql
-
         self.__resolved_fns = []
+        self._to_sql = self.__default_to_sql
+        self._resource_pool = self.__default_resource_pool
 
     @property
     def name(self) -> str:
@@ -91,6 +96,10 @@ class Function(abc.ABC):
     def arity(self) -> int:
         assert not self.is_polymorphic
         return len(self.signature.parameters)
+
+    @property
+    @abstractmethod
+    def is_async(self) -> bool: ...
 
     def _docstring(self) -> Optional[str]:
         return None
@@ -184,6 +193,26 @@ class Function(abc.ABC):
         """Override this to do custom validation of the arguments"""
         assert not self.is_polymorphic
 
+    def _get_callable_args(self, callable: Callable, kwargs: dict[str, Any]) -> dict[str, Any]:
+        """Return the kwargs to pass to callable, given kwargs passed to this function"""
+        bound_args = self.signature.py_signature.bind(**kwargs).arguments
+        # add defaults to bound_args, if not already present
+        bound_args.update({
+            name: param.default
+            for name, param in self.signature.parameters.items() if name not in bound_args and param.has_default()
+        })
+        result: dict[str, Any] = {}
+        sig = inspect.signature(callable)
+        for param in sig.parameters.values():
+            if param.name in bound_args:
+                result[param.name] = bound_args[param.name]
+        return result
+
+    def call_resource_pool(self, kwargs: dict[str, Any]) -> str:
+        """Return the resource pool to use for calling this function with the given arguments"""
+        kw_args = self._get_callable_args(self._resource_pool, kwargs)
+        return self._resource_pool(**kw_args)
+
     def call_return_type(self, args: Sequence[Any], kwargs: dict[str, Any]) -> ts.ColumnType:
         """Return the type of the value returned by calling this function with the given arguments"""
         assert not self.is_polymorphic
@@ -268,10 +297,13 @@ class Function(abc.ABC):
 
         return ExprTemplate(call, new_signature)
 
-    @abc.abstractmethod
     def exec(self, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:
         """Execute the function with the given arguments and return the result."""
-        pass
+        raise NotImplementedError()
+
+    async def aexec(self, *args: Any, **kwargs: Any) -> Any:
+        """Execute the function with the given arguments and return the result."""
+        raise NotImplementedError()
 
     def to_sql(self, fn: Callable[..., Optional[sql.ColumnElement]]) -> Callable[..., Optional[sql.ColumnElement]]:
         """Instance decorator for specifying the SQL translation of this function"""
@@ -280,6 +312,15 @@ class Function(abc.ABC):
 
     def __default_to_sql(self, *args: Any, **kwargs: Any) -> Optional[sql.ColumnElement]:
         """The default implementation of SQL translation, which provides no translation"""
+        return None
+
+    def resource_pool(self, fn: Callable[..., str]) -> Callable[..., str]:
+        """Instance decorator for specifying the resource pool of this function"""
+        # TODO: check that fn's parameters are a subset of our parameters
+        self._resource_pool = fn
+        return fn
+
+    def __default_resource_pool(self) -> Optional[str]:
         return None
 
     def __eq__(self, other: object) -> bool:

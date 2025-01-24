@@ -816,4 +816,4 @@ def configure_logging(
 
 
 def array(elements: Iterable) -> exprs.Expr:
-    return exprs.InlineArray(elements)
+    return exprs.Expr.from_array(elements)

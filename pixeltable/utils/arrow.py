@@ -75,7 +75,7 @@ def to_arrow_schema(pixeltable_schema: dict[str, Any]) -> pa.Schema:
     return pa.schema((name, to_arrow_type(typ)) for name, typ in pixeltable_schema.items())  # type: ignore[misc]
 
 
-def to_pydict(batch: pa.RecordBatch) -> dict[str, Union[list, np.ndarray]]:
+def to_pydict(batch: Union[pa.Table, pa.RecordBatch]) -> dict[str, Union[list, np.ndarray]]:
     """Convert a RecordBatch to a dictionary of lists, unlike pa.lib.RecordBatch.to_pydict,
     this function will not convert numpy arrays to lists, and will preserve the original numpy dtype.
     """
@@ -84,7 +84,7 @@ def to_pydict(batch: pa.RecordBatch) -> dict[str, Union[list, np.ndarray]]:
         col = batch.column(k)
         if isinstance(col.type, pa.FixedShapeTensorType):
             # treat array columns as numpy arrays to easily preserve numpy type
-            out[name] = col.to_numpy(zero_copy_only=False)
+            out[name] = col.to_numpy(zero_copy_only=False)  # type: ignore[call-arg]
         else:
             # for the rest, use pydict to preserve python types
             out[name] = col.to_pylist()
@@ -92,7 +92,7 @@ def to_pydict(batch: pa.RecordBatch) -> dict[str, Union[list, np.ndarray]]:
     return out
 
 
-def iter_tuples(batch: pa.RecordBatch) -> Iterator[dict[str, Any]]:
+def iter_tuples(batch: Union[pa.Table, pa.RecordBatch]) -> Iterator[dict[str, Any]]:
     """Convert a RecordBatch to an iterator of dictionaries. also works with pa.Table and pa.RowGroup"""
     pydict = to_pydict(batch)
     assert len(pydict) > 0, 'empty record batch'

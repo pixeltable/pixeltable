@@ -5,7 +5,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
@@ -18,12 +18,12 @@ import pixeltable.exceptions as excs
 import pixeltable.functions as pxtf
 from pixeltable import catalog, exprs
 from pixeltable.exprs import RELATIVE_PATH_ROOT as R
-from pixeltable.exprs import ColumnRef, Expr
-from pixeltable.functions import cast
+from pixeltable.exprs import ColumnRef, Expr, Literal
+from pixeltable.functions.globals import cast
 from pixeltable.iterators import FrameIterator
 
-from .utils import (create_all_datatypes_tbl, create_scalars_tbl, get_image_files, reload_catalog, skip_test_if_not_installed,
-                    validate_update_status)
+from .utils import (ReloadTester, create_all_datatypes_tbl, create_scalars_tbl, get_image_files, reload_catalog,
+                    skip_test_if_not_installed, validate_update_status)
 
 
 class TestExprs:
@@ -69,7 +69,7 @@ class TestExprs:
         def __init__(self) -> None:
             self.sum = 0
         def update(self, val: int):
-            self.sum += 1 / val
+            self.sum += 1 // val
         def value(self) -> int:
             return 1
 
@@ -80,7 +80,7 @@ class TestExprs:
             self.sum = 0
         def update(self, val: int):
             self.sum += val
-        def value(self) -> int:
+        def value(self) -> float:
             return 1 / self.sum
 
     def test_basic(self, test_tbl: catalog.Table) -> None:
@@ -253,6 +253,12 @@ class TestExprs:
         with pytest.raises(excs.Error) as excinfo:
             _ = img_t.select(img_t.c9.localpath).show()
         assert 'computed unstored' in str(excinfo.value)
+        with pytest.raises(excs.Error) as excinfo:
+            _ = img_t.select(img_t.c9.errormsg).show()
+        assert 'only valid for' in str(excinfo.value)
+        with pytest.raises(excs.Error) as excinfo:
+            _ = img_t.select(img_t.c9.errortype).show()
+        assert 'only valid for' in str(excinfo.value)
 
     def test_null_args(self, reset_db) -> None:
         # create table with two columns
@@ -264,7 +270,7 @@ class TestExprs:
         t.add_computed_column(c5=self.optional_params_fn(t.c1, t.c2))
 
         # data that tests all combinations of nulls
-        data = [{'c1': 1.0, 'c2': 1.0}, {'c1': 1.0, 'c2': None}, {'c1': None, 'c2': 1.0}, {'c1': None, 'c2': None}]
+        data: list[dict[str, Any]] = [{'c1': 1.0, 'c2': 1.0}, {'c1': 1.0, 'c2': None}, {'c1': None, 'c2': 1.0}, {'c1': None, 'c2': None}]
         validate_update_status(t.insert(data), expected_rows=4)
         result = t.collect()
         assert result['c3'] == [2.0, None, None, None]
@@ -397,10 +403,11 @@ class TestExprs:
                     b=b_expr,
                     eq=a_expr == b_expr,
                     ne=a_expr != b_expr,
-                    lt=a_expr < b_expr,
-                    le=a_expr <= b_expr,
-                    gt=a_expr > b_expr,
-                    ge=a_expr >= b_expr,
+                    # One or the other of a_expr or b_expr will always be an Expr, but mypy doesn't understand that
+                    lt=a_expr < b_expr,  # type: ignore[operator]
+                    le=a_expr <= b_expr,  # type: ignore[operator]
+                    gt=a_expr > b_expr,  # type: ignore[operator]
+                    ge=a_expr >= b_expr,  # type: ignore[operator]
                 ).collect()
                 a_results = results['a']
                 b_results = results['b']
@@ -416,6 +423,81 @@ class TestExprs:
         df = t.select({'a': t.c1, 'b': {'c': t.c2}, 'd': 1, 'e': {'f': 2}})
         result = df.show()
         print(result)
+
+    def test_constant_literals(self, test_tbl: catalog.Table, reload_tester: ReloadTester) -> None:
+        t = test_tbl
+        t.add_computed_column(cc0=datetime.now()) #timestamp
+        t.add_computed_column(cc1=100) # integer
+        t.add_computed_column(cc2="abc") # string
+        t.add_computed_column(cc3=10.4) # floating point
+        t.add_computed_column(cc4=(100,200)) #tuple of integer
+        t.add_computed_column(cc5={'a': 'str100', 'b': 3.14, 'c' : [1,2,3], 'd' : { 'e': (.99, 100.1)}})
+        t.add_computed_column(cc6=pxt.array([100.1, 200.1, 300.1])) # one dimensional floating point array
+        t.add_computed_column(cc7=pxt.array(['abc', 'bcd', 'efg'])) # one dimensional string array
+        # list if list (integers)
+        t.add_computed_column(cc8=[[[1, 2, 3], [4, 5, 6]], [[10, 20, 30], [40, 50, 60]], [[100, 200, 300], [400, 500, 600]]])
+        # multidimensional string arrays
+        t.add_computed_column(cc9=pxt.array([[['a1', 'b2', 'c3'], ["a4", "b5", "c6"]], [['a10', 'b20', 'c30'], ["a40", "b50", "c60"]],
+                                             [['a100', 'b200', 'c300'], ['a400', 'b500', 'c600']]]))
+        results = reload_tester.run_query(t.select(t.cc0, t.cc1, t.cc2, t.cc3, t.cc4, t.cc5, t.cc6, t.cc7, t.cc8, t.cc9))
+        print(results.schema)
+        reload_tester.run_reload_test()
+
+    def test_inline_constants(self, test_tbl: catalog.Table) -> None:
+        t = test_tbl
+        result = t.select([1, 2, 3])
+        print(result.show())
+        assert isinstance(result.select_list[0][0], Literal)
+
+        result = t.select(1,
+                                                  (100, 100),
+                                                  {'a' : [t.c1, 3]},
+                                                  {'b' : [4 , 5]},
+                                                  {'c': { 'd': 6, 'e' : [7, 8], 'f' : {}, 'g' : { 'h': t.c2}}}
+                                                  )
+        print(result.show())
+        exprs = [expr[0] for expr in result.select_list]
+        assert isinstance(exprs[0], Literal)
+        assert isinstance(exprs[1], Literal)
+        assert not isinstance(exprs[2], Literal)
+        assert isinstance(exprs[3], Literal)
+        assert not isinstance(exprs[4], Literal)
+
+        result = t.select(1,
+                                                  (100, 100),
+                                                  {'a': [t.c1, 3]},
+                                                  {'b': [4, 5]},
+                                                  {'c': {'d': 6, 'e': [7, 8], 'f': {}, 'g': {'h': 9}}}
+                                                  )
+        print(result.show())
+        exprs = [expr[0] for expr in result.select_list]
+        assert isinstance(exprs[0], Literal)
+        assert isinstance(exprs[1], Literal)
+        assert not isinstance(exprs[2], Literal)
+        assert isinstance(exprs[3], Literal)
+        assert isinstance(exprs[4], Literal)
+
+        result = t.select(1,
+                                                  (100, 100),
+                                                  {'a': [t.c1, 3]},
+                                                  {'b': [4, 5]},
+                                                  {'c': {'d': 6, 'e': [7, 8], 'f':  (t.c1, t.c3), 'g': {'h': 9}}}
+                                                  )
+        print(result.show())
+        exprs = [expr[0] for expr in result.select_list]
+        assert isinstance(exprs[0], Literal)
+        assert isinstance(exprs[1], Literal)
+        assert not isinstance(exprs[2], Literal)
+        assert isinstance(exprs[3], Literal)
+        assert not isinstance(exprs[4], Literal)
+
+        result = t.select(pxt.array([[1, 2, 3], [4, 5, 6]]))
+        print(result.show())
+        exprs = [expr[0] for expr in result.select_list]
+        assert isinstance(exprs[0], Literal)
+        col_type = next(iter(result.schema.values()))
+        assert col_type.is_array_type()
+        assert isinstance(col_type, pxt.ArrayType)
 
     def test_inline_array(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
@@ -477,7 +559,7 @@ class TestExprs:
         #_ = t[t.c6.f2].show()
         #_ = t[t.c6.f5].show()
         _ = t.select(t.c6.f6.f8).show()
-        _ = t.select(cast(t.c6.f6.f8, pxt.Array[(4,), pxt.Float])).show()
+        _ = t.select(cast(t.c6.f6.f8, pxt.Array[(4,), pxt.Float])).show()  # type: ignore[misc]
 
         # top-level is array
         #_ = t[t.c7['*'].f1].show()
@@ -487,7 +569,7 @@ class TestExprs:
         _ = t.select(t.c7[0].f6.f8).show()
         _ = t.select(t.c7[:2].f6.f8).show()
         _ = t.select(t.c7[::-1].f6.f8).show()
-        _ = t.select(cast(t.c7['*'].f6.f8, pxt.Array[(2, 4), pxt.Float])).show()
+        _ = t.select(cast(t.c7['*'].f6.f8, pxt.Array[(2, 4), pxt.Float])).show()  # type: ignore[misc]
         print(_)
 
     def test_arrays(self, test_tbl: catalog.Table) -> None:
@@ -976,7 +1058,7 @@ class TestExprs:
         df = t.select().collect().to_pandas()
         def series_to_list(series):
             return [int(x) if pd.notna(x) else None for x in series]
-        int_sum = pxtf.sum(t.c_int)
+        int_sum: Expr = pxtf.sum(t.c_int)
         _ = t.group_by(t.c_int).select(t.c_int, out=int_sum).order_by(int_sum, asc=False).limit(5).collect()
 
         for pxt_fn, pd_fn in [
@@ -1066,7 +1148,7 @@ class TestExprs:
             _ = t.group_by(t.c2 % 2).select(sum(count(t.c2))).collect()
 
     @pxt.uda(allows_window=True, requires_order_by=False)
-    class window_agg:
+    class window_agg(pxt.Aggregator):
         def __init__(self, val: int = 0):
             self.val = val
         def update(self, ignore: int) -> None:
@@ -1075,7 +1157,7 @@ class TestExprs:
             return self.val
 
     @pxt.uda(requires_order_by=True, allows_window=True)
-    class ordered_agg:
+    class ordered_agg(pxt.Aggregator):
         def __init__(self, val: int = 0):
             self.val = val
         def update(self, i: int) -> None:
@@ -1084,7 +1166,7 @@ class TestExprs:
             return self.val
 
     @pxt.uda(requires_order_by=False, allows_window=False)
-    class std_agg:
+    class std_agg(pxt.Aggregator):
         def __init__(self, val: int = 0):
             self.val = val
         def update(self, i: int) -> None:
@@ -1135,7 +1217,7 @@ class TestExprs:
         with pytest.raises(excs.Error) as exc_info:
             # missing update parameter
             @pxt.uda
-            class WindowAgg:
+            class WindowAgg1(pxt.Aggregator):
                 def __init__(self, val: int = 0):
                     self.val = val
                 def update(self) -> None:
@@ -1147,7 +1229,7 @@ class TestExprs:
         with pytest.raises(excs.Error) as exc_info:
             # duplicate parameter names
             @pxt.uda
-            class WindowAgg:
+            class WindowAgg2(pxt.Aggregator):
                 def __init__(self, val: int = 0):
                     self.val = val
                 def update(self, val: int) -> None:
@@ -1159,7 +1241,7 @@ class TestExprs:
         with pytest.raises(excs.Error) as exc_info:
             # reserved parameter name
             @pxt.uda
-            class WindowAgg:
+            class WindowAgg3(pxt.Aggregator):
                 def __init__(self, val: int = 0):
                     self.val = val
                 def update(self, order_by: int) -> None:
@@ -1171,7 +1253,7 @@ class TestExprs:
         with pytest.raises(excs.Error) as exc_info:
             # reserved parameter name
             @pxt.uda
-            class WindowAgg:
+            class WindowAgg4(pxt.Aggregator):
                 def __init__(self, val: int = 0):
                     self.val = val
                 def update(self, group_by: int) -> None:

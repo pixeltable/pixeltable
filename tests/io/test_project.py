@@ -7,6 +7,7 @@ import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable.io.external_store import MockProject, Project
 from pixeltable.exprs import ColumnRef
+from pixeltable.type_system import ColumnType
 from tests.utils import get_image_files, reload_catalog
 
 _logger = logging.getLogger('pixeltable')
@@ -58,11 +59,11 @@ class TestProject:
 
         # Subtype/supertype relationships
 
-        schema3 = {'img': pxt.Image, 'spec_img': pxt.Image[(512, 512)]}
+        schema3 = {'img': pxt.Image, 'spec_img': pxt.Image[(512, 512)]}  # type: ignore[misc]
         t3 = pxt.create_table('test_store_3', schema3)
 
-        export_img_cols = {'export_img': pxt.ImageType(), 'export_spec_img': pxt.ImageType(512, 512)}
-        import_img_cols = {'import_img': pxt.ImageType(), 'import_spec_img': pxt.ImageType(512, 512)}
+        export_img_cols: dict[str, ColumnType] = {'export_img': pxt.ImageType(), 'export_spec_img': pxt.ImageType(512, 512)}
+        import_img_cols: dict[str, ColumnType] = {'import_img': pxt.ImageType(), 'import_spec_img': pxt.ImageType(512, 512)}
 
         # Can export/import from sub to supertype
         Project.validate_columns(t3, export_img_cols, import_img_cols, {'spec_img': 'export_img', 'img': 'import_spec_img'})

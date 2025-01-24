@@ -734,7 +734,8 @@ class TableVersion:
         if conn is None:
             with Env.get().engine.begin() as conn:
                 return self._insert(
-                    plan, conn, time.time(), print_stats=print_stats, rowids=rowids(), abort_on_exc=fail_on_exception)
+                    plan, conn, time.time(), print_stats=print_stats, rowids=rowids(),
+                    abort_on_exc=fail_on_exception)
         else:
             return self._insert(
                 plan, conn, time.time(), print_stats=print_stats, rowids=rowids(), abort_on_exc=fail_on_exception)

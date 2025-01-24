@@ -1,6 +1,6 @@
 from typing import Optional
 
-import av
+import av  # type: ignore[import-untyped]
 
 import pixeltable as pxt
 import pixeltable.env as env
