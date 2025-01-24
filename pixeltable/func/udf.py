@@ -15,7 +15,7 @@ from .signature import Signature
 
 # Decorator invoked without parentheses: @pxt.udf
 @overload
-def udf(decorated_fn: Callable) -> Function: ...
+def udf(decorated_fn: Callable) -> CallableFunction: ...
 
 
 # Decorator schema invoked with parentheses: @pxt.udf(**kwargs)

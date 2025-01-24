@@ -10,15 +10,13 @@ import traceback
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Hashable, Iterator, Optional, Sequence, Union, AsyncIterator, NoReturn
 
+import numpy as np
 import pandas as pd
 import sqlalchemy as sql
 
-import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
-import pixeltable.exprs as exprs
 import pixeltable.type_system as ts
-from pixeltable import exec
-from pixeltable import plan
+from pixeltable import catalog, exec, exprs, plan
 from pixeltable.catalog import is_valid_identifier
 from pixeltable.catalog.globals import UpdateStatus
 from pixeltable.env import Env
@@ -28,6 +26,7 @@ from pixeltable.utils.formatter import Formatter
 
 if TYPE_CHECKING:
     import torch
+    import torch.utils.data
 
 __all__ = ['DataFrame']
 
@@ -568,10 +567,10 @@ class DataFrame:
         for raw_expr, name in base_list:
             if isinstance(raw_expr, exprs.Expr):
                 select_list.append((raw_expr, name))
-            elif isinstance(raw_expr, dict):
-                select_list.append((exprs.InlineDict(raw_expr), name))
-            elif isinstance(raw_expr, list):
-                select_list.append((exprs.InlineList(raw_expr), name))
+            elif isinstance(raw_expr, (dict, list, tuple)):
+                select_list.append((exprs.Expr.from_object(raw_expr), name))
+            elif isinstance(raw_expr, np.ndarray):
+                select_list.append((exprs.Expr.from_array(raw_expr), name))
             else:
                 select_list.append((exprs.Literal(raw_expr), name))
             expr = select_list[-1][0]
@@ -1059,8 +1058,6 @@ class DataFrame:
         else:
             return write_coco_dataset(self, dest_path)
 
-    # TODO Factor this out into a separate module.
-    # The return type is unresolvable, but torch can't be imported since it's an optional dependency.
     def to_pytorch_dataset(self, image_format: str = 'pt') -> 'torch.utils.data.IterableDataset':
         """
         Convert the dataframe to a pytorch IterableDataset suitable for parallel loading
