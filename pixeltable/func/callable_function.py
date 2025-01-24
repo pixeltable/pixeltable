@@ -3,6 +3,7 @@ from __future__ import annotations
 import inspect
 from typing import Any, Callable, Optional, Sequence
 from uuid import UUID
+import asyncio
 
 import cloudpickle  # type: ignore[import-untyped]
 
@@ -19,6 +20,9 @@ class CallableFunction(Function):
     - references to lambdas and functions defined in notebooks, which are pickled and serialized to the store
     - functions that are defined in modules are serialized via the default mechanism
     """
+    py_fns: list[Callable]
+    self_name: Optional[str]
+    batch_size: Optional[int]
 
     def __init__(
         self,
@@ -48,6 +52,10 @@ class CallableFunction(Function):
     def is_batched(self) -> bool:
         return self.batch_size is not None
 
+    @property
+    def is_async(self) -> bool:
+        return inspect.iscoroutinefunction(self.py_fn)
+
     def _docstring(self) -> Optional[str]:
         return inspect.getdoc(self.py_fns[0])
 
@@ -55,6 +63,21 @@ class CallableFunction(Function):
     def py_fn(self) -> Callable:
         assert not self.is_polymorphic
         return self.py_fns[0]
+
+    async def aexec(self, *args: Any, **kwargs: Any) -> Any:
+        assert not self.is_polymorphic
+        assert self.is_async
+        if self.is_batched:
+            # Pack the batched parameters into singleton lists
+            constant_param_names = [p.name for p in self.signature.constant_parameters]
+            batched_args = [[arg] for arg in args]
+            constant_kwargs = {k: v for k, v in kwargs.items() if k in constant_param_names}
+            batched_kwargs = {k: [v] for k, v in kwargs.items() if k not in constant_param_names}
+            result = await self.py_fn(*batched_args, **constant_kwargs, **batched_kwargs)
+            assert len(result) == 1
+            return result[0]
+        else:
+            return await self.py_fn(*args, **kwargs)
 
     def exec(self, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:
         assert not self.is_polymorphic
@@ -64,11 +87,31 @@ class CallableFunction(Function):
             batched_args = [[arg] for arg in args]
             constant_kwargs = {k: v for k, v in kwargs.items() if k in constant_param_names}
             batched_kwargs = {k: [v] for k, v in kwargs.items() if k not in constant_param_names}
-            result = self.py_fn(*batched_args, **constant_kwargs, **batched_kwargs)
+            result: list[Any]
+            if inspect.iscoroutinefunction(self.py_fn):
+                result = asyncio.run(self.py_fn(*batched_args, **constant_kwargs, **batched_kwargs))
+            else:
+                result = self.py_fn(*batched_args, **constant_kwargs, **batched_kwargs)
             assert len(result) == 1
             return result[0]
         else:
-            return self.py_fn(*args, **kwargs)
+            if inspect.iscoroutinefunction(self.py_fn):
+                return asyncio.run(self.py_fn(*args, **kwargs))
+            else:
+                return self.py_fn(*args, **kwargs)
+
+    async def aexec_batch(self, *args: Any, **kwargs: Any) -> list:
+        """Execute the function with the given arguments and return the result.
+        The arguments are expected to be batched: if the corresponding parameter has type T,
+        then the argument should have type T if it's a constant parameter, or list[T] if it's
+        a batched parameter.
+        """
+        assert self.is_batched
+        assert self.is_async
+        assert not self.is_polymorphic
+        # Unpack the constant parameters
+        constant_kwargs, batched_kwargs = self.create_batch_kwargs(kwargs)
+        return await self.py_fn(*args, **constant_kwargs, **batched_kwargs)
 
     def exec_batch(self, args: list[Any], kwargs: dict[str, Any]) -> list:
         """Execute the function with the given arguments and return the result.
@@ -79,12 +122,19 @@ class CallableFunction(Function):
         assert self.is_batched
         assert not self.is_polymorphic
         # Unpack the constant parameters
+        constant_kwargs, batched_kwargs = self.create_batch_kwargs(kwargs)
+        if inspect.iscoroutinefunction(self.py_fn):
+            return asyncio.run(self.py_fn(*args, **constant_kwargs, **batched_kwargs))
+        else:
+            return self.py_fn(*args, **constant_kwargs, **batched_kwargs)
+
+    def create_batch_kwargs(self, kwargs: dict[str, Any]) -> tuple[dict[str, Any], dict[str, list[Any]]]:
+        """Converts kwargs containing lists into constant and batched kwargs in the format expected by a batched udf."""
         constant_param_names = [p.name for p in self.signature.constant_parameters]
         constant_kwargs = {k: v[0] for k, v in kwargs.items() if k in constant_param_names}
         batched_kwargs = {k: v for k, v in kwargs.items() if k not in constant_param_names}
-        return self.py_fn(*args, **constant_kwargs, **batched_kwargs)
+        return constant_kwargs, batched_kwargs
 
-    # TODO(aaron-siegel): Implement conditional batch sizing
     def get_batch_size(self, *args: Any, **kwargs: Any) -> Optional[int]:
         return self.batch_size
 
