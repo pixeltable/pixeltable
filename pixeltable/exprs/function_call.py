@@ -38,7 +38,7 @@ class FunctionCall(Expr):
     # - argument's index in components, if an argument is given in the call
     # - default value, if no argument given in the call
     # (in essence, this combines init()'s bound_args and default values)
-    param_values: dict[str, tuple[Optional[int], Optional[Any]]]
+    _param_values: dict[str, tuple[Optional[int], Optional[Any]]]
 
     arg_types: list[ts.ColumnType]
     kwarg_types: dict[str, ts.ColumnType]
@@ -101,7 +101,7 @@ class FunctionCall(Expr):
         # construct components, args, kwargs
         self.args = []
         self.kwargs = {}
-        self.param_values = {}
+        self._param_values = {}
 
         # we record the types of non-variable parameters for runtime type checks
         self.arg_types = []
@@ -115,11 +115,11 @@ class FunctionCall(Expr):
             arg = bound_args[py_param.name]
             if isinstance(arg, Expr):
                 self.args.append((len(self.components), None))
-                self.param_values[py_param.name] = (len(self.components), None)
+                self._param_values[py_param.name] = (len(self.components), None)
                 self.components.append(arg.copy())
             else:
                 self.args.append((None, arg))
-                self.param_values[py_param.name] = (None, arg)
+                self._param_values[py_param.name] = (None, arg)
             if py_param.kind != inspect.Parameter.VAR_POSITIONAL and py_param.kind != inspect.Parameter.VAR_KEYWORD:
                 self.arg_types.append(signature.parameters[py_param.name].col_type)
             processed_args.add(py_param.name)
@@ -130,18 +130,18 @@ class FunctionCall(Expr):
                 arg = bound_args[param_name]
                 if isinstance(arg, Expr):
                     self.kwargs[param_name] = (len(self.components), None)
-                    self.param_values[param_name] = (len(self.components), None)
+                    self._param_values[param_name] = (len(self.components), None)
                     self.components.append(arg.copy())
                 else:
                     self.kwargs[param_name] = (None, arg)
-                    self.param_values[param_name] = (None, arg)
+                    self._param_values[param_name] = (None, arg)
                 if signature.py_signature.parameters[param_name].kind != inspect.Parameter.VAR_KEYWORD:
                     self.kwarg_types[param_name] = signature.parameters[param_name].col_type
 
         # fill in default values for parameters that don't have explicit arguments
         for param in fn.signature.parameters.values():
-            if param.name not in self.param_values:
-                self.param_values[param.name] = (
+            if param.name not in self._param_values:
+                self._param_values[param.name] = (
                     (None, None) if param.default is inspect.Parameter.empty else (None, param.default)
                 )
 
@@ -435,12 +435,12 @@ class FunctionCall(Expr):
         Returns a list of dicts mapping each param name to its value when this FunctionCall is evaluated against
         data_rows
         """
-        assert all(name in self.param_values for name in param_names)
+        assert all(name in self._param_values for name in param_names)
         result: list[dict[str, Any]] = []
         for row in data_rows:
             d: dict[str, Any] = {}
             for param_name in param_names:
-                component_idx, default_val = self.param_values[param_name]
+                component_idx, default_val = self._param_values[param_name]
                 if component_idx is None:
                     d[param_name] = default_val
                 else:

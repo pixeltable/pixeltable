@@ -228,7 +228,3 @@ known-first-party = ["pixeltable"]
 
 [tool.ruff.format]
 quote-style = "single"
-line-ending = "auto"
-indent-style = "space"
-skip-magic-trailing-comma = true
-

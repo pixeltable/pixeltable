@@ -91,7 +91,7 @@ class FnCallEvaluator(Evaluator):
 
         # create FnCallArgs for incoming rows
         skip_rows: list[exprs.DataRow] = []  # skip rows with Nones in non-nullable parameters
-        input_call_args: list[FnCallArgs] = []
+        rows_call_args: list[FnCallArgs] = []
         for row in rows:
             args_kwargs = self.fn_call.make_args(row)
             if args_kwargs is None:
@@ -100,20 +100,20 @@ class FnCallEvaluator(Evaluator):
                 skip_rows.append(row)
             else:
                 args, kwargs = args_kwargs
-                input_call_args.append(FnCallArgs(self.fn_call, [row], args=args, kwargs=kwargs))
+                rows_call_args.append(FnCallArgs(self.fn_call, [row], args=args, kwargs=kwargs))
 
         if len(skip_rows) > 0:
             self.dispatcher.dispatch(skip_rows)
 
         if self.batch_size is not None:
-            if not self.is_closed and (len(input_call_args) + self.call_args_queue.qsize() < self.batch_size):
+            if not self.is_closed and (len(rows_call_args) + self.call_args_queue.qsize() < self.batch_size):
                 # we don't have enough FnCallArgs for a batch, so add them to the queue
-                for item in input_call_args:
+                for item in rows_call_args:
                     self.call_args_queue.put_nowait(item)
                 return
 
             # create one task per batch
-            combined_call_args = itertools.chain(self._queued_call_args_iter(), input_call_args)
+            combined_call_args = itertools.chain(self._queued_call_args_iter(), rows_call_args)
             while True:
                 call_args_batch = list(itertools.islice(combined_call_args, self.batch_size))
                 if len(call_args_batch) == 0:
@@ -141,18 +141,18 @@ class FnCallEvaluator(Evaluator):
             if self.fn_call.resource_pool is not None:
                 # hand the call off to the resource pool's scheduler
                 scheduler = self.dispatcher.schedulers[self.fn_call.resource_pool]
-                for item in input_call_args:
+                for item in rows_call_args:
                     scheduler.submit(item)
             else:
                 # create one task per call
-                for item in input_call_args:
+                for item in rows_call_args:
                     task = asyncio.create_task(self.eval_async(item))
                     self.dispatcher.tasks.add(task)
                     task.add_done_callback(self.dispatcher.done_cb)
 
         else:
             # create a single task for all rows
-            task = asyncio.create_task(self.eval(input_call_args))
+            task = asyncio.create_task(self.eval(rows_call_args))
             self.dispatcher.tasks.add(task)
             task.add_done_callback(self.dispatcher.done_cb)
 

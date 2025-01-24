@@ -109,11 +109,11 @@ class RateLimitsScheduler(Scheduler):
             # check rate limits
             request_resources = self._get_request_resources(item.request)
             limits_info = self._check_resource_limits(request_resources)
+            aws: list[Awaitable[None]] = []
+            completed_aw: Optional[asyncio.Task] = None
+            wait_for_reset: Optional[asyncio.Task] = None
             if limits_info is not None:
                 # limits_info's resource is depleted, wait for capacity to free up
-                aws: list[Awaitable[None]] = []
-                completed_aw: Optional[asyncio.Task] = None
-                wait_for_reset: Optional[asyncio.Task] = None
 
                 if self.num_in_flight > 0:
                     # a completed request can free up capacity
@@ -129,12 +129,8 @@ class RateLimitsScheduler(Scheduler):
                     aws.append(wait_for_reset)
                     _logger.debug(f'waiting for rate limit reset for {self.resource_pool}')
 
-                if len(aws) == 0:
-                    # we have nothing in particular to wait for: wait for an arbitrary amount of time and then
-                    # re-evaluate the rate limits
-                    aws.append(asyncio.sleep(1.0))
-                    _logger.debug(f'waiting for 1.0 for {self.resource_pool}')
-
+            if len(aws) > 0:
+                # we have something to wait for
                 done, pending = await asyncio.wait(aws, return_when=asyncio.FIRST_COMPLETED)
                 for task in pending:
                     task.cancel()
@@ -144,7 +140,6 @@ class RateLimitsScheduler(Scheduler):
                     _logger.debug(f'wait(): rate limit reset for {self.resource_pool}')
                     # force waiting for another rate limit report before making any scheduling decisions
                     self.pool_info.reset()
-
                 # re-evaluate current capacity for current item
                 continue
 
@@ -173,7 +168,7 @@ class RateLimitsScheduler(Scheduler):
 
 
     def _check_resource_limits(self, request_resources: dict[str, int]) -> Optional[env.RateLimitInfo]:
-        """Returns the most exhausted resource, relative to its limit, or None if all resources are within limits"""
+        """Returns the most depleted resource, relative to its limit, or None if all resources are within limits"""
         candidates: list[tuple[env.RateLimitInfo, float]] = []  # (info, relative usage)
         for resource, usage in request_resources.items():
             # 0.05: leave some headroom, we don't have perfect information
