@@ -48,11 +48,12 @@ from .type_system import (
     VideoType,
 )
 
-from . import ext, functions, io, iterators
+# This needs to be imported last or it will trigger circular imports.
+from . import ext, functions, io, iterators  # isort: skip
 from .__version__ import __version__, __version_tuple__
 
-# This is the safest / most maintainable way to do this: start with the default and "blacklist" stuff that
-# we don't want in there. (Using a "whitelist" is considerably harder to maintain.)
+# This is the safest / most maintainable way to construct __all__: start with the default and "blacklist"
+# stuff that we don't want in there. (Using a "whitelist" is considerably harder to maintain.)
 
 __default_dir = set(symbol for symbol in dir() if not symbol.startswith('_'))
 __removed_symbols = {
