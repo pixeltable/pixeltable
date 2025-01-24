@@ -101,7 +101,8 @@ class ColumnRef(Expr):
         # resolve column properties
         if name == ColumnPropertyRef.Property.ERRORTYPE.name.lower() \
                 or name == ColumnPropertyRef.Property.ERRORMSG.name.lower():
-            if not (self.col.is_computed and self.col.is_stored) and not self.col.col_type.is_media_type():
+            property_is_present = self.col.is_stored and (self.col.is_computed or self.col_type.is_media_type())
+            if not property_is_present:
                 raise excs.Error(f'{name} only valid for a stored computed or media column: {self}')
             return ColumnPropertyRef(self, ColumnPropertyRef.Property[name.upper()])
         if name == ColumnPropertyRef.Property.FILEURL.name.lower() \
@@ -239,3 +240,6 @@ class ColumnRef(Expr):
         col = cls.get_column(d)
         perform_validation = d['perform_validation']
         return cls(col, perform_validation=perform_validation)
+
+    def is_constant(self) -> bool:
+        return False

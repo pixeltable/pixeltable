@@ -246,8 +246,8 @@ class ColumnType:
             col_type = ArrayType.from_literal(val, nullable=nullable)
             if col_type is not None:
                 return col_type
-            # this could still be json-serializable
-        if isinstance(val, dict) or isinstance(val, list) or isinstance(val, np.ndarray) or isinstance(val, pydantic.BaseModel):
+        # this could still be json-serializable
+        if isinstance(val, (list, tuple, dict, np.ndarray, pydantic.BaseModel)):
             try:
                 JsonType().validate_literal(val)
                 return JsonType(nullable=nullable)
@@ -659,9 +659,6 @@ class JsonType(ColumnType):
         return val_type.print_value(val)
 
     def _validate_literal(self, val: Any) -> None:
-        if not isinstance(val, (dict, list)):
-            # TODO In the future we should accept scalars too, which would enable us to remove this top-level check
-            raise TypeError(f'Expected dict or list, got {val.__class__.__name__}')
         if not self.__is_valid_json(val):
             raise TypeError(f'That literal is not a valid Pixeltable JSON object: {val}')
         if self.__validator is not None:
@@ -869,7 +866,7 @@ class ArrayType(ColumnType):
                 continue
             if n1 != n2:
                 return False
-        return val.dtype == self.numpy_dtype()
+        return np.issubdtype(val.dtype, self.numpy_dtype())
 
     def _to_json_schema(self) -> dict[str, Any]:
         return {
@@ -886,7 +883,7 @@ class ArrayType(ColumnType):
                 f'got ndarray({val.shape}, dtype={val.dtype})'))
 
     def _create_literal(self, val: Any) -> Any:
-        if isinstance(val, (list,tuple)):
+        if isinstance(val, (list, tuple)):
             # map python float to whichever numpy float is
             # declared for this type, rather than assume float64
             return np.array(val, dtype=self.numpy_dtype())

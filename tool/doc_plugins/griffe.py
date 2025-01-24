@@ -3,14 +3,13 @@ import inspect
 import warnings
 from typing import Union
 
-import griffe
 import griffe.expressions
-from griffe import Extension, Object, ObjectNode
+from griffe import Extension, Function, Object, ObjectNode, dynamic_import  # type: ignore[attr-defined]
 from mkdocstrings_handlers.python import rendering
 
 import pixeltable as pxt
 
-logger = griffe.get_logger(__name__)
+logger = griffe.get_logger(__name__)  # type: ignore[attr-defined]
 
 class PxtGriffeExtension(Extension):
     """Implementation of a Pixeltable custom griffe extension."""
@@ -20,7 +19,7 @@ class PxtGriffeExtension(Extension):
             # Skip over entities without a docstring
             return
 
-        if isinstance(obj, griffe.Function):
+        if isinstance(obj, Function):
             # See if the (Python) function has a @pxt.udf decorator
             if any(
                 isinstance(dec.value, griffe.expressions.Expr) and dec.value.canonical_path in ['pixeltable.func.udf', 'pixeltable.udf']
@@ -29,7 +28,7 @@ class PxtGriffeExtension(Extension):
                 # Update the template
                 self.__modify_pxt_udf(obj)
 
-    def __modify_pxt_udf(self, func: griffe.Function) -> None:
+    def __modify_pxt_udf(self, func: Function) -> None:
         """
         Instructs the doc snippet for `func` to use the custom Pixeltable UDF jinja template, and
         converts all type hints to Pixeltable column type references, in accordance with the @udf
@@ -38,9 +37,8 @@ class PxtGriffeExtension(Extension):
         func.extra['mkdocstrings']['template'] = 'udf.html.jinja'
         # Dynamically load the UDF reference so we can inspect the Pixeltable signature directly
         warnings.simplefilter("ignore")
-        udf = griffe.dynamic_import(func.path)
+        udf = dynamic_import(func.path)
         assert isinstance(udf, pxt.Function)
-        # TODO: Find a way to support multiple signatures?
         # Convert the return type to a Pixeltable type reference
         func.returns = str(udf.signatures[0].get_return_type())
         # Convert the parameter types to Pixeltable type references
@@ -71,7 +69,7 @@ class PxtGriffeExtension(Extension):
             if param.kind == inspect._ParameterKind.VAR_POSITIONAL:
                 printed_varargs = True
         params_str = f'({", ".join(param_strs)}) -> {sig.get_return_type()}'
-        signature_str = rendering._format_signature(name, params_str, line_length=80)
+        signature_str = rendering._format_signature(name, params_str, line_length=80)  # type: ignore[arg-type]
         return f'```python\n{signature_str}\n```\n'
 
     def __param_str(self, param: pxt.func.Parameter) -> str:

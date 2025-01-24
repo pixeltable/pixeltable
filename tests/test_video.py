@@ -4,7 +4,6 @@ import PIL
 import pytest
 
 import pixeltable as pxt
-from pixeltable import catalog
 from pixeltable import exceptions as excs
 from pixeltable.iterators import FrameIterator
 from pixeltable.utils.media_store import MediaStore
@@ -15,7 +14,7 @@ from .utils import get_video_files, reload_catalog, skip_test_if_not_installed, 
 class TestVideo:
     def create_tbls(
         self, base_name: str = 'video_tbl', view_name: str = 'frame_view'
-    ) -> tuple[catalog.InsertableTable, catalog.Table]:
+    ) -> tuple[pxt.Table, pxt.Table]:
         pxt.drop_table(view_name, if_not_exists='ignore')
         pxt.drop_table(base_name, if_not_exists='ignore')
         base_t = pxt.create_table(base_name, {'video': pxt.Video})
@@ -24,7 +23,7 @@ class TestVideo:
 
     def create_and_insert(
         self, stored: Optional[bool], paths: list[str]
-    ) -> tuple[catalog.InsertableTable, catalog.Table]:
+    ) -> tuple[pxt.Table, pxt.Table]:
         base_t, view_t = self.create_tbls()
 
         view_t.add_computed_column(transform=view_t.frame.rotate(90), stored=stored)
@@ -206,7 +205,7 @@ class TestVideo:
 
     # window function that simply passes through the frame
     @pxt.uda(requires_order_by=True, allows_std_agg=False, allows_window=True)
-    class agg_fn:
+    class agg_fn(pxt.Aggregator):
         def __init__(self):
             self.img = None
 

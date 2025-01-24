@@ -10,7 +10,7 @@ import io
 import json
 import pathlib
 import uuid
-from typing import TYPE_CHECKING, Callable, Optional, TypeVar, Union
+from typing import TYPE_CHECKING, Any, Callable, Optional, TypeVar, Union
 
 import numpy as np
 import PIL.Image
@@ -236,6 +236,23 @@ def chat_completions(
             for tool in tools
         ]
 
+    tool_choice_: Union[str, dict, None] = None
+    if tool_choice is not None:
+        if tool_choice['auto']:
+            tool_choice_ = 'auto'
+        elif tool_choice['required']:
+            tool_choice_ = 'required'
+        else:
+            assert tool_choice['tool'] is not None
+            tool_choice_ = {
+                'type': 'function',
+                'function': {'name': tool_choice['tool']}
+            }
+
+    extra_body: Optional[dict[str, Any]] = None
+    if tool_choice is not None and not tool_choice['parallel_tool_calls']:
+        extra_body = {'parallel_tool_calls': False}
+
     result = _retry(_openai_client().chat.completions.create)(
         messages=messages,
         model=model,
@@ -252,8 +269,9 @@ def chat_completions(
         temperature=_opt(temperature),
         top_p=_opt(top_p),
         tools=_opt(tools),
-        tool_choice=_opt(tool_choice),
+        tool_choice=_opt(tool_choice_),
         user=_opt(user),
+        extra_body=extra_body,
     )
     return result.dict()
 

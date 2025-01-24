@@ -32,7 +32,7 @@ class TestFileCache:
 
         # Initialize a table and a dict to separately track the LRU order
         t = pxt.create_table('images', {'index': pxt.Int, 'image': pxt.Image})
-        lru_tracker: OrderedDict[int, (str, int)] = OrderedDict()  # index -> (url, size)
+        lru_tracker: OrderedDict[int, tuple[str, int]] = OrderedDict()  # index -> (url, size)
         expected_cache_size = 0
         expected_num_evictions = 0
 

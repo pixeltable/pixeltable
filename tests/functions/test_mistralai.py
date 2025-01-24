@@ -70,5 +70,6 @@ class TestMistral:
 
         t.add_computed_column(embed=embeddings(t.input, model='mistral-embed'))
         validate_update_status(t.insert(input='A chunk of text that will be embedded.'), 1)
+        assert isinstance(t.embed.col_type, pxt.ArrayType)
         assert t.embed.col_type.shape == (1024,)
         assert len(t.collect()['embed'][0]) == 1024
