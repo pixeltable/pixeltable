@@ -14,6 +14,7 @@ from .utils import assert_resultset_eq, create_test_tbl, reload_catalog, validat
 
 logger = logging.getLogger('pixeltable')
 
+
 class TestView:
     """
     TODO:
@@ -21,6 +22,7 @@ class TestView:
     - test consecutive component views
 
     """
+
     def create_tbl(self) -> pxt.Table:
         """Create table with computed columns"""
         t = create_test_tbl()
@@ -58,20 +60,17 @@ class TestView:
         assert t._base is None
 
         # create view with filter and computed columns
-        schema = {
-            'v1': t.c3 * 2.0,
-            'v2': t.c6.f5,
-        }
+        schema = {'v1': t.c3 * 2.0, 'v2': t.c6.f5}
         v = pxt.create_view('test_view', t.where(t.c2 < 10), additional_columns=schema)
         # TODO: test repr more thoroughly
         _ = v.__repr__()
         assert_resultset_eq(
-            v.select(v.v1).order_by(v.c2).collect(),
-            t.select(t.c3 * 2.0).where(t.c2 < 10).order_by(t.c2).collect())
+            v.select(v.v1).order_by(v.c2).collect(), t.select(t.c3 * 2.0).where(t.c2 < 10).order_by(t.c2).collect()
+        )
         # view-only query; returns the same result
         assert_resultset_eq(
-            v.select(v.v1).order_by(v.v1).collect(),
-            t.select(t.c3 * 2.0).where(t.c2 < 10).order_by(t.c2).collect())
+            v.select(v.v1).order_by(v.v1).collect(), t.select(t.c3 * 2.0).where(t.c2 < 10).order_by(t.c2).collect()
+        )
         # computed columns that don't reference the base table
         v.add_computed_column(v3=v.v1 * 2.0)
         v.add_computed_column(v4=v.v2[0])
@@ -80,14 +79,15 @@ class TestView:
             assert v._base == t
             assert v.count() == t.where(t.c2 < 10).count()
             assert_resultset_eq(
-                v.select(v.v1).order_by(v.c2).collect(),
-                t.select(t.c3 * 2.0).where(t.c2 < 10).order_by(t.c2).collect())
+                v.select(v.v1).order_by(v.c2).collect(), t.select(t.c3 * 2.0).where(t.c2 < 10).order_by(t.c2).collect()
+            )
             assert_resultset_eq(
-                v.select(v.v3).order_by(v.c2).collect(),
-                t.select(t.c3 * 4.0).where(t.c2 < 10).order_by(t.c2).collect())
+                v.select(v.v3).order_by(v.c2).collect(), t.select(t.c3 * 4.0).where(t.c2 < 10).order_by(t.c2).collect()
+            )
             assert_resultset_eq(
-                v.select(v.v4).order_by(v.c2).collect(),
-                t.select(t.c6.f5[0]).where(t.c2 < 10).order_by(t.c2).collect())
+                v.select(v.v4).order_by(v.c2).collect(), t.select(t.c6.f5[0]).where(t.c2 < 10).order_by(t.c2).collect()
+            )
+
         check_view(t, v)
 
         # check view md after reload
@@ -141,7 +141,7 @@ class TestView:
         assert "invalid value for column 'v1'" in str(exc_info.value).lower()
 
     def test_create_if_exists(self, reset_db, reload_tester: ReloadTester) -> None:
-        """ Test if_exists parameter of create_view API"""
+        """Test if_exists parameter of create_view API"""
         t = self.create_tbl()
         v = pxt.create_view('test_view', t)
         id_before = v._id
@@ -197,7 +197,7 @@ class TestView:
                 _ = pxt.create_view('not_view', t, if_exists=_ie)  # type: ignore[arg-type]
             err_msg = str(exc_info.value).lower()
             assert 'already exists' in err_msg and 'is not a view' in err_msg
-            assert 'not_view' in pxt.list_tables(), f"with if_exists={_ie}"
+            assert 'not_view' in pxt.list_tables(), f'with if_exists={_ie}'
 
         # sanity check persistence
         _ = reload_tester.run_query(t.select())
@@ -205,7 +205,7 @@ class TestView:
         reload_tester.run_reload_test()
 
     def test_add_column_to_view(self, reset_db, test_tbl: catalog.Table, reload_tester: ReloadTester) -> None:
-        """ Test add_column* methods for views """
+        """Test add_column* methods for views"""
         t = test_tbl
         t_c1_val0 = t.select(t.c1).order_by(t.c1).collect()[0]['c1']
 
@@ -232,10 +232,9 @@ class TestView:
         reload_tester.run_reload_test()
 
     def _test_add_column_if_exists(
-        self, v: catalog.Table, t: catalog.Table, col_name: str,
-        orig_val: str, is_base_column: bool
+        self, v: catalog.Table, t: catalog.Table, col_name: str, orig_val: str, is_base_column: bool
     ) -> None:
-        """ Test if_exists parameter of the add column methods for views """
+        """Test if_exists parameter of the add column methods for views"""
         non_existing_col1 = 'non_existing1_' + col_name
         non_existing_col2 = 'non_existing2_' + col_name
         non_existing_col3 = 'non_existing3_' + col_name
@@ -283,19 +282,19 @@ class TestView:
             with pytest.raises(excs.Error) as exc_info:
                 v.add_column(**{col_name: pxt.String}, if_exists='replace')
             error_msg = str(exc_info.value).lower()
-            assert "is a base table column" in error_msg and "cannot replace" in error_msg
+            assert 'is a base table column' in error_msg and 'cannot replace' in error_msg
             assert col_name in v.columns
             assert v.select().collect()[0][col_name] == orig_val
             with pytest.raises(excs.Error) as exc_info:
                 v.add_computed_column(**{col_name: t.c2 + t.c3}, if_exists='replace')
             error_msg = str(exc_info.value).lower()
-            assert "is a base table column" in error_msg and "cannot replace" in error_msg
+            assert 'is a base table column' in error_msg and 'cannot replace' in error_msg
             assert col_name in v.columns
             assert v.select(getattr(v, col_name)).collect()[0][col_name] == orig_val
             with pytest.raises(excs.Error) as exc_info:
                 v.add_columns({col_name: pxt.String, non_existing_col3: pxt.String}, if_exists='replace')
             error_msg = str(exc_info.value).lower()
-            assert "is a base table column" in error_msg and "cannot replace" in error_msg
+            assert 'is a base table column' in error_msg and 'cannot replace' in error_msg
             assert col_name in v.columns
             assert v.select(getattr(v, col_name)).collect()[0][col_name] == orig_val
             assert non_existing_col3 not in v.columns
@@ -316,7 +315,7 @@ class TestView:
             col_ref = getattr(v, col_name)
             v.add_computed_column(**{non_existing_col5: col_ref + 12.3})
             assert v.select(getattr(v, non_existing_col5)).collect()[0][non_existing_col5] == row0[col_name] + 12.3
-            expected_err = f"Column {col_name!r} already exists and has dependents."
+            expected_err = f'Column {col_name!r} already exists and has dependents.'
             with pytest.raises(excs.Error, match=expected_err):
                 v.add_computed_column(**{col_name: 'bbb'}, if_exists='replace')
 
@@ -369,14 +368,14 @@ class TestView:
 
         # update data: cascade to views
         status = t.update(
-            {'c4': True, 'c3': t.c3 + 1, 'c10': t.c10 - 1.0}, where=(t.c2 >= 5) & (t.c2 < 15), cascade=True)
+            {'c4': True, 'c3': t.c3 + 1, 'c10': t.c10 - 1.0}, where=(t.c2 >= 5) & (t.c2 < 15), cascade=True
+        )
         assert status.num_rows == 20 * 2  # *2: rows affected in both base table and view
         assert t.count() == 120
         assert v1.count() == 20
         assert v2.count() == 20
         assert_resultset_eq(v1_query.collect(), b1_query.collect())
         assert_resultset_eq(v2_query.collect(), b2_query.collect())
-
 
         # base table delete is reflected in view
         status = t.delete(where=(t.c2 >= 5) & (t.c2 < 15))
@@ -404,20 +403,26 @@ class TestView:
         def check_views():
             assert_resultset_eq(
                 v1.select(v1.col1).order_by(v1.c2).collect(),
-                t.select(t.c3 * 2).where(t.c2 < 10).order_by(t.c2).collect())
+                t.select(t.c3 * 2).where(t.c2 < 10).order_by(t.c2).collect(),
+            )
             assert_resultset_eq(
                 v2.select(v2.col1).order_by(v2.c2).collect(),
-                v1.select(v1.col1).where(v1.c2 < 5).order_by(v1.c2).collect())
+                v1.select(v1.col1).where(v1.c2 < 5).order_by(v1.c2).collect(),
+            )
             assert_resultset_eq(
                 v2.select(v2.col2).order_by(v2.c2).collect(),
-                t.select(t.c3 * 3).where(t.c2 < 5).order_by(t.c2).collect())
+                t.select(t.c3 * 3).where(t.c2 < 5).order_by(t.c2).collect(),
+            )
             assert_resultset_eq(
                 v2.select(v2.col3).order_by(v2.c2).collect(),
-                v1.select(v1.col1 / 2).where(v1.c2 < 5).order_by(v2.c2).collect())
+                v1.select(v1.col1 / 2).where(v1.c2 < 5).order_by(v2.c2).collect(),
+            )
             assert_resultset_eq(
                 v2.select(v2.col4).order_by(v2.c2).collect(),
-                v1.select(v1.c10 + v1.col1).where(v1.c2 < 5).order_by(v1.c2).collect())
-                #t.select(t.c10 * 2).where(t.c2 < 5).order_by(t.c2).collect())
+                v1.select(v1.c10 + v1.col1).where(v1.c2 < 5).order_by(v1.c2).collect(),
+            )
+            # t.select(t.c10 * 2).where(t.c2 < 5).order_by(t.c2).collect())
+
         check_views()
 
         # insert data: of 20 new rows; 10 show up in v1, 5 in v2
@@ -490,21 +495,14 @@ class TestView:
         # populate table with images of a defined size
         width, height = 100, 100
         rows = [
-            {
-                'img': PIL.Image.new('RGB', (width, height), color=(0, 0, 0)).tobytes('jpeg', 'RGB'),
-                'int1': i,
-                'int2': i,
-            }
+            {'img': PIL.Image.new('RGB', (width, height), color=(0, 0, 0)).tobytes('jpeg', 'RGB'), 'int1': i, 'int2': i}
             for i in range(100)
         ]
         t.insert(rows)
 
         # view with unstored column that depends on int1 and a manually updated column (int4)
         v1_schema = {
-            'img2': {
-                'value': t.img.crop([t.int1, t.int1, width, height]),
-                'stored': False,
-            },
+            'img2': {'value': t.img.crop([t.int1, t.int1, width, height]), 'stored': False},
             'int3': t.int1 * 2,
             'int4': pxt.Int,  # TODO: add default
         }
@@ -519,7 +517,7 @@ class TestView:
                 # use the actual width and height of the image (not 100, which will pad the image)
                 'value': v1.img2.crop([t.int1 + t.int2, v1.int3 + v1.int4, v1.img2.width, v1.img2.height]),
                 'stored': True,
-              },
+            }
         }
         logger.debug('******************* CREATE V2')
         v2 = pxt.create_view('v2', v1.where(v1.int1 < 10), additional_columns=v2_schema)
@@ -527,11 +525,16 @@ class TestView:
         def check_views() -> None:
             assert_resultset_eq(
                 v1.select(v1.img2.width, v1.img2.height).order_by(v1.int1).collect(),
-                t.select(t.img.width - t.int1, t.img.height - t.int1).order_by(t.int1).collect())
+                t.select(t.img.width - t.int1, t.img.height - t.int1).order_by(t.int1).collect(),
+            )
             assert_resultset_eq(
                 v2.select(v2.img3.width, v2.img3.height).order_by(v2.int1).collect(),
-                v1.select(v1.img2.width - v1.int1 - v1.int2, v1.img2.height - v1.int3 - v1.int4)\
-                    .where(v1.int1 < 10).order_by(v1.int1).collect())
+                v1.select(v1.img2.width - v1.int1 - v1.int2, v1.img2.height - v1.int3 - v1.int4)
+                .where(v1.int1 < 10)
+                .order_by(v1.int1)
+                .collect(),
+            )
+
         check_views()
 
         logger.debug('******************* INSERT')
@@ -561,14 +564,9 @@ class TestView:
         t = self.create_tbl()
 
         # create view with computed columns
-        schema = {
-            'v1': t.c3 * 2.0,
-            'v2': t.c6.f5,
-        }
+        schema = {'v1': t.c3 * 2.0, 'v2': t.c6.f5}
         v = pxt.create_view('test_view', t, additional_columns=schema)
-        assert_resultset_eq(
-            v.select(v.v1).order_by(v.c2).collect(),
-            t.select(t.c3 * 2.0).order_by(t.c2).collect())
+        assert_resultset_eq(v.select(v.v1).order_by(v.c2).collect(), t.select(t.c3 * 2.0).order_by(t.c2).collect())
         # computed columns that don't reference the base table
         v.add_computed_column(v3=v.v1 * 2.0)
         v.add_computed_column(v4=v.v2[0])
@@ -582,32 +580,24 @@ class TestView:
         rows = list(t.select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7, t.c10).collect())
         t.insert(rows)
         assert t.count() == 200
-        assert_resultset_eq(
-            v.select(v.v1).order_by(v.c2).collect(),
-            t.select(t.c3 * 2.0).order_by(t.c2).collect())
+        assert_resultset_eq(v.select(v.v1).order_by(v.c2).collect(), t.select(t.c3 * 2.0).order_by(t.c2).collect())
 
         # update data: cascade to view
         t.update({'c4': True, 'c3': t.c3 + 1.0, 'c10': t.c10 - 1.0}, where=t.c2 < 5, cascade=True)
         assert t.count() == 200
-        assert_resultset_eq(
-            v.select(v.v1).order_by(v.c2).collect(),
-            t.select(t.c3 * 2.0).order_by(t.c2).collect())
+        assert_resultset_eq(v.select(v.v1).order_by(v.c2).collect(), t.select(t.c3 * 2.0).order_by(t.c2).collect())
 
         # base table delete is reflected in view
         t.delete(where=t.c2 < 5)
         assert t.count() == 190
-        assert_resultset_eq(
-            v.select(v.v1).order_by(v.c2).collect(),
-            t.select(t.c3 * 2.0).order_by(t.c2).collect())
+        assert_resultset_eq(v.select(v.v1).order_by(v.c2).collect(), t.select(t.c3 * 2.0).order_by(t.c2).collect())
 
     def test_filter(self, reset_db) -> None:
         t = create_test_tbl()
 
         # create view with filter
         v = pxt.create_view('test_view', t.where(t.c2 < 10))
-        assert_resultset_eq(
-            v.order_by(v.c2).collect(),
-            t.where(t.c2 < 10).order_by(t.c2).collect())
+        assert_resultset_eq(v.order_by(v.c2).collect(), t.where(t.c2 < 10).order_by(t.c2).collect())
 
         # use view md after reload
         reload_catalog()
@@ -618,23 +608,17 @@ class TestView:
         rows = list(t.select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7).where(t.c2 < 20).collect())
         t.insert(rows)
         assert t.count() == 120
-        assert_resultset_eq(
-            v.order_by(v.c2).collect(),
-            t.where(t.c2 < 10).order_by(t.c2).collect())
+        assert_resultset_eq(v.order_by(v.c2).collect(), t.where(t.c2 < 10).order_by(t.c2).collect())
 
         # update data
         t.update({'c4': True, 'c3': t.c3 + 1.0}, where=t.c2 < 5, cascade=True)
         assert t.count() == 120
-        assert_resultset_eq(
-            v.order_by(v.c2).collect(),
-            t.where(t.c2 < 10).order_by(t.c2).collect())
+        assert_resultset_eq(v.order_by(v.c2).collect(), t.where(t.c2 < 10).order_by(t.c2).collect())
 
         # base table delete is reflected in view
         t.delete(where=t.c2 < 5)
         assert t.count() == 110
-        assert_resultset_eq(
-            v.order_by(v.c2).collect(),
-            t.where(t.c2 < 10).order_by(t.c2).collect())
+        assert_resultset_eq(v.order_by(v.c2).collect(), t.where(t.c2 < 10).order_by(t.c2).collect())
 
         # create view with filter containing datetime
         _ = pxt.create_view('test_view_2', t.where(t.c5 < datetime.datetime.now()))
@@ -645,20 +629,17 @@ class TestView:
         snap = pxt.create_snapshot('test_snap', t)
 
         # create view with filter and computed columns
-        schema = {
-            'v1': snap.c3 * 2.0,
-            'v2': snap.c6.f5,
-        }
+        schema = {'v1': snap.c3 * 2.0, 'v2': snap.c6.f5}
         v = pxt.create_view('test_view', snap.where(snap.c2 < 10), additional_columns=schema)
 
         def check_view(s: pxt.Table, v: pxt.Table) -> None:
             assert v.count() == s.where(s.c2 < 10).count()
             assert_resultset_eq(
-                v.select(v.v1).order_by(v.c2).collect(),
-                s.select(s.c3 * 2.0).where(s.c2 < 10).order_by(s.c2).collect())
+                v.select(v.v1).order_by(v.c2).collect(), s.select(s.c3 * 2.0).where(s.c2 < 10).order_by(s.c2).collect()
+            )
             assert_resultset_eq(
-                v.select(v.v2).order_by(v.c2).collect(),
-                s.select(s.c6.f5).where(s.c2 < 10).order_by(s.c2).collect())
+                v.select(v.v2).order_by(v.c2).collect(), s.select(s.c6.f5).where(s.c2 < 10).order_by(s.c2).collect()
+            )
 
         check_view(snap, v)
         # computed columns that don't reference the base table
@@ -703,10 +684,7 @@ class TestView:
         assert 'filter cannot be computed in the context of the base test_tbl' in str(exc_info.value).lower()
 
         # create view with filter and computed columns
-        schema = {
-            'v1': s.c3 * 2.0,
-            'v2': s.c6.f5,
-        }
+        schema = {'v1': s.c3 * 2.0, 'v2': s.c6.f5}
         v = pxt.create_view('test_view', s.where(s.c2 < 10), additional_columns=schema)
         orig_view_cols = v._schema.keys()
         view_s = pxt.create_snapshot('test_view_snap', v)
@@ -717,10 +695,13 @@ class TestView:
             assert v.count() == s2.count()
             assert_resultset_eq(
                 s1.select(s1.c3 * 2.0, s1.c6.f5).where(s1.c2 < 10).order_by(s1.c2).collect(),
-                v.select(v.v1, v.v2).order_by(v.c2).collect())
+                v.select(v.v1, v.v2).order_by(v.c2).collect(),
+            )
             assert_resultset_eq(
                 v.select(v.c3, v.c6, v.v1, v.v2).order_by(v.c2).collect(),
-                s2.select(s2.c3, s2.c6, s2.v1, s2.v2).order_by(s2.c2).collect())
+                s2.select(s2.c3, s2.c6, s2.v1, s2.v2).order_by(s2.c2).collect(),
+            )
+
         check(s, v, view_s)
 
         # add more columns

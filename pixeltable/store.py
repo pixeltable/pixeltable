@@ -32,6 +32,7 @@ class StoreBase:
     - v_min: version at which the row was created
     - v_max: version at which the row was deleted (or MAX_VERSION if it's still live)
     """
+
     tbl_version: catalog.TableVersion
     sa_md: sql.MetaData
     sa_tbl: Optional[sql.Table]
@@ -65,8 +66,9 @@ class StoreBase:
         """Create and return system columns"""
         rowid_cols = self._create_rowid_columns()
         self.v_min_col = sql.Column('v_min', sql.BigInteger, nullable=False)
-        self.v_max_col = \
-            sql.Column('v_max', sql.BigInteger, nullable=False, server_default=str(schema.Table.MAX_VERSION))
+        self.v_max_col = sql.Column(
+            'v_max', sql.BigInteger, nullable=False, server_default=str(schema.Table.MAX_VERSION)
+        )
         self._pk_cols = [*rowid_cols, self.v_min_col]
         return [*rowid_cols, self.v_min_col, self.v_max_col]
 
@@ -134,7 +136,7 @@ class StoreBase:
         return new_file_url
 
     def _move_tmp_media_files(
-            self, table_rows: list[dict[str, Any]], media_cols: list[catalog.Column], v_min: int
+        self, table_rows: list[dict[str, Any]], media_cols: list[catalog.Column], v_min: int
     ) -> None:
         """Move tmp media files that we generated to a permanent location"""
         for c in media_cols:
@@ -143,7 +145,7 @@ class StoreBase:
                 table_row[c.store_name()] = self._move_tmp_media_file(file_url, c, v_min)
 
     def _create_table_row(
-            self, input_row: exprs.DataRow, row_builder: exprs.RowBuilder, exc_col_ids: set[int], pk: tuple[int, ...]
+        self, input_row: exprs.DataRow, row_builder: exprs.RowBuilder, exc_col_ids: set[int], pk: tuple[int, ...]
     ) -> tuple[dict[str, Any], int]:
         """Return Tuple[complete table row, # of exceptions] for insert()
         Creates a row that includes the PK columns, with the values from input_row.pk.
@@ -193,11 +195,13 @@ class StoreBase:
         added_storage_cols = [col.store_name()]
         if col.records_errors:
             # we also need to create the errormsg and errortype storage cols
-            stmt = sql.text(f'ALTER TABLE {self._storage_name()} '
-                            f'ADD COLUMN {col.errormsg_store_name()} VARCHAR DEFAULT NULL')
+            stmt = sql.text(
+                f'ALTER TABLE {self._storage_name()} ' f'ADD COLUMN {col.errormsg_store_name()} VARCHAR DEFAULT NULL'
+            )
             conn.execute(stmt)
-            stmt = sql.text(f'ALTER TABLE {self._storage_name()} '
-                            f'ADD COLUMN {col.errortype_store_name()} VARCHAR DEFAULT NULL')
+            stmt = sql.text(
+                f'ALTER TABLE {self._storage_name()} ' f'ADD COLUMN {col.errortype_store_name()} VARCHAR DEFAULT NULL'
+            )
             conn.execute(stmt)
             added_storage_cols.extend([col.errormsg_store_name(), col.errortype_store_name()])
         self.create_sa_tbl()
@@ -219,7 +223,7 @@ class StoreBase:
         exec_plan: ExecNode,
         value_expr_slot_idx: int,
         conn: sql.engine.Connection,
-        on_error: Literal['abort', 'ignore']
+        on_error: Literal['abort', 'ignore'],
     ) -> int:
         """Update store column of a computed column with values produced by an execution plan
 
@@ -295,10 +299,9 @@ class StoreBase:
                 update_stmt = update_stmt.where(pk_col == tmp_pk_col)
             update_stmt = update_stmt.values({col.sa_col: tmp_val_col})
             if col.records_errors:
-                update_stmt = update_stmt.values({
-                    col.sa_errortype_col: tmp_errortype_col,
-                    col.sa_errormsg_col: tmp_errormsg_col
-                })
+                update_stmt = update_stmt.values(
+                    {col.sa_errortype_col: tmp_errortype_col, col.sa_errormsg_col: tmp_errormsg_col}
+                )
             log_explain(_logger, update_stmt, conn)
             conn.execute(update_stmt)
 
@@ -308,8 +311,13 @@ class StoreBase:
         return num_excs
 
     def insert_rows(
-            self, exec_plan: ExecNode, conn: sql.engine.Connection, v_min: Optional[int] = None,
-            show_progress: bool = True, rowids: Optional[Iterator[int]] = None, abort_on_exc: bool = False
+        self,
+        exec_plan: ExecNode,
+        conn: sql.engine.Connection,
+        v_min: Optional[int] = None,
+        show_progress: bool = True,
+        rowids: Optional[Iterator[int]] = None,
+        abort_on_exc: bool = False,
     ) -> tuple[int, int, set[int]]:
         """Insert rows into the store table and update the catalog table's md
         Returns:
@@ -347,12 +355,12 @@ class StoreBase:
 
                         if show_progress:
                             if progress_bar is None:
-                                warnings.simplefilter("ignore", category=TqdmWarning)
+                                warnings.simplefilter('ignore', category=TqdmWarning)
                                 progress_bar = tqdm(
                                     desc=f'Inserting rows into `{self.tbl_version.name}`',
                                     unit=' rows',
                                     ncols=100,
-                                    file=sys.stdout
+                                    file=sys.stdout,
                                 )
                             progress_bar.update(1)
 
@@ -379,8 +387,13 @@ class StoreBase:
         return sql.and_(clause, self.base._versions_clause(versions[1:], match_on_vmin))
 
     def delete_rows(
-            self, current_version: int, base_versions: list[Optional[int]], match_on_vmin: bool,
-            where_clause: Optional[sql.ColumnElement[bool]], conn: sql.engine.Connection) -> int:
+        self,
+        current_version: int,
+        base_versions: list[Optional[int]],
+        match_on_vmin: bool,
+        where_clause: Optional[sql.ColumnElement[bool]],
+        conn: sql.engine.Connection,
+    ) -> int:
         """Mark rows as deleted that are live and were created prior to current_version.
         Also: populate the undo columns
         Args:
@@ -394,12 +407,12 @@ class StoreBase:
         """
         where_clause = sql.true() if where_clause is None else where_clause
         where_clause = sql.and_(
-            self.v_min_col < current_version,
-            self.v_max_col == schema.Table.MAX_VERSION,
-            where_clause)
+            self.v_min_col < current_version, self.v_max_col == schema.Table.MAX_VERSION, where_clause
+        )
         rowid_join_clause = self._rowid_join_predicate()
-        base_versions_clause = sql.true() if len(base_versions) == 0 \
-            else self.base._versions_clause(base_versions, match_on_vmin)
+        base_versions_clause = (
+            sql.true() if len(base_versions) == 0 else self.base._versions_clause(base_versions, match_on_vmin)
+        )
         set_clause: dict[sql.Column, Union[int, sql.Column]] = {self.v_max_col: current_version}
         for index_info in self.tbl_version.idxs_by_name.values():
             # copy value column to undo column
@@ -450,7 +463,9 @@ class StoreView(StoreBase):
     def _rowid_join_predicate(self) -> sql.ColumnElement[bool]:
         return sql.and_(
             self.base._rowid_join_predicate(),
-            *[c1 == c2 for c1, c2 in zip(self.rowid_columns(), self.base.rowid_columns())])
+            *[c1 == c2 for c1, c2 in zip(self.rowid_columns(), self.base.rowid_columns())],
+        )
+
 
 class StoreComponentView(StoreView):
     """A view that stores components of its base, as produced by a ComponentIterator
@@ -482,4 +497,5 @@ class StoreComponentView(StoreView):
     def _rowid_join_predicate(self) -> sql.ColumnElement[bool]:
         return sql.and_(
             self.base._rowid_join_predicate(),
-            *[c1 == c2 for c1, c2 in zip(self.rowid_columns()[:-1], self.base.rowid_columns())])
+            *[c1 == c2 for c1, c2 in zip(self.rowid_columns()[:-1], self.base.rowid_columns())],
+        )

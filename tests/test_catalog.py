@@ -1,7 +1,9 @@
 from pixeltable.catalog import is_valid_identifier, is_valid_path
 
+
 class TestCatalog:
     """Tests for miscellanous catalog functions."""
+
     def test_valid_identifier(self) -> None:
         valid_ids = ['a', 'a1', 'a_1', 'a_']
         invalid_ids = ['', '_', '__', '_a', '1a', 'a.b', '.a', 'a-b']
@@ -17,7 +19,7 @@ class TestCatalog:
 
         valid_paths = ['a', 'a_.b_', 'a.b.c', 'a.b.c.d']
         invalid_paths = ['.', '..', 'a.', '.a', 'a..b']
-        
+
         for valid_path in valid_paths:
             assert is_valid_path(valid_path, empty_is_valid=False), valid_path
             assert is_valid_path(valid_path, empty_is_valid=True), valid_path

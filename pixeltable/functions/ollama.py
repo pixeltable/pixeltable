@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 @env.register_client('ollama')
 def _(host: str) -> 'ollama.Client':
     import ollama
+
     return ollama.Client(host=host)
 
 
@@ -97,22 +98,12 @@ def chat(
     import ollama
 
     client = _ollama_client() or ollama
-    return client.chat(
-        model=model,
-        messages=messages,
-        tools=tools,
-        format=format,
-        options=options,
-    ).dict()  # type: ignore[call-overload]
+    return client.chat(model=model, messages=messages, tools=tools, format=format, options=options).dict()  # type: ignore[call-overload]
 
 
 @pxt.udf(batch_size=16)
 def embed(
-    input: Batch[str],
-    *,
-    model: str,
-    truncate: bool = True,
-    options: Optional[dict] = None,
+    input: Batch[str], *, model: str, truncate: bool = True, options: Optional[dict] = None
 ) -> Batch[pxt.Array[(None,), pxt.Float]]:
     """
     Generate embeddings from a model.
@@ -131,12 +122,7 @@ def embed(
     import ollama
 
     client = _ollama_client() or ollama
-    results = client.embed(
-        model=model,
-        input=input,
-        truncate=truncate,
-        options=options,
-    ).dict()
+    results = client.embed(model=model, input=input, truncate=truncate, options=options).dict()
     return [np.array(data, dtype=np.float64) for data in results['embeddings']]
 
 

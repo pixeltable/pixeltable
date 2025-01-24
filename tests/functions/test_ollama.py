@@ -8,7 +8,6 @@ from tests.utils import skip_test_if_not_installed, validate_update_status
 
 
 class TestOllama:
-
     @pytest.mark.xdist_group('ollama')
     def test_generate(self, reset_db):
         self.__ensure_ollama_availability()
@@ -18,11 +17,13 @@ class TestOllama:
 
         # msgs = [{'role': 'user', 'content': t.input}]
         t.add_computed_column(output=generate(t.input, model='qwen2.5:0.5b'))
-        t.add_computed_column(output2=generate(
-            t.input,
-            model='qwen2.5:0.5b',
-            options={'temperature': 1.0, 'max_tokens': 300, 'top_p': 0.9, 'top_k': 40},
-        ))
+        t.add_computed_column(
+            output2=generate(
+                t.input,
+                model='qwen2.5:0.5b',
+                options={'temperature': 1.0, 'max_tokens': 300, 'top_p': 0.9, 'top_k': 40},
+            )
+        )
         validate_update_status(t.insert(input='The average July rainfall in Topeka is '))
         results = t.collect()
         assert len(results['output'][0]['response']) > 0
@@ -35,17 +36,14 @@ class TestOllama:
 
         t = pxt.create_table('test_tbl', {'input': pxt.String})
 
-        msgs = [
-            {'role': 'system', 'content': 'You are a helpful assistant.'},
-            {'role': 'user', 'content': t.input}
-        ]
+        msgs = [{'role': 'system', 'content': 'You are a helpful assistant.'}, {'role': 'user', 'content': t.input}]
 
         t.add_computed_column(output=chat(msgs, model='qwen2.5:0.5b'))
-        t.add_computed_column(output2=chat(
-            msgs,
-            model='qwen2.5:0.5b',
-            options={'temperature': 1.0, 'max_tokens': 300, 'top_p': 0.9, 'top_k': 40},
-        ))
+        t.add_computed_column(
+            output2=chat(
+                msgs, model='qwen2.5:0.5b', options={'temperature': 1.0, 'max_tokens': 300, 'top_p': 0.9, 'top_k': 40}
+            )
+        )
         validate_update_status(t.insert(input='What are the spiciest varieties of peppers?'))
         results = t.collect()
         assert len(results['output'][0]['message']['content']) > 0
@@ -68,6 +66,7 @@ class TestOllama:
         skip_test_if_not_installed('ollama')
         if self.__ollama_available is None:
             import ollama
+
             try:
                 ollama.pull('qwen2.5:0.5b')
                 ollama.generate(model='qwen2.5:0.5b', prompt='Are you properly configured?')

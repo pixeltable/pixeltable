@@ -62,15 +62,14 @@ class RowBuffer:
             return []
         rows: list[exprs.DataRow]
         if self.head_idx + n <= self.size:
-            rows = self.buffer[self.head_idx:self.head_idx + n].tolist()
-            self.buffer[self.head_idx:self.head_idx + n] = None
+            rows = self.buffer[self.head_idx : self.head_idx + n].tolist()
+            self.buffer[self.head_idx : self.head_idx + n] = None
         else:
-            rows = np.concatenate([self.buffer[self.head_idx:], self.buffer[:self.head_idx + n - self.size]]).tolist()
-            self.buffer[self.head_idx:] = None
-            self.buffer[:self.head_idx + n - self.size] = None
+            rows = np.concatenate([self.buffer[self.head_idx :], self.buffer[: self.head_idx + n - self.size]]).tolist()
+            self.buffer[self.head_idx :] = None
+            self.buffer[: self.head_idx + n - self.size] = None
         self.head_pos += n
         self.head_idx = (self.head_idx + n) % self.size
         self.num_rows -= n
         self.num_ready -= n
         return rows
-

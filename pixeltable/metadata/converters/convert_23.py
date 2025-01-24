@@ -9,12 +9,11 @@ from pixeltable.metadata.schema import Table
 
 _logger = logging.getLogger('pixeltable')
 
+
 @register_converter(version=23)
 def _(engine: sql.engine.Engine) -> None:
-    convert_table_md(
-        engine,
-        table_md_updater=__update_table_md
-    )
+    convert_table_md(engine, table_md_updater=__update_table_md)
+
 
 def __update_table_md(table_md: dict, table_id: UUID) -> None:
     """update the index metadata to add indexed_col_tbl_id column if it is missing
@@ -32,4 +31,4 @@ def __update_table_md(table_md: dict, table_id: UUID) -> None:
             # assume that the indexed column is in the same table
             # and update the index metadata.
             _logger.info(f'Updating index metadata for table: {table_id} index: {idx_md["id"]}')
-            idx_md['indexed_col_tbl_id'] = str(table_id)    
+            idx_md['indexed_col_tbl_id'] = str(table_id)

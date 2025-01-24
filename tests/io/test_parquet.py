@@ -12,6 +12,7 @@ from ..utils import get_image_files, make_test_arrow_table, skip_test_if_not_ins
 if TYPE_CHECKING:
     import pyarrow as pa
 
+
 class TestParquet:
     def test_import_parquet(self, reset_db, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('pyarrow')
@@ -55,13 +56,18 @@ class TestParquet:
 
         t = pxt.create_table('test1', {'c1': pxt.Int, 'c2': pxt.String, 'c3': pxt.Timestamp})
         from zoneinfo import ZoneInfo
+
         tz = ZoneInfo('America/Anchorage')
-        t.insert([  {'c1': 1, 'c2': 'row1', 'c3': datetime.datetime(2012, 1, 1, 12, 0, 0, 25, tz)},
-                    {'c1': 2, 'c2': 'row2', 'c3': datetime.datetime(2012, 2, 1, 12, 0, 0, 25, tz)}])
+        t.insert(
+            [
+                {'c1': 1, 'c2': 'row1', 'c3': datetime.datetime(2012, 1, 1, 12, 0, 0, 25, tz)},
+                {'c1': 2, 'c2': 'row2', 'c3': datetime.datetime(2012, 2, 1, 12, 0, 0, 25, tz)},
+            ]
+        )
 
         tz_default = Env().get().default_time_zone
 
-        print("test_export_parquet_simple with tz: ", tz, "and default tz: ", tz_default)
+        print('test_export_parquet_simple with tz: ', tz, 'and default tz: ', tz_default)
 
         export_file1 = tmp_path / 'test1.pq'
         pxt.io.export_parquet(t, export_file1)
@@ -72,8 +78,14 @@ class TestParquet:
         assert ptest1.schema.types == [pa.int64(), pa.string(), pa.timestamp('us', tz=datetime.timezone.utc)]
         assert pa.array(ptest1.column('c1')).equals(self.__pa_array([1, 2]))
         assert pa.array(ptest1.column('c2')).equals(self.__pa_array(['row1', 'row2']))
-        assert pa.array(ptest1.column('c3')).equals(self.__pa_array([datetime.datetime(2012, 1, 1, 12, 0, 0, 25, tz).astimezone(datetime.timezone.utc),
-                                                              datetime.datetime(2012, 2, 1, 12, 0, 0, 25, tz).astimezone(datetime.timezone.utc)]))
+        assert pa.array(ptest1.column('c3')).equals(
+            self.__pa_array(
+                [
+                    datetime.datetime(2012, 1, 1, 12, 0, 0, 25, tz).astimezone(datetime.timezone.utc),
+                    datetime.datetime(2012, 2, 1, 12, 0, 0, 25, tz).astimezone(datetime.timezone.utc),
+                ]
+            )
+        )
 
         export_file2 = tmp_path / 'test2.pq'
         pxt.io.export_parquet(t.select(t.c1, t.c2), export_file2)
@@ -92,7 +104,9 @@ class TestParquet:
         assert ptest3.column_names == ['c1', 'c2', 'c3']
         assert pa.array(ptest3.column('c1')).equals(self.__pa_array([1]))
         assert pa.array(ptest3.column('c2')).equals(self.__pa_array(['row1']))
-        assert pa.array(ptest3.column('c3')).equals(self.__pa_array([datetime.datetime(2012, 1, 1, 12, 0, 0, 25, tz).astimezone(datetime.timezone.utc)]))
+        assert pa.array(ptest3.column('c3')).equals(
+            self.__pa_array([datetime.datetime(2012, 1, 1, 12, 0, 0, 25, tz).astimezone(datetime.timezone.utc)])
+        )
 
         it = pxt.io.import_parquet('imported_test1', parquet_path=str(export_file1))
         assert it.count() == t.count()
@@ -109,14 +123,12 @@ class TestParquet:
         assert it.select(it.c1).collect() == t.select(t.c1).collect()
         assert it.select(it.c2).collect() == t.select(t.c2).collect()
 
-
         it = pxt.io.import_parquet('imported_test3', parquet_path=str(export_file3))
         assert it.count() == 1
         assert it._schema == t._schema
         assert it.select(it.c1).collect() == t.where(t.c1 == 1).select(t.c1).collect()
         assert it.select(it.c2).collect() == t.where(t.c1 == 1).select(t.c2).collect()
         assert it.select(it.c3).collect() == t.where(t.c1 == 1).select(t.c3).collect()
-
 
     def test_export_parquet(self, reset_db, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('pyarrow')
@@ -193,6 +205,7 @@ class TestParquet:
     def __pa_array(self, obj: Iterable) -> 'pa.Array':
         """The output of pa.array can be either a pa.Array or a pa.ChunkedArray; this forces the former"""
         import pyarrow as pa
+
         arr = pa.array(obj)
         assert isinstance(arr, pa.Array)
         return arr

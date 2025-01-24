@@ -14,6 +14,7 @@ class ComponentIterationNode(ExecNode):
 
     Returns row batches of OUTPUT_BATCH_SIZE size.
     """
+
     __OUTPUT_BATCH_SIZE = 1024
 
     def __init__(self, view: catalog.TableVersion, input: ExecNode):
@@ -25,8 +26,8 @@ class ComponentIterationNode(ExecNode):
         self.iterator_args = iterator_args[0]
         assert isinstance(self.iterator_args, exprs.InlineDict)
         self.iterator_args_ctx = self.row_builder.create_eval_ctx([self.iterator_args])
-        self.iterator_output_schema, self.unstored_column_names = (
-            self.view.iterator_cls.output_schema(**self.iterator_args.to_kwargs())
+        self.iterator_output_schema, self.unstored_column_names = self.view.iterator_cls.output_schema(
+            **self.iterator_args.to_kwargs()
         )
         self.iterator_output_fields = list(self.iterator_output_schema.keys())
         self.iterator_output_cols = {
@@ -34,7 +35,8 @@ class ComponentIterationNode(ExecNode):
         }
         # referenced iterator output fields
         self.refd_output_slot_idxs = {
-            e.col.name: e.slot_idx for e in self.row_builder.unique_exprs
+            e.col.name: e.slot_idx
+            for e in self.row_builder.unique_exprs
             if isinstance(e, exprs.ColumnRef) and e.col.name in self.iterator_output_fields
         }
 
@@ -79,8 +81,7 @@ class ComponentIterationNode(ExecNode):
         # verify and copy component_dict fields to their respective slots in output_row
         for field_name, field_val in component_dict.items():
             if field_name not in self.iterator_output_fields:
-                raise excs.Error(
-                    f'Invalid field name {field_name} in output of {self.view.iterator_cls.__name__}')
+                raise excs.Error(f'Invalid field name {field_name} in output of {self.view.iterator_cls.__name__}')
             if field_name not in self.refd_output_slot_idxs:
                 # we can ignore this
                 continue
@@ -90,5 +91,5 @@ class ComponentIterationNode(ExecNode):
         if len(component_dict) != len(self.iterator_output_fields):
             missing_fields = set(self.refd_output_slot_idxs.keys()) - set(component_dict.keys())
             raise excs.Error(
-                f'Invalid output of {self.view.iterator_cls.__name__}: '
-                f'missing fields {", ".join(missing_fields)}')
+                f'Invalid output of {self.view.iterator_cls.__name__}: ' f'missing fields {", ".join(missing_fields)}'
+            )

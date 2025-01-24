@@ -148,7 +148,9 @@ class Project(ExternalStore, abc.ABC):
         """
         from pixeltable import exprs
 
-        assert col.col_type.is_media_type() and not (col.is_stored and col.is_computed) and col not in self.stored_proxies
+        assert (
+            col.col_type.is_media_type() and not (col.is_stored and col.is_computed) and col not in self.stored_proxies
+        )
         proxy_col = Column(
             name=None,
             # Force images in the proxy column to be materialized inside the media store, in a normalized format.
@@ -159,7 +161,7 @@ class Project(ExternalStore, abc.ABC):
             stored=True,
             col_id=tbl_version.next_col_id,
             sa_col_type=col.col_type.to_sa_type(),
-            schema_version_add=tbl_version.schema_version
+            schema_version_add=tbl_version.schema_version,
         )
         proxy_col.tbl = tbl_version
         tbl_version.next_col_id += 1
@@ -197,11 +199,11 @@ class Project(ExternalStore, abc.ABC):
 
     @classmethod
     def validate_columns(
-            cls,
-            table: Table,
-            export_cols: dict[str, ts.ColumnType],
-            import_cols: dict[str, ts.ColumnType],
-            col_mapping: Optional[dict[str, str]]
+        cls,
+        table: Table,
+        export_cols: dict[str, ts.ColumnType],
+        import_cols: dict[str, ts.ColumnType],
+        col_mapping: Optional[dict[str, str]],
     ) -> dict[Column, str]:
         """
         Verifies that the specified `col_mapping` is valid. In particular, checks that:
@@ -294,7 +296,7 @@ class SyncStatus:
             external_rows_deleted=self.external_rows_deleted + other.external_rows_deleted,
             external_rows_updated=self.external_rows_updated + other.external_rows_updated,
             pxt_rows_updated=self.pxt_rows_updated + other.pxt_rows_updated,
-            num_excs=self.num_excs + other.num_excs
+            num_excs=self.num_excs + other.num_excs,
         )
 
     @classmethod
@@ -304,13 +306,14 @@ class SyncStatus:
 
 class MockProject(Project):
     """A project that cannot be synced, used mainly for testing."""
+
     def __init__(
-            self,
-            name: str,
-            export_cols: dict[str, ts.ColumnType],
-            import_cols: dict[str, ts.ColumnType],
-            col_mapping: dict[Column, str],
-            stored_proxies: Optional[dict[Column, Column]] = None
+        self,
+        name: str,
+        export_cols: dict[str, ts.ColumnType],
+        import_cols: dict[str, ts.ColumnType],
+        col_mapping: dict[Column, str],
+        stored_proxies: Optional[dict[Column, Column]] = None,
     ):
         super().__init__(name, col_mapping, stored_proxies)
         self.export_cols = export_cols
@@ -319,12 +322,12 @@ class MockProject(Project):
 
     @classmethod
     def create(
-            cls,
-            t: Table,
-            name: str,
-            export_cols: dict[str, ts.ColumnType],
-            import_cols: dict[str, ts.ColumnType],
-            col_mapping: Optional[dict[str, str]] = None
+        cls,
+        t: Table,
+        name: str,
+        export_cols: dict[str, ts.ColumnType],
+        import_cols: dict[str, ts.ColumnType],
+        col_mapping: Optional[dict[str, str]] = None,
     ) -> 'MockProject':
         col_mapping = cls.validate_columns(t, export_cols, import_cols, col_mapping)
         return cls(name, export_cols, import_cols, col_mapping)
@@ -351,7 +354,9 @@ class MockProject(Project):
             'export_cols': {k: v.as_dict() for k, v in self.export_cols.items()},
             'import_cols': {k: v.as_dict() for k, v in self.import_cols.items()},
             'col_mapping': [[self._column_as_dict(k), v] for k, v in self.col_mapping.items()],
-            'stored_proxies': [[self._column_as_dict(k), self._column_as_dict(v)] for k, v in self.stored_proxies.items()]
+            'stored_proxies': [
+                [self._column_as_dict(k), self._column_as_dict(v)] for k, v in self.stored_proxies.items()
+            ],
         }
 
     @classmethod
@@ -361,7 +366,7 @@ class MockProject(Project):
             {k: ts.ColumnType.from_dict(v) for k, v in md['export_cols'].items()},
             {k: ts.ColumnType.from_dict(v) for k, v in md['import_cols'].items()},
             {cls._column_from_dict(entry[0]): entry[1] for entry in md['col_mapping']},
-            {cls._column_from_dict(entry[0]): cls._column_from_dict(entry[1]) for entry in md['stored_proxies']}
+            {cls._column_from_dict(entry[0]): cls._column_from_dict(entry[1]) for entry in md['stored_proxies']},
         )
 
     def __eq__(self, other: Any) -> bool:

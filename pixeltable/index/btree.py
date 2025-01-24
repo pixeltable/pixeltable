@@ -12,10 +12,12 @@ from .base import IndexBase
 if TYPE_CHECKING:
     import pixeltable.exprs
 
+
 class BtreeIndex(IndexBase):
     """
     Interface to B-tree indices in Postgres.
     """
+
     MAX_STRING_LEN = 256
 
     value_expr: 'pixeltable.exprs.Expr'
@@ -25,7 +27,7 @@ class BtreeIndex(IndexBase):
     def str_filter(s: Optional[str]) -> Optional[str]:
         if s is None:
             return None
-        return s[:BtreeIndex.MAX_STRING_LEN]
+        return s[: BtreeIndex.MAX_STRING_LEN]
 
     def __init__(self, c: 'catalog.Column'):
         if not c.col_type.is_scalar_type() and not c.col_type.is_media_type():
@@ -64,4 +66,3 @@ class BtreeIndex(IndexBase):
     @classmethod
     def from_dict(cls, c: 'catalog.Column', d: dict) -> 'BtreeIndex':
         return cls(c)
-

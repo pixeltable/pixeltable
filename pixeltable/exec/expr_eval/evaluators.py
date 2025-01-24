@@ -23,6 +23,7 @@ class DefaultExprEvaluator(Evaluator):
     TODO:
     - parallelize via Ray
     """
+
     e: exprs.Expr
 
     def __init__(self, e: exprs.Expr, dispatcher: Dispatcher):
@@ -61,6 +62,7 @@ class FnCallEvaluator(Evaluator):
     TODO:
     - adaptive batching: finding the optimal batch size based on observed execution times
     """
+
     fn_call: exprs.FunctionCall
     fn: func.CallableFunction
     scalar_py_fn: Optional[Callable]  # only set for non-batching CallableFunctions
@@ -74,7 +76,7 @@ class FnCallEvaluator(Evaluator):
         self.fn_call = fn_call
         self.fn = cast(func.CallableFunction, fn_call.fn)
         if isinstance(self.fn, func.CallableFunction) and self.fn.is_batched:
-            self.call_args_queue =  asyncio.Queue[FnCallArgs]()
+            self.call_args_queue = asyncio.Queue[FnCallArgs]()
             # we're not supplying sample arguments there, they're ignored anyway
             self.batch_size = self.fn.get_batch_size()
             self.scalar_py_fn = None
@@ -171,14 +173,16 @@ class FnCallEvaluator(Evaluator):
             for k in item.kwargs.keys():
                 batch_kwargs[k][i] = item.kwargs[k]
         return FnCallArgs(
-            self.fn_call, [item.row for item in call_args], batch_args=batch_args, batch_kwargs=batch_kwargs)
+            self.fn_call, [item.row for item in call_args], batch_args=batch_args, batch_kwargs=batch_kwargs
+        )
 
     async def eval_batch(self, batched_call_args: FnCallArgs) -> None:
         result_batch: list[Any]
         try:
             if self.fn.is_async:
                 result_batch = await self.fn.aexec_batch(
-                    *batched_call_args.batch_args, **batched_call_args.batch_kwargs)
+                    *batched_call_args.batch_args, **batched_call_args.batch_kwargs
+                )
             else:
                 # check for cancellation before starting something potentially long-running
                 if asyncio.current_task().cancelled() or self.dispatcher.exc_event.is_set():
@@ -209,6 +213,7 @@ class FnCallEvaluator(Evaluator):
             self.dispatcher.dispatch([call_args.row])
         except Exception as exc:
             import anthropic
+
             if isinstance(exc, anthropic.RateLimitError):
                 _logger.debug(f'RateLimitError: {exc}')
             _, _, exc_tb = sys.exc_info()
@@ -232,7 +237,8 @@ class FnCallEvaluator(Evaluator):
                 rows_with_excs.add(idx)
                 self.dispatcher.dispatch_exc(item.rows, self.fn_call.slot_idx, exc_tb)
         self.dispatcher.dispatch(
-            [call_args_batch[i].row for i in range(len(call_args_batch)) if i not in rows_with_excs])
+            [call_args_batch[i].row for i in range(len(call_args_batch)) if i not in rows_with_excs]
+        )
 
     def _close(self) -> None:
         """Create a task for the incomplete batch of queued FnCallArgs, if any"""

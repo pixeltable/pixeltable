@@ -15,15 +15,19 @@ class TestFireworks:
         from pixeltable.functions.fireworks import chat_completions
 
         messages = [{'role': 'user', 'content': t.input}]
-        t.add_computed_column(output=chat_completions(messages=messages, model='accounts/fireworks/models/mixtral-8x22b-instruct'))
-        t.add_computed_column(output_2=chat_completions(
-            messages=messages,
-            model='accounts/fireworks/models/mixtral-8x22b-instruct',
-            max_tokens=300,
-            top_k=40,
-            top_p=0.9,
-            temperature=0.7,
-        ))
+        t.add_computed_column(
+            output=chat_completions(messages=messages, model='accounts/fireworks/models/mixtral-8x22b-instruct')
+        )
+        t.add_computed_column(
+            output_2=chat_completions(
+                messages=messages,
+                model='accounts/fireworks/models/mixtral-8x22b-instruct',
+                max_tokens=300,
+                top_k=40,
+                top_p=0.9,
+                temperature=0.7,
+            )
+        )
         validate_update_status(t.insert(input="How's everything going today?"), 1)
         results = t.collect()
         assert len(results['output'][0]['choices'][0]['message']['content']) > 0

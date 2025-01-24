@@ -10,12 +10,9 @@ def _(engine: sql.engine.Engine) -> None:
     convert_table_schema_version_md(
         engine,
         table_schema_version_md_updater=__update_table_schema_version,
-        schema_column_updater=__update_schema_column
+        schema_column_updater=__update_schema_column,
     )
-    convert_table_md(
-        engine,
-        substitution_fn=__substitute_md
-    )
+    convert_table_md(engine, substitution_fn=__substitute_md)
 
 
 def __update_table_schema_version(table_schema_version_md: dict) -> None:

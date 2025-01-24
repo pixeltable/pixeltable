@@ -31,11 +31,7 @@ class EmbeddingIndex(IndexBase):
         IP = 2
         L2 = 3
 
-    PGVECTOR_OPS = {
-        Metric.COSINE: 'vector_cosine_ops',
-        Metric.IP: 'vector_ip_ops',
-        Metric.L2: 'vector_l2_ops'
-    }
+    PGVECTOR_OPS = {Metric.COSINE: 'vector_cosine_ops', Metric.IP: 'vector_ip_ops', Metric.L2: 'vector_l2_ops'}
 
     metric: Metric
     value_expr: exprs.FunctionCall
@@ -116,7 +112,8 @@ class EmbeddingIndex(IndexBase):
 
         self.metric = self.Metric[metric.upper()]
         self.value_expr = (
-            self.string_embed(exprs.ColumnRef(c)) if c.col_type.is_string_type()
+            self.string_embed(exprs.ColumnRef(c))
+            if c.col_type.is_string_type()
             else self.image_embed(exprs.ColumnRef(c))
         )
         assert isinstance(self.value_expr.col_type, ts.ArrayType)
@@ -138,10 +135,11 @@ class EmbeddingIndex(IndexBase):
     def create_index(self, index_name: str, index_value_col: catalog.Column, conn: sql.engine.Connection) -> None:
         """Create the index on the index value column"""
         idx = sql.Index(
-            index_name, index_value_col.sa_col,
+            index_name,
+            index_value_col.sa_col,
             postgresql_using='hnsw',
             postgresql_with={'m': 16, 'ef_construction': 64},
-            postgresql_ops={index_value_col.sa_col.name: self.PGVECTOR_OPS[self.metric]}
+            postgresql_ops={index_value_col.sa_col.name: self.PGVECTOR_OPS[self.metric]},
         )
         idx.create(bind=conn)
 
@@ -191,16 +189,20 @@ class EmbeddingIndex(IndexBase):
         return 'embedding'
 
     @classmethod
-    def _resolve_embedding_fn(cls, embed_fn: func.Function, expected_type: ts.ColumnType.Type) -> Optional[func.Function]:
+    def _resolve_embedding_fn(
+        cls, embed_fn: func.Function, expected_type: ts.ColumnType.Type
+    ) -> Optional[func.Function]:
         """Find an overload resolution for `embed_fn` that matches the given type."""
         assert isinstance(embed_fn, func.Function)
         for resolved_fn in embed_fn._resolved_fns:
             # The embedding function must be a 1-ary function of the correct type. But it's ok if the function signature
             # has more than one parameter, as long as it has at most one *required* parameter.
             sig = resolved_fn.signature
-            if (len(sig.parameters) >= 1
+            if (
+                len(sig.parameters) >= 1
                 and len(sig.required_parameters) <= 1
-                and sig.parameters_by_pos[0].col_type.type_enum == expected_type):
+                and sig.parameters_by_pos[0].col_type.type_enum == expected_type
+            ):
                 return resolved_fn
         return None
 
@@ -237,7 +239,7 @@ class EmbeddingIndex(IndexBase):
         return {
             'metric': self.metric.name.lower(),
             'string_embed': None if self.string_embed is None else self.string_embed.as_dict(),
-            'image_embed': None if self.image_embed is None else self.image_embed.as_dict()
+            'image_embed': None if self.image_embed is None else self.image_embed.as_dict(),
         }
 
     @classmethod

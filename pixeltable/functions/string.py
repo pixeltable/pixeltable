@@ -28,6 +28,7 @@ def capitalize(self: str) -> str:
     """
     return self.capitalize()
 
+
 @pxt.udf(is_method=True)
 def casefold(self: str) -> str:
     """
@@ -36,6 +37,7 @@ def casefold(self: str) -> str:
     Equivalent to [`str.casefold()`](https://docs.python.org/3/library/stdtypes.html#str.casefold).
     """
     return self.casefold()
+
 
 @pxt.udf(is_method=True)
 def center(self: str, width: int, fillchar: str = ' ') -> str:
@@ -50,6 +52,7 @@ def center(self: str, width: int, fillchar: str = ' ') -> str:
     """
     return self.center(width, fillchar)
 
+
 @pxt.udf(is_method=True)
 def contains(self: str, pattern: str, case: bool = True, flags: int = 0, regex: bool = True) -> bool:
     """
@@ -63,6 +66,7 @@ def contains(self: str, pattern: str, case: bool = True, flags: int = 0, regex: 
     """
     if regex:
         import re
+
         if not case:
             flags |= re.IGNORECASE
         return bool(re.search(pattern, self, flags))
@@ -71,6 +75,7 @@ def contains(self: str, pattern: str, case: bool = True, flags: int = 0, regex: 
             return pattern in self
         else:
             return pattern.lower() in self.lower()
+
 
 @pxt.udf(is_method=True)
 def count(self: str, pattern: str, flags: int = 0) -> int:
@@ -83,7 +88,9 @@ def count(self: str, pattern: str, flags: int = 0) -> int:
     """
     import re
     from builtins import len
+
     return len(re.findall(pattern, self, flags))
+
 
 @pxt.udf(is_method=True)
 def endswith(self: str, pattern: str) -> bool:
@@ -97,6 +104,7 @@ def endswith(self: str, pattern: str) -> bool:
     """
     return self.endswith(pattern)
 
+
 @pxt.udf(is_method=True)
 def fill(self: str, width: int, **kwargs: Any) -> str:
     """
@@ -109,7 +117,9 @@ def fill(self: str, width: int, **kwargs: Any) -> str:
         kwargs: Additional keyword arguments to pass to `textwrap.fill()`.
     """
     import textwrap
+
     return textwrap.fill(self, width, **kwargs)
+
 
 @pxt.udf(is_method=True)
 def find(self: str, substr: str, start: Optional[int] = 0, end: Optional[int] = None) -> int:
@@ -125,6 +135,7 @@ def find(self: str, substr: str, start: Optional[int] = 0, end: Optional[int] = 
     """
     return self.find(substr, start, end)
 
+
 @pxt.udf(is_method=True)
 def findall(self: str, pattern: str, flags: int = 0) -> list:
     """
@@ -137,7 +148,9 @@ def findall(self: str, pattern: str, flags: int = 0) -> list:
         flags: [flags](https://docs.python.org/3/library/re.html#flags) for the `re` module
     """
     import re
+
     return re.findall(pattern, self, flags)
+
 
 @pxt.udf(is_method=True)
 def format(self: str, *args: Any, **kwargs: Any) -> str:
@@ -147,6 +160,7 @@ def format(self: str, *args: Any, **kwargs: Any) -> str:
     Equivalent to [`str.format()`](https://docs.python.org/3/library/stdtypes.html#str.format).
     """
     return self.format(*args, **kwargs)
+
 
 @pxt.udf(is_method=True)
 def fullmatch(self: str, pattern: str, case: bool = True, flags: int = 0) -> bool:
@@ -161,10 +175,12 @@ def fullmatch(self: str, pattern: str, case: bool = True, flags: int = 0) -> boo
         flags: [flags](https://docs.python.org/3/library/re.html#flags) for the `re` module
     """
     import re
+
     if not case:
         flags |= re.IGNORECASE
     _ = bool(re.fullmatch(pattern, self, flags))
     return bool(re.fullmatch(pattern, self, flags))
+
 
 @pxt.udf(is_method=True)
 def index(self: str, substr: str, start: Optional[int] = 0, end: Optional[int] = None) -> int:
@@ -181,6 +197,7 @@ def index(self: str, substr: str, start: Optional[int] = 0, end: Optional[int] =
     """
     return self.index(substr, start, end)
 
+
 @pxt.udf(is_method=True)
 def isalnum(self: str) -> bool:
     """
@@ -191,6 +208,7 @@ def isalnum(self: str) -> bool:
     """
     return self.isalnum()
 
+
 @pxt.udf(is_method=True)
 def isalpha(self: str) -> bool:
     """
@@ -200,6 +218,7 @@ def isalpha(self: str) -> bool:
     """
     return self.isalpha()
 
+
 @pxt.udf(is_method=True)
 def isascii(self: str) -> bool:
     """
@@ -208,6 +227,7 @@ def isascii(self: str) -> bool:
     Equivalent to [`str.isascii()`](https://docs.python.org/3/library/stdtypes.html#str.isascii).
     """
     return self.isascii()
+
 
 @pxt.udf(is_method=True)
 def isdecimal(self: str) -> bool:
@@ -219,6 +239,7 @@ def isdecimal(self: str) -> bool:
     """
     return self.isdecimal()
 
+
 @pxt.udf(is_method=True)
 def isdigit(self: str) -> bool:
     """
@@ -227,6 +248,7 @@ def isdigit(self: str) -> bool:
     Equivalent to [`str.isdigit()`](https://docs.python.org/3/library/stdtypes.html#str.isdigit).
     """
     return self.isdigit()
+
 
 @pxt.udf(is_method=True)
 def isidentifier(self: str) -> bool:
@@ -247,6 +269,7 @@ def islower(self: str) -> bool:
     """
     return self.islower()
 
+
 @pxt.udf(is_method=True)
 def isnumeric(self: str) -> bool:
     """
@@ -255,6 +278,7 @@ def isnumeric(self: str) -> bool:
     Equivalent to [`str.isnumeric()`](https://docs.python.org/3/library/stdtypes.html#str.isnumeric)
     """
     return self.isnumeric()
+
 
 @pxt.udf(is_method=True)
 def isupper(self: str) -> bool:
@@ -265,6 +289,7 @@ def isupper(self: str) -> bool:
     """
     return self.isupper()
 
+
 @pxt.udf(is_method=True)
 def istitle(self: str) -> bool:
     """
@@ -273,6 +298,7 @@ def istitle(self: str) -> bool:
     Equivalent to [`str.istitle()`](https://docs.python.org/3/library/stdtypes.html#str.istitle)
     """
     return self.istitle()
+
 
 @pxt.udf(is_method=True)
 def isspace(self: str) -> bool:
@@ -283,6 +309,7 @@ def isspace(self: str) -> bool:
     """
     return self.isspace()
 
+
 @pxt.udf
 def join(sep: str, elements: list) -> str:
     """
@@ -292,6 +319,7 @@ def join(sep: str, elements: list) -> str:
     """
     return sep.join(elements)
 
+
 @pxt.udf(is_method=True)
 def len(self: str) -> int:
     """
@@ -300,6 +328,7 @@ def len(self: str) -> int:
     Equivalent to [`len(str)`](https://docs.python.org/3/library/functions.html#len)
     """
     return self.__len__()
+
 
 @pxt.udf(is_method=True)
 def ljust(self: str, width: int, fillchar: str = ' ') -> str:
@@ -314,6 +343,7 @@ def ljust(self: str, width: int, fillchar: str = ' ') -> str:
     """
     return self.ljust(width, fillchar)
 
+
 @pxt.udf(is_method=True)
 def lower(self: str) -> str:
     """
@@ -322,6 +352,7 @@ def lower(self: str) -> str:
     Equivalent to [`str.lower()`](https://docs.python.org/3/library/stdtypes.html#str.lower)
     """
     return self.lower()
+
 
 @pxt.udf(is_method=True)
 def lstrip(self: str, chars: Optional[str] = None) -> str:
@@ -336,6 +367,7 @@ def lstrip(self: str, chars: Optional[str] = None) -> str:
     """
     return self.lstrip(chars)
 
+
 @pxt.udf(is_method=True)
 def match(self: str, pattern: str, case: bool = True, flags: int = 0) -> bool:
     """
@@ -347,9 +379,11 @@ def match(self: str, pattern: str, case: bool = True, flags: int = 0) -> bool:
         flags: [flags](https://docs.python.org/3/library/re.html#flags) for the `re` module
     """
     import re
+
     if not case:
         flags |= re.IGNORECASE
     return bool(re.match(pattern, self, flags))
+
 
 @pxt.udf(is_method=True)
 def normalize(self: str, form: str) -> str:
@@ -362,7 +396,9 @@ def normalize(self: str, form: str) -> str:
         form: Unicode normal form (`‘NFC’`, `‘NFKC’`, `‘NFD’`, `‘NFKD’`)
     """
     import unicodedata
+
     return unicodedata.normalize(form, self)  # type: ignore[arg-type]
+
 
 @pxt.udf(is_method=True)
 def pad(self: str, width: int, side: str = 'left', fillchar: str = ' ') -> str:
@@ -381,7 +417,8 @@ def pad(self: str, width: int, side: str = 'left', fillchar: str = ' ') -> str:
     elif side == 'both':
         return self.center(width, fillchar)
     else:
-        raise ValueError(f"Invalid side: {side}")
+        raise ValueError(f'Invalid side: {side}')
+
 
 @pxt.udf(is_method=True)
 def partition(self: str, sep: str = ' ') -> list:
@@ -394,7 +431,9 @@ def partition(self: str, sep: str = ' ') -> list:
     if idx == -1:
         return [self, '', '']
     from builtins import len
-    return [self[:idx], sep, self[idx + len(sep):]]
+
+    return [self[:idx], sep, self[idx + len(sep) :]]
+
 
 @pxt.udf(is_method=True)
 def removeprefix(self: str, prefix: str) -> str:
@@ -404,8 +443,10 @@ def removeprefix(self: str, prefix: str) -> str:
     if self.startswith(prefix):
         # we need to avoid referring to our symbol 'len'
         from builtins import len
-        return self[len(prefix):]
+
+        return self[len(prefix) :]
     return self
+
 
 @pxt.udf(is_method=True)
 def removesuffix(self: str, suffix: str) -> str:
@@ -415,8 +456,10 @@ def removesuffix(self: str, suffix: str) -> str:
     if self.endswith(suffix):
         # we need to avoid referring to our symbol 'len'
         from builtins import len
-        return self[:-len(suffix)]
+
+        return self[: -len(suffix)]
     return self
+
 
 @pxt.udf(is_method=True)
 def repeat(self: str, n: int) -> str:
@@ -425,9 +468,10 @@ def repeat(self: str, n: int) -> str:
     """
     return self * n
 
+
 @pxt.udf(is_method=True)
 def replace(
-        self: str, pattern: str, repl: str, n: int = -1, case: bool = True, flags: int = 0, regex: bool = False
+    self: str, pattern: str, repl: str, n: int = -1, case: bool = True, flags: int = 0, regex: bool = False
 ) -> str:
     """
     Replace occurrences of `pattern` with `repl`.
@@ -445,11 +489,13 @@ def replace(
     """
     if regex:
         import re
+
         if not case:
             flags |= re.IGNORECASE
         return re.sub(pattern, repl, self, 0 if n == -1 else n, flags)
     else:
         return self.replace(pattern, repl, n)
+
 
 @pxt.udf(is_method=True)
 def rfind(self: str, substr: str, start: Optional[int] = 0, end: Optional[int] = None) -> int:
@@ -465,6 +511,7 @@ def rfind(self: str, substr: str, start: Optional[int] = 0, end: Optional[int] =
     """
     return self.rfind(substr, start, end)
 
+
 @pxt.udf(is_method=True)
 def rindex(self: str, substr: str, start: Optional[int] = 0, end: Optional[int] = None) -> int:
     """
@@ -474,6 +521,7 @@ def rindex(self: str, substr: str, start: Optional[int] = 0, end: Optional[int] 
     Equivalent to [`str.rindex()`](https://docs.python.org/3/library/stdtypes.html#str.rindex).
     """
     return self.rindex(substr, start, end)
+
 
 @pxt.udf(is_method=True)
 def rjust(self: str, width: int, fillchar: str = ' ') -> str:
@@ -488,6 +536,7 @@ def rjust(self: str, width: int, fillchar: str = ' ') -> str:
     """
     return self.rjust(width, fillchar)
 
+
 @pxt.udf(is_method=True)
 def rpartition(self: str, sep: str = ' ') -> list:
     """
@@ -498,7 +547,9 @@ def rpartition(self: str, sep: str = ' ') -> list:
     if idx == -1:
         return [self, '', '']
     from builtins import len
-    return [self[:idx], sep, self[idx + len(sep):]]
+
+    return [self[:idx], sep, self[idx + len(sep) :]]
+
 
 @pxt.udf(is_method=True)
 def rstrip(self: str, chars: Optional[str] = None) -> str:
@@ -512,6 +563,7 @@ def rstrip(self: str, chars: Optional[str] = None) -> str:
     """
     return self.rstrip(chars)
 
+
 @pxt.udf(is_method=True)
 def slice(self: str, start: Optional[int] = None, stop: Optional[int] = None, step: Optional[int] = None) -> str:
     """
@@ -524,8 +576,11 @@ def slice(self: str, start: Optional[int] = None, stop: Optional[int] = None, st
     """
     return self[start:stop:step]
 
+
 @pxt.udf(is_method=True)
-def slice_replace(self: str, start: Optional[int] = None, stop: Optional[int] = None, repl: Optional[str] = None) -> str:
+def slice_replace(
+    self: str, start: Optional[int] = None, stop: Optional[int] = None, repl: Optional[str] = None
+) -> str:
     """
     Replace a positional slice with another value.
 
@@ -535,6 +590,7 @@ def slice_replace(self: str, start: Optional[int] = None, stop: Optional[int] = 
         repl: replacement value
     """
     return self[:start] + repl + self[stop:]
+
 
 @pxt.udf(is_method=True)
 def startswith(self: str, pattern: str) -> int:
@@ -548,6 +604,7 @@ def startswith(self: str, pattern: str) -> int:
     """
     return self.startswith(pattern)
 
+
 @pxt.udf(is_method=True)
 def strip(self: str, chars: Optional[str] = None) -> str:
     """
@@ -560,6 +617,7 @@ def strip(self: str, chars: Optional[str] = None) -> str:
     """
     return self.strip(chars)
 
+
 @pxt.udf(is_method=True)
 def swapcase(self: str) -> str:
     """
@@ -568,6 +626,7 @@ def swapcase(self: str) -> str:
     Equivalent to [`str.swapcase()`](https://docs.python.org/3/library/stdtypes.html#str.swapcase).
     """
     return self.swapcase()
+
 
 @pxt.udf(is_method=True)
 def title(self: str) -> str:
@@ -579,6 +638,7 @@ def title(self: str) -> str:
     """
     return self.title()
 
+
 @pxt.udf(is_method=True)
 def upper(self: str) -> str:
     """
@@ -587,6 +647,7 @@ def upper(self: str) -> str:
     Equivalent to [`str.upper()`](https://docs.python.org/3/library/stdtypes.html#str.upper).
     """
     return self.upper()
+
 
 @pxt.udf(is_method=True)
 def wrap(self: str, width: int, **kwargs: Any) -> list[str]:
@@ -601,7 +662,9 @@ def wrap(self: str, width: int, **kwargs: Any) -> list[str]:
         kwargs: Additional keyword arguments to pass to `textwrap.fill()`.
     """
     import textwrap
+
     return textwrap.wrap(self, width, **kwargs)
+
 
 @pxt.udf(is_method=True)
 def zfill(self: str, width: int) -> str:

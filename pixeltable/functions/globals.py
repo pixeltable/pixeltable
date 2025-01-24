@@ -23,6 +23,7 @@ T = typing.TypeVar('T')
 @func.uda(allows_window=True, type_substitutions=({T: Optional[int]}, {T: Optional[float]}))  # type: ignore[misc]
 class sum(func.Aggregator, typing.Generic[T]):
     """Sums the selected integers or floats."""
+
     def __init__(self):
         self.sum: T = None
 
@@ -52,8 +53,18 @@ def _(val: sql.ColumnElement) -> Optional[sql.ColumnElement]:
     # TODO: should we have an "Any" type that can be used here?
     type_substitutions=tuple(
         {T: Optional[t]}  # type: ignore[misc]
-        for t in (ts.String, ts.Int, ts.Float, ts.Bool, ts.Timestamp,
-                  ts.Json, ts.Image, ts.Video, ts.Audio, ts.Document)
+        for t in (
+            ts.String,
+            ts.Int,
+            ts.Float,
+            ts.Bool,
+            ts.Timestamp,
+            ts.Json,
+            ts.Image,
+            ts.Video,
+            ts.Audio,
+            ts.Document,
+        )
     ),
 )
 class count(func.Aggregator, typing.Generic[T]):
@@ -75,7 +86,7 @@ def _(val: sql.ColumnElement) -> Optional[sql.ColumnElement]:
 
 @func.uda(
     allows_window=True,
-    type_substitutions=tuple({T: Optional[t]} for t in (str, int, float, bool, ts.Timestamp))  # type: ignore[misc]
+    type_substitutions=tuple({T: Optional[t]} for t in (str, int, float, bool, ts.Timestamp)),  # type: ignore[misc]
 )
 class min(func.Aggregator, typing.Generic[T]):
     def __init__(self):
@@ -105,7 +116,7 @@ def _(val: sql.ColumnElement) -> Optional[sql.ColumnElement]:
 
 @func.uda(
     allows_window=True,
-    type_substitutions=tuple({T: Optional[t]} for t in (str, int, float, bool, ts.Timestamp))  # type: ignore[misc]
+    type_substitutions=tuple({T: Optional[t]} for t in (str, int, float, bool, ts.Timestamp)),  # type: ignore[misc]
 )
 class max(func.Aggregator, typing.Generic[T]):
     def __init__(self):

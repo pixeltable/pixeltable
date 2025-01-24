@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 @register_client('mistral')
 def _(api_key: str) -> 'mistralai.Mistral':
     import mistralai
+
     return mistralai.Mistral(api_key=api_key)
 
 
@@ -68,17 +69,21 @@ def chat_completions(
         ... tbl['response'] = completions(messages, model='mistral-latest-small')
     """
     Env.get().require_package('mistralai')
-    return _mistralai_client().chat.complete(
-        messages=messages,  # type: ignore[arg-type]
-        model=model,
-        temperature=temperature,
-        top_p=top_p,
-        max_tokens=_opt(max_tokens),
-        stop=stop,
-        random_seed=_opt(random_seed),
-        response_format=response_format,  # type: ignore[arg-type]
-        safe_prompt=safe_prompt,
-    ).dict()
+    return (
+        _mistralai_client()
+        .chat.complete(
+            messages=messages,  # type: ignore[arg-type]
+            model=model,
+            temperature=temperature,
+            top_p=top_p,
+            max_tokens=_opt(max_tokens),
+            stop=stop,
+            random_seed=_opt(random_seed),
+            response_format=response_format,  # type: ignore[arg-type]
+            safe_prompt=safe_prompt,
+        )
+        .dict()
+    )
 
 
 @pxt.udf
@@ -120,22 +125,24 @@ def fim_completions(
         >>> tbl['response'] = completions(tbl.prompt, model='codestral-latest')
     """
     Env.get().require_package('mistralai')
-    return _mistralai_client().fim.complete(
-        prompt=prompt,
-        model=model,
-        temperature=temperature,
-        top_p=top_p,
-        max_tokens=_opt(max_tokens),
-        min_tokens=_opt(min_tokens),
-        stop=stop,
-        random_seed=_opt(random_seed),
-        suffix=_opt(suffix)
-    ).dict()
+    return (
+        _mistralai_client()
+        .fim.complete(
+            prompt=prompt,
+            model=model,
+            temperature=temperature,
+            top_p=top_p,
+            max_tokens=_opt(max_tokens),
+            min_tokens=_opt(min_tokens),
+            stop=stop,
+            random_seed=_opt(random_seed),
+            suffix=_opt(suffix),
+        )
+        .dict()
+    )
 
 
-_embedding_dimensions_cache: dict[str, int] = {
-    'mistral-embed': 1024
-}
+_embedding_dimensions_cache: dict[str, int] = {'mistral-embed': 1024}
 
 
 @pxt.udf(batch_size=16)
@@ -158,10 +165,7 @@ def embeddings(input: Batch[str], *, model: str) -> Batch[pxt.Array[(None,), pxt
         An array representing the application of the given embedding to `input`.
     """
     Env.get().require_package('mistralai')
-    result = _mistralai_client().embeddings.create(
-        inputs=input,
-        model=model,
-    )
+    result = _mistralai_client().embeddings.create(inputs=input, model=model)
     return [np.array(data.embedding, dtype=np.float64) for data in result.data]
 
 
@@ -176,6 +180,7 @@ _T = TypeVar('_T')
 
 def _opt(arg: Optional[_T]) -> Union[_T, 'mistralai.types.basemodel.Unset']:
     from mistralai.types import UNSET
+
     return arg if arg is not None else UNSET
 
 

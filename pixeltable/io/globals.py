@@ -11,15 +11,15 @@ if TYPE_CHECKING:
 
 
 def create_label_studio_project(
-        t: Table,
-        label_config: str,
-        name: Optional[str] = None,
-        title: Optional[str] = None,
-        media_import_method: Literal['post', 'file', 'url'] = 'post',
-        col_mapping: Optional[dict[str, str]] = None,
-        sync_immediately: bool = True,
-        s3_configuration: Optional[dict[str, Any]] = None,
-        **kwargs: Any
+    t: Table,
+    label_config: str,
+    name: Optional[str] = None,
+    title: Optional[str] = None,
+    media_import_method: Literal['post', 'file', 'url'] = 'post',
+    col_mapping: Optional[dict[str, str]] = None,
+    sync_immediately: bool = True,
+    s3_configuration: Optional[dict[str, Any]] = None,
+    **kwargs: Any,
 ) -> SyncStatus:
     """
     Create a new Label Studio project and link it to the specified [`Table`][pixeltable.Table].
@@ -125,14 +125,7 @@ def create_label_studio_project(
     from pixeltable.io.label_studio import LabelStudioProject
 
     ls_project = LabelStudioProject.create(
-        t,
-        label_config,
-        name,
-        title,
-        media_import_method,
-        col_mapping,
-        s3_configuration,
-        **kwargs
+        t, label_config, name, title, media_import_method, col_mapping, s3_configuration, **kwargs
     )
 
     # Link the project to `t`, and sync if appropriate.
@@ -150,8 +143,8 @@ def import_rows(
     schema_overrides: Optional[dict[str, pxt.ColumnType]] = None,
     primary_key: Optional[Union[str, list[str]]] = None,
     num_retained_versions: int = 10,
-    comment: str = ''
-    ) -> Table:
+    comment: str = '',
+) -> Table:
     """
     Creates a new base table from a list of dictionaries. The dictionaries must be of the
     form `{column_name: value, ...}`. Pixeltable will attempt to infer the schema of the table from the
@@ -194,7 +187,9 @@ def import_rows(
                 # The column type will always be nullable by default.
                 col_type = pxt.ColumnType.infer_literal_type(value, nullable=True)
                 if col_type is None:
-                    raise excs.Error(f'Could not infer type for column `{col_name}`; the value in row {n} has an unsupported type: {type(value)}')
+                    raise excs.Error(
+                        f'Could not infer type for column `{col_name}`; the value in row {n} has an unsupported type: {type(value)}'
+                    )
                 if col_name not in schema:
                     schema[col_name] = col_type
                 else:
@@ -210,7 +205,9 @@ def import_rows(
 
     extraneous_keys = schema_overrides.keys() - schema.keys()
     if len(extraneous_keys) > 0:
-        raise excs.Error(f'The following columns specified in `schema_overrides` are not present in the data: {", ".join(extraneous_keys)}')
+        raise excs.Error(
+            f'The following columns specified in `schema_overrides` are not present in the data: {", ".join(extraneous_keys)}'
+        )
 
     entirely_none_cols = cols_with_nones - schema.keys()
     if len(entirely_none_cols) > 0:
@@ -221,7 +218,9 @@ def import_rows(
             'Consider specifying the type(s) explicitly in `schema_overrides`.'
         )
 
-    t = pxt.create_table(tbl_path, schema, primary_key=primary_key, num_retained_versions=num_retained_versions, comment=comment)
+    t = pxt.create_table(
+        tbl_path, schema, primary_key=primary_key, num_retained_versions=num_retained_versions, comment=comment
+    )
     t.insert(rows)
     return t
 
@@ -234,7 +233,7 @@ def import_json(
     primary_key: Optional[Union[str, list[str]]] = None,
     num_retained_versions: int = 10,
     comment: str = '',
-    **kwargs: Any
+    **kwargs: Any,
 ) -> Table:
     """
     Creates a new base table from a JSON file. This is a convenience method and is
@@ -272,7 +271,14 @@ def import_json(
         # URL
         contents = urllib.request.urlopen(filepath_or_url).read()
     data = json.loads(contents, **kwargs)
-    return import_rows(tbl_path, data, schema_overrides=schema_overrides, primary_key=primary_key, num_retained_versions=num_retained_versions, comment=comment)
+    return import_rows(
+        tbl_path,
+        data,
+        schema_overrides=schema_overrides,
+        primary_key=primary_key,
+        num_retained_versions=num_retained_versions,
+        comment=comment,
+    )
 
 
 def export_images_as_fo_dataset(
@@ -358,6 +364,6 @@ def export_images_as_fo_dataset(
     if not images.col_type.is_image_type():
         raise excs.Error(f'`images` must be an expression of type Image (got {images.col_type._to_base_str()})')
 
-    return fo.Dataset.from_importer(PxtImageDatasetImporter(
-        tbl, images, image_format, classifications=classifications, detections=detections
-    ))
+    return fo.Dataset.from_importer(
+        PxtImageDatasetImporter(tbl, images, image_format, classifications=classifications, detections=detections)
+    )

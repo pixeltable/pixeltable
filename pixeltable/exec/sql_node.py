@@ -53,10 +53,12 @@ def combine_order_by_clauses(clauses: Iterable[OrderByClause]) -> Optional[Order
 
 
 def print_order_by_clause(clause: OrderByClause) -> str:
-    return ', '.join([
-        f'({item.expr}{", asc=True" if item.asc is True else ""}{", asc=False" if item.asc is False else ""})'
-        for item in clause
-    ])
+    return ', '.join(
+        [
+            f'({item.expr}{", asc=True" if item.asc is True else ""}{", asc=False" if item.asc is False else ""})'
+            for item in clause
+        ]
+    )
 
 
 class SqlNode(ExecNode):
@@ -82,8 +84,12 @@ class SqlNode(ExecNode):
     limit: Optional[int]
 
     def __init__(
-            self, tbl: Optional[catalog.TableVersionPath], row_builder: exprs.RowBuilder,
-            select_list: Iterable[exprs.Expr], sql_elements: exprs.SqlElementCache, set_pk: bool = False
+        self,
+        tbl: Optional[catalog.TableVersionPath],
+        row_builder: exprs.RowBuilder,
+        select_list: Iterable[exprs.Expr],
+        sql_elements: exprs.SqlElementCache,
+        set_pk: bool = False,
     ):
         """
         If row_builder contains references to unstored iter columns, expands the select list to include their
@@ -186,8 +192,11 @@ class SqlNode(ExecNode):
 
     @classmethod
     def create_from_clause(
-            cls, tbl: catalog.TableVersionPath, stmt: sql.Select, refd_tbl_ids: Optional[set[UUID]] = None,
-            exact_version_only: Optional[set[UUID]] = None
+        cls,
+        tbl: catalog.TableVersionPath,
+        stmt: sql.Select,
+        refd_tbl_ids: Optional[set[UUID]] = None,
+        exact_version_only: Optional[set[UUID]] = None,
     ) -> sql.Select:
         """Add From clause to stmt for tables/views referenced by materialized_exprs
         Args:
@@ -220,15 +229,14 @@ class SqlNode(ExecNode):
                 # join tbl to prev_tbl on prev_tbl's rowid cols
                 prev_tbl_rowid_cols = prev_tbl.store_tbl.rowid_columns()
                 tbl_rowid_cols = tbl.store_tbl.rowid_columns()
-                rowid_clauses = \
-                    [c1 == c2 for c1, c2 in zip(prev_tbl_rowid_cols, tbl_rowid_cols[:len(prev_tbl_rowid_cols)])]
+                rowid_clauses = [
+                    c1 == c2 for c1, c2 in zip(prev_tbl_rowid_cols, tbl_rowid_cols[: len(prev_tbl_rowid_cols)])
+                ]
                 stmt = stmt.join(tbl.store_tbl.sa_tbl, sql.and_(*rowid_clauses))
             if tbl.id in exact_version_only:
                 stmt = stmt.where(tbl.store_tbl.v_min_col == tbl.version)
             else:
-                stmt = stmt \
-                    .where(tbl.store_tbl.v_min_col <= tbl.version) \
-                    .where(tbl.store_tbl.v_max_col > tbl.version)
+                stmt = stmt.where(tbl.store_tbl.v_min_col <= tbl.version).where(tbl.store_tbl.v_max_col > tbl.version)
             prev_tbl = tbl
         return stmt
 
@@ -291,7 +299,7 @@ class SqlNode(ExecNode):
 
             # populate output_row
             if self.num_pk_cols > 0:
-                output_row.set_pk(tuple(sql_row[-self.num_pk_cols:]))
+                output_row.set_pk(tuple(sql_row[-self.num_pk_cols :]))
             # copy the output of the SQL query into the output row
             for i, e in enumerate(self.select_list):
                 slot_idx = e.slot_idx
@@ -341,12 +349,16 @@ class SqlScanNode(SqlNode):
 
     Supports filtering and ordering.
     """
+
     exact_version_only: list[catalog.TableVersion]
 
     def __init__(
-        self, tbl: catalog.TableVersionPath, row_builder: exprs.RowBuilder,
+        self,
+        tbl: catalog.TableVersionPath,
+        row_builder: exprs.RowBuilder,
         select_list: Iterable[exprs.Expr],
-        set_pk: bool = False, exact_version_only: Optional[list[catalog.TableVersion]] = None
+        set_pk: bool = False,
+        exact_version_only: Optional[list[catalog.TableVersion]] = None,
     ):
         """
         Args:
@@ -367,7 +379,8 @@ class SqlScanNode(SqlNode):
         where_clause_tbl_ids = self.where_clause.tbl_ids() if self.where_clause is not None else set()
         refd_tbl_ids = exprs.Expr.all_tbl_ids(self.select_list) | where_clause_tbl_ids | self._ordering_tbl_ids()
         stmt = self.create_from_clause(
-            self.tbl, stmt, refd_tbl_ids, exact_version_only={t.id for t in self.exact_version_only})
+            self.tbl, stmt, refd_tbl_ids, exact_version_only={t.id for t in self.exact_version_only}
+        )
         return stmt
 
 
@@ -377,8 +390,12 @@ class SqlLookupNode(SqlNode):
     """
 
     def __init__(
-        self, tbl: catalog.TableVersionPath, row_builder: exprs.RowBuilder,
-        select_list: Iterable[exprs.Expr], sa_key_cols: list[sql.Column], key_vals: list[tuple],
+        self,
+        tbl: catalog.TableVersionPath,
+        row_builder: exprs.RowBuilder,
+        select_list: Iterable[exprs.Expr],
+        sa_key_cols: list[sql.Column],
+        key_vals: list[tuple],
     ):
         """
         Args:
@@ -406,11 +423,13 @@ class SqlAggregationNode(SqlNode):
     group_by_items: Optional[list[exprs.Expr]]
 
     def __init__(
-        self, row_builder: exprs.RowBuilder,
+        self,
+        row_builder: exprs.RowBuilder,
         input: SqlNode,
         select_list: Iterable[exprs.Expr],
         group_by_items: Optional[list[exprs.Expr]] = None,
-        limit: Optional[int] = None, exact_version_only: Optional[list[catalog.TableVersion]] = None
+        limit: Optional[int] = None,
+        exact_version_only: Optional[list[catalog.TableVersion]] = None,
     ):
         """
         Args:
@@ -436,12 +455,16 @@ class SqlJoinNode(SqlNode):
     """
     Materializes data from the store via a Select ... From ... that contains joins
     """
+
     input_ctes: list[sql.CTE]
     join_clauses: list['pixeltable.plan.JoinClause']
 
     def __init__(
-        self, row_builder: exprs.RowBuilder,
-        inputs: Sequence[SqlNode], join_clauses: list['pixeltable.plan.JoinClause'], select_list: Iterable[exprs.Expr]
+        self,
+        row_builder: exprs.RowBuilder,
+        inputs: Sequence[SqlNode],
+        join_clauses: list['pixeltable.plan.JoinClause'],
+        select_list: Iterable[exprs.Expr],
     ):
         assert len(inputs) > 1
         assert len(inputs) == len(join_clauses) + 1
@@ -456,16 +479,21 @@ class SqlJoinNode(SqlNode):
 
     def _create_stmt(self) -> sql.Select:
         from pixeltable import plan
+
         stmt = super()._create_stmt()
         stmt = stmt.select_from(self.input_ctes[0])
         for i in range(len(self.join_clauses)):
             join_clause = self.join_clauses[i]
             on_clause = (
-                self.sql_elements.get(join_clause.join_predicate) if join_clause.join_type != plan.JoinType.CROSS
+                self.sql_elements.get(join_clause.join_predicate)
+                if join_clause.join_type != plan.JoinType.CROSS
                 else sql.sql.expression.literal(True)
             )
             is_outer = join_clause.join_type == plan.JoinType.LEFT or join_clause.join_type == plan.JoinType.FULL_OUTER
             stmt = stmt.join(
-                self.input_ctes[i + 1], onclause=on_clause, isouter=is_outer,
-                full=join_clause == plan.JoinType.FULL_OUTER)
+                self.input_ctes[i + 1],
+                onclause=on_clause,
+                isouter=is_outer,
+                full=join_clause == plan.JoinType.FULL_OUTER,
+            )
         return stmt

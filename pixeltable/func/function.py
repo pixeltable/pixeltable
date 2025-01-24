@@ -48,13 +48,12 @@ class Function(ABC):
     # of the parameters of the original function, with the same type.
     _resource_pool: Callable[..., Optional[str]]
 
-
     def __init__(
         self,
         signatures: list[Signature],
         self_path: Optional[str] = None,
         is_method: bool = False,
-        is_property: bool = False
+        is_property: bool = False,
     ):
         # Check that stored functions cannot be declared using `is_method` or `is_property`:
         assert not ((is_method or is_property) and self_path is None)
@@ -80,7 +79,7 @@ class Function(ABC):
             return '<anonymous>'
         ptf_prefix = 'pixeltable.functions.'
         if self.self_path.startswith(ptf_prefix):
-            return self.self_path[len(ptf_prefix):]
+            return self.self_path[len(ptf_prefix) :]
         return self.self_path
 
     @property
@@ -197,10 +196,13 @@ class Function(ABC):
         """Return the kwargs to pass to callable, given kwargs passed to this function"""
         bound_args = self.signature.py_signature.bind(**kwargs).arguments
         # add defaults to bound_args, if not already present
-        bound_args.update({
-            name: param.default
-            for name, param in self.signature.parameters.items() if name not in bound_args and param.has_default()
-        })
+        bound_args.update(
+            {
+                name: param.default
+                for name, param in self.signature.parameters.items()
+                if name not in bound_args and param.has_default()
+            }
+        )
         result: dict[str, Any] = {}
         sig = inspect.signature(callable)
         for param in sig.parameters.values():
@@ -233,7 +235,9 @@ class Function(ABC):
         for param in fn_sig.parameters.values():
             for self_sig in self.signatures:
                 if param.name not in self_sig.parameters:
-                    raise ValueError(f'`conditional_return_type` has parameter `{param.name}` that is not in a signature')
+                    raise ValueError(
+                        f'`conditional_return_type` has parameter `{param.name}` that is not in a signature'
+                    )
         self._conditional_return_type = fn
         return fn
 
@@ -279,9 +283,7 @@ class Function(ABC):
                 raise excs.Error(f'Expected type `{param.col_type}` for parameter `{k}`; got `{expr.col_type}`')
             bindings[k] = v  # Use the original value, not the Expr (The Expr is only for validation)
 
-        residual_params = [
-            p for p in self.signature.parameters.values() if p.name not in bindings
-        ]
+        residual_params = [p for p in self.signature.parameters.values() if p.name not in bindings]
 
         # Bind each remaining parameter to a like-named variable
         for param in residual_params:
@@ -346,10 +348,7 @@ class Function(ABC):
     def _as_dict(self) -> dict:
         """Default serialization: store the path to self (which includes the module path) and signature."""
         assert self.self_path is not None
-        return {
-            'path': self.self_path,
-            'signature': self.signature.as_dict(),
-        }
+        return {'path': self.self_path, 'signature': self.signature.as_dict()}
 
     @classmethod
     def from_dict(cls, d: dict) -> Function:

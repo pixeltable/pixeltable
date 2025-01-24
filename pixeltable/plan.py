@@ -21,7 +21,7 @@ def _is_agg_fn_call(e: exprs.Expr) -> bool:
 
 
 def _get_combined_ordering(
-        o1: list[tuple[exprs.Expr, bool]], o2: list[tuple[exprs.Expr, bool]]
+    o1: list[tuple[exprs.Expr, bool]], o2: list[tuple[exprs.Expr, bool]]
 ) -> list[tuple[exprs.Expr, bool]]:
     """Returns an ordering that's compatible with both o1 and o2, or an empty list if no such ordering exists"""
     result: list[tuple[exprs.Expr, bool]] = []
@@ -65,13 +65,15 @@ class JoinType(enum.Enum):
 @dataclasses.dataclass
 class JoinClause:
     """Corresponds to a single 'JOIN ... ON (...)' clause in a SELECT statement; excludes the joined table."""
+
     join_type: JoinType
     join_predicate: Optional[exprs.Expr]  # None for join_type == CROSS
 
 
 @dataclasses.dataclass
 class FromClause:
-    """Corresponds to the From-clause ('FROM <tbl> JOIN ... ON (...) JOIN ...') of a SELECT statement """
+    """Corresponds to the From-clause ('FROM <tbl> JOIN ... ON (...) JOIN ...') of a SELECT statement"""
+
     tbls: list[catalog.TableVersionPath]
     join_clauses: list[JoinClause] = dataclasses.field(default_factory=list)
 
@@ -101,9 +103,13 @@ class Analyzer:
     agg_order_by: list[exprs.Expr]
 
     def __init__(
-            self, from_clause: FromClause, select_list: Sequence[exprs.Expr],
-            where_clause: Optional[exprs.Expr] = None, group_by_clause: Optional[list[exprs.Expr]] = None,
-            order_by_clause: Optional[list[tuple[exprs.Expr, bool]]] = None):
+        self,
+        from_clause: FromClause,
+        select_list: Sequence[exprs.Expr],
+        where_clause: Optional[exprs.Expr] = None,
+        group_by_clause: Optional[list[exprs.Expr]] = None,
+        order_by_clause: Optional[list[tuple[exprs.Expr, bool]]] = None,
+    ):
         if order_by_clause is None:
             order_by_clause = []
         self.from_clause = from_clause
@@ -146,12 +152,17 @@ class Analyzer:
         candidates = self.select_list
         agg_fn_calls = exprs.ExprSet(
             exprs.Expr.list_subexprs(
-                candidates, expr_class=exprs.FunctionCall,
-                filter=lambda e: bool(e.is_agg_fn_call and not e.is_window_fn_call)))
+                candidates,
+                expr_class=exprs.FunctionCall,
+                filter=lambda e: bool(e.is_agg_fn_call and not e.is_window_fn_call),
+            )
+        )
         self.agg_fn_calls = list(agg_fn_calls)
         window_fn_calls = exprs.ExprSet(
             exprs.Expr.list_subexprs(
-                candidates, expr_class=exprs.FunctionCall, filter=lambda e: bool(e.is_window_fn_call)))
+                candidates, expr_class=exprs.FunctionCall, filter=lambda e: bool(e.is_window_fn_call)
+            )
+        )
         self.window_fn_calls = list(window_fn_calls)
         if len(self.agg_fn_calls) == 0:
             # nothing to do
@@ -165,7 +176,8 @@ class Analyzer:
         is_agg_output = [self._determine_agg_status(e, grouping_expr_ids)[0] for e in self.select_list]
         if is_agg_output.count(False) > 0:
             raise excs.Error(
-                f'Invalid non-aggregate expression in aggregate query: {self.select_list[is_agg_output.index(False)]}')
+                f'Invalid non-aggregate expression in aggregate query: {self.select_list[is_agg_output.index(False)]}'
+            )
 
         # check that Where clause and filter doesn't contain aggregates
         if self.sql_where_clause is not None:
@@ -205,7 +217,8 @@ class Analyzer:
             # an expression such as <grouping expr 1> + <grouping expr 2> can both be the output and input of agg
             assert len(e.components) > 0
             component_is_output, component_is_input = zip(
-                *[self._determine_agg_status(c, grouping_expr_ids) for c in e.components])
+                *[self._determine_agg_status(c, grouping_expr_ids) for c in e.components]
+            )
             is_output = component_is_output.count(True) == len(e.components)
             is_input = component_is_input.count(True) == len(e.components)
             if not is_output and not is_input:
@@ -234,7 +247,8 @@ class Analyzer:
             # window functions require ordering by the group_by/order_by clauses
             group_by_exprs, order_by_exprs = fn_call.get_window_sort_exprs()
             clause.append(
-                [OrderByItem(e, None) for e in group_by_exprs] + [OrderByItem(e, True) for e in order_by_exprs])
+                [OrderByItem(e, None) for e in group_by_exprs] + [OrderByItem(e, True) for e in order_by_exprs]
+            )
         return combine_order_by_clauses(clause)
 
     def has_agg(self) -> bool:
@@ -245,9 +259,7 @@ class Analyzer:
 class Planner:
     # TODO: create an exec.CountNode and change this to create_count_plan()
     @classmethod
-    def create_count_stmt(
-            cls, tbl: catalog.TableVersionPath, where_clause: Optional[exprs.Expr] = None
-    ) -> sql.Select:
+    def create_count_stmt(cls, tbl: catalog.TableVersionPath, where_clause: Optional[exprs.Expr] = None) -> sql.Select:
         stmt = sql.select(sql.func.count())
         refd_tbl_ids: set[UUID] = set()
         if where_clause is not None:
@@ -288,23 +300,26 @@ class Planner:
         if len(computed_exprs) > 0:
             # add an ExprEvalNode when there are exprs to compute
             plan = exec.ExprEvalNode(
-                row_builder, computed_exprs, plan.output_exprs, input=plan, maintain_input_order=False)
+                row_builder, computed_exprs, plan.output_exprs, input=plan, maintain_input_order=False
+            )
 
         stored_col_info = row_builder.output_slot_idxs()
         stored_img_col_info = [info for info in stored_col_info if info.col.col_type.is_image_type()]
         plan.set_stored_img_cols(stored_img_col_info)
         plan.set_ctx(
             exec.ExecContext(
-                row_builder, batch_size=0, show_pbar=True, num_computed_exprs=len(computed_exprs),
-                ignore_errors=ignore_errors))
+                row_builder,
+                batch_size=0,
+                show_pbar=True,
+                num_computed_exprs=len(computed_exprs),
+                ignore_errors=ignore_errors,
+            )
+        )
         return plan
 
     @classmethod
     def create_df_insert_plan(
-        cls,
-        tbl: catalog.TableVersion,
-        df: 'pxt.DataFrame',
-        ignore_errors: bool
+        cls, tbl: catalog.TableVersion, df: 'pxt.DataFrame', ignore_errors: bool
     ) -> exec.ExecNode:
         assert not tbl.is_view()
         plan = df._create_query_plan()  # ExecNode constructed by the DataFrame
@@ -321,18 +336,21 @@ class Planner:
 
         plan.set_ctx(
             exec.ExecContext(
-                plan.row_builder, batch_size=0, show_pbar=True, num_computed_exprs=0,
-                ignore_errors=ignore_errors))
+                plan.row_builder, batch_size=0, show_pbar=True, num_computed_exprs=0, ignore_errors=ignore_errors
+            )
+        )
         plan.ctx.num_rows = 0  # Unknown
 
         return plan
 
     @classmethod
     def create_update_plan(
-            cls, tbl: catalog.TableVersionPath,
-            update_targets: dict[catalog.Column, exprs.Expr],
-            recompute_targets: list[catalog.Column],
-            where_clause: Optional[exprs.Expr], cascade: bool
+        cls,
+        tbl: catalog.TableVersionPath,
+        update_targets: dict[catalog.Column, exprs.Expr],
+        recompute_targets: list[catalog.Column],
+        where_clause: Optional[exprs.Expr],
+        cascade: bool,
     ) -> tuple[exec.ExecNode, list[str], list[catalog.Column]]:
         """Creates a plan to materialize updated rows.
         The plan:
@@ -361,14 +379,16 @@ class Planner:
             recomputed_cols = {c for c in recomputed_cols if c.is_stored}
         recomputed_base_cols = {col for col in recomputed_cols if col.tbl == target}
         copied_cols = [
-            col for col in target.cols_by_id.values()
+            col
+            for col in target.cols_by_id.values()
             if col.is_stored and not col in updated_cols and not col in recomputed_base_cols
         ]
         select_list: list[exprs.Expr] = [exprs.ColumnRef(col) for col in copied_cols]
         select_list.extend(update_targets.values())
 
-        recomputed_exprs = \
-            [c.value_expr.copy().resolve_computed_cols(resolve_cols=recomputed_base_cols) for c in recomputed_base_cols]
+        recomputed_exprs = [
+            c.value_expr.copy().resolve_computed_cols(resolve_cols=recomputed_base_cols) for c in recomputed_base_cols
+        ]
         # recomputed cols reference the new values of the updated cols
         spec: dict[exprs.Expr, exprs.Expr] = {exprs.ColumnRef(col): e for col, e in update_targets.items()}
         exprs.Expr.list_substitute(recomputed_exprs, spec)
@@ -385,9 +405,11 @@ class Planner:
 
     @classmethod
     def create_batch_update_plan(
-        cls, tbl: catalog.TableVersionPath,
-        batch: list[dict[catalog.Column, exprs.Expr]], rowids: list[tuple[int, ...]],
-        cascade: bool
+        cls,
+        tbl: catalog.TableVersionPath,
+        batch: list[dict[catalog.Column, exprs.Expr]],
+        rowids: list[tuple[int, ...]],
+        cascade: bool,
     ) -> tuple[exec.ExecNode, exec.RowUpdateNode, sql.ColumnElement[bool], list[catalog.Column], list[catalog.Column]]:
         """
         Returns:
@@ -419,14 +441,16 @@ class Planner:
         recomputed_cols = {c for c in recomputed_cols if c.is_stored}
         recomputed_base_cols = {col for col in recomputed_cols if col.tbl == target}
         copied_cols = [
-            col for col in target.cols_by_id.values()
+            col
+            for col in target.cols_by_id.values()
             if col.is_stored and not col in updated_cols and not col in recomputed_base_cols
         ]
         select_list: list[exprs.Expr] = [exprs.ColumnRef(col) for col in copied_cols]
         select_list.extend(exprs.ColumnRef(col) for col in updated_cols)
 
-        recomputed_exprs = \
-            [c.value_expr.copy().resolve_computed_cols(resolve_cols=recomputed_base_cols) for c in recomputed_base_cols]
+        recomputed_exprs = [
+            c.value_expr.copy().resolve_computed_cols(resolve_cols=recomputed_base_cols) for c in recomputed_base_cols
+        ]
         # the RowUpdateNode updates columns in-place, ie, in the original ColumnRef; no further sustitution is needed
         select_list.extend(recomputed_exprs)
 
@@ -435,8 +459,9 @@ class Planner:
         # - RowUpdateNode to update the retrieved rows
         # - ExprEvalNode to evaluate the remaining output exprs
         analyzer = Analyzer(FromClause(tbls=[tbl]), select_list)
-        sql_exprs = list(exprs.Expr.list_subexprs(
-            analyzer.all_exprs, filter=analyzer.sql_elements.contains, traverse_matches=False))
+        sql_exprs = list(
+            exprs.Expr.list_subexprs(analyzer.all_exprs, filter=analyzer.sql_elements.contains, traverse_matches=False)
+        )
         row_builder = exprs.RowBuilder(analyzer.all_exprs, [], sql_exprs)
         analyzer.finalize(row_builder)
         sql_lookup_node = exec.SqlLookupNode(tbl, row_builder, sql_exprs, sa_key_cols, key_vals)
@@ -458,13 +483,16 @@ class Planner:
         plan.set_ctx(ctx)
         recomputed_user_cols = [c for c in recomputed_cols if c.name is not None]
         return (
-            plan, row_update_node, sql_lookup_node.where_clause_element, list(updated_cols) + recomputed_user_cols,
-            recomputed_user_cols
+            plan,
+            row_update_node,
+            sql_lookup_node.where_clause_element,
+            list(updated_cols) + recomputed_user_cols,
+            recomputed_user_cols,
         )
 
     @classmethod
     def create_view_update_plan(
-            cls, view: catalog.TableVersionPath, recompute_targets: list[catalog.Column]
+        cls, view: catalog.TableVersionPath, recompute_targets: list[catalog.Column]
     ) -> exec.ExecNode:
         """Creates a plan to materialize updated rows for a view, given that the base table has been updated.
         The plan:
@@ -489,19 +517,25 @@ class Planner:
         copied_cols = [col for col in target.cols_by_id.values() if col.is_stored and not col in recomputed_cols]
         select_list: list[exprs.Expr] = [exprs.ColumnRef(col) for col in copied_cols]
         # resolve recomputed exprs to stored columns in the base
-        recomputed_exprs = \
-            [c.value_expr.copy().resolve_computed_cols(resolve_cols=recomputed_cols) for c in recomputed_cols]
+        recomputed_exprs = [
+            c.value_expr.copy().resolve_computed_cols(resolve_cols=recomputed_cols) for c in recomputed_cols
+        ]
         select_list.extend(recomputed_exprs)
 
         # we need to retrieve the PK columns of the existing rows
         plan = cls.create_query_plan(
-            FromClause(tbls=[view]), select_list, where_clause=target.predicate, ignore_errors=True,
-            exact_version_only=view.get_bases())
+            FromClause(tbls=[view]),
+            select_list,
+            where_clause=target.predicate,
+            ignore_errors=True,
+            exact_version_only=view.get_bases(),
+        )
         for i, col in enumerate(copied_cols + list(recomputed_cols)):  # same order as select_list
             plan.row_builder.add_table_column(col, select_list[i].slot_idx)
         # TODO: avoid duplication with view_load_plan() logic (where does this belong?)
-        stored_img_col_info = \
-            [info for info in plan.row_builder.output_slot_idxs() if info.col.col_type.is_image_type()]
+        stored_img_col_info = [
+            info for info in plan.row_builder.output_slot_idxs() if info.col.col_type.is_image_type()
+        ]
         plan.set_stored_img_cols(stored_img_col_info)
         return plan
 
@@ -539,21 +573,27 @@ class Planner:
         # 3. materialize stored view columns that haven't been produced by step 1
         base_output_exprs = [e for e in row_builder.default_eval_ctx.exprs if e.is_bound_by([view.base])]
         view_output_exprs = [
-            e for e in row_builder.default_eval_ctx.target_exprs
+            e
+            for e in row_builder.default_eval_ctx.target_exprs
             if e.is_bound_by([view]) and not e.is_bound_by([view.base])
         ]
         # if we're propagating an insert, we only want to see those base rows that were created for the current version
         base_analyzer = Analyzer(FromClause(tbls=[view.base]), base_output_exprs, where_clause=target.predicate)
         base_eval_ctx = row_builder.create_eval_ctx(base_analyzer.all_exprs)
         plan = cls._create_query_plan(
-            row_builder=row_builder, analyzer=base_analyzer, eval_ctx=base_eval_ctx, with_pk=True,
-            exact_version_only=view.get_bases() if propagates_insert else [])
+            row_builder=row_builder,
+            analyzer=base_analyzer,
+            eval_ctx=base_eval_ctx,
+            with_pk=True,
+            exact_version_only=view.get_bases() if propagates_insert else [],
+        )
         exec_ctx = plan.ctx
         if target.is_component_view():
             plan = exec.ComponentIterationNode(target, plan)
         if len(view_output_exprs) > 0:
             plan = exec.ExprEvalNode(
-                row_builder, output_exprs=view_output_exprs, input_exprs=base_output_exprs, input=plan)
+                row_builder, output_exprs=view_output_exprs, input_exprs=base_output_exprs, input=plan
+            )
 
         stored_img_col_info = [info for info in row_builder.output_slot_idxs() if info.col.col_type.is_image_type()]
         plan.set_stored_img_cols(stored_img_col_info)
@@ -582,10 +622,9 @@ class Planner:
                 ob_clauses.append(ordering)
             for fn_call in analyzer.agg_fn_calls:
                 # agg functions with an ordering requirement are implicitly ascending
-                ordering = (
-                    [OrderByItem(e, None) for e in analyzer.group_by_clause]
-                    + [OrderByItem(e, True) for e in fn_call.get_agg_order_by()]
-                )
+                ordering = [OrderByItem(e, None) for e in analyzer.group_by_clause] + [
+                    OrderByItem(e, True) for e in fn_call.get_agg_order_by()
+                ]
                 ob_clauses.append(ordering)
         if len(ob_clauses) <= 1:
             return
@@ -596,7 +635,8 @@ class Planner:
             if combined is None:
                 raise excs.Error(
                     f'Incompatible ordering requirements: '
-                    f'{print_order_by_clause(combined_ordering)} vs {print_order_by_clause(ordering)}')
+                    f'{print_order_by_clause(combined_ordering)} vs {print_order_by_clause(ordering)}'
+                )
             combined_ordering = combined
 
     @classmethod
@@ -623,10 +663,15 @@ class Planner:
 
     @classmethod
     def create_query_plan(
-            cls, from_clause: FromClause, select_list: Optional[list[exprs.Expr]] = None,
-            where_clause: Optional[exprs.Expr] = None, group_by_clause: Optional[list[exprs.Expr]] = None,
-            order_by_clause: Optional[list[tuple[exprs.Expr, bool]]] = None, limit: Optional[int] = None,
-            ignore_errors: bool = False, exact_version_only: Optional[list[catalog.TableVersion]] = None
+        cls,
+        from_clause: FromClause,
+        select_list: Optional[list[exprs.Expr]] = None,
+        where_clause: Optional[exprs.Expr] = None,
+        group_by_clause: Optional[list[exprs.Expr]] = None,
+        order_by_clause: Optional[list[tuple[exprs.Expr, bool]]] = None,
+        limit: Optional[int] = None,
+        ignore_errors: bool = False,
+        exact_version_only: Optional[list[catalog.TableVersion]] = None,
     ) -> exec.ExecNode:
         """Return plan for executing a query.
         Updates 'select_list' in place to make it executable.
@@ -639,8 +684,12 @@ class Planner:
         if exact_version_only is None:
             exact_version_only = []
         analyzer = Analyzer(
-            from_clause, select_list, where_clause=where_clause, group_by_clause=group_by_clause,
-            order_by_clause=order_by_clause)
+            from_clause,
+            select_list,
+            where_clause=where_clause,
+            group_by_clause=group_by_clause,
+            order_by_clause=order_by_clause,
+        )
         row_builder = exprs.RowBuilder(analyzer.all_exprs, [], [])
 
         analyzer.finalize(row_builder)
@@ -648,8 +697,13 @@ class Planner:
         # with_pk: for now, we always retrieve the PK, because we need it for the file cache
         eval_ctx = row_builder.create_eval_ctx(analyzer.select_list)
         plan = cls._create_query_plan(
-            row_builder=row_builder, analyzer=analyzer, eval_ctx=eval_ctx, limit=limit, with_pk=True,
-            exact_version_only=exact_version_only)
+            row_builder=row_builder,
+            analyzer=analyzer,
+            eval_ctx=eval_ctx,
+            limit=limit,
+            with_pk=True,
+            exact_version_only=exact_version_only,
+        )
         plan.ctx.ignore_errors = ignore_errors
         select_list.clear()
         select_list.extend(analyzer.select_list)
@@ -657,9 +711,13 @@ class Planner:
 
     @classmethod
     def _create_query_plan(
-        cls, row_builder: exprs.RowBuilder, analyzer: Analyzer, eval_ctx: exprs.RowBuilder.EvalCtx,
-        limit: Optional[int] = None, with_pk: bool = False,
-        exact_version_only: Optional[list[catalog.TableVersion]] = None
+        cls,
+        row_builder: exprs.RowBuilder,
+        analyzer: Analyzer,
+        eval_ctx: exprs.RowBuilder.EvalCtx,
+        limit: Optional[int] = None,
+        with_pk: bool = False,
+        exact_version_only: Optional[list[catalog.TableVersion]] = None,
     ) -> exec.ExecNode:
         """
         Create plan to materialize eval_ctx.
@@ -672,9 +730,8 @@ class Planner:
         if exact_version_only is None:
             exact_version_only = []
         sql_elements = analyzer.sql_elements
-        is_python_agg = (
-            not sql_elements.contains_all(analyzer.agg_fn_calls)
-            or not sql_elements.contains_all(analyzer.window_fn_calls)
+        is_python_agg = not sql_elements.contains_all(analyzer.agg_fn_calls) or not sql_elements.contains_all(
+            analyzer.window_fn_calls
         )
         ctx = exec.ExecContext(row_builder)
         cls._verify_ordering(analyzer, verify_agg=is_python_agg)
@@ -686,19 +743,26 @@ class Planner:
         # - subexprs of Where clause conjuncts that can't be run in SQL
         # - all grouping exprs, if any aggregate function call can't be run in SQL (in that case, they all have to be
         #   run in Python)
-        candidates = list(exprs.Expr.list_subexprs(
-            analyzer.select_list,
-            filter=lambda e: (
+        candidates = list(
+            exprs.Expr.list_subexprs(
+                analyzer.select_list,
+                filter=lambda e: (
                     sql_elements.contains(e)
                     and not e._contains(cls=exprs.FunctionCall, filter=lambda e: bool(e.is_agg_fn_call))
-            ),
-            traverse_matches=False))
+                ),
+                traverse_matches=False,
+            )
+        )
         if analyzer.filter is not None:
-            candidates.extend(exprs.Expr.subexprs(
-                analyzer.filter, filter=lambda e: sql_elements.contains(e), traverse_matches=False))
+            candidates.extend(
+                exprs.Expr.subexprs(analyzer.filter, filter=lambda e: sql_elements.contains(e), traverse_matches=False)
+            )
         if is_python_agg and analyzer.group_by_clause is not None:
-            candidates.extend(exprs.Expr.list_subexprs(
-                analyzer.group_by_clause, filter=lambda e: sql_elements.contains(e), traverse_matches=False))
+            candidates.extend(
+                exprs.Expr.list_subexprs(
+                    analyzer.group_by_clause, filter=lambda e: sql_elements.contains(e), traverse_matches=False
+                )
+            )
         # not isinstance(...): we don't want to materialize Literals via a Select
         sql_exprs = exprs.ExprSet(e for e in candidates if not isinstance(e, exprs.Literal))
 
@@ -706,7 +770,8 @@ class Planner:
         join_exprs = exprs.ExprSet(
             join_clause.join_predicate
             for join_clause in analyzer.from_clause.join_clauses
-            if join_clause.join_predicate is not None)
+            if join_clause.join_predicate is not None
+        )
         scan_target_exprs = sql_exprs | join_exprs
         tbl_scan_plans: list[exec.SqlScanNode] = []
         plan: exec.ExecNode
@@ -716,16 +781,21 @@ class Planner:
                 exprs.Expr.list_subexprs(
                     scan_target_exprs,
                     filter=lambda e: e.is_bound_by([tbl]) and not isinstance(e, exprs.Literal),
-                    traverse_matches=False))
+                    traverse_matches=False,
+                )
+            )
             plan = exec.SqlScanNode(
-                tbl, row_builder, select_list=tbl_scan_exprs,
-                set_pk=with_pk, exact_version_only=exact_version_only)
+                tbl, row_builder, select_list=tbl_scan_exprs, set_pk=with_pk, exact_version_only=exact_version_only
+            )
             tbl_scan_plans.append(plan)
 
         if len(analyzer.from_clause.join_clauses) > 0:
             plan = exec.SqlJoinNode(
-                row_builder, inputs=tbl_scan_plans, join_clauses=analyzer.from_clause.join_clauses,
-                select_list=sql_exprs)
+                row_builder,
+                inputs=tbl_scan_plans,
+                join_clauses=analyzer.from_clause.join_clauses,
+                select_list=sql_exprs,
+            )
         else:
             plan = tbl_scan_plans[0]
 
@@ -762,11 +832,17 @@ class Planner:
                 and plan.to_cte() is not None
             ):
                 plan = exec.SqlAggregationNode(
-                    row_builder, input=plan, select_list=analyzer.select_list, group_by_items=analyzer.group_by_clause)
+                    row_builder, input=plan, select_list=analyzer.select_list, group_by_items=analyzer.group_by_clause
+                )
             else:
                 plan = exec.AggregationNode(
-                    tbl.tbl_version, row_builder, analyzer.group_by_clause,
-                    analyzer.agg_fn_calls + analyzer.window_fn_calls, agg_input, input=plan)
+                    tbl.tbl_version,
+                    row_builder,
+                    analyzer.group_by_clause,
+                    analyzer.agg_fn_calls + analyzer.window_fn_calls,
+                    agg_input,
+                    input=plan,
+                )
                 typecheck_dummy = analyzer.grouping_exprs + analyzer.agg_fn_calls + analyzer.window_fn_calls
                 agg_output = exprs.ExprSet(typecheck_dummy)
                 if not agg_output.issuperset(exprs.ExprSet(eval_ctx.target_exprs)):
@@ -805,7 +881,7 @@ class Planner:
 
     @classmethod
     def create_add_column_plan(
-            cls, tbl: catalog.TableVersionPath, col: catalog.Column
+        cls, tbl: catalog.TableVersionPath, col: catalog.Column
     ) -> tuple[exec.ExecNode, Optional[int]]:
         """Creates a plan for InsertableTable.add_column()
         Returns:
@@ -816,7 +892,8 @@ class Planner:
         row_builder = exprs.RowBuilder(output_exprs=[], columns=[col], input_exprs=[])
         analyzer = Analyzer(FromClause(tbls=[tbl]), row_builder.default_eval_ctx.target_exprs)
         plan = cls._create_query_plan(
-            row_builder=row_builder, analyzer=analyzer, eval_ctx=row_builder.default_eval_ctx, with_pk=True)
+            row_builder=row_builder, analyzer=analyzer, eval_ctx=row_builder.default_eval_ctx, with_pk=True
+        )
         plan.ctx.batch_size = 16
         plan.ctx.show_pbar = True
         plan.ctx.ignore_errors = True

@@ -5,8 +5,16 @@ import pytest
 
 import pixeltable as pxt
 
-from ..utils import (SAMPLE_IMAGE_URL, get_audio_files, get_image_files, get_sentences, reload_catalog, skip_test_if_not_installed,
-                     validate_update_status, ReloadTester)
+from ..utils import (
+    SAMPLE_IMAGE_URL,
+    get_audio_files,
+    get_image_files,
+    get_sentences,
+    reload_catalog,
+    skip_test_if_not_installed,
+    validate_update_status,
+    ReloadTester,
+)
 
 
 class TestHuggingface:
@@ -27,7 +35,9 @@ class TestHuggingface:
             t.add_computed_column(e5_2=sentence_transformer(t.input, model_id=t.input))
         assert ': parameter model_id must be a constant value' in str(exc_info.value)
         with pytest.raises(ValueError) as exc_info:
-            t.add_computed_column(e5_2=sentence_transformer(t.input, model_id=model_id, normalize_embeddings=t.bool_col))
+            t.add_computed_column(
+                e5_2=sentence_transformer(t.input, model_id=model_id, normalize_embeddings=t.bool_col)
+            )
         assert ': parameter normalize_embeddings must be a constant value' in str(exc_info.value)
 
         # make sure this doesn't cause an exception
@@ -50,10 +60,14 @@ class TestHuggingface:
         num_dims = [768, 768]
         for idx, model_id in enumerate(model_ids):
             col_name = f'embed{idx}'
-            t.add_computed_column(**{col_name: sentence_transformer(t.input, model_id=model_id, normalize_embeddings=True)})
+            t.add_computed_column(
+                **{col_name: sentence_transformer(t.input, model_id=model_id, normalize_embeddings=True)}
+            )
             assert t._schema[col_name].is_array_type()
             list_col_name = f'embed_list{idx}'
-            t.add_computed_column(**{list_col_name: sentence_transformer_list(t.input_list, model_id=model_id, normalize_embeddings=True)})
+            t.add_computed_column(
+                **{list_col_name: sentence_transformer_list(t.input_list, model_id=model_id, normalize_embeddings=True)}
+            )
             assert t._schema[list_col_name] == pxt.JsonType(nullable=True)
 
         def verify_row(row: dict[str, Any]) -> None:
@@ -154,7 +168,9 @@ class TestHuggingface:
         from pixeltable.utils import coco
 
         t = pxt.create_table('test_tbl', {'img': pxt.Image})
-        t.add_computed_column(detect=detr_for_object_detection(t.img, model_id='facebook/detr-resnet-50', threshold=0.8))
+        t.add_computed_column(
+            detect=detr_for_object_detection(t.img, model_id='facebook/detr-resnet-50', threshold=0.8)
+        )
         status = t.insert(img=SAMPLE_IMAGE_URL)
         assert status.num_rows == 1
         assert status.num_excs == 0
@@ -173,7 +189,9 @@ class TestHuggingface:
         from pixeltable.functions.huggingface import vit_for_image_classification
 
         t = pxt.create_table('test_tbl', {'img': pxt.Image})
-        t.add_computed_column(img_class=vit_for_image_classification(t.img, model_id='google/vit-base-patch16-224', top_k=3))
+        t.add_computed_column(
+            img_class=vit_for_image_classification(t.img, model_id='google/vit-base-patch16-224', top_k=3)
+        )
         validate_update_status(t.insert(img=SAMPLE_IMAGE_URL), expected_rows=1)
         result = t.select(t.img_class).collect()[0]['img_class']
         assert result['labels'] == [962, 935, 937]
@@ -188,9 +206,14 @@ class TestHuggingface:
         audio_file = next(
             file for file in get_audio_files() if file.endswith('jfk_1961_0109_cityuponahill-excerpt.flac')
         )
-        t.add_computed_column(transcription=speech2text_for_conditional_generation(t.audio, model_id='facebook/s2t-small-librispeech-asr'))
-        t.add_computed_column(translation=speech2text_for_conditional_generation(
-            t.audio, model_id='facebook/s2t-medium-mustc-multilingual-st', language='fr'))
+        t.add_computed_column(
+            transcription=speech2text_for_conditional_generation(t.audio, model_id='facebook/s2t-small-librispeech-asr')
+        )
+        t.add_computed_column(
+            translation=speech2text_for_conditional_generation(
+                t.audio, model_id='facebook/s2t-medium-mustc-multilingual-st', language='fr'
+            )
+        )
 
         validate_update_status(t.insert(audio=audio_file), expected_rows=1)
         result = t.collect()

@@ -34,13 +34,14 @@ _logger = logging.getLogger('pixeltable')
 @env.register_client('openai')
 def _(api_key: str) -> tuple['openai.OpenAI', 'openai.AsyncOpenAI']:
     import openai
+
     return (
         openai.OpenAI(api_key=api_key),
         openai.AsyncOpenAI(
             api_key=api_key,
             # recommended to increase limits for async client to avoid connection errors
             http_client=httpx.AsyncClient(limits=httpx.Limits(max_keepalive_connections=100, max_connections=500)),
-        )
+        ),
     )
 
 
@@ -57,6 +58,7 @@ def _async_openai_client() -> 'openai.AsyncOpenAI':
 # by OpenAI. Should we investigate making this more customizable in the future?
 def _retry(fn: Callable) -> Callable:
     import openai
+
     return tenacity.retry(
         retry=tenacity.retry_if_exception_type(openai.RateLimitError),
         wait=tenacity.wait_random_exponential(multiplier=1, max=60),
@@ -72,7 +74,7 @@ _shared_rate_limits = {
         'gpt-4-turbo-2024-04-09',
         'gpt-4-turbo-preview',
         'gpt-4-0125-preview',
-        'gpt-4-1106-preview'
+        'gpt-4-1106-preview',
     ],
     'gpt-4o': [
         'gpt-4o',
@@ -82,20 +84,20 @@ _shared_rate_limits = {
         'gpt-4o-2024-11-20',
         'gpt-4o-audio-preview',
         'gpt-4o-audio-preview-2024-10-01',
-        'gpt-4o-audio-preview-2024-12-17'
+        'gpt-4o-audio-preview-2024-12-17',
     ],
     'gpt-4o-mini': [
         'gpt-4o-mini',
         'gpt-4o-mini-latest',
         'gpt-4o-mini-2024-07-18',
         'gpt-4o-mini-audio-preview',
-        'gpt-4o-mini-audio-preview-2024-12-17'
+        'gpt-4o-mini-audio-preview-2024-12-17',
     ],
     'gpt-4o-mini-realtime-preview': [
         'gpt-4o-mini-realtime-preview',
         'gpt-4o-mini-realtime-preview-latest',
-        'gpt-4o-mini-realtime-preview-2024-12-17'
-    ]
+        'gpt-4o-mini-realtime-preview-2024-12-17',
+    ],
 }
 
 
@@ -112,8 +114,12 @@ class OpenAIRateLimitsInfo(env.RateLimitsInfo):
     def __init__(self, get_request_resources: Callable[..., dict[str, int]]):
         super().__init__(get_request_resources)
         import openai
+
         self.retryable_errors = (
-            openai.RateLimitError, openai.APITimeoutError, openai.UnprocessableEntityError, openai.InternalServerError
+            openai.RateLimitError,
+            openai.APITimeoutError,
+            openai.UnprocessableEntityError,
+            openai.InternalServerError,
         )
 
     def get_retry_delay(self, exc: Exception) -> Optional[float]:
@@ -133,7 +139,7 @@ _header_duration_pattern = re.compile(r'(?:(\d+)d)?(?:(\d+)h)?(?:(\d+)ms)|(?:(\d
 def _parse_header_duration(duration_str):
     match = _header_duration_pattern.match(duration_str)
     if not match:
-        raise ValueError("Invalid duration format")
+        raise ValueError('Invalid duration format')
 
     days = int(match.group(1) or 0)
     hours = int(match.group(2) or 0)
@@ -141,17 +147,11 @@ def _parse_header_duration(duration_str):
     minutes = int(match.group(4) or 0)
     seconds = float(match.group(5) or 0)
 
-    return datetime.timedelta(
-        days=days,
-        hours=hours,
-        minutes=minutes,
-        seconds=seconds,
-        milliseconds=milliseconds
-    )
+    return datetime.timedelta(days=days, hours=hours, minutes=minutes, seconds=seconds, milliseconds=milliseconds)
 
 
 def _get_header_info(
-        headers: httpx.Headers, *, requests: bool = True, tokens: bool = True
+    headers: httpx.Headers, *, requests: bool = True, tokens: bool = True
 ) -> tuple[Optional[tuple[int, int, datetime.datetime]], Optional[tuple[int, int, datetime.datetime]]]:
     assert requests or tokens
     now = datetime.datetime.now(tz=datetime.timezone.utc)
@@ -185,7 +185,7 @@ def _get_header_info(
 
 @pxt.udf
 def speech(
-        input: str, *, model: str, voice: str, response_format: Optional[str] = None, speed: Optional[float] = None
+    input: str, *, model: str, voice: str, response_format: Optional[str] = None, speed: Optional[float] = None
 ) -> pxt.Audio:
     """
     Generates audio from the input text.
@@ -266,11 +266,7 @@ def transcriptions(
 
 @pxt.udf
 def translations(
-    audio: pxt.Audio,
-    *,
-    model: str,
-    prompt: Optional[str] = None,
-    temperature: Optional[float] = None
+    audio: pxt.Audio, *, model: str, prompt: Optional[str] = None, temperature: Optional[float] = None
 ) -> dict:
     """
     Translates audio into English.
@@ -309,7 +305,7 @@ def translations(
 
 
 def _chat_completions_get_request_resources(
-        messages: list, max_tokens: Optional[int], n: Optional[int]
+    messages: list, max_tokens: Optional[int], n: Optional[int]
 ) -> dict[str, int]:
     completion_tokens = n * max_tokens
 
@@ -318,7 +314,7 @@ def _chat_completions_get_request_resources(
         num_tokens += 4  # every message follows <im_start>{role/name}\n{content}<im_end>\n
         for key, value in message.items():
             num_tokens += len(value) / 4
-            if key == "name":  # if there's a name, the role is omitted
+            if key == 'name':  # if there's a name, the role is omitted
                 num_tokens -= 1  # role is always required and always 1 token
     num_tokens += 2  # every reply is primed with <im_start>assistant
     return {'requests': 1, 'tokens': int(num_tokens) + completion_tokens}
@@ -375,13 +371,7 @@ async def chat_completions(
             tbl['response'] = chat_completions(messages, model='gpt-4o-mini')
     """
     if tools is not None:
-        tools = [
-            {
-                'type': 'function',
-                'function': tool
-            }
-            for tool in tools
-        ]
+        tools = [{'type': 'function', 'function': tool} for tool in tools]
 
     tool_choice_: Union[str, dict, None] = None
     if tool_choice is not None:
@@ -391,10 +381,7 @@ async def chat_completions(
             tool_choice_ = 'required'
         else:
             assert tool_choice['tool'] is not None
-            tool_choice_ = {
-                'type': 'function',
-                'function': {'name': tool_choice['tool']}
-            }
+            tool_choice_ = {'type': 'function', 'function': {'name': tool_choice['tool']}}
 
     extra_body: Optional[dict[str, Any]] = None
     if tool_choice is not None and not tool_choice['parallel_tool_calls']:
@@ -425,8 +412,9 @@ async def chat_completions(
 
     resource_pool = _resource_pool(model)
     requests_info, tokens_info = _get_header_info(result.headers)
-    rate_limits_info = env.Env.get().get_resource_pool_info(resource_pool, lambda: OpenAIRateLimitsInfo(
-        _chat_completions_get_request_resources))
+    rate_limits_info = env.Env.get().get_resource_pool_info(
+        resource_pool, lambda: OpenAIRateLimitsInfo(_chat_completions_get_request_resources)
+    )
     rate_limits_info.record(requests=requests_info, tokens=tokens_info)
 
     return json.loads(result.text)
@@ -529,7 +517,8 @@ async def embeddings(
     resource_pool = _resource_pool(model)
     requests_info, tokens_info = _get_header_info(result.headers)
     rate_limits_info = env.Env.get().get_resource_pool_info(
-        resource_pool, lambda: OpenAIRateLimitsInfo(_embeddings_get_request_resources))
+        resource_pool, lambda: OpenAIRateLimitsInfo(_embeddings_get_request_resources)
+    )
     rate_limits_info.record(requests=requests_info, tokens=tokens_info)
     return [np.array(data['embedding'], dtype=np.float64) for data in json.loads(result.content)['data']]
 
@@ -608,7 +597,7 @@ def _(size: Optional[str] = None) -> pxt.ImageType:
     if x_pos == -1:
         return pxt.ImageType()
     try:
-        width, height = int(size[:x_pos]), int(size[x_pos + 1:])
+        width, height = int(size[:x_pos]), int(size[x_pos + 1 :])
     except ValueError:
         return pxt.ImageType()
     return pxt.ImageType(size=(width, height))
@@ -671,9 +660,7 @@ def _openai_response_to_pxt_tool_calls(response: dict) -> Optional[dict]:
     openai_tool_calls = response['choices'][0]['message']['tool_calls']
     if openai_tool_calls is not None:
         return {
-            tool_call['function']['name']: {
-                'args': json.loads(tool_call['function']['arguments'])
-            }
+            tool_call['function']['name']: {'args': json.loads(tool_call['function']['arguments'])}
             for tool_call in openai_tool_calls
         }
     return None
@@ -684,6 +671,7 @@ _T = TypeVar('_T')
 
 def _opt(arg: _T) -> Union[_T, 'openai.NotGiven']:
     import openai
+
     return arg if arg is not None else openai.NOT_GIVEN
 
 

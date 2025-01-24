@@ -43,11 +43,11 @@ def _write_batch(value_batch: dict[str, deque], schema: pa.Schema, output_path: 
 
 
 def export_parquet(
-            table_or_df: Union[pxt.Table, pxt.DataFrame],
-            parquet_path: Path,
-            partition_size_bytes: int = 100_000_000,
-            inline_images: bool = False
-            ) -> None:
+    table_or_df: Union[pxt.Table, pxt.DataFrame],
+    parquet_path: Path,
+    partition_size_bytes: int = 100_000_000,
+    inline_images: bool = False,
+) -> None:
     """
     Exports a dataframe's data to one or more Parquet files. Requires pyarrow to be installed.
 
@@ -159,11 +159,7 @@ def parquet_schema_to_pixeltable_schema(parquet_path: str) -> dict[str, Optional
 
 
 def import_parquet(
-    table: str,
-    *,
-    parquet_path: str,
-    schema_overrides: Optional[dict[str, ts.ColumnType]] = None,
-    **kwargs: Any,
+    table: str, *, parquet_path: str, schema_overrides: Optional[dict[str, ts.ColumnType]] = None, **kwargs: Any
 ) -> pxt.Table:
     """Creates a new base table from a Parquet file or set of files. Requires pyarrow to be installed.
 

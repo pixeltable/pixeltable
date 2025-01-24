@@ -77,9 +77,7 @@ class TestOpenai:
         )
         # test with JSON output enforced
         t.add_computed_column(
-            chat_output_4=chat_completions(
-                model='gpt-4o-mini', messages=msgs, response_format={'type': 'json_object'}
-            )
+            chat_output_4=chat_completions(model='gpt-4o-mini', messages=msgs, response_format={'type': 'json_object'})
         )
         validate_update_status(t.insert(input='Give me an example of a typical JSON structure.'), 1)
         result = t.collect()
@@ -130,12 +128,9 @@ class TestOpenai:
             pxt.drop_table('test_tbl', if_not_exists='ignore')
             t = pxt.create_table('test_tbl', {'prompt': pxt.String})
             messages = [{'role': 'user', 'content': t.prompt}]
-            t.add_computed_column(response=chat_completions(
-                model='gpt-4o-mini',
-                messages=messages,
-                tools=tools,
-                tool_choice=tool_choice
-            ))
+            t.add_computed_column(
+                response=chat_completions(model='gpt-4o-mini', messages=messages, tools=tools, tool_choice=tool_choice)
+            )
             t.add_computed_column(output=t.response.choices[0].message.content)
             t.add_computed_column(tool_calls=invoke_tools(tools, t.response))
 
@@ -209,16 +204,10 @@ class TestOpenai:
         messages = [{'role': 'user', 'content': t.prompt}]
         tools = pxt.tools(
             pxt.tool(
-                stock_price,
-                name='banana_quantity',
-                description='Use this to compute the banana quantity of a symbol.'
+                stock_price, name='banana_quantity', description='Use this to compute the banana quantity of a symbol.'
             )
         )
-        t.add_computed_column(response=chat_completions(
-            model='gpt-4o-mini',
-            messages=messages,
-            tools=tools
-        ))
+        t.add_computed_column(response=chat_completions(model='gpt-4o-mini', messages=messages, tools=tools))
         t.add_computed_column(output=t.response.choices[0].message.content)
         t.add_computed_column(tool_calls=invoke_tools(tools, t.response))
         t.insert(prompt='What is the banana quantity of the symbol NVDA?')
@@ -250,9 +239,7 @@ class TestOpenai:
             }
         ]
         t.add_computed_column(
-            response_2=chat_completions(model='gpt-4o-mini', messages=msgs, max_tokens=300)
-            .choices[0]
-            .message.content
+            response_2=chat_completions(model='gpt-4o-mini', messages=msgs, max_tokens=300).choices[0].message.content
         )
         validate_update_status(t.insert(prompt="What's in this image?", img=SAMPLE_IMAGE_URL), 1)
         result = t.collect()['response_2'][0]

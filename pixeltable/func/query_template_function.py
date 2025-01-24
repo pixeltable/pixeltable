@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 
 class QueryTemplateFunction(Function):
     """A parameterized query/DataFrame from which an executable DataFrame is created with a function call."""
+
     template_df: Optional['DataFrame']
     self_name: Optional[str]
     conn: Optional[sql.engine.Connection]
@@ -35,14 +36,14 @@ class QueryTemplateFunction(Function):
         var_exprs = [exprs.Variable(param.name, param.col_type) for param in params]
         template_df = template_callable(*var_exprs)
         from pixeltable import DataFrame
+
         assert isinstance(template_df, DataFrame)
         # we take params and return json
         sig = Signature(return_type=ts.JsonType(), parameters=params)
         return QueryTemplateFunction(template_df, sig, path=path, name=name)
 
     def __init__(
-            self, template_df: Optional['DataFrame'], sig: Signature, path: Optional[str] = None,
-            name: Optional[str] = None,
+        self, template_df: Optional['DataFrame'], sig: Signature, path: Optional[str] = None, name: Optional[str] = None
     ):
         assert sig is not None
         super().__init__([sig], self_path=path)
@@ -74,11 +75,12 @@ class QueryTemplateFunction(Function):
         return True
 
     async def aexec(self, *args: Any, **kwargs: Any) -> Any:
-        #assert not self.is_polymorphic
+        # assert not self.is_polymorphic
         bound_args = self.signature.py_signature.bind(*args, **kwargs).arguments
         # apply defaults, otherwise we might have Parameters left over
         bound_args.update(
-            {param_name: default for param_name, default in self.defaults.items() if param_name not in bound_args})
+            {param_name: default for param_name, default in self.defaults.items() if param_name not in bound_args}
+        )
         bound_df = self.template_df.bind(bound_args)
         result = await bound_df._acollect(self.conn)
         return list(result)
@@ -97,30 +99,27 @@ class QueryTemplateFunction(Function):
     @classmethod
     def _from_dict(cls, d: dict) -> Function:
         from pixeltable.dataframe import DataFrame
+
         return cls(DataFrame.from_dict(d['df']), Signature.from_dict(d['signature']), name=d['name'])
 
 
 @overload
 def query(py_fn: Callable) -> QueryTemplateFunction: ...
 
+
 @overload
-def query(
-    *,
-    param_types: Optional[list[ts.ColumnType]] = None
-) -> Callable[[Callable], QueryTemplateFunction]: ...
+def query(*, param_types: Optional[list[ts.ColumnType]] = None) -> Callable[[Callable], QueryTemplateFunction]: ...
+
 
 def query(*args: Any, **kwargs: Any) -> Any:
-    def make_query_template(
-        py_fn: Callable, param_types: Optional[list[ts.ColumnType]]
-    ) -> QueryTemplateFunction:
+    def make_query_template(py_fn: Callable, param_types: Optional[list[ts.ColumnType]]) -> QueryTemplateFunction:
         if py_fn.__module__ != '__main__' and py_fn.__name__.isidentifier():
             # this is a named function in a module
             function_path = f'{py_fn.__module__}.{py_fn.__qualname__}'
         else:
             function_path = None
         query_name = py_fn.__name__
-        query_fn = QueryTemplateFunction.create(
-            py_fn, param_types=param_types, path=function_path, name=query_name)
+        query_fn = QueryTemplateFunction.create(py_fn, param_types=param_types, path=function_path, name=query_name)
         return query_fn
 
         # TODO: verify that the inferred return type matches that of the template

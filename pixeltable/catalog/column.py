@@ -22,6 +22,7 @@ class Column:
     A Column contains all the metadata necessary for executing queries and updates against a particular version of a
     table/view.
     """
+
     name: str
     id: Optional[int]
     col_type: ts.ColumnType
@@ -41,12 +42,19 @@ class Column:
     tbl: Optional[TableVersion]
 
     def __init__(
-            self, name: Optional[str], col_type: Optional[ts.ColumnType] = None,
-            computed_with: Optional[exprs.Expr] = None,
-            is_pk: bool = False, stored: bool = True, media_validation: Optional[MediaValidation] = None,
-            col_id: Optional[int] = None, schema_version_add: Optional[int] = None,
-            schema_version_drop: Optional[int] = None, sa_col_type: Optional[sql.sqltypes.TypeEngine] = None,
-            records_errors: Optional[bool] = None, value_expr_dict: Optional[dict[str, Any]] = None,
+        self,
+        name: Optional[str],
+        col_type: Optional[ts.ColumnType] = None,
+        computed_with: Optional[exprs.Expr] = None,
+        is_pk: bool = False,
+        stored: bool = True,
+        media_validation: Optional[MediaValidation] = None,
+        col_id: Optional[int] = None,
+        schema_version_add: Optional[int] = None,
+        schema_version_drop: Optional[int] = None,
+        sa_col_type: Optional[sql.sqltypes.TypeEngine] = None,
+        records_errors: Optional[bool] = None,
+        value_expr_dict: Optional[dict[str, Any]] = None,
     ):
         """Column constructor.
 
@@ -81,7 +89,8 @@ class Column:
             if value_expr is None:
                 raise excs.Error(
                     f'Column {name}: computed_with needs to be a valid Pixeltable expression, '
-                    f'but it is a {type(computed_with)}')
+                    f'but it is a {type(computed_with)}'
+                )
             else:
                 self._value_expr = value_expr.copy()
                 self.col_type = self._value_expr.col_type
@@ -117,6 +126,7 @@ class Column:
         # catalog has been fully loaded; that way, we encounter bugs in the serialization/deserialization logic earlier
         if self.value_expr_dict is not None and self._value_expr is None:
             from pixeltable import exprs
+
             self._value_expr = exprs.Expr.from_dict(self.value_expr_dict)
         return self._value_expr
 
@@ -129,12 +139,14 @@ class Column:
         if self.stored == False and self.is_computed and self.has_window_fn_call():
             raise excs.Error(
                 f'Column {self.name}: stored={self.stored} not supported for columns computed with window functions:'
-                f'\n{self.value_expr}')
+                f'\n{self.value_expr}'
+            )
 
     def has_window_fn_call(self) -> bool:
         if self.value_expr is None:
             return False
         from pixeltable import exprs
+
         l = list(self.value_expr.subexprs(filter=lambda e: isinstance(e, exprs.FunctionCall) and e.is_window_fn_call))
         return len(l) > 0
 
@@ -177,6 +189,7 @@ class Column:
         If this is a computed col and the top-level expr is a function call, print the source, if possible.
         """
         from pixeltable import exprs
+
         if self.value_expr is None or not isinstance(self.value_expr, exprs.FunctionCall):
             return
         self.value_expr.fn.source()
@@ -188,8 +201,10 @@ class Column:
         assert self.is_stored
         # all storage columns are nullable (we deal with null errors in Pixeltable directly)
         self.sa_col = sql.Column(
-            self.store_name(), self.col_type.to_sa_type() if self.sa_col_type is None else self.sa_col_type,
-            nullable=True)
+            self.store_name(),
+            self.col_type.to_sa_type() if self.sa_col_type is None else self.sa_col_type,
+            nullable=True,
+        )
         if self.is_computed or self.col_type.is_media_type():
             self.sa_errormsg_col = sql.Column(self.errormsg_store_name(), ts.StringType().to_sa_type(), nullable=True)
             self.sa_errortype_col = sql.Column(self.errortype_store_name(), ts.StringType().to_sa_type(), nullable=True)

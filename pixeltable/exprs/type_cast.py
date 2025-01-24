@@ -14,6 +14,7 @@ class TypeCast(Expr):
     An `Expr` that represents a type conversion from an underlying `Expr` to
     a specified `ColumnType`.
     """
+
     def __init__(self, underlying: Expr, new_type: ts.ColumnType):
         super().__init__(new_type)
         self.components: list[Expr] = [underlying]
@@ -40,7 +41,6 @@ class TypeCast(Expr):
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         original_val = data_row[self._underlying.slot_idx]
         data_row[self.slot_idx] = self.col_type.create_literal(original_val)
-
 
     def _as_dict(self) -> dict:
         return {'new_type': self.col_type.as_dict(), **super()._as_dict()}

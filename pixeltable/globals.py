@@ -20,15 +20,17 @@ from pixeltable.utils.filecache import FileCache
 
 _logger = logging.getLogger('pixeltable')
 
+
 def init() -> None:
     """Initializes the Pixeltable environment."""
     _ = Catalog.get()
+
 
 def _get_or_drop_existing_path(
     path_str: str,
     expected_obj_type: type[catalog.SchemaObject],
     expected_snapshot: bool,
-    if_exists: catalog.IfExistsParam
+    if_exists: catalog.IfExistsParam,
 ) -> Optional[catalog.SchemaObject]:
     """Handle schema object path collision during creation according to the if_exists parameter.
 
@@ -53,12 +55,15 @@ def _get_or_drop_existing_path(
         raise excs.Error(f'Path `{path_str}` already exists.')
 
     existing_path = cat.paths[path]
-    existing_path_is_snapshot = 'is_snapshot' in existing_path.get_metadata() and existing_path.get_metadata()['is_snapshot']
+    existing_path_is_snapshot = (
+        'is_snapshot' in existing_path.get_metadata() and existing_path.get_metadata()['is_snapshot']
+    )
     obj_type_str = 'Snapshot' if expected_snapshot else expected_obj_type._display_name().capitalize()
     # Check if the existing path is of expected type.
-    if (not isinstance(existing_path, expected_obj_type)
-        or (expected_snapshot and not existing_path_is_snapshot)):
-            raise excs.Error(f'Path `{path_str}` already exists but is not a {obj_type_str}. Cannot {if_exists.name.lower()} it.')
+    if not isinstance(existing_path, expected_obj_type) or (expected_snapshot and not existing_path_is_snapshot):
+        raise excs.Error(
+            f'Path `{path_str}` already exists but is not a {obj_type_str}. Cannot {if_exists.name.lower()} it.'
+        )
 
     # if_exists='ignore' return the handle to the existing object.
     assert isinstance(existing_path, expected_obj_type)
@@ -69,12 +74,14 @@ def _get_or_drop_existing_path(
     # unless if_exists='replace_force'.
     has_dependents = existing_path._has_dependents
     if if_exists == catalog.IfExistsParam.REPLACE and has_dependents:
-        raise excs.Error(f"{obj_type_str} `{path_str}` already exists and has dependents. Use `if_exists='replace_force'` to replace it.")
+        raise excs.Error(
+            f"{obj_type_str} `{path_str}` already exists and has dependents. Use `if_exists='replace_force'` to replace it."
+        )
     else:
         assert if_exists == catalog.IfExistsParam.REPLACE_FORCE or not has_dependents
         # Drop the existing path so it can be replaced.
         # Any errors during drop will be raised.
-        _logger.info(f"Dropping {obj_type_str} `{path_str}` to replace it.")
+        _logger.info(f'Dropping {obj_type_str} `{path_str}` to replace it.')
         if isinstance(existing_path, catalog.Dir):
             drop_dir(path_str, force=True)
         else:
@@ -82,6 +89,7 @@ def _get_or_drop_existing_path(
         assert cat.paths.get_object(path) is None
 
     return None
+
 
 def create_table(
     path_str: str,
@@ -91,7 +99,7 @@ def create_table(
     num_retained_versions: int = 10,
     comment: str = '',
     media_validation: Literal['on_read', 'on_write'] = 'on_write',
-    if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error'
+    if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
 ) -> catalog.Table:
     """Create a new base table.
 
@@ -166,7 +174,9 @@ def create_table(
         df = schema_or_df
         schema = df.schema
     elif isinstance(schema_or_df, DataFrameResultSet):
-        raise excs.Error('`schema_or_df` must be either a schema dictionary or a Pixeltable DataFrame. (Is there an extraneous call to `collect()`?)')
+        raise excs.Error(
+            '`schema_or_df` must be either a schema dictionary or a Pixeltable DataFrame. (Is there an extraneous call to `collect()`?)'
+        )
     else:
         raise excs.Error('`schema_or_df` must be either a schema dictionary or a Pixeltable DataFrame.')
 
@@ -182,8 +192,15 @@ def create_table(
             raise excs.Error('primary_key must be a single column name or a list of column names')
 
     tbl = catalog.InsertableTable._create(
-        dir._id, path.name, schema, df, primary_key=primary_key, num_retained_versions=num_retained_versions,
-        comment=comment, media_validation=catalog.MediaValidation.validated(media_validation, 'media_validation'))
+        dir._id,
+        path.name,
+        schema,
+        df,
+        primary_key=primary_key,
+        num_retained_versions=num_retained_versions,
+        comment=comment,
+        media_validation=catalog.MediaValidation.validated(media_validation, 'media_validation'),
+    )
     cat.paths[path] = tbl
 
     _logger.info(f'Created table `{path_str}`.')
@@ -293,17 +310,27 @@ def create_view(
         # additional columns should not be in the base table
         for col_name in additional_columns.keys():
             if col_name in [c.name for c in tbl_version_path.columns()]:
-                raise excs.Error(f"Column {col_name!r} already exists in the base table {tbl_version_path.get_column(col_name).tbl.name}.")
+                raise excs.Error(
+                    f'Column {col_name!r} already exists in the base table {tbl_version_path.get_column(col_name).tbl.name}.'
+                )
     if iterator is None:
         iterator_class, iterator_args = None, None
     else:
         iterator_class, iterator_args = iterator
 
     view = catalog.View._create(
-        dir._id, path.name, base=tbl_version_path, additional_columns=additional_columns, predicate=where,
-        is_snapshot=is_snapshot, iterator_cls=iterator_class, iterator_args=iterator_args,
-        num_retained_versions=num_retained_versions, comment=comment,
-        media_validation=catalog.MediaValidation.validated(media_validation, 'media_validation'))
+        dir._id,
+        path.name,
+        base=tbl_version_path,
+        additional_columns=additional_columns,
+        predicate=where,
+        is_snapshot=is_snapshot,
+        iterator_cls=iterator_class,
+        iterator_args=iterator_args,
+        num_retained_versions=num_retained_versions,
+        comment=comment,
+        media_validation=catalog.MediaValidation.validated(media_validation, 'media_validation'),
+    )
     cat.paths[path] = view
     _logger.info(f'Created view `{path_str}`.')
     FileCache.get().emit_eviction_warnings()
@@ -450,8 +477,9 @@ def move(path: str, new_path: str) -> None:
     obj._move(new_p.name, new_dir._id)
 
 
-def drop_table(table: Union[str, catalog.Table], force: bool = False,
-    if_not_exists: Literal['error', 'ignore'] = 'error') -> None:
+def drop_table(
+    table: Union[str, catalog.Table], force: bool = False, if_not_exists: Literal['error', 'ignore'] = 'error'
+) -> None:
     """Drop a table, view, or snapshot.
 
     Args:
@@ -497,7 +525,9 @@ def drop_table(table: Union[str, catalog.Table], force: bool = False,
             else:
                 raise excs.Error(f'Table `{table}` does not exist.')
         if not isinstance(tbl, catalog.Table):
-            raise excs.Error(f'{tbl} needs to be a {catalog.Table._display_name()} but is a {type(tbl)._display_name()}')
+            raise excs.Error(
+                f'{tbl} needs to be a {catalog.Table._display_name()} but is a {type(tbl)._display_name()}'
+            )
     else:
         tbl = table
         tbl_path_obj = catalog.Path(tbl._path)
@@ -543,7 +573,10 @@ def list_tables(dir_path: str = '', recursive: bool = True) -> list[str]:
     Catalog.get().paths.check_is_valid(path, expected=catalog.Dir)
     return [str(p) for p in Catalog.get().paths.get_children(path, child_type=catalog.Table, recursive=recursive)]
 
-def create_dir(path_str: str, if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error') -> Optional[catalog.Dir]:
+
+def create_dir(
+    path_str: str, if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error'
+) -> Optional[catalog.Dir]:
     """Create a directory.
 
     Args:
@@ -610,6 +643,7 @@ def create_dir(path_str: str, if_exists: Literal['error', 'ignore', 'replace', '
         print(f'Created directory `{path_str}`.')
         return dir
 
+
 def drop_dir(path_str: str, force: bool = False, if_not_exists: Literal['error', 'ignore'] = 'error') -> None:
     """Remove a directory.
 
@@ -660,7 +694,8 @@ def drop_dir(path_str: str, force: bool = False, if_not_exists: Literal['error',
 
     if not isinstance(obj, catalog.Dir):
         raise excs.Error(
-            f'{str(path)} needs to be a {catalog.Dir._display_name()} but is a {type(obj)._display_name()}')
+            f'{str(path)} needs to be a {catalog.Dir._display_name()} but is a {type(obj)._display_name()}'
+        )
 
     children = cat.paths.get_children(path, child_type=None, recursive=True)
 
@@ -721,7 +756,9 @@ def list_functions() -> Styler:
     paths = ['.'.join(f.self_path.split('.')[:-1]) for f in functions]
     names = [f.name for f in functions]
     params = [
-        ', '.join([param_name + ': ' + str(param_type) for param_name, param_type in f.signatures[0].parameters.items()])
+        ', '.join(
+            [param_name + ': ' + str(param_type) for param_name, param_type in f.signatures[0].parameters.items()]
+        )
         for f in functions
     ]
     pd_df = pd.DataFrame(
@@ -772,10 +809,7 @@ def tools(*args: Union[func.Function, func.tools.Tool]) -> func.tools.Tools:
         ...     pxt.tool(traffic_quote, name='traffic_conditions'),
         ... )
     """
-    return func.tools.Tools(tools=[
-        arg if isinstance(arg, func.tools.Tool) else tool(arg)
-        for arg in args
-    ])
+    return func.tools.Tools(tools=[arg if isinstance(arg, func.tools.Tool) else tool(arg) for arg in args])
 
 
 def tool(fn: func.Function, name: Optional[str] = None, description: Optional[str] = None) -> func.tools.Tool:

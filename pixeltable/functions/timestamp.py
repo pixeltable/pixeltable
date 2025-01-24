@@ -135,6 +135,7 @@ def astimezone(self: datetime, tz: str) -> datetime:
         tz: The time zone to convert to. Must be a valid time zone name from the IANA Time Zone Database.
     """
     from zoneinfo import ZoneInfo
+
     tzinfo = ZoneInfo(tz)
     return self.astimezone(tzinfo)
 
@@ -210,7 +211,7 @@ def strftime(self: datetime, format: str) -> str:
 
 @pxt.udf(is_method=True)
 def make_timestamp(
-        year: int, month: int, day: int, hour: int = 0, minute: int = 0, second: int = 0, microsecond: int = 0
+    year: int, month: int, day: int, hour: int = 0, minute: int = 0, second: int = 0, microsecond: int = 0
 ) -> datetime:
     """
     Create a timestamp.
@@ -222,9 +223,13 @@ def make_timestamp(
 
 @make_timestamp.to_sql
 def _(
-        year: sql.ColumnElement, month: sql.ColumnElement, day: sql.ColumnElement,
-        hour: sql.ColumnElement = sql.literal(0), minute: sql.ColumnElement = sql.literal(0),
-        second: sql.ColumnElement = sql.literal(0), microsecond: sql.ColumnElement = sql.literal(0)
+    year: sql.ColumnElement,
+    month: sql.ColumnElement,
+    day: sql.ColumnElement,
+    hour: sql.ColumnElement = sql.literal(0),
+    minute: sql.ColumnElement = sql.literal(0),
+    second: sql.ColumnElement = sql.literal(0),
+    microsecond: sql.ColumnElement = sql.literal(0),
 ) -> sql.ColumnElement:
     return sql.func.make_timestamptz(
         sql.cast(year, sql.Integer),
@@ -232,7 +237,9 @@ def _(
         sql.cast(day, sql.Integer),
         sql.cast(hour, sql.Integer),
         sql.cast(minute, sql.Integer),
-        sql.cast(second + microsecond / 1000000.0, sql.Float))
+        sql.cast(second + microsecond / 1000000.0, sql.Float),
+    )
+
 
 # @pxt.udf
 # def date(self: datetime) -> datetime:
@@ -258,9 +265,15 @@ def _(
 
 @pxt.udf(is_method=True)
 def replace(
-        self: datetime, year: Optional[int] = None, month: Optional[int] = None, day: Optional[int] = None,
-        hour: Optional[int] = None, minute: Optional[int] = None, second: Optional[int] = None,
-        microsecond: Optional[int] = None) -> datetime:
+    self: datetime,
+    year: Optional[int] = None,
+    month: Optional[int] = None,
+    day: Optional[int] = None,
+    hour: Optional[int] = None,
+    minute: Optional[int] = None,
+    second: Optional[int] = None,
+    microsecond: Optional[int] = None,
+) -> datetime:
     """
     Return a datetime with the same attributes, except for those attributes given new values by whichever keyword
     arguments are specified.

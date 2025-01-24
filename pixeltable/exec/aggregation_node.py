@@ -13,12 +13,14 @@ from .exec_node import ExecNode
 
 _logger = logging.getLogger('pixeltable')
 
+
 class AggregationNode(ExecNode):
     """
     In-memory aggregation for UDAs.
 
     At the moment, this returns all results in a single DataRowBatch.
     """
+
     group_by: Optional[list[exprs.Expr]]
     input_exprs: list[exprs.Expr]
     agg_fn_eval_ctx: exprs.RowBuilder.EvalCtx
@@ -26,8 +28,13 @@ class AggregationNode(ExecNode):
     output_batch: DataRowBatch
 
     def __init__(
-            self, tbl: catalog.TableVersion, row_builder: exprs.RowBuilder, group_by: Optional[list[exprs.Expr]],
-            agg_fn_calls: list[exprs.FunctionCall], input_exprs: Iterable[exprs.Expr], input: ExecNode
+        self,
+        tbl: catalog.TableVersion,
+        row_builder: exprs.RowBuilder,
+        group_by: Optional[list[exprs.Expr]],
+        agg_fn_calls: list[exprs.FunctionCall],
+        input_exprs: Iterable[exprs.Expr],
+        input: ExecNode,
     ):
         output_exprs: list[exprs.Expr] = [] if group_by is None else list(group_by)
         output_exprs.extend(agg_fn_calls)
@@ -86,4 +93,3 @@ class AggregationNode(ExecNode):
         self.output_batch.flush_imgs(None, self.stored_img_cols, self.flushed_img_slots)
         _logger.debug(f'AggregateNode: consumed {num_input_rows} rows, returning {len(self.output_batch.rows)} rows')
         yield self.output_batch
-

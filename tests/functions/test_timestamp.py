@@ -12,11 +12,11 @@ from ..utils import validate_update_status
 class TestTimestamp:
     # All test datetimes are in America/Los_Angeles time zone
     TEST_DATETIMES = [
-        "2024-01-01T12:34:56-08:00",
-        "2023-12-31T23:59:59-08:00",
-        "2022-06-15T08:30:00-07:00",
-        "2020-02-29T00:00:00-08:00",
-        "2019-01-01T00:00:01-08:00"
+        '2024-01-01T12:34:56-08:00',
+        '2023-12-31T23:59:59-08:00',
+        '2022-06-15T08:30:00-07:00',
+        '2020-02-29T00:00:00-08:00',
+        '2019-01-01T00:00:01-08:00',
     ]
 
     def test_methods(self, reset_db) -> None:
@@ -28,14 +28,28 @@ class TestTimestamp:
         test_dts = [datetime.fromisoformat(dt) for dt in self.TEST_DATETIMES]
         validate_update_status(t.insert({'dt': dt} for dt in test_dts), expected_rows=len(test_dts))
 
-        from pixeltable.functions.timestamp import (day, hour, isocalendar, isoformat, isoweekday, microsecond, minute,
-                                                    month, posix_timestamp, replace, second, strftime, toordinal,
-                                                    weekday, year)
+        from pixeltable.functions.timestamp import (
+            day,
+            hour,
+            isocalendar,
+            isoformat,
+            isoweekday,
+            microsecond,
+            minute,
+            month,
+            posix_timestamp,
+            replace,
+            second,
+            strftime,
+            toordinal,
+            weekday,
+            year,
+        )
 
         test_params: list[tuple[pxt.Function, Callable, list, dict]] = [
             # (pxt_fn, str_fn, args, kwargs)
-            #(date, lambda dt: datetime(dt.year, dt.month, dt.day), [], {}),
-            #(time, lambda dt: datetime(1, 1, 1, dt.hour, dt.minute, dt.second, dt.microsecond), [], {}),
+            # (date, lambda dt: datetime(dt.year, dt.month, dt.day), [], {}),
+            # (time, lambda dt: datetime(1, 1, 1, dt.hour, dt.minute, dt.second, dt.microsecond), [], {}),
             (year, datetime.year.__get__, [], {}),
             (month, datetime.month.__get__, [], {}),
             (day, datetime.day.__get__, [], {}),
@@ -45,10 +59,12 @@ class TestTimestamp:
             (microsecond, datetime.microsecond.__get__, [], {}),
             (weekday, datetime.weekday, [], {}),
             (isoweekday, datetime.isoweekday, [], {}),
-            (isocalendar,
-             lambda dt: {'year': dt.isocalendar()[0], 'week': dt.isocalendar()[1], 'weekday': dt.isocalendar()[2]},
-             [],
-             {}),
+            (
+                isocalendar,
+                lambda dt: {'year': dt.isocalendar()[0], 'week': dt.isocalendar()[1], 'weekday': dt.isocalendar()[2]},
+                [],
+                {},
+            ),
             (isoformat, datetime.isoformat, ['T'], {}),
             (strftime, datetime.strftime, ['%Y-%m-%d %H:%M:%S'], {}),
             (replace, datetime.replace, [2025, 1, 1], {}),
@@ -90,7 +106,7 @@ class TestTimestamp:
             # Some random times in the summer months (to ensure varying DST treatment)
             datetime.fromisoformat('2024-07-01T22:45:12'),
             datetime.fromisoformat('2024-07-01T22:45:12-02:00'),
-            datetime(2024, 7, 1, 22, 45, 12, tzinfo=ZoneInfo('Pacific/Auckland'))
+            datetime(2024, 7, 1, 22, 45, 12, tzinfo=ZoneInfo('Pacific/Auckland')),
         ]
         # Test various methods and properties that are timezone-sensitive
         props_to_test = ['year', 'month', 'day', 'hour', 'minute']
@@ -122,7 +138,8 @@ class TestTimestamp:
                 # `effective_dt` is the aware timestamp that is the Pixeltable interpretation of the input
                 # timestamp: if the input timestamp is naive, it is interpreted as being in default_time_zone.
                 effective_dt = (
-                    timestamps[row_idx] if timestamps[row_idx].tzinfo is not None
+                    timestamps[row_idx]
+                    if timestamps[row_idx].tzinfo is not None
                     else timestamps[row_idx].replace(tzinfo=default_time_zone)
                 )
                 for col in 'dt', 'dt_tz':
@@ -139,15 +156,16 @@ class TestTimestamp:
                     assert results[prop + '_tz'][row_idx] == getattr(effective_dt.astimezone(query_time_zone), prop)
                 for method in methods_to_test:
                     assert results[method][row_idx] == getattr(effective_dt.astimezone(default_time_zone), method)()
-                    assert results[method + '_tz'][row_idx] == getattr(effective_dt.astimezone(query_time_zone), method)()
+                    assert (
+                        results[method + '_tz'][row_idx] == getattr(effective_dt.astimezone(query_time_zone), method)()
+                    )
 
     def test_time_zone_in_literals(self, reset_db) -> None:
         Env.get().default_time_zone = ZoneInfo('America/Anchorage')
         t = pxt.create_table('test_tbl', {'n': pxt.Int, 'dt': pxt.Timestamp})
         start = datetime.fromisoformat('2024-07-01T00:00:00+00:00')
         validate_update_status(
-            t.insert({'n': n, 'dt': start + timedelta(minutes=n)} for n in range(1440)),
-            expected_rows=1440
+            t.insert({'n': n, 'dt': start + timedelta(minutes=n)} for n in range(1440)), expected_rows=1440
         )
         # Ensure literals are displayed correctly in the default TZ (with naive datetimes interpreted
         # as being in the default time zone)
@@ -162,15 +180,19 @@ class TestTimestamp:
         test_dts = [datetime.fromisoformat(dt) for dt in self.TEST_DATETIMES]
         validate_update_status(t.insert({'dt': dt} for dt in test_dts), expected_rows=len(test_dts))
         from pixeltable.functions.timestamp import make_timestamp
+
         res = (
             t.select(
                 out=make_timestamp(
-                    year=t.dt.year, month=t.dt.month, day=t.dt.day, hour=t.dt.hour,
+                    year=t.dt.year,
+                    month=t.dt.month,
+                    day=t.dt.day,
+                    hour=t.dt.hour,
                     # omit minute in order to force FunctionCall.sql_expr() to deal with kw args
-                    second=t.dt.second))
-            #.order_by(t.dt.day, asc=False)
+                    second=t.dt.second,
+                )
+            )
+            # .order_by(t.dt.day, asc=False)
             .collect()
         )
-        assert (
-            res['out'] == [dt.replace(minute=0).astimezone(Env.get().default_time_zone) for dt in test_dts]
-        )
+        assert res['out'] == [dt.replace(minute=0).astimezone(Env.get().default_time_zone) for dt in test_dts]

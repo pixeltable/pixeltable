@@ -19,6 +19,7 @@ class ColumnPropertyRef(Expr):
 
     The properties themselves are type-specific and may or may not need to reference the underlying column data.
     """
+
     class Property(enum.Enum):
         ERRORTYPE = 0
         ERRORMSG = 1
@@ -103,4 +104,3 @@ class ColumnPropertyRef(Expr):
         assert 'prop' in d
         assert isinstance(components[0], ColumnRef)
         return cls(components[0], cls.Property(d['prop']))
-

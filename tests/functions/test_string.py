@@ -34,16 +34,38 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
         test_strs = self.TEST_STR.split('. ')
         validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
 
-        from pixeltable.functions.string import (capitalize, casefold, center,
-                                                 count, endswith, find,
-                                                 isalnum, isalpha, isascii,
-                                                 isdecimal, isdigit,
-                                                 isidentifier, islower,
-                                                 isnumeric, isspace, istitle,
-                                                 isupper, ljust, lower, lstrip,
-                                                 rfind, rjust, rstrip,
-                                                 startswith, strip, swapcase,
-                                                 title, upper, zfill)
+        from pixeltable.functions.string import (
+            capitalize,
+            casefold,
+            center,
+            count,
+            endswith,
+            find,
+            isalnum,
+            isalpha,
+            isascii,
+            isdecimal,
+            isdigit,
+            isidentifier,
+            islower,
+            isnumeric,
+            isspace,
+            istitle,
+            isupper,
+            ljust,
+            lower,
+            lstrip,
+            rfind,
+            rjust,
+            rstrip,
+            startswith,
+            strip,
+            swapcase,
+            title,
+            upper,
+            zfill,
+        )
+
         test_params: list[tuple[pxt.Function, Callable, list, dict]] = [
             # (pxt_fn, str_fn, args, kwargs)
             (capitalize, str.capitalize, [], {}),
@@ -80,9 +102,9 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
 
         for pxt_fn, str_fn, args, kwargs in test_params:
             try:
-                assert t.select(out=pxt_fn(t.s, *args, **kwargs)).collect()['out'] == \
-                    [str_fn(s, *args, **kwargs) for s in test_strs], \
-                    pxt_fn
+                assert t.select(out=pxt_fn(t.s, *args, **kwargs)).collect()['out'] == [
+                    str_fn(s, *args, **kwargs) for s in test_strs
+                ], pxt_fn
             except Exception as e:
                 print(pxt_fn)
                 raise e
@@ -243,14 +265,18 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
         validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
         assert t.select(out=t.s.contains('IBM')).collect()['out'] == ['IBM' in s for s in test_strs]
         assert t.select(out=t.s.contains('IBM', regex=False)).collect()['out'] == ['IBM' in s for s in test_strs]
-        assert t.select(out=t.s.contains('ibm', regex=False, case=True)).collect()['out'] == \
-               ['ibm' in s for s in test_strs]
-        assert t.select(out=t.s.contains('ibm', regex=False, case=False)).collect()['out'] == \
-               ['ibm' in s.lower() for s in test_strs]
-        assert t.select(out=t.s.contains('ibm', regex=True, flags=re.IGNORECASE)).collect()['out'] == \
-               ['ibm' in s.lower() for s in test_strs]
-        assert t.select(out=t.s.contains('i.m', regex=True, flags=re.IGNORECASE)).collect()['out'] >= \
-               ['ibm' in s.lower() for s in test_strs]
+        assert t.select(out=t.s.contains('ibm', regex=False, case=True)).collect()['out'] == [
+            'ibm' in s for s in test_strs
+        ]
+        assert t.select(out=t.s.contains('ibm', regex=False, case=False)).collect()['out'] == [
+            'ibm' in s.lower() for s in test_strs
+        ]
+        assert t.select(out=t.s.contains('ibm', regex=True, flags=re.IGNORECASE)).collect()['out'] == [
+            'ibm' in s.lower() for s in test_strs
+        ]
+        assert t.select(out=t.s.contains('i.m', regex=True, flags=re.IGNORECASE)).collect()['out'] >= [
+            'ibm' in s.lower() for s in test_strs
+        ]
 
     def test_index(self, reset_db) -> None:
         t = pxt.create_table('test_tbl', {'s': pxt.String})
@@ -267,11 +293,11 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
 
         res = t.where(t.s.contains('IBM')).select(t.s, idx=t.s.index('IBM')).collect()
         for s, idx in zip(res['s'], res['idx']):
-            assert s[idx:idx + 3] == 'IBM'
+            assert s[idx : idx + 3] == 'IBM'
 
         res = t.where(t.s.contains('IBM')).select(t.s, idx=t.s.rindex('IBM')).collect()
         for s, idx in zip(res['s'], res['idx']):
-            assert s[idx:idx + 3] == 'IBM'
+            assert s[idx : idx + 3] == 'IBM'
 
     def test_format(self, reset_db) -> None:
         t = pxt.create_table('test_tbl', {'input': pxt.String})

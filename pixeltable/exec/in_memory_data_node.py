@@ -10,6 +10,7 @@ from .exec_node import ExecNode
 
 _logger = logging.getLogger('pixeltable')
 
+
 class InMemoryDataNode(ExecNode):
     """
     Outputs in-memory data as a DataRowBatch of a particular table.
@@ -18,6 +19,7 @@ class InMemoryDataNode(ExecNode):
     - with the values provided in the input rows
     - if an input row doesn't provide a value, sets the slot to the column default
     """
+
     tbl: catalog.TableVersion
     input_rows: list[dict[str, Any]]
     start_row_id: int
@@ -27,8 +29,7 @@ class InMemoryDataNode(ExecNode):
     output_exprs: list[exprs.ColumnRef]
 
     def __init__(
-        self, tbl: catalog.TableVersion, rows: list[dict[str, Any]],
-        row_builder: exprs.RowBuilder, start_row_id: int,
+        self, tbl: catalog.TableVersion, rows: list[dict[str, Any]], row_builder: exprs.RowBuilder, start_row_id: int
     ):
         # we materialize the input slots
         output_exprs = list(row_builder.input_exprs)
@@ -43,11 +44,11 @@ class InMemoryDataNode(ExecNode):
         """Create row batch and populate with self.input_rows"""
         user_cols_by_name = {
             col_ref.col.name: exprs.ColumnSlotIdx(col_ref.col, col_ref.slot_idx)
-            for col_ref in self.output_exprs if col_ref.col.name is not None
+            for col_ref in self.output_exprs
+            if col_ref.col.name is not None
         }
         output_cols_by_idx = {
-            col_ref.slot_idx: exprs.ColumnSlotIdx(col_ref.col, col_ref.slot_idx)
-            for col_ref in self.output_exprs
+            col_ref.slot_idx: exprs.ColumnSlotIdx(col_ref.col, col_ref.slot_idx) for col_ref in self.output_exprs
         }
         output_slot_idxs = {e.slot_idx for e in self.output_exprs}
 
@@ -68,7 +69,7 @@ class InMemoryDataNode(ExecNode):
                 input_slot_idxs.add(col_info.slot_idx)
 
             # set the remaining output slots to their default values (presently None)
-            missing_slot_idxs =  output_slot_idxs - input_slot_idxs
+            missing_slot_idxs = output_slot_idxs - input_slot_idxs
             for slot_idx in missing_slot_idxs:
                 col_info = output_cols_by_idx.get(slot_idx)
                 assert col_info is not None
