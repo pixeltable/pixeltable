@@ -1,7 +1,7 @@
 import sqlalchemy as sql
 
-from pixeltable.metadata.schema import Table, TableSchemaVersion
 from pixeltable.metadata import register_converter
+from pixeltable.metadata.schema import Table, TableSchemaVersion
 
 
 @register_converter(version=10)

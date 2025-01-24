@@ -2,18 +2,15 @@ from __future__ import annotations
 
 import dataclasses
 import enum
-from typing import Any, Iterable, Optional, Sequence, Literal
+from typing import Any, Iterable, Literal, Optional, Sequence
 from uuid import UUID
-
 
 import sqlalchemy as sql
 
 import pixeltable as pxt
 import pixeltable.exec as exec
-from pixeltable import catalog
-from pixeltable import exceptions as excs
-from pixeltable import exprs
-from pixeltable.exec.sql_node import OrderByItem, OrderByClause, combine_order_by_clauses, print_order_by_clause
+from pixeltable import catalog, exceptions as excs, exprs
+from pixeltable.exec.sql_node import OrderByClause, OrderByItem, combine_order_by_clauses, print_order_by_clause
 
 
 def _is_agg_fn_call(e: exprs.Expr) -> bool:

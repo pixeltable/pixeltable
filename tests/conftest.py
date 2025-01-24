@@ -17,12 +17,12 @@ from pixeltable.metadata.schema import Dir, Function, Table, TableSchemaVersion,
 from pixeltable.utils.filecache import FileCache
 
 from .utils import (
+    ReloadTester,
     create_all_datatypes_tbl,
     create_img_tbl,
     create_test_tbl,
     reload_catalog,
     skip_test_if_not_installed,
-    ReloadTester,
 )
 
 

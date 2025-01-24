@@ -5,7 +5,7 @@ import pytest
 
 import pixeltable as pxt
 
-from ..utils import validate_update_status, reload_catalog
+from ..utils import reload_catalog, validate_update_status
 
 
 class TestString:

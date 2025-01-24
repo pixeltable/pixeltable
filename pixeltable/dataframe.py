@@ -8,7 +8,7 @@ import json
 import logging
 import traceback
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Hashable, Iterator, Optional, Sequence, Union, AsyncIterator, NoReturn
+from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Hashable, Iterator, NoReturn, Optional, Sequence, Union
 
 import numpy as np
 import pandas as pd

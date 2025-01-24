@@ -1,13 +1,14 @@
 import logging
 import warnings
 from decimal import Decimal
-from typing import Iterable, Iterator, NamedTuple, Optional, TYPE_CHECKING, Sequence, AsyncIterator
+from typing import TYPE_CHECKING, AsyncIterator, Iterable, Iterator, NamedTuple, Optional, Sequence
 from uuid import UUID
 
 import sqlalchemy as sql
 
 import pixeltable.catalog as catalog
 import pixeltable.exprs as exprs
+
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
 

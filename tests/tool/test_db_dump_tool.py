@@ -1,7 +1,7 @@
 import platform
 import subprocess
-import sysconfig
 import sys
+import sysconfig
 
 import pytest
 

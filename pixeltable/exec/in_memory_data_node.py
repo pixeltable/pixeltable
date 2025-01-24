@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Iterator, Optional, AsyncIterator
+from typing import Any, AsyncIterator, Iterator, Optional
 
 import pixeltable.catalog as catalog
 import pixeltable.exprs as exprs

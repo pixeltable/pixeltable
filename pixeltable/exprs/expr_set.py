@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional, Iterable, Iterator, TypeVar, Generic
+from typing import Generic, Iterable, Iterator, Optional, TypeVar
 
 from .expr import Expr
 

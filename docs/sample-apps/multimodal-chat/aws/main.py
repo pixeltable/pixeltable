@@ -1,21 +1,19 @@
 import os
 
 from aws_cdk import (
+    App,
+    CfnOutput,
+    Duration,
+    SecretValue,
     Stack,
     aws_ec2 as ec2,
+    aws_ecr_assets as ecr_assets,
     aws_ecs as ecs,
     aws_ecs_patterns as ecs_patterns,
-    aws_ecr_assets as ecr_assets,
     aws_logs as logs,
     aws_secretsmanager as secretsmanager,
-    Duration,
-    CfnOutput,
-    SecretValue,
-    App,
 )
-
 from constructs import Construct
-
 from dotenv import load_dotenv
 
 load_dotenv()

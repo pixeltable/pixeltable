@@ -3,7 +3,6 @@ from typing import Optional
 
 from pixeltable.func import Function
 
-
 # Utilities related to the organization of the Pixeltable codebase.
 
 

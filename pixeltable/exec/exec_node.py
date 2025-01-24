@@ -4,9 +4,10 @@ import abc
 import asyncio
 import logging
 import sys
-from typing import Iterable, Iterator, Optional, TypeVar, AsyncIterator
+from typing import AsyncIterator, Iterable, Iterator, Optional, TypeVar
 
 import pixeltable.exprs as exprs
+
 from .data_row_batch import DataRowBatch
 from .exec_context import ExecContext
 

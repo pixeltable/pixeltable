@@ -6,10 +6,10 @@ from uuid import UUID
 
 import sqlalchemy as sql
 
-from .schema_object import SchemaObject
 from pixeltable.env import Env
 from pixeltable.metadata import schema
 
+from .schema_object import SchemaObject
 
 _logger = logging.getLogger('pixeltable')
 

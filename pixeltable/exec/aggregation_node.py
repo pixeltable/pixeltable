@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import sys
-from typing import Any, Iterable, Iterator, Optional, cast, AsyncIterator
+from typing import Any, AsyncIterator, Iterable, Iterator, Optional, cast
 
 import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs

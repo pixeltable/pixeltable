@@ -1,4 +1,4 @@
-from typing import Iterator, Any
+from typing import Any, Iterator
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts

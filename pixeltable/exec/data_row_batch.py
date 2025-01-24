@@ -1,11 +1,11 @@
 from __future__ import annotations
-from typing import Iterator, Optional
+
 import logging
+from typing import Iterator, Optional
 
-import pixeltable.exprs as exprs
 import pixeltable.catalog as catalog
+import pixeltable.exprs as exprs
 from pixeltable.utils.media_store import MediaStore
-
 
 _logger = logging.getLogger('pixeltable')
 

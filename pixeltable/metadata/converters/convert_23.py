@@ -1,6 +1,7 @@
 import logging
 from typing import Any, Optional
 from uuid import UUID
+
 import sqlalchemy as sql
 
 from pixeltable.metadata import register_converter

@@ -5,10 +5,10 @@ import datetime
 import itertools
 import logging
 import sys
-from typing import Iterator, Any, Optional, Callable, cast
+from typing import Any, Callable, Iterator, Optional, cast
 
-from pixeltable import exprs
-from pixeltable import func
+from pixeltable import exprs, func
+
 from .globals import Dispatcher, Evaluator, FnCallArgs
 
 _logger = logging.getLogger('pixeltable')

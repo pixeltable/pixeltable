@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import importlib
 import inspect
-from abc import abstractmethod, ABC
+from abc import ABC, abstractmethod
 from copy import copy
 from typing import TYPE_CHECKING, Any, Callable, Optional, Sequence, cast
 
@@ -12,6 +12,7 @@ from typing_extensions import Self
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
+
 from .globals import resolve_symbol
 from .signature import Signature
 

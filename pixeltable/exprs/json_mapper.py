@@ -5,8 +5,9 @@ from typing import Optional
 import sqlalchemy as sql
 
 import pixeltable.type_system as ts
+
 from .data_row import DataRow
-from .expr import Expr, ExprScope, _GLOBAL_SCOPE
+from .expr import _GLOBAL_SCOPE, Expr, ExprScope
 from .row_builder import RowBuilder
 from .sql_element_cache import SqlElementCache
 

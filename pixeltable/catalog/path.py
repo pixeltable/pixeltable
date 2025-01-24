@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 
 from pixeltable import exceptions as excs
+
 from .globals import is_valid_path
 
 _logger = logging.getLogger('pixeltable')

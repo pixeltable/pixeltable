@@ -8,13 +8,13 @@ from uuid import UUID
 import sqlalchemy as sql
 import sqlalchemy.orm as orm
 
-from .table_version import TableVersion
-from .table_version_path import TableVersionPath
-from .table import Table
-from .path_dict import PathDict
-
 import pixeltable.env as env
 import pixeltable.metadata.schema as schema
+
+from .path_dict import PathDict
+from .table import Table
+from .table_version import TableVersion
+from .table_version_path import TableVersionPath
 
 _logger = logging.getLogger('pixeltable')
 

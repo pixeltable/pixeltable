@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 import io
 import json
 import logging
@@ -11,16 +12,16 @@ from typing import Any, Optional, Union
 
 import numpy as np
 import PIL.Image
-import datetime
 
 import pixeltable as pxt
-from pixeltable.env import Env
 import pixeltable.exceptions as exc
 import pixeltable.type_system as ts
+from pixeltable.env import Env
 from pixeltable.utils.transactional_directory import transactional_directory
 
 if typing.TYPE_CHECKING:
     import pyarrow as pa
+
     import pixeltable as pxt
 
 _logger = logging.getLogger(__name__)

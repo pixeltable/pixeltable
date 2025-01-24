@@ -9,7 +9,7 @@ import urllib.request
 from collections import deque
 from concurrent import futures
 from pathlib import Path
-from typing import Optional, Any, Iterator, AsyncIterator
+from typing import Any, AsyncIterator, Iterator, Optional
 from uuid import UUID
 
 import pixeltable.env as env

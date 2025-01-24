@@ -1,4 +1,5 @@
 import sysconfig
+
 import pytest
 
 import pixeltable as pxt

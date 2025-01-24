@@ -7,11 +7,11 @@ import inspect
 import json
 import sys
 import typing
-from typing import TYPE_CHECKING, Any, Callable, Iterator, Optional, TypeVar, Union, overload, Iterable
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Optional, TypeVar, Union, overload
 from uuid import UUID
 
 import sqlalchemy as sql
-from typing_extensions import _AnnotatedAlias, Self
+from typing_extensions import Self, _AnnotatedAlias
 
 import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs

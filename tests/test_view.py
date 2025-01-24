@@ -1,16 +1,15 @@
 import datetime
 import logging
+import re
 from typing import Literal
 
 import PIL
 import pytest
-import re
 
 import pixeltable as pxt
-from pixeltable import catalog
-from pixeltable import exceptions as excs
+from pixeltable import catalog, exceptions as excs
 
-from .utils import assert_resultset_eq, create_test_tbl, reload_catalog, validate_update_status, ReloadTester
+from .utils import ReloadTester, assert_resultset_eq, create_test_tbl, reload_catalog, validate_update_status
 
 logger = logging.getLogger('pixeltable')
 

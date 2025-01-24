@@ -4,7 +4,7 @@ import logging
 import math
 import random
 import typing
-from typing import Union, Optional, Any
+from typing import Any, Optional, Union
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
@@ -103,6 +103,7 @@ def import_huggingface_dataset(
         A handle to the newly created [`Table`][pixeltable.Table].
     """
     import datasets
+
     import pixeltable as pxt
 
     if table_path in pxt.list_tables():

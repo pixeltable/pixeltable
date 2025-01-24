@@ -1,11 +1,12 @@
 import datetime
 import pathlib
 from typing import TYPE_CHECKING, Iterable
-import pytest
-import pixeltable as pxt
 
-from pixeltable.env import Env
+import pytest
+
+import pixeltable as pxt
 from pixeltable import exceptions as excs
+from pixeltable.env import Env
 
 from ..utils import get_image_files, make_test_arrow_table, skip_test_if_not_installed
 
@@ -18,6 +19,7 @@ class TestParquet:
         skip_test_if_not_installed('pyarrow')
         import pyarrow as pa
         from pyarrow import parquet
+
         from pixeltable.utils.arrow import iter_tuples
 
         parquet_dir = tmp_path / 'test_data'

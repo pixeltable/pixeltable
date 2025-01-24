@@ -2,6 +2,7 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
+
 from ..utils import skip_test_if_not_installed, validate_update_status
 
 

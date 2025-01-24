@@ -1,23 +1,24 @@
 # Standard library imports
-import os
-import io
 import base64
-import tempfile
+import io
 import logging
+import os
+import tempfile
 from pathlib import Path
-from typing import Optional, Literal
+from typing import Literal, Optional
+
+import PIL.Image
 
 # Third-party library imports
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-import PIL.Image
 
 # Local imports
 import pixeltable as pxt
-from pixeltable.iterators import FrameIterator
 from pixeltable.functions.huggingface import clip
+from pixeltable.iterators import FrameIterator
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

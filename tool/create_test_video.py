@@ -1,12 +1,12 @@
+import math
+import tempfile
+from pathlib import Path
+from typing import Optional
+
 import av  # type: ignore[import-untyped]
 import PIL.Image
 import PIL.ImageDraw
 import PIL.ImageFont
-
-from pathlib import Path
-from typing import Optional
-import tempfile
-import math
 
 
 def create_test_video(

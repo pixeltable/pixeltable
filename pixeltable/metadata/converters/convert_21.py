@@ -1,8 +1,9 @@
 from typing import Any, Optional
+
 import sqlalchemy as sql
 
 from pixeltable.metadata import register_converter
-from pixeltable.metadata.converters.util import convert_table_schema_version_md, convert_table_md
+from pixeltable.metadata.converters.util import convert_table_md, convert_table_schema_version_md
 
 
 @register_converter(version=21)

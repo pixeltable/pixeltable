@@ -10,8 +10,7 @@ import PIL.Image
 import pytest
 
 import pixeltable as pxt
-from pixeltable import catalog
-from pixeltable import exceptions as excs
+from pixeltable import catalog, exceptions as excs
 from pixeltable.iterators import FrameIterator
 
 from .utils import (

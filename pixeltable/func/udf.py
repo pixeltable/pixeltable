@@ -6,7 +6,7 @@ import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 
 from .callable_function import CallableFunction
-from .expr_template_function import ExprTemplateFunction, ExprTemplate
+from .expr_template_function import ExprTemplate, ExprTemplateFunction
 from .function import Function
 from .function_registry import FunctionRegistry
 from .globals import validate_symbol_path

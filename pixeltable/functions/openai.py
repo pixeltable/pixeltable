@@ -13,11 +13,11 @@ import logging
 import pathlib
 import re
 import uuid
-from typing import TYPE_CHECKING, Callable, Optional, TypeVar, Union, cast, Any, Type
+from typing import TYPE_CHECKING, Any, Callable, Optional, Type, TypeVar, Union, cast
 
-import PIL.Image
 import httpx
 import numpy as np
+import PIL.Image
 import tenacity
 
 import pixeltable as pxt

@@ -27,7 +27,7 @@ from pixeltable.utils.media_store import MediaStore
 
 from ..func.globals import resolve_symbol
 from .column import Column
-from .globals import _POS_COLUMN_NAME, _ROWID_COLUMN_NAME, UpdateStatus, is_valid_identifier, MediaValidation
+from .globals import _POS_COLUMN_NAME, _ROWID_COLUMN_NAME, MediaValidation, UpdateStatus, is_valid_identifier
 
 if TYPE_CHECKING:
     from pixeltable import exec, store

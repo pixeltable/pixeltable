@@ -1,6 +1,7 @@
-import discord
 from datetime import datetime
-from typing import List, Dict
+from typing import Dict, List
+
+import discord
 
 
 class MessageFormatter:

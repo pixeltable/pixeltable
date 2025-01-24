@@ -17,8 +17,7 @@ import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.functions as pxtf
 from pixeltable import catalog, exprs
-from pixeltable.exprs import RELATIVE_PATH_ROOT as R
-from pixeltable.exprs import ColumnRef, Expr, Literal
+from pixeltable.exprs import RELATIVE_PATH_ROOT as R, ColumnRef, Expr, Literal
 from pixeltable.functions.globals import cast
 from pixeltable.iterators import FrameIterator
 

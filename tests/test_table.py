@@ -14,8 +14,7 @@ from jsonschema.exceptions import ValidationError
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
-from pixeltable import catalog
-from pixeltable import exceptions as excs
+from pixeltable import catalog, exceptions as excs
 from pixeltable.exprs import ColumnRef
 from pixeltable.io.external_store import MockProject
 from pixeltable.iterators import FrameIterator

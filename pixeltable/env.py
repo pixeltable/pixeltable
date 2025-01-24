@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from abc import abstractmethod
 import datetime
 import glob
 import http.server
@@ -16,9 +15,10 @@ import sys
 import threading
 import uuid
 import warnings
+from abc import abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Optional, TypeVar, Type
+from typing import TYPE_CHECKING, Any, Callable, Optional, Type, TypeVar
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pixeltable_pgserver

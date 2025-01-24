@@ -1,7 +1,10 @@
 import builtins
-from typing import _GenericAlias  # type: ignore[attr-defined]
-from typing import Optional, Union
 import typing
+from typing import (
+    Optional,
+    Union,
+    _GenericAlias,  # type: ignore[attr-defined]
+)
 
 import sqlalchemy as sql
 

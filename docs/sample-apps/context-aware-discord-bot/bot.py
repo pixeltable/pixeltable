@@ -7,13 +7,12 @@ import numpy as np
 from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
+from message_formatter import MessageFormatter
 
 import pixeltable as pxt
 from pixeltable.functions import openai
 from pixeltable.functions.huggingface import sentence_transformer
 from pixeltable.iterators.string import StringSplitter
-
-from message_formatter import MessageFormatter
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

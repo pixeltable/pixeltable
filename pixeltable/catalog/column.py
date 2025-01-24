@@ -8,7 +8,8 @@ import sqlalchemy as sql
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable import exprs
-from .globals import is_valid_identifier, MediaValidation
+
+from .globals import MediaValidation, is_valid_identifier
 
 if TYPE_CHECKING:
     from .table_version import TableVersion

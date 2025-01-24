@@ -14,6 +14,7 @@ import pixeltable.exceptions as excs
 import pixeltable.func as func
 import pixeltable.utils as utils
 from pixeltable.utils.media_store import MediaStore
+
 from .data_row import DataRow
 from .expr import Expr
 from .expr_set import ExprSet

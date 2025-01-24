@@ -4,19 +4,19 @@ import asyncio
 import logging
 import traceback
 from types import TracebackType
-from typing import Iterable, AsyncIterator, Optional, Union
+from typing import AsyncIterator, Iterable, Optional, Union
 
 import numpy as np
 
 import pixeltable.exceptions as excs
-from pixeltable import exprs
-from pixeltable import func
+from pixeltable import exprs, func
+
+from ..data_row_batch import DataRowBatch
+from ..exec_node import ExecNode
 from .evaluators import DefaultExprEvaluator, FnCallEvaluator
 from .globals import Evaluator, Scheduler
 from .row_buffer import RowBuffer
 from .schedulers import SCHEDULERS
-from ..data_row_batch import DataRowBatch
-from ..exec_node import ExecNode
 
 _logger = logging.getLogger('pixeltable')
 

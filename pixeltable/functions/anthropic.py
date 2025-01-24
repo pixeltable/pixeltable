@@ -8,7 +8,7 @@ the [Working with Anthropic](https://pixeltable.readme.io/docs/working-with-anth
 import datetime
 import json
 import logging
-from typing import TYPE_CHECKING, Any, Optional, TypeVar, Union, cast, Iterable
+from typing import TYPE_CHECKING, Any, Iterable, Optional, TypeVar, Union, cast
 
 import httpx
 

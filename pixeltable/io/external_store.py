@@ -8,11 +8,11 @@ from dataclasses import dataclass
 from typing import Any, Optional
 from uuid import UUID
 
-import pixeltable.exceptions as excs
-import pixeltable.type_system as ts
-from pixeltable import Table, Column
 import sqlalchemy as sql
 
+import pixeltable.exceptions as excs
+import pixeltable.type_system as ts
+from pixeltable import Column, Table
 from pixeltable.catalog import TableVersion
 
 _logger = logging.getLogger('pixeltable')

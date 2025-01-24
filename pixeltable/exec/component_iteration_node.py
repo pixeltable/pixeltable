@@ -1,5 +1,5 @@
 import inspect
-from typing import Iterator, Optional, AsyncIterator
+from typing import AsyncIterator, Iterator, Optional
 
 import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs

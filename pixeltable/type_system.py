@@ -9,17 +9,24 @@ import typing
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Optional, Sequence, Union
+from typing import (
+    Any,
+    Iterable,
+    Mapping,
+    Optional,
+    Sequence,
+    Union,
+    _GenericAlias,  # type: ignore[attr-defined]
+)
 
-import PIL.Image
 import av  # type: ignore
 import jsonschema
 import jsonschema.protocols
 import jsonschema.validators
 import numpy as np
+import PIL.Image
 import pydantic
 import sqlalchemy as sql
-from typing import _GenericAlias  # type: ignore[attr-defined]
 from typing_extensions import _AnnotatedAlias
 
 import pixeltable.exceptions as excs

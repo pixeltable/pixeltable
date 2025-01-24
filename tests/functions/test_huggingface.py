@@ -7,13 +7,13 @@ import pixeltable as pxt
 
 from ..utils import (
     SAMPLE_IMAGE_URL,
+    ReloadTester,
     get_audio_files,
     get_image_files,
     get_sentences,
     reload_catalog,
     skip_test_if_not_installed,
     validate_update_status,
-    ReloadTester,
 )
 
 

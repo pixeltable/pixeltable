@@ -5,8 +5,8 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
-from pixeltable.io.external_store import MockProject, Project
 from pixeltable.exprs import ColumnRef
+from pixeltable.io.external_store import MockProject, Project
 from pixeltable.type_system import ColumnType
 from tests.utils import get_image_files, reload_catalog
 

@@ -2,10 +2,9 @@ import abc
 import asyncio
 from dataclasses import dataclass
 from types import TracebackType
-from typing import Any, Protocol, Optional
+from typing import Any, Optional, Protocol
 
-from pixeltable import exprs
-from pixeltable import func
+from pixeltable import exprs, func
 
 
 @dataclass

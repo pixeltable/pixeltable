@@ -1,4 +1,4 @@
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 import sqlalchemy as sql
 
@@ -7,6 +7,7 @@ import sqlalchemy as sql
 import pixeltable.exceptions as excs
 from pixeltable import catalog, exprs
 from pixeltable.func.udf import udf
+
 from .base import IndexBase
 
 if TYPE_CHECKING:

@@ -1,9 +1,9 @@
+import datetime
 import logging
 from typing import Any, Iterator, Optional, Union
 
 import numpy as np
 import pyarrow as pa
-import datetime
 
 import pixeltable.type_system as ts
 from pixeltable.env import Env

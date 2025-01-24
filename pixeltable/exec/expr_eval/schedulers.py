@@ -6,11 +6,11 @@ import inspect
 import logging
 import sys
 from dataclasses import dataclass
-from typing import Optional, Awaitable, Collection
+from typing import Awaitable, Collection, Optional
 
-from pixeltable import env
-from pixeltable import func
-from .globals import Scheduler, FnCallArgs, Dispatcher
+from pixeltable import env, func
+
+from .globals import Dispatcher, FnCallArgs, Scheduler
 
 _logger = logging.getLogger('pixeltable')
 

@@ -14,10 +14,9 @@ import PIL.Image
 import pytest
 
 import pixeltable as pxt
-from pixeltable import exprs
 import pixeltable.exceptions as excs
 import pixeltable.utils.s3 as s3_util
-from pixeltable import catalog
+from pixeltable import catalog, exprs
 from pixeltable.catalog.globals import UpdateStatus
 from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env

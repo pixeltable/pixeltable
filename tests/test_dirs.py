@@ -2,6 +2,7 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
+
 from .utils import make_tbl, reload_catalog
 
 
