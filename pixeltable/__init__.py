@@ -49,7 +49,7 @@ from .type_system import (
     VideoType,
 )
 
-# This needs to be imported last or it will trigger circular imports.
+# This import must go last to avoid circular imports.
 from . import ext, functions, io, iterators  # isort: skip
 
 # This is the safest / most maintainable way to construct __all__: start with the default and "blacklist"

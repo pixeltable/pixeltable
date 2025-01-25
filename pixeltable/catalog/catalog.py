@@ -8,13 +8,15 @@ from uuid import UUID
 import sqlalchemy as sql
 import sqlalchemy.orm as orm
 
-import pixeltable.env as env
 import pixeltable.metadata.schema as schema
 
 from .path_dict import PathDict
 from .table import Table
 from .table_version import TableVersion
 from .table_version_path import TableVersionPath
+
+# This import must go last to avoid circular imports.
+import pixeltable.env as env  # isort: skip
 
 _logger = logging.getLogger('pixeltable')
 
