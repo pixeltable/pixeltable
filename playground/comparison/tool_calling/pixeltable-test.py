@@ -11,7 +11,6 @@ import yfinance as yf
 pxt.drop_dir("agents", force=True)
 pxt.create_dir("agents")
 
-
 # Tool Definition
 @pxt.udf
 def stock_info(ticker: str) -> Optional[float]:
@@ -22,7 +21,7 @@ def stock_info(ticker: str) -> Optional[float]:
         ticker - The ticker symbol of the stock to look up.
     """
     stock = yf.Ticker(ticker)
-    return stock.info
+    return stock.info['currentPrice']
 
 
 tools = pxt.tools(stock_info)
@@ -36,11 +35,13 @@ messages = [{"role": "user", "content": finance_agent.prompt}]
 finance_agent.add_computed_column(
     initial_response=chat_completions(
         model="gpt-4o-mini", messages=messages, tools=tools
-    )
+    ),
+    if_exists="replace"
 )
 
 finance_agent.add_computed_column(
-    tool_output=invoke_tools(tools, finance_agent.initial_response)
+    tool_output=invoke_tools(tools, finance_agent.initial_response),
+    if_exists="replace"
 )
 
 
