@@ -1,10 +1,8 @@
 import builtins
 import typing
-from typing import (
-    Optional,
-    Union,
-    _GenericAlias,  # type: ignore[attr-defined]
-)
+
+from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
+from typing import Optional, Union
 
 import sqlalchemy as sql
 

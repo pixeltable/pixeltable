@@ -5,18 +5,9 @@ import builtins
 import json
 import logging
 from pathlib import Path
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Callable,
-    Iterable,
-    Literal,
-    Optional,
-    Sequence,
-    Union,
-    _GenericAlias,  # type: ignore[attr-defined]
-    overload,
-)
+
+from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Literal, Optional, Sequence, Union, overload
 from uuid import UUID
 
 import pandas as pd

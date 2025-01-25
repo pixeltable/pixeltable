@@ -9,15 +9,9 @@ import typing
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import (
-    Any,
-    Iterable,
-    Mapping,
-    Optional,
-    Sequence,
-    Union,
-    _GenericAlias,  # type: ignore[attr-defined]
-)
+
+from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
+from typing import Any, Iterable, Mapping, Optional, Sequence, Union
 
 import av  # type: ignore
 import jsonschema

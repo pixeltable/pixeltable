@@ -105,17 +105,17 @@ class TestTypes:
             Document: (DocumentType(nullable=False), 'Document'),
             # Pixeltable types with specialized parameters
             Array[(None,), Int]: (ArrayType((None,), dtype=IntType(), nullable=False), 'Array[(None,), Int]'),  # type: ignore[misc]
-            Array[(5, None, 3), Float]: (
+            Array[(5, None, 3), Float]: (  # type: ignore[misc]
                 ArrayType((5, None, 3), dtype=FloatType(), nullable=False),
                 'Array[(5, None, 3), Float]',
-            ),  # type: ignore[misc]
+            ),
             Image[(100, 200)]: (ImageType(width=100, height=200, mode=None, nullable=False), 'Image[(100, 200)]'),  # type: ignore[misc]
             Image[(100, None)]: (ImageType(width=100, height=None, mode=None, nullable=False), 'Image[(100, None)]'),  # type: ignore[misc]
             Image[(None, 200)]: (ImageType(width=None, height=200, mode=None, nullable=False), 'Image[(None, 200)]'),  # type: ignore[misc]
-            Image[(100, 200), 'RGB']: (
+            Image[(100, 200), 'RGB']: (  # type: ignore[misc]
                 ImageType(width=100, height=200, mode='RGB', nullable=False),
                 "Image[(100, 200), 'RGB']",
-            ),  # type: ignore[misc]
+            ),
             Image['RGB']: (ImageType(height=None, width=None, mode='RGB', nullable=False), "Image['RGB']"),  # type: ignore[misc]
         }
         for py_type, (pxt_type, string) in test_cases.items():
