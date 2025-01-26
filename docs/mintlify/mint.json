@@ -52,10 +52,6 @@
     {
       "name": "API Reference",
       "url": "https://pixeltable.github.io/pixeltable/"
-    },
-    {
-      "name": "AI Ops",
-      "url": "documentation"
     }
   ],  
   "navigation": [
@@ -72,106 +68,104 @@
           "pages": [
             "docs/fundamentals/tables-and-operations",
             "docs/fundamentals/filtering-and-selecting",
-            "docs/fundamentals/persistant",
-            "docs/fundamentals/computed-columns"
+            "docs/fundamentals/computed-columns",
+            "docs/fundamentals/embedding-index",
+            "docs/fundamentals/custom-functions",
+            "docs/fundamentals/configuration"
           ]
         },        
         {          
-          "group": "Workflows",
+          "group": "Examples",
           "pages": [
-            "docs/flows/overview",
+            "docs/examples/overview",
             {
-              "group": "AI Engineering",
+              "group": "Agents",
               "pages": [
-                "docs/workflows/aiops/overview",
-                {
-                  "group": "Chat",
-                  "pages": [
-                    "docs/workflows/aiops/chat/overview",
-                    "docs/workflows/aiops/chat/multimodal",
-                    "docs/workflows/aiops/chat/memory",
-                    "docs/workflows/aiops/chat/knowledge",
-                    "docs/workflows/aiops/chat/tools"
-                  ]
-                },
-                {
-                  "group": "Search Engines",
-                  "pages": [
-                    "docs/workflows/aiops/search/overview",
-                    "docs/workflows/aiops/search/image",
-                    "docs/workflows/aiops/search/video",
-                    "docs/workflows/aiops/search/audio",
-                    "docs/workflows/aiops/search/pdf",
-                    "docs/workflows/aiops/search/website"
-                  ]
-                },
-                {
-                  "group": "Agents",
-                  "pages": [
-                    "docs/workflows/agents/overview",
-                    "docs/workflows/agents/customizable",
-                    "docs/workflows/agents/agent-builder",
-                    "docs/workflows/agents/teams",
-                    "docs/workflows/agents/api-reference"
-                  ]
-                }                                
+                "docs/examples/agents/overview",
+                "docs/examples/agents/tool-calling"
+              ]
+            },            
+            {
+              "group": "Chat",
+              "pages": [
+                "docs/examples/chat/multimodal",
+                "docs/examples/chat/memory",
+                "docs/examples/chat/knowledge",
+                "docs/examples/chat/tools"
               ]
             },
             {
-              "group": "Data Science",
+              "group": "Vision",
               "pages": [
-                "docs/workflows/datascience/overview",
-                "docs/workflows/datascience/data-ingestion",
-                "docs/workflows/datascience/feature-engineering",
-                "docs/workflows/datascience/inference",                
-                "docs/workflows/datascience/computer-vision",
-                "docs/workflows/datascience/evaluation"
+                "docs/examples/vision/overview",
+                "docs/examples/vision/multimodal",
+                "docs/examples/vision/memory",
+                "docs/examples/vision/knowledge",
+                "docs/examples/vision/tools"
               ]
-            }            
+            },            
+            {
+              "group": "Search",
+              "pages": [
+                "docs/examples/search/overview",
+                "docs/examples/search/image",
+                "docs/examples/search/video",
+                "docs/examples/search/audio",
+                "docs/examples/search/pdf",
+                "docs/examples/search/website"
+              ]
+            },
+            {
+              "group": "Evaluation",
+              "pages": [
+                "docs/examples/evaluation/overview",
+                "docs/examples/evaluation/llm-as-a-judge"
+              ]
+            }           
           ]
         },
         {
           "group": "Integrations",
           "pages": [
-            "docs/models/overview",
+            "docs/integrations/overview",
             {
               "group": "Audio",
               "pages": [
-                "docs/models/audio/whisper"
+                "docs/integrations/audio/whisper"
               ]
             },
             {
               "group": "Chat",
               "pages": [
-                "docs/models/chat/anthropic",
-                "docs/models/chat/fireworks",
-                "docs/models/chat/gemini",
-                "docs/models/chat/llamacpp",
-                "docs/models/chat/mistral",
-                "docs/models/chat/ollama",
-                "docs/models/chat/openai",
-                "docs/models/chat/replicate",
-                "docs/models/chat/together"
+                "docs/integrations/chat/anthropic",
+                "docs/integrations/chat/fireworks",
+                "docs/integrations/chat/gemini",
+                "docs/integrations/chat/llamacpp",
+                "docs/integrations/chat/mistral",
+                "docs/integrations/chat/ollama",
+                "docs/integrations/chat/openai",
+                "docs/integrations/chat/replicate",
+                "docs/integrations/chat/together"
               ]
             },
             {
               "group": "Computer Vision",
               "pages": [
-                "docs/models/computer-vision/label-studio",
-                "docs/models/computer-vision/voxel51",
-                "docs/models/computer-vision/yolox"
+                "docs/integrations/computer-vision/label-studio",
+                "docs/integrations/computer-vision/voxel51",
+                "docs/integrations/computer-vision/yolox"
               ]
             },
             {
               "group": "Embeddings",
               "pages": [
-                "docs/models/embedding/openai"
+                "docs/integrations/embedding/openai"
               ]
             },
             {
               "group": "Pandas",
               "pages": [
-                "docs/models/pandas/overview"
+                "docs/integrations/pandas/overview"
               ]
             }          
           ]

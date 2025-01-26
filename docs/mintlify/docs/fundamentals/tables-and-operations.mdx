@@ -1,181 +1,311 @@
 ---
 title: 'Tables'
-description: 'Learn the fundamentals of working with Pixeltable tables'
-icon: 'table'
+description: 'Learn the fundamentals of Pixeltable tables, types, and the development lifecycle'
+icon: 'database'
 ---
 
+# Development Lifecycle
+
+Pixeltable applications work in two distinct phases:
+1. **Definition Phase**: Define your data structure and processing pipeline (once)
+2. **Usage Phase**: Connect to and use your application (anytime)
+
 <Note>
-All data in Pixeltable is stored in tables. While similar to SQL tables, Pixeltable tables offer additional capabilities for AI workflows.
+This separation allows you to define your schema and pipeline in one file, then use it across multiple applications or scripts.
 </Note>
 
-## Build your first table
+## Phase 1: Definition
 
-<Steps>
-  <Step title="Install Pixeltable" href="/docs/overview/installation">
-    ```python
-    pip install pixeltable openai
-    ```
-  </Step>
+Create `schema.py` to define your application structure:
 
-  <Step title="Set OpenAI API Key">
-    ```python
-    import os
-    os.environ["OPENAI_API_KEY"] = "sk-..."
-    ```
-  </Step>
+```python
+import pixeltable as pxt
+from pixeltable.functions import openai
 
-  <Step title="Create a Directory">
-    Directories in Pixeltable act as namespaces for organizing your tables.
+# Initialize clean environment
+pxt.drop_dir('movies', force=True)
+pxt.create_dir('movies')
+
+# Define your table structure
+movies = pxt.create_table(
+    path_str="movies.collection",
+    schema_or_df={
+        "title": pxt.String,
+        "year": pxt.Int,
+        "plot": pxt.String,
+        "budget": pxt.Float
+    }
+)
+
+# Add computed columns for AI processing
+movies.add_computed_column(
+    messages=[{
+        "role": "user", 
+        "content": f"Summarize this plot: {movies.plot}"
+    }]
+)
+
+movies.add_computed_column(
+    summary=openai.chat_completions(
+        messages=movies.messages,
+        model="gpt-4o-mini"
+    ).choices[0].message.content
+)
+```
+
+## Phase 2: Usage
+
+Create `app.py` to use your defined structure:
+
+```python
+import pixeltable as pxt
+
+# Connect to your existing table
+movies = pxt.get_table("movies.collection")
+
+# Use it!
+movies.insert([{
+    "title": "Inception",
+    "year": 2010,
+    "plot": "A thief who steals corporate secrets...",
+    "budget": 160.0
+}])
+
+# View results
+print(movies.collect())
+```
+
+## Type System
+
+<AccordionGroup>
+  <Accordion title="Basic Types" icon="code">
+    Import types from the `pixeltable` package:
     ```python
     import pixeltable as pxt
-    from pixeltable.functions import openai
-
-    # Create a clean environment
-    pxt.drop_dir('chatbot', force=True)
-    pxt.create_dir('chatbot')
-    ```
-  </Step>
-
-  <Step title="Create Your Table">
-      Define a table and build an automated processing pipeline with computed columns.
-
-      <CodeGroup>
-      ```python Base Table
-      # Create base table with input data
-      conversations = pxt.create_table(
-          path_str="chatbot.conversations",
-          schema_or_df={
-              "prompt": pxt.String,  # Input column
-              "note": pxt.String,    
-              "id": pxt.Int
-          }
-      )
-      ```
-
-      ```python Automated Pipeline
-      # Pixeltable automatically creates and executes a DAG based on dependencies
-      
-      # Stage 1: Format messages for OpenAI
-      conversations.add_computed_column(
-          messages=[{"role": "user", "content": conversations.prompt}]
-      )
-      
-      # Stage 2: Call OpenAI API
-      conversations.add_computed_column(
-          response=openai.chat_completions(
-              messages=conversations.messages,
-              model="gpt-4o-mini"
-          )
-      )
-      
-      # Stage 3: Extract final answer (executes after API response)
-      conversations.add_computed_column(
-          answer=conversations.response.choices[0].message.content
-      )
-      ```
-      </CodeGroup>
-
-      <Note>
-      Computed columns form an automatic processing pipeline:
-      1. When you insert a new `prompt`, Pixeltable detects column dependencies
-      2. The DAG executes in order: messages → API call → answer extraction
-      3. Results are cached and only recomputed when source data changes
-      </Note>
-  </Step>
-
-  <Step title="Insert and View Data">
-    ```python
-    # Insert data
-    conversations.insert([
-        {"prompt": "Tell me a joke.", "note": "Initial prompt", "id": 1},
-        {"prompt": "What's the weather like?", "note": "Weather query", "id": 2}
-    ])
     
-    # View results
-    conversations.collect()
+    # Available basic types
+    pxt.String   # Text data
+    pxt.Int      # Integer numbers
+    pxt.Float    # Decimal numbers
+    pxt.Bool     # True/False values
+    pxt.DateTime # Date and time values
     ```
+  </Accordion>
 
-    <Frame>
-    | id | prompt | note | answer |
-    |----|--------|------|---------|
-    | 1 | Tell me a joke. | Initial prompt | Why don't scientists trust atoms? Because they make up everything! |
-    | 2 | What's the weather like? | Weather query | I don't have access to real-time weather data... |
-    </Frame>
-  </Step>
-</Steps>
+  <Accordion title="Complex Types" icon="layer-group">
+    Special types for AI/ML workflows:
+    ```python
+    pxt.Array    # Numerical arrays (embeddings)
+    pxt.Json     # Arbitrary JSON structures
+    pxt.Image    # Image files and metadata
+    pxt.Video    # Video files and metadata
+    pxt.Audio    # Audio files and metadata
+    pxt.Document # Text documents and PDFs
+    ```
+  </Accordion>
+</AccordionGroup>
 
-## Updating and Deleting Data
+## Data Operations
 
 <CardGroup cols={1}>
-  <Card title="Single Updates" icon="pen-to-square">
-    Update specific columns using expressions or constant values.
+  <Card title="Query Operations" icon="magnifying-glass">
+    Filter and retrieve data:
     ```python
-    # Update using string replacement
-    conversations.update({
-        'prompt': conversations.prompt.replace(
-            'weather', 'climate'
-        )
+    # Basic row count
+    films.count()  # Returns total number of rows
+    
+    # Basic filtering
+    films.where(films.revenue >= 2000.0).collect()
+    
+    # Select specific columns
+    films.select(films.film_name, films.year).collect()
+    
+    # Limit results
+    films.limit(5).collect()  # First 5 rows (no specific order)
+    films.head(5)  # First 5 rows by insertion order
+    films.tail(5)  # Last 5 rows by insertion order
+    
+    # Order results
+    films.order_by(films.revenue, asc=False).limit(5).collect()
+    ```
+  </Card>
+
+  <Card title="String Operations" icon="font">
+    Manipulate text data:
+    ```python
+    # String contains
+    films.where(films.film_name.contains('Star Wars')).collect()
+    
+    # String replacement
+    films.update({
+        'location': films.location.replace('Washington', 'WA')
+    })
+    
+    # String functions
+    films.update({
+        'title': films.title.upper(),        # Convert to uppercase
+        'length': films.title.len()          # Get string length
     })
     ```
   </Card>
 
-  <Card title="Batch Updates" icon="layer-group">
-    Update multiple rows with different values simultaneously.
+  <Card title="Insert Operations" icon="plus">
+    Add new data:
     ```python
-    updates = [
-        {'id': 1, 'note': 'Funny joke prompt'},
-        {'id': 2, 'note': 'Climate question'}
-    ]
-    conversations.batch_update(updates)
+    # Insert single row
+    films.insert(
+        film_name='Inside Out 2',
+        year=2024,
+        revenue=1462.7
+    )
+    
+    # Insert multiple rows
+    films.insert([
+        {'film_name': 'Jurassic Park', 'year': 1993, 'revenue': 1037.5},
+        {'film_name': 'Titanic', 'year': 1997, 'revenue': 2257.8}
+    ])
     ```
   </Card>
 
-  <Card title="Conditional Updates" icon="filter">
-    Use `where()` to update specific rows.
+  <Card title="Update Operations" icon="pen-to-square">
+    Modify existing data:
     ```python
-    conversations.where(
-        conversations.id == 1
+    # Update all rows
+    films.update({
+        'revenue': films.revenue * 1.1  # Increase all revenues by 10%
+    })
+    
+    # Conditional updates
+    films.where(
+        films.year < 2000
     ).update({
-        'note': 'VIP prompt'
+        'note': 'Classic film'
     })
+    
+    # Batch updates for multiple rows
+    updates = [
+        {'id': 1, 'note': 'First movie'},
+        {'id': 2, 'note': 'Second movie'}
+    ]
+    films.batch_update(updates)
     ```
   </Card>
 
-  <Card title="Deleting Data" icon="trash">
-    Delete rows with conditions to avoid accidental deletions.
+  <Card title="Delete Operations" icon="trash">
+    Remove data with conditions:
     ```python
     # Delete specific rows
-    conversations.where(
-        conversations.id == 2
+    films.where(
+        films.year < 1990
     ).delete()
     
-    # Delete all rows (use with caution!)
-    # conversations.delete()
+    # Delete with complex conditions
+    films.where(
+        (films.revenue < 100) & 
+        (films.year < 2000)
+    ).delete()
+    
+    # WARNING: Delete all rows (use with caution!)
+    # films.delete()  # Without where clause deletes all rows
+    ```
+  </Card>
+
+  <Card title="Column Operations" icon="table-columns">
+    Manage table structure:
+    ```python
+    # Add new column
+    films.add_column(note=pxt.String)
+    films.add_column(contact_email=pxt.String)
+    
+    # Drop column
+    films.drop_column('contact_email')
+    
+    # View schema
+    films.describe()
+    ```
+  </Card>
+
+  <Card title="Versioning" icon="clock-rotate-left">
+    Manage table versions:
+    ```python
+    # Revert the last operation
+    films.revert()  # Cannot be undone!
+    
+    # Revert multiple times to go back further
+    films.revert()
+    films.revert()  # Goes back two operations
+    ```
+  </Card>
+
+  <Card title="Export Operations" icon="file-export">
+    Extract data for analysis:
+    ```python
+    # Get results as Python objects
+    result = films.limit(5).collect()
+    first_row = result[0]  # Get first row as dict
+    timestamps = result['timestamp']  # Get list of values for one column
+    
+    # Convert to Pandas
+    df = result.to_pandas()
+    df['revenue'].describe()  # Get statistics for revenue column
     ```
   </Card>
 </CardGroup>
 
 <Warning>
-Always use a `where()` clause with `delete()`. Without it, the entire table will be deleted!
+Always use a `where()` clause with `delete()`. Without it, all rows in the table will be deleted! While you can use `revert()` to undo operations, it's better to be careful with destructive operations.
 </Warning>
 
-## Key Concepts
+
+## Best Practices
 
 <CardGroup cols={2}>
-  <Card title="Table Schema" icon="table-list">
-    Every table starts with a basic schema defining column names and data types. Add computed columns to extend functionality.
+  <Card title="Schema Definition" icon="file-code">
+    - Keep schema definition in separate files
+    - Use clear naming for directories and tables
+    - Document computed column dependencies
   </Card>
-  <Card title="Data Operations" icon="database">
-    Basic operations include `insert()`, `update()`, `delete()`, and `collect()`. Use `where()` for targeted operations.
-  </Card>
-  <Card title="Computed Columns" icon="gears">
-    Add derived data using `add_computed_column()`. These columns automatically update based on their source columns.
-  </Card>
-  <Card title="Directories" icon="folder-tree">
-    Tables live in directories that act as namespaces, helping you organize your data.
+  
+  <Card title="Application Code" icon="code">
+    - Use `get_table()` to connect to existing tables
+    - Handle errors when table doesn't exist
+    - Use batch operations for multiple rows
   </Card>
 </CardGroup>
 
-<Tip>
-Use `batch_update()` when you need to update multiple rows with different values efficiently.
-</Tip>
+## Common Patterns
+
+<AccordionGroup>
+  <Accordion title="Development Workflow" icon="code-branch">
+    1. Create `schema.py` for structure
+    2. Test schema and pipeline
+    3. Create `app.py` for usage
+    4. Deploy both files
+  </Accordion>
+
+  <Accordion title="Production Setup" icon="rocket">
+    ```python
+    # schema.py - Run once to set up
+    pxt.create_table(..., if_exists="ignore")
+    
+    # app.py - Production code
+    table = pxt.get_table("myapp.mytable")
+    if table is None:
+        raise RuntimeError("Run schema.py first!")
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Additional Resources
+
+<CardGroup cols={3}>
+  <Card title="API Documentation" icon="book" href="https://pixeltable.github.io/pixeltable/">
+    Complete API reference
+  </Card>
+  <Card title="Examples" icon="lightbulb" href="/docs/examples">
+    Sample workflows
+  </Card>
+  <Card title="Cheat Sheet" icon="file" href="/docs/cheatsheet">
+    Quick reference
+  </Card>
+</CardGroup>

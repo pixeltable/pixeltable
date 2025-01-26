@@ -1,143 +1,209 @@
 ---
-title: 'Filtering and Selecting Data'
+title: 'Building Queries'
 description: 'Learn how to query and transform data in Pixeltable using where() and select()'
 icon: 'filter'
 ---
 
 <Note>
-This guide builds on the chatbot table we created in the previous section. Make sure you have the `conversations` table set up with some test data.
+This guide builds on tables created in previous sections. Make sure you have:
+- The `films` table from [Tables](/docs/fundamentals/tables-and-operations)
 </Note>
 
-## Data Selection Methods
+## Basic Filtering
 
 <Tabs>
-  <Tab title="Filtering Rows">
-    Use `where()` to filter rows based on conditions:
+  <Tab title="Simple Where">
+    Use `where()` to filter rows based on basic conditions:
     ```python
-    # Get all conversations containing the word "weather"
-    conversations.where(
-        conversations.prompt.contains('weather')
+    # Find all films with revenue over $2000M
+    films.where(
+        films.revenue >= 2000.0
     ).collect()
     ```
     
     <Frame>
-    | id | prompt | note | answer |
-    |----|--------|------|--------|
-    | 2 | What's the weather like? | Weather query | I don't have access to real-time weather data... |
+    | film_name | year | revenue |
+    |-----------|------|---------|
+    | Titanic | 1997 | 2257.8 |
+    | Avengers: Endgame | 2019 | 2797.5 |
     </Frame>
   </Tab>
 
-  <Tab title="Selecting Columns">
+  <Tab title="Basic Select">
     Use `select()` to choose specific columns:
     ```python
-    # Get only prompts and answers
-    conversations.select(
-        conversations.prompt, 
-        conversations.answer
+    # Get just film names and years
+    films.select(
+        films.film_name, 
+        films.year
     ).collect()
     ```
 
     <Frame>
-    | prompt | answer |
-    |--------|---------|
-    | Tell me a joke. | Why don't scientists trust atoms? Because they make up everything! |
-    | What's the weather like? | I don't have access to real-time weather data... |
+    | film_name | year |
+    |-----------|------|
+    | Jurassic Park | 1993 |
+    | Titanic | 1997 |
+    | Avengers: Endgame | 2019 |
+    | Inside Out 2 | 2024 |
     </Frame>
   </Tab>
 
-  <Tab title="Combining Methods">
-    Chain `where()` and `select()` for precise queries:
+  <Tab title="Column Naming">
+    Rename columns in your results:
     ```python
-    # Find jokes and show only prompts
-    conversations.where(
-        conversations.prompt.contains('joke')
-    ).select(
-        conversations.prompt
+    # Revenue in billions with custom column name
+    films.select(
+        films.film_name,
+        billions=films.revenue / 1000
     ).collect()
     ```
 
     <Frame>
-    | prompt |
-    |--------|
-    | Tell me a joke. |
+    | film_name | billions |
+    |-----------|----------|
+    | Jurassic Park | 1.0375 |
+    | Titanic | 2.2578 |
+    | Avengers: Endgame | 2.7975 |
+    | Inside Out 2 | 1.4627 |
     </Frame>
   </Tab>
 </Tabs>
 
-## Advanced Queries
+## Intermediate Queries
 
 <AccordionGroup>
-  <Accordion title="Transform Response Data" icon="wand-magic-sparkles">
-    You can transform the AI response data:
+  <Accordion title="Text Filtering" icon="font">
+    Work with string data across tables:
     ```python
-    # Extract response length and show with prompt
+    # Find conversations about weather
+    conversations.where(
+        conversations.prompt.contains('weather')
+    ).collect()
+
+    # Find films with "Park" in the name
+    films.where(
+        films.film_name.contains('Park')
+    ).collect()
+    ```
+  </Accordion>
+
+  <Accordion title="Multiple Conditions" icon="filter">
+    Combine conditions with `&` (and), `|` (or):
+    ```python
+    # Recent films with high revenue
+    films.where(
+        (films.year >= 2000) &
+        (films.revenue >= 1500.0)
+    ).collect()
+
+    # Films from the 90s or with revenue under $1500M
+    films.where(
+        (films.year < 2000) |
+        (films.revenue < 1500.0)
+    ).collect()
+    ```
+  </Accordion>
+
+  <Accordion title="Sorting Results" icon="arrow-down-wide-short">
+    Use `order_by()` to sort results:
+    ```python
+    # Sort films by revenue (highest first)
+    films.order_by(
+        films.revenue, 
+        asc=False
+    ).collect()
+
+    # Sort by year, then revenue
+    films.order_by(
+        [films.year, films.revenue], 
+        asc=[True, False]
+    ).collect()
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Advanced Queries
+
+<CardGroup cols={1}>
+  <Card title="Text Analysis" icon="text-size">
+    Complex string operations and transformations:
+    ```python
+    # Analyze text lengths across tables
     conversations.select(
+        conversations.prompt,
+        prompt_length=conversations.prompt.len(),
+        response_length=conversations.answer.len()
+    ).collect()
+
+    # Find films with complex text patterns
+    films.where(
+        films.film_name.like('%: %')  # Films with colons in name
+    ).collect()
+    ```
+  </Card>
+
+  <Card title="Numeric Analysis" icon="calculator">
+    Mathematical operations and comparisons:
+    ```python
+    # Calculate revenue statistics
+    films.select(
+        avg_revenue=films.revenue.avg(),
+        total_revenue=films.revenue.sum(),
+        films_count=films.film_name.count()
+    ).collect()
+    
+    # Films above average revenue
+    avg_revenue = films.select(
+        films.revenue.avg()
+    ).collect()[0][0]
+    
+    films.where(
+        films.revenue > avg_revenue
+    ).collect()
+    ```
+  </Card>
+
+  <Card title="Complex Filtering" icon="layer-group">
+    Combine multiple operations:
+    ```python
+    # Find top 3 highest-grossing films since 2000
+    films.where(
+        films.year >= 2000
+    ).order_by(
+        films.revenue, 
+        asc=False
+    ).limit(3).collect()
+    
+    # Analyze AI responses excluding certain topics
+    conversations.where(
+        ~(conversations.prompt.contains('weather') | 
+          conversations.prompt.contains('joke'))
+    ).select(
         conversations.prompt,
         response_length=conversations.answer.len()
     ).collect()
     ```
+  </Card>
+</CardGroup>
 
-    <Frame>
-    | prompt | response_length |
-    |--------|----------------|
-    | Tell me a joke. | 63 |
-    | What's the weather like? | 42 |
-    </Frame>
-  </Accordion>
-
-  <Accordion title="Complex Filtering" icon="filter">
-    Combine multiple conditions:
-    ```python
-    # Find long answers to non-weather queries
-    conversations.where(
-        (conversations.answer.len() > 50) &
-        ~conversations.prompt.contains('weather')
-    ).collect()
-    ```
-
-    <Frame>
-    | id | prompt | note | answer |
-    |----|--------|------|--------|
-    | 1 | Tell me a joke. | Funny joke prompt | Why don't scientists trust atoms? Because they make up everything! |
-    </Frame>
-  </Accordion>
-
-  <Accordion title="Response Analysis" icon="magnifying-glass-chart">
-    Analyze AI responses:
-    ```python
-    # Get response statistics
-    conversations.select(
-        total_prompts=conversations.id.count(),
-        avg_response_length=conversations.answer.len().avg(),
-        max_response_length=conversations.answer.len().max()
-    ).collect()
-    ```
-
-    <Frame>
-    | total_prompts | avg_response_length | max_response_length |
-    |---------------|-------------------|-------------------|
-    | 2 | 52.5 | 63 |
-    </Frame>
-  </Accordion>
-</AccordionGroup>
-
-## Key Features
+## Key Concepts
 
 <CardGroup cols={2}>
-  <Card title="Text Operations" icon="text-size">
-    Use `contains()`, `len()`, and other string functions to analyze text data.
+  <Card title="Column References" icon="table-columns">
+    Access columns using dot notation (`table.column`) or dictionary syntax (`table['column']`).
   </Card>
-  <Card title="Aggregations" icon="chart-simple">
-    Apply `count()`, `avg()`, `max()`, and other aggregations to analyze data patterns.
+  <Card title="Chaining Operations" icon="link">
+    Combine `where()`, `select()`, `order_by()`, and `limit()` in any order.
   </Card>
   <Card title="Boolean Logic" icon="code-compare">
-    Combine conditions with `&` (and), `|` (or), and `~` (not) operators.
+    Use `&` (and), `|` (or), and `~` (not) for complex conditions.
   </Card>
-  <Card title="Column Selection" icon="table-columns">
-    Choose and transform specific columns using `select()` with custom names.
+  <Card title="Transformations" icon="wand-magic-sparkles">
+    Transform data during selection with mathematical and string operations.
   </Card>
 </CardGroup>
 
 <Tip>
-Use chained operations (`where().select()`) to build complex queries step by step. This makes your code more readable and maintainable.
+Build complex queries incrementally by starting with basic filters and adding operations one at a time. This makes debugging easier and helps ensure your query returns the expected results.
 </Tip>
