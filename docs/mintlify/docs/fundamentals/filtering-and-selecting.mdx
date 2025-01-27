@@ -6,7 +6,7 @@ icon: 'filter'
 
 <Note>
 This guide builds on tables created in previous sections. Make sure you have:
-- The `films` table from [Tables](/docs/fundamentals/tables-and-operations)
+- The `movies` table from [Tables](/docs/fundamentals/tables-and-operations)
 </Note>
 
 ## Basic Filtering
@@ -15,58 +15,56 @@ This guide builds on tables created in previous sections. Make sure you have:
   <Tab title="Simple Where">
     Use `where()` to filter rows based on basic conditions:
     ```python
-    # Find all films with revenue over $2000M
-    films.where(
-        films.revenue >= 2000.0
+    # Find movies with budget over $200M
+    movies.where(
+        movies.budget >= 200.0
     ).collect()
     ```
     
-    <Frame>
-    | film_name | year | revenue |
-    |-----------|------|---------|
-    | Titanic | 1997 | 2257.8 |
-    | Avengers: Endgame | 2019 | 2797.5 |
-    </Frame>
+  | title | year | budget |
+  |-----------|------|---------|
+  | Titanic | 1997 | 200.0 |
+  | Avengers: Endgame | 2019 | 356.0 |
   </Tab>
 
   <Tab title="Basic Select">
     Use `select()` to choose specific columns:
     ```python
-    # Get just film names and years
-    films.select(
-        films.film_name, 
-        films.year
+    # Get titles and release years
+    movies.select(
+        movies.title, 
+        movies.year
     ).collect()
     ```
 
-    <Frame>
-    | film_name | year |
+
+    | title | year |
     |-----------|------|
     | Jurassic Park | 1993 |
     | Titanic | 1997 |
     | Avengers: Endgame | 2019 |
     | Inside Out 2 | 2024 |
-    </Frame>
+    
   </Tab>
 
   <Tab title="Column Naming">
     Rename columns in your results:
     ```python
-    # Revenue in billions with custom column name
-    films.select(
-        films.film_name,
-        billions=films.revenue / 1000
+    # Budget in hundreds of millions
+    movies.select(
+        movies.title,
+        budget_hundreds=movies.budget / 100
     ).collect()
     ```
 
-    <Frame>
-    | film_name | billions |
+
+    | title | budget_hundreds |
     |-----------|----------|
-    | Jurassic Park | 1.0375 |
-    | Titanic | 2.2578 |
-    | Avengers: Endgame | 2.7975 |
-    | Inside Out 2 | 1.4627 |
-    </Frame>
+    | Jurassic Park | 0.63 |
+    | Titanic | 2.0 |
+    | Avengers: Endgame | 3.56 |
+    | Inside Out 2 | 2.0 |
+    
   </Tab>
 </Tabs>
 
@@ -74,16 +72,16 @@ This guide builds on tables created in previous sections. Make sure you have:
 
 <AccordionGroup>
   <Accordion title="Text Filtering" icon="font">
-    Work with string data across tables:
+    Work with string data in movie plots:
     ```python
-    # Find conversations about weather
-    conversations.where(
-        conversations.prompt.contains('weather')
+    # Find movies with "secret" in plot
+    movies.where(
+        movies.plot.contains('secret')
     ).collect()
 
-    # Find films with "Park" in the name
-    films.where(
-        films.film_name.contains('Park')
+    # Find movies with "Park" in title
+    movies.where(
+        movies.title.contains('Park')
     ).collect()
     ```
   </Accordion>
@@ -91,16 +89,16 @@ This guide builds on tables created in previous sections. Make sure you have:
   <Accordion title="Multiple Conditions" icon="filter">
     Combine conditions with `&` (and), `|` (or):
     ```python
-    # Recent films with high revenue
-    films.where(
-        (films.year >= 2000) &
-        (films.revenue >= 1500.0)
+    # Modern high-budget films
+    movies.where(
+        (movies.year >= 2000) &
+        (movies.budget >= 200.0)
     ).collect()
 
-    # Films from the 90s or with revenue under $1500M
-    films.where(
-        (films.year < 2000) |
-        (films.revenue < 1500.0)
+    # Classics or low-budget films
+    movies.where(
+        (movies.year < 2000) |
+        (movies.budget < 100.0)
     ).collect()
     ```
   </Accordion>
@@ -108,15 +106,15 @@ This guide builds on tables created in previous sections. Make sure you have:
   <Accordion title="Sorting Results" icon="arrow-down-wide-short">
     Use `order_by()` to sort results:
     ```python
-    # Sort films by revenue (highest first)
-    films.order_by(
-        films.revenue, 
+    # Sort by budget (highest first)
+    movies.order_by(
+        movies.budget, 
         asc=False
     ).collect()
 
-    # Sort by year, then revenue
-    films.order_by(
-        [films.year, films.revenue], 
+    # Sort by year then budget
+    movies.order_by(
+        [movies.year, movies.budget], 
         asc=[True, False]
     ).collect()
     ```
@@ -127,39 +125,38 @@ This guide builds on tables created in previous sections. Make sure you have:
 
 <CardGroup cols={1}>
   <Card title="Text Analysis" icon="text-size">
-    Complex string operations and transformations:
+    Analyze plot text and titles:
     ```python
-    # Analyze text lengths across tables
-    conversations.select(
-        conversations.prompt,
-        prompt_length=conversations.prompt.len(),
-        response_length=conversations.answer.len()
+    # Calculate plot length statistics
+    movies.select(
+        movies.title,
+        plot_length=movies.plot.len()
     ).collect()
 
-    # Find films with complex text patterns
-    films.where(
-        films.film_name.like('%: %')  # Films with colons in name
+    # Find movies with subtitles (colon in title)
+    movies.where(
+        movies.title.like('%: %')
     ).collect()
     ```
   </Card>
 
   <Card title="Numeric Analysis" icon="calculator">
-    Mathematical operations and comparisons:
+    Budget calculations and comparisons:
     ```python
-    # Calculate revenue statistics
-    films.select(
-        avg_revenue=films.revenue.avg(),
-        total_revenue=films.revenue.sum(),
-        films_count=films.film_name.count()
+    # Calculate budget statistics
+    movies.select(
+        avg_budget=movies.budget.avg(),
+        total_budget=movies.budget.sum(),
+        movie_count=movies.title.count()
     ).collect()
     
-    # Films above average revenue
-    avg_revenue = films.select(
-        films.revenue.avg()
+    # Movies above average budget
+    avg_budget = movies.select(
+        movies.budget.avg()
     ).collect()[0][0]
     
-    films.where(
-        films.revenue > avg_revenue
+    movies.where(
+        movies.budget > avg_budget
     ).collect()
     ```
   </Card>
@@ -167,21 +164,21 @@ This guide builds on tables created in previous sections. Make sure you have:
   <Card title="Complex Filtering" icon="layer-group">
     Combine multiple operations:
     ```python
-    # Find top 3 highest-grossing films since 2000
-    films.where(
-        films.year >= 2000
+    # Top 3 highest-budget movies since 2000
+    movies.where(
+        movies.year >= 2000
     ).order_by(
-        films.revenue, 
+        movies.budget, 
         asc=False
     ).limit(3).collect()
     
-    # Analyze AI responses excluding certain topics
-    conversations.where(
-        ~(conversations.prompt.contains('weather') | 
-          conversations.prompt.contains('joke'))
+    # Analyze plots excluding specific keywords
+    movies.where(
+        ~(movies.plot.contains('secret') | 
+          movies.plot.contains('dream'))
     ).select(
-        conversations.prompt,
-        response_length=conversations.answer.len()
+        movies.title,
+        plot_length=movies.plot.len()
     ).collect()
     ```
   </Card>
@@ -191,7 +188,7 @@ This guide builds on tables created in previous sections. Make sure you have:
 
 <CardGroup cols={2}>
   <Card title="Column References" icon="table-columns">
-    Access columns using dot notation (`table.column`) or dictionary syntax (`table['column']`).
+    Access columns using dot notation (`movies.title`) or dictionary syntax (`movies['title']`).
   </Card>
   <Card title="Chaining Operations" icon="link">
     Combine `where()`, `select()`, `order_by()`, and `limit()` in any order.
