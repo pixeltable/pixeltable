@@ -8,18 +8,15 @@ import json
 import logging
 import traceback
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Hashable, Iterator, Optional, Sequence, Union, Literal
+from typing import TYPE_CHECKING, Any, Callable, Hashable, Iterator, Optional, Sequence, Union, AsyncIterator, NoReturn
 
+import numpy as np
 import pandas as pd
-import pandas.io.formats.style
 import sqlalchemy as sql
 
-import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
-import pixeltable.exprs as exprs
 import pixeltable.type_system as ts
-from pixeltable import exec
-from pixeltable import plan
+from pixeltable import catalog, exec, exprs, plan
 from pixeltable.catalog import is_valid_identifier
 from pixeltable.catalog.globals import UpdateStatus
 from pixeltable.env import Env
@@ -29,6 +26,7 @@ from pixeltable.utils.formatter import Formatter
 
 if TYPE_CHECKING:
     import torch
+    import torch.utils.data
 
 __all__ = ['DataFrame']
 
@@ -268,6 +266,20 @@ class DataFrame:
         else:
             yield from exec_plan(conn)
 
+    async def _aexec(self, conn: sql.engine.Connection) -> AsyncIterator[exprs.DataRow]:
+        """Run the query and return rows as a generator.
+        This function must not modify the state of the DataFrame, otherwise it breaks dataset caching.
+        """
+        plan = self._create_query_plan()
+        plan.ctx.set_conn(conn)
+        plan.open()
+        try:
+            async for row_batch in plan:
+                for row in row_batch:
+                    yield row
+        finally:
+            plan.close()
+
     def _create_query_plan(self) -> exec.ExecNode:
         # construct a group-by clause if we're grouping by a table
         group_by_clause: Optional[list[exprs.Expr]] = None
@@ -392,26 +404,29 @@ class DataFrame:
             group_by_clause=group_by_clause, grouping_tbl=self.grouping_tbl,
             order_by_clause=order_by_clause, limit=self.limit_val)
 
+    def _raise_expr_eval_err(self, e: excs.ExprEvalError) -> NoReturn:
+        msg = f'In row {e.row_num} the {e.expr_msg} encountered exception ' f'{type(e.exc).__name__}:\n{str(e.exc)}'
+        if len(e.input_vals) > 0:
+            input_msgs = [
+                f"'{d}' = {d.col_type.print_value(e.input_vals[i])}" for i, d in enumerate(e.expr.dependencies())
+            ]
+            msg += f'\nwith {", ".join(input_msgs)}'
+        assert e.exc_tb is not None
+        stack_trace = traceback.format_tb(e.exc_tb)
+        if len(stack_trace) > 2:
+            # append a stack trace if the exception happened in user code
+            # (frame 0 is ExprEvaluator and frame 1 is some expr's eval()
+            nl = '\n'
+            # [-1:0:-1]: leave out entry 0 and reverse order, so that the most recent frame is at the top
+            msg += f'\nStack:\n{nl.join(stack_trace[-1:1:-1])}'
+        raise excs.Error(msg)
+
     def _output_row_iterator(self, conn: Optional[sql.engine.Connection] = None) -> Iterator[list]:
         try:
             for data_row in self._exec(conn):
                 yield [data_row[e.slot_idx] for e in self._select_list_exprs]
         except excs.ExprEvalError as e:
-            msg = f'In row {e.row_num} the {e.expr_msg} encountered exception ' f'{type(e.exc).__name__}:\n{str(e.exc)}'
-            if len(e.input_vals) > 0:
-                input_msgs = [
-                    f"'{d}' = {d.col_type.print_value(e.input_vals[i])}" for i, d in enumerate(e.expr.dependencies())
-                ]
-                msg += f'\nwith {", ".join(input_msgs)}'
-            assert e.exc_tb is not None
-            stack_trace = traceback.format_tb(e.exc_tb)
-            if len(stack_trace) > 2:
-                # append a stack trace if the exception happened in user code
-                # (frame 0 is ExprEvaluator and frame 1 is some expr's eval()
-                nl = '\n'
-                # [-1:0:-1]: leave out entry 0 and reverse order, so that the most recent frame is at the top
-                msg += f'\nStack:\n{nl.join(stack_trace[-1:1:-1])}'
-            raise excs.Error(msg)
+            self._raise_expr_eval_err(e)
         except sql.exc.DBAPIError as e:
             raise excs.Error(f'Error during SQL execution:\n{e}')
 
@@ -420,6 +435,18 @@ class DataFrame:
 
     def _collect(self, conn: Optional[sql.engine.Connection] = None) -> DataFrameResultSet:
         return DataFrameResultSet(list(self._output_row_iterator(conn)), self.schema)
+
+    async def _acollect(self, conn: sql.engine.Connection) -> DataFrameResultSet:
+        try:
+            result = [
+                [row[e.slot_idx] for e in self._select_list_exprs]
+                async for row in self._aexec(conn)
+            ]
+            return DataFrameResultSet(result, self.schema)
+        except excs.ExprEvalError as e:
+            self._raise_expr_eval_err(e)
+        except sql.exc.DBAPIError as e:
+            raise excs.Error(f'Error during SQL execution:\n{e}')
 
     def count(self) -> int:
         """Return the number of rows in the DataFrame.
@@ -540,10 +567,10 @@ class DataFrame:
         for raw_expr, name in base_list:
             if isinstance(raw_expr, exprs.Expr):
                 select_list.append((raw_expr, name))
-            elif isinstance(raw_expr, dict):
-                select_list.append((exprs.InlineDict(raw_expr), name))
-            elif isinstance(raw_expr, list):
-                select_list.append((exprs.InlineList(raw_expr), name))
+            elif isinstance(raw_expr, (dict, list, tuple)):
+                select_list.append((exprs.Expr.from_object(raw_expr), name))
+            elif isinstance(raw_expr, np.ndarray):
+                select_list.append((exprs.Expr.from_array(raw_expr), name))
             else:
                 select_list.append((exprs.Literal(raw_expr), name))
             expr = select_list[-1][0]
@@ -946,18 +973,6 @@ class DataFrame:
         if self.limit_val is not None:
             raise excs.Error(f'Cannot use `{op_name}` after `limit`')
 
-    def __getitem__(self, index: Union[exprs.Expr, Sequence[exprs.Expr]]) -> DataFrame:
-        """
-        Allowed:
-        - [list[Expr]]/[tuple[Expr]]: setting the select list
-        - [Expr]: setting a single-col select list
-        """
-        if isinstance(index, exprs.Expr):
-            return self.select(index)
-        if isinstance(index, Sequence):
-            return self.select(*index)
-        raise TypeError(f'Invalid index type: {type(index)}')
-
     def as_dict(self) -> dict[str, Any]:
         """
         Returns:
@@ -1043,8 +1058,6 @@ class DataFrame:
         else:
             return write_coco_dataset(self, dest_path)
 
-    # TODO Factor this out into a separate module.
-    # The return type is unresolvable, but torch can't be imported since it's an optional dependency.
     def to_pytorch_dataset(self, image_format: str = 'pt') -> 'torch.utils.data.IterableDataset':
         """
         Convert the dataframe to a pytorch IterableDataset suitable for parallel loading

@@ -123,6 +123,10 @@ class AggregateFunction(Function):
         assert not self.is_polymorphic
         return self.agg_classes[0]
 
+    @property
+    def is_async(self) -> bool:
+        return False
+
     def exec(self, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:
         raise NotImplementedError
 
@@ -138,6 +142,9 @@ class AggregateFunction(Function):
         self.agg_classes.append(cls)
         self.init_param_names.append(init_param_names)
         return self
+
+    def _docstring(self) -> Optional[str]:
+        return inspect.getdoc(self.agg_classes[0])
 
     def help_str(self) -> str:
         res = super().help_str()

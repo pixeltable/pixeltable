@@ -8,6 +8,7 @@ def test_http_server():
     """check path to url conversion and back"""
     httpd = make_server(address='127.0.0.1', port=0)
     (host, port) = httpd.server_address
+    assert isinstance(host, str)
     http_address = f'http://{host}:{port}'
 
     def run_server():

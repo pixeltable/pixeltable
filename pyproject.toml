@@ -38,6 +38,7 @@ exclude = [
     ".pytest_cache",
     "tests",
     "docs",
+    "tool",
 ]
 
 [tool.poetry.dependencies]
@@ -65,7 +66,10 @@ tenacity = "^8.2"
 puremagic = ">=1.20"
 pymupdf = "^1.24.1"
 ftfy = "^6.2.0"
+pydantic = ">=2.7.4"  # Required minimum version to work with spacy + python 3.12
 pixeltable-pgserver = "==0.2.9"
+httpx = ">=0.27"
+nest_asyncio = ">=1.5"
 
 [tool.poetry.group.dev]
 optional = true
@@ -77,7 +81,7 @@ pytest-xdist = { extras = ["psutil"], version = "^3.3.1" }
 pytest-rerunfailures = "^14.0.0"
 coverage = "^7.4"
 # type checking
-mypy = "^1.11.2"
+mypy = "^1.13.0"
 boto3-stubs = "==1.35.5"
 pandas-stubs = ">=2.0"
 pyarrow-stubs = "^10.0.1.7"
@@ -85,6 +89,7 @@ types-beautifulsoup4 = ">=4.2"
 types-jmespath = ">=1.0"
 types-jsonschema = ">=4.1.0"
 types-pillow = ">=10.0"
+types-pycocotools = ">=2.0"
 types-pyyaml = "^6.0.1"
 types-requests = ">=2.31.0"
 types-sqlalchemy-utils = "^1.1"
@@ -116,10 +121,9 @@ together = "^1.3.1"
 fireworks-ai = "^0.13.0"
 mistralai = "^1.2.1"
 replicate = "^1.0.2"
-google-generativeai = "^0.8.3"
+google-generativeai = "^0.8.4"
 boto3 = "==1.35.5"  # Locking a specific version of boto3 dramatically improves `poetry lock` runtimes
 spacy = ">=3.7"
-pydantic = ">=2.7.4"  # Required minimum version to work with spacy + python 3.12
 sentencepiece = ">=0.2.0"
 tiktoken = ">=0.7"
 sentence-transformers = "^2.0.0"
@@ -142,7 +146,7 @@ av = [  # Lock av versions in dev
 ]
 
 [tool.poetry.plugins."mkdocstrings.python.templates"]
-extension-name = "pixeltable.tool.doc_plugins.mkdocstrings:get_templates_path"
+extension-name = "tool.doc_plugins.mkdocstrings:get_templates_path"
 
 [tool.poetry-dynamic-versioning]
 enable = true
@@ -161,7 +165,7 @@ disable_error_code = "no-any-unimported, no-any-return"
 disallow_any_unimported = true
 check_untyped_defs = true
 follow_imports = "silent"
-plugins = "pydantic.mypy, pixeltable/tool/mypy_plugin.py"
+plugins = "pydantic.mypy, tool/mypy_plugin.py"
 show_error_codes = true
 strict_optional = false
 warn_return_any = true
@@ -208,6 +212,8 @@ filterwarnings = [
     "ignore:The 'strip_cdata' option of HTMLParser:DeprecationWarning",
     # This one is raised by mongoengine, which is required by fiftyone:
     "ignore:No uuidRepresentation is specified! Falling back to 'pythonLegacy' which is the default for pymongo 3.x:DeprecationWarning",
+    # This one is raised by huggingface-hub:
+    "ignore:`resume_download` is deprecated and will be removed:FutureWarning",
 ]
 
 [tool.ruff]
@@ -222,4 +228,4 @@ preview = true
 known-first-party = ["pixeltable"]
 
 [tool.ruff.format]
-quote-style = "single"  # can be "single", "double", or "preserve"
+quote-style = "single"

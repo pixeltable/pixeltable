@@ -6,32 +6,50 @@ the [Working with OpenAI](https://pixeltable.readme.io/docs/working-with-openai)
 """
 
 import base64
+import datetime
 import io
+import json
+import logging
 import pathlib
+import re
 import uuid
-from typing import TYPE_CHECKING, Callable, Optional, TypeVar, Union
+from typing import TYPE_CHECKING, Callable, Optional, TypeVar, Union, cast, Any, Type
 
-import numpy as np
 import PIL.Image
+import httpx
+import numpy as np
 import tenacity
 
 import pixeltable as pxt
-from pixeltable import env
-from pixeltable.func import Batch
+from pixeltable import env, exprs
+from pixeltable.func import Batch, Tools
 from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
     import openai
 
+_logger = logging.getLogger('pixeltable')
+
 
 @env.register_client('openai')
-def _(api_key: str) -> 'openai.OpenAI':
+def _(api_key: str) -> tuple['openai.OpenAI', 'openai.AsyncOpenAI']:
     import openai
-    return openai.OpenAI(api_key=api_key)
+    return (
+        openai.OpenAI(api_key=api_key),
+        openai.AsyncOpenAI(
+            api_key=api_key,
+            # recommended to increase limits for async client to avoid connection errors
+            http_client=httpx.AsyncClient(limits=httpx.Limits(max_keepalive_connections=100, max_connections=500)),
+        )
+    )
 
 
 def _openai_client() -> 'openai.OpenAI':
-    return env.Env.get().get_client('openai')
+    return env.Env.get().get_client('openai')[0]
+
+
+def _async_openai_client() -> 'openai.AsyncOpenAI':
+    return env.Env.get().get_client('openai')[1]
 
 
 # Exponential backoff decorator using tenacity.
@@ -46,13 +64,138 @@ def _retry(fn: Callable) -> Callable:
     )(fn)
 
 
+# models that share rate limits; see https://platform.openai.com/settings/organization/limits for details
+_shared_rate_limits = {
+    'gpt-4-turbo': [
+        'gpt-4-turbo',
+        'gpt-4-turbo-latest',
+        'gpt-4-turbo-2024-04-09',
+        'gpt-4-turbo-preview',
+        'gpt-4-0125-preview',
+        'gpt-4-1106-preview'
+    ],
+    'gpt-4o': [
+        'gpt-4o',
+        'gpt-4o-latest',
+        'gpt-4o-2024-05-13',
+        'gpt-4o-2024-08-06',
+        'gpt-4o-2024-11-20',
+        'gpt-4o-audio-preview',
+        'gpt-4o-audio-preview-2024-10-01',
+        'gpt-4o-audio-preview-2024-12-17'
+    ],
+    'gpt-4o-mini': [
+        'gpt-4o-mini',
+        'gpt-4o-mini-latest',
+        'gpt-4o-mini-2024-07-18',
+        'gpt-4o-mini-audio-preview',
+        'gpt-4o-mini-audio-preview-2024-12-17'
+    ],
+    'gpt-4o-mini-realtime-preview': [
+        'gpt-4o-mini-realtime-preview',
+        'gpt-4o-mini-realtime-preview-latest',
+        'gpt-4o-mini-realtime-preview-2024-12-17'
+    ]
+}
+
+
+def _resource_pool(model: str) -> str:
+    for model_family, models in _shared_rate_limits.items():
+        if model in models:
+            return f'rate-limits:openai:{model_family}'
+    return f'rate-limits:openai:{model}'
+
+
+class OpenAIRateLimitsInfo(env.RateLimitsInfo):
+    retryable_errors: tuple[Type[Exception], ...]
+
+    def __init__(self, get_request_resources: Callable[..., dict[str, int]]):
+        super().__init__(get_request_resources)
+        import openai
+        self.retryable_errors = (
+            # ConnectionError: we occasionally see this error when the AsyncConnectionPool is trying to close
+            # expired connections
+            # (AsyncConnectionPool._close_expired_connections() fails with ConnectionError when executing
+            # 'await connection.aclose()', which is potentially a bug in AsyncConnectionPool)
+            openai.APIConnectionError,
+
+            # the following errors are retryable according to OpenAI's API documentation
+            openai.RateLimitError,
+            openai.APITimeoutError,
+            openai.UnprocessableEntityError,
+            openai.InternalServerError,
+        )
+
+    def get_retry_delay(self, exc: Exception) -> Optional[float]:
+        import openai
+
+        if not isinstance(exc, self.retryable_errors):
+            return None
+        assert isinstance(exc, openai.APIError)
+        return 1.0
+
+
+# RE pattern for duration in '*-reset' headers;
+# examples: 1d2h3ms, 4m5.6s; # fractional seconds can be reported as 0.5s or 500ms
+_header_duration_pattern = re.compile(r'(?:(\d+)d)?(?:(\d+)h)?(?:(\d+)ms)|(?:(\d+)m)?(?:([\d.]+)s)?')
+
+
+def _parse_header_duration(duration_str):
+    match = _header_duration_pattern.match(duration_str)
+    if not match:
+        raise ValueError("Invalid duration format")
+
+    days = int(match.group(1) or 0)
+    hours = int(match.group(2) or 0)
+    milliseconds = int(match.group(3) or 0)
+    minutes = int(match.group(4) or 0)
+    seconds = float(match.group(5) or 0)
+
+    return datetime.timedelta(
+        days=days,
+        hours=hours,
+        minutes=minutes,
+        seconds=seconds,
+        milliseconds=milliseconds
+    )
+
+
+def _get_header_info(
+        headers: httpx.Headers, *, requests: bool = True, tokens: bool = True
+) -> tuple[Optional[tuple[int, int, datetime.datetime]], Optional[tuple[int, int, datetime.datetime]]]:
+    assert requests or tokens
+    now = datetime.datetime.now(tz=datetime.timezone.utc)
+
+    requests_info: Optional[tuple[int, int, datetime.datetime]] = None
+    if requests:
+        requests_limit_str = headers.get('x-ratelimit-limit-requests')
+        requests_limit = int(requests_limit_str) if requests_limit_str is not None else None
+        requests_remaining_str = headers.get('x-ratelimit-remaining-requests')
+        requests_remaining = int(requests_remaining_str) if requests_remaining_str is not None else None
+        requests_reset_str = headers.get('x-ratelimit-reset-requests')
+        requests_reset_ts = now + _parse_header_duration(requests_reset_str)
+        requests_info = (requests_limit, requests_remaining, requests_reset_ts)
+
+    tokens_info: Optional[tuple[int, int, datetime.datetime]] = None
+    if tokens:
+        tokens_limit_str = headers.get('x-ratelimit-limit-tokens')
+        tokens_limit = int(tokens_limit_str) if tokens_limit_str is not None else None
+        tokens_remaining_str = headers.get('x-ratelimit-remaining-tokens')
+        tokens_remaining = int(tokens_remaining_str) if tokens_remaining_str is not None else None
+        tokens_reset_str = headers.get('x-ratelimit-reset-tokens')
+        tokens_reset_ts = now + _parse_header_duration(tokens_reset_str)
+        tokens_info = (tokens_limit, tokens_remaining, tokens_reset_ts)
+
+    return requests_info, tokens_info
+
+
 #####################################
 # Audio Endpoints
 
 
 @pxt.udf
 def speech(
-    input: str, *, model: str, voice: str, response_format: Optional[str] = None, speed: Optional[float] = None
+        input: str, *, model: str, voice: str, response_format: Optional[str] = None, speed: Optional[float] = None
 ) -> pxt.Audio:
     """
     Generates audio from the input text.
@@ -175,8 +318,24 @@ def translations(
 # Chat Endpoints
 
 
+def _chat_completions_get_request_resources(
+        messages: list, max_tokens: Optional[int], n: Optional[int]
+) -> dict[str, int]:
+    completion_tokens = n * max_tokens
+
+    num_tokens = 0.0
+    for message in messages:
+        num_tokens += 4  # every message follows <im_start>{role/name}\n{content}<im_end>\n
+        for key, value in message.items():
+            num_tokens += len(value) / 4
+            if key == "name":  # if there's a name, the role is omitted
+                num_tokens -= 1  # role is always required and always 1 token
+    num_tokens += 2  # every reply is primed with <im_start>assistant
+    return {'requests': 1, 'tokens': int(num_tokens) + completion_tokens}
+
+
 @pxt.udf
-def chat_completions(
+async def chat_completions(
     messages: list,
     *,
     model: str,
@@ -184,8 +343,8 @@ def chat_completions(
     logit_bias: Optional[dict[str, int]] = None,
     logprobs: Optional[bool] = None,
     top_logprobs: Optional[int] = None,
-    max_tokens: Optional[int] = None,
-    n: Optional[int] = None,
+    max_tokens: Optional[int] = 1024,
+    n: Optional[int] = 1,
     presence_penalty: Optional[float] = None,
     response_format: Optional[dict] = None,
     seed: Optional[int] = None,
@@ -225,7 +384,39 @@ def chat_completions(
             ]
             tbl['response'] = chat_completions(messages, model='gpt-4o-mini')
     """
-    result = _retry(_openai_client().chat.completions.create)(
+    if tools is not None:
+        tools = [
+            {
+                'type': 'function',
+                'function': tool
+            }
+            for tool in tools
+        ]
+
+    tool_choice_: Union[str, dict, None] = None
+    if tool_choice is not None:
+        if tool_choice['auto']:
+            tool_choice_ = 'auto'
+        elif tool_choice['required']:
+            tool_choice_ = 'required'
+        else:
+            assert tool_choice['tool'] is not None
+            tool_choice_ = {
+                'type': 'function',
+                'function': {'name': tool_choice['tool']}
+            }
+
+    extra_body: Optional[dict[str, Any]] = None
+    if tool_choice is not None and not tool_choice['parallel_tool_calls']:
+        extra_body = {'parallel_tool_calls': False}
+
+    # make sure the pool info exists prior to making the request
+    resource_pool = _resource_pool(model)
+    rate_limits_info = env.Env.get().get_resource_pool_info(
+        resource_pool, lambda: OpenAIRateLimitsInfo(_chat_completions_get_request_resources))
+
+    # cast(Any, ...): avoid mypy errors
+    result = await _async_openai_client().chat.completions.with_raw_response.create(
         messages=messages,
         model=model,
         frequency_penalty=_opt(frequency_penalty),
@@ -235,16 +426,22 @@ def chat_completions(
         max_tokens=_opt(max_tokens),
         n=_opt(n),
         presence_penalty=_opt(presence_penalty),
-        response_format=_opt(response_format),
+        response_format=_opt(cast(Any, response_format)),
         seed=_opt(seed),
         stop=_opt(stop),
         temperature=_opt(temperature),
         top_p=_opt(top_p),
-        tools=_opt(tools),
-        tool_choice=_opt(tool_choice),
+        tools=_opt(cast(Any, tools)),
+        tool_choice=_opt(cast(Any, tool_choice_)),
         user=_opt(user),
+        timeout=10,
+        extra_body=extra_body,
     )
-    return result.dict()
+
+    requests_info, tokens_info = _get_header_info(result.headers)
+    rate_limits_info.record(requests=requests_info, tokens=tokens_info)
+
+    return json.loads(result.text)
 
 
 @pxt.udf
@@ -301,8 +498,13 @@ _embedding_dimensions_cache: dict[str, int] = {
 }
 
 
+def _embeddings_get_request_resources(input: list[str]) -> dict[str, int]:
+    input_len = sum(len(s) for s in input)
+    return {'requests': 1, 'tokens': int(input_len / 4)}
+
+
 @pxt.udf(batch_size=32)
-def embeddings(
+async def embeddings(
     input: Batch[str], *, model: str, dimensions: Optional[int] = None, user: Optional[str] = None
 ) -> Batch[pxt.Array[(None,), pxt.Float]]:
     """
@@ -332,10 +534,16 @@ def embeddings(
 
         >>> tbl['embed'] = embeddings(tbl.text, model='text-embedding-3-small')
     """
-    result = _retry(_openai_client().embeddings.create)(
+    _logger.debug(f'embeddings: batch_size={len(input)}')
+    resource_pool = _resource_pool(model)
+    rate_limits_info = env.Env.get().get_resource_pool_info(
+        resource_pool, lambda: OpenAIRateLimitsInfo(_embeddings_get_request_resources))
+    result = await _async_openai_client().embeddings.with_raw_response.create(
         input=input, model=model, dimensions=_opt(dimensions), user=_opt(user), encoding_format='float'
     )
-    return [np.array(data.embedding, dtype=np.float64) for data in result.data]
+    requests_info, tokens_info = _get_header_info(result.headers)
+    rate_limits_info.record(requests=requests_info, tokens=tokens_info)
+    return [np.array(data['embedding'], dtype=np.float64) for data in json.loads(result.content)['data']]
 
 
 @embeddings.conditional_return_type
@@ -356,7 +564,7 @@ def _(model: str, dimensions: Optional[int] = None) -> pxt.ArrayType:
 def image_generations(
     prompt: str,
     *,
-    model: Optional[str] = None,
+    model: str = 'dall-e-2',
     quality: Optional[str] = None,
     size: Optional[str] = None,
     style: Optional[str] = None,
@@ -412,7 +620,7 @@ def _(size: Optional[str] = None) -> pxt.ImageType:
     if x_pos == -1:
         return pxt.ImageType()
     try:
-        width, height = int(size[:x_pos]), int(size[x_pos + 1 :])
+        width, height = int(size[:x_pos]), int(size[x_pos + 1:])
     except ValueError:
         return pxt.ImageType()
     return pxt.ImageType(size=(width, height))
@@ -423,7 +631,7 @@ def _(size: Optional[str] = None) -> pxt.ImageType:
 
 
 @pxt.udf
-def moderations(input: str, *, model: Optional[str] = None) -> dict:
+def moderations(input: str, *, model: str = 'omni-moderation-latest') -> dict:
     """
     Classifies if text is potentially harmful.
 
@@ -451,6 +659,36 @@ def moderations(input: str, *, model: Optional[str] = None) -> dict:
     """
     result = _retry(_openai_client().moderations.create)(input=input, model=_opt(model))
     return result.dict()
+
+
+# @speech.resource_pool
+# @transcriptions.resource_pool
+# @translations.resource_pool
+@chat_completions.resource_pool
+# @vision.resource_pool
+@embeddings.resource_pool
+# @image_generations.resource_pool
+# @moderations.resource_pool
+def _(model: str) -> str:
+    return _resource_pool(model)
+
+
+def invoke_tools(tools: Tools, response: exprs.Expr) -> exprs.InlineDict:
+    """Converts an OpenAI response dict to Pixeltable tool invocation format and calls `tools._invoke()`."""
+    return tools._invoke(_openai_response_to_pxt_tool_calls(response))
+
+
+@pxt.udf
+def _openai_response_to_pxt_tool_calls(response: dict) -> Optional[dict]:
+    if 'tool_calls' not in response['choices'][0]['message'] or response['choices'][0]['message']['tool_calls'] is None:
+        return None
+    openai_tool_calls = response['choices'][0]['message']['tool_calls']
+    return {
+        tool_call['function']['name']: {
+            'args': json.loads(tool_call['function']['arguments'])
+        }
+        for tool_call in openai_tool_calls
+    }
 
 
 _T = TypeVar('_T')

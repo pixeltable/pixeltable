@@ -574,7 +574,7 @@ class LabelStudioProject(Project):
             else:
                 local_annotations_column = next(k for k, v in col_mapping.items() if v == ANNOTATIONS_COLUMN)
             if local_annotations_column not in t._schema.keys():
-                t[local_annotations_column] = pxt.JsonType(nullable=True)
+                t.add_columns({local_annotations_column: pxt.JsonType(nullable=True)})
 
         resolved_col_mapping = cls.validate_columns(
             t, config.export_columns, {ANNOTATIONS_COLUMN: pxt.JsonType(nullable=True)}, col_mapping)

@@ -138,7 +138,7 @@ nbtest: install
 .PHONY: typecheck
 typecheck: install
 	@echo "Running mypy ..."
-	@mypy pixeltable
+	@mypy pixeltable tests tool
 
 .PHONY: docstest
 docstest: install

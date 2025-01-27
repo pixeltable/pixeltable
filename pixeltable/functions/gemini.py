@@ -13,7 +13,7 @@ from pixeltable import env
 
 @env.register_client('gemini')
 def _(api_key: str) -> None:
-    import google.generativeai as genai  # type: ignore[import-untyped]
+    import google.generativeai as genai
     genai.configure(api_key=api_key)
 
 
@@ -36,8 +36,6 @@ def generate_content(
     response_schema: Optional[dict] = None,
     presence_penalty: Optional[float] = None,
     frequency_penalty: Optional[float] = None,
-    response_logprobs: Optional[bool] = None,
-    logprobs: Optional[int] = None,
 ) -> dict:
     """
     Generate content from the specified model. For additional details, see:
@@ -60,7 +58,7 @@ def generate_content(
         Add a computed column that applies the model `gemini-1.5-flash`
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
-        >>> tbl['response'] = generate_content(tbl.prompt, model_name='gemini-1.5-flash')
+        >>> tbl.add_computed_column(response=generate_content(tbl.prompt, model_name='gemini-1.5-flash'))
     """
     env.Env.get().require_package('google.generativeai')
     _ensure_loaded()
@@ -78,8 +76,6 @@ def generate_content(
         response_schema=response_schema,
         presence_penalty=presence_penalty,
         frequency_penalty=frequency_penalty,
-        response_logprobs=response_logprobs,
-        logprobs=logprobs,
     )
     response = model.generate_content(contents, generation_config=gc)
     return response.to_dict()

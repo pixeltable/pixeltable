@@ -6,10 +6,10 @@ import urllib.parse
 import urllib.request
 from typing import Any, Optional
 
-import numpy as np
-import pgvector.sqlalchemy  # type: ignore[import-untyped]
 import PIL
 import PIL.Image
+import numpy as np
+import pgvector.sqlalchemy  # type: ignore[import-untyped]
 import sqlalchemy as sql
 
 from pixeltable import env
@@ -34,9 +34,14 @@ class DataRow:
     - VideoType: local path if available, otherwise url
     """
 
-    vals: list[Any]
-    has_val: list[bool]
-    excs: list[Optional[Exception]]
+    vals: np.ndarray  # of object
+    has_val: np.ndarray  # of bool
+    excs: np.ndarray  # of object
+
+    # expr evaluation state; indexed by slot idx
+    missing_slots: np.ndarray  # of bool; number of missing dependencies
+    missing_dependents: np.ndarray  # of int16; number of missing dependents
+    is_scheduled: np.ndarray  # of bool; True if this slot is scheduled for evaluation
 
     # control structures that are shared across all DataRows in a batch
     img_slot_idxs: list[int]
@@ -50,32 +55,47 @@ class DataRow:
     # - stored url of file for media in vals[i]
     # - None if vals[i] is not media type
     # - not None if file_paths[i] is not None
-    file_urls: list[Optional[str]]
+    file_urls: np.ndarray  # of str
 
     # file_paths:
     # - local path of media file in vals[i]; points to the file cache if file_urls[i] is remote
     # - None if vals[i] is not a media type or if there is no local file yet for file_urls[i]
-    file_paths: list[Optional[str]]
+    file_paths: np.ndarray  # of str
 
     def __init__(self, size: int, img_slot_idxs: list[int], media_slot_idxs: list[int], array_slot_idxs: list[int]):
-        self.vals = [None] * size
-        self.has_val = [False] * size
-        self.excs = [None] * size
         self.img_slot_idxs = img_slot_idxs
         self.media_slot_idxs = media_slot_idxs
         self.array_slot_idxs = array_slot_idxs
-        self.pk = None
-        self.file_urls = [None] * size
-        self.file_paths = [None] * size
+        self.init(size)
 
-    def clear(self) -> None:
-        size = len(self.vals)
-        self.vals = [None] * size
-        self.has_val = [False] * size
-        self.excs = [None] * size
+    def init(self, num_slots: int) -> None:
+        self.vals = np.full(num_slots, None, dtype=object)
+        self.has_val = np.zeros(num_slots, dtype=bool)
+        self.excs = np.full(num_slots, None, dtype=object)
+        self.missing_slots = np.zeros(num_slots, dtype=bool)
+        self.missing_dependents = np.zeros(num_slots, dtype=np.int16)
+        self.is_scheduled = np.zeros(num_slots, dtype=bool)
         self.pk = None
-        self.file_urls = [None] * size
-        self.file_paths = [None] * size
+        self.file_urls = np.full(num_slots, None, dtype=object)
+        self.file_paths = np.full(num_slots, None, dtype=object)
+
+    def clear(self, idxs: Optional[np.ndarray] = None) -> None:
+        if idxs is not None:
+            self.has_val[idxs] = False
+            self.vals[idxs] = None
+            self.excs[idxs] = None
+            self.file_urls[idxs] = None
+            self.file_paths[idxs] = None
+        else:
+            self.init(len(self.vals))
+
+    def set_file_path(self, idx: int, path: str) -> None:
+        """Augment an existing url with a local file path"""
+        assert self.has_val[idx]
+        assert idx in self.img_slot_idxs or idx in self.media_slot_idxs
+        self.file_paths[idx] = path
+        if idx in self.media_slot_idxs:
+            self.vals[idx] = path
 
     def copy(self, target: DataRow) -> None:
         """Create a copy of the contents of this DataRow in target
@@ -98,16 +118,18 @@ class DataRow:
         """
         if slot_idx is not None:
             return self.excs[slot_idx] is not None
-        return any(exc is not None for exc in self.excs)
+        return (self.excs != None).any()
 
     def get_exc(self, slot_idx: int) -> Optional[Exception]:
-        return self.excs[slot_idx]
+        exc = self.excs[slot_idx]
+        assert exc is None or isinstance(exc, Exception)
+        return exc
 
     def get_first_exc(self) -> Optional[Exception]:
-        for exc in self.excs:
-            if exc is not None:
-                return exc
-        return None
+        mask = self.excs != None
+        if not mask.any():
+            return None
+        return self.excs[mask][0]
 
     def set_exc(self, slot_idx: int, exc: Exception) -> None:
         assert self.excs[slot_idx] is None
@@ -118,9 +140,6 @@ class DataRow:
         self.vals[slot_idx] = None
         self.file_paths[slot_idx] = None
         self.file_urls[slot_idx] = None
-
-    def __len__(self) -> int:
-        return len(self.vals)
 
     def __getitem__(self, index: object) -> Any:
         """Returns in-memory value, ie, what is needed for expr evaluation"""
@@ -171,11 +190,10 @@ class DataRow:
 
         return self.vals[index]
 
-    def __setitem__(self, idx: object, val: Any) -> None:
+    def __setitem__(self, idx: int, val: Any) -> None:
         """Assign in-memory cell value
         This allows overwriting
         """
-        assert isinstance(idx, int)
         assert self.excs[idx] is None
 
         if (idx in self.img_slot_idxs or idx in self.media_slot_idxs) and isinstance(val, str):
@@ -206,14 +224,6 @@ class DataRow:
         else:
             self.vals[idx] = val
         self.has_val[idx] = True
-
-    def set_file_path(self, idx: int, path: str) -> None:
-        """Augment an existing url with a local file path"""
-        assert self.has_val[idx]
-        assert idx in self.img_slot_idxs or idx in self.media_slot_idxs
-        self.file_paths[idx] = path
-        if idx in self.media_slot_idxs:
-            self.vals[idx] = path
 
     def flush_img(self, index: int, filepath: Optional[str] = None) -> None:
         """Discard the in-memory value and save it to a local file, if filepath is not None"""

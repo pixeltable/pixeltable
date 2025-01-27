@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import abc
 import importlib
 import inspect
+from abc import abstractmethod, ABC
 from copy import copy
 from typing import TYPE_CHECKING, Any, Callable, Optional, Sequence, cast
 
@@ -12,7 +12,6 @@ from typing_extensions import Self
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
-
 from .globals import resolve_symbol
 from .signature import Signature
 
@@ -20,7 +19,7 @@ if TYPE_CHECKING:
     from .expr_template_function import ExprTemplate, ExprTemplateFunction
 
 
-class Function(abc.ABC):
+class Function(ABC):
     """Base class for Pixeltable's function interface.
 
     A function in Pixeltable is an object that has a signature and implements __call__().
@@ -44,6 +43,12 @@ class Function(abc.ABC):
     # parameter names as the original function. Each parameter is going to be of type sql.ColumnElement.
     _to_sql: Callable[..., Optional[sql.ColumnElement]]
 
+    # Returns the resource pool to use for calling this function with the given arguments.
+    # Overriden for specific Function instances via the resource_pool() decorator. The override must accept a subset
+    # of the parameters of the original function, with the same type.
+    _resource_pool: Callable[..., Optional[str]]
+
+
     def __init__(
         self,
         signatures: list[Signature],
@@ -60,9 +65,9 @@ class Function(abc.ABC):
         self.is_method = is_method
         self.is_property = is_property
         self._conditional_return_type = None
-        self._to_sql = self.__default_to_sql
-
         self.__resolved_fns = []
+        self._to_sql = self.__default_to_sql
+        self._resource_pool = self.__default_resource_pool
 
     @property
     def name(self) -> str:
@@ -93,6 +98,20 @@ class Function(abc.ABC):
         return len(self.signature.parameters)
 
     @property
+    @abstractmethod
+    def is_async(self) -> bool: ...
+
+    def _docstring(self) -> Optional[str]:
+        return None
+
+    def help_str(self) -> str:
+        docstring = self._docstring()
+        display = self.display_name + str(self.signatures[0])
+        if docstring is None:
+            return display
+        return f'{display}\n\n{docstring}'
+
+    @property
     def _resolved_fns(self) -> list[Self]:
         """
         Return the list of overload resolutions for this `Function`, constructing it first if necessary.
@@ -109,6 +128,7 @@ class Function(abc.ABC):
                 for idx in range(len(self.signatures)):
                     resolution = cast(Self, copy(self))
                     resolution.signatures = [self.signatures[idx]]
+                    resolution.__resolved_fns = [resolution]  # Resolves to itself
                     resolution._update_as_overload_resolution(idx)
                     self.__resolved_fns.append(resolution)
 
@@ -128,9 +148,6 @@ class Function(abc.ABC):
         simply updating `self.signatures`.
         """
         raise NotImplementedError()
-
-    def help_str(self) -> str:
-        return self.display_name + str(self.signatures[0])
 
     def __call__(self, *args: Any, **kwargs: Any) -> 'pxt.exprs.FunctionCall':
         from pixeltable import exprs
@@ -176,6 +193,26 @@ class Function(abc.ABC):
         """Override this to do custom validation of the arguments"""
         assert not self.is_polymorphic
 
+    def _get_callable_args(self, callable: Callable, kwargs: dict[str, Any]) -> dict[str, Any]:
+        """Return the kwargs to pass to callable, given kwargs passed to this function"""
+        bound_args = self.signature.py_signature.bind(**kwargs).arguments
+        # add defaults to bound_args, if not already present
+        bound_args.update({
+            name: param.default
+            for name, param in self.signature.parameters.items() if name not in bound_args and param.has_default()
+        })
+        result: dict[str, Any] = {}
+        sig = inspect.signature(callable)
+        for param in sig.parameters.values():
+            if param.name in bound_args:
+                result[param.name] = bound_args[param.name]
+        return result
+
+    def call_resource_pool(self, kwargs: dict[str, Any]) -> str:
+        """Return the resource pool to use for calling this function with the given arguments"""
+        kw_args = self._get_callable_args(self._resource_pool, kwargs)
+        return self._resource_pool(**kw_args)
+
     def call_return_type(self, args: Sequence[Any], kwargs: dict[str, Any]) -> ts.ColumnType:
         """Return the type of the value returned by calling this function with the given arguments"""
         assert not self.is_polymorphic
@@ -191,13 +228,12 @@ class Function(abc.ABC):
 
     def conditional_return_type(self, fn: Callable[..., ts.ColumnType]) -> Callable[..., ts.ColumnType]:
         """Instance decorator for specifying a conditional return type for this function"""
-        if self.is_polymorphic:
-            raise excs.Error('`conditional_return_type` is not supported for functions with multiple signatures')
         # verify that call_return_type only has parameters that are also present in the signature
-        sig = inspect.signature(fn)
-        for param in sig.parameters.values():
-            if param.name not in self.signature.parameters:
-                raise ValueError(f'`conditional_return_type` has parameter `{param.name}` that is not in the signature')
+        fn_sig = inspect.signature(fn)
+        for param in fn_sig.parameters.values():
+            for self_sig in self.signatures:
+                if param.name not in self_sig.parameters:
+                    raise ValueError(f'`conditional_return_type` has parameter `{param.name}` that is not in a signature')
         self._conditional_return_type = fn
         return fn
 
@@ -261,10 +297,13 @@ class Function(abc.ABC):
 
         return ExprTemplate(call, new_signature)
 
-    @abc.abstractmethod
     def exec(self, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:
         """Execute the function with the given arguments and return the result."""
-        pass
+        raise NotImplementedError()
+
+    async def aexec(self, *args: Any, **kwargs: Any) -> Any:
+        """Execute the function with the given arguments and return the result."""
+        raise NotImplementedError()
 
     def to_sql(self, fn: Callable[..., Optional[sql.ColumnElement]]) -> Callable[..., Optional[sql.ColumnElement]]:
         """Instance decorator for specifying the SQL translation of this function"""
@@ -273,6 +312,15 @@ class Function(abc.ABC):
 
     def __default_to_sql(self, *args: Any, **kwargs: Any) -> Optional[sql.ColumnElement]:
         """The default implementation of SQL translation, which provides no translation"""
+        return None
+
+    def resource_pool(self, fn: Callable[..., str]) -> Callable[..., str]:
+        """Instance decorator for specifying the resource pool of this function"""
+        # TODO: check that fn's parameters are a subset of our parameters
+        self._resource_pool = fn
+        return fn
+
+    def __default_resource_pool(self) -> Optional[str]:
         return None
 
     def __eq__(self, other: object) -> bool:
@@ -284,7 +332,7 @@ class Function(abc.ABC):
         """Print source code"""
         print('source not available')
 
-    def as_dict(self) -> dict:
+    def as_dict(self) -> dict[str, Any]:
         """
         Return a serialized reference to the instance that can be passed to json.dumps() and converted back
         to an instance with from_dict().

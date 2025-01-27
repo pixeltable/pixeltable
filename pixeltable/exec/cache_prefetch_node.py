@@ -9,7 +9,7 @@ import urllib.request
 from collections import deque
 from concurrent import futures
 from pathlib import Path
-from typing import Optional, Any, Iterator
+from typing import Optional, Any, Iterator, AsyncIterator
 from uuid import UUID
 
 import pixeltable.env as env
@@ -79,12 +79,12 @@ class CachePrefetchNode(ExecNode):
         self.input_finished = False
         self.row_idx = itertools.count() if retain_input_order else itertools.repeat(None)
 
-    def __iter__(self) -> Iterator[DataRowBatch]:
-        input_iter = iter(self.input)
+    async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
+        input_iter = self.input.__aiter__()
         with futures.ThreadPoolExecutor(max_workers=self.NUM_EXECUTOR_THREADS) as executor:
             # we create enough in-flight requests to fill the first batch
             while not self.input_finished and self.__num_pending_rows() < self.BATCH_SIZE:
-                self.__submit_input_batch(input_iter, executor)
+                await self.__submit_input_batch(input_iter, executor)
 
             while True:
                 # try to assemble a full batch of output rows
@@ -93,7 +93,7 @@ class CachePrefetchNode(ExecNode):
 
                 # try to create enough in-flight requests to fill the next batch
                 while not self.input_finished and self.__num_pending_rows() < self.BATCH_SIZE:
-                    self.__submit_input_batch(input_iter, executor)
+                    await self.__submit_input_batch(input_iter, executor)
 
                 if len(self.ready_rows) > 0:
                     # create DataRowBatch from the first BATCH_SIZE ready rows
@@ -163,9 +163,15 @@ class CachePrefetchNode(ExecNode):
                         self.__add_ready_row(row, state.idx)
                         _logger.debug(f'row {state.idx} is ready (ready_batch_size={self.__ready_prefix_len()})')
 
-    def __submit_input_batch(self, input: Iterator[DataRowBatch], executor: futures.ThreadPoolExecutor) -> None:
+    async def __submit_input_batch(
+        self, input: AsyncIterator[DataRowBatch], executor: futures.ThreadPoolExecutor
+    ) -> None:
         assert not self.input_finished
-        input_batch = next(input, None)
+        input_batch: Optional[DataRowBatch]
+        try:
+            input_batch = await input.__anext__()
+        except StopAsyncIteration:
+            input_batch = None
         if input_batch is None:
             self.input_finished = True
             return

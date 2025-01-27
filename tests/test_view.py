@@ -1,8 +1,10 @@
 import datetime
 import logging
+from typing import Literal
 
 import PIL
 import pytest
+import re
 
 import pixeltable as pxt
 from pixeltable import catalog
@@ -19,15 +21,15 @@ class TestView:
     - test consecutive component views
 
     """
-    def create_tbl(self) -> catalog.InsertableTable:
+    def create_tbl(self) -> pxt.Table:
         """Create table with computed columns"""
         t = create_test_tbl()
-        t.add_column(d1=t.c3 - 1)
+        t.add_computed_column(d1=t.c3 - 1)
         # add column that can be updated
         t.add_column(c10=pxt.Float)
         t.update({'c10': t.c3})
         # computed column that depends on two columns: exercise duplicate elimination during query construction
-        t.add_column(d2=t.c3 - t.c10)
+        t.add_computed_column(d2=t.c3 - t.c10)
         return t
 
     def test_errors(self, reset_db) -> None:
@@ -71,8 +73,8 @@ class TestView:
             v.select(v.v1).order_by(v.v1).collect(),
             t.select(t.c3 * 2.0).where(t.c2 < 10).order_by(t.c2).collect())
         # computed columns that don't reference the base table
-        v.add_column(v3=v.v1 * 2.0)
-        v.add_column(v4=v.v2[0])
+        v.add_computed_column(v3=v.v1 * 2.0)
+        v.add_computed_column(v4=v.v2[0])
 
         def check_view(t: pxt.Table, v: pxt.Table) -> None:
             assert v._base == t
@@ -118,8 +120,8 @@ class TestView:
 
         # check alternate view creation syntax (via a DataFrame)
         v2 = pxt.create_view('test_view_alt', t.where(t.c2 < 10), additional_columns=schema)
-        validate_update_status(v2.add_column(v3=v2.v1 * 2.0), expected_rows=10)
-        validate_update_status(v2.add_column(v4=v2.v2[0]), expected_rows=10)
+        validate_update_status(v2.add_computed_column(v3=v2.v1 * 2.0), expected_rows=10)
+        validate_update_status(v2.add_computed_column(v4=v2.v2[0]), expected_rows=10)
         check_view(t, v2)
 
         # test delete view
@@ -146,13 +148,12 @@ class TestView:
 
         # invalid if_exists value is rejected
         with pytest.raises(excs.Error) as exc_info:
-            _ = pxt.create_view('test_view', t, if_exists='invalid')
+            _ = pxt.create_view('test_view', t, if_exists='invalid')  # type: ignore[arg-type]
         assert "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']" in str(exc_info.value)
 
-         # scenario 1: a view exists at the path already
-        with pytest.raises(excs.Error) as exc_info:
+        # scenario 1: a view exists at the path already
+        with pytest.raises(excs.Error, match=r'already exists'):
             pxt.create_view('test_view', t)
-        assert 'already exists' in str(exc_info.value)
         # if_exists='ignore' should return the existing view
         v2 = pxt.create_view('test_view', t, if_exists='ignore')
         assert v2 == v
@@ -165,9 +166,8 @@ class TestView:
 
         # scenario 2: a view exists at the path, but has dependency
         v_on_v = pxt.create_view('test_view_on_view', v2)
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(excs.Error, match=r'already exists'):
             pxt.create_view('test_view', t)
-        assert 'already exists' in str(exc_info.value)
         # if_exists='ignore' should return the existing view
         v3 = pxt.create_view('test_view', t, if_exists='ignore')
         assert v3 == v2
@@ -177,9 +177,8 @@ class TestView:
         # it should raise an error and recommend using 'replace_force'
         with pytest.raises(excs.Error) as exc_info:
             v3 = pxt.create_view('test_view', t, if_exists='replace')
-        assert ('already exists' in str(exc_info.value)
-            and 'has dependents' in str(exc_info.value)
-            and 'replace_force' in str(exc_info.value))
+        err_msg = str(exc_info.value).lower()
+        assert 'already exists' in err_msg and 'has dependents' in err_msg and 'replace_force' in err_msg
         assert 'test_view_on_view' in pxt.list_tables()
         # if_exists='replace_force' should drop the existing view and
         # its dependent views and create a new one
@@ -191,20 +190,135 @@ class TestView:
 
         # scenario 3: path exists but is not a view
         _ = pxt.create_table('not_view', {'c1': pxt.String})
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(excs.Error, match=r'already exists'):
             pxt.create_view('not_view', t)
-        assert 'already exists' in str(exc_info.value)
         for _ie in ['ignore', 'replace', 'replace_force']:
             with pytest.raises(excs.Error) as exc_info:
-                _ = pxt.create_view('not_view', t, if_exists=_ie)
-            assert ('already exists' in str(exc_info.value)
-                and 'is not a View' in str(exc_info.value))
+                _ = pxt.create_view('not_view', t, if_exists=_ie)  # type: ignore[arg-type]
+            err_msg = str(exc_info.value).lower()
+            assert 'already exists' in err_msg and 'is not a view' in err_msg
             assert 'not_view' in pxt.list_tables(), f"with if_exists={_ie}"
 
         # sanity check persistence
         _ = reload_tester.run_query(t.select())
         _ = reload_tester.run_query(v3.select())
         reload_tester.run_reload_test()
+
+    def test_add_column_to_view(self, reset_db, test_tbl: catalog.Table, reload_tester: ReloadTester) -> None:
+        """ Test add_column* methods for views """
+        t = test_tbl
+        t_c1_val0 = t.select(t.c1).order_by(t.c1).collect()[0]['c1']
+
+        # adding column with same name as a base table column at
+        # the time of creating a view will raise an error now.
+        with pytest.raises(excs.Error, match=r"Column 'c1' already exists in the base table"):
+            pxt.create_view('test_view', t, additional_columns={'c1': pxt.Int})
+
+        # create a view and add a column with default value
+        v = pxt.create_view('test_view', t, additional_columns={'v1': pxt.Int})
+        v.add_computed_column(vcol='xxx')
+        assert 'vcol' in v.columns
+        assert v.select(v.vcol).collect()[0]['vcol'] == 'xxx'
+
+        # add column with same name as an existing column.
+        # the result will depend on the if_exists parameter.
+        # test with the existing column specific to the view, or a base table column.
+        self._test_add_column_if_exists(v, t, 'vcol', 'xxx', is_base_column=False)
+        _ = reload_tester.run_query(v.select())
+        reload_tester.run_reload_test()
+
+        self._test_add_column_if_exists(v, t, 'c1', t_c1_val0, is_base_column=True)
+        _ = reload_tester.run_query(v.select())
+        reload_tester.run_reload_test()
+
+    def _test_add_column_if_exists(
+        self, v: catalog.Table, t: catalog.Table, col_name: str,
+        orig_val: str, is_base_column: bool
+    ) -> None:
+        """ Test if_exists parameter of the add column methods for views """
+        non_existing_col1 = 'non_existing1_' + col_name
+        non_existing_col2 = 'non_existing2_' + col_name
+        non_existing_col3 = 'non_existing3_' + col_name
+        non_existing_col4 = 'non_existing4_' + col_name
+        non_existing_col5 = 'non_existing5_' + col_name
+
+        # invalid if_exists value is rejected
+        expected_err = "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']"
+        with pytest.raises(excs.Error, match=re.escape(expected_err)):
+            v.add_column(**{col_name: pxt.Int}, if_exists='invalid')
+        with pytest.raises(excs.Error, match=re.escape(expected_err)):
+            v.add_computed_column(**{col_name: t.c2 + t.c3}, if_exists='invalid')
+        with pytest.raises(excs.Error, match=re.escape(expected_err)):
+            v.add_columns({col_name: pxt.Int, non_existing_col1: pxt.String}, if_exists='invalid')  # type: ignore[arg-type]
+        assert col_name in v.columns
+        assert v.select().collect()[0][col_name] == orig_val
+
+        # by default, raises an error if the column already exists
+        expected_err = f"Duplicate column name: '{col_name}'"
+        with pytest.raises(excs.Error, match=expected_err):
+            v.add_column(**{col_name: pxt.Int})
+        with pytest.raises(excs.Error, match=expected_err):
+            v.add_computed_column(**{col_name: t.c2 + t.c3})
+        with pytest.raises(excs.Error, match=expected_err):
+            v.add_columns({col_name: pxt.Int, non_existing_col2: pxt.String})
+        assert col_name in v.columns
+        assert v.select(getattr(v, col_name)).collect()[0][col_name] == orig_val
+        assert non_existing_col2 not in v.columns
+
+        # if_exists='ignore' will not add the column if it already exists
+        v.add_column(**{col_name: pxt.Int}, if_exists='ignore')
+        assert col_name in v.columns
+        assert v.select().collect()[0][col_name] == orig_val
+        v.add_computed_column(**{col_name: t.c2 + t.c3}, if_exists='ignore')
+        assert col_name in v.columns
+        assert v.select().collect()[0][col_name] == orig_val
+        v.add_columns({col_name: pxt.Int, non_existing_col2: pxt.String}, if_exists='ignore')
+        assert col_name in v.columns
+        assert v.select().collect()[0][col_name] == orig_val
+        assert non_existing_col2 in v.columns
+
+        # if_exists='replace' will replace the column if it already exists.
+        # for a column specific to view. For a base table column, it will raise an error.
+        if is_base_column:
+            with pytest.raises(excs.Error) as exc_info:
+                v.add_column(**{col_name: pxt.String}, if_exists='replace')
+            error_msg = str(exc_info.value).lower()
+            assert "is a base table column" in error_msg and "cannot replace" in error_msg
+            assert col_name in v.columns
+            assert v.select().collect()[0][col_name] == orig_val
+            with pytest.raises(excs.Error) as exc_info:
+                v.add_computed_column(**{col_name: t.c2 + t.c3}, if_exists='replace')
+            error_msg = str(exc_info.value).lower()
+            assert "is a base table column" in error_msg and "cannot replace" in error_msg
+            assert col_name in v.columns
+            assert v.select(getattr(v, col_name)).collect()[0][col_name] == orig_val
+            with pytest.raises(excs.Error) as exc_info:
+                v.add_columns({col_name: pxt.String, non_existing_col3: pxt.String}, if_exists='replace')
+            error_msg = str(exc_info.value).lower()
+            assert "is a base table column" in error_msg and "cannot replace" in error_msg
+            assert col_name in v.columns
+            assert v.select(getattr(v, col_name)).collect()[0][col_name] == orig_val
+            assert non_existing_col3 not in v.columns
+        else:
+            v.add_columns({col_name: pxt.Int, non_existing_col4: pxt.String}, if_exists='replace')
+            assert col_name in v.columns
+            assert v.select(getattr(v, col_name)).collect()[0][col_name] is None
+            assert non_existing_col4 in v.columns
+            v.add_computed_column(**{col_name: 'aaa'}, if_exists='replace')
+            assert col_name in v.columns
+            assert v.select(getattr(v, col_name)).collect()[0][col_name] == 'aaa'
+            v.add_computed_column(**{col_name: t.c2 + t.c3}, if_exists='replace')
+            assert col_name in v.columns
+            row0 = v.select().collect()[0]
+            assert row0[col_name] == row0['c2'] + row0['c3']
+
+            # if_exists='replace' will raise an error and not replace if the column has a dependency.
+            col_ref = getattr(v, col_name)
+            v.add_computed_column(**{non_existing_col5: col_ref + 12.3})
+            assert v.select(getattr(v, non_existing_col5)).collect()[0][non_existing_col5] == row0[col_name] + 12.3
+            expected_err = f"Column {col_name!r} already exists and has dependents."
+            with pytest.raises(excs.Error, match=expected_err):
+                v.add_computed_column(**{col_name: 'bbb'}, if_exists='replace')
 
     def test_from_dataframe(self, reset_db) -> None:
         t = self.create_tbl()
@@ -456,8 +570,8 @@ class TestView:
             v.select(v.v1).order_by(v.c2).collect(),
             t.select(t.c3 * 2.0).order_by(t.c2).collect())
         # computed columns that don't reference the base table
-        v.add_column(v3=v.v1 * 2.0)
-        v.add_column(v4=v.v2[0])
+        v.add_computed_column(v3=v.v1 * 2.0)
+        v.add_computed_column(v4=v.v2[0])
 
         # use view md after reload
         reload_catalog()
@@ -548,8 +662,8 @@ class TestView:
 
         check_view(snap, v)
         # computed columns that don't reference the base table
-        v.add_column(v3=v.v1 * 2.0)
-        v.add_column(v4=v.v2[0])
+        v.add_computed_column(v3=v.v1 * 2.0)
+        v.add_computed_column(v4=v.v2[0])
         assert v.count() == t.where(t.c2 < 10).count()
 
         # use view md after reload
@@ -610,8 +724,8 @@ class TestView:
         check(s, v, view_s)
 
         # add more columns
-        v.add_column(v3=v.v1 * 2.0)
-        v.add_column(v4=v.v2[0])
+        v.add_computed_column(v3=v.v1 * 2.0)
+        v.add_computed_column(v4=v.v2[0])
         check(s, v, view_s)
         assert set(view_s._schema.keys()) == set(orig_view_cols)
 
@@ -646,13 +760,13 @@ class TestView:
         # TODO: use non-None default values once we have them
         t = pxt.create_table('table_1', {'id': pxt.Int, 'json_0': pxt.Json})
         # computed column depends on nullable non-computed column json_0
-        t.add_column(computed_0=t.json_0.a)
+        t.add_computed_column(computed_0=t.json_0.a)
         validate_update_status(t.insert(id=0, json_0={'a': 'b'}), expected_rows=1)
         assert t.where(t.computed_0 == None).count() == 0
 
         v = pxt.create_view('view_1', t.where(t.id >= 0), additional_columns={'json_1': pxt.Json})
         # computed column depends on nullable non-computed column json_1
-        validate_update_status(v.add_column(computed_1=v.json_1.a))
+        validate_update_status(v.add_computed_column(computed_1=v.json_1.a))
         assert v.where(v.computed_1 == None).count() == 1
         validate_update_status(v.update({'json_1': {'a': 'b'}}), expected_rows=1)
         assert v.where(v.computed_1 == None).count() == 0

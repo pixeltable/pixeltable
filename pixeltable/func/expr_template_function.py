@@ -87,13 +87,20 @@ class ExprTemplateFunction(Function):
         assert not result._contains(exprs.Variable)
         return result
 
+    def _docstring(self) -> Optional[str]:
+        from pixeltable import exprs
+
+        if isinstance(self.templates[0].expr, exprs.FunctionCall):
+            return self.templates[0].expr.fn._docstring()
+        return None
+
     def exec(self, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:
         from pixeltable import exec, exprs
 
         assert not self.is_polymorphic
         expr = self.instantiate(args, kwargs)
         row_builder = exprs.RowBuilder(output_exprs=[expr], columns=[], input_exprs=[])
-        row_batch = exec.DataRowBatch(tbl=None, row_builder=row_builder, len=1)
+        row_batch = exec.DataRowBatch(tbl=None, row_builder=row_builder, num_rows=1)
         row = row_batch[0]
         row_builder.eval(row, ctx=row_builder.default_eval_ctx)
         return row[row_builder.get_output_exprs()[0].slot_idx]
@@ -105,6 +112,10 @@ class ExprTemplateFunction(Function):
     @property
     def name(self) -> str:
         return self.self_name
+
+    @property
+    def is_async(self) -> bool:
+        return False
 
     def __str__(self) -> str:
         return str(self.templates[0].expr)

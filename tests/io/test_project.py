@@ -7,6 +7,7 @@ import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable.io.external_store import MockProject, Project
 from pixeltable.exprs import ColumnRef
+from pixeltable.type_system import ColumnType
 from tests.utils import get_image_files, reload_catalog
 
 _logger = logging.getLogger('pixeltable')
@@ -58,11 +59,11 @@ class TestProject:
 
         # Subtype/supertype relationships
 
-        schema3 = {'img': pxt.Image, 'spec_img': pxt.Image[(512, 512)]}
+        schema3 = {'img': pxt.Image, 'spec_img': pxt.Image[(512, 512)]}  # type: ignore[misc]
         t3 = pxt.create_table('test_store_3', schema3)
 
-        export_img_cols = {'export_img': pxt.ImageType(), 'export_spec_img': pxt.ImageType(512, 512)}
-        import_img_cols = {'import_img': pxt.ImageType(), 'import_spec_img': pxt.ImageType(512, 512)}
+        export_img_cols: dict[str, ColumnType] = {'export_img': pxt.ImageType(), 'export_spec_img': pxt.ImageType(512, 512)}
+        import_img_cols: dict[str, ColumnType] = {'import_img': pxt.ImageType(), 'import_spec_img': pxt.ImageType(512, 512)}
 
         # Can export/import from sub to supertype
         Project.validate_columns(t3, export_img_cols, import_img_cols, {'spec_img': 'export_img', 'img': 'import_spec_img'})
@@ -77,7 +78,7 @@ class TestProject:
             Project.validate_columns(t3, export_img_cols, import_img_cols, {'spec_img': 'import_img'})
         assert 'Column `spec_img` cannot be imported from external column `import_img`' in str(exc_info.value)
 
-        t3['computed_img'] = t3.img.rotate(180)
+        t3.add_computed_column(computed_img=t3.img.rotate(180))
         with pytest.raises(excs.Error) as exc_info:
             Project.validate_columns(t3, export_img_cols, import_img_cols, {'computed_img': 'import_img'})
         assert (
@@ -112,8 +113,8 @@ class TestProject:
     def test_stored_proxies(self, reset_db, with_reloads: bool) -> None:
         schema = {'img': pxt.Image, 'other_img': pxt.Image}
         t = pxt.create_table('test_store', schema)
-        t.add_column(rot_img=t.img.rotate(180), stored=False)
-        t.add_column(rot_other_img=t.other_img.rotate(180), stored=False)
+        t.add_computed_column(rot_img=t.img.rotate(180), stored=False)
+        t.add_computed_column(rot_other_img=t.other_img.rotate(180), stored=False)
         image_files = get_image_files()[:10]
         other_image_files = get_image_files()[-10:]
         t.insert(
