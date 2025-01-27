@@ -112,21 +112,21 @@ print(movies.collect())
     Filter and retrieve data:
     ```python
     # Basic row count
-    films.count()  # Returns total number of rows
+    movies.count()  # Returns total number of rows
     
     # Basic filtering
-    films.where(films.revenue >= 2000.0).collect()
+    movies.where(movies.budget >= 200.0).collect()
     
     # Select specific columns
-    films.select(films.film_name, films.year).collect()
+    movies.select(movies.title, movies.year).collect()
     
     # Limit results
-    films.limit(5).collect()  # First 5 rows (no specific order)
-    films.head(5)  # First 5 rows by insertion order
-    films.tail(5)  # Last 5 rows by insertion order
+    movies.limit(5).collect()  # First 5 rows (no specific order)
+    movies.head(5)  # First 5 rows by insertion order
+    movies.tail(5)  # Last 5 rows by insertion order
     
     # Order results
-    films.order_by(films.revenue, asc=False).limit(5).collect()
+    movies.order_by(movies.budget, asc=False).limit(5).collect()
     ```
   </Card>
 
@@ -134,17 +134,17 @@ print(movies.collect())
     Manipulate text data:
     ```python
     # String contains
-    films.where(films.film_name.contains('Star Wars')).collect()
+    movies.where(movies.title.contains('Inception')).collect()
     
     # String replacement
-    films.update({
-        'location': films.location.replace('Washington', 'WA')
+    movies.update({
+        'plot': movies.plot.replace('corporate secrets', 'subconscious secrets')
     })
     
     # String functions
-    films.update({
-        'title': films.title.upper(),        # Convert to uppercase
-        'length': films.title.len()          # Get string length
+    movies.update({
+        'title': movies.title.upper(),        # Convert to uppercase
+        'length': movies.title.len()          # Get string length
     })
     ```
   </Card>
@@ -153,16 +153,27 @@ print(movies.collect())
     Add new data:
     ```python
     # Insert single row
-    films.insert(
-        film_name='Inside Out 2',
+    movies.insert(
+        title='Inside Out 2',
         year=2024,
-        revenue=1462.7
+        plot='Emotions navigate puberty',
+        budget=200.0
     )
     
     # Insert multiple rows
-    films.insert([
-        {'film_name': 'Jurassic Park', 'year': 1993, 'revenue': 1037.5},
-        {'film_name': 'Titanic', 'year': 1997, 'revenue': 2257.8}
+    movies.insert([
+        {
+            'title': 'Jurassic Park', 
+            'year': 1993, 
+            'plot': 'Dinosaur theme park disaster',
+            'budget': 63.0
+        },
+        {
+            'title': 'Titanic', 
+            'year': 1997, 
+            'plot': 'Ill-fated ocean liner romance',
+            'budget': 200.0
+        }
     ])
     ```
   </Card>
@@ -171,23 +182,23 @@ print(movies.collect())
     Modify existing data:
     ```python
     # Update all rows
-    films.update({
-        'revenue': films.revenue * 1.1  # Increase all revenues by 10%
+    movies.update({
+        'budget': movies.budget * 1.1  # Increase all budgets by 10%
     })
     
     # Conditional updates
-    films.where(
-        films.year < 2000
+    movies.where(
+        movies.year < 2000
     ).update({
-        'note': 'Classic film'
+        'plot': movies.plot + ' (Classic Film)'
     })
     
     # Batch updates for multiple rows
     updates = [
-        {'id': 1, 'note': 'First movie'},
-        {'id': 2, 'note': 'Second movie'}
+        {'id': 1, 'budget': 175.0},
+        {'id': 2, 'budget': 185.0}
     ]
-    films.batch_update(updates)
+    movies.batch_update(updates)
     ```
   </Card>
 
@@ -195,18 +206,18 @@ print(movies.collect())
     Remove data with conditions:
     ```python
     # Delete specific rows
-    films.where(
-        films.year < 1990
+    movies.where(
+        movies.year < 1995
     ).delete()
     
     # Delete with complex conditions
-    films.where(
-        (films.revenue < 100) & 
-        (films.year < 2000)
+    movies.where(
+        (movies.budget < 100.0) & 
+        (movies.year < 2000)
     ).delete()
     
     # WARNING: Delete all rows (use with caution!)
-    # films.delete()  # Without where clause deletes all rows
+    # movies.delete()  # Without where clause deletes all rows
     ```
   </Card>
 
@@ -214,14 +225,13 @@ print(movies.collect())
     Manage table structure:
     ```python
     # Add new column
-    films.add_column(note=pxt.String)
-    films.add_column(contact_email=pxt.String)
+    movies.add_column(rating=pxt.String)
     
     # Drop column
-    films.drop_column('contact_email')
+    movies.drop_column('rating')
     
     # View schema
-    films.describe()
+    movies.describe()
     ```
   </Card>
 
@@ -229,11 +239,11 @@ print(movies.collect())
     Manage table versions:
     ```python
     # Revert the last operation
-    films.revert()  # Cannot be undone!
+    movies.revert()  # Cannot be undone!
     
     # Revert multiple times to go back further
-    films.revert()
-    films.revert()  # Goes back two operations
+    movies.revert()
+    movies.revert()  # Goes back two operations
     ```
   </Card>
 
@@ -241,7 +251,7 @@ print(movies.collect())
     Extract data for analysis:
     ```python
     # Get results as Python objects
-    result = films.limit(5).collect()
+    result = movies.limit(5).collect()
     first_row = result[0]  # Get first row as dict
     timestamps = result['timestamp']  # Get list of values for one column
     
