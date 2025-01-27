@@ -156,7 +156,7 @@ class View(Table):
                 plan, num_values_per_row = Planner.create_view_load_plan(view._tbl_version_path)
                 num_rows, num_excs, cols_with_excs = tbl_version.store_tbl.insert_rows(
                     plan, session.connection(), v_min=tbl_version.version)
-                print(f'Created view `{name}` with {num_rows} rows, {num_excs} exceptions.')
+                Env.get().console_logger.info(f'Created view `{name}` with {num_rows} rows, {num_excs} exceptions.')
 
             session.commit()
             cat = Catalog.get()

@@ -18,7 +18,8 @@ import uuid
 import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Optional, TypeVar, Type
+from sys import stdout
+from typing import TYPE_CHECKING, Any, Callable, Optional, TypeVar
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pixeltable_pgserver
@@ -28,6 +29,7 @@ from tqdm import TqdmWarning
 
 import pixeltable.exceptions as excs
 from pixeltable import metadata
+from pixeltable.utils.console_output import ConsoleLogger, ConsoleMessageFilter, ConsoleOutputHandler, map_level
 from pixeltable.utils.http_server import make_server
 
 if TYPE_CHECKING:
@@ -67,6 +69,7 @@ class Env:
     _httpd: Optional[http.server.HTTPServer]
     _http_address: Optional[str]
     _logger: logging.Logger
+    _console_logger: ConsoleLogger
     _default_log_level: int
     _logfilename: Optional[str]
     _log_to_stdout: bool
@@ -231,6 +234,10 @@ class Env:
         else:
             return False
 
+    @property
+    def console_logger(self) -> ConsoleLogger:
+        return self._console_logger
+
     def _set_up(self, echo: bool = False, reinit_db: bool = False) -> None:
         if self._initialized:
             return
@@ -287,6 +294,14 @@ class Env:
             # Disable more warnings
             warnings.simplefilter('ignore', category=UserWarning)
             warnings.simplefilter('ignore', category=FutureWarning)
+
+        # Set verbose level for user visible console messages
+        verbosity = map_level(self._config.get_int_value('verbosity'))
+        stdout_handler = ConsoleOutputHandler(stream=stdout)
+        stdout_handler.setLevel(verbosity)
+        stdout_handler.addFilter(ConsoleMessageFilter())
+        self._logger.addHandler(stdout_handler)
+        self._console_logger = ConsoleLogger(self._logger)
 
         # configure _logger to log to a file
         self._logfilename = datetime.datetime.now().strftime('%Y%m%d_%H%M%S') + '.log'
@@ -361,7 +376,7 @@ class Env:
             schema.base_metadata.create_all(self._sa_engine)
             metadata.create_system_info(self._sa_engine)
 
-        print(f'Connected to Pixeltable database at: {self.db_url}')
+        self.console_logger.info(f'Connected to Pixeltable database at: {self.db_url}')
 
         # we now have a home directory and db; start other services
         self._set_up_runtime()

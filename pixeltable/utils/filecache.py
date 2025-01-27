@@ -239,4 +239,4 @@ class FileCache:
 
     def debug_print(self) -> None:
         for entry in self.cache.values():
-            print(f'CacheEntry: tbl_id={entry.tbl_id}, col_id={entry.col_id}, size={entry.size}')
+            _logger.debug(f'CacheEntry: tbl_id={entry.tbl_id}, col_id={entry.col_id}, size={entry.size}')
