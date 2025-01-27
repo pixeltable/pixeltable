@@ -74,6 +74,7 @@
             "docs/fundamentals/filtering-and-selecting",
             "docs/fundamentals/computed-columns",
             "docs/fundamentals/embedding-index",
+            "docs/fundamentals/views",            
             "docs/fundamentals/custom-functions",
             "docs/fundamentals/configuration"
           ]
