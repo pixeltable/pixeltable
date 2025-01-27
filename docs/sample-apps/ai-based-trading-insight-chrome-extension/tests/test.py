@@ -8,6 +8,11 @@ class TestConfig:
     BASE_URL = "http://localhost:8000"
     TEST_REQUEST_ID = "test_request_001"
 
+# Validation constants
+REQUIRED_TECHNICAL_INDICATORS = {'macd', 'rsi', 'mfi', 'stochastic', 'volume', 'current_price', 'vwap'}
+REQUIRED_TRADE_SETUP_FIELDS = {'entry', 'stop_loss', 'target'}
+VALID_SIGNAL_TYPES = {'BULLISH', 'BEARISH', 'NEUTRAL'}
+
 @pytest.fixture
 def base_url():
     return TestConfig.BASE_URL
@@ -40,17 +45,15 @@ def validate_levels(levels: list) -> bool:
     """Validate support/resistance levels format."""
     if not isinstance(levels, list) or len(levels) != 3:
         return False
-    return all(isinstance(level, (float, type(None))) for level in levels)
+    return all(level is None or isinstance(level, float) for level in levels)
 
 def validate_indicators(indicators: dict) -> bool:
     """Validate technical indicators format."""
-    required_keys = {'macd', 'rsi', 'mfi', 'stochastic', 'volume', 'current_price', 'vwap'}
-    return all(key in indicators for key in required_keys)
+    return all(key in indicators for key in REQUIRED_TECHNICAL_INDICATORS)
 
 def validate_trade_setup(setup: dict) -> bool:
     """Validate trade setup format."""
-    required_keys = {'entry', 'stop_loss', 'target'}
-    return all(key in setup for key in required_keys)
+    return all(key in setup for key in REQUIRED_TRADE_SETUP_FIELDS)
 
 class TestTradingAnalysis:
     
@@ -125,7 +128,7 @@ class TestTradingAnalysis:
         )
         
         data = response.json()
-        assert data['signal_type'] in ['BULLISH', 'BEARISH', 'NEUTRAL']
+        assert data['signal_type'] in VALID_SIGNAL_TYPES
 
     @pytest.mark.parametrize("bad_payload,expected_status", [
         ({}, 422),  # Empty payload - Validation error
