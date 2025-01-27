@@ -50,7 +50,7 @@ Learn how to build a chatbot that remembers conversation history using Pixeltabl
     @pxt.query
     def get_recent_memory():
         return (
-            memory.order_by(memory.timestamp)
+            memory.order_by(memory.timestamp, asc=False)
             .select(role=memory.role, content=memory.content)
             .limit(10)
         )
@@ -144,43 +144,3 @@ Learn how to build a chatbot that remembers conversation history using Pixeltabl
     ```
   </Step>
 </Steps>
-
-## What Makes This Different?
-
-<Steps>
-  <Step title="Persistent Memory" icon="database">
-    Every conversation is automatically stored and versioned:
-    ```python
-    # Query past conversations
-    memory = pxt.get_table("chatbot.memory")
-    history = memory.collect().to_pandas()
-    ```
-  </Step>
-
-  <Step title="Type-Safe Pipeline" icon="diagram-project">
-    Catch errors before runtime with schema validation:
-    ```python
-    # Your pipeline is validated when defined
-    chat_session.add_computed_column(
-        prompt=create_messages(chat_session.memory_context, chat_session.user_message)
-    )
-    ```
-  </Step>  
-  
-  <Step title="Production Ready" icon="rocket">
-    Scale from prototype to production without rewriting:
-    ```python
-    # Process multiple messages at once
-    chat_session.insert([
-        {"user_message": msg, "timestamp": datetime.now()} 
-        for msg in messages
-    ])
-    ```
-  </Step>
-</Steps>
-
-## Next Steps
-
-- [Build a Multimodal Chat](/docs/documentation/flows/chat/multimodal)
-- [Add Embedding Search](/docs/documentation/flows/search/semantic)
-- [Explore More Examples](/docs/examples)

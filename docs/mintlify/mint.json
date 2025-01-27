@@ -77,32 +77,21 @@
         {          
           "group": "Examples",
           "pages": [
-            "docs/examples/overview",
-            {
-              "group": "Agents",
-              "pages": [
-                "docs/examples/agents/overview",
-                "docs/examples/agents/tool-calling"
-              ]
-            },            
+            "docs/examples/overview",          
             {
               "group": "Chat",
               "pages": [
                 "docs/examples/chat/multimodal",
                 "docs/examples/chat/memory",
-                "docs/examples/chat/knowledge",
                 "docs/examples/chat/tools"
               ]
             },
             {
               "group": "Vision",
               "pages": [
-                "docs/examples/vision/overview",
-                "docs/examples/vision/multimodal",
-                "docs/examples/vision/memory",
-                "docs/examples/vision/knowledge",
-                "docs/examples/vision/tools"
-              ]
+                "docs/examples/vision/label-studio",
+                "docs/examples/vision/voxel51",
+                "docs/examples/vision/yolox"              ]
             },            
             {
               "group": "Search",
@@ -122,52 +111,6 @@
                 "docs/examples/evaluation/llm-as-a-judge"
               ]
             }           
-          ]
-        },
-        {
-          "group": "Integrations",
-          "pages": [
-            "docs/integrations/overview",
-            {
-              "group": "Audio",
-              "pages": [
-                "docs/integrations/audio/whisper"
-              ]
-            },
-            {
-              "group": "Chat",
-              "pages": [
-                "docs/integrations/chat/anthropic",
-                "docs/integrations/chat/fireworks",
-                "docs/integrations/chat/gemini",
-                "docs/integrations/chat/llamacpp",
-                "docs/integrations/chat/mistral",
-                "docs/integrations/chat/ollama",
-                "docs/integrations/chat/openai",
-                "docs/integrations/chat/replicate",
-                "docs/integrations/chat/together"
-              ]
-            },
-            {
-              "group": "Computer Vision",
-              "pages": [
-                "docs/integrations/computer-vision/label-studio",
-                "docs/integrations/computer-vision/voxel51",
-                "docs/integrations/computer-vision/yolox"
-              ]
-            },
-            {
-              "group": "Embeddings",
-              "pages": [
-                "docs/integrations/embedding/openai"
-              ]
-            },
-            {
-              "group": "Pandas",
-              "pages": [
-                "docs/integrations/pandas/overview"
-              ]
-            }          
           ]
         },
     {
