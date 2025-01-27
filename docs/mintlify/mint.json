@@ -50,6 +50,10 @@
   },
   "tabs": [
     {
+      "name": "Changelog",
+      "url": "/docs/changelog"
+    },    
+    {
       "name": "API Reference",
       "url": "https://pixeltable.github.io/pixeltable/"
     }
@@ -118,6 +122,12 @@
       "pages": [
         "docs/support/getting-help",
         "docs/support/faq"
+      ]
+    },
+    {
+      "group": "Changelog",
+      "pages": [
+        "docs/changelog/product-updates"
       ]
     }
   ]
