@@ -66,7 +66,7 @@ class TestHuggingface:
 
         # execution still works after reload
         _ = reload_tester.run_query(t.select())
-        _ = reload_tester.run_reload_test()
+        reload_tester.run_reload_test()
 
         t = pxt.get_table('test_tbl')
         status = t.insert({'input': s, 'input_list': sents} for s in sents)

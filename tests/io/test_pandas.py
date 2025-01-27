@@ -110,8 +110,8 @@ class TestPandas:
         )
         assert t4.count() == 4
         assert t4._schema == {'name': pxt.StringType(nullable=True), 'image': pxt.ImageType(nullable=True)}
-        result_set = t4.select(t4.image.width).collect()
-        assert result_set['width'] == [1024, 962, 1024, None]
+        result_set = t4.order_by(t4.name).select(t4.image.width).collect()
+        assert result_set['width'] == [1024, None, 1024, 962]
 
     def test_pandas_excel(self, reset_db) -> None:
         skip_test_if_not_installed('openpyxl')

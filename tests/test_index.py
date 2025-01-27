@@ -2,7 +2,7 @@ import random
 import string
 import sys
 from datetime import datetime, timedelta
-from typing import Union, _GenericAlias
+from typing import Union, _GenericAlias  # type: ignore[attr-defined]
 
 import numpy as np
 import PIL.Image
@@ -18,11 +18,13 @@ from .utils import (ReloadTester, assert_img_eq, assert_resultset_eq, clip_embed
 class TestIndex:
 
     # returns string
+    @staticmethod
     @pxt.udf
     def bad_embed(x: str) -> str:
         return x
 
     # returns array w/o size
+    @staticmethod
     @pxt.udf
     def bad_embed2(x: str) -> pxt.Array[(None,), pxt.Float]:
         return np.zeros(10)
@@ -50,7 +52,7 @@ class TestIndex:
         # on reload, because the index is no longer available
         t.drop_embedding_index(idx_name='img_idx1')
         with pytest.raises(pxt.Error) as exc_info:
-            _ = reload_tester.run_reload_test(clear=False)
+            reload_tester.run_reload_test(clear=False)
         assert "index 'img_idx1' not found" in str(exc_info.value).lower()
 
         # After the query is serialized, dropping and recreating the index should work
@@ -72,7 +74,7 @@ class TestIndex:
                 embed_args = {'string_embed': clip_embed, 'image_embed': clip_embed}
             else:
                 embed_args = {'embedding': clip_embed}
-            t.add_embedding_index('img', idx_name=iname, metric=metric, **embed_args)
+            t.add_embedding_index('img', idx_name=iname, metric=metric, **embed_args)  # type: ignore[arg-type]
 
             df = (
                 t.select(img=t.img, sim=t.img.similarity(sample_img, idx=iname))
@@ -237,13 +239,13 @@ class TestIndex:
         t.add_embedding_index('img', embedding=clip_embed, if_exists='error')
         assert len(t._list_index_info_for_test()) == initial_indexes + 2
 
-        t.add_embedding_index('img', embedding=clip_embed, if_exists='invalid')
+        t.add_embedding_index('img', embedding=clip_embed, if_exists='invalid')  # type: ignore[arg-type]
         assert len(t._list_index_info_for_test()) == initial_indexes + 3
 
         # when index name is provided, if_exists parameter is applied.
         # invalid value is rejected.
         with pytest.raises(pxt.Error) as exc_info:
-            t.add_embedding_index('img', idx_name='clip_idx', embedding=clip_embed, if_exists='invalid')
+            t.add_embedding_index('img', idx_name='clip_idx', embedding=clip_embed, if_exists='invalid')  # type: ignore[arg-type]
         assert "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']" in str(exc_info.value).lower()
         assert len(t._list_index_info_for_test()) == initial_indexes + 3
 
@@ -267,7 +269,7 @@ class TestIndex:
         assert 'idx0' == indexes[0]['_name']
         for _ie in ['ignore', 'replace', 'replace_force']:
             with pytest.raises(pxt.Error, match=r'not an embedding index'):
-                t.add_embedding_index('img', idx_name='idx0', embedding=clip_embed, if_exists=_ie)
+                t.add_embedding_index('img', idx_name='idx0', embedding=clip_embed, if_exists=_ie)  # type: ignore[arg-type]
         indexes = t._list_index_info_for_test()
         assert len(indexes) == initial_indexes + 3
         assert 'idx0' == indexes[0]['_name']
@@ -286,7 +288,7 @@ class TestIndex:
         _ = reload_tester.run_query(t.select(t.img.localpath).order_by(t.img.similarity(sample_img, idx='clip_idx'), asc=False).limit(3))
 
         # sanity check persistence
-        _ = reload_tester.run_reload_test()
+        reload_tester.run_reload_test()
 
     def test_embedding_basic(self, img_tbl: pxt.Table, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
         skip_test_if_not_installed('transformers')
@@ -350,7 +352,7 @@ class TestIndex:
         # make sure we can still do DML after reloading the metadata
         df = img_t.select()
         _ = reload_tester.run_query(df)
-        _ = reload_tester.run_reload_test(clear=True)
+        reload_tester.run_reload_test(clear=True)
         img_t = pxt.get_table(tbl_name)
         status = img_t.insert(rows)
         assert status.num_excs == 0
@@ -454,7 +456,7 @@ class TestIndex:
         assert 'no index found for column' in str(exc_info.value).lower()
         _ = reload_tester.run_query(v.select())
 
-        _ = reload_tester.run_reload_test()
+        reload_tester.run_reload_test()
 
     def test_embedding_errors(self, small_img_tbl: pxt.Table, test_tbl: pxt.Table) -> None:
         skip_test_if_not_installed('transformers')
@@ -523,7 +525,7 @@ class TestIndex:
 
         img_t.drop_embedding_index(idx_name='doesnotexist', if_not_exists='ignore')
         with pytest.raises(pxt.Error) as exc_info:
-            img_t.drop_embedding_index(idx_name='doesnotexist', if_not_exists='invalid')
+            img_t.drop_embedding_index(idx_name='doesnotexist', if_not_exists='invalid')  # type: ignore[arg-type]
         assert "if_not_exists must be one of: ['error', 'ignore']" in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error, match=r"Column 'doesnotexist' unknown"):
@@ -531,7 +533,7 @@ class TestIndex:
         # when dropping an index via a column, if_not_exists does not
         # apply to non-existent column; it will still raise error.
         with pytest.raises(pxt.Error, match=r"Column 'doesnotexist' unknown"):
-            img_t.drop_embedding_index(column='doesnotexist', if_not_exists='invalid')
+            img_t.drop_embedding_index(column='doesnotexist', if_not_exists='invalid')  # type: ignore[arg-type]
         with pytest.raises(AttributeError) as exc_info:
             img_t.drop_embedding_index(column=img_t.doesnotexist)
         assert 'column doesnotexist unknown' in str(exc_info.value).lower()

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import copy
 from typing import Any, Iterable, Optional
 
 import numpy as np
@@ -26,8 +25,8 @@ class InlineArray(Expr):
         for el in elements:
             if isinstance(el, Expr):
                 exprs.append(el)
-            elif isinstance(el, list) or isinstance(el, tuple):
-                exprs.append(InlineArray(el))
+            elif isinstance(el, (list, tuple)):
+                exprs.append(Expr.from_array(el))
             else:
                 exprs.append(Literal(el))
 
@@ -83,6 +82,9 @@ class InlineArray(Expr):
             # loaded and their types are known.
             return InlineList(components)  # type: ignore[return-value]
 
+    def _as_constant(self) -> Optional[np.ndarray]:
+        assert isinstance(self.col_type, ts.ArrayType)
+        return np.array([c.as_constant() for c in self.components], dtype=self.col_type.numpy_dtype())
 
 class InlineList(Expr):
     """
@@ -90,16 +92,7 @@ class InlineList(Expr):
     """
 
     def __init__(self, elements: Iterable):
-        exprs = []
-        for el in elements:
-            if isinstance(el, Expr):
-                exprs.append(el)
-            elif isinstance(el, list) or isinstance(el, tuple):
-                exprs.append(InlineList(el))
-            elif isinstance(el, dict):
-                exprs.append(InlineDict(el))
-            else:
-                exprs.append(Literal(el))
+        exprs = [Expr.from_object(el) for el in elements]
 
         json_schema = {
             'type': 'array',
@@ -131,6 +124,8 @@ class InlineList(Expr):
     def _from_dict(cls, _: dict, components: list[Expr]) -> InlineList:
         return cls(components)
 
+    def _as_constant(self) -> Optional[list[Any]]:
+       return list(c.as_constant() for c in self.components)
 
 class InlineDict(Expr):
     """
@@ -146,14 +141,7 @@ class InlineDict(Expr):
             if not isinstance(key, str):
                 raise excs.Error(f'Dictionary requires string keys; {key} has type {type(key)}')
             self.keys.append(key)
-            if isinstance(val, Expr):
-                exprs.append(val)
-            elif isinstance(val, dict):
-                exprs.append(InlineDict(val))
-            elif isinstance(val, list) or isinstance(val, tuple):
-                exprs.append(InlineList(val))
-            else:
-                exprs.append(Literal(val))
+            exprs.append(Expr.from_object(val))
 
         json_schema: Optional[dict[str, Any]]
         try:
@@ -218,3 +206,6 @@ class InlineDict(Expr):
         assert len(d['keys']) == len(components)
         arg = dict(zip(d['keys'], components))
         return InlineDict(arg)
+
+    def _as_constant(self) -> Optional[dict[str, Any]]:
+        return dict(zip(self.keys, (c.as_constant() for c in self.components)))

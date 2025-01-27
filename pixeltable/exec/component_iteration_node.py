@@ -1,5 +1,5 @@
 import inspect
-from typing import Iterator, Optional
+from typing import Iterator, Optional, AsyncIterator
 
 import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
@@ -37,11 +37,10 @@ class ComponentIterationNode(ExecNode):
             e.col.name: e.slot_idx for e in self.row_builder.unique_exprs
             if isinstance(e, exprs.ColumnRef) and e.col.name in self.iterator_output_fields
         }
-        self.__output: Optional[Iterator[DataRowBatch]] = None
 
-    def __output_batches(self) -> Iterator[DataRowBatch]:
+    async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
         output_batch = DataRowBatch(self.view, self.row_builder)
-        for input_batch in self.input:
+        async for input_batch in self.input:
             for input_row in input_batch:
                 self.row_builder.eval(input_row, self.iterator_args_ctx)
                 iterator_args = input_row[self.iterator_args.slot_idx]
@@ -93,8 +92,3 @@ class ComponentIterationNode(ExecNode):
             raise excs.Error(
                 f'Invalid output of {self.view.iterator_cls.__name__}: '
                 f'missing fields {", ".join(missing_fields)}')
-
-    def __next__(self) -> DataRowBatch:
-        if self.__output is None:
-            self.__output = self.__output_batches()
-        return next(self.__output)

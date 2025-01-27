@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from abc import abstractmethod
 import datetime
 import glob
 import http.server
@@ -15,9 +16,9 @@ import sys
 import threading
 import uuid
 import warnings
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Optional, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Optional, TypeVar, Type
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pixeltable_pgserver
@@ -31,6 +32,11 @@ from pixeltable.utils.http_server import make_server
 
 if TYPE_CHECKING:
     import spacy
+
+
+_logger = logging.getLogger('pixeltable')
+
+T = TypeVar('T')
 
 
 class Env:
@@ -69,6 +75,8 @@ class Env:
     _config: Optional[Config]
     _stdout_handler: logging.StreamHandler
     _initialized: bool
+
+    _resource_pool_info: dict[str, Any]
 
     @classmethod
     def get(cls) -> Env:
@@ -120,6 +128,8 @@ class Env:
         self._stdout_handler = logging.StreamHandler(stream=sys.stdout)
         self._stdout_handler.setFormatter(logging.Formatter(self._log_fmt_str))
         self._initialized = False
+
+        self._resource_pool_info = {}
 
     @property
     def config(self) -> Config:
@@ -609,6 +619,16 @@ class Env:
     def create_tmp_path(self, extension: str = '') -> Path:
         return self._tmp_dir / f'{uuid.uuid4()}{extension}'
 
+
+    #def get_resource_pool_info(self, pool_id: str, pool_info_cls: Optional[Type[T]]) -> T:
+    def get_resource_pool_info(self, pool_id: str, make_pool_info: Optional[Callable[[], T]] = None) -> T:
+        """Returns the info object for the given id, creating it if necessary."""
+        info = self._resource_pool_info.get(pool_id)
+        if info is None and make_pool_info is not None:
+            info = make_pool_info()
+            self._resource_pool_info[pool_id] = info
+        return info
+
     @property
     def home(self) -> Path:
         assert self._home is not None
@@ -685,8 +705,6 @@ class Config:
     configuration values, which can be set in the config file or as environment variables.
     """
     __config: dict[str, Any]
-
-    T = TypeVar('T')
 
     @classmethod
     def from_file(cls, path: Path) -> Config:
@@ -767,3 +785,73 @@ class PackageInfo:
     is_installed: bool
     library_name: str  # pypi library name (may be different from package name)
     version: Optional[list[int]] = None  # installed version, as a list of components (such as [3,0,2] for "3.0.2")
+
+
+TIME_FORMAT = '%H:%M.%S %f'
+
+
+@dataclass
+class RateLimitsInfo:
+    """
+    Abstract base class for resource pools made up of rate limits for different resources.
+
+    Rate limits and currently remaining resources are periodically reported via record().
+
+    Subclasses provide operational customization via:
+    - get_retry_delay()
+    - get_request_resources(self, ...) -> dict[str, int]
+    with parameters that are a subset of those of the udf that creates the subclass's instance
+    """
+
+    # get_request_resources:
+    # - Returns estimated resources needed for a specific request (ie, a single udf call) as a dict (key: resource name)
+    # - parameters are a subset of those of the udf
+    # - this is not a class method because the signature depends on the instantiating udf
+    get_request_resources: Callable[..., dict[str, int]]
+
+    resource_limits: dict[str, RateLimitInfo] = field(default_factory=dict)
+
+    def is_initialized(self) -> bool:
+        return len(self.resource_limits) > 0
+
+    def reset(self) -> None:
+        self.resource_limits.clear()
+
+    def record(self, **kwargs) -> None:
+        now = datetime.datetime.now(tz=datetime.timezone.utc)
+        if len(self.resource_limits) == 0:
+            self.resource_limits = {k: RateLimitInfo(k, now, *v) for k, v in kwargs.items() if v is not None}
+            # TODO: remove
+            for info in self.resource_limits.values():
+                _logger.debug(f'Init {info.resource} rate limit: rem={info.remaining} reset={info.reset_at.strftime(TIME_FORMAT)} delta={(info.reset_at - now).total_seconds()}')
+        else:
+            for k, v in kwargs.items():
+                if v is not None:
+                    self.resource_limits[k].update(now, *v)
+
+    @abstractmethod
+    def get_retry_delay(self, exc: Exception) -> Optional[float]:
+        """Returns number of seconds to wait before retry, or None if not retryable"""
+        pass
+
+
+@dataclass
+class RateLimitInfo:
+    """Container for rate limit-related information for a single resource."""
+    resource: str
+    recorded_at: datetime.datetime
+    limit: int
+    remaining: int
+    reset_at: datetime.datetime
+
+    def update(self, recorded_at: datetime.datetime, limit: int, remaining: int, reset_at: datetime.datetime) -> None:
+        # we always update everything, even though responses may come back out-of-order: we can't use reset_at to
+        # determine order, because it doesn't increase monotonically (the reeset duration shortens as output_tokens
+        # are freed up - going from max to actual)
+        self.recorded_at = recorded_at
+        self.limit = limit
+        self.remaining = remaining
+        reset_delta = reset_at - self.reset_at
+        self.reset_at = reset_at
+        # TODO: remove
+        _logger.debug(f'Update {self.resource} rate limit: rem={self.remaining} reset={self.reset_at.strftime(TIME_FORMAT)} reset_delta={reset_delta.total_seconds()} recorded_delta={(self.reset_at - recorded_at).total_seconds()}')

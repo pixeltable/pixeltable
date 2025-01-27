@@ -24,8 +24,8 @@ class TestImage:
             for i in range(7):
                 result = results[j * 7 + i]
                 assert result['tile_coord'] == [i, j]
-                box = [i * 90, j * 90, 100 + i * 90, 100 + j * 90]
-                assert result['tile_box'] == box
+                box = (i * 90, j * 90, 100 + i * 90, 100 + j * 90)
+                assert result['tile_box'] == list(box)
                 assert result['tile'].size == (100, 100)
                 tile = image.crop(box)
                 assert list(result['tile'].getdata()) == list(tile.getdata())

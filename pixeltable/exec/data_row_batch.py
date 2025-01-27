@@ -21,7 +21,14 @@ class DataRowBatch:
     array_slot_idxs: list[int]
     rows: list[exprs.DataRow]
 
-    def __init__(self, tbl: Optional[catalog.TableVersion], row_builder: exprs.RowBuilder, len: int = 0):
+    def __init__(
+        self, tbl: Optional[catalog.TableVersion], row_builder: exprs.RowBuilder, num_rows: Optional[int] = None,
+        rows: Optional[list[exprs.DataRow]] = None
+    ):
+        """
+        Requires either num_rows or rows to be specified, but not both.
+        """
+        assert num_rows is None or rows is None
         self.tbl = tbl
         self.row_builder = row_builder
         self.img_slot_idxs = [e.slot_idx for e in row_builder.unique_exprs if e.col_type.is_image_type()]
@@ -31,10 +38,15 @@ class DataRowBatch:
             if e.col_type.is_media_type() and not e.col_type.is_image_type()
         ]
         self.array_slot_idxs = [e.slot_idx for e in row_builder.unique_exprs if e.col_type.is_array_type()]
-        self.rows = [
-            exprs.DataRow(row_builder.num_materialized, self.img_slot_idxs, self.media_slot_idxs, self.array_slot_idxs)
-            for _ in range(len)
-        ]
+        if rows is not None:
+            self.rows = rows
+        else:
+            if num_rows is None:
+                num_rows = 0
+            self.rows = [
+                exprs.DataRow(row_builder.num_materialized, self.img_slot_idxs, self.media_slot_idxs, self.array_slot_idxs)
+                for _ in range(num_rows)
+            ]
 
     def add_row(self, row: Optional[exprs.DataRow] = None) -> exprs.DataRow:
         if row is None:

@@ -1,5 +1,6 @@
 import datetime
 import logging
+from typing import Literal
 
 import PIL
 import pytest
@@ -20,7 +21,7 @@ class TestView:
     - test consecutive component views
 
     """
-    def create_tbl(self) -> catalog.InsertableTable:
+    def create_tbl(self) -> pxt.Table:
         """Create table with computed columns"""
         t = create_test_tbl()
         t.add_computed_column(d1=t.c3 - 1)
@@ -147,7 +148,7 @@ class TestView:
 
         # invalid if_exists value is rejected
         with pytest.raises(excs.Error) as exc_info:
-            _ = pxt.create_view('test_view', t, if_exists='invalid')
+            _ = pxt.create_view('test_view', t, if_exists='invalid')  # type: ignore[arg-type]
         assert "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']" in str(exc_info.value)
 
         # scenario 1: a view exists at the path already
@@ -193,7 +194,7 @@ class TestView:
             pxt.create_view('not_view', t)
         for _ie in ['ignore', 'replace', 'replace_force']:
             with pytest.raises(excs.Error) as exc_info:
-                _ = pxt.create_view('not_view', t, if_exists=_ie)
+                _ = pxt.create_view('not_view', t, if_exists=_ie)  # type: ignore[arg-type]
             err_msg = str(exc_info.value).lower()
             assert 'already exists' in err_msg and 'is not a view' in err_msg
             assert 'not_view' in pxt.list_tables(), f"with if_exists={_ie}"
@@ -231,7 +232,7 @@ class TestView:
         reload_tester.run_reload_test()
 
     def _test_add_column_if_exists(
-        self, v: catalog.View, t: catalog.Table, col_name: str,
+        self, v: catalog.Table, t: catalog.Table, col_name: str,
         orig_val: str, is_base_column: bool
     ) -> None:
         """ Test if_exists parameter of the add column methods for views """
@@ -248,7 +249,7 @@ class TestView:
         with pytest.raises(excs.Error, match=re.escape(expected_err)):
             v.add_computed_column(**{col_name: t.c2 + t.c3}, if_exists='invalid')
         with pytest.raises(excs.Error, match=re.escape(expected_err)):
-            v.add_columns({col_name: pxt.Int, non_existing_col1: pxt.String}, if_exists='invalid')
+            v.add_columns({col_name: pxt.Int, non_existing_col1: pxt.String}, if_exists='invalid')  # type: ignore[arg-type]
         assert col_name in v.columns
         assert v.select().collect()[0][col_name] == orig_val
 
