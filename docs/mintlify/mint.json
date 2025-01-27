@@ -109,8 +109,7 @@
             {
               "group": "Evaluation",
               "pages": [
-                "docs/examples/evaluation/overview",
-                "docs/examples/evaluation/llm-as-a-judge"
+                "docs/examples/evaluations/llm-as-a-judge"
               ]
             }           
           ]
