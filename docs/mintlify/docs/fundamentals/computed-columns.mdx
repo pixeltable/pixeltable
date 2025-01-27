@@ -17,11 +17,12 @@ Computed columns are one of Pixeltable's most powerful features, combining autom
     ```
   </Step>
 
-  <Step title="Setup Environment">
+  <Step title="Create a directory">
     ```python
     import pixeltable as pxt
     
-    # Create a clean environment
+    # Defining a directory is optional
+    # It allows you to setup a namespace to organize your data
     pxt.drop_dir('fundamentals', force=True)
     pxt.create_dir('fundamentals')
     ```

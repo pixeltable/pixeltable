@@ -29,7 +29,7 @@ The setup phase defines your schema and creates embedding indexes.
     import pixeltable as pxt
     from pixeltable.functions.huggingface import sentence_transformer
     
-    # Initialize environment
+    # Create a directory to organize data
     pxt.drop_dir('knowledge_base', force=True)
     pxt.create_dir('knowledge_base')
     
