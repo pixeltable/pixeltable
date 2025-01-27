@@ -100,11 +100,9 @@
             {
               "group": "Search",
               "pages": [
-                "docs/examples/search/overview",
-                "docs/examples/search/image",
-                "docs/examples/search/video",
                 "docs/examples/search/audio",
-                "docs/examples/search/pdf",
+                "docs/examples/search/images",
+                "docs/examples/search/PDF",
                 "docs/examples/search/website"
               ]
             },

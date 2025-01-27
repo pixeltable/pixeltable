@@ -1,5 +1,5 @@
 ---
-title: "Semantic Image Search"
+title: "Image"
 description: "Build an image search system using GPT-4 Vision and vector embeddings"
 icon: "image"
 ---
@@ -48,13 +48,13 @@ Pixeltable image search works in two phases:
         model_id="intfloat/e5-large-v2"
     )
 
-    # Add semantic search capability
+    # Add search capability
     img_t.add_embedding_index(
         column="image_description", 
         string_embed=embed_model
     )
 
-    # Define semantic search query
+    # Define search query
     @pxt.query
     def search_images(query_text: str, limit: int = 10):
         sim = img_t.image_description.similarity(query_text)
@@ -122,7 +122,7 @@ Pixeltable image search works in two phases:
 
 ## What Makes This Different?
 
-<CardGroup cols={3}>
+<CardGroup cols={1}>
   <Card title="AI Vision" icon="eye">
     GPT-4 Vision generates rich image descriptions automatically:
     ```python
@@ -165,7 +165,7 @@ Pixeltable image search works in two phases:
   </Accordion>
 
   <Accordion title="E5 Embeddings" icon="network-wired">
-    High-quality semantic search:
+    High-quality search:
     - State-of-the-art text embeddings
     - Fast similarity search
     - Natural language queries
