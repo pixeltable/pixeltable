@@ -24,7 +24,10 @@ class ConsoleOutputHandler(logging.StreamHandler):
         super().__init__(stream)
 
     def emit(self, record):
-        self.stream.write(record.msg)
+        if record.msg.endswith('\n'):
+            self.stream.write(record.msg)
+        else:
+            self.stream.write(record.msg + '\n')
 
 class ConsoleMessageFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
