@@ -532,7 +532,7 @@ class TableVersion:
             f'Added {status.num_rows} column value{"" if status.num_rows == 1 else "s"} '
             f'with {status.num_excs} error{"" if status.num_excs == 1 else "s"}.'
         )
-        print(msg)
+        Env.get().console_logger.info(msg)
         _logger.info(f'Columns {[col.name for col in cols]}: {msg}')
         return status
 

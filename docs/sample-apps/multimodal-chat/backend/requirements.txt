@@ -4,7 +4,7 @@ wheel
 pip
 
 # Core dependencies
-fastapi
+fastapi[standard]
 uvicorn
 python-multipart
 pixeltable
