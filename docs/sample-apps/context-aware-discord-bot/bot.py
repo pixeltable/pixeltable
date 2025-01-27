@@ -89,7 +89,7 @@ class PixelTableBot:
         """Set up computed columns for the chat table"""
         try:
             # Add context column using sentence-level view
-            @self.pxt.query
+            @pxt.query
             def get_context(question_text: str):
                 sim = self.messages_view.text.similarity(question_text)
                 return (
