@@ -1,14 +1,25 @@
 ---
 title: 'Installation'
+description: 'Complete guide to installing and setting up Pixeltable'
 ---
 
+Choose your preferred installation method below. We recommend using a virtual environment to avoid package conflicts.
+
+## System Requirements
+
+Before installing, ensure your system meets these requirements:
+
+- Python 3.9 or higher
+- Linux, MacOs, or Windows
+
 <Tabs>
-  <Tab title="Simple venv">
+  <Tab title="Python venv">
     <Steps>
       <Step title="Create virtual environment">
         ```bash
         python -m venv venv
         ```
+        This creates an isolated Python environment for your Pixeltable installation.
       </Step>
       <Step title="Activate environment">
         <CodeGroup>
@@ -27,7 +38,7 @@ title: 'Installation'
       </Step>
     </Steps>
   </Tab>
-  <Tab title="Miniconda">
+  <Tab title="Conda/Miniconda">
     <Steps>
       <Step title="Install Miniconda">
         Download and install from [Miniconda Installation Guide](https://docs.anaconda.com/free/miniconda/miniconda-install/)
@@ -73,9 +84,59 @@ title: 'Installation'
 </Steps>
 
 <Warning>
-  Wait about a minute for Pixeltable to load. You should see a success message once connected to the database.
+  Wait a minute for Pixeltable to load. You should see a message once connected to the database.
 </Warning>
 
 <Tip>
   You can also try Pixeltable directly in Google Colab using our [Pixeltable Basics Tutorial](https://docs.pixeltable.com/docs/pixeltable-basics).
 </Tip>
+
+---
+
+## Troubleshooting
+
+Common installation issues and solutions:
+
+<AccordionGroup>
+  <Accordion title="Package conflicts">
+    If you encounter package conflicts:
+    ```bash
+    pip install --upgrade pip
+    pip cache purge
+    pip install -U pixeltable --no-cache-dir
+    ```
+  </Accordion>
+  
+  <Accordion title="Database connection issues">
+    If Pixeltable fails to initialize:
+    ```python
+    import pixeltable as pxt
+    pxt.init()
+    ```
+  </Accordion>
+  
+  <Accordion title="GPU support">
+    For CUDA/GPU support:
+    1. Install CUDA Toolkit
+    2. Install cuDNN
+    3. Install PyTorch with CUDA support
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quick Start Tutorial" icon="play" href="/docs/tutorials/quickstart">
+    Build your first AI application with Pixeltable
+  </Card>
+  <Card title="Example Gallery" icon="images" href="/docs/examples/gallery">
+    Explore example applications and use cases
+  </Card>
+</CardGroup>
+
+## Getting Help
+
+- 📚 Check our [Documentation](https://docs.pixeltable.com)
+- 💬 Join our [Discord Community](https://discord.gg/pixeltable)
+- 🐛 Report issues on [GitHub](https://github.com/pixeltable/pixeltable/issues)
+- 📧 Contact [support@pixeltable.com](mailto:support@pixeltable.com)
