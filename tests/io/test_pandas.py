@@ -157,7 +157,7 @@ class TestPandas:
 
         with pytest.raises(excs.Error) as exc_info:
             _ = import_csv('edge_cases', 'tests/data/datasets/edge-cases.csv', primary_key=['!!int', 'Non-Column'])
-        assert 'Primary key column `Non-Column` does not exist' in str(exc_info.value)
+        assert 'Primary key column(s) are not found in the source:' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
             _ = import_csv(

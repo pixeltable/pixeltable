@@ -10,6 +10,156 @@ if TYPE_CHECKING:
     import fiftyone as fo  # type: ignore[import-untyped]
 
 
+def _normalize_pxt_col_name(name: str) -> str:
+    """
+    Normalizes an arbitrary DataFrame column name into a valid Pixeltable identifier by:
+    - replacing any non-ascii or non-alphanumeric characters with an underscore _
+    - prefixing the result with the letter 'c' if it starts with an underscore or a number
+    """
+    id = ''.join(ch if ch.isascii() and ch.isalnum() else '_' for ch in name)
+    if id[0].isnumeric():
+        id = f'c_{id}'
+    elif id[0] == '_':
+        id = f'c{id}'
+    assert pxt.catalog.is_valid_identifier(id), id
+    return id
+
+
+def _normalize_import_parameters(
+    schema_overrides: Optional[dict[str, Any]] = None, primary_key: Optional[Union[str, list[str]]] = None
+) -> tuple[dict[str, Any], list[str]]:
+    if schema_overrides is None:
+        schema_overrides = {}
+    if primary_key is None:
+        primary_key = []
+    elif isinstance(primary_key, str):
+        primary_key = [primary_key]
+    return schema_overrides, primary_key
+
+
+def _normalize_schema_names(
+    in_schema: dict[str, Any],
+    primary_key: list[str],
+    schema_overrides: dict[str, Any],
+    mapping_must_be_identity: bool = False,
+) -> tuple[dict[str, pxt.ColumnType], list[str], Optional[dict[str, str]]]:
+    """
+    Convert all names in the input schema from source names to valid Pixeltable identifiers
+    - Ensure that all names are unique.
+    - Report an error if any types are missing
+    - If "mapping_must_be_identity, report an error if any col_mapping is needed
+    - Report an error if any primary key columns are missing
+    Returns
+    - A new schema with normalized column names
+    - The primary key columns, mapped to the normalized names
+    - A mapping from the original names to the normalized names.
+    """
+
+    # Report any untyped columns as an error
+    untyped_cols = [in_name for in_name, column_type in in_schema.items() if column_type is None]
+    if len(untyped_cols) > 0:
+        raise excs.Error(f'Could not infer pixeltable type for column(s): {", ".join(untyped_cols)}')
+
+    # Report any columns in `schema_overrides` that are not in the source
+    extraneous_overrides = schema_overrides.keys() - in_schema.keys()
+    if len(extraneous_overrides) > 0:
+        raise excs.Error(
+            f'Some column(s) specified in `schema_overrides` are not present in the source: {", ".join(extraneous_overrides)}'
+        )
+
+    schema: dict[str, pxt.ColumnType] = {}
+    col_mapping: dict[str, str] = {}  # Maps Pandas column names to Pixeltable column names
+    for in_name, pxt_type in in_schema.items():
+        pxt_name = _normalize_pxt_col_name(in_name)
+        # Ensure that column names are unique by appending a distinguishing suffix
+        # to any collisions
+        if pxt_name in schema:
+            n = 2
+            while f'{pxt_name}_{n}' in schema:
+                n += 1
+            pxt_name = f'{pxt_name}_{n}'
+        schema[pxt_name] = pxt_type
+        col_mapping[in_name] = pxt_name
+
+    # Determine if the col_mapping is the identity mapping
+    non_identity_keys = [k for k, v in col_mapping.items() if k != v]
+    if len(non_identity_keys) > 0:
+        if mapping_must_be_identity:
+            raise excs.Error(
+                f'Column names must be valid pixeltable identifiers. Invalid names: {", ".join(non_identity_keys)}'
+            )
+    else:
+        col_mapping = None
+
+    # Report any primary key columns that are not in the source as an error
+    missing_pk = [pk for pk in primary_key if pk not in in_schema]
+    if len(missing_pk) > 0:
+        raise excs.Error(f'Primary key column(s) are not found in the source: {", ".join(missing_pk)}')
+
+    pxt_pk = [col_mapping[pk] for pk in primary_key] if col_mapping is not None else primary_key
+
+    return schema, pxt_pk, col_mapping
+
+
+def _infer_schema_from_rows(
+    rows: list[dict[str, Any]], schema_overrides: dict[str, Any], primary_key: list[str]
+) -> dict[str, pxt.ColumnType]:
+    schema: dict[str, pxt.ColumnType] = {}
+    cols_with_nones: set[str] = set()
+
+    for n, row in enumerate(rows):
+        for col_name, value in row.items():
+            if col_name in schema_overrides:
+                # We do the insertion here; this will ensure that the column order matches the order
+                # in which the column names are encountered in the input data, even if `schema_overrides`
+                # is specified.
+                if col_name not in schema:
+                    schema[col_name] = schema_overrides[col_name]
+            elif value is not None:
+                # If `key` is not in `schema_overrides`, then we infer its type from the data.
+                # The column type will always be nullable by default.
+                col_type = pxt.ColumnType.infer_literal_type(value, nullable=col_name not in primary_key)
+                if col_type is None:
+                    raise excs.Error(
+                        f'Could not infer type for column `{col_name}`; the value in row {n} has an unsupported type: {type(value)}'
+                    )
+                if col_name not in schema:
+                    schema[col_name] = col_type
+                else:
+                    supertype = schema[col_name].supertype(col_type)
+                    if supertype is None:
+                        raise excs.Error(
+                            f'Could not infer type of column `{col_name}`; the value in row {n} does not match preceding type {schema[col_name]}: {value!r}\n'
+                            'Consider specifying the type explicitly in `schema_overrides`.'
+                        )
+                    schema[col_name] = supertype
+            else:
+                cols_with_nones.add(col_name)
+
+    entirely_none_cols = cols_with_nones - schema.keys()
+    if len(entirely_none_cols) > 0:
+        # A column can only end up in `entirely_none_cols` if it was not in `schema_overrides` and
+        # was not encountered in any row with a non-None value.
+        raise excs.Error(
+            f'The following columns have no non-null values: {", ".join(entirely_none_cols)}\n'
+            'Consider specifying the type(s) explicitly in `schema_overrides`.'
+        )
+    return schema
+
+
+def _find_or_create_table(
+    tbl_path: str,
+    schema: dict[str, pxt.ColumnType],
+    *,
+    primary_key: Optional[Union[str, list[str]]],
+    num_retained_versions: int,
+    comment: str,
+) -> Table:
+    return pxt.create_table(
+        tbl_path, schema, primary_key=primary_key, num_retained_versions=num_retained_versions, comment=comment
+    )
+
+
 def create_label_studio_project(
     t: Table,
     label_config: str,
@@ -140,7 +290,7 @@ def import_rows(
     tbl_path: str,
     rows: list[dict[str, Any]],
     *,
-    schema_overrides: Optional[dict[str, pxt.ColumnType]] = None,
+    schema_overrides: Optional[dict[str, Any]] = None,
     primary_key: Optional[Union[str, list[str]]] = None,
     num_retained_versions: int = 10,
     comment: str = '',
@@ -169,67 +319,22 @@ def import_rows(
     Returns:
         A handle to the newly created [`Table`][pixeltable.Table].
     """
-    if schema_overrides is None:
-        schema_overrides = {}
-    schema: dict[str, pxt.ColumnType] = {}
-    cols_with_nones: set[str] = set()
+    schema_overrides, primary_key = _normalize_import_parameters(schema_overrides, primary_key)
+    row_schema = _infer_schema_from_rows(rows, schema_overrides, primary_key)
+    schema, pxt_pk, _ = _normalize_schema_names(row_schema, primary_key, schema_overrides, True)
 
-    for n, row in enumerate(rows):
-        for col_name, value in row.items():
-            if col_name in schema_overrides:
-                # We do the insertion here; this will ensure that the column order matches the order
-                # in which the column names are encountered in the input data, even if `schema_overrides`
-                # is specified.
-                if col_name not in schema:
-                    schema[col_name] = schema_overrides[col_name]
-            elif value is not None:
-                # If `key` is not in `schema_overrides`, then we infer its type from the data.
-                # The column type will always be nullable by default.
-                col_type = pxt.ColumnType.infer_literal_type(value, nullable=True)
-                if col_type is None:
-                    raise excs.Error(
-                        f'Could not infer type for column `{col_name}`; the value in row {n} has an unsupported type: {type(value)}'
-                    )
-                if col_name not in schema:
-                    schema[col_name] = col_type
-                else:
-                    supertype = schema[col_name].supertype(col_type)
-                    if supertype is None:
-                        raise excs.Error(
-                            f'Could not infer type of column `{col_name}`; the value in row {n} does not match preceding type {schema[col_name]}: {value!r}\n'
-                            'Consider specifying the type explicitly in `schema_overrides`.'
-                        )
-                    schema[col_name] = supertype
-            else:
-                cols_with_nones.add(col_name)
-
-    extraneous_keys = schema_overrides.keys() - schema.keys()
-    if len(extraneous_keys) > 0:
-        raise excs.Error(
-            f'The following columns specified in `schema_overrides` are not present in the data: {", ".join(extraneous_keys)}'
-        )
-
-    entirely_none_cols = cols_with_nones - schema.keys()
-    if len(entirely_none_cols) > 0:
-        # A column can only end up in `entirely_null_cols` if it was not in `schema_overrides` and
-        # was not encountered in any row with a non-None value.
-        raise excs.Error(
-            f'The following columns have no non-null values: {", ".join(entirely_none_cols)}\n'
-            'Consider specifying the type(s) explicitly in `schema_overrides`.'
-        )
-
-    t = pxt.create_table(
-        tbl_path, schema, primary_key=primary_key, num_retained_versions=num_retained_versions, comment=comment
+    table = _find_or_create_table(
+        tbl_path, schema, primary_key=pxt_pk, num_retained_versions=num_retained_versions, comment=comment
     )
-    t.insert(rows)
-    return t
+    table.insert(rows)
+    return table
 
 
 def import_json(
     tbl_path: str,
     filepath_or_url: str,
     *,
-    schema_overrides: Optional[dict[str, pxt.ColumnType]] = None,
+    schema_overrides: Optional[dict[str, Any]] = None,
     primary_key: Optional[Union[str, list[str]]] = None,
     num_retained_versions: int = 10,
     comment: str = '',
@@ -270,15 +375,28 @@ def import_json(
     else:
         # URL
         contents = urllib.request.urlopen(filepath_or_url).read()
-    data = json.loads(contents, **kwargs)
-    return import_rows(
-        tbl_path,
-        data,
-        schema_overrides=schema_overrides,
-        primary_key=primary_key,
-        num_retained_versions=num_retained_versions,
-        comment=comment,
+    rows = json.loads(contents, **kwargs)
+
+    # from pixeltable.io.globals import _normalize_schema_names
+
+    schema_overrides, primary_key = _normalize_import_parameters(schema_overrides, primary_key)
+    row_schema = _infer_schema_from_rows(rows, schema_overrides, primary_key)
+    schema, pxt_pk, col_mapping = _normalize_schema_names(row_schema, primary_key, schema_overrides, False)
+
+    # Convert all rows to insertable format - not needed, misnamed columns and types are errors in the incoming row format
+    if col_mapping is not None:
+        tbl_rows = [
+            {field if col_mapping is None else col_mapping[field]: val for field, val in row.items()} for row in rows
+        ]
+    else:
+        tbl_rows = rows
+
+    table = _find_or_create_table(
+        tbl_path, schema, primary_key=pxt_pk, num_retained_versions=num_retained_versions, comment=comment
     )
+
+    table.insert(tbl_rows)
+    return table
 
 
 def export_images_as_fo_dataset(
