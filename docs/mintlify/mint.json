@@ -68,7 +68,7 @@
   ],  
   "navigation": [
     {
-      "group": "Overview",
+      "group": "Welcome to Pixeltable",
       "pages": [
         "docs/overview/pixeltable",
         "docs/overview/installation",
