@@ -60,12 +60,11 @@ class Dispatcher(Protocol):
     """
     Row dispatcher used by Evaluators/Schedulers for post-processing after slot materialization and for task management.
 
-    Task management: all tasks need to be recorded in tasks and have done_cb registered with add_done_callback()
+    Task management: all tasks need to be registered via register_task()
     Exceptions: evaluators/schedulers need to check exc_event prior to starting long-running (non-interruptible)
         computations
     """
 
-    tasks: set[asyncio.Task]
     row_builder: exprs.RowBuilder
     exc_event: asyncio.Event
     schedulers: dict[str, Scheduler]  # key: resource pool id
@@ -78,8 +77,8 @@ class Dispatcher(Protocol):
         """Propagates exception in slot_with_exc to all dependent slots and dispatches the rest; does not block"""
         ...
 
-    def done_cb(self, f: asyncio.Task) -> None:
-        """Callback for task completion; does not block"""
+    def register_task(self, f: asyncio.Task) -> None:
+        """Register task with dispatcher for subsequent cleanup; does not block"""
         ...
 
 

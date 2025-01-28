@@ -63,8 +63,7 @@ class RateLimitsScheduler(Scheduler):
         self.queue = asyncio.PriorityQueue()
         self.dispatcher = dispatcher
         self.loop_task = asyncio.create_task(self._main_loop())
-        self.dispatcher.tasks.add(self.loop_task)
-        self.loop_task.add_done_callback(self.dispatcher.done_cb)
+        self.dispatcher.register_task(self.loop_task)
         self.pool_info = None  # initialized in _main_loop by the first request
         self.est_usage = {}
         self.num_in_flight = 0
@@ -79,6 +78,19 @@ class RateLimitsScheduler(Scheduler):
 
     def submit(self, item: FnCallArgs) -> None:
         self.queue.put_nowait(self.QueueItem(item, 0))
+
+    def _set_pool_info(self) -> None:
+        """Initialize pool_info with the RateLimitsInfo for the resource pool, if available"""
+        if self.pool_info is not None:
+            return
+        self.pool_info = env.Env.get().get_resource_pool_info(self.resource_pool, None)
+        if self.pool_info is None:
+            return
+        assert isinstance(self.pool_info, env.RateLimitsInfo)
+        assert hasattr(self.pool_info, 'get_request_resources')
+        sig = inspect.signature(self.pool_info.get_request_resources)
+        self.get_request_resources_param_names = [p.name for p in sig.parameters.values()]
+        self.est_usage = {r: 0 for r in self._resources}
 
     async def _main_loop(self) -> None:
         item: Optional[RateLimitsScheduler.QueueItem] = None
@@ -96,15 +108,7 @@ class RateLimitsScheduler(Scheduler):
                 item = None
                 # if this was the first request, it created the pool_info
                 if self.pool_info is None:
-                    self.pool_info = env.Env.get().get_resource_pool_info(self.resource_pool, None)
-                    if self.pool_info is None:
-                        # we still don't have rate limits, wait for the next request
-                        continue
-                    assert isinstance(self.pool_info, env.RateLimitsInfo)
-                    assert hasattr(self.pool_info, 'get_request_resources')
-                    sig = inspect.signature(self.pool_info.get_request_resources)
-                    self.get_request_resources_param_names = [p.name for p in sig.parameters.values()]
-                    self.est_usage = {r: 0 for r in self._resources}
+                    self._set_pool_info()
                 continue
 
             # check rate limits
@@ -150,8 +154,7 @@ class RateLimitsScheduler(Scheduler):
             _logger.debug(f'creating task for {self.resource_pool}')
             self.num_in_flight += 1
             task = asyncio.create_task(self._exec(item.request, item.num_retries, is_task=True))
-            self.dispatcher.tasks.add(task)
-            task.add_done_callback(self.dispatcher.done_cb)
+            self.dispatcher.register_task(task)
             item = None
 
     @property
@@ -210,10 +213,15 @@ class RateLimitsScheduler(Scheduler):
 
             self.dispatcher.dispatch(request.rows)
         except Exception as exc:
+            _logger.debug(f'scheduler {self.resource_pool}: exception in slot {request.fn_call.slot_idx}: {exc}')
+            if self.pool_info is None:
+                # our pool info should be available at this point
+                self._set_pool_info()
             if num_retries < self.MAX_RETRIES and self.pool_info is not None:
                 retry_delay = self.pool_info.get_retry_delay(exc)
                 if retry_delay is not None:
                     self.total_retried += 1
+                    _logger.debug(f'scheduler {self.resource_pool}: retrying in {retry_delay} seconds')
                     await asyncio.sleep(retry_delay)
                     self.queue.put_nowait(self.QueueItem(request, num_retries + 1))
                     return

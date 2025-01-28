@@ -230,7 +230,7 @@ class LabelStudioProject(Project):
                 self.project.create_predictions(predictions)
                 tasks_created += 1
 
-        print(f'Created {tasks_created} new task(s) in {self}.')
+        env.Env.get().console_logger.info(f'Created {tasks_created} new task(s) in {self}.')
 
         sync_status = SyncStatus(external_rows_created=tasks_created)
 
@@ -332,7 +332,9 @@ class LabelStudioProject(Project):
         if len(page) > 0:
             self.project.import_tasks(page)
 
-        print(f'Created {tasks_created} new task(s) and updated {tasks_updated} existing task(s) in {self}.')
+        env.Env.get().console_logger.info(
+            f'Created {tasks_created} new task(s) and updated {tasks_updated} existing task(s) in {self}.'
+        )
 
         sync_status = SyncStatus(external_rows_created=tasks_created, external_rows_updated=tasks_updated)
 
@@ -367,7 +369,9 @@ class LabelStudioProject(Project):
 
         if len(tasks_to_delete) > 0:
             self.project.delete_tasks(tasks_to_delete)
-            print(f'Deleted {len(tasks_to_delete)} tasks(s) in {self} that are no longer present in Pixeltable.')
+            env.Env.get().console_logger.info(
+                f'Deleted {len(tasks_to_delete)} tasks(s) in {self} that are no longer present in Pixeltable.'
+            )
 
         # Remove them from the `existing_tasks` dict so that future updates are applied correctly
         for rowid in deleted_rowids:
@@ -410,7 +414,7 @@ class LabelStudioProject(Project):
                 assert ancestor._base is not None
                 ancestor = ancestor._base
             update_status = ancestor.batch_update(updates)
-            print(f'Updated annotation(s) from {len(updates)} task(s) in {self}.')
+            env.Env.get().console_logger.info(f'Updated annotation(s) from {len(updates)} task(s) in {self}.')
             return SyncStatus(pxt_rows_updated=update_status.num_rows, num_excs=update_status.num_excs)
         else:
             return SyncStatus.empty()
@@ -527,7 +531,7 @@ class LabelStudioProject(Project):
         """
         title = self.project_title
         _label_studio_client().delete_project(self.project_id)
-        print(f'Deleted Label Studio project: {title}')
+        env.Env.get().console_logger.info(f'Deleted Label Studio project: {title}')
 
     def __eq__(self, other) -> bool:
         return isinstance(other, LabelStudioProject) and self.project_id == other.project_id

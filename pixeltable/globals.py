@@ -639,8 +639,7 @@ def create_dir(
         dir = catalog.Dir(dir_record.id, parent._id, path.name)
         cat.paths[path] = dir
         session.commit()
-        _logger.info(f'Created directory `{path_str}`.')
-        print(f'Created directory `{path_str}`.')
+        Env.get().console_logger.info(f'Created directory `{path_str}`.')
         return dir
 
 

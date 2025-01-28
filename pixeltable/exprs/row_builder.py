@@ -13,6 +13,7 @@ import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
 import pixeltable.func as func
 import pixeltable.utils as utils
+from pixeltable.env import Env
 from pixeltable.utils.media_store import MediaStore
 
 from .data_row import DataRow
@@ -33,7 +34,9 @@ class ExecProfile:
             per_call_time = self.eval_time[i] / self.eval_count[i]
             calls_per_row = self.eval_count[i] / num_rows
             multiple_str = f'({calls_per_row}x)' if calls_per_row > 1 else ''
-            print(f'{self.row_builder.unique_exprs[i]}: {utils.print_perf_counter_delta(per_call_time)} {multiple_str}')
+            Env.get().console_logger.info(
+                f'{self.row_builder.unique_exprs[i]}: {utils.print_perf_counter_delta(per_call_time)} {multiple_str}'
+            )
 
 
 @dataclass

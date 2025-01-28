@@ -33,8 +33,7 @@ class DefaultExprEvaluator(Evaluator):
     def schedule(self, rows: list[exprs.DataRow], slot_idx: int) -> None:
         assert self.e.slot_idx >= 0
         task = asyncio.create_task(self.eval(rows))
-        self.dispatcher.tasks.add(task)
-        task.add_done_callback(self.dispatcher.done_cb)
+        self.dispatcher.register_task(task)
 
     async def eval(self, rows: list[exprs.DataRow]) -> None:
         rows_with_excs: set[int] = set()  # records idxs into rows
@@ -136,8 +135,7 @@ class FnCallEvaluator(Evaluator):
                     scheduler.submit(batched_call_args)
                 else:
                     task = asyncio.create_task(self.eval_batch(batched_call_args))
-                    self.dispatcher.tasks.add(task)
-                    task.add_done_callback(self.dispatcher.done_cb)
+                    self.dispatcher.register_task(task)
 
         elif self.fn.is_async:
             if self.fn_call.resource_pool is not None:
@@ -149,14 +147,12 @@ class FnCallEvaluator(Evaluator):
                 # create one task per call
                 for item in rows_call_args:
                     task = asyncio.create_task(self.eval_async(item))
-                    self.dispatcher.tasks.add(task)
-                    task.add_done_callback(self.dispatcher.done_cb)
+                    self.dispatcher.register_task(task)
 
         else:
             # create a single task for all rows
             task = asyncio.create_task(self.eval(rows_call_args))
-            self.dispatcher.tasks.add(task)
-            task.add_done_callback(self.dispatcher.done_cb)
+            self.dispatcher.register_task(task)
 
     def _queued_call_args_iter(self) -> Iterator[FnCallArgs]:
         while not self.call_args_queue.empty():
@@ -247,5 +243,4 @@ class FnCallEvaluator(Evaluator):
             return
         batched_call_args = self._create_batch_call_args(list(self._queued_call_args_iter()))
         task = asyncio.create_task(self.eval_batch(batched_call_args))
-        self.dispatcher.tasks.add(task)
-        task.add_done_callback(self.dispatcher.done_cb)
+        self.dispatcher.register_task(task)

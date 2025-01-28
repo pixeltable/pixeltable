@@ -139,6 +139,11 @@ async def messages(
         if not tool_choice['parallel_tool_calls']:
             tool_choice_['disable_parallel_tool_use'] = True
 
+    # make sure the pool info exists prior to making the request
+    resource_pool_id = f'rate-limits:anthropic:{model}'
+    rate_limits_info = env.Env.get().get_resource_pool_info(resource_pool_id, AnthropicRateLimitsInfo)
+    assert isinstance(rate_limits_info, env.RateLimitsInfo)
+
     # TODO: timeouts should be set system-wide and be user-configurable
     from anthropic.types import MessageParam
 
@@ -180,9 +185,6 @@ async def messages(
     if retry_after_str is not None:
         _logger.debug(f'retry-after: {retry_after_str}')
 
-    resource_pool_id = f'rate-limits:anthropic:{model}'
-    rate_limits_info = env.Env.get().get_resource_pool_info(resource_pool_id, AnthropicRateLimitsInfo)
-    assert isinstance(rate_limits_info, env.RateLimitsInfo)
     rate_limits_info.record(
         requests=(requests_limit, requests_remaining, requests_reset),
         input_tokens=(input_tokens_limit, input_tokens_remaining, input_tokens_reset),

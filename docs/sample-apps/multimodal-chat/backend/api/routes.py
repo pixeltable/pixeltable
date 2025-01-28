@@ -115,7 +115,7 @@ audio_chunks.add_embedding_index('text', string_embed=sentence_transformer.using
 logger.info('Added embedding index')
 
 
-@conversations.query
+@pxt.query
 def get_chat_history():
     return conversations.order_by(conversations.timestamp).select(
         role=conversations.role, content=conversations.content
@@ -141,36 +141,34 @@ def create_messages(history: list[dict], prompt: str) -> list[dict]:
 
 
 # Setup similarity search query
-@chunks_view.query
+@pxt.query
 def get_relevant_chunks(query_text: str):
     sim = chunks_view.text.similarity(query_text)
     return chunks_view.order_by(sim, asc=False).select(chunks_view.text, sim=sim).limit(20)
 
 
-@transcription_chunks.query
+@pxt.query
 def get_relevant_transcript_chunks(query_text: str):
     sim = transcription_chunks.text.similarity(query_text)
     return transcription_chunks.order_by(sim, asc=False).select(transcription_chunks.text, sim=sim).limit(20)
 
 
-@audio_chunks.query
+@pxt.query
 def get_relevant_audio_chunks(query_text: str):
     sim = audio_chunks.text.similarity(query_text)
     return audio_chunks.order_by(sim, asc=False).select(audio_chunks.text, sim=sim).limit(20)
 
 
 # Add computed columns
-docs_table.add_computed_column(context_doc=chunks_view.queries.get_relevant_chunks(docs_table.question))
-docs_table.add_computed_column(
-    context_video=transcription_chunks.queries.get_relevant_transcript_chunks(docs_table.question)
-)
-docs_table.add_computed_column(context_audio=audio_chunks.queries.get_relevant_audio_chunks(docs_table.question))
+docs_table.add_computed_column(context_doc=get_relevant_chunks(docs_table.question))
+docs_table.add_computed_column(context_video=get_relevant_transcript_chunks(docs_table.question))
+docs_table.add_computed_column(context_audio=get_relevant_audio_chunks(docs_table.question))
 docs_table.add_computed_column(
     prompt=create_prompt(
         docs_table.context_doc, docs_table.context_video, docs_table.context_audio, docs_table.question
     )
 )
-docs_table.add_computed_column(chat_history=conversations.queries.get_chat_history())
+docs_table.add_computed_column(chat_history=get_chat_history())
 docs_table.add_computed_column(messages=create_messages(docs_table.chat_history, docs_table.prompt))
 docs_table.add_computed_column(response=openai.chat_completions(messages=docs_table.messages, model='gpt-4o-mini'))
 

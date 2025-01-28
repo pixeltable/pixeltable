@@ -94,6 +94,28 @@ class TestOpenai:
             t.insert(input='Say something interesting.')
         assert "\\'messages\\' must contain the word \\'json\\'" in str(exc_info.value)
 
+    def test_reuse_client(self, reset_db) -> None:
+        skip_test_if_not_installed('openai')
+        TestOpenai.skip_test_if_no_openai_client()
+        t = pxt.create_table('test_openai', {'input': pxt.String})
+        from pixeltable.functions import openai
+
+        messages = [{'role': 'system', 'content': 'You are a helpful assistant.'}, {'role': 'user', 'content': t.input}]
+        t.add_computed_column(output1=openai.chat_completions(model='gpt-4o-mini', messages=messages))
+        t.insert(
+            {'input': s}
+            for s in [
+                'What is the capital of France?',
+                'What is the capital of Germany?',
+                'What is the capital of Italy?',
+                'What is the capital of Spain?',
+                'What is the capital of Portugal?',
+                'What is the capital of the United Kingdom?',
+            ]
+        )
+        # adding a second column re-uses the existing client, with an existing connection pool
+        t.add_computed_column(output2=openai.chat_completions(model='gpt-4o-mini', messages=messages))
+
     @pytest.mark.flaky(reruns=3)
     def test_tool_invocations(self, reset_db) -> None:
         skip_test_if_not_installed('openai')

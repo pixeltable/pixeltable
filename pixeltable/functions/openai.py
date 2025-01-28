@@ -116,6 +116,12 @@ class OpenAIRateLimitsInfo(env.RateLimitsInfo):
         import openai
 
         self.retryable_errors = (
+            # ConnectionError: we occasionally see this error when the AsyncConnectionPool is trying to close
+            # expired connections
+            # (AsyncConnectionPool._close_expired_connections() fails with ConnectionError when executing
+            # 'await connection.aclose()', which is potentially a bug in AsyncConnectionPool)
+            openai.APIConnectionError,
+            # the following errors are retryable according to OpenAI's API documentation
             openai.RateLimitError,
             openai.APITimeoutError,
             openai.UnprocessableEntityError,
@@ -387,6 +393,12 @@ async def chat_completions(
     if tool_choice is not None and not tool_choice['parallel_tool_calls']:
         extra_body = {'parallel_tool_calls': False}
 
+    # make sure the pool info exists prior to making the request
+    resource_pool = _resource_pool(model)
+    rate_limits_info = env.Env.get().get_resource_pool_info(
+        resource_pool, lambda: OpenAIRateLimitsInfo(_chat_completions_get_request_resources)
+    )
+
     # cast(Any, ...): avoid mypy errors
     result = await _async_openai_client().chat.completions.with_raw_response.create(
         messages=messages,
@@ -410,11 +422,7 @@ async def chat_completions(
         extra_body=extra_body,
     )
 
-    resource_pool = _resource_pool(model)
     requests_info, tokens_info = _get_header_info(result.headers)
-    rate_limits_info = env.Env.get().get_resource_pool_info(
-        resource_pool, lambda: OpenAIRateLimitsInfo(_chat_completions_get_request_resources)
-    )
     rate_limits_info.record(requests=requests_info, tokens=tokens_info)
 
     return json.loads(result.text)
@@ -511,14 +519,14 @@ async def embeddings(
         >>> tbl['embed'] = embeddings(tbl.text, model='text-embedding-3-small')
     """
     _logger.debug(f'embeddings: batch_size={len(input)}')
-    result = await _async_openai_client().embeddings.with_raw_response.create(
-        input=input, model=model, dimensions=_opt(dimensions), user=_opt(user), encoding_format='float'
-    )
     resource_pool = _resource_pool(model)
-    requests_info, tokens_info = _get_header_info(result.headers)
     rate_limits_info = env.Env.get().get_resource_pool_info(
         resource_pool, lambda: OpenAIRateLimitsInfo(_embeddings_get_request_resources)
     )
+    result = await _async_openai_client().embeddings.with_raw_response.create(
+        input=input, model=model, dimensions=_opt(dimensions), user=_opt(user), encoding_format='float'
+    )
+    requests_info, tokens_info = _get_header_info(result.headers)
     rate_limits_info.record(requests=requests_info, tokens=tokens_info)
     return [np.array(data['embedding'], dtype=np.float64) for data in json.loads(result.content)['data']]
 
