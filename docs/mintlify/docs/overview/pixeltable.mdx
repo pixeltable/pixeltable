@@ -1,21 +1,73 @@
 ---
 title: 'Getting Started'
-description: 'Open-source AI data infrastructure'
+description: 'Build production-ready AI applications with unified data infrastructure'
 ---
 
-# What is Pixeltable?
+# Pixeltable -- Open Source AI Data Infrastructure
 
-Pixeltable is AI Data infrastructure providing a declarative, incremental approach for multimodal workloads.
+Tired of choosing between months of infrastructure work or limited frameworks? Pixeltable gives you both speed and control. Pixeltable provide a **declarative**, **incremental** approach for **multimodal** AI workloads.
+
+<CodeGroup>
+```python Declarative
+# Persistent and versioned tables holding data
+t = pxt.create_table('image_table', {'image': pxt.Image})
+
+# Express data transformations, model inference, and custom logic
+t.add_computed_column(detections=yolox(images.image,model_id='yolox_s'))
+
+# Insert data from any source to run inference (URL, S3, Files, Pandas, XML...)
+t.insert([
+    {'image': 's3://bucket/image.jpg'},
+    {'image': 'https://example.com/image.png'},
+    {'image': '/local/path/image.jpg'}
+])
+
+```
+
+```python Multimodal
+# Efficiently manage text, images, video, and audio in a unified interface
+t = pxt.create_table(
+    "multimdodal_table",
+    {
+        'document': pxt.Document,   # For HTML, MD, .txt, PDF, XML documents
+        'video': pxt.Video,         # For video files
+        'audio': pxt.Audio,         # For audio files
+        'question': pxt.String,     # User queries
+        'timestamp': pxt.Timestamp, # For DateTime values
+        'metadata': pxt.Json,       # For lists or dictionaries
+        'embedding': pxt.Array[(512,), pxt.Float]}
+        ... and more
+    }
+)
+```
+
+```python Incremental
+# Pixeltable handles data orchestration from data management to model outputs
+chat_table.insert([{
+                    'user_id': user_id,
+                    'question': message.content,
+                    'timestamp': datetime.now()
+                }])
+result = chat_table.select(
+           chat_table.response).order_by(chat_table.timestamp,            
+           asc=False).limit(1).collect()
+
+response = result['response'][0]
+```
+</CodeGroup>
+
+---
 
 # Installation
 
 ```bash
 pip install -U pixeltable
 ```
+---
 
-## Key Features
+## Core Features
 
-A unified interface for building AI and ML workflows.
+Pixeltable enables you to store, transform, index, and iterate on your data with built-in versioning, lineage tracking, and incremental updates.
 
 <CardGroup cols={2}>
 <Card 
@@ -111,13 +163,7 @@ A unified interface for building AI and ML workflows.
  </Card>
 </CardGroup>
 
-## Installation
-
-<CodeGroup>
-```bash pip
-pip install -U pixeltable
-```
-</CodeGroup>
+---
 
 ## Next Steps
 
@@ -126,11 +172,24 @@ pip install -U pixeltable
     [Install the Python package](/docs/overview/installation)
   </Step>
   
-  <Step title="Quick Start" icon="play">
-    [Build a persistent chatbot](/docs/overview/quick-start) with conversation history
+  <Step title="First Project" icon="play">
+    [Build a persistent chatbot](/docs/overview/quick-start) with conversation history in under 10 minutes
   </Step>
   
   <Step title="Explore Examples" icon="lightbulb">
     Browse our [library of examples](/docs/examples/overview) to get started
   </Step>
+
+  <Step title="Production" icon="rocket">
+    [Deploy to production](/docs/production/deployment) with our best practices guide
+  </Step>
 </Steps>
+
+---
+
+## Community & Support
+
+- 📚 [Documentation](https://docs.pixeltable.com)
+- 💬 [Discord Community](https://discord.gg/pixeltable)
+- 🐙 [GitHub Repository](https://github.com/pixeltable/pixeltable)
+- 📧 [Support Email](mailto:support@pixeltable.com)
