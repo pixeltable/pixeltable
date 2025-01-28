@@ -42,6 +42,14 @@
     {
       "name": "Hiring",
       "url": "https://jobs.gusto.com/postings/pixeltable-inc-member-of-technical-staff-360acae7-6e57-4aa2-bd03-83c9dafb7bbc"
+    },
+    {
+      "name": "Sample Apps",
+      "url": "https://github.com/pixeltable/pixeltable/tree/main/docs/sample-apps"
+    },
+    {
+      "name": "Hugging Face Spaces",
+      "url": "https://huggingface.co/Pixeltable"
     }
   ],
   "topbarCtaButton": {
