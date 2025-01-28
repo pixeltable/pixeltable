@@ -1,64 +1,148 @@
 ---
 title: 'Getting Started'
-description: 'Open-source AI data infrastructure'
+description: 'The Modern AI Development Framework'
 ---
 
-# What is Pixeltable?
+<Note>
+ Pixeltable is a unified platform for building production-grade AI applications, agents, and pipelines.
+</Note>
 
-Pixeltable is AI Data infrastructure providing a declarative, incremental approach for multimodal workloads.
-
-# Installation
-
-```bash
-pip install -U pixeltable
-```
-
-## Key Features
-
-A unified interface for building AI and ML workflows.
+## Platform Foundations
 
 <CardGroup cols={2}>
-  <Card 
-    title="Persistent Versioned Storage" 
-    icon="database"
-    href="/docs/fundamentals/tables-and-operations">
-    Type-safe tables with built-in version control and lineage tracking.
-  </Card>
-  
-  <Card 
-    title="Multimodal" 
-    icon="film"
-    href="/docs/fundamentals/processing">
-    Diverse data types and formats are supported (text, audio, video, etc.).
+  <Card title="Persistent Versioned Storage" icon="database" href="/docs/fundamentals/tables-and-operations">
+    Type-safe tables with built-in version control and lineage tracking
   </Card>
 
-  <Card 
-    title="Graph Orchestration" 
-    icon="diagram-project"
-    href="/docs/fundamentals/orchestration">
-    Built-in parallel processing and dependency management for complex workflows.
+  <Card title="Multimodal Processing" icon="film" href="/docs/fundamentals/processing">
+    Process diverse data types and formats (text, audio, video, etc.)
   </Card>
 
-  <Card 
-    title="Incremental Updates" 
-    icon="rotate"
-    href="/docs/fundamentals/updates">
-    Smart, event-driven triggers for continuous workflows.
+  <Card title="Graph Orchestration" icon="diagram-project" href="/docs/fundamentals/orchestration">
+    Built-in parallel processing and dependency management
+  </Card>
+
+  <Card title="Incremental Updates" icon="rotate" href="/docs/fundamentals/updates">
+    Smart, event-driven triggers for continuous workflows
   </Card>
 </CardGroup>
+
+## Solution Blueprints
+
+<CardGroup cols={2}>
+<Card 
+  title="Build AI Agents" 
+  icon="robot"
+  href="/docs/agents/overview"
+>
+  <CardGroup cols={1}>
+   <Card title="Conversation & Memory" href="/docs/agents/chat">
+     Long-term memory, dynamic context windows, RAG integration, and temporal history tracking.
+   </Card>
+    <Card title="Agents" href="/docs/agents/tools">
+      Create agents that leverage tools and retrieval systems.
+    </Card>  
+  </CardGroup>
+</Card>
+
+<Card 
+  title="Process Visual Data" 
+  icon="camera"
+  href="/docs/vision/overview"
+>
+  <CardGroup cols={1}>
+    <Card title="Image Understanding" href="/docs/vision/images">
+      Object detection, segmentation, classification and tracking.
+    </Card>
+    <Card title="Video Analysis" href="/docs/vision/video">
+      Real-time video processing with temporal consistency.
+    </Card>
+  </CardGroup>
+</Card>
+
+<Card 
+  title="Production ML" 
+  icon="brain"
+  href="/docs/ml/overview"
+>
+  <CardGroup cols={1}>
+    <Card title="MLOps Pipeline" href="/docs/ml/traditional">
+      End-to-end supervised, unsupervised and reinforcement learning.
+    </Card>
+    <Card title="Custom Models" href="/docs/ml/custom">
+      Deploy your own models, algorithms and processing pipelines.
+    </Card>
+  </CardGroup>
+</Card>
+
+<Card 
+  title="Vector Database" 
+  icon="database"
+  href="/docs/vector/overview"
+>
+  <CardGroup cols={1}>
+    <Card title="Multimodal Storage" href="/docs/vector/storage">
+      Index and version images, audio, video and text embeddings.
+    </Card>
+    <Card title="Advanced Search" href="/docs/vector/search">
+      Multimodal search on images, audio, video and text.
+    </Card>
+  </CardGroup>
+</Card>
+</CardGroup>
+
+<CardGroup cols={2}>
+ <Card 
+   title="Automated Computation" 
+   icon="diagram-project"
+   href="/docs/production/pipeline"
+ >
+   <CardGroup cols={1}>
+     <Card title="Event Processing" href="/docs/production/events">
+       Incremental updates, async processing, and optimized data.
+     </Card>
+     <Card title="Pipeline Orchestration" href="/docs/production/orchestration">
+       DAG-based workflow management with dependency tracking.
+     </Card>
+   </CardGroup>
+ </Card>
+
+ <Card 
+   title="LLM & Model Optimization" 
+   icon="wand-magic-sparkles"
+   href="/docs/production/optimization"
+ >
+   <CardGroup cols={1}>
+     <Card title="Prompt Engineering" href="/docs/production/prompts">
+       Test, version, and evaluate prompts with comprehensive metrics.
+     </Card>
+     <Card title="Performance Evaluation" href="/docs/production/evaluation">
+       Automated testing, monitoring, and metric collection.
+     </Card>
+   </CardGroup>
+ </Card>
+</CardGroup>
+
+## Installation
+
+<CodeGroup>
+```bash pip
+pip install -U pixeltable
+```
+</CodeGroup>
 
 ## Next Steps
 
-<CardGroup cols={3}>
-  <Card title="Installation" icon="download" href="/docs/overview/installation">
-    Install the Python package
-  </Card>
+<Steps>
+  <Step title="Installation" icon="download">
+    [Install the Python package](/docs/overview/installation)
+  </Step>
   
-  <Card title="Quick Start" icon="play" href="/docs/overview/quick-start">
-    Build a persistent chatbot with conversation history
-  </Card>
+  <Step title="Quick Start" icon="play">
+    [Build a persistent chatbot](/docs/overview/quick-start) with conversation history
+  </Step>
   
-  <Card title="Explore examples" icon="lightbulb" href="/docs/examples/overview">
-    We have a library of examples to get you started
-  </Card>
-</CardGroup>
+  <Step title="Explore Examples" icon="lightbulb">
+    Browse our [library of examples](/docs/examples/overview) to get started
+  </Step>
+</Steps>

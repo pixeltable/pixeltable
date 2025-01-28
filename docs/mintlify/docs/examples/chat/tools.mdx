@@ -17,8 +17,8 @@ Pixeltable tool-calling apps work in two phases:
     ```
   </Step>
 
-  <Step title="Define Your Tools and Structure" icon="toolbox">
-    Create `schema.py`:
+  <Step title="Create your database" icon="toolbox">
+    Create `database.py`:
     ```python
     import pixeltable as pxt
     from pixeltable.functions.openai import chat_completions, invoke_tools
@@ -127,7 +127,7 @@ Pixeltable tool-calling apps work in two phases:
   </Step>
 
   <Step title="Use Your App" icon="play">
-    Create `app.py`:
+    Create `main.py`:
     ```python
     import pixeltable as pxt
 
