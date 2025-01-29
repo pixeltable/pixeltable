@@ -18,8 +18,10 @@ class AudioIterator(ComponentIterator):
     """
     Args:
         audio: URL or path of the audio file
-        chunk_duration: Target duration for each chunk in seconds to match model requirements
+        chunk_duration: Target duration for each chunk in seconds to match model requirements.
         overlap: Overlap between chunks in seconds to prevent word splits at chunk boundaries.
+        min_chunk_duration: Minimum chunk duration in seconds to match model requirements.
+        drop_incomplete_chunks: Drop chunks smaller than min_chunk_duration at the end of the audio.
     """
     # Input parameters
     audio_path: Path
