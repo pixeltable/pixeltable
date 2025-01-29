@@ -1,0 +1,247 @@
+---
+title: "Image"
+description: "Build an image search system using GPT-4 Vision and vector embeddings"
+icon: "image"
+---
+
+# Building a Visual Search Pipeline
+
+Pixeltable image search works in two phases:
+1. Define your pipeline structure (once)
+2. Query your image database (anytime)
+
+<Steps>
+  <Step title="Install Dependencies">
+    ```bash
+    pip install pixeltable openai sentence-transformers
+    ```
+  </Step>
+
+  <Step title="Define Your Pipeline" icon="wand-magic-sparkles">
+    Create `schema.py`:
+    ```python
+    import pixeltable as pxt
+    from pixeltable.functions.openai import vision
+    from pixeltable.functions.huggingface import sentence_transformer
+
+    # Initialize app structure
+    pxt.drop_dir("image_search", force=True)
+    pxt.create_dir("image_search")
+
+    # Create images table
+    img_t = pxt.create_table(
+        "image_search.images", 
+        {"image": pxt.Image}
+    )
+
+    # Add GPT-4 Vision analysis
+    img_t.add_computed_column(
+        image_description=vision(
+            prompt="Describe the image. Be specific on the colors you see.",
+            image=img_t.image,
+            model="gpt-4o-mini",
+        )
+    )
+
+    # Configure embedding model
+    embed_model = sentence_transformer.using(
+        model_id="intfloat/e5-large-v2"
+    )
+
+    # Add search capability
+    img_t.add_embedding_index(
+        column="image_description", 
+        string_embed=embed_model
+    )
+
+    # Define search query
+    @pxt.query
+    def search_images(query_text: str, limit: int = 10):
+        sim = img_t.image_description.similarity(query_text)
+        return (
+            img_t.order_by(sim, asc=False)
+            .select(
+                img_t.image,
+                img_t.image_description, 
+                similarity=sim
+            )
+            .limit(limit)
+        )
+    ```
+  </Step>
+
+  <Step title="Use Your Pipeline" icon="play">
+    Create `app.py`:
+    ```python
+    import pixeltable as pxt
+
+    # Connect to your table
+    img_t = pxt.get_table("image_search.images")
+
+    # Sample image URLs
+    IMAGE_URL = (
+        "https://raw.github.com/pixeltable/pixeltable/release/docs/resources/images/"
+    )
+    
+    image_urls = [
+        IMAGE_URL + doc for doc in [
+            "000000000030.jpg",
+            "000000000034.jpg",
+            "000000000042.jpg",
+        ]
+    ]
+
+    # Add images to the database
+    img_t.insert({"image": url} for url in image_urls)
+
+    # Search images
+    @pxt.query
+    def find_images(query: str, top_k: int = 3):
+        sim = img_t.image_description.similarity(query)
+        return (
+            img_t.order_by(sim, asc=False)
+            .select(
+                img_t.image,
+                img_t.image_description,
+                similarity=sim
+            )
+            .limit(top_k)
+        )
+
+    # Example search
+    results = find_images("Show me images containing blue flowers").collect()
+    
+    # Print results
+    for r in results:
+        print(f"Similarity: {r['similarity']:.3f}")
+        print(f"Description: {r['image_description']}")
+        print(f"Image URL: {r['image']}\n")
+    ```
+  </Step>
+</Steps>
+
+## What Makes This Different?
+
+<CardGroup cols={1}>
+  <Card title="AI Vision" icon="eye">
+    GPT-4 Vision generates rich image descriptions automatically:
+    ```python
+    image_description=vision(
+        prompt="Describe the image...",
+        image=img_t.image
+    )
+    ```
+  </Card>
+
+  <Card title="Vector Search" icon="magnifying-glass">
+    Natural language image search using E5 embeddings:
+    ```python
+    img_t.add_embedding_index(
+        column="image_description",
+        string_embed=embed_model
+    )
+    ```
+  </Card>
+
+  <Card title="Auto-updating" icon="arrows-rotate">
+    Self-maintaining image database:
+    ```python
+    img_t.insert({"image": new_url})
+    # Descriptions and embeddings update automatically
+    ```
+  </Card>
+</CardGroup>
+
+## Pipeline Components
+
+<AccordionGroup>
+  <Accordion title="GPT-4 Vision" icon="robot">
+    Advanced image understanding:
+    - Detailed visual descriptions
+    - Color analysis
+    - Object recognition
+    - Scene understanding
+    - Customizable description prompts
+  </Accordion>
+
+  <Accordion title="E5 Embeddings" icon="network-wired">
+    High-quality search:
+    - State-of-the-art text embeddings
+    - Fast similarity search
+    - Natural language queries
+    - Configurable similarity thresholds
+  </Accordion>
+
+  <Accordion title="Data Management" icon="database">
+    Built-in data handling:
+    - Automatic image downloads
+    - Efficient storage
+    - Query optimization
+    - Batch processing support
+  </Accordion>
+</AccordionGroup>
+
+## Advanced Usage
+
+### Custom Search Functions
+
+Create specialized search functions:
+
+```python
+@pxt.query
+def search_with_threshold(query: str, min_similarity: float = 0.7):
+    sim = img_t.image_description.similarity(query)
+    return (
+        img_t.where(sim >= min_similarity)
+        .order_by(sim, asc=False)
+        .select(
+            img_t.image,
+            img_t.image_description,
+            similarity=sim
+        )
+    )
+```
+
+### Batch Processing
+
+Process multiple images in batch:
+
+```python
+# Bulk image insertion
+image_urls = [
+    "https://example.com/image1.jpg",
+    "https://example.com/image2.jpg",
+    "https://example.com/image3.jpg"
+]
+
+img_t.insert({"image": url} for url in image_urls)
+```
+
+### Custom Vision Prompts
+
+Customize the GPT-4 Vision analysis:
+
+```python
+img_t.add_computed_column(
+    detailed_analysis=vision(
+        prompt="""Analyze this image in detail:
+        1. Main objects and their positions
+        2. Color palette
+        3. Lighting and atmosphere
+        4. Any text or symbols present""",
+        image=img_t.image,
+        model="gpt-4o-mini",
+    )
+)
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Vision Prompts" icon="wand-magic-sparkles" href="/docs/vision/prompts">
+    Learn how to craft effective vision prompts
+  </Card>
+  <Card title="Search Optimization" icon="gauge-high" href="/docs/vision/optimization">
+    Optimize your image search for better results
+  </Card>
+</CardGroup>
