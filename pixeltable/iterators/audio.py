@@ -93,6 +93,7 @@ class AudioIterator(ComponentIterator):
     @classmethod
     def output_schema(cls, *args: Any, **kwargs: Any) -> tuple[dict[str, ts.ColumnType], list[str]]:
         return {
+            'chunk_idx': ts.IntType(),
             'start_time_msec': ts.IntType(),
             'end_time_msec': ts.IntType(),
             'duration_msec': ts.IntType(),
@@ -151,6 +152,7 @@ class AudioIterator(ComponentIterator):
                         output_container.mux(packet)
                     output_container.close()
                 result = {
+                    'chunk_idx': self.next_pos,
                     'start_time_msec': int(chunk_start_pts * self.audio_time_base * 1000),
                     'end_time_msec': int(chunk_end_pts * self.audio_time_base * 1000),
                     'duration_msec': int((chunk_end_pts - chunk_start_pts) * self.audio_time_base * 1000),
