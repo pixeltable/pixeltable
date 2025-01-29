@@ -1,6 +1,7 @@
 ---
 title: 'Getting Started'
 description: 'Build production-ready AI applications with unified data infrastructure'
+icon: "table"
 ---
 
 # Pixeltable -- Open Source AI Data Infrastructure
@@ -29,20 +30,20 @@ t.insert([
 t = pxt.create_table(
     "multimdodal_table",
     {
-        'document': pxt.Document,   # For HTML, MD, .txt, PDF, XML documents
-        'video': pxt.Video,         # For video files
-        'audio': pxt.Audio,         # For audio files
-        'question': pxt.String,     # User queries
-        'timestamp': pxt.Timestamp, # For DateTime values
-        'metadata': pxt.Json,       # For lists or dictionaries
-        'embedding': pxt.Array[(512,), pxt.Float]}
-        ... and more
+      'document': pxt.Document,   # For HTML, MD, .txt, PDF, XML documents
+      'video': pxt.Video,         # For video files
+      'audio': pxt.Audio,         # For audio files
+      'question': pxt.String,     # User queries
+      'timestamp': pxt.Timestamp, # For DateTime values
+      'metadata': pxt.Json,       # For lists or dictionaries
+      'embedding': pxt.Array[(512,), pxt.Float]
+      ... and more
     }
 )
 ```
 
 ```python Incremental
-# Pixeltable handles data orchestration from data management to model outputs
+# Pixeltable handles data orchestration from data to model outputs
 chat_table.insert([{
                     'user_id': user_id,
                     'question': message.content,

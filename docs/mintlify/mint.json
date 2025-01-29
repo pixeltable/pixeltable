@@ -44,10 +44,6 @@
       "url": "https://jobs.gusto.com/postings/pixeltable-inc-member-of-technical-staff-360acae7-6e57-4aa2-bd03-83c9dafb7bbc"
     },
     {
-      "name": "Sample Apps",
-      "url": "https://github.com/pixeltable/pixeltable/tree/main/docs/sample-apps"
-    },
-    {
       "name": "Hugging Face Spaces",
       "url": "https://huggingface.co/Pixeltable"
     }
@@ -58,12 +54,24 @@
   },
   "tabs": [
     {
-      "name": "Changelog",
-      "url": "/docs/changelog"
-    },    
-    {
       "name": "API Reference",
       "url": "https://pixeltable.github.io/pixeltable/"
+    },
+    {
+      "name": "Tutorials",
+      "url": "/docs/tutorials"
+    },
+    {
+      "name": "Integrations",
+      "url": "/docs/integrations"
+    }, 
+    {
+      "name": "Sample Apps",
+      "url": "https://github.com/pixeltable/pixeltable/tree/main/docs/sample-apps"
+    },
+    {
+      "name": "Changelog",
+      "url": "/docs/changelog"
     }
   ],  
   "navigation": [
@@ -72,19 +80,19 @@
       "pages": [
         "docs/overview/pixeltable",
         "docs/overview/installation",
-        "docs/overview/quick-start"
+        "docs/overview/quick-start",
+        "docs/overview/configuration"
       ]
     },
         {
           "group": "Fundamentals",
           "pages": [
             "docs/fundamentals/tables-and-operations",
+            "docs/fundamentals/views",
             "docs/fundamentals/filtering-and-selecting",
             "docs/fundamentals/computed-columns",
             "docs/fundamentals/custom-functions",            
-            "docs/fundamentals/embedding-index",
-            "docs/fundamentals/views",            
-            "docs/fundamentals/configuration"
+            "docs/fundamentals/embedding-index"
           ]
         },        
         {          
@@ -134,6 +142,20 @@
       "group": "Changelog",
       "pages": [
         "docs/changelog/product-updates"
+      ]
+    },
+    {
+      "group": "Tutorials",
+      "pages": [
+        "docs/tutorials/fundamentals",
+        "docs/tutorials/feature-guide",
+        "docs/tutorials/use-cases"
+      ]
+    },
+    {
+      "group": "Ecosystem",
+      "pages": [
+        "docs/integrations/integrations"
       ]
     }
   ]

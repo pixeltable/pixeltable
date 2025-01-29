@@ -1,0 +1,216 @@
+---
+title: 'Integrations'
+description: 'Explore Pixeltable ecosystem of built-in integrations for AI/ML workflows'
+---
+
+From language models to computer vision frameworks Pixeltable integrates with the entire ecosystem. All integrations are available out-of-the-box with Pixeltable installation. No additional setup required unless specified.
+
+<Note>
+If you have a framework that you want us to integrate with, please reach out and you can also leverage Pixeltable's [UDFs](https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/feature-guides/udfs-in-pixeltable.ipynb) to build your own.
+</Note>
+
+## Language Models
+
+<CardGroup cols={3}>
+  <Card
+    title="Anthropic Claude"
+    icon="brain"
+    href="/integrations/llms/anthropic"
+  >
+    Integrate Claude models for advanced language understanding and generation with multimodal capabilities
+  </Card>
+
+  <Card
+    title="Gemini"
+    icon="sparkles"
+    href="/integrations/llms/gemini"
+  >
+    Access Google's Gemini models for state-of-the-art multimodal AI capabilities
+  </Card>
+
+  <Card
+    title="OpenAI"
+    icon="square-code"
+    href="/integrations/llms/openai"
+  >
+    Leverage GPT models for text generation, embeddings, and image analysis
+  </Card>
+
+  <Card
+    title="Mistral AI"
+    icon="wind"
+    href="/integrations/llms/mistral"
+  >
+    Use Mistral's efficient language models for various NLP tasks
+  </Card>
+
+  <Card
+    title="Llama.cpp"
+    icon="microchip"
+    href="/integrations/llms/llama-cpp"
+  >
+    Run open-source LLMs locally with efficient CPU/GPU optimization
+  </Card>
+
+  <Card
+    title="Ollama"
+    icon="box"
+    href="/integrations/llms/ollama"
+  >
+    Deploy and run open-source models locally with easy management
+  </Card>
+
+  <Card
+    title="Together AI"
+    icon="users"
+    href="/integrations/llms/together"
+  >
+    Access a variety of open-source models through Together AI's platform
+  </Card>
+
+  <Card
+    title="Fireworks"
+    icon="rocket"
+    href="/integrations/llms/fireworks"
+  >
+    Use Fireworks.ai's optimized model inference infrastructure
+  </Card>
+
+  <Card
+    title="Replicate"
+    icon="clone"
+    href="/integrations/llms/replicate"
+  >
+    Deploy and run ML models through Replicate's cloud platform
+  </Card>
+</CardGroup>
+
+## Computer Vision
+
+<CardGroup cols={3}>
+  <Card
+    title="Label Studio"
+    icon="tags"
+    href="/integrations/cv/label-studio"
+  >
+    Integrate with Label Studio for data annotation and labeling workflows
+  </Card>
+
+  <Card
+    title="YOLOX"
+    icon="camera"
+    href="/integrations/cv/yolox"
+  >
+    State-of-the-art object detection with YOLOX models
+  </Card>
+
+  <Card
+    title="Voxel51"
+    icon="cube"
+    href="/integrations/cv/voxel51"
+  >
+    Advanced video and image dataset management with Voxel51
+  </Card>
+</CardGroup>
+
+## Audio Processing
+
+<Card
+  title="Whisper/WhisperX"
+  icon="waveform"
+  href="/integrations/audio/whisper"
+>
+  High-quality speech recognition and transcription using OpenAI's Whisper models
+</Card>
+
+## Data Science
+
+<CardGroup cols={2}>
+  <Card
+    title="Hugging Face"
+    icon="face-smile"
+    href="/integrations/data/huggingface"
+  >
+    Access thousands of models and datasets from the Hugging Face hub
+  </Card>
+
+  <Card
+    title="Pandas"
+    icon="table"
+    href="/integrations/data/pandas"
+  >
+    Seamlessly work with Pandas DataFrames in your Pixeltable workflows
+  </Card>
+</CardGroup>
+
+## Usage Examples
+
+<AccordionGroup>
+  <Accordion title="LLM Integration">
+    ```python
+    import pixeltable as pxt
+    from pixeltable.functions import openai
+
+    # Create a table with computed column for OpenAI completion
+    table = pxt.create_table('responses', {'prompt': pxt.String})
+    table['response'] = openai.chat_completions(
+        messages=[{'role': 'user', 'content': table.prompt}],
+        model='gpt-4'
+    )
+    ```
+  </Accordion>
+
+  <Accordion title="Computer Vision">
+    ```python
+    from pixeltable.functions.yolox import yolox
+    
+    # Add object detection to video frames
+    frames_view['detections'] = yolox(
+        frames_view.frame,
+        model_id='yolox_l'
+    )
+    ```
+  </Accordion>
+
+  <Accordion title="Audio Processing">
+    ```python
+    from pixeltable.functions import openai
+    
+    # Transcribe audio files
+    audio_table['transcription'] = openai.transcriptions(
+        audio=audio_table.file,
+        model='whisper-1'
+    )
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Integration Features
+
+<Steps>
+  <Step title="Easy Setup">
+    Most integrations work out-of-the-box with simple API configuration
+  </Step>
+  
+  <Step title="Computed Columns">
+    Use integrations directly in computed columns for automated processing
+  </Step>
+  
+  <Step title="Batch Processing">
+    Efficient handling of batch operations with automatic optimization
+  </Step>
+</Steps>
+
+<Tip>
+  Check our [Github](https://github.com/pixeltable/pixeltable/tree/main/docs/notebooks/integrations) for detailed usage instructions for each integration.
+</Tip>
+
+## Resources
+
+- [Integration Guides](/guides/integrations)
+- [API Reference](/api-reference/integrations)
+- [Example Notebooks](https://github.com/pixeltable/pixeltable/tree/main/examples)
+
+<Note>
+Need help setting up integrations? Join our [Discord community](https://discord.gg/pixeltable) for support.
+</Note>
