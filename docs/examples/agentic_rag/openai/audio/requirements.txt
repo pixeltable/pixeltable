@@ -1,0 +1,10 @@
+# Only to fetch the audio file
+boto3
+
+# Agentic RAG
+pixeltable
+tiktoken
+openai
+openai-whisper
+spacy
+sentence-transformers
