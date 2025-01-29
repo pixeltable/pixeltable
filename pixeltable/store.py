@@ -229,6 +229,7 @@ class StoreBase:
             sql.exc.DBAPIError if there was a SQL error during execution
             excs.Error if on_error='abort' and there was an exception during row evaluation
         """
+        assert col.tbl.id == self.tbl_version.id
         num_excs = 0
         num_rows = 0
 
@@ -249,6 +250,7 @@ class StoreBase:
 
         try:
             # insert rows from exec_plan into temp table
+            # TODO: unify the table row construction logic with RowBuilder.create_table_row()
             for row_batch in exec_plan:
                 num_rows += len(row_batch)
                 tbl_rows: list[dict[str, Any]] = []
@@ -272,6 +274,10 @@ class StoreBase:
                             tbl_row[col.sa_errortype_col.name] = error_type
                             tbl_row[col.sa_errormsg_col.name] = error_msg
                         else:
+                            if col.col_type.is_image_type() and result_row.file_urls[value_expr_slot_idx] is None:
+                                # we have yet to store this image
+                                filepath = str(MediaStore.prepare_media_path(col.tbl.id, col.id, col.tbl.version))
+                                result_row.flush_img(value_expr_slot_idx, filepath)
                             val = result_row.get_stored_val(value_expr_slot_idx, col.sa_col.type)
                             if col.col_type.is_media_type():
                                 val = self._move_tmp_media_file(val, col, result_row.pk[-1])

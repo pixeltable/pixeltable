@@ -26,6 +26,7 @@ def udf(
     substitute_fn: Optional[Callable] = None,
     is_method: bool = False,
     is_property: bool = False,
+    resource_pool: Optional[str] = None,
     type_substitutions: Optional[Sequence[dict]] = None,
     _force_stored: bool = False
 ) -> Callable[[Callable], CallableFunction]: ...
@@ -53,6 +54,7 @@ def udf(*args, **kwargs):
         substitute_fn = kwargs.pop('substitute_fn', None)
         is_method = kwargs.pop('is_method', None)
         is_property = kwargs.pop('is_property', None)
+        resource_pool = kwargs.pop('resource_pool', None)
         type_substitutions = kwargs.pop('type_substitutions', None)
         force_stored = kwargs.pop('_force_stored', False)
         if len(kwargs) > 0:
@@ -67,6 +69,7 @@ def udf(*args, **kwargs):
                 substitute_fn=substitute_fn,
                 is_method=is_method,
                 is_property=is_property,
+                resource_pool=resource_pool,
                 type_substitutions=type_substitutions,
                 force_stored=force_stored
             )
@@ -82,6 +85,7 @@ def make_function(
     substitute_fn: Optional[Callable] = None,
     is_method: bool = False,
     is_property: bool = False,
+    resource_pool: Optional[str] = None,
     type_substitutions: Optional[Sequence[dict]] = None,
     function_name: Optional[str] = None,
     force_stored: bool = False
@@ -162,6 +166,8 @@ def make_function(
         is_method=is_method,
         is_property=is_property
     )
+    if resource_pool is not None:
+        result.resource_pool(lambda: resource_pool)
 
     # If this function is part of a module, register it
     if function_path is not None:

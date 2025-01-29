@@ -6,13 +6,15 @@ from dataclasses import dataclass
 from typing import Any, Iterable, Optional, Sequence
 from uuid import UUID
 
+import numpy as np
 import sqlalchemy as sql
-
 import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
 import pixeltable.func as func
 import pixeltable.utils as utils
+from pixeltable.utils.media_store import MediaStore
 from .data_row import DataRow
+from pixeltable.env import Env
 from .expr import Expr
 from .expr_set import ExprSet
 
@@ -30,7 +32,7 @@ class ExecProfile:
             per_call_time = self.eval_time[i] / self.eval_count[i]
             calls_per_row = self.eval_count[i] / num_rows
             multiple_str = f'({calls_per_row}x)' if calls_per_row > 1 else ''
-            print(f'{self.row_builder.unique_exprs[i]}: {utils.print_perf_counter_delta(per_call_time)} {multiple_str}')
+            Env.get().console_logger.info(f'{self.row_builder.unique_exprs[i]}: {utils.print_perf_counter_delta(per_call_time)} {multiple_str}')
 
 
 @dataclass
@@ -67,6 +69,12 @@ class RowBuilder:
     # _exc_dependents[i]
     # (list of set of slot_idxs, indexed by slot_idx)
     _exc_dependents: list[set[int]]
+
+    # dependents[i] = direct dependents of expr with slot idx i; dependents[i, j] == True: expr j depends on expr i
+    dependents: np.ndarray  # of bool
+    transitive_dependents: np.ndarray  # of bool
+    # dependencies[i] = direct dependencies of expr with slot idx i; transpose of dependents
+    dependencies: np.ndarray  # of bool
 
     # records the output_expr that a subexpr belongs to
     # (a subexpr can be shared across multiple output exprs)
@@ -176,6 +184,8 @@ class RowBuilder:
 
         # determine transitive dependencies for the purpose of exception propagation
         # (list of set of slot_idxs, indexed by slot_idx)
+        #self.dependents = np.zeros((self.num_materialized, self.num_materialized), dtype=bool)
+        self.dependencies = np.zeros((self.num_materialized, self.num_materialized), dtype=bool)
         exc_dependencies: list[set[int]] = [set() for _ in range(self.num_materialized)]
         from .column_property_ref import ColumnPropertyRef
         for expr in self.unique_exprs:
@@ -185,9 +195,18 @@ class RowBuilder:
             # error properties don't have exceptions themselves
             if isinstance(expr, ColumnPropertyRef) and expr.is_error_prop():
                 continue
+            dependency_idxs = [d.slot_idx for d in expr.dependencies()]
+            self.dependencies[expr.slot_idx, dependency_idxs] = True
             for d in expr.dependencies():
                 exc_dependencies[expr.slot_idx].add(d.slot_idx)
                 exc_dependencies[expr.slot_idx].update(exc_dependencies[d.slot_idx])
+
+        self.dependents = self.dependencies.T
+        self.transitive_dependents = np.zeros((self.num_materialized, self.num_materialized), dtype=bool)
+        for i in reversed(range(self.num_materialized)):
+            self.transitive_dependents[i] = (
+                self.dependents[i] | np.any(self.transitive_dependents[self.dependents[i]], axis=0)
+            )
 
         self._exc_dependents = [set() for _ in range(self.num_materialized)]
         for expr in self.unique_exprs:
@@ -389,6 +408,10 @@ class RowBuilder:
                 table_row[col.errortype_store_name()] = type(exc).__name__
                 table_row[col.errormsg_store_name()] = str(exc)
             else:
+                if col.col_type.is_image_type() and data_row.file_urls[slot_idx] is None:
+                    # we have yet to store this image
+                    filepath = str(MediaStore.prepare_media_path(col.tbl.id, col.id, col.tbl.version))
+                    data_row.flush_img(slot_idx, filepath)
                 val = data_row.get_stored_val(slot_idx, col.sa_col.type)
                 table_row[col.store_name()] = val
                 # we unfortunately need to set these, even if there are no errors

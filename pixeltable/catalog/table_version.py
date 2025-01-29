@@ -532,7 +532,7 @@ class TableVersion:
             f'Added {status.num_rows} column value{"" if status.num_rows == 1 else "s"} '
             f'with {status.num_excs} error{"" if status.num_excs == 1 else "s"}.'
         )
-        print(msg)
+        Env.get().console_logger.info(msg)
         _logger.info(f'Columns {[col.name for col in cols]}: {msg}')
         return status
 
@@ -734,7 +734,8 @@ class TableVersion:
         if conn is None:
             with Env.get().engine.begin() as conn:
                 return self._insert(
-                    plan, conn, time.time(), print_stats=print_stats, rowids=rowids(), abort_on_exc=fail_on_exception)
+                    plan, conn, time.time(), print_stats=print_stats, rowids=rowids(),
+                    abort_on_exc=fail_on_exception)
         else:
             return self._insert(
                 plan, conn, time.time(), print_stats=print_stats, rowids=rowids(), abort_on_exc=fail_on_exception)

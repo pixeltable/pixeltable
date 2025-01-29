@@ -28,7 +28,7 @@ FastAPI-based backend service for Pixeltable providing multimodal processing cap
 ```bash
 uv venv .venv # Or python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
-uv sync
+uv pip install -r requirements.txt
 fastapi dev api/main.py
 ```
 

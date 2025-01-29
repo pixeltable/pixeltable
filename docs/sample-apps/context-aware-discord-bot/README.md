@@ -135,7 +135,7 @@ messages_view = pxt.create_view(
 messages_view.add_embedding_index('text', string_embed=get_embeddings)
 
 # 3. Get relevant context for questions
-@messages_view.query
+@pxt.query
 def get_context(question_text: str):
     sim = messages_view.text.similarity(question_text)
     return messages_view.order_by(sim, asc=False).select(

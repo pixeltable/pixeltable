@@ -3,7 +3,7 @@ from __future__ import annotations
 import inspect
 import json
 import sys
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 import sqlalchemy as sql
 
@@ -26,12 +26,19 @@ class FunctionCall(Expr):
     fn: func.Function
     is_method_call: bool
     agg_init_args: dict[str, Any]
+    resource_pool: Optional[str]
 
     # tuple[Optional[int], Optional[Any]]:
     # - for Exprs: (index into components, None)
     # - otherwise: (None, val)
     args: list[tuple[Optional[int], Optional[Any]]]
     kwargs: dict[str, tuple[Optional[int], Optional[Any]]]
+
+    # maps each parameter name to tuple representing the value it has in the call:
+    # - argument's index in components, if an argument is given in the call
+    # - default value, if no argument given in the call
+    # (in essence, this combines init()'s bound_args and default values)
+    _param_values: dict[str, tuple[Optional[int], Optional[Any]]]
 
     arg_types: list[ts.ColumnType]
     kwarg_types: dict[str, ts.ColumnType]
@@ -62,7 +69,8 @@ class FunctionCall(Expr):
 
         self.fn = fn
         self.is_method_call = is_method_call
-
+        #self.normalize_args(fn.name, signature, bound_args)
+        self.resource_pool = fn.call_resource_pool(bound_args)
         signature = fn.signature
 
         # If `return_type` is non-nullable, but the function call has a nullable input to any of its non-nullable
@@ -93,6 +101,7 @@ class FunctionCall(Expr):
         # construct components, args, kwargs
         self.args = []
         self.kwargs = {}
+        self._param_values = {}
 
         # we record the types of non-variable parameters for runtime type checks
         self.arg_types = []
@@ -106,9 +115,11 @@ class FunctionCall(Expr):
             arg = bound_args[py_param.name]
             if isinstance(arg, Expr):
                 self.args.append((len(self.components), None))
+                self._param_values[py_param.name] = (len(self.components), None)
                 self.components.append(arg.copy())
             else:
                 self.args.append((None, arg))
+                self._param_values[py_param.name] = (None, arg)
             if py_param.kind != inspect.Parameter.VAR_POSITIONAL and py_param.kind != inspect.Parameter.VAR_KEYWORD:
                 self.arg_types.append(signature.parameters[py_param.name].col_type)
             processed_args.add(py_param.name)
@@ -119,11 +130,20 @@ class FunctionCall(Expr):
                 arg = bound_args[param_name]
                 if isinstance(arg, Expr):
                     self.kwargs[param_name] = (len(self.components), None)
+                    self._param_values[param_name] = (len(self.components), None)
                     self.components.append(arg.copy())
                 else:
                     self.kwargs[param_name] = (None, arg)
+                    self._param_values[param_name] = (None, arg)
                 if signature.py_signature.parameters[param_name].kind != inspect.Parameter.VAR_KEYWORD:
                     self.kwarg_types[param_name] = signature.parameters[param_name].col_type
+
+        # fill in default values for parameters that don't have explicit arguments
+        for param in fn.signature.parameters.values():
+            if param.name not in self._param_values:
+                self._param_values[param.name] = (
+                    (None, None) if param.default is inspect.Parameter.empty else (None, param.default)
+                )
 
         # window function state:
         # self.components[self.group_by_start_idx:self.group_by_stop_idx] contains group_by exprs
@@ -374,11 +394,11 @@ class FunctionCall(Expr):
         Update agg state
         """
         assert self.is_agg_fn_call
-        args, kwargs = self._make_args(data_row)
+        args, kwargs = self.make_args(data_row)
         self.aggregator.update(*args, **kwargs)
 
-    def _make_args(self, data_row: DataRow) -> tuple[list[Any], dict[str, Any]]:
-        """Return args and kwargs, constructed for data_row"""
+    def make_args(self, data_row: DataRow) -> Optional[tuple[list[Any], dict[str, Any]]]:
+        """Return args and kwargs, constructed for data_row; returns None if any non-nullable arg is None."""
         kwargs: dict[str, Any] = {}
         for param_name, (component_idx, arg) in self.kwargs.items():
             val = arg if component_idx is None else data_row[self.components[component_idx].slot_idx]
@@ -388,6 +408,8 @@ class FunctionCall(Expr):
                 kwargs.update(val)
             else:
                 assert param.kind != inspect.Parameter.VAR_POSITIONAL
+                if not param.col_type.nullable and val is None:
+                    return None
                 kwargs[param_name] = val
 
         args: list[Any] = []
@@ -403,8 +425,29 @@ class FunctionCall(Expr):
                 assert isinstance(val, dict)
                 kwargs.update(val)
             else:
+                if not param.col_type.nullable and val is None:
+                    return None
                 args.append(val)
         return args, kwargs
+
+    def get_param_values(self, param_names: Sequence[str], data_rows: list[DataRow]) -> list[dict[str, Any]]:
+        """
+        Returns a list of dicts mapping each param name to its value when this FunctionCall is evaluated against
+        data_rows
+        """
+        assert all(name in self._param_values for name in param_names)
+        result: list[dict[str, Any]] = []
+        for row in data_rows:
+            d: dict[str, Any] = {}
+            for param_name in param_names:
+                component_idx, default_val = self._param_values[param_name]
+                if component_idx is None:
+                    d[param_name] = default_val
+                else:
+                    slot_idx = self.components[component_idx].slot_idx
+                    d[param_name] = row[slot_idx]
+            result.append(d)
+        return result
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         if isinstance(self.fn, func.ExprTemplateFunction):
@@ -419,20 +462,12 @@ class FunctionCall(Expr):
             data_row[self.slot_idx] = self.aggregator.value()
             return
 
-        args, kwargs = self._make_args(data_row)
-        signature = self.fn.signature
-        if signature.parameters is not None:
-            # check for nulls
-            for i in range(len(self.arg_types)):
-                if args[i] is None and not self.arg_types[i].nullable:
-                    # we can't evaluate this function
-                    data_row[self.slot_idx] = None
-                    return
-            for param_name, param_type in self.kwarg_types.items():
-                if kwargs[param_name] is None and not param_type.nullable:
-                    # we can't evaluate this function
-                    data_row[self.slot_idx] = None
-                    return
+        args_kwargs = self.make_args(data_row)
+        if args_kwargs is None:
+            # we can't evaluate this function
+            data_row[self.slot_idx] = None
+            return
+        args, kwargs = args_kwargs
 
         if isinstance(self.fn, func.CallableFunction) and not self.fn.is_batched:
             # optimization: avoid additional level of indirection we'd get from calling Function.exec()
