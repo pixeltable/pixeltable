@@ -122,13 +122,13 @@ class TestAudio:
             video_t,
             iterator=AudioIterator.create(
                 audio=video_t.audio,
-                chunk_duration=5.0,
-                overlap=1.0,
-                min_chunk_duration=1.0
+                chunk_duration=2.0,
+                overlap=0.5,
+                min_chunk_duration=0.5,
+                drop_incomplete_chunks=True
             )
         )
         print(audio_chunk_view.count())
-
-
-
+        result = audio_chunk_view.where(audio_chunk_view.chunk_idx >= 2).collect()
+        print(result)
 

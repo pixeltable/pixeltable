@@ -132,7 +132,7 @@ class AudioIterator(ComponentIterator):
                     # current frame is behind chunk's start time
                     continue
                 frame_end = frame.pts + frame.samples
-                # Check that chunk starts in the middle of this frame
+                # Check that frame's start and end covers start of this chunk
                 assert target_chunk_start < frame_end and frame.pts >= target_chunk_start
                 if frame_count == 0:
                     # Record start of the first frame
@@ -145,6 +145,7 @@ class AudioIterator(ComponentIterator):
                 if frame_end < target_chunk_end:
                     # we have more data to collect
                     continue
+                # record result
                 chunk_end_pts = frame_end
                 if frame_count > 0:
                     packet = output_stream.encode(None)
