@@ -186,6 +186,7 @@ class Expr(abc.ABC):
     def substitute(self, spec: dict[Expr, Expr]) -> Expr:
         """
         Replace 'old' with 'new' recursively.
+        The call must take the form: with expr = expr.substitute(spec)
         """
         for old, new in spec.items():
             if self.equals(old):
@@ -375,6 +376,10 @@ class Expr(abc.ABC):
         if self.is_constant():
             return self._as_constant()
         return None
+
+    def is_foldable(self) ->bool:
+        """Returns True if this expr is constant-foldable."""
+        return false
 
     @classmethod
     def from_array(cls, elements: Iterable) -> Optional[Expr]:

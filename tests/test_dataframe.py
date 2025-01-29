@@ -275,6 +275,26 @@ class TestDataFrame:
             _ = t.order_by(datetime.datetime.now()).collect()  # type: ignore[arg-type]
         assert 'Invalid expression' in str(exc_info.value)
 
+    def test_limit(self, test_tbl: catalog.Table) -> None:
+        t = test_tbl
+        nrows = 3
+        res = t.select(t.c4).limit(nrows).collect()
+        assert len(res) == nrows
+
+        @pxt.query
+        def get_lim(n: int):
+            return t.select(t.c4).limit(n)
+
+        res = t.select(t.c4, get_lim(2)).collect()
+        print(res)
+        print(res[0]['get_lim'])
+        assert res[0]['get_lim'] == [{'c4': False}, {'c4': True}]
+
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.limit(5.3).collect()
+        assert 'must be of type int' in str(exc_info.value)
+
+
     def test_head_tail(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         res = t.head(10).to_pandas()
