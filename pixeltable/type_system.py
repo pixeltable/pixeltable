@@ -801,6 +801,8 @@ class ArrayType(ColumnType):
     def __init__(self, shape: Optional[tuple[Optional[int], ...]] = None, dtype: Optional[ColumnType] = None, nullable: bool = False):
         super().__init__(self.Type.ARRAY, nullable=nullable)
         assert shape is None or dtype is not None, (shape, dtype)  # cannot specify a shape without a dtype
+        assert dtype is None or dtype.is_int_type() or dtype.is_float_type() or dtype.is_bool_type() or dtype.is_string_type()
+
         self.shape = shape
         self.pxt_dtype = dtype
         self.dtype = None if dtype is None else dtype._type
@@ -840,8 +842,7 @@ class ArrayType(ColumnType):
             return 'Array'
         if self.shape is None:
             return f'Array[{self.pxt_dtype}]'
-        if self.dtype is None:
-            return f'Array[{self.shape}]'
+        assert self.dtype is not None
         return f'Array[{self.shape}, {self.pxt_dtype}]'
 
     @classmethod
@@ -888,11 +889,9 @@ class ArrayType(ColumnType):
                 return False
             # check that the shapes are compatible
             for n1, n2 in zip(val.shape, self.shape):
-                if n1 is None:
-                    return False
+                assert n1 is not None  # `val` must have a concrete shape
                 if n2 is None:
-                    # wildcard
-                    continue
+                    continue  # wildcard
                 if n1 != n2:
                     return False
 
