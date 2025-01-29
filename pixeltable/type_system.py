@@ -804,7 +804,7 @@ class ArrayType(ColumnType):
         assert dtype is None or dtype.is_int_type() or dtype.is_float_type() or dtype.is_bool_type() or dtype.is_string_type()
 
         self.shape = shape
-        self.pxt_dtype = dtype
+        self.pxt_dtype = dtype  # we need this for copy() and __str__()
         self.dtype = None if dtype is None else dtype._type
 
     def copy(self, nullable: bool) -> ColumnType:
