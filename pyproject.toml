@@ -191,6 +191,8 @@ max-line-length = 120
 disable = ["C0114","C0116","C0415","E1121","R0401","R0801","R0902","R0913","R0914","W0511"]
 
 [tool.pytest.ini_options]
+log_cli_level = "DEBUG"
+log_level = "DEBUG"
 addopts = "-v -m \"not remote_api and not expensive\" --strict-markers"
 markers = [
     "remote_api: marks tests as calling a remote API (such as OpenAI)",

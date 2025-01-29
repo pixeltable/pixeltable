@@ -56,7 +56,8 @@ class ExecNode(abc.ABC):
         running_loop: Optional[asyncio.AbstractEventLoop] = None
         loop: asyncio.AbstractEventLoop
         try:
-            # check if we are already in an event loop (eg, Jupyter's); if so, patch it to allow nested event loops
+            # check if we are already in an event loop (eg, Jupyter's); if so, patch it to allow
+            # multiple run_until_complete()
             running_loop = asyncio.get_running_loop()
             import nest_asyncio  # type: ignore
             nest_asyncio.apply()
