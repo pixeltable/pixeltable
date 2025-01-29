@@ -1063,26 +1063,22 @@ class TestTable:
         # bad array literal
         pxt.drop_table(tbl_name, if_not_exists='ignore')
         t = pxt.create_table(tbl_name, {'c5': pxt.Array[(2, 3), pxt.Int]})  # type: ignore[misc]
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(excs.Error, match=r'expected numpy.ndarray\(\(2, 3\)'):
             t.insert(c5=np.ndarray((3, 2)))
-        assert 'expected numpy.ndarray((2, 3)' in str(exc_info.value)
 
         # bad array literal
         pxt.drop_table(tbl_name, if_not_exists='ignore')
         t = pxt.create_table(tbl_name, {'c5': pxt.Array[pxt.Int]})  # type: ignore[misc]
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(excs.Error, match='expected numpy.ndarray of dtype int64'):
             t.insert(c5=np.ndarray((3, 2), dtype=np.float32))
-        assert 'expected numpy.ndarray of dtype int64' in str(exc_info.value)
 
         # bad array literal
         pxt.drop_table(tbl_name, if_not_exists='ignore')
         t = pxt.create_table(tbl_name, {'c5': pxt.Array})
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(excs.Error, match='expected numpy.ndarray, got'):
             t.insert(c5=8)
-        assert 'expected numpy.ndarray, got' in str(exc_info.value)
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(excs.Error, match='unsupported dtype'):
             t.insert(c5=np.ndarray((3, 2), dtype=np.complex128))  # unsupported dtype
-        assert 'unsupported dtype' in str(exc_info.value)
 
         # test that insert skips expression evaluation for
         # any columns that are not part of the current schema.
@@ -2292,7 +2288,7 @@ class TestTable:
             {
                 'fixed_shape': np.zeros((3, 7, 5), dtype=np.int64),
                 'gen_shape': np.zeros((2, 6), dtype=np.float32),
-                'gen': np.array([[1, 7, 3], [2, 4, 5]])
+                'gen': np.array([[1, 7, 3], [2, 4, 5]], dtype=np.int64)
             }
         ]
         t.insert(rows)
