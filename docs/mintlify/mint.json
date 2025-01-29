@@ -50,20 +50,16 @@
   },
   "tabs": [
     {
-      "name": "API Reference",
-      "url": "https://pixeltable.github.io/pixeltable/"
-    },
-    {
       "name": "Tutorials",
       "url": "/docs/tutorials"
     },
     {
+      "name": "API Reference",
+      "url": "https://pixeltable.github.io/pixeltable/"
+    },
+    {
       "name": "Integrations",
       "url": "/docs/integrations"
-    }, 
-    {
-      "name": "Sample Apps",
-      "url": "https://github.com/pixeltable/pixeltable/tree/main/docs/sample-apps"
     },
     {
       "name": "Changelog",
@@ -146,7 +142,8 @@
         "docs/tutorials/fundamentals",
         "docs/tutorials/feature-guide",
         "docs/tutorials/use-cases",
-        "docs/tutorials/hugging-Face-Spaces"
+        "docs/tutorials/interactive-demos",
+        "docs/tutorials/sample-apps"
       ]
     },
     {
