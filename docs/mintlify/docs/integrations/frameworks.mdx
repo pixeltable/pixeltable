@@ -4,13 +4,13 @@ description: 'Explore Pixeltable ecosystem of built-in integrations for AI/ML wo
 icon: 'toolbox'
 ---
 
-From language models to computer vision frameworks Pixeltable integrates with the entire ecosystem. All integrations are available out-of-the-box with Pixeltable installation. No additional setup required unless specified.
+From language models to computer vision frameworks, Pixeltable integrates with the entire ecosystem. All integrations are available out-of-the-box with Pixeltable installation. No additional setup required unless specified.
 
 <Note>
 If you have a framework that you want us to integrate with, please reach out and you can also leverage Pixeltable's [UDFs](https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/feature-guides/udfs-in-pixeltable.ipynb) to build your own.
 </Note>
 
-## Language Models
+## Cloud LLM Providers
 
 <CardGroup cols={3}>
   <Card
@@ -22,7 +22,7 @@ If you have a framework that you want us to integrate with, please reach out and
   </Card>
 
   <Card
-    title="Gemini"
+    title="Google Gemini"
     icon="sparkles"
     href="/integrations/llms/gemini"
   >
@@ -46,22 +46,6 @@ If you have a framework that you want us to integrate with, please reach out and
   </Card>
 
   <Card
-    title="Llama.cpp"
-    icon="microchip"
-    href="/integrations/llms/llama-cpp"
-  >
-    Run open-source LLMs locally with efficient CPU/GPU optimization
-  </Card>
-
-  <Card
-    title="Ollama"
-    icon="box"
-    href="/integrations/llms/ollama"
-  >
-    Deploy and run open-source models locally with easy management
-  </Card>
-
-  <Card
     title="Together AI"
     icon="users"
     href="/integrations/llms/together"
@@ -76,27 +60,51 @@ If you have a framework that you want us to integrate with, please reach out and
   >
     Use Fireworks.ai's optimized model inference infrastructure
   </Card>
+</CardGroup>
+
+## Local LLM Runtimes
+
+<CardGroup cols={2}>
+  <Card
+    title="Llama.cpp"
+    icon="microchip"
+    href="/integrations/local-llm/llama-cpp"
+  >
+    High-performance C++ implementation for running LLMs on CPU and GPU
+  </Card>
+
+  <Card
+    title="Ollama"
+    icon="box"
+    href="/integrations/local-llm/ollama"
+  >
+    Easy-to-use toolkit for running and managing open-source models locally
+  </Card>
+</CardGroup>
+
+## Model Hubs & Repositories
+
+<CardGroup cols={2}>
+  <Card
+    title="Hugging Face Hub"
+    icon="face-smile"
+    href="/integrations/model-hubs/huggingface"
+  >
+    Access thousands of pre-trained models and datasets across various domains
+  </Card>
 
   <Card
     title="Replicate"
     icon="clone"
-    href="/integrations/llms/replicate"
+    href="/integrations/model-hubs/replicate"
   >
-    Deploy and run ML models through Replicate's cloud platform
+    Deploy and run ML models through Replicate's model repository
   </Card>
 </CardGroup>
 
-## Computer Vision
+## Computer Vision 
 
-<CardGroup cols={3}>
-  <Card
-    title="Label Studio"
-    icon="tags"
-    href="/integrations/cv/label-studio"
-  >
-    Integrate with Label Studio for data annotation and labeling workflows
-  </Card>
-
+<CardGroup cols={2}>
   <Card
     title="YOLOX"
     icon="camera"
@@ -114,6 +122,19 @@ If you have a framework that you want us to integrate with, please reach out and
   </Card>
 </CardGroup>
 
+## Annotation Tools
+
+<CardGroup cols={1}>
+  <Card
+    title="Label Studio"
+    icon="tags"
+    href="/integrations/annotation/label-studio"
+  >
+    Comprehensive platform for data annotation and labeling workflows
+  </Card>
+
+</CardGroup>
+
 ## Audio Processing
 
 <Card
@@ -124,25 +145,15 @@ If you have a framework that you want us to integrate with, please reach out and
   High-quality speech recognition and transcription using OpenAI's Whisper models
 </Card>
 
-## Data Science
+## Data Wrangling
 
-<CardGroup cols={2}>
-  <Card
-    title="Hugging Face"
-    icon="face-smile"
-    href="/integrations/data/huggingface"
-  >
-    Access thousands of models and datasets from the Hugging Face hub
-  </Card>
-
-  <Card
-    title="Pandas"
-    icon="table"
-    href="/integrations/data/pandas"
-  >
-    Seamlessly work with Pandas DataFrames in your Pixeltable workflows
-  </Card>
-</CardGroup>
+<Card
+  title="Pandas"
+  icon="table"
+  href="/integrations/data/pandas"
+>
+  Import and Export from and to Pandas DataFrames if needed
+</Card>
 
 ## Usage Examples
 
