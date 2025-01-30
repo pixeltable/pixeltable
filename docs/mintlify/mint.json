@@ -76,53 +76,54 @@
         "docs/overview/configuration"
       ]
     },
+    {
+      "group": "Fundamentals",
+      "pages": [
+        "docs/fundamentals/tables-and-operations",
+        "docs/fundamentals/views",
+        "docs/fundamentals/filtering-and-selecting",
+        "docs/fundamentals/computed-columns",
+        "docs/fundamentals/custom-functions",            
+        "docs/fundamentals/embedding-index"
+      ]
+    },        
+    {          
+      "group": "Examples",
+      "pages": [
+        "docs/examples/overview",          
         {
-          "group": "Fundamentals",
+          "group": "Chat",
           "pages": [
-            "docs/fundamentals/tables-and-operations",
-            "docs/fundamentals/views",
-            "docs/fundamentals/filtering-and-selecting",
-            "docs/fundamentals/computed-columns",
-            "docs/fundamentals/custom-functions",            
-            "docs/fundamentals/embedding-index"
-          ]
-        },        
-        {          
-          "group": "Examples",
-          "pages": [
-            "docs/examples/overview",          
-            {
-              "group": "Chat",
-              "pages": [
-                "docs/examples/chat/multimodal",
-                "docs/examples/chat/memory",
-                "docs/examples/chat/tools"
-              ]
-            },
-            {
-              "group": "Vision",
-              "pages": [
-                "docs/examples/vision/label-studio",
-                "docs/examples/vision/voxel51",
-                "docs/examples/vision/yolox"              ]
-            },            
-            {
-              "group": "Search",
-              "pages": [
-                "docs/examples/search/audio",
-                "docs/examples/search/images",
-                "docs/examples/search/PDF",
-                "docs/examples/search/website"
-              ]
-            },
-            {
-              "group": "Evaluation",
-              "pages": [
-                "docs/examples/evaluations/llm-as-a-judge"
-              ]
-            }           
+            "docs/examples/chat/multimodal",
+            "docs/examples/chat/memory",
+            "docs/examples/chat/tools"
           ]
         },
+        {
+          "group": "Vision",
+          "pages": [
+            "docs/examples/vision/label-studio",
+            "docs/examples/vision/voxel51",
+            "docs/examples/vision/yolox"
+          ]
+        },            
+        {
+          "group": "Search",
+          "pages": [
+            "docs/examples/search/audio",
+            "docs/examples/search/images",
+            "docs/examples/search/PDF",
+            "docs/examples/search/website"
+          ]
+        },
+        {
+          "group": "Evaluation",
+          "pages": [
+            "docs/examples/evaluations/llm-as-a-judge"
+          ]
+        }           
+      ]
+    },
     {
       "group": "Support",
       "pages": [
@@ -149,8 +150,14 @@
     {
       "group": "Ecosystem",
       "pages": [
-        "docs/integrations/integrations"
+        "docs/integrations/frameworks"
       ]
-    }
+    },
+      {
+        "group": "Bring Your Own",
+        "pages": [
+          "docs/integrations/embedding-model"
+        ]
+      }
   ]
 }
