@@ -1,7 +1,11 @@
-from config import DIRECTORY, OPENAI_MODEL
+from config import ANTHROPIC_MODEL, DIRECTORY
 
 import pixeltable as pxt
-from pixeltable.functions import openai
+from pixeltable.functions import anthropic
+
+# Create a fresh directory
+pxt.drop_dir(DIRECTORY, force=True)
+pxt.create_dir(DIRECTORY, if_exists='ignore')
 
 # Create the table
 print('Creating conversations table...')
@@ -16,12 +20,12 @@ conversations.add_computed_column(messages=[{'role': 'user', 'content': conversa
 
 # Create the OpenAI response column
 conversations.add_computed_column(
-    response=openai.chat_completions(
+    response=anthropic.messages(
         messages=conversations.messages,
-        model=OPENAI_MODEL,
+        model=ANTHROPIC_MODEL,
     )
 )
 
 # Create the answer column
-conversations.add_computed_column(answer=conversations.response.choices[0].message.content)
+conversations.add_computed_column(answer=conversations.response.content[0].text)
 print('Setup complete!')

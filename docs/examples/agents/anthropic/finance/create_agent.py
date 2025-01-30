@@ -1,10 +1,15 @@
 from typing import Optional
 
 import yfinance as yf
-from config import DIRECTORY, ANTHROPIC_MODEL
+from config import ANTHROPIC_MODEL, DIRECTORY
 
 import pixeltable as pxt
-from pixeltable.functions.anthropic import messages, invoke_tools
+from pixeltable.functions.anthropic import invoke_tools, messages
+
+
+# Create fresh environment
+pxt.drop_dir(DIRECTORY, force=True)
+pxt.create_dir(DIRECTORY, if_exists='ignore')
 
 # Create Agent Table
 finance_agent = pxt.create_table(f'{DIRECTORY}.finance', {'prompt': pxt.String}, if_exists='ignore')

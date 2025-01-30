@@ -6,6 +6,11 @@ from config import DIRECTORY, OPENAI_MODEL
 import pixeltable as pxt
 from pixeltable.functions.openai import chat_completions, invoke_tools
 
+
+# Create Fresh Directory
+pxt.drop_dir(DIRECTORY, force=True)
+pxt.create_dir(DIRECTORY, if_exists='ignore')
+
 # Create Agent Table
 finance_agent = pxt.create_table(f'{DIRECTORY}.finance', {'prompt': pxt.String}, if_exists='ignore')
 messages = [{'role': 'user', 'content': finance_agent.prompt}]

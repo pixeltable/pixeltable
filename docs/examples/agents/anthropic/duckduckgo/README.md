@@ -30,17 +30,17 @@ The project configuration is stored in `config.py`:
 
 ## Setup and Usage
 
-1. First, run the setup script to initialize the environment:
+1. First, run the agent creation script:
 ```bash
-python setup.py
+python create_agent.py
 ```
 
-2. The setup script will automatically execute `02_create_agent.py`, which:
-   - Creates a news agent table
-   - Adds the DuckDuckGo search tool
-   - Sets up the processing pipeline with Claude
+This script will:
+- Create a news agent table
+- Add the DuckDuckGo search tool
+- Set up the processing pipeline with Claude
 
-3. To interact with the agent, use `chat.py`:
+2. To interact with the agent, use `chat.py`:
 ```bash
 python chat.py
 ```
@@ -63,8 +63,7 @@ news_agent.insert(prompt="What's the latest news in Los Angeles?")
 
 ## Project Structure
 
-- `01_setup.py`: Initializes the Pixeltable environment
-- `02_create_agent.py`: Creates and configures the news agent
+- `create_agent.py`: Creates and configures the news agent
 - `chat.py`: Interface for interacting with the agent
 - `config.py`: Project configuration
 - `requirements.txt`: Package dependencies

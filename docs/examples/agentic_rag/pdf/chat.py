@@ -10,10 +10,6 @@ agent_table = pxt.get_table(f'{DIRECTORY}.conversations')
 document_urls = [
     DOCUMENT_URL + doc
     for doc in [
-        'Argus-Market-Digest-June-2024.pdf',
-        'Argus-Market-Watch-June-2024.pdf',
-        'Company-Research-Alphabet.pdf',
-        'Jefferson-Amazon.pdf',
         'Mclean-Equity-Alphabet.pdf',
         'Zacks-Nvidia-Repeport.pdf',
     ]

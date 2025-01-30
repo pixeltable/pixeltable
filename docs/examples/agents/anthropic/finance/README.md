@@ -5,73 +5,74 @@ This example demonstrates how to create an AI agent that can retrieve and analyz
 ## Overview
 
 The example shows how to:
-- Set up a Pixeltable environment for the finance agent
 - Create an agent that can process financial queries
 - Use yfinance as a tool to fetch real-time stock information
 - Process the results using Anthropic's Claude model
 - Get meaningful responses about stock information
 
-## Installation
+## Requirements
 
-1. Install the required packages:
+Install the required packages:
 ```bash
 pip install -r requirements.txt
 ```
 
-## Files Structure
-
-- `setup.py`: Initializes the Pixeltable environment
-- `02_create_agent.py`: Creates the finance agent with stock information tools
-- `chat.py`: Example usage of the finance agent
-- `config.py`: Configuration settings
-- `requirements.txt`: Required Python packages
-
-## Usage
-
-1. First, run the setup script:
-```bash
-python setup.py
-```
-
-2. You can then use the chat interface to ask questions about stocks:
-```bash
-python chat.py
-```
-
-Example query:
-```python
-"What's the stock price of Nvidia?"
-```
-
-## How it Works
-
-1. The setup script (`setup.py`) creates a fresh Pixeltable environment.
-
-2. The agent creation script (`02_create_agent.py`):
-   - Creates a table to store queries and responses
-   - Defines a stock_info tool using yfinance
-   - Processes queries through multiple steps:
-     - Initial Claude response
-     - Tool invocation
-     - Final response generation
-
-3. The chat interface (`chat.py`) provides a simple way to interact with the agent.
-
-## Configuration
-
-The `config.py` file contains:
-- `DIRECTORY`: The Pixeltable directory name
-- `ANTHROPIC_MODEL`: The Anthropic model to use
-
-## Dependencies
-
+The following dependencies are needed:
 - pixeltable
 - anthropic
 - yfinance
 
-## Note
+## Configuration
 
-Make sure you have your Anthropic API key properly configured in your environment before running the example. 
+The project configuration is stored in `config.py`:
+- `DIRECTORY`: The Pixeltable directory where data will be stored
+- `ANTHROPIC_MODEL`: The Anthropic model to use for processing
+
+## Setup and Usage
+
+1. First, run the agent creation script:
+```bash
+python create_agent.py
+```
+
+This script will:
+- Create a finance agent table
+- Add the yfinance stock information tool
+- Set up the processing pipeline with Claude
+
+2. To interact with the agent, use `chat.py`:
+```bash
+python chat.py
+```
+
+The agent will:
+1. Take your finance-related query
+2. Fetch relevant stock information using yfinance
+3. Process the results using Claude
+4. Return a detailed response
+
+## Example Usage
+
+```python
+import pixeltable as pxt
+from config import DIRECTORY
+
+finance_agent = pxt.get_table(f"{DIRECTORY}.finance")
+finance_agent.insert(prompt="What's the stock price of Nvidia?")
+```
+
+## Project Structure
+
+- `create_agent.py`: Creates and configures the finance agent
+- `chat.py`: Interface for interacting with the agent
+- `config.py`: Project configuration
+- `requirements.txt`: Package dependencies
+
+## Notes
+
+- The agent uses yfinance to fetch real-time stock information
+- It can process various types of financial queries about stocks
+- Make sure you have your Anthropic API key properly configured in your environment before running the example:
 
 ```bash
 export ANTHROPIC_API_KEY=your_api_key

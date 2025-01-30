@@ -1,10 +1,10 @@
 from typing import Dict, List
 
-from config import DIRECTORY, ANTHROPIC_MODEL
+from config import DIRECTORY, OPENAI_MODEL
 
 import pixeltable as pxt
 
-# Create fresh environment
+# Create fresh environment (optional)
 pxt.drop_dir(DIRECTORY, force=True)
 pxt.create_dir(DIRECTORY, if_exists='ignore')
 
@@ -38,7 +38,14 @@ def get_recent_memory():
 @pxt.udf
 def create_messages(past_context: List[Dict], current_message: str) -> List[Dict]:
     """Create messages list with system prompt, memory context and new message"""
-    messages = []
+    messages = [
+        {
+            'role': 'system',
+            'content': """You are a chatbot with memory capabilities. 
+        Use the conversation history to provide contextual and informed responses.
+        Remember previous interactions and refer back to them when relevant.""",
+        }
+    ]
 
     # Add conversation history from memory
     messages.extend([{'role': msg['role'], 'content': msg['content']} for msg in past_context])
@@ -49,18 +56,10 @@ def create_messages(past_context: List[Dict], current_message: str) -> List[Dict
     return messages
 
 
-system_prompt = """
-You are a chatbot with memory capabilities. 
-Use the conversation history to provide contextual and informed responses.
-Remember previous interactions and refer back to them when relevant.
-"""
-
 # Add computed columns for response generation pipeline
 chat_session.add_computed_column(memory_context=get_recent_memory())
 chat_session.add_computed_column(prompt=create_messages(chat_session.memory_context, chat_session.user_message))
 chat_session.add_computed_column(
-    llm_response=pxt.functions.anthropic.messages(
-        system=system_prompt, messages=chat_session.prompt, model=ANTHROPIC_MODEL
-    )
+    llm_response=pxt.functions.openai.chat_completions(messages=chat_session.prompt, model=OPENAI_MODEL)
 )
-chat_session.add_computed_column(assistant_response=chat_session.llm_response.content[0].text)
+chat_session.add_computed_column(assistant_response=chat_session.llm_response.choices[0].message.content)

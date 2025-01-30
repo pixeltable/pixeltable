@@ -5,6 +5,10 @@ from duckduckgo_search import DDGS
 import pixeltable as pxt
 from pixeltable.functions.openai import chat_completions, invoke_tools
 
+# Create fresh environment
+pxt.drop_dir(DIRECTORY, force=True)
+pxt.create_dir(DIRECTORY, if_exists='ignore')
+
 # Create Agent Table
 news_agent = pxt.create_table(f'{DIRECTORY}.news', {'prompt': pxt.String}, if_exists='ignore')
 messages = [{'role': 'user', 'content': news_agent.prompt}]

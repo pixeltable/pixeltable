@@ -19,7 +19,7 @@ pip install -r requirements.txt
 
 1. Run the setup script to create the database and tables:
 ```bash
-python 01_setup.py
+python create_chat_table.py
 ```
 
 2. Run the chatbot:
