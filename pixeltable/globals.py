@@ -420,9 +420,6 @@ def get_table(path: str) -> catalog.Table:
     assert isinstance(obj, catalog.Table)
     return obj
 
-get_view = get_table
-get_snapshot = get_table
-
 def move(path: str, new_path: str) -> None:
     """Move a schema object to a new directory and/or rename a schema object.
 
