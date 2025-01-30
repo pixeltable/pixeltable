@@ -6,10 +6,7 @@ import inspect
 import logging
 import sys
 import time
-from dataclasses import dataclass
 from typing import Optional, Awaitable, Collection
-
-import openai
 
 from pixeltable import env
 from pixeltable import func
