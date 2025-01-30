@@ -14,6 +14,7 @@ pxt.create_dir(DIRECTORY, if_exists='ignore')
 # Create Agent Table
 finance_agent = pxt.create_table(f'{DIRECTORY}.finance', {'prompt': pxt.String}, if_exists='ignore')
 
+
 # Add yfinance tool
 @pxt.udf
 def stock_info(ticker: str) -> Optional[dict]:

@@ -16,4 +16,3 @@ tables = [
 for table in tables:
     print(f'\nExecuting {table}...')
     exec(open(table).read())
-
