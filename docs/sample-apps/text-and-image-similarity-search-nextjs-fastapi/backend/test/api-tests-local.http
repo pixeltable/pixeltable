@@ -33,7 +33,7 @@ bangkok
 
 
 ### ✅ Test: Image Search (Valid)
-POST http://127.0.0.1:8000/api/search
+POST http://127.0.0.1:8081/api/search
 Content-Type: multipart/form-data; boundary=boundary456
 
 --boundary456
@@ -45,8 +45,8 @@ Content-Disposition: form-data; name="num_results"
 
 1
 --boundary456
-Content-Disposition: form-data; name="query"; filename="snap_bangkok.jpg"
+Content-Disposition: form-data; name="query"; filename="snap_bangkok.png"
 Content-Type: image/jpg
 
-< ./../../../../../tests/data/images/snap_bangkok.jpg
+< ./../../../../../tests/data/images/snap_bangkok.png
 --boundary456--
