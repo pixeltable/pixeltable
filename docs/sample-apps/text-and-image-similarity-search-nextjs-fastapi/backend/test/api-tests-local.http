@@ -1,0 +1,52 @@
+### Test Process Video Endpoint
+POST http://127.0.0.1:8081/api/process-video
+Content-Type: multipart/form-data; boundary=boundary123
+
+--boundary123
+Content-Disposition: form-data; name="file"; filename="bangkok.mp4"
+Content-Type: video/mp4
+
+< ./../../../../../tests/data/videos/bangkok.mp4
+--boundary123--
+
+### ✅ Test: Text Search (Valid)
+POST http://127.0.0.1:8081/api/search
+Content-Type: multipart/form-data; boundary=boundary123
+
+--boundary123
+Content-Disposition: form-data; name="search_type"
+
+text
+--boundary123
+Content-Disposition: form-data; name="num_results"
+
+5
+--boundary123
+Content-Disposition: form-data; name="query"; filename="query.txt"
+Content-Type: text/plain
+
+bangkok
+--boundary123--
+
+
+
+
+
+### ✅ Test: Image Search (Valid)
+POST http://127.0.0.1:8000/api/search
+Content-Type: multipart/form-data; boundary=boundary456
+
+--boundary456
+Content-Disposition: form-data; name="search_type"
+
+image
+--boundary456
+Content-Disposition: form-data; name="num_results"
+
+1
+--boundary456
+Content-Disposition: form-data; name="query"; filename="snap_bangkok.jpg"
+Content-Type: image/jpg
+
+< ./../../../../../tests/data/images/snap_bangkok.jpg
+--boundary456--
