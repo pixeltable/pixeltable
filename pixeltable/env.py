@@ -95,6 +95,9 @@ class Env:
         cls._instance = env
 
     def __init__(self):
+        if self._instance is not None:
+            raise excs.Error('Env is a singleton; use Env.get() to access the instance')
+
         self._home = None
         self._media_dir = None  # computed media files
         self._file_cache_dir = None  # cached media files with external URL
