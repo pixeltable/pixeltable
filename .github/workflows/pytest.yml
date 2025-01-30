@@ -94,6 +94,8 @@ jobs:
       - name: Set up tmate session
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.enable_tmate }}
         uses: mxschmitt/action-tmate@v3
+        with:
+          detached: true
       - name: Delete unnecessary files
         if: ${{ !startsWith(matrix.os, 'windows') }}
         run: |

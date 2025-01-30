@@ -174,7 +174,7 @@ class InsertableTable(Table):
                     row[col_name] = checked_val
                 except TypeError as e:
                     msg = str(e)
-                    raise excs.Error(f'Error in column {col.name}: {msg[0].lower() + msg[1:]}\nRow: {row}')
+                    raise excs.Error(f'Error in column {col.name}: {msg[0].lower() + msg[1:]}\nRow: {row}') from e
 
     def delete(self, where: Optional['pxt.exprs.Expr'] = None) -> UpdateStatus:
         """Delete rows in this table.

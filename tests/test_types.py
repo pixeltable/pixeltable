@@ -98,13 +98,16 @@ class TestTypes:
             Float: (FloatType(nullable=False), 'Float'),
             Bool: (BoolType(nullable=False), 'Bool'),
             Timestamp: (TimestampType(nullable=False), 'Timestamp'),
-            Image: (ImageType(height=None, width=None, mode=None, nullable=False), 'Image'),
+            Array: (ArrayType(nullable=False), 'Array'),
             Json: (JsonType(nullable=False), 'Json'),
+            Image: (ImageType(height=None, width=None, mode=None, nullable=False), 'Image'),
             Video: (VideoType(nullable=False), 'Video'),
             Audio: (AudioType(nullable=False), 'Audio'),
             Document: (DocumentType(nullable=False), 'Document'),
             # Pixeltable types with specialized parameters
+            Array[Int]: (ArrayType(dtype=IntType(), nullable=False), 'Array[Int]'),  # type: ignore[misc]
             Array[(None,), Int]: (ArrayType((None,), dtype=IntType(), nullable=False), 'Array[(None,), Int]'),  # type: ignore[misc]
+            Array[(5,), Bool]: (ArrayType((5,), dtype=BoolType(), nullable=False), 'Array[(5,), Bool]'),  # type: ignore[misc]
             Array[(5, None, 3), Float]: (  # type: ignore[misc]
                 ArrayType((5, None, 3), dtype=FloatType(), nullable=False),
                 'Array[(5, None, 3), Float]',
@@ -148,13 +151,15 @@ class TestTypes:
                 ArrayType((3, 2, 1), dtype=IntType()),
                 ArrayType((None, 2, None), dtype=IntType()),
             ),
-            (ArrayType((1, 2, 3), dtype=IntType()), ArrayType((1, 2), dtype=IntType()), None),
+            (ArrayType((1, 2, 3), dtype=IntType()), ArrayType((1, 2), dtype=IntType()), ArrayType(dtype=IntType())),
             (
                 ArrayType((1, 2, 3), dtype=IntType()),
                 ArrayType((3, 2, 1), dtype=FloatType()),
                 ArrayType((None, 2, None), dtype=FloatType()),
             ),
-            (ArrayType((1, 2, 3), dtype=IntType()), ArrayType((3, 2, 1), dtype=StringType()), None),
+            (ArrayType((1, 2, 3), dtype=IntType()), ArrayType((3, 2, 1), dtype=StringType()), ArrayType()),
+            (ArrayType((1, 2, 3), dtype=IntType()), ArrayType((1, 2), dtype=StringType()), ArrayType()),
+            (ArrayType(), IntType(), None),
             (
                 ImageType(height=100, width=200, mode='RGB'),
                 ImageType(height=100, width=200, mode='RGB'),
@@ -192,8 +197,8 @@ class TestTypes:
                     t1n = t1.copy(nullable=n1)
                     t2n = t2.copy(nullable=n2)
                     expectedn = None if expected is None else expected.copy(nullable=(n1 or n2))
-                    assert t1n.supertype(t2n) == expectedn
-                    assert t2n.supertype(t1n) == expectedn
+                    assert t1n.supertype(t2n) == expectedn, (t1n, t2n)
+                    assert t2n.supertype(t1n) == expectedn, (t1n, t2n)
 
     def test_json_schemas(self, init_env) -> None:
         skip_test_if_not_installed('pydantic')
