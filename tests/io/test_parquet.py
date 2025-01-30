@@ -59,7 +59,7 @@ class TestParquet:
         t.insert([  {'c1': 1, 'c2': 'row1', 'c3': datetime.datetime(2012, 1, 1, 12, 0, 0, 25, tz)},
                     {'c1': 2, 'c2': 'row2', 'c3': datetime.datetime(2012, 2, 1, 12, 0, 0, 25, tz)}])
 
-        tz_default = Env().get().default_time_zone
+        tz_default = Env.get().default_time_zone
 
         print("test_export_parquet_simple with tz: ", tz, "and default tz: ", tz_default)
 
