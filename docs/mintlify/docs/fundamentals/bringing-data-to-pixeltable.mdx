@@ -1,0 +1,243 @@
+---
+title: 'Bringing Data'
+description: 'Learn how to import and work with different types of data in Pixeltable'
+icon: 'file-import'
+---
+
+# Importing Data to Pixeltable
+
+Pixeltable provides multiple ways to bring in your data, supporting various formats and sources. This guide will help you choose the right approach for your use case.
+
+## Quick Start
+
+<Steps>
+  <Step title="Install Dependencies">
+    ```bash
+    pip install -qU pixeltable pandas numpy
+    ```
+  </Step>
+  <Step title="Create Project Structure">
+    ```python
+    import pixeltable as pxt
+    
+    # Optional: Create a directory to organize your data
+    pxt.create_dir('myproject')
+    ```
+  </Step>
+  <Step title="Import Your Data">
+    Choose the appropriate method based on your data source (see below).
+  </Step>
+</Steps>
+
+## Import Methods
+
+<Tabs>
+  <Tab title="CSV Files">
+    ```python
+    # Import CSV with automatic schema detection
+    customers = pxt.io.import_csv(
+        'myproject.customers',
+        'path/to/customers.csv'
+    )
+
+    # Import with schema overrides
+    orders = pxt.io.import_csv(
+        'myproject.orders',
+        'path/to/orders.csv',
+        schema_overrides={
+            'order_date': pxt.Timestamp,
+            'total_amount': pxt.Float,
+            'items': pxt.Json
+        }
+    )
+    ```
+  </Tab>
+
+  <Tab title="Pandas DataFrames">
+    ```python
+    import pandas as pd
+
+    # Create or load your DataFrame
+    df = pd.DataFrame({
+        'name': ['Alice', 'Bob'],
+        'age': [25, 30],
+        'scores': [[95, 88], [92, 85]]  # Complex data
+    })
+
+    # Create table with specific schema
+    users = pxt.create_table('myproject.users', {
+        'name': pxt.String,
+        'age': pxt.Int,
+        'scores': pxt.Json  # For complex data types
+    })
+
+    # Insert DataFrame rows
+    users.insert(df.to_dict('records'))
+    ```
+  </Tab>
+
+  <Tab title="Media Files">
+    ```python
+    # Create table for media files
+    media = pxt.create_table('myproject.media', {
+        'image': pxt.Image,
+        'video': pxt.Video,
+        'document': pxt.Document,
+        'audio': pxt.Audio,
+        'metadata': pxt.Json
+    })
+
+    # Insert from various sources
+    media.insert([
+        {
+            'image': 'https://example.com/image.jpg',
+            'metadata': {'source': 'web'}
+        },
+        {
+            'video': '/path/to/local/video.mp4',
+            'metadata': {'duration': 120}
+        },
+        {
+            'document': 's3://mybucket/doc.pdf',
+            'metadata': {'pages': 10}
+        }
+    ])
+    ```
+  </Tab>
+</Tabs>
+
+## Type Mappings
+
+When importing data, Pixeltable automatically maps common data types:
+
+<ResponseField name="Common Type Mappings" type="table">
+| Source Type | Pixeltable Type | Notes |
+|------------|-----------------|--------|
+| str/text | pxt.String | Text data |
+| int/Int64 | pxt.Int | Integer numbers |
+| float/Float64 | pxt.Float | Decimal numbers |
+| bool | pxt.Bool | Boolean values |
+| datetime | pxt.Timestamp | Date/time values |
+| dict/list | pxt.Json | Complex data structures |
+| numpy.ndarray | pxt.Array | For ML models/embeddings |
+| PIL.Image | pxt.Image | Image data |
+| mp4/mpeg | pxt.Video | Video data |
+</ResponseField>
+
+## Machine Learning Data Types
+
+For ML workflows, Pixeltable supports specialized types:
+
+```python
+# Table for ML model inputs/outputs
+ml_data = pxt.create_table('myproject.ml_data', {
+    # Fixed-size embeddings
+    'text_embedding': pxt.Array[(768,), pxt.Float],
+    
+    # Variable-size features
+    'image_features': pxt.Array[(None, 512), pxt.Float],
+    
+    # Model outputs
+    'predictions': pxt.Json,
+    'confidence_scores': pxt.Json
+})
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Schema Design" icon="sitemap">
+    - Plan your schema carefully
+    - Use appropriate types for your data
+    - Consider future needs for computed columns
+  </Card>
+  
+  <Card title="Performance" icon="gauge">
+    - Use batching for large datasets
+    - Consider compression for media files
+    - Index columns used in frequent queries
+  </Card>
+
+  <Card title="Data Quality" icon="check">
+    - Validate data before import
+    - Handle missing values appropriately
+    - Document data transformations
+  </Card>
+
+  <Card title="Organization" icon="folder-tree">
+    - Use directories to organize tables
+    - Follow consistent naming conventions
+    - Keep related tables together
+  </Card>
+</CardGroup>
+
+<Tip>
+When working with large datasets or complex data types, start with a small sample to verify your schema and import process before processing the full dataset.
+</Tip>
+
+## Common Patterns
+
+<AccordionGroup>
+  <Accordion title="Incremental Updates" icon="rotate">
+    ```python
+    # Check for existing rows
+    existing = table.where(
+        table.id.is_in([r['id'] for r in new_data])
+    ).collect()
+    
+    # Insert only new rows
+    to_insert = [r for r in new_data if r['id'] not in existing['id']]
+    table.insert(to_insert)
+    ```
+  </Accordion>
+
+  <Accordion title="Data Validation" icon="shield-check">
+    ```python
+    # Create table with constraints
+    users = pxt.create_table('myproject.users', {
+        'email': pxt.String,
+        'age': pxt.Int,
+        'score': pxt.Float
+    })
+
+    # Add validation in computed column
+    users.add_computed_column(
+        is_valid=users.age.between(0, 120) & 
+                users.score.between(0, 100)
+    )
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Error Handling
+
+<Warning>
+Always handle potential errors when importing data:
+- File not found or inaccessible
+- Schema mismatches
+- Data type conversion errors
+- Memory constraints
+</Warning>
+
+```python
+try:
+    table = pxt.io.import_csv('myproject.data', 'data.csv')
+except FileNotFoundError:
+    print("CSV file not found")
+except Exception as e:
+    print(f"Import error: {str(e)}")
+```
+
+## Additional Resources
+
+<CardGroup cols={3}>
+  <Card title="API Documentation" icon="book" href="https://pixeltable.github.io/pixeltable/">
+    Complete API reference
+  </Card>
+  <Card title="Examples" icon="lightbulb" href="/docs/examples">
+    Sample import workflows
+  </Card>
+  <Card title="Tutorials" icon="graduation-cap" href="/docs/tutorials">
+    Step-by-step guides
+  </Card>
+</CardGroup>
