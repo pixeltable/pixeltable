@@ -80,6 +80,7 @@ async def messages(
     tools: Optional[list[dict]] = None,
     top_k: Optional[int] = None,
     top_p: Optional[float] = None,
+    timeout: Optional[float] = None,
 ) -> dict:
     """
     Create a Message.
@@ -158,7 +159,7 @@ async def messages(
         tool_choice=_opt(cast(Any, tool_choice_)),
         top_k=_opt(top_k),
         top_p=_opt(top_p),
-        timeout=10,
+        timeout=_opt(timeout),
     )
 
     requests_limit_str = result.headers.get('anthropic-ratelimit-requests-limit')

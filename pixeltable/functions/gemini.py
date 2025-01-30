@@ -22,7 +22,7 @@ def _ensure_loaded() -> None:
 
 
 @pxt.udf
-def generate_content(
+async def generate_content(
     contents: str,
     *,
     model_name: str,
@@ -77,5 +77,9 @@ def generate_content(
         presence_penalty=presence_penalty,
         frequency_penalty=frequency_penalty,
     )
-    response = model.generate_content(contents, generation_config=gc)
+    response = await model.generate_content_async(contents, generation_config=gc)
     return response.to_dict()
+
+@generate_content.resource_pool
+def _(model_name: str) -> str:
+    return f'request-rate:gemini:{model_name}'

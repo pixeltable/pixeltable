@@ -68,7 +68,7 @@ class ExprEvalNode(ExecNode):
     num_output_rows: int
 
     BATCH_SIZE = 64
-    MAX_BUFFERED_ROWS = 512  # maximum number of rows that have been dispatched but not yet returned
+    MAX_BUFFERED_ROWS = 2048  # maximum number of rows that have been dispatched but not yet returned
 
     def __init__(
         self, row_builder: exprs.RowBuilder, output_exprs: Iterable[exprs.Expr], input_exprs: Iterable[exprs.Expr],

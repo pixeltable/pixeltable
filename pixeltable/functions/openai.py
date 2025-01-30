@@ -354,6 +354,7 @@ async def chat_completions(
     tools: Optional[list[dict]] = None,
     tool_choice: Optional[dict] = None,
     user: Optional[str] = None,
+    timeout: Optional[float] = None
 ) -> dict:
     """
     Creates a model response for the given chat conversation.
@@ -416,7 +417,8 @@ async def chat_completions(
         resource_pool, lambda: OpenAIRateLimitsInfo(_chat_completions_get_request_resources))
 
     # cast(Any, ...): avoid mypy errors
-    result = await _async_openai_client().chat.completions.with_raw_response.create(
+    cl = _async_openai_client()
+    result = await cl.chat.completions.with_raw_response.create(
         messages=messages,
         model=model,
         frequency_penalty=_opt(frequency_penalty),
@@ -434,7 +436,7 @@ async def chat_completions(
         tools=_opt(cast(Any, tools)),
         tool_choice=_opt(cast(Any, tool_choice_)),
         user=_opt(user),
-        timeout=10,
+        timeout=_opt(timeout),
         extra_body=extra_body,
     )
 
@@ -505,7 +507,12 @@ def _embeddings_get_request_resources(input: list[str]) -> dict[str, int]:
 
 @pxt.udf(batch_size=32)
 async def embeddings(
-    input: Batch[str], *, model: str, dimensions: Optional[int] = None, user: Optional[str] = None
+    input: Batch[str],
+    *,
+    model: str,
+    dimensions: Optional[int] = None,
+    user: Optional[str] = None,
+    timeout: Optional[float] = None
 ) -> Batch[pxt.Array[(None,), pxt.Float]]:
     """
     Creates an embedding vector representing the input text.
@@ -539,8 +546,8 @@ async def embeddings(
     rate_limits_info = env.Env.get().get_resource_pool_info(
         resource_pool, lambda: OpenAIRateLimitsInfo(_embeddings_get_request_resources))
     result = await _async_openai_client().embeddings.with_raw_response.create(
-        input=input, model=model, dimensions=_opt(dimensions), user=_opt(user), encoding_format='float'
-    )
+        input=input, model=model, dimensions=_opt(dimensions), user=_opt(user), encoding_format='float',
+        timeout=_opt(timeout))
     requests_info, tokens_info = _get_header_info(result.headers)
     rate_limits_info.record(requests=requests_info, tokens=tokens_info)
     return [np.array(data['embedding'], dtype=np.float64) for data in json.loads(result.content)['data']]
@@ -631,7 +638,7 @@ def _(size: Optional[str] = None) -> pxt.ImageType:
 
 
 @pxt.udf
-def moderations(input: str, *, model: str = 'omni-moderation-latest') -> dict:
+async def moderations(input: str, *, model: str = 'omni-moderation-latest') -> dict:
     """
     Classifies if text is potentially harmful.
 
@@ -657,9 +664,12 @@ def moderations(input: str, *, model: str = 'omni-moderation-latest') -> dict:
 
         >>> tbl['moderations'] = moderations(tbl.text, model='text-moderation-stable')
     """
-    result = _retry(_openai_client().moderations.create)(input=input, model=_opt(model))
+    result = await _async_openai_client().moderations.create(input=input, model=_opt(model))
     return result.dict()
 
+@moderations.resource_pool
+def _(model: str) -> str:
+    return f'request-rate:openai:{model}'
 
 # @speech.resource_pool
 # @transcriptions.resource_pool

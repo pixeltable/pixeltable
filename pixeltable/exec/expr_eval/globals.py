@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import abc
 import asyncio
 from dataclasses import dataclass
@@ -37,16 +39,34 @@ class FnCallArgs:
 
 class Scheduler(abc.ABC):
     """
-    Base class for schedulers. A scheduler executes FunctionCalls against a limited resource pool.
+    Base class for queueing schedulers. A scheduler executes FunctionCalls against a limited resource pool.
 
     Expected behavior:
     - all created tasks must be recorded in dispatcher.tasks
     - schedulers are responsible for aborting execution when a) the task is cancelled or b) when an exception occurred
       elsewhere (indicated by dispatcher.exc_event)
     """
-    @abc.abstractmethod
+    @dataclass(frozen=True)
+    class QueueItem:
+        """Container of work items for queueing schedulers"""
+        request: FnCallArgs
+        num_retries: int
+
+        def __lt__(self, other: Scheduler.QueueItem) -> bool:
+            # prioritize by number of retries
+            return self.num_retries > other.num_retries
+
+    resource_pool: str
+    queue: asyncio.PriorityQueue[QueueItem]  # prioritizes retries
+    dispatcher: Dispatcher
+
+    def __init__(self, resource_pool: str, dispatcher: Dispatcher):
+        self.resource_pool = resource_pool
+        self.queue = asyncio.PriorityQueue()
+        self.dispatcher = dispatcher
+
     def submit(self, item: FnCallArgs) -> None:
-        pass
+        self.queue.put_nowait(self.QueueItem(item, 0))
 
     @classmethod
     @abc.abstractmethod
