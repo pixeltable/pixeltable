@@ -5,9 +5,13 @@
 .mypy_cache
 .venv
 .vscode
+.hfcache
+.next
 **/__pycache__
 *.iml
 dist
 docs/local
 site
 target
+.DS_Store
+node_modules/

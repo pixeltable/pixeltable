@@ -51,8 +51,9 @@ npm run dev
 ### Backend Setup
 
 ```bash
-cd docs/sample-apps/text-and-image-similarity-search-nextjs-fastapi
-python -m venv venv
+cd docs/sample-apps/text-and-image-similarity-search-nextjs-fastapi/backend
+python -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt 
 python app.py
 ```

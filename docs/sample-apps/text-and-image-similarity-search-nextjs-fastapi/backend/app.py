@@ -23,6 +23,8 @@ from pixeltable.functions.huggingface import clip
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+DEBUG = False
+
 app = FastAPI()
 
 # Configure CORS
@@ -33,6 +35,19 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Set custom cache directory
+os.environ["HF_HOME"] = "./.hfcache"
+
+if DEBUG:
+
+    from transformers import CLIPProcessor, CLIPModel
+
+    model_name = "openai/clip-vit-base-patch32"
+    model = CLIPModel.from_pretrained(model_name, force_download=True)
+    processor = CLIPProcessor.from_pretrained(model_name, force_download=True)
+
+    print("Model re-downloaded and loaded successfully!")
 
 # Create temp directory
 TEMP_DIR = tempfile.mkdtemp()
@@ -90,7 +105,7 @@ async def search_video(
 ):
     try:
         frames_view = pxt.get_table('video_search.frames')
-        
+
         if search_type == "text":
             # Handle text search
             text_query = query.filename if query else ""  # The text query is sent in the filename field
@@ -99,11 +114,11 @@ async def search_video(
             # Handle image search
             if not query:
                 raise HTTPException(status_code=400, detail="No image provided")
-            
+
             # Read the image file
             contents = await query.read()
             image = PIL.Image.open(io.BytesIO(contents))
-            
+
             # Perform image similarity search
             sim = frames_view.frame.similarity(image)
 
@@ -137,4 +152,4 @@ async def search_video(
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8081)
