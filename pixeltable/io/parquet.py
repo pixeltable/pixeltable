@@ -23,7 +23,7 @@ if typing.TYPE_CHECKING:
     import pyarrow as pa
     import pixeltable as pxt
 
-_logger = logging.getLogger(__name__)
+_logger = logging.getLogger('pixeltable')
 
 
 def _write_batch(value_batch: dict[str, deque], schema: pa.Schema, output_path: Path) -> None:
