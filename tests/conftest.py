@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import pathlib
+from typing import Iterator
 
 import pytest
 from filelock import FileLock
@@ -24,6 +25,16 @@ from .utils import (
     reload_catalog,
     skip_test_if_not_installed,
 )
+
+_logger = logging.getLogger('pixeltable')
+
+
+@pytest.fixture(autouse=True)
+def pxt_test_harness() -> Iterator[None]:
+    current_test = os.environ.get('PYTEST_CURRENT_TEST')
+    _logger.info(f'Running Pixeltable test: {current_test}')
+    yield
+    _logger.info(f'Finished Pixeltable test: {current_test}')
 
 
 @pytest.fixture(scope='session')

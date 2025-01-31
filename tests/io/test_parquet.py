@@ -67,7 +67,7 @@ class TestParquet:
             ]
         )
 
-        tz_default = Env().get().default_time_zone
+        tz_default = Env.get().default_time_zone
 
         print('test_export_parquet_simple with tz: ', tz, 'and default tz: ', tz_default)
 
