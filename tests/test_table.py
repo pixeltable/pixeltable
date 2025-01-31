@@ -387,6 +387,10 @@ class TestTable:
             'req_json_col': pxt.Required[pxt.Json],
             'array_col': pxt.Array[(5, None, 3), pxt.Int],  # type: ignore[misc]
             'req_array_col': pxt.Required[pxt.Array[(5, None, 3), pxt.Int]],  # type: ignore[misc]
+            'gen_array_col': pxt.Array[pxt.Float],  # type: ignore[misc]
+            'req_gen_array_col': pxt.Required[pxt.Array[pxt.Float]],
+            'full_gen_array_col': pxt.Array,
+            'req_full_gen_array_col': pxt.Required[pxt.Array],
             'img_col': pxt.Image,
             'req_img_col': pxt.Required[pxt.Image],
             'spec_img_col': pxt.Image[(300, 300), 'RGB'],  # type: ignore[misc]
@@ -420,6 +424,10 @@ class TestTable:
             'req_json_col': pxt.JsonType(nullable=False),
             'array_col': pxt.ArrayType((5, None, 3), dtype=pxt.IntType(), nullable=True),
             'req_array_col': pxt.ArrayType((5, None, 3), dtype=pxt.IntType(), nullable=False),
+            'gen_array_col': pxt.ArrayType(dtype=pxt.FloatType(), nullable=True),
+            'req_gen_array_col': pxt.ArrayType(dtype=pxt.FloatType(), nullable=False),
+            'full_gen_array_col': pxt.ArrayType(nullable=True),
+            'req_full_gen_array_col': pxt.ArrayType(nullable=False),
             'img_col': pxt.ImageType(nullable=True),
             'req_img_col': pxt.ImageType(nullable=False),
             'spec_img_col': pxt.ImageType(width=300, height=300, mode='RGB', nullable=True),
@@ -452,6 +460,10 @@ class TestTable:
             'Required[Json]',
             'Array[(5, None, 3), Int]',
             'Required[Array[(5, None, 3), Int]]',
+            'Array[Float]',
+            'Required[Array[Float]]',
+            'Array',
+            'Required[Array]',
             'Image',
             'Required[Image]',
             "Image[(300, 300), 'RGB']",
@@ -1051,9 +1063,22 @@ class TestTable:
         # bad array literal
         pxt.drop_table(tbl_name, if_not_exists='ignore')
         t = pxt.create_table(tbl_name, {'c5': pxt.Array[(2, 3), pxt.Int]})  # type: ignore[misc]
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(excs.Error, match=r'expected numpy.ndarray\(\(2, 3\)'):
             t.insert(c5=np.ndarray((3, 2)))
-        assert 'expected ndarray((2, 3)' in str(exc_info.value)
+
+        # bad array literal
+        pxt.drop_table(tbl_name, if_not_exists='ignore')
+        t = pxt.create_table(tbl_name, {'c5': pxt.Array[pxt.Int]})  # type: ignore[misc]
+        with pytest.raises(excs.Error, match='expected numpy.ndarray of dtype int64'):
+            t.insert(c5=np.ndarray((3, 2), dtype=np.float32))
+
+        # bad array literal
+        pxt.drop_table(tbl_name, if_not_exists='ignore')
+        t = pxt.create_table(tbl_name, {'c5': pxt.Array})
+        with pytest.raises(excs.Error, match='expected numpy.ndarray, got'):
+            t.insert(c5=8)
+        with pytest.raises(excs.Error, match='unsupported dtype'):
+            t.insert(c5=np.ndarray((3, 2), dtype=np.complex128))  # unsupported dtype
 
         # test that insert skips expression evaluation for
         # any columns that are not part of the current schema.
@@ -2246,3 +2271,34 @@ class TestTable:
         with pytest.raises(excs.Error) as exc_info:
             t.revert()
         assert expected_err_msg in str(exc_info.value).lower()
+
+    def test_array_columns(self, reset_db: None, reload_tester: ReloadTester) -> None:
+        schema = {
+            'fixed_shape': pxt.Array[(3, None, 5), pxt.Int],  # type: ignore[misc]
+            'gen_shape': pxt.Array[pxt.Float],  # type: ignore[misc]
+            'gen': pxt.Array
+        }
+        t = pxt.create_table('array_tbl', schema)
+        rows = [
+            {
+                'fixed_shape': np.ones((3, 2, 5), dtype=np.int64),
+                'gen_shape': np.ones((1, 2, 3, 4), dtype=np.float32),
+                'gen': np.array(['a', 'b', 'c'])
+            },
+            {
+                'fixed_shape': np.zeros((3, 7, 5), dtype=np.int64),
+                'gen_shape': np.zeros((2, 6), dtype=np.float32),
+                'gen': np.array([[1, 7, 3], [2, 4, 5]], dtype=np.int64)
+            }
+        ]
+        t.insert(rows)
+        results = reload_tester.run_query(t.select())
+        for row, result in zip(rows, results):
+            for key in row:
+                a1 = row[key]
+                a2 = result[key]
+                assert isinstance(a1, np.ndarray)
+                assert isinstance(a2, np.ndarray)
+                assert np.array_equal(a1, a2)
+
+        reload_tester.run_reload_test()

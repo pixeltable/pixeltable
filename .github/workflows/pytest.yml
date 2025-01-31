@@ -181,6 +181,14 @@ jobs:
       - name: Validate links in notebooks
         if: ${{ matrix.test-category == 'lint' }}
         run: ./scripts/lint-notebooks.sh
+      - name: Archive log files
+        # Archive the log files even if a preceding step failed. Currently we do this only on ubuntu runners.
+        if: ${{ always() && startsWith(matrix.os, 'ubuntu') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: pixeltable-pytest-logs-${{ matrix.os }}-${{ matrix.python-version }}-${{
+            matrix.test-category }}${{ matrix.poetry-options }}
+          path: /tmp/pytest-of-runner/pytest-0/base0/.pixeltable/logs
       - name: Print utilization info
         if: ${{ startsWith(matrix.os, 'ubuntu') }}
         run: |
