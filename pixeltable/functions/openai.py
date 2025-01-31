@@ -30,6 +30,9 @@ if TYPE_CHECKING:
 
 _logger = logging.getLogger('pixeltable')
 
+# OpenAI reasoning model prefix
+_COMPLETION_TOKENS_MODELS = {'o'}
+
 
 @env.register_client('openai')
 def _(api_key: str) -> tuple['openai.OpenAI', 'openai.AsyncOpenAI']:
@@ -415,7 +418,9 @@ async def chat_completions(
     rate_limits_info = env.Env.get().get_resource_pool_info(
         resource_pool, lambda: OpenAIRateLimitsInfo(_chat_completions_get_request_resources))
 
-    # cast(Any, ...): avoid mypy errors
+    # Determine token parameter based on model prefix
+    token_param = {'max_completion_tokens' if model[0] in _COMPLETION_TOKENS_MODELS else 'max_tokens': _opt(max_tokens)}
+
     result = await _async_openai_client().chat.completions.with_raw_response.create(
         messages=messages,
         model=model,
@@ -423,7 +428,7 @@ async def chat_completions(
         logit_bias=_opt(logit_bias),
         logprobs=_opt(logprobs),
         top_logprobs=_opt(top_logprobs),
-        max_tokens=_opt(max_tokens),
+        **token_param,
         n=_opt(n),
         presence_penalty=_opt(presence_penalty),
         response_format=_opt(cast(Any, response_format)),
