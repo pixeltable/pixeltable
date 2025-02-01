@@ -1,15 +1,14 @@
+import math
 from typing import Optional
 
 import av  # type: ignore[import-untyped]
-import math
-
 
 import pixeltable as pxt
 import pixeltable.env as env
 from pixeltable.iterators.audio import AudioSplitter
 from pixeltable.utils.media_store import MediaStore
 
-from .utils import get_audio_files, get_audio_file, get_video_files, validate_update_status
+from .utils import get_audio_file, get_audio_files, get_video_files, validate_update_status
 
 
 class TestAudio:
@@ -109,19 +108,20 @@ class TestAudio:
         base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio})
         validate_update_status(base_t.insert({'audio': p} for p in audio_filepaths), expected_rows=len(audio_filepaths))
         audio_chunk_view = pxt.create_view(
-            "audio_chunks",
+            'audio_chunks',
             base_t,
-            iterator = AudioSplitter.create(
+            iterator=AudioSplitter.create(
                 audio=base_t.audio,
-                chunk_duration_sec = 5.0,
-                overlap_sec = 0.0,
-                min_chunk_duration_sec = 0.0,
-                drop_incomplete_chunks=False
-            ))
+                chunk_duration_sec=5.0,
+                overlap_sec=0.0,
+                min_chunk_duration_sec=0.0,
+                drop_incomplete_chunks=False,
+            ),
+        )
         file_to_chunks = self.__get_chunk_counts(audio_filepaths, 5.0)
         results = audio_chunk_view.collect()
         assert len(results) == sum(file_to_chunks.values())
-        file_to_chunks_from_view = {}
+        file_to_chunks_from_view: dict[str, int] = {}
         for result in results:
             file_to_chunks_from_view[result['audio']] = file_to_chunks_from_view.get(result['audio'], 0) + 1
         assert file_to_chunks_from_view == file_to_chunks
@@ -133,18 +133,15 @@ class TestAudio:
         # extract audio
         video_t.add_computed_column(audio=video_t.video.extract_audio(format='mp3'))
         audio_chunk_view = pxt.create_view(
-            'audio_chunks',
-            video_t,
-            iterator=AudioSplitter.create(
-                audio=video_t.audio,
-                chunk_duration_sec=2.0
-            )
+            'audio_chunks', video_t, iterator=AudioSplitter.create(audio=video_t.audio, chunk_duration_sec=2.0)
         )
-        audio_files = [ result['audio'] for result in video_t.select(video_t.audio).where(video_t.audio != None).collect()]
+        audio_files = [
+            result['audio'] for result in video_t.select(video_t.audio).where(video_t.audio != None).collect()
+        ]
         file_to_chunks = self.__get_chunk_counts(audio_files, 2.0)
         results = audio_chunk_view.collect()
         assert len(results) == sum(file_to_chunks.values())
-        file_to_chunks_from_view = {}
+        file_to_chunks_from_view: dict[str, int] = {}
         for result in results:
             file_to_chunks_from_view[result['audio']] = file_to_chunks_from_view.get(result['audio'], 0) + 1
         assert file_to_chunks_from_view == file_to_chunks
@@ -152,7 +149,7 @@ class TestAudio:
     def test_audio_iterator_build_chunks(self, reset_db) -> None:
         chunks = AudioSplitter.build_chunks(0, 1005, 100, 0, 10, drop_incomplete_chunks=True)
         assert len(chunks) == 10
-        assert all((chunk[1] - chunk[0]) is 100  for chunk in chunks)
+        assert all((chunk[1] - chunk[0]) is 100 for chunk in chunks)
         chunks = AudioSplitter.build_chunks(0, 1005, 100, 10, 10, drop_incomplete_chunks=True)
         assert len(chunks) == 10
         assert all((chunk[1] - chunk[0]) is 110 for chunk in chunks[:9])
@@ -186,19 +183,20 @@ class TestAudio:
         assert len(chunks) == 0
 
     def test_audio_iterator_single_file(self, reset_db) -> None:
-        audio_filepath = get_audio_file('jfk_1961_0109_cityuponahill-excerpt.flac') # 60s audio file
+        audio_filepath = get_audio_file('jfk_1961_0109_cityuponahill-excerpt.flac')  # 60s audio file
         base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio})
         validate_update_status(base_t.insert([{'audio': audio_filepath}]))
         audio_chunk_view = pxt.create_view(
-            "audio_chunks",
+            'audio_chunks',
             base_t,
             iterator=AudioSplitter.create(
                 audio=base_t.audio,
                 chunk_duration_sec=5.0,
                 overlap_sec=0.0,
                 min_chunk_duration_sec=0.0,
-                drop_incomplete_chunks=False
-            ))
+                drop_incomplete_chunks=False,
+            ),
+        )
         assert audio_chunk_view.count() is 12
         result = audio_chunk_view.collect()
         print(result)
@@ -210,15 +208,16 @@ class TestAudio:
             assert round(result[i]['duration_sec']) == 5.0
 
         audio_chunk_view = pxt.create_view(
-            "audio_chunks_overlap",
+            'audio_chunks_overlap',
             base_t,
             iterator=AudioSplitter.create(
                 audio=base_t.audio,
                 chunk_duration_sec=14.0,
                 overlap_sec=2.5,
                 min_chunk_duration_sec=0.0,
-                drop_incomplete_chunks=False
-            ))
+                drop_incomplete_chunks=False,
+            ),
+        )
         assert audio_chunk_view.count() is 5
         result = audio_chunk_view.collect()
         assert all(result['audio'] == audio_filepath for result in result)
@@ -230,15 +229,16 @@ class TestAudio:
             assert round(result[i]['duration_sec']) == 17
 
         audio_chunk_view = pxt.create_view(
-            "audio_chunks_overlap_with_drop",
+            'audio_chunks_overlap_with_drop',
             base_t,
             iterator=AudioSplitter.create(
                 audio=base_t.audio,
                 chunk_duration_sec=14.0,
                 overlap_sec=2.5,
                 min_chunk_duration_sec=4.5,
-                drop_incomplete_chunks=True
-            ))
+                drop_incomplete_chunks=True,
+            ),
+        )
         assert audio_chunk_view.count() is 4
         result = audio_chunk_view.collect()
         assert all(result['audio'] == audio_filepath for result in result)

@@ -1,16 +1,19 @@
 import logging
 import uuid
-import pixeltable.env as env
 from fractions import Fraction
 from pathlib import Path
 from typing import Any, Optional
 
 import av  # type: ignore[import-untyped]
+
+import pixeltable.env as env
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 
 from .base import ComponentIterator
+
 _logger = logging.getLogger('pixeltable')
+
 
 class AudioSplitter(ComponentIterator):
     """
@@ -25,6 +28,7 @@ class AudioSplitter(ComponentIterator):
         min_chunk_duration_sec: Minimum chunk duration in seconds.
         drop_incomplete_chunks: Drop chunks smaller than min_chunk_duration at the end of the audio.
     """
+
     # Input parameters
     audio_path: Path
     chunk_duration_sec: float
@@ -54,8 +58,15 @@ class AudioSplitter(ComponentIterator):
         'alac': 'alac',  # ALAC decoder -> ALAC encoder
     }
 
-    def __init__(self, audio: str, chunk_duration_sec: float, *, overlap_sec: float = 0.0,
-                 min_chunk_duration_sec: float = 0.0, drop_incomplete_chunks: bool = False):
+    def __init__(
+        self,
+        audio: str,
+        chunk_duration_sec: float,
+        *,
+        overlap_sec: float = 0.0,
+        min_chunk_duration_sec: float = 0.0,
+        drop_incomplete_chunks: bool = False,
+    ):
         if chunk_duration_sec <= 0.0:
             raise excs.Error('chunk_duration_sec must be a positive number')
         if min_chunk_duration_sec is not None and chunk_duration_sec < min_chunk_duration_sec:
@@ -75,17 +86,26 @@ class AudioSplitter(ComponentIterator):
         pts_chunk_duration = int(self.chunk_duration_sec / self.audio_time_base)
         pts_overlap = int(self.overlap_sec / self.audio_time_base)
         pts_min_chunk_duration = int(self.min_chunk_duration_sec / self.audio_time_base)
-        self.chunks_to_extract = self.build_chunks(self.audio_start_time, total_audio_duration,
-                                                   pts_chunk_duration, pts_overlap, pts_min_chunk_duration,
-                                                   self.drop_incomplete_chunks)
-        _logger.debug(f'AudioIterator: path={self.audio_path} total_audio_duration={total_audio_duration}'
-                      f' pts_chunk_duration={pts_chunk_duration} pts_overlap={pts_overlap}'
-                      f' chunks_to_extract={self.chunks_to_extract}')
+        self.chunks_to_extract = self.build_chunks(
+            self.audio_start_time,
+            total_audio_duration,
+            pts_chunk_duration,
+            pts_overlap,
+            pts_min_chunk_duration,
+            self.drop_incomplete_chunks,
+        )
+        _logger.debug(
+            f'AudioIterator: path={self.audio_path} total_audio_duration={total_audio_duration}'
+            f' pts_chunk_duration={pts_chunk_duration} pts_overlap={pts_overlap}'
+            f' chunks_to_extract={self.chunks_to_extract}'
+        )
         self.next_pos = 0
 
     @classmethod
-    def build_chunks(cls, start_time, total_duration, chunk_duration, overlap, min_chunk_duration, drop_incomplete_chunks) -> list[tuple[int, int]]:
-        chunks_to_extract : list[tuple[int, int]] = []
+    def build_chunks(
+        cls, start_time, total_duration, chunk_duration, overlap, min_chunk_duration, drop_incomplete_chunks
+    ) -> list[tuple[int, int]]:
+        chunks_to_extract: list[tuple[int, int]] = []
         for i in range(start_time, total_duration, chunk_duration):
             # checks for the last chunk
             if i + chunk_duration + overlap >= total_duration:
@@ -121,7 +141,7 @@ class AudioSplitter(ComponentIterator):
         if self.next_pos >= len(self.chunks_to_extract):
             raise StopIteration
         else:
-            target_chunk_start, target_chunk_end  = self.chunks_to_extract[self.next_pos]
+            target_chunk_start, target_chunk_end = self.chunks_to_extract[self.next_pos]
             chunk_start_pts = 0
             chunk_end_pts = 0
             chunk_file = self.__create_chunk_file()
@@ -141,7 +161,7 @@ class AudioSplitter(ComponentIterator):
                 try:
                     frame = next(self.container.decode(audio=0))
                 except EOFError as e:
-                    raise excs.Error(f"Failed to read audio file `{self.audio_path}`, error `{e}`")
+                    raise excs.Error(f'Failed to read audio file `{self.audio_path}`, error `{e}`')
                 except StopIteration:
                     # no more frames to scan
                     break
@@ -176,7 +196,7 @@ class AudioSplitter(ComponentIterator):
                 'start_time_sec': round(float(chunk_start_pts * self.audio_time_base), 4),
                 'end_time_sec': round(float(chunk_end_pts * self.audio_time_base), 4),
                 'duration_sec': round(float((chunk_end_pts - chunk_start_pts) * self.audio_time_base), 4),
-                'audio_chunk': chunk_file if frame_count > 0 else None
+                'audio_chunk': chunk_file if frame_count > 0 else None,
             }
             _logger.debug('audio chunk result: %s', result)
             self.next_pos += 1
