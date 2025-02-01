@@ -15,9 +15,9 @@ import re
 import uuid
 from typing import TYPE_CHECKING, Any, Callable, Optional, Type, TypeVar, Union, cast
 
-import PIL
 import httpx
 import numpy as np
+import PIL
 
 import pixeltable as pxt
 from pixeltable import env, exprs
