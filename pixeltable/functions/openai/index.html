@@ -1446,6 +1446,10 @@ the <a href="https://pixeltable.readme.io/docs/working-with-openai">Working with
 <code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">chat_completions</span>
 
 
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-async"><code>async</code></small>
+  </span>
+
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">chat_completions</span><span class="p">(</span>
     <span class="n">messages</span><span class="p">:</span> <span class="n">Json</span><span class="p">,</span>
@@ -1455,8 +1459,8 @@ the <a href="https://pixeltable.readme.io/docs/working-with-openai">Working with
     <span class="n">logit_bias</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">logprobs</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Bool</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">top_logprobs</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">max_tokens</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">n</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">max_tokens</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1024</span><span class="p">,</span>
+    <span class="n">n</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
     <span class="n">presence_penalty</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">response_format</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">seed</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -1534,6 +1538,10 @@ of the table <code>tbl</code>:</p>
 <h3 id="pixeltable.functions.openai.embeddings" class="doc doc-heading">
 <code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">embeddings</span>
 
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-async"><code>async</code></small>
+  </span>
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">embeddings</span><span class="p">(</span>
@@ -1622,7 +1630,7 @@ Pixeltable column <code>tbl.text</code> of the table <code>tbl</code>:</p>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">image_generations</span><span class="p">(</span>
     <span class="n">prompt</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">model</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">model</span><span class="p">:</span> <span class="n">String</span> <span class="o">=</span> <span class="s2">&quot;dall-e-2&quot;</span><span class="p">,</span>
     <span class="n">quality</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">size</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">style</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -1653,8 +1661,8 @@ For additional details, see: <a href="https://platform.openai.com/docs/guides/im
         </li>
         <li class="doc-section-item field-body">
           <b><code>model</code></b>
-              (<code>Optional[String]</code>, default:
-                  <code>None</code>
+              (<code>String</code>, default:
+                  <code>&#39;dall-e-2&#39;</code>
 )
           –
           <div class="doc-md-description">
@@ -1714,7 +1722,7 @@ Pixeltable column <code>tbl.text</code> of the table <code>tbl</code>:</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">moderations</span><span class="p">(</span><span class="nb">input</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">moderations</span><span class="p">(</span><span class="nb">input</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="n">String</span> <span class="o">=</span> <span class="s1">&#39;omni-moderation-latest&#39;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1740,8 +1748,8 @@ For additional details, see: <a href="https://platform.openai.com/docs/guides/mo
         </li>
         <li class="doc-section-item field-body">
           <b><code>model</code></b>
-              (<code>Optional[String]</code>, default:
-                  <code>None</code>
+              (<code>String</code>, default:
+                  <code>&#39;omni-moderation-latest&#39;</code>
 )
           –
           <div class="doc-md-description">

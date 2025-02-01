@@ -1316,9 +1316,7 @@ the <a href="https://pixeltable.readme.io/docs/working-with-gemini">Working with
     <span class="n">response_mime_type</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">response_schema</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">presence_penalty</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">frequency_penalty</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">response_logprobs</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Bool</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">logprobs</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">frequency_penalty</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
 </code></pre></div>
 
@@ -1369,7 +1367,7 @@ the <a href="https://pixeltable.readme.io/docs/working-with-gemini">Working with
 <p><span class="doc-section-title">Examples:</span></p>
     <p>Add a computed column that applies the model <code>gemini-1.5-flash</code>
 to an existing Pixeltable column <code>tbl.prompt</code> of the table <code>tbl</code>:</p>
-    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="p">[</span><span class="s1">&#39;response&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">generate_content</span><span class="p">(</span><span class="n">tbl</span><span class="o">.</span><span class="n">prompt</span><span class="p">,</span> <span class="n">model_name</span><span class="o">=</span><span class="s1">&#39;gemini-1.5-flash&#39;</span><span class="p">)</span>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">add_computed_column</span><span class="p">(</span><span class="n">response</span><span class="o">=</span><span class="n">generate_content</span><span class="p">(</span><span class="n">tbl</span><span class="o">.</span><span class="n">prompt</span><span class="p">,</span> <span class="n">model_name</span><span class="o">=</span><span class="s1">&#39;gemini-1.5-flash&#39;</span><span class="p">))</span>
 </code></pre></div>
 
     </div>
