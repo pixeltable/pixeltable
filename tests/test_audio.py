@@ -1,13 +1,16 @@
 from typing import Optional
 
 import av
+import math
+
+from requests_toolbelt.multipart.encoder import total_len
 
 import pixeltable as pxt
 import pixeltable.env as env
-from pixeltable.iterators.audio import AudioIterator
+from pixeltable.iterators.audio import AudioSplitter
 from pixeltable.utils.media_store import MediaStore
 
-from .utils import get_audio_files, get_video_files, validate_update_status
+from .utils import get_audio_files, get_audio_file, get_video_files, validate_update_status
 
 
 class TestAudio:
@@ -89,46 +92,159 @@ class TestAudio:
             'bit_exact': False
         }
 
+    def __get_chunk_counts(self, files, target_chunk_size_sec) -> dict[str, int]:
+        file_to_chunk_count: dict[str, int] = {}
+        for file in files:
+            container = av.open(file)
+            total_duration = container.streams.audio[0].duration or 0
+            start_time = container.streams.audio[0].start_time or 0
+            time_base = container.streams.audio[0].time_base
+            target_chunk_size_pts = int(target_chunk_size_sec / time_base)
+            chunks = math.ceil((total_duration - start_time) / target_chunk_size_pts) if total_duration else 0
+            if chunks > 0:
+                file_to_chunk_count[file] = chunks
+        return file_to_chunk_count
+
     def test_audio_iterator_on_audio(self, reset_db) -> None:
-        pxt.drop_dir("audio_chunking", force=True)
-        pxt.create_dir("audio_chunking")
         audio_filepaths = get_audio_files()
         base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio})
         validate_update_status(base_t.insert({'audio': p} for p in audio_filepaths), expected_rows=len(audio_filepaths))
         audio_chunk_view = pxt.create_view(
-            "audio_chunking.audio_chunks",
+            "audio_chunks",
             base_t,
-            iterator = AudioIterator.create(
+            iterator = AudioSplitter.create(
                 audio=base_t.audio,
-                chunk_duration = 5.0,
-                overlap = 1.0,
-                min_chunk_duration = 1.0,
-                drop_incomplete_chunks=True
+                chunk_duration_sec = 5.0,
+                overlap_sec = 0.0,
+                min_chunk_duration_sec = 0.0,
+                drop_incomplete_chunks=False
             ))
-        print(audio_chunk_view.count())
+        file_to_chunks = self.__get_chunk_counts(audio_filepaths, 5.0)
+        results = audio_chunk_view.collect()
+        assert len(results) == sum(file_to_chunks.values())
+        file_to_chunks_from_view = {}
+        for result in results:
+            file_to_chunks_from_view[result['audio']] = file_to_chunks_from_view.get(result['audio'], 0) + 1
+        assert file_to_chunks_from_view == file_to_chunks
 
     def test_audio_iterator_on_videos(self, reset_db) -> None:
-        pxt.drop_dir("audio_chunking", force=True)
-        pxt.create_dir("audio_chunking")
         video_filepaths = get_video_files()
         video_t = pxt.create_table('videos', {'video': pxt.Video})
-        status = video_t.insert({'video': p} for p in video_filepaths)
-        print(status)
+        video_t.insert({'video': p} for p in video_filepaths)
         # extract audio
         video_t.add_computed_column(audio=video_t.video.extract_audio(format='mp3'))
-
         audio_chunk_view = pxt.create_view(
-            'audio_chunking.audio_chunks',
+            'audio_chunks',
             video_t,
-            iterator=AudioIterator.create(
+            iterator=AudioSplitter.create(
                 audio=video_t.audio,
-                chunk_duration=2.0,
-                overlap=0.5,
-                min_chunk_duration=0.5,
-                drop_incomplete_chunks=True
+                chunk_duration_sec=2.0
             )
         )
-        print(audio_chunk_view.count())
-        result = audio_chunk_view.where(audio_chunk_view.chunk_idx >= 2).collect()
-        print(result)
+        audio_files = [ result['audio'] for result in video_t.select(video_t.audio).where(video_t.audio != None).collect()]
+        file_to_chunks = self.__get_chunk_counts(audio_files, 2.0)
+        results = audio_chunk_view.collect()
+        assert len(results) == sum(file_to_chunks.values())
+        file_to_chunks_from_view = {}
+        for result in results:
+            file_to_chunks_from_view[result['audio']] = file_to_chunks_from_view.get(result['audio'], 0) + 1
+        assert file_to_chunks_from_view == file_to_chunks
 
+    def test_audio_iterator_build_chunks(self, reset_db) -> None:
+        chunks = AudioSplitter.build_chunks(0, 1005, 100, 0, 10, drop_incomplete_chunks=True)
+        assert len(chunks) == 10
+        assert all((chunk[1] - chunk[0]) is 100  for chunk in chunks)
+        chunks = AudioSplitter.build_chunks(0, 1005, 100, 10, 10, drop_incomplete_chunks=True)
+        assert len(chunks) == 10
+        assert all((chunk[1] - chunk[0]) is 110 for chunk in chunks[:9])
+        assert chunks[-1][0] == 900
+        assert chunks[-1][1] == 1005
+        chunks = AudioSplitter.build_chunks(0, 1005, 100, 10, 0, drop_incomplete_chunks=False)
+        assert len(chunks) == 10
+        assert all((chunk[1] - chunk[0]) is 110 for chunk in chunks[:9])
+        assert chunks[-1][0] == 900
+        assert chunks[-1][1] == 1005
+        chunks = AudioSplitter.build_chunks(0, 1005, 100, 0, 0, drop_incomplete_chunks=False)
+        assert len(chunks) == 11
+        assert all((chunk[1] - chunk[0]) is 100 for chunk in chunks[:10])
+        assert chunks[-1][0] == 1000
+        assert chunks[-1][1] == 1005
+        chunks = AudioSplitter.build_chunks(0, 1055, 100, 10, 60, drop_incomplete_chunks=True)
+        assert len(chunks) == 10
+        assert all((chunk[1] - chunk[0]) is 110 for chunk in chunks[:10])
+        assert chunks[-1][0] == 900
+        assert chunks[-1][1] == 1010
+        chunks = AudioSplitter.build_chunks(0, 1055, 100, 10, 55, drop_incomplete_chunks=True)
+        assert len(chunks) == 11
+        assert all((chunk[1] - chunk[0]) is 110 for chunk in chunks[:10])
+        assert chunks[-1][0] == 1000
+        assert chunks[-1][1] == 1055
+        chunks = AudioSplitter.build_chunks(1000, 1005, 100, 0, 10, drop_incomplete_chunks=True)
+        assert len(chunks) == 0
+        chunks = AudioSplitter.build_chunks(0, 5, 100, 0, 10, drop_incomplete_chunks=True)
+        assert len(chunks) == 0
+        chunks = AudioSplitter.build_chunks(0, 0, 100, 10, 0, drop_incomplete_chunks=False)
+        assert len(chunks) == 0
+
+    def test_audio_iterator_single_file(self, reset_db) -> None:
+        audio_filepath = get_audio_file('jfk_1961_0109_cityuponahill-excerpt.flac') # 60s audio file
+        base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio})
+        validate_update_status(base_t.insert([{'audio': audio_filepath}]))
+        audio_chunk_view = pxt.create_view(
+            "audio_chunks",
+            base_t,
+            iterator=AudioSplitter.create(
+                audio=base_t.audio,
+                chunk_duration_sec=5.0,
+                overlap_sec=0.0,
+                min_chunk_duration_sec=0.0,
+                drop_incomplete_chunks=False
+            ))
+        assert audio_chunk_view.count() is 12
+        result = audio_chunk_view.collect()
+        print(result)
+        assert all(result['audio'] == audio_filepath for result in result)
+        assert result[-1]['end_time_sec'] == 60
+        for i in range(len(result)):
+            assert math.floor(result[i]['start_time_sec']) == i * 5.0
+        for i in range(len(result) - 1):
+            assert round(result[i]['duration_sec']) == 5.0
+
+        audio_chunk_view = pxt.create_view(
+            "audio_chunks_overlap",
+            base_t,
+            iterator=AudioSplitter.create(
+                audio=base_t.audio,
+                chunk_duration_sec=14.0,
+                overlap_sec=2.5,
+                min_chunk_duration_sec=0.0,
+                drop_incomplete_chunks=False
+            ))
+        assert audio_chunk_view.count() is 5
+        result = audio_chunk_view.collect()
+        assert all(result['audio'] == audio_filepath for result in result)
+        assert result[-1]['end_time_sec'] == 60
+        assert round(result[-1]['duration_sec']) == 4
+        for i in range(len(result)):
+            assert math.floor(result[i]['start_time_sec']) == i * 14.0
+        for i in range(len(result) - 1):
+            assert round(result[i]['duration_sec']) == 17
+
+        audio_chunk_view = pxt.create_view(
+            "audio_chunks_overlap_with_drop",
+            base_t,
+            iterator=AudioSplitter.create(
+                audio=base_t.audio,
+                chunk_duration_sec=14.0,
+                overlap_sec=2.5,
+                min_chunk_duration_sec=4.5,
+                drop_incomplete_chunks=True
+            ))
+        assert audio_chunk_view.count() is 4
+        result = audio_chunk_view.collect()
+        assert all(result['audio'] == audio_filepath for result in result)
+        assert result[-1]['end_time_sec'] < 59
+        for i in range(len(result)):
+            assert math.floor(result[i]['start_time_sec']) == i * 14.0
+        for i in range(len(result)):
+            assert round(result[i]['duration_sec']) == 17.0

@@ -28,6 +28,7 @@ nav:
       - DocumentSplitter: pixeltable/iterators/document-splitter.md
       - FrameIterator: pixeltable/iterators/frame-iterator.md
       - TileIterator: pixeltable/iterators/tile-iterator.md
+      - AudioSplitter : pixeltable/iterators/audio-splitter.md
     - DataFrame: pixeltable/data-frame.md
     - Table: pixeltable/table.md
     - UpdateStatus: pixeltable/update-status.md
