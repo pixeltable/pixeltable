@@ -18,6 +18,7 @@ class ArithmeticExpr(Expr):
     """
     Allows arithmetic exprs on json paths
     """
+
     def __init__(self, operator: ArithmeticOperator, op1: Expr, op2: Expr):
         if op1.col_type.is_json_type() or op2.col_type.is_json_type() or operator == ArithmeticOperator.DIV:
             # we assume it's a float
@@ -101,10 +102,12 @@ class ArithmeticExpr(Expr):
         # if one or both columns is JsonTyped, we need a dynamic check that they are numeric
         if self._op1.col_type.is_json_type() and not isinstance(op1_val, int) and not isinstance(op1_val, float):
             raise excs.Error(
-                f'{self.operator} requires numeric type, but {self._op1} has type {type(op1_val).__name__}')
+                f'{self.operator} requires numeric type, but {self._op1} has type {type(op1_val).__name__}'
+            )
         if self._op2.col_type.is_json_type() and not isinstance(op2_val, int) and not isinstance(op2_val, float):
             raise excs.Error(
-                f'{self.operator} requires numeric type, but {self._op2} has type {type(op2_val).__name__}')
+                f'{self.operator} requires numeric type, but {self._op2} has type {type(op2_val).__name__}'
+            )
 
         # if either operand is None, always return None
         if op1_val is None or op2_val is None:

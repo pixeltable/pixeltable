@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 @register_client('replicate')
 def _(api_token: str) -> 'replicate.Client':
     import replicate
+
     return replicate.Client(api_token=api_token)
 
 
@@ -26,11 +27,7 @@ def _replicate_client() -> 'replicate.Client':
 
 
 @pxt.udf
-def run(
-    input: dict[str, Any],
-    *,
-    ref: str,
-) -> dict[str, Any]:
+def run(input: dict[str, Any], *, ref: str) -> dict[str, Any]:
     """
     Run a model on Replicate.
 

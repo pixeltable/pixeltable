@@ -6,12 +6,13 @@ from uuid import UUID
 
 import sqlalchemy as sql
 
-from .schema_object import SchemaObject
 from pixeltable.env import Env
 from pixeltable.metadata import schema
 
+from .schema_object import SchemaObject
 
 _logger = logging.getLogger('pixeltable')
+
 
 class Dir(SchemaObject):
     def __init__(self, id: UUID, parent_id: UUID, name: str):
@@ -23,8 +24,9 @@ class Dir(SchemaObject):
 
     @property
     def _has_dependents(self) -> bool:
-        """ Returns True if this directory has any children. """
+        """Returns True if this directory has any children."""
         from pixeltable.catalog import Catalog, Path
+
         return len(Catalog.get().paths.get_children(Path(self._path), child_type=None, recursive=False)) > 0
 
     def _move(self, new_name: str, new_dir_id: UUID) -> None:
@@ -34,5 +36,5 @@ class Dir(SchemaObject):
             conn.execute(
                 sql.update(schema.Dir.__table__)
                 .values({schema.Dir.parent_id: self._dir_id, schema.Dir.md: dataclasses.asdict(dir_md)})
-                .where(schema.Dir.id == self._id))
-
+                .where(schema.Dir.id == self._id)
+            )

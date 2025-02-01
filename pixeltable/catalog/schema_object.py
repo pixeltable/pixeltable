@@ -11,6 +11,7 @@ class SchemaObject:
     Base class of all addressable objects within a Db.
     Each object has an id, a name and a parent directory.
     """
+
     def __init__(self, obj_id: UUID, name: str, dir_id: Optional[UUID]):
         # make these private so they don't collide with column names (id and name are fairly common)
         self.__id = obj_id
@@ -33,6 +34,7 @@ class SchemaObject:
     def _parent(self) -> Optional['catalog.Dir']:
         """Returns the parent directory of this schema object."""
         from pixeltable import catalog
+
         if self._dir_id is None:
             return None
         dir = catalog.Catalog.get().paths.get_schema_obj(self._dir_id)
@@ -75,4 +77,3 @@ class SchemaObject:
         """Subclasses need to override this to make the change persistent"""
         self.__name = new_name
         self.__dir_id = new_dir_id
-

@@ -5,6 +5,7 @@ have dependencies whose future support is unclear.
 """
 
 from pixeltable.utils.code import local_public_names
+
 from . import functions
 
 __all__ = local_public_names(__name__)

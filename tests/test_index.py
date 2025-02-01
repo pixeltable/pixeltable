@@ -11,12 +11,20 @@ import pytest
 import pixeltable as pxt
 from pixeltable.functions.huggingface import clip
 
-from .utils import (ReloadTester, assert_img_eq, assert_resultset_eq, clip_embed, e5_embed, get_sentences,
-                    reload_catalog, skip_test_if_not_installed, validate_update_status)
+from .utils import (
+    ReloadTester,
+    assert_img_eq,
+    assert_resultset_eq,
+    clip_embed,
+    e5_embed,
+    get_sentences,
+    reload_catalog,
+    skip_test_if_not_installed,
+    validate_update_status,
+)
 
 
 class TestIndex:
-
     # returns string
     @staticmethod
     @pxt.udf
@@ -61,8 +69,10 @@ class TestIndex:
         t.add_embedding_index('img', idx_name='img_idx1', metric='cosine', embedding=clip_embed)
         reload_tester.run_reload_test(clear=True)
 
-    @pytest.mark.parametrize("use_index_name,use_separate_embeddings", [(False, False), (True, False), (False, True)])
-    def test_similarity(self, use_index_name: bool, use_separate_embeddings: bool, small_img_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
+    @pytest.mark.parametrize('use_index_name,use_separate_embeddings', [(False, False), (True, False), (False, True)])
+    def test_similarity(
+        self, use_index_name: bool, use_separate_embeddings: bool, small_img_tbl: pxt.Table, reload_tester: ReloadTester
+    ) -> None:
         skip_test_if_not_installed('transformers')
         t = small_img_tbl
         sample_img = t.select(t.img).head(1)[0, 'img']
@@ -106,24 +116,30 @@ class TestIndex:
         queries = pxt.create_table('queries', {'query_text': pxt.String})
         query_rows = [
             {'query_text': 'how much is the stock of AI companies up?'},
-            {'query_text': 'what happened to the term machine learning?'}
+            {'query_text': 'what happened to the term machine learning?'},
         ]
         validate_update_status(queries.insert(query_rows))
 
         chunks = pxt.create_table('test_doc_chunks', {'text': pxt.String})
-        chunks.insert([
-            {'text': 'the stock of artificial intelligence companies is up 1000%'},
-            {'text': 'the term machine learning has fallen out of fashion now that AI has been rehabilitated and is now the new hotness'},
-            {'text': 'machine learning is a subset of artificial intelligence'},
-            {'text': 'gas car companies are in danger of being left behind by electric car companies'},
-        ])
+        chunks.insert(
+            [
+                {'text': 'the stock of artificial intelligence companies is up 1000%'},
+                {
+                    'text': 'the term machine learning has fallen out of fashion now that AI has been rehabilitated and is now the new hotness'
+                },
+                {'text': 'machine learning is a subset of artificial intelligence'},
+                {'text': 'gas car companies are in danger of being left behind by electric car companies'},
+            ]
+        )
         chunks.add_embedding_index(column='text', string_embed=clip_embed)
 
         @pxt.query
         def top_k_chunks(query_text: str) -> pxt.DataFrame:
-            return chunks.select(chunks.text, sim=chunks.text.similarity(query_text)) \
-                .order_by(chunks.text.similarity(query_text), asc=False) \
+            return (
+                chunks.select(chunks.text, sim=chunks.text.similarity(query_text))
+                .order_by(chunks.text.similarity(query_text), asc=False)
                 .limit(5)
+            )
 
         _ = queries.select(queries.query_text, out=top_k_chunks(queries.query_text)).collect()
         queries.add_computed_column(chunks=top_k_chunks(queries.query_text))
@@ -143,7 +159,7 @@ class TestIndex:
         _ = t.select(t.img.localpath).collect()
 
         t.add_embedding_index('img', metric='cosine', embedding=clip_embed)
-        _ =  t.select(t.img.localpath).order_by(t.img.similarity(sample_img), asc=False).limit(3).collect()
+        _ = t.select(t.img.localpath).order_by(t.img.similarity(sample_img), asc=False).limit(3).collect()
 
         @pxt.query
         def img_matches(img: PIL.Image.Image):
@@ -174,7 +190,7 @@ class TestIndex:
         t.add_embedding_index('img', image_embed=clip_embed)
         with pytest.raises(pxt.Error) as exc_info:
             _ = t.order_by(t.img.similarity('red truck')).limit(1).collect()
-        assert "does not have a string embedding" in str(exc_info.value).lower()
+        assert 'does not have a string embedding' in str(exc_info.value).lower()
 
         t.add_embedding_index('img', embedding=clip_embed)
         with pytest.raises(pxt.Error) as exc_info:
@@ -187,38 +203,63 @@ class TestIndex:
         sample_img = t.select(t.img).head(1)[0, 'img']
         with pytest.raises(pxt.Error) as exc_info:
             _ = t.order_by(t.split.similarity(sample_img)).limit(1).collect()
-        assert "does not have an image embedding" in str(exc_info.value).lower()
+        assert 'does not have an image embedding' in str(exc_info.value).lower()
 
     def test_add_index_after_drop(self, small_img_tbl: pxt.Table) -> None:
-        """ Test that an index with the same name can be added after the previous one is dropped """
+        """Test that an index with the same name can be added after the previous one is dropped"""
         skip_test_if_not_installed('transformers')
         t = small_img_tbl
         sample_img = t.select(t.img).head(1)[0, 'img']
         t.add_embedding_index('img', idx_name='clip_idx', embedding=clip_embed)
-        orig_res = t.select(t.img.localpath).order_by(t.img.similarity(sample_img, idx='clip_idx'), asc=False).limit(3).collect()
+        orig_res = (
+            t.select(t.img.localpath)
+            .order_by(t.img.similarity(sample_img, idx='clip_idx'), asc=False)
+            .limit(3)
+            .collect()
+        )
         t.revert()
         # creating an index with the same name again after a revert should be successful
         t.add_embedding_index('img', idx_name='clip_idx', embedding=clip_embed)
-        res = t.select(t.img.localpath).order_by(t.img.similarity(sample_img, idx='clip_idx'), asc=False).limit(3).collect()
+        res = (
+            t.select(t.img.localpath)
+            .order_by(t.img.similarity(sample_img, idx='clip_idx'), asc=False)
+            .limit(3)
+            .collect()
+        )
         assert_resultset_eq(orig_res, res, True)
         t.revert()
         # should be true even after reloading from persistence
         reload_catalog()
         t = pxt.get_table('small_img_tbl')
         t.add_embedding_index('img', idx_name='clip_idx', embedding=clip_embed)
-        res = t.select(t.img.localpath).order_by(t.img.similarity(sample_img, idx='clip_idx'), asc=False).limit(3).collect()
+        res = (
+            t.select(t.img.localpath)
+            .order_by(t.img.similarity(sample_img, idx='clip_idx'), asc=False)
+            .limit(3)
+            .collect()
+        )
         assert_resultset_eq(orig_res, res, True)
 
         # same should hold after a drop.
         t.drop_embedding_index(column='img')
         t.add_embedding_index('img', idx_name='clip_idx', embedding=clip_embed)
-        res = t.select(t.img.localpath).order_by(t.img.similarity(sample_img, idx='clip_idx'), asc=False).limit(3).collect()
+        res = (
+            t.select(t.img.localpath)
+            .order_by(t.img.similarity(sample_img, idx='clip_idx'), asc=False)
+            .limit(3)
+            .collect()
+        )
         assert_resultset_eq(orig_res, res, True)
         t.drop_embedding_index(idx_name='clip_idx')
         reload_catalog()
         t = pxt.get_table('small_img_tbl')
         t.add_embedding_index('img', idx_name='clip_idx', embedding=clip_embed)
-        res = t.select(t.img.localpath).order_by(t.img.similarity(sample_img, idx='clip_idx'), asc=False).limit(3).collect()
+        res = (
+            t.select(t.img.localpath)
+            .order_by(t.img.similarity(sample_img, idx='clip_idx'), asc=False)
+            .limit(3)
+            .collect()
+        )
         assert_resultset_eq(orig_res, res, True)
 
     def test_add_embedding_index_if_exists(self, small_img_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
@@ -246,7 +287,9 @@ class TestIndex:
         # invalid value is rejected.
         with pytest.raises(pxt.Error) as exc_info:
             t.add_embedding_index('img', idx_name='clip_idx', embedding=clip_embed, if_exists='invalid')  # type: ignore[arg-type]
-        assert "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']" in str(exc_info.value).lower()
+        assert (
+            "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']" in str(exc_info.value).lower()
+        )
         assert len(t._list_index_info_for_test()) == initial_indexes + 3
 
         # if_exists='error' raises an error if the index name already exists.
@@ -280,12 +323,14 @@ class TestIndex:
         indexes = t._list_index_info_for_test()
         assert len(indexes) == initial_indexes + 3
         assert 'clip_idx' != indexes[initial_indexes]['_name']
-        assert 'clip_idx' == indexes[initial_indexes+2]['_name']
-        assert clip_idx_id_before != indexes[initial_indexes+2]['_id']
+        assert 'clip_idx' == indexes[initial_indexes + 2]['_name']
+        assert clip_idx_id_before != indexes[initial_indexes + 2]['_id']
 
         # sanity check: use the replaced index to run a query.
         # use the index hint in similarity function to ensure clip_idx is used.
-        _ = reload_tester.run_query(t.select(t.img.localpath).order_by(t.img.similarity(sample_img, idx='clip_idx'), asc=False).limit(3))
+        _ = reload_tester.run_query(
+            t.select(t.img.localpath).order_by(t.img.similarity(sample_img, idx='clip_idx'), asc=False).limit(3)
+        )
 
         # sanity check persistence
         reload_tester.run_reload_test()
@@ -311,7 +356,7 @@ class TestIndex:
 
         with pytest.raises(pxt.Error) as exc_info:
             # cannot pass another table's column reference
-            img_t.drop_embedding_index(column=dummy_img_t.img);
+            img_t.drop_embedding_index(column=dummy_img_t.img)
         assert 'unknown column: dummy.img' in str(exc_info.value).lower()
 
         # predicates on media columns that have both a B-tree and an embedding index still work
@@ -423,7 +468,9 @@ class TestIndex:
         t = pxt.create_table('t1', {'s': pxt.String})
         sents = get_sentences(3)
         status = t.insert({'s': s} for s in sents)
-        t.add_embedding_index('s', string_embed=pxt.functions.huggingface.sentence_transformer.using(model_id='all-mpnet-base-v2'))
+        t.add_embedding_index(
+            's', string_embed=pxt.functions.huggingface.sentence_transformer.using(model_id='all-mpnet-base-v2')
+        )
         df = t.select(sim=t.s.similarity(sents[1]))
         res1 = df.collect()
         _ = reload_tester.run_query(t.select())
@@ -433,10 +480,16 @@ class TestIndex:
         t = pxt.create_table('t2', {'s': pxt.String})
         status = t.insert({'s': s} for s in sents)
         v = pxt.create_view('v', t)
-        v.add_embedding_index('s', string_embed=pxt.functions.huggingface.sentence_transformer.using(model_id='all-mpnet-base-v2'))
+        v.add_embedding_index(
+            's', string_embed=pxt.functions.huggingface.sentence_transformer.using(model_id='all-mpnet-base-v2')
+        )
         # should work irrespective of whether the column is passed by name or reference
-        v.add_embedding_index(v.s, string_embed=pxt.functions.huggingface.sentence_transformer.using(model_id='all-mpnet-base-v2'))
-        v.add_embedding_index(t.s, string_embed=pxt.functions.huggingface.sentence_transformer.using(model_id='all-mpnet-base-v2'))
+        v.add_embedding_index(
+            v.s, string_embed=pxt.functions.huggingface.sentence_transformer.using(model_id='all-mpnet-base-v2')
+        )
+        v.add_embedding_index(
+            t.s, string_embed=pxt.functions.huggingface.sentence_transformer.using(model_id='all-mpnet-base-v2')
+        )
         # Expected to verify the following:
         # df = v.select(sim=v.s.similarity(sents[1]))
         # res2 = df.collect()
@@ -579,7 +632,7 @@ class TestIndex:
 
     def test_int_btree(self, reset_db) -> None:
         random.seed(1)
-        data = [random.randint(0, 2 ** 63 - 1) for _ in range(self.BTREE_TEST_NUM_ROWS)]
+        data = [random.randint(0, 2**63 - 1) for _ in range(self.BTREE_TEST_NUM_ROWS)]
         self.run_btree_test(data, pxt.Int)
 
     def test_float_btree(self, reset_db) -> None:

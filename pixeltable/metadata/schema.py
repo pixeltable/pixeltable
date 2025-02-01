@@ -19,6 +19,7 @@ base_metadata = Base.metadata
 
 T = TypeVar('T')
 
+
 def md_from_dict(data_class_type: type[T], data: Any) -> T:
     """Re-instantiate a dataclass instance that contains nested dataclasses from a dict."""
     if dataclasses.is_dataclass(data_class_type):
@@ -56,6 +57,7 @@ def md_from_dict(data_class_type: type[T], data: Any) -> T:
 #   schema easier (the goal is not to have to rely on some schema migration framework; if that breaks for some user,
 #   it would be very difficult to patch up)
 
+
 @dataclasses.dataclass
 class SystemInfoMd:
     schema_version: int
@@ -63,6 +65,7 @@ class SystemInfoMd:
 
 class SystemInfo(Base):
     """A single-row table that contains system-wide metadata."""
+
     __tablename__ = 'systeminfo'
     dummy = sql.Column(Integer, primary_key=True, default=0, nullable=False)
     md = sql.Column(JSONB, nullable=False)  # SystemInfoMd
@@ -76,7 +79,9 @@ class DirMd:
 class Dir(Base):
     __tablename__ = 'dirs'
 
-    id: orm.Mapped[uuid.UUID] = orm.mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, nullable=False)
+    id: orm.Mapped[uuid.UUID] = orm.mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, nullable=False
+    )
     parent_id: orm.Mapped[uuid.UUID] = orm.mapped_column(UUID(as_uuid=True), ForeignKey('dirs.id'), nullable=True)
     md = sql.Column(JSONB, nullable=False)
 
@@ -89,7 +94,8 @@ class ColumnMd:
     - when a column was added/dropped, which is needed to GC unreachable storage columns
       (a column that was added after table snapshot n and dropped before table snapshot n+1 can be removed
       from the stored table).
-     """
+    """
+
     id: int
     schema_version_add: int
     schema_version_drop: Optional[int]
@@ -110,6 +116,7 @@ class IndexMd:
     """
     Metadata needed to instantiate an EmbeddingIndex
     """
+
     id: int
     name: str
     indexed_col_tbl_id: str  # UUID of the table (as string) that contains column being indexed
@@ -172,6 +179,7 @@ class Table(Base):
     - views have a base, which is either a (live) table or a snapshot
     - views can have a filter predicate
     """
+
     __tablename__ = 'tables'
 
     MAX_VERSION = 9223372036854775807  # 2^63 - 1
@@ -200,6 +208,7 @@ class SchemaColumn:
     """
     Records the versioned metadata of a column.
     """
+
     pos: int
     name: str
 
@@ -213,6 +222,7 @@ class TableSchemaVersionMd:
     """
     Records all versioned table metadata.
     """
+
     schema_version: int
     preceding_schema_version: Optional[int]
     columns: dict[int, SchemaColumn]  # col_id -> SchemaColumn
@@ -250,6 +260,7 @@ class Function(Base):
     We store the Python version under which a Function was created (and the callable pickled) in order to warn
     against version mismatches.
     """
+
     __tablename__ = 'functions'
 
     id = sql.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, nullable=False)

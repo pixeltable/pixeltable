@@ -175,6 +175,11 @@ jobs:
       - name: Type check
         if: ${{ matrix.test-category == 'lint' }}
         run: mypy pixeltable tests tool
+      - name: Formatter check
+        if: ${{ matrix.test-category == 'lint' }}
+        run: |
+          ruff format --check
+          ruff check --select I
       - name: Validate docstrings
         if: ${{ matrix.test-category == 'lint' }}
         run: mkdocs build --strict

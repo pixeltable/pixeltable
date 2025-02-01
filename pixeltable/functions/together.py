@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 @env.register_client('together')
 def _(api_key: str) -> 'together.Together':
     import together
+
     return together.Together(api_key=api_key)
 
 
@@ -39,6 +40,7 @@ T = TypeVar('T')
 
 def _retry(fn: Callable[..., T]) -> Callable[..., T]:
     import together
+
     return tenacity.retry(
         retry=tenacity.retry_if_exception_type(together.error.RateLimitError),
         wait=tenacity.wait_random_exponential(multiplier=1, max=60),
@@ -87,23 +89,20 @@ def completions(
 
         >>> tbl['response'] = completions(tbl.prompt, model='mistralai/Mixtral-8x7B-v0.1')
     """
-    return (
-        _retry(_together_client().completions.create)(
-            prompt=prompt,
-            model=model,
-            max_tokens=max_tokens,
-            stop=stop,
-            temperature=temperature,
-            top_p=top_p,
-            top_k=top_k,
-            repetition_penalty=repetition_penalty,
-            logprobs=logprobs,
-            echo=echo,
-            n=n,
-            safety_model=safety_model,
-        )
-        .dict()
-    )
+    return _retry(_together_client().completions.create)(
+        prompt=prompt,
+        model=model,
+        max_tokens=max_tokens,
+        stop=stop,
+        temperature=temperature,
+        top_p=top_p,
+        top_k=top_k,
+        repetition_penalty=repetition_penalty,
+        logprobs=logprobs,
+        echo=echo,
+        n=n,
+        safety_model=safety_model,
+    ).dict()
 
 
 @pxt.udf
@@ -151,26 +150,23 @@ def chat_completions(
         >>> messages = [{'role': 'user', 'content': tbl.prompt}]
         ... tbl['response'] = chat_completions(messages, model='mistralai/Mixtral-8x7B-v0.1')
     """
-    return (
-        _retry(_together_client().chat.completions.create)(
-            messages=messages,
-            model=model,
-            max_tokens=max_tokens,
-            stop=stop,
-            temperature=temperature,
-            top_p=top_p,
-            top_k=top_k,
-            repetition_penalty=repetition_penalty,
-            logprobs=logprobs,
-            echo=echo,
-            n=n,
-            safety_model=safety_model,
-            response_format=response_format,
-            tools=tools,
-            tool_choice=tool_choice,
-        )
-        .dict()
-    )
+    return _retry(_together_client().chat.completions.create)(
+        messages=messages,
+        model=model,
+        max_tokens=max_tokens,
+        stop=stop,
+        temperature=temperature,
+        top_p=top_p,
+        top_k=top_k,
+        repetition_penalty=repetition_penalty,
+        logprobs=logprobs,
+        echo=echo,
+        n=n,
+        safety_model=safety_model,
+        response_format=response_format,
+        tools=tools,
+        tool_choice=tool_choice,
+    ).dict()
 
 
 _embedding_dimensions_cache = {

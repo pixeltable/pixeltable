@@ -1,7 +1,9 @@
-from pixeltable.utils.http_server import get_file_uri, make_server
-from .utils import get_documents, get_video_files, get_audio_files, get_image_files
-import urllib
 import threading
+import urllib
+
+from pixeltable.utils.http_server import get_file_uri, make_server
+
+from .utils import get_audio_files, get_documents, get_image_files, get_video_files
 
 
 def test_http_server():

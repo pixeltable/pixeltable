@@ -25,6 +25,7 @@ class DescriptionHelper:
     DescriptionHelper can convert a list of descriptors into either HTML or plaintext and do something reasonable
     in each case.
     """
+
     __descriptors: list[_Descriptor]
 
     def __init__(self) -> None:
@@ -69,18 +70,17 @@ class DescriptionHelper:
             return (
                 # Render the string as a single-cell DataFrame. This will ensure a consistent style of output in
                 # cases where strings appear alongside DataFrames in the same DescriptionHelper.
-                pd.DataFrame([descriptor.body]).style
-                .set_properties(None, **{'white-space': 'pre-wrap', 'text-align': 'left', 'font-weight': 'bold'})
-                .hide(axis='index').hide(axis='columns')
+                pd.DataFrame([descriptor.body])
+                .style.set_properties(None, **{'white-space': 'pre-wrap', 'text-align': 'left', 'font-weight': 'bold'})
+                .hide(axis='index')
+                .hide(axis='columns')
             )
         else:
             styler = descriptor.styler
             if styler is None:
                 styler = descriptor.body.style
-            styler = (
-                styler
-                .set_properties(None, **{'white-space': 'pre-wrap', 'text-align': 'left'})
-                .set_table_styles([dict(selector='th', props=[('text-align', 'left')])])
+            styler = styler.set_properties(None, **{'white-space': 'pre-wrap', 'text-align': 'left'}).set_table_styles(
+                [dict(selector='th', props=[('text-align', 'left')])]
             )
             if not descriptor.show_header:
                 styler = styler.hide(axis='columns')

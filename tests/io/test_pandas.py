@@ -13,22 +13,27 @@ from ..utils import skip_test_if_not_installed
 
 class TestPandas:
     def test_pandas_types(self, reset_db) -> None:
-        df = pd.DataFrame({
-            'int_col': [1, 2],
-            'float_col': [1.0, 2.0],
-            'bool_col': [True, False],
-            'str_col': ['a', 'b'],
-            'dt_col': [datetime.datetime(2024, 1, 1), datetime.datetime(2024, 1, 2)],
-            'aware_dt_col': [datetime.datetime(2024, 1, 1), datetime.datetime(2024, 1, 1, tzinfo=datetime.timezone.utc)],
-            'json_col_1': [[1, 2], [3, 4]],
-            'json_col_2': [{'a': 1}, {'b': 2}],
-            'array_col_1': [np.ndarray((1, 2), dtype=np.int64), np.ndarray((3, 2), dtype=np.int64)],
-            'array_col_2': [np.ndarray((1, 2), dtype=np.int64), np.ndarray((3, 4), dtype=np.int64)],
-            'array_col_3': [np.ndarray((1, 2), dtype=np.float32), np.ndarray((3, 4), dtype=np.float32)],
-            'image_col': [PIL.Image.new('RGB', (100, 100)), PIL.Image.new('L', (100, 200))],
-        })
+        df = pd.DataFrame(
+            {
+                'int_col': [1, 2],
+                'float_col': [1.0, 2.0],
+                'bool_col': [True, False],
+                'str_col': ['a', 'b'],
+                'dt_col': [datetime.datetime(2024, 1, 1), datetime.datetime(2024, 1, 2)],
+                'aware_dt_col': [
+                    datetime.datetime(2024, 1, 1),
+                    datetime.datetime(2024, 1, 1, tzinfo=datetime.timezone.utc),
+                ],
+                'json_col_1': [[1, 2], [3, 4]],
+                'json_col_2': [{'a': 1}, {'b': 2}],
+                'array_col_1': [np.ndarray((1, 2), dtype=np.int64), np.ndarray((3, 2), dtype=np.int64)],
+                'array_col_2': [np.ndarray((1, 2), dtype=np.int64), np.ndarray((3, 4), dtype=np.int64)],
+                'array_col_3': [np.ndarray((1, 2), dtype=np.float32), np.ndarray((3, 4), dtype=np.float32)],
+                'image_col': [PIL.Image.new('RGB', (100, 100)), PIL.Image.new('L', (100, 200))],
+            }
+        )
         t = pxt.io.import_pandas('test_types', df)
-        assert(t._schema == {
+        assert t._schema == {
             'int_col': pxt.IntType(nullable=True),
             'float_col': pxt.FloatType(nullable=True),
             'bool_col': pxt.BoolType(nullable=True),
@@ -41,7 +46,7 @@ class TestPandas:
             'array_col_2': pxt.ArrayType(shape=(None, None), dtype=pxt.IntType(), nullable=True),
             'array_col_3': pxt.ArrayType(shape=(None, None), dtype=pxt.FloatType(), nullable=True),
             'image_col': pxt.ImageType(width=100, nullable=True),
-        })
+        }
 
     def test_pandas_csv(self, reset_db) -> None:
         from pixeltable.io import import_csv
@@ -98,7 +103,12 @@ class TestPandas:
         assert result_set['string_n'] == ['fish', 'cake', None, 'egg']
         # Timestamps coming out of the DB will always be aware; we need to compare them to aware datetimes
         assert result_set['ts'] == [datetime.datetime(2024, 5, n).astimezone(None) for n in range(3, 7)]
-        assert result_set['ts_n'] == [datetime.datetime(2024, 5, 3).astimezone(None), None, None, datetime.datetime(2024, 5, 6).astimezone(None)]
+        assert result_set['ts_n'] == [
+            datetime.datetime(2024, 5, 3).astimezone(None),
+            None,
+            None,
+            datetime.datetime(2024, 5, 6).astimezone(None),
+        ]
 
     def test_pandas_images(self, reset_db) -> None:
         skip_test_if_not_installed('boto3')  # This test relies on s3 URLs
@@ -139,27 +149,31 @@ class TestPandas:
 
         with pytest.raises(excs.Error) as exc_info:
             _ = import_csv(
-                'online_foods', 'tests/data/datasets/onlinefoods.csv', schema_overrides={'Non-Column': pxt.StringType(nullable=True)}
+                'online_foods',
+                'tests/data/datasets/onlinefoods.csv',
+                schema_overrides={'Non-Column': pxt.StringType(nullable=True)},
             )
         assert '`Non-Column` specified in `schema_overrides` does not exist' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
-            _ = import_csv(
-                'edge_cases', 'tests/data/datasets/edge-cases.csv', primary_key=['!!int', 'Non-Column']
-            )
+            _ = import_csv('edge_cases', 'tests/data/datasets/edge-cases.csv', primary_key=['!!int', 'Non-Column'])
         assert 'Primary key column `Non-Column` does not exist' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
             _ = import_csv(
                 # String with null values
-                'edge_cases', 'tests/data/datasets/edge-cases.csv', primary_key='string#n'
+                'edge_cases',
+                'tests/data/datasets/edge-cases.csv',
+                primary_key='string#n',
             )
         assert 'Primary key column `string#n` cannot contain null values.' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
             _ = import_csv(
                 # Timestamp with null values
-                'edge_cases', 'tests/data/datasets/edge-cases.csv', primary_key='ts_n'
+                'edge_cases',
+                'tests/data/datasets/edge-cases.csv',
+                primary_key='ts_n',
             )
         assert 'Primary key column `ts_n` cannot contain null values.' in str(exc_info.value)
 

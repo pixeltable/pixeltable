@@ -5,7 +5,8 @@ import builtins
 import json
 import logging
 from pathlib import Path
-from typing import _GenericAlias  # type: ignore[attr-defined]
+
+from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Literal, Optional, Sequence, Union, overload
 from uuid import UUID
 
@@ -25,8 +26,15 @@ from ..exprs import ColumnRef
 from ..utils.description_helper import DescriptionHelper
 from ..utils.filecache import FileCache
 from .column import Column
-from .globals import (_ROWID_COLUMN_NAME, IfExistsParam, IfNotExistsParam, MediaValidation, UpdateStatus,
-                      is_system_column_name, is_valid_identifier)
+from .globals import (
+    _ROWID_COLUMN_NAME,
+    IfExistsParam,
+    IfNotExistsParam,
+    MediaValidation,
+    UpdateStatus,
+    is_system_column_name,
+    is_valid_identifier,
+)
 from .schema_object import SchemaObject
 from .table_version import TableVersion
 from .table_version_path import TableVersionPath
@@ -38,11 +46,13 @@ if TYPE_CHECKING:
 
 _logger = logging.getLogger('pixeltable')
 
+
 class Table(SchemaObject):
     """
     A handle to a table, view, or snapshot. This class is the primary interface through which table operations
     (queries, insertions, updates, etc.) are performed in Pixeltable.
     """
+
     # Every user-invoked operation that runs an ExecNode tree (directly or indirectly) needs to call
     # FileCache.emit_eviction_warnings() at the end of the operation.
 
@@ -60,11 +70,14 @@ class Table(SchemaObject):
         self._check_is_dropped()
         super()._move(new_name, new_dir_id)
         with env.Env.get().engine.begin() as conn:
-            stmt = sql.text((
-                f"UPDATE {schema.Table.__table__} "
-                f"SET {schema.Table.dir_id.name} = :new_dir_id, "
-                f"    {schema.Table.md.name}['name'] = :new_name "
-                f"WHERE {schema.Table.id.name} = :id"))
+            stmt = sql.text(
+                (
+                    f'UPDATE {schema.Table.__table__} '
+                    f'SET {schema.Table.dir_id.name} = :new_dir_id, '
+                    f"    {schema.Table.md.name}['name'] = :new_name "
+                    f'WHERE {schema.Table.id.name} = :id'
+                )
+            )
             conn.execute(stmt, {'new_dir_id': new_dir_id, 'new_name': json.dumps(new_name), 'id': self._id})
 
     def get_metadata(self) -> dict[str, Any]:
@@ -155,14 +168,14 @@ class Table(SchemaObject):
             return dependents
 
     def _df(self) -> 'pxt.dataframe.DataFrame':
-        """Return a DataFrame for this table.
-        """
+        """Return a DataFrame for this table."""
         # local import: avoid circular imports
         from pixeltable.plan import FromClause
+
         return pxt.DataFrame(FromClause(tbls=[self._tbl_version_path]))
 
     def select(self, *items: Any, **named_items: Any) -> 'pxt.DataFrame':
-        """ Select columns or expressions from this table.
+        """Select columns or expressions from this table.
 
         See [`DataFrame.select`][pixeltable.DataFrame.select] for more details.
         """
@@ -176,8 +189,11 @@ class Table(SchemaObject):
         return self._df().where(pred)
 
     def join(
-            self, other: 'Table', *, on: Optional['exprs.Expr'] = None,
-            how: 'pixeltable.plan.JoinType.LiteralType' = 'inner'
+        self,
+        other: 'Table',
+        *,
+        on: Optional['exprs.Expr'] = None,
+        how: 'pixeltable.plan.JoinType.LiteralType' = 'inner',
     ) -> 'pxt.DataFrame':
         """Join this table with another table."""
         return self._df().join(other, on=on, how=how)
@@ -203,22 +219,15 @@ class Table(SchemaObject):
         """Return rows from this table."""
         return self._df().collect()
 
-    def show(
-            self, *args, **kwargs
-    ) -> 'pxt.dataframe.DataFrameResultSet':
-        """Return rows from this table.
-        """
+    def show(self, *args, **kwargs) -> 'pxt.dataframe.DataFrameResultSet':
+        """Return rows from this table."""
         return self._df().show(*args, **kwargs)
 
-    def head(
-            self, *args, **kwargs
-    ) -> 'pxt.dataframe.DataFrameResultSet':
+    def head(self, *args, **kwargs) -> 'pxt.dataframe.DataFrameResultSet':
         """Return the first n rows inserted into this table."""
         return self._df().head(*args, **kwargs)
 
-    def tail(
-            self, *args, **kwargs
-    ) -> 'pxt.dataframe.DataFrameResultSet':
+    def tail(self, *args, **kwargs) -> 'pxt.dataframe.DataFrameResultSet':
         """Return the last n rows inserted into this table."""
         return self._df().tail(*args, **kwargs)
 
@@ -228,7 +237,7 @@ class Table(SchemaObject):
 
     @property
     def columns(self) -> list[str]:
-        """Return the names of the columns in this table. """
+        """Return the names of the columns in this table."""
         cols = self._tbl_version_path.columns()
         return [c.name for c in cols]
 
@@ -309,7 +318,7 @@ class Table(SchemaObject):
             {
                 'Column Name': col.name,
                 'Type': col.col_type._to_str(as_schema=True),
-                'Computed With': col.value_expr.display_str(inline=False) if col.value_expr is not None else ''
+                'Computed With': col.value_expr.display_str(inline=False) if col.value_expr is not None else '',
             }
             for col in self.__tbl_version_path.columns()
             if columns is None or col.name in columns
@@ -346,10 +355,7 @@ class Table(SchemaObject):
     def _external_store_descriptor(self) -> pd.DataFrame:
         pd_rows = []
         for name, store in self._tbl_version.external_stores.items():
-            row = {
-                'External Store': name,
-                'Type': type(store).__name__,
-            }
+            row = {'External Store': name, 'Type': type(store).__name__}
             pd_rows.append(row)
         return pd.DataFrame(pd_rows)
 
@@ -360,6 +366,7 @@ class Table(SchemaObject):
         self._check_is_dropped()
         if getattr(builtins, '__IPYTHON__', False):
             from IPython.display import display
+
             display(self._repr_html_())
         else:
             print(repr(self))
@@ -378,15 +385,15 @@ class Table(SchemaObject):
 
     # TODO Factor this out into a separate module.
     # The return type is unresolvable, but torch can't be imported since it's an optional dependency.
-    def to_pytorch_dataset(self, image_format : str = 'pt') -> 'torch.utils.data.IterableDataset':
+    def to_pytorch_dataset(self, image_format: str = 'pt') -> 'torch.utils.data.IterableDataset':
         """Return a PyTorch Dataset for this table.
-            See DataFrame.to_pytorch_dataset()
+        See DataFrame.to_pytorch_dataset()
         """
         return self._df().to_pytorch_dataset(image_format=image_format)
 
     def to_coco_dataset(self) -> Path:
         """Return the path to a COCO json file for this table.
-            See DataFrame.to_coco_dataset()
+        See DataFrame.to_coco_dataset()
         """
         return self._df().to_coco_dataset()
 
@@ -399,10 +406,11 @@ class Table(SchemaObject):
         return any(
             col in store.get_local_columns()
             for view in [self] + self._get_views(recursive=True)
-            for store in view._tbl_version.external_stores.values())
+            for store in view._tbl_version.external_stores.values()
+        )
 
     def _ignore_or_drop_existing_columns(self, new_col_names: list[str], if_exists: IfExistsParam) -> list[str]:
-        """ Check and handle existing columns in the new column specification based on the if_exists parameter.
+        """Check and handle existing columns in the new column specification based on the if_exists parameter.
 
         If `if_exists='ignore'`, returns a list of existing columns, if any, in `new_col_names`.
         """
@@ -420,9 +428,7 @@ class Table(SchemaObject):
                         # for views, it is possible that the existing column
                         # is a base table column; in that case, we should not
                         # drop/replace that column. Continue to raise error.
-                        raise excs.Error(
-                            f'Column {new_col_name!r} is a base table column. Cannot replace it.'
-                        )
+                        raise excs.Error(f'Column {new_col_name!r} is a base table column. Cannot replace it.')
                     col = self._tbl_version.cols_by_name[new_col_name]
                     # cannot drop a column with dependents; so reject
                     # replace directive if column has dependents.
@@ -437,7 +443,7 @@ class Table(SchemaObject):
     def add_columns(
         self,
         schema: dict[str, Union[ts.ColumnType, builtins.type, _GenericAlias]],
-        if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error'
+        if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     ) -> UpdateStatus:
         """
         Adds multiple columns to the table. The columns must be concrete (non-computed) columns; to add computed columns,
@@ -482,7 +488,9 @@ class Table(SchemaObject):
             for col_name, spec in schema.items()
         }
         # handle existing columns based on if_exists parameter
-        cols_to_ignore = self._ignore_or_drop_existing_columns(list(col_schema.keys()), IfExistsParam.validated(if_exists, 'if_exists'))
+        cols_to_ignore = self._ignore_or_drop_existing_columns(
+            list(col_schema.keys()), IfExistsParam.validated(if_exists, 'if_exists')
+        )
         # if all columns to be added already exist and user asked to ignore
         # existing columns, there's nothing to do.
         for cname in cols_to_ignore:
@@ -501,7 +509,7 @@ class Table(SchemaObject):
         self,
         *,
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
-        **kwargs: Union[ts.ColumnType, builtins.type, _GenericAlias, exprs.Expr]
+        **kwargs: Union[ts.ColumnType, builtins.type, _GenericAlias, exprs.Expr],
     ) -> UpdateStatus:
         """
         Adds an ordinary (non-computed) column to the table.
@@ -547,7 +555,6 @@ class Table(SchemaObject):
             )
         return self.add_columns(kwargs, if_exists=if_exists)
 
-
     def add_computed_column(
         self,
         *,
@@ -555,7 +562,7 @@ class Table(SchemaObject):
         print_stats: bool = False,
         on_error: Literal['abort', 'ignore'] = 'abort',
         if_exists: Literal['error', 'ignore', 'replace'] = 'error',
-        **kwargs: exprs.Expr
+        **kwargs: exprs.Expr,
     ) -> UpdateStatus:
         """
         Adds a computed column to the table.
@@ -611,7 +618,9 @@ class Table(SchemaObject):
             col_schema['stored'] = stored
 
         # handle existing columns based on if_exists parameter
-        cols_to_ignore = self._ignore_or_drop_existing_columns([col_name], IfExistsParam.validated(if_exists, 'if_exists'))
+        cols_to_ignore = self._ignore_or_drop_existing_columns(
+            [col_name], IfExistsParam.validated(if_exists, 'if_exists')
+        )
         # if the column to add already exists and user asked to ignore
         # exiting column, there's nothing to do.
         if len(cols_to_ignore) != 0:
@@ -677,7 +686,8 @@ class Table(SchemaObject):
                 cls._validate_column_spec(name, spec)
                 if 'type' in spec:
                     col_type = ts.ColumnType.normalize_type(
-                        spec['type'], nullable_default=True, allow_builtin_types=False)
+                        spec['type'], nullable_default=True, allow_builtin_types=False
+                    )
                 value_expr = spec.get('value')
                 if value_expr is not None and isinstance(value_expr, exprs.Expr):
                     # create copy so we can modify it
@@ -686,15 +696,19 @@ class Table(SchemaObject):
                 primary_key = spec.get('primary_key')
                 media_validation_str = spec.get('media_validation')
                 media_validation = (
-                    catalog.MediaValidation[media_validation_str.upper()] if media_validation_str is not None
-                    else None
+                    catalog.MediaValidation[media_validation_str.upper()] if media_validation_str is not None else None
                 )
             else:
                 raise excs.Error(f'Invalid value for column {name!r}')
 
             column = Column(
-                name, col_type=col_type, computed_with=value_expr, stored=stored, is_pk=primary_key,
-                media_validation=media_validation)
+                name,
+                col_type=col_type,
+                computed_with=value_expr,
+                stored=stored,
+                is_pk=primary_key,
+                media_validation=media_validation,
+            )
             columns.append(column)
         return columns
 
@@ -704,13 +718,16 @@ class Table(SchemaObject):
         if is_system_column_name(col.name):
             raise excs.Error(f'{col.name!r} is a reserved name in Pixeltable; please choose a different column name.')
         if not is_valid_identifier(col.name):
-            raise excs.Error(f"Invalid column name: {col.name!r}")
+            raise excs.Error(f'Invalid column name: {col.name!r}')
         if col.stored is False and not (col.is_computed and col.col_type.is_image_type()):
             raise excs.Error(f'Column {col.name!r}: stored={col.stored} only applies to computed image columns')
         if col.stored is False and col.has_window_fn_call():
-            raise excs.Error((
-                f'Column {col.name!r}: stored={col.stored} is not valid for image columns computed with a streaming '
-                f'function'))
+            raise excs.Error(
+                (
+                    f'Column {col.name!r}: stored={col.stored} is not valid for image columns computed with a streaming '
+                    f'function'
+                )
+            )
 
     @classmethod
     def _verify_schema(cls, schema: list[Column]) -> None:
@@ -838,19 +855,19 @@ class Table(SchemaObject):
         assert not self._is_dropped
         index_info = []
         for idx_name, idx in self._tbl_version.idxs_by_name.items():
-            index_info.append({
-                '_id': idx.id,
-                '_name': idx_name,
-                '_column': idx.col.name
-            })
+            index_info.append({'_id': idx.id, '_name': idx_name, '_column': idx.col.name})
         return index_info
 
     def add_embedding_index(
-            self, column: Union[str, ColumnRef], *, idx_name: Optional[str] = None,
-            embedding: Optional[pxt.Function] = None,
-            string_embed: Optional[pxt.Function] = None, image_embed: Optional[pxt.Function] = None,
-            metric: str = 'cosine',
-            if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error'
+        self,
+        column: Union[str, ColumnRef],
+        *,
+        idx_name: Optional[str] = None,
+        embedding: Optional[pxt.Function] = None,
+        string_embed: Optional[pxt.Function] = None,
+        image_embed: Optional[pxt.Function] = None,
+        metric: str = 'cosine',
+        if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     ) -> None:
         """
         Add an embedding index to the table. Once the index is created, it will be automatically kept up-to-date as new
@@ -963,10 +980,11 @@ class Table(SchemaObject):
         FileCache.get().emit_eviction_warnings()
 
     def drop_embedding_index(
-            self, *,
-            column: Union[str, ColumnRef, None] = None,
-            idx_name: Optional[str] = None,
-            if_not_exists: Literal['error', 'ignore'] = 'error'
+        self,
+        *,
+        column: Union[str, ColumnRef, None] = None,
+        idx_name: Optional[str] = None,
+        if_not_exists: Literal['error', 'ignore'] = 'error',
     ) -> None:
         """
         Drop an embedding index from the table. Either a column name or an index name (but not both) must be
@@ -1026,10 +1044,11 @@ class Table(SchemaObject):
         self._drop_index(col=col, idx_name=idx_name, _idx_class=index.EmbeddingIndex, if_not_exists=if_not_exists)
 
     def drop_index(
-            self, *,
-            column: Union[str, ColumnRef, None] = None,
-            idx_name: Optional[str] = None,
-            if_not_exists: Literal['error', 'ignore'] = 'error'
+        self,
+        *,
+        column: Union[str, ColumnRef, None] = None,
+        idx_name: Optional[str] = None,
+        if_not_exists: Literal['error', 'ignore'] = 'error',
     ) -> None:
         """
         Drop an index from the table. Either a column name or an index name (but not both) must be
@@ -1089,10 +1108,12 @@ class Table(SchemaObject):
         self._drop_index(col=col, idx_name=idx_name, if_not_exists=if_not_exists)
 
     def _drop_index(
-            self, *, col: Optional[Column] = None,
-            idx_name: Optional[str] = None,
-            _idx_class: Optional[type[index.IndexBase]] = None,
-            if_not_exists: Literal['error', 'ignore'] = 'error'
+        self,
+        *,
+        col: Optional[Column] = None,
+        idx_name: Optional[str] = None,
+        _idx_class: Optional[type[index.IndexBase]] = None,
+        if_not_exists: Literal['error', 'ignore'] = 'error',
     ) -> None:
         if self._tbl_version_path.is_snapshot():
             raise excs.Error('Cannot drop an index from a snapshot')
@@ -1109,7 +1130,8 @@ class Table(SchemaObject):
         else:
             if col.tbl.id != self._tbl_version.id:
                 raise excs.Error(
-                    f'Column {col.name!r}: cannot drop index from column that belongs to base ({col.tbl.name}!r)')
+                    f'Column {col.name!r}: cannot drop index from column that belongs to base ({col.tbl.name}!r)'
+                )
             idx_info = [info for info in self._tbl_version.idxs_by_name.values() if info.col.id == col.id]
             if _idx_class is not None:
                 idx_info = [info for info in idx_info if isinstance(info.idx, _idx_class)]
@@ -1131,16 +1153,12 @@ class Table(SchemaObject):
         /,
         *,
         print_stats: bool = False,
-        on_error: Literal['abort', 'ignore'] = 'abort'
+        on_error: Literal['abort', 'ignore'] = 'abort',
     ) -> UpdateStatus: ...
 
     @overload
     def insert(
-        self,
-        *,
-        print_stats: bool = False,
-        on_error: Literal['abort', 'ignore'] = 'abort',
-        **kwargs: Any
+        self, *, print_stats: bool = False, on_error: Literal['abort', 'ignore'] = 'abort', **kwargs: Any
     ) -> UpdateStatus: ...
 
     @abc.abstractmethod  # type: ignore[misc]
@@ -1151,7 +1169,7 @@ class Table(SchemaObject):
         *,
         print_stats: bool = False,
         on_error: Literal['abort', 'ignore'] = 'abort',
-        **kwargs: Any
+        **kwargs: Any,
     ) -> UpdateStatus:
         """Inserts rows into this table. There are two mutually exclusive call patterns:
 
@@ -1214,7 +1232,7 @@ class Table(SchemaObject):
         raise NotImplementedError
 
     def update(
-            self, value_spec: dict[str, Any], where: Optional['pxt.exprs.Expr'] = None, cascade: bool = True
+        self, value_spec: dict[str, Any], where: Optional['pxt.exprs.Expr'] = None, cascade: bool = True
     ) -> UpdateStatus:
         """Update rows in this table.
 
@@ -1245,8 +1263,10 @@ class Table(SchemaObject):
         return status
 
     def batch_update(
-            self, rows: Iterable[dict[str, Any]], cascade: bool = True,
-            if_not_exists: Literal['error', 'ignore', 'insert'] = 'error'
+        self,
+        rows: Iterable[dict[str, Any]],
+        cascade: bool = True,
+        if_not_exists: Literal['error', 'ignore', 'insert'] = 'error',
     ) -> UpdateStatus:
         """Update rows in this table.
 
@@ -1299,8 +1319,12 @@ class Table(SchemaObject):
                     raise excs.Error(f'Primary key columns ({", ".join(missing_cols)}) missing in {row_spec}')
             row_updates.append(col_vals)
         status = self._tbl_version.batch_update(
-            row_updates, rowids, error_if_not_exists=if_not_exists == 'error',
-            insert_if_not_exists=if_not_exists == 'insert', cascade=cascade)
+            row_updates,
+            rowids,
+            error_if_not_exists=if_not_exists == 'error',
+            insert_if_not_exists=if_not_exists == 'insert',
+            cascade=cascade,
+        )
         FileCache.get().emit_eviction_warnings()
         return status
 
@@ -1348,11 +1372,11 @@ class Table(SchemaObject):
         env.Env.get().console_logger.info(f'Linked external store `{store.name}` to table `{self._name}`.')
 
     def unlink_external_stores(
-            self,
-            stores: Optional[str | list[str]] = None,
-            *,
-            delete_external_data: bool = False,
-            ignore_errors: bool = False
+        self,
+        stores: Optional[str | list[str]] = None,
+        *,
+        delete_external_data: bool = False,
+        ignore_errors: bool = False,
     ) -> None:
         """
         Unlinks this table's external stores.
@@ -1384,11 +1408,7 @@ class Table(SchemaObject):
             env.Env.get().console_logger.info(f'Unlinked external store from table `{self._name}`: {store}')
 
     def sync(
-            self,
-            stores: Optional[str | list[str]] = None,
-            *,
-            export_data: bool = True,
-            import_data: bool = True
+        self, stores: Optional[str | list[str]] = None, *, export_data: bool = True, import_data: bool = True
     ) -> 'pxt.io.SyncStatus':
         """
         Synchronizes this table with its linked external stores.

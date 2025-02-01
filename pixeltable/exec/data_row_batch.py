@@ -1,19 +1,21 @@
 from __future__ import annotations
-from typing import Iterator, Optional
-import logging
 
-import pixeltable.exprs as exprs
+import logging
+from typing import Iterator, Optional
+
 import pixeltable.catalog as catalog
+import pixeltable.exprs as exprs
 from pixeltable.utils.media_store import MediaStore
 
-
 _logger = logging.getLogger('pixeltable')
+
 
 class DataRowBatch:
     """Set of DataRows, indexed by rowid.
 
     Contains the metadata needed to initialize DataRows.
     """
+
     tbl: Optional[catalog.TableVersion]
     row_builder: exprs.RowBuilder
     img_slot_idxs: list[int]
@@ -22,8 +24,11 @@ class DataRowBatch:
     rows: list[exprs.DataRow]
 
     def __init__(
-        self, tbl: Optional[catalog.TableVersion], row_builder: exprs.RowBuilder, num_rows: Optional[int] = None,
-        rows: Optional[list[exprs.DataRow]] = None
+        self,
+        tbl: Optional[catalog.TableVersion],
+        row_builder: exprs.RowBuilder,
+        num_rows: Optional[int] = None,
+        rows: Optional[list[exprs.DataRow]] = None,
     ):
         """
         Requires either num_rows or rows to be specified, but not both.
@@ -34,7 +39,8 @@ class DataRowBatch:
         self.img_slot_idxs = [e.slot_idx for e in row_builder.unique_exprs if e.col_type.is_image_type()]
         # non-image media slots
         self.media_slot_idxs = [
-            e.slot_idx for e in row_builder.unique_exprs
+            e.slot_idx
+            for e in row_builder.unique_exprs
             if e.col_type.is_media_type() and not e.col_type.is_image_type()
         ]
         self.array_slot_idxs = [e.slot_idx for e in row_builder.unique_exprs if e.col_type.is_array_type()]
@@ -44,14 +50,17 @@ class DataRowBatch:
             if num_rows is None:
                 num_rows = 0
             self.rows = [
-                exprs.DataRow(row_builder.num_materialized, self.img_slot_idxs, self.media_slot_idxs, self.array_slot_idxs)
+                exprs.DataRow(
+                    row_builder.num_materialized, self.img_slot_idxs, self.media_slot_idxs, self.array_slot_idxs
+                )
                 for _ in range(num_rows)
             ]
 
     def add_row(self, row: Optional[exprs.DataRow] = None) -> exprs.DataRow:
         if row is None:
             row = exprs.DataRow(
-                self.row_builder.num_materialized, self.img_slot_idxs, self.media_slot_idxs, self.array_slot_idxs)
+                self.row_builder.num_materialized, self.img_slot_idxs, self.media_slot_idxs, self.array_slot_idxs
+            )
         self.rows.append(row)
         return row
 
@@ -65,8 +74,10 @@ class DataRowBatch:
         return self.rows[index]
 
     def flush_imgs(
-            self, idx_range: Optional[slice] = None, stored_img_info: Optional[list[exprs.ColumnSlotIdx]] = None,
-            flushed_slot_idxs: Optional[list[int]] = None
+        self,
+        idx_range: Optional[slice] = None,
+        stored_img_info: Optional[list[exprs.ColumnSlotIdx]] = None,
+        flushed_slot_idxs: Optional[list[int]] = None,
     ) -> None:
         """Flushes images in the given range of rows."""
         assert self.tbl is not None

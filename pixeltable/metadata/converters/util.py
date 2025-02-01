@@ -15,7 +15,7 @@ def convert_table_md(
     table_md_updater: Optional[Callable[[dict, UUID], None]] = None,
     column_md_updater: Optional[Callable[[dict], None]] = None,
     external_store_md_updater: Optional[Callable[[dict], None]] = None,
-    substitution_fn: Optional[Callable[[Optional[str], Any], Optional[tuple[Optional[str], Any]]]] = None
+    substitution_fn: Optional[Callable[[Optional[str], Any], Optional[tuple[Optional[str], Any]]]] = None,
 ) -> None:
     """
     Converts schema.TableMd dicts based on the specified conversion functions.
@@ -66,8 +66,7 @@ def __update_external_store_md(table_md: dict, external_store_md_updater: Callab
 
 
 def __substitute_md_rec(
-    md: Any,
-    substitution_fn: Callable[[Optional[str], Any], Optional[tuple[Optional[str], Any]]]
+    md: Any, substitution_fn: Callable[[Optional[str], Any], Optional[tuple[Optional[str], Any]]]
 ) -> Any:
     if isinstance(md, dict):
         updated_dict: dict[str, Any] = {}
@@ -97,7 +96,7 @@ def __substitute_md_rec(
 def convert_table_schema_version_md(
     engine: sql.engine.Engine,
     table_schema_version_md_updater: Optional[Callable[[dict], None]] = None,
-    schema_column_updater: Optional[Callable[[dict], None]] = None
+    schema_column_updater: Optional[Callable[[dict], None]] = None,
 ) -> None:
     """
     Converts schema.TableSchemaVersionMd dicts based on the specified conversion functions.

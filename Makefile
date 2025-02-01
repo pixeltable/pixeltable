@@ -51,9 +51,10 @@ help:
 	@echo "  fullpytest    Run pytest, including expensive tests"
 	@echo "  typecheck     Run mypy"
 	@echo "  docstest      Run mkdocs build --strict"
+	@echo "  formattest    Run the formatter (check only)"
+	@echo "  format        Run the formatter (update .py files in place)"
 	@echo "  nbtest        Run notebook tests"
 	@echo "  lint          Run linting tools against changed files"
-	@echo "  format        Format changed files with ruff (updates .py files in place)"
 
 .PHONY: setup-install
 setup-install:
@@ -111,11 +112,11 @@ endif
 install: setup-install .make-install/poetry .make-install/deps .make-install/others
 
 .PHONY: test
-test: pytest typecheck docstest
+test: pytest typecheck docstest formattest
 	@echo "All tests passed!"
 
 .PHONY: fulltest
-fulltest: fullpytest nbtest typecheck docstest
+fulltest: fullpytest nbtest typecheck docstest formattest
 	@echo "All tests passed!"
 
 .PHONY: pytest
@@ -145,13 +146,23 @@ docstest: install
 	@echo "Running mkdocs build --strict ..."
 	@mkdocs build --strict
 
+.PHONY: formattest
+formattest: install
+	@echo "Running ruff format --check ..."
+	@ruff format --check
+	@echo "Running ruff check --select I ..."
+	@ruff check --select I
+
 .PHONY: lint
 lint: install
 	@$(SHELL_PREFIX) scripts/lint-changed-files.sh
 
 .PHONY: format
 format: install
-	@$(SHELL_PREFIX) scripts/format-changed-files.sh
+	@echo "Running ruff format ..."
+	@ruff format
+	@echo "Running ruff check --select I --fix ..."
+	@ruff check --select I --fix
 
 .PHONY: release
 release: install
