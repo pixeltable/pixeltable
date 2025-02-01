@@ -1,4 +1,4 @@
-from typing import Iterable, Union, Optional, cast
+from typing import Iterable, Optional, Union, cast
 
 import sqlalchemy as sql
 

@@ -3,8 +3,8 @@ from __future__ import annotations
 import datetime
 from typing import Any, Optional
 
-import sqlalchemy as sql
 import numpy as np
+import sqlalchemy as sql
 
 import pixeltable.type_system as ts
 from pixeltable.env import Env

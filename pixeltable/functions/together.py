@@ -39,6 +39,7 @@ T = TypeVar('T')
 
 def _retry(fn: Callable[..., T]) -> Callable[..., T]:
     import together
+
     return tenacity.retry(
         retry=tenacity.retry_if_exception_type(together.error.RateLimitError),
         wait=tenacity.wait_random_exponential(multiplier=1, max=60),

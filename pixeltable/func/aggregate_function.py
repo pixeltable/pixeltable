@@ -31,6 +31,7 @@ class AggregateFunction(Function):
     allows_std_agg: if True, the aggregate function can be used as a standard aggregate function w/o a window
     allows_window: if True, the aggregate function can be used with a window
     """
+
     ORDER_BY_PARAM = 'order_by'
     GROUP_BY_PARAM = 'group_by'
     RESERVED_PARAMS = {ORDER_BY_PARAM, GROUP_BY_PARAM}
@@ -45,7 +46,7 @@ class AggregateFunction(Function):
         self_path: str,
         requires_order_by: bool,
         allows_std_agg: bool,
-        allows_window: bool
+        allows_window: bool,
     ) -> None:
         if type_substitutions is None:
             type_substitutions = [None]  # single signature with no substitutions
@@ -80,8 +81,12 @@ class AggregateFunction(Function):
         inferred signature along with the list of init_param_names (for downstream error handling).
         """
         # infer type parameters; set return_type=InvalidType() because it has no meaning here
-        init_sig = Signature.create(py_fn=cls.__init__, return_type=ts.InvalidType(), is_cls_method=True, type_substitutions=type_substitutions)
-        update_sig = Signature.create(py_fn=cls.update, return_type=ts.InvalidType(), is_cls_method=True, type_substitutions=type_substitutions)
+        init_sig = Signature.create(
+            py_fn=cls.__init__, return_type=ts.InvalidType(), is_cls_method=True, type_substitutions=type_substitutions
+        )
+        update_sig = Signature.create(
+            py_fn=cls.update, return_type=ts.InvalidType(), is_cls_method=True, type_substitutions=type_substitutions
+        )
         value_sig = Signature.create(py_fn=cls.value, is_cls_method=True, type_substitutions=type_substitutions)
 
         init_types = [p.col_type for p in init_sig.parameters.values()]
@@ -110,8 +115,7 @@ class AggregateFunction(Function):
         duplicate_params = set(p.name for p in init_params) & set(p.name for p in update_params)
         if len(duplicate_params) > 0:
             raise excs.Error(
-                f'__init__() and update() cannot have parameters with the same name: '
-                f'{", ".join(duplicate_params)}'
+                f'__init__() and update() cannot have parameters with the same name: {", ".join(duplicate_params)}'
             )
         params = update_params + init_params  # init_params are keyword-only and come last
         init_param_names = [p.name for p in init_params]
@@ -166,7 +170,8 @@ class AggregateFunction(Function):
                 )
             if not self.allows_window:
                 raise excs.Error(
-                    f'{self.display_name}(): order_by invalid with an aggregate function that does not allow windows')
+                    f'{self.display_name}(): order_by invalid with an aggregate function that does not allow windows'
+                )
             order_by_clause = kwargs.pop(self.ORDER_BY_PARAM)
         elif self.requires_order_by:
             # the first argument is the order-by expr
@@ -185,7 +190,8 @@ class AggregateFunction(Function):
         if self.GROUP_BY_PARAM in kwargs:
             if not self.allows_window:
                 raise excs.Error(
-                    f'{self.display_name}(): group_by invalid with an aggregate function that does not allow windows')
+                    f'{self.display_name}(): group_by invalid with an aggregate function that does not allow windows'
+                )
             group_by_clause = kwargs.pop(self.GROUP_BY_PARAM)
 
         resolved_fn, bound_args = self._bind_to_matching_signature(args, kwargs)
@@ -195,7 +201,7 @@ class AggregateFunction(Function):
             bound_args,
             return_type,
             order_by_clause=[order_by_clause] if order_by_clause is not None else [],
-            group_by_clause=[group_by_clause] if group_by_clause is not None else []
+            group_by_clause=[group_by_clause] if group_by_clause is not None else [],
         )
 
     def validate_call(self, bound_args: dict[str, Any]) -> None:
@@ -228,7 +234,7 @@ def uda(
     requires_order_by: bool = False,
     allows_std_agg: bool = True,
     allows_window: bool = False,
-    type_substitutions: Optional[Sequence[dict]] = None
+    type_substitutions: Optional[Sequence[dict]] = None,
 ) -> Callable[[type[Aggregator]], AggregateFunction]: ...
 
 
@@ -249,13 +255,11 @@ def uda(*args, **kwargs):
     - allows_window: if True, the function can be used with a window
     """
     if len(args) == 1 and len(kwargs) == 0 and callable(args[0]):
-
         # Decorator invoked without parentheses: @pxt.uda
         # Simply call make_aggregator with defaults.
         return make_aggregator(cls=args[0])
 
     else:
-
         # Decorator schema invoked with parentheses: @pxt.uda(**kwargs)
         # Create a decorator for the specified schema.
         requires_order_by = kwargs.pop('requires_order_by', False)
@@ -273,7 +277,7 @@ def uda(*args, **kwargs):
                 requires_order_by=requires_order_by,
                 allows_std_agg=allows_std_agg,
                 allows_window=allows_window,
-                type_substitutions=type_substitutions
+                type_substitutions=type_substitutions,
             )
 
         return decorator
@@ -284,7 +288,7 @@ def make_aggregator(
     requires_order_by: bool = False,
     allows_std_agg: bool = True,
     allows_window: bool = False,
-    type_substitutions: Optional[Sequence[dict]] = None
+    type_substitutions: Optional[Sequence[dict]] = None,
 ) -> AggregateFunction:
     class_path = f'{cls.__module__}.{cls.__qualname__}'
     instance = AggregateFunction(cls, type_substitutions, class_path, requires_order_by, allows_std_agg, allows_window)

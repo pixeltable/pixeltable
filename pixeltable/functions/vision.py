@@ -205,7 +205,9 @@ def eval_detections(
         pred_filter = pred_classes_arr == class_idx
         gt_filter = gt_classes_arr == class_idx
         class_pred_scores = pred_scores_arr[pred_filter]
-        tp, fp = __calculate_image_tpfp(pred_bboxes_arr[pred_filter], class_pred_scores, gt_bboxes_arr[gt_filter], min_iou)
+        tp, fp = __calculate_image_tpfp(
+            pred_bboxes_arr[pred_filter], class_pred_scores, gt_bboxes_arr[gt_filter], min_iou
+        )
         ordered_class_pred_scores = -np.sort(-class_pred_scores)
         result.append(
             {
@@ -235,6 +237,7 @@ class mean_ap(pxt.Aggregator):
 
     - A `dict[int, float]` mapping each label class to an average precision (AP) value for that class.
     """
+
     def __init__(self):
         self.class_tpfp: dict[int, list[dict]] = defaultdict(list)
 
@@ -282,22 +285,22 @@ def __create_label_colors(labels: list[Any]) -> dict[Any, str]:
         label_hash = int(hashlib.md5(str(label).encode()).hexdigest(), 16)
         hue = (label_hash % 360) / 360.0
         rgb = colorsys.hsv_to_rgb(hue, 0.7, 0.95)
-        hex_color = '#{:02x}{:02x}{:02x}'.format(int(rgb[0]*255), int(rgb[1]*255), int(rgb[2]*255))
+        hex_color = '#{:02x}{:02x}{:02x}'.format(int(rgb[0] * 255), int(rgb[1] * 255), int(rgb[2] * 255))
         result[label] = hex_color
     return result
 
 
 @pxt.udf
 def draw_bounding_boxes(
-        img: PIL.Image.Image,
-        boxes: list[list[int]],
-        labels: Optional[list[Any]] = None,
-        color: Optional[str] = None,
-        box_colors: Optional[list[str]] = None,
-        fill: bool  = False,
-        width: int = 1,
-        font: Optional[str] = None,
-        font_size: Optional[int] = None,
+    img: PIL.Image.Image,
+    boxes: list[list[int]],
+    labels: Optional[list[Any]] = None,
+    color: Optional[str] = None,
+    box_colors: Optional[list[str]] = None,
+    fill: bool = False,
+    width: int = 1,
+    font: Optional[str] = None,
+    font_size: Optional[int] = None,
 ) -> PIL.Image.Image:
     """
     Draws bounding boxes on the given image.

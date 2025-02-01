@@ -5,7 +5,7 @@ first `pip install fireworks-ai` and configure your Fireworks AI credentials, as
 the [Working with Fireworks](https://pixeltable.readme.io/docs/working-with-fireworks) tutorial.
 """
 
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 import pixeltable as pxt
 from pixeltable import env

@@ -22,9 +22,14 @@ class RowidRef(Expr):
     _from_dict()/init() is called, which is why this class effectively has two separate paths for construction
     (with and without a TableVersion).
     """
+
     def __init__(
-            self, tbl: catalog.TableVersion, idx: int,
-            tbl_id: Optional[UUID] = None, normalized_base_id: Optional[UUID] = None):
+        self,
+        tbl: catalog.TableVersion,
+        idx: int,
+        tbl_id: Optional[UUID] = None,
+        normalized_base_id: Optional[UUID] = None,
+    ):
         super().__init__(ts.IntType(nullable=False))
         self.tbl = tbl
         if tbl is not None:
@@ -48,12 +53,16 @@ class RowidRef(Expr):
         return str(self)
 
     def _equals(self, other: RowidRef) -> bool:
-        return self.normalized_base_id == other.normalized_base_id \
+        return (
+            self.normalized_base_id == other.normalized_base_id
             and self.rowid_component_idx == other.rowid_component_idx
+        )
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
-        return super()._id_attrs() +\
-            [('normalized_base_id', self.normalized_base_id), ('idx', self.rowid_component_idx)]
+        return super()._id_attrs() + [
+            ('normalized_base_id', self.normalized_base_id),
+            ('idx', self.rowid_component_idx),
+        ]
 
     def __repr__(self) -> str:
         # check if this is the pos column of a component view

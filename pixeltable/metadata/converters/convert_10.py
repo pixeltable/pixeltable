@@ -1,12 +1,12 @@
 import sqlalchemy as sql
 
-from pixeltable.metadata.schema import Table, TableSchemaVersion
 from pixeltable.metadata import register_converter
+from pixeltable.metadata.schema import Table, TableSchemaVersion
 
 
 @register_converter(version=10)
 def _(engine: sql.engine.Engine) -> None:
-    default_table_attrs = {"comment": None, "num_retained_versions": 10}
+    default_table_attrs = {'comment': None, 'num_retained_versions': 10}
     with engine.begin() as conn:
         # Because `parameters` wasn't actually used for anything,
         # we can simply delete it without any data loss.

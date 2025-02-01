@@ -9,7 +9,6 @@ import pixeltable.functions as pxtf
 
 
 class TestTimestamp:
-
     TEST_FLOATS = (0.0, 1.6, -19.274, 1.32e57, math.inf, -math.inf, math.nan)
 
     def test_methods(self, reset_db) -> None:
@@ -34,9 +33,9 @@ class TestTimestamp:
             assert np.array_equal(actual, expected, equal_nan=True), f'{actual} != {expected}'
             # Run the same query, forcing the calculations to be done in Python (not SQL)
             # by interposing a non-SQLizable identity function
-            actual_py = t.select(
-                out=pxt_fn(t.x.apply(lambda x: x, col_type=pxt.Float), *args, **kwargs)
-            ).collect()['out']
+            actual_py = t.select(out=pxt_fn(t.x.apply(lambda x: x, col_type=pxt.Float), *args, **kwargs)).collect()[
+                'out'
+            ]
             assert np.array_equal(actual_py, expected, equal_nan=True), f'{actual_py} != {expected}'
 
         # Check that they can all be called with method syntax too

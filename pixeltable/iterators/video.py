@@ -167,12 +167,7 @@ class FrameIterator(ComponentIterator):
             img = frame.to_image()
             assert isinstance(img, PIL.Image.Image)
             pos_msec = float(pts * self.video_time_base * 1000)
-            result = {
-                'frame_idx': self.next_pos,
-                'pos_msec': pos_msec,
-                'pos_frame': video_idx,
-                'frame': img,
-            }
+            result = {'frame_idx': self.next_pos, 'pos_msec': pos_msec, 'pos_frame': video_idx, 'frame': img}
             self.next_pos += 1
             return result
 

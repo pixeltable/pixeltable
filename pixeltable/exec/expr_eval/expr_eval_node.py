@@ -4,22 +4,21 @@ import asyncio
 import logging
 import traceback
 from types import TracebackType
-from typing import Iterable, AsyncIterator, Optional, Union
+from typing import AsyncIterator, Iterable, Optional, Union
 
 import numpy as np
 
 import pixeltable.exceptions as excs
-from pixeltable import exprs
-from pixeltable import func
+from pixeltable import exprs, func
+
+from ..data_row_batch import DataRowBatch
+from ..exec_node import ExecNode
 from .evaluators import DefaultExprEvaluator, FnCallEvaluator
 from .globals import Evaluator, Scheduler
 from .row_buffer import RowBuffer
 from .schedulers import SCHEDULERS
-from ..data_row_batch import DataRowBatch
-from ..exec_node import ExecNode
 
 _logger = logging.getLogger('pixeltable')
-
 
 
 class ExprEvalNode(ExecNode):
@@ -41,6 +40,7 @@ class ExprEvalNode(ExecNode):
       simultaneously, which will cause errors; instead, the execution should be divided into sequential phases, each
       of which only contains a subset of the models which is known to fit onto the gpu simultaneously
     """
+
     maintain_input_order: bool  # True if we're returning rows in the order we received them from our input
     num_dependencies: np.ndarray  # number of dependencies for our output slots; indexed by slot idx
     outputs: np.ndarray  # bool per slot; True if this slot is part of our output
@@ -73,8 +73,12 @@ class ExprEvalNode(ExecNode):
     MAX_BUFFERED_ROWS = 2048  # maximum number of rows that have been dispatched but not yet returned
 
     def __init__(
-        self, row_builder: exprs.RowBuilder, output_exprs: Iterable[exprs.Expr], input_exprs: Iterable[exprs.Expr],
-        input: ExecNode, maintain_input_order: bool = True
+        self,
+        row_builder: exprs.RowBuilder,
+        output_exprs: Iterable[exprs.Expr],
+        input_exprs: Iterable[exprs.Expr],
+        input: ExecNode,
+        maintain_input_order: bool = True,
     ):
         super().__init__(row_builder, output_exprs, input_exprs, input)
         self.maintain_input_order = maintain_input_order
@@ -150,7 +154,9 @@ class ExprEvalNode(ExecNode):
                     self.row_pos_map[id(row)] = self.num_input_rows + idx
             self.num_input_rows += len(batch)
             self.avail_input_rows += len(batch)
-            _logger.debug(f'adding input: batch_size={len(batch)} #input_rows={self.num_input_rows} #avail={self.avail_input_rows}')
+            _logger.debug(
+                f'adding input: batch_size={len(batch)} #input_rows={self.num_input_rows} #avail={self.avail_input_rows}'
+            )
         except StopAsyncIteration:
             self.input_complete = True
             _logger.debug(f'finished input: #input_rows={self.num_input_rows}, #avail={self.avail_input_rows}')
@@ -177,11 +183,11 @@ class ExprEvalNode(ExecNode):
         rows: list[exprs.DataRow]
         if avail_current_batch_rows > num_rows:
             # we only need rows from current_input_batch
-            rows = self.current_input_batch.rows[self.input_row_idx:self.input_row_idx + num_rows]
+            rows = self.current_input_batch.rows[self.input_row_idx : self.input_row_idx + num_rows]
             self.input_row_idx += num_rows
         else:
             # we need rows from both current_/next_input_batch
-            rows = self.current_input_batch.rows[self.input_row_idx:]
+            rows = self.current_input_batch.rows[self.input_row_idx :]
             self.current_input_batch = self.next_input_batch
             self.next_input_batch = None
             self.input_row_idx = 0
@@ -339,8 +345,7 @@ class ExprEvalNode(ExecNode):
             first_row = rows[0]
             input_vals = [first_row[idx] for idx in dependency_idxs]
             e = self.row_builder.unique_exprs[slot_with_exc]
-            self.error = excs.ExprEvalError(
-                e, f'expression {e}', first_row.get_exc(e.slot_idx), exc_tb, input_vals, 0)
+            self.error = excs.ExprEvalError(e, f'expression {e}', first_row.get_exc(e.slot_idx), exc_tb, input_vals, 0)
             self.exc_event.set()
             return
 

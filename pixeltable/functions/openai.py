@@ -13,9 +13,8 @@ import logging
 import pathlib
 import re
 import uuid
-from typing import TYPE_CHECKING, Callable, Optional, TypeVar, Union, cast, Any, Type
+from typing import TYPE_CHECKING, Any, Callable, Optional, Type, TypeVar, Union, cast
 
-import PIL.Image
 import httpx
 import numpy as np
 
@@ -52,7 +51,7 @@ _shared_rate_limits = {
         'gpt-4-turbo-2024-04-09',
         'gpt-4-turbo-preview',
         'gpt-4-0125-preview',
-        'gpt-4-1106-preview'
+        'gpt-4-1106-preview',
     ],
     'gpt-4o': [
         'gpt-4o',
@@ -62,20 +61,20 @@ _shared_rate_limits = {
         'gpt-4o-2024-11-20',
         'gpt-4o-audio-preview',
         'gpt-4o-audio-preview-2024-10-01',
-        'gpt-4o-audio-preview-2024-12-17'
+        'gpt-4o-audio-preview-2024-12-17',
     ],
     'gpt-4o-mini': [
         'gpt-4o-mini',
         'gpt-4o-mini-latest',
         'gpt-4o-mini-2024-07-18',
         'gpt-4o-mini-audio-preview',
-        'gpt-4o-mini-audio-preview-2024-12-17'
+        'gpt-4o-mini-audio-preview-2024-12-17',
     ],
     'gpt-4o-mini-realtime-preview': [
         'gpt-4o-mini-realtime-preview',
         'gpt-4o-mini-realtime-preview-latest',
-        'gpt-4o-mini-realtime-preview-2024-12-17'
-    ]
+        'gpt-4o-mini-realtime-preview-2024-12-17',
+    ],
 }
 
 
@@ -92,13 +91,13 @@ class OpenAIRateLimitsInfo(env.RateLimitsInfo):
     def __init__(self, get_request_resources: Callable[..., dict[str, int]]):
         super().__init__(get_request_resources)
         import openai
+
         self.retryable_errors = (
             # ConnectionError: we occasionally see this error when the AsyncConnectionPool is trying to close
             # expired connections
             # (AsyncConnectionPool._close_expired_connections() fails with ConnectionError when executing
             # 'await connection.aclose()', which is very likely a bug in AsyncConnectionPool)
             openai.APIConnectionError,
-
             # the following errors are retryable according to OpenAI's API documentation
             openai.RateLimitError,
             openai.APITimeoutError,
@@ -123,7 +122,7 @@ _header_duration_pattern = re.compile(r'(?:(\d+)d)?(?:(\d+)h)?(?:(\d+)ms)|(?:(\d
 def _parse_header_duration(duration_str):
     match = _header_duration_pattern.match(duration_str)
     if not match:
-        raise ValueError("Invalid duration format")
+        raise ValueError('Invalid duration format')
 
     days = int(match.group(1) or 0)
     hours = int(match.group(2) or 0)
@@ -131,17 +130,11 @@ def _parse_header_duration(duration_str):
     minutes = int(match.group(4) or 0)
     seconds = float(match.group(5) or 0)
 
-    return datetime.timedelta(
-        days=days,
-        hours=hours,
-        minutes=minutes,
-        seconds=seconds,
-        milliseconds=milliseconds
-    )
+    return datetime.timedelta(days=days, hours=hours, minutes=minutes, seconds=seconds, milliseconds=milliseconds)
 
 
 def _get_header_info(
-        headers: httpx.Headers, *, requests: bool = True, tokens: bool = True
+    headers: httpx.Headers, *, requests: bool = True, tokens: bool = True
 ) -> tuple[Optional[tuple[int, int, datetime.datetime]], Optional[tuple[int, int, datetime.datetime]]]:
     assert requests or tokens
     now = datetime.datetime.now(tz=datetime.timezone.utc)
@@ -324,7 +317,7 @@ async def translations(
 
 
 def _chat_completions_get_request_resources(
-        messages: list, max_tokens: Optional[int], n: Optional[int]
+    messages: list, max_tokens: Optional[int], n: Optional[int]
 ) -> dict[str, int]:
     completion_tokens = n * max_tokens
 
@@ -333,7 +326,7 @@ def _chat_completions_get_request_resources(
         num_tokens += 4  # every message follows <im_start>{role/name}\n{content}<im_end>\n
         for key, value in message.items():
             num_tokens += len(value) / 4
-            if key == "name":  # if there's a name, the role is omitted
+            if key == 'name':  # if there's a name, the role is omitted
                 num_tokens -= 1  # role is always required and always 1 token
     num_tokens += 2  # every reply is primed with <im_start>assistant
     return {'requests': 1, 'tokens': int(num_tokens) + completion_tokens}
@@ -395,13 +388,7 @@ async def chat_completions(
             tbl.add_computed_column(response=chat_completions(messages, model='gpt-4o-mini'))
     """
     if tools is not None:
-        tools = [
-            {
-                'type': 'function',
-                'function': tool
-            }
-            for tool in tools
-        ]
+        tools = [{'type': 'function', 'function': tool} for tool in tools]
 
     tool_choice_: Union[str, dict, None] = None
     if tool_choice is not None:
@@ -411,10 +398,7 @@ async def chat_completions(
             tool_choice_ = 'required'
         else:
             assert tool_choice['tool'] is not None
-            tool_choice_ = {
-                'type': 'function',
-                'function': {'name': tool_choice['tool']}
-            }
+            tool_choice_ = {'type': 'function', 'function': {'name': tool_choice['tool']}}
 
     extra_body: Optional[dict[str, Any]] = None
     if tool_choice is not None and not tool_choice['parallel_tool_calls']:
@@ -423,7 +407,8 @@ async def chat_completions(
     # make sure the pool info exists prior to making the request
     resource_pool = _rate_limits_pool(model)
     rate_limits_info = env.Env.get().get_resource_pool_info(
-        resource_pool, lambda: OpenAIRateLimitsInfo(_chat_completions_get_request_resources))
+        resource_pool, lambda: OpenAIRateLimitsInfo(_chat_completions_get_request_resources)
+    )
 
     # cast(Any, ...): avoid mypy errors
     result = await _openai_client().chat.completions.with_raw_response.create(
@@ -672,7 +657,7 @@ def _(size: Optional[str] = None) -> pxt.ImageType:
     if x_pos == -1:
         return pxt.ImageType()
     try:
-        width, height = int(size[:x_pos]), int(size[x_pos + 1:])
+        width, height = int(size[:x_pos]), int(size[x_pos + 1 :])
     except ValueError:
         return pxt.ImageType()
     return pxt.ImageType(size=(width, height))
@@ -742,9 +727,7 @@ def _openai_response_to_pxt_tool_calls(response: dict) -> Optional[dict]:
         return None
     openai_tool_calls = response['choices'][0]['message']['tool_calls']
     return {
-        tool_call['function']['name']: {
-            'args': json.loads(tool_call['function']['arguments'])
-        }
+        tool_call['function']['name']: {'args': json.loads(tool_call['function']['arguments'])}
         for tool_call in openai_tool_calls
     }
 
@@ -754,6 +737,7 @@ _T = TypeVar('_T')
 
 def _opt(arg: _T) -> Union[_T, 'openai.NotGiven']:
     import openai
+
     return arg if arg is not None else openai.NOT_GIVEN
 
 

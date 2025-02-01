@@ -8,9 +8,9 @@ import sys
 import time
 from typing import Optional, Awaitable, Collection
 
-from pixeltable import env
-from pixeltable import func
-from .globals import Scheduler, FnCallArgs, Dispatcher
+from pixeltable import env, func
+
+from .globals import Dispatcher, FnCallArgs, Scheduler
 
 _logger = logging.getLogger('pixeltable')
 
@@ -29,6 +29,7 @@ class RateLimitsScheduler(Scheduler):
     TODO:
     - limit the number of in-flight requests based on the open file limit
     """
+
     get_request_resources_param_names: list[str]  # names of parameters of RateLimitsInfo.get_request_resources()
 
     # scheduling-related state
@@ -156,7 +157,6 @@ class RateLimitsScheduler(Scheduler):
             constant_kwargs, batch_kwargs = request.pxt_fn.create_batch_kwargs(batch_kwargs)
             return self.pool_info.get_request_resources(**constant_kwargs, **batch_kwargs)
 
-
     def _check_resource_limits(self, request_resources: dict[str, int]) -> Optional[env.RateLimitInfo]:
         """Returns the most depleted resource, relative to its limit, or None if all resources are within limits"""
         candidates: list[tuple[env.RateLimitInfo, float]] = []  # (info, relative usage)
@@ -178,7 +178,9 @@ class RateLimitsScheduler(Scheduler):
             start_ts = datetime.datetime.now(tz=datetime.timezone.utc)
             pxt_fn = request.fn_call.fn
             assert isinstance(pxt_fn, func.CallableFunction)
-            _logger.debug(f'scheduler {self.resource_pool}: start evaluating slot {request.fn_call.slot_idx}, batch_size={len(request.rows)}')
+            _logger.debug(
+                f'scheduler {self.resource_pool}: start evaluating slot {request.fn_call.slot_idx}, batch_size={len(request.rows)}'
+            )
             self.total_requests += 1
             if request.is_batched:
                 batch_result = await pxt_fn.aexec_batch(*request.batch_args, **request.batch_kwargs)
@@ -189,7 +191,9 @@ class RateLimitsScheduler(Scheduler):
                 result = await pxt_fn.aexec(*request.args, **request.kwargs)
                 request.row[request.fn_call.slot_idx] = result
             end_ts = datetime.datetime.now(tz=datetime.timezone.utc)
-            _logger.debug(f'scheduler {self.resource_pool}: evaluated slot {request.fn_call.slot_idx} in {end_ts - start_ts}, batch_size={len(request.rows)}')
+            _logger.debug(
+                f'scheduler {self.resource_pool}: evaluated slot {request.fn_call.slot_idx} in {end_ts - start_ts}, batch_size={len(request.rows)}'
+            )
 
             # purge accumulated usage estimate, now that we have a new report
             self.est_usage = {r: 0 for r in self._resources}
@@ -197,7 +201,7 @@ class RateLimitsScheduler(Scheduler):
             self.dispatcher.dispatch(request.rows)
         except Exception as exc:
             _logger.debug(f'scheduler {self.resource_pool}: exception in slot {request.fn_call.slot_idx}: {exc}')
-            if  self.pool_info is None:
+            if self.pool_info is None:
                 # our pool info should be available at this point
                 self._set_pool_info()
             assert self.pool_info is not None
@@ -217,8 +221,7 @@ class RateLimitsScheduler(Scheduler):
                 row.set_exc(request.fn_call.slot_idx, exc)
             self.dispatcher.dispatch_exc(request.rows, request.fn_call.slot_idx, exc_tb)
         finally:
-            _logger.debug(
-                f'Scheduler stats: #requests={self.total_requests}, #retried={self.total_retried}')
+            _logger.debug(f'Scheduler stats: #requests={self.total_requests}, #retried={self.total_retried}')
             if is_task:
                 self.num_in_flight -= 1
                 self.request_completed.set()

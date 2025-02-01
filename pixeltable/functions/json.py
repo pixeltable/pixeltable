@@ -21,6 +21,7 @@ class make_list(pxt.Aggregator):
     """
     Collects arguments into a list.
     """
+
     def __init__(self) -> None:
         self.output: list[Any] = []
 

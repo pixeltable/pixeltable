@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 @register_client('mistral')
 def _(api_key: str) -> 'mistralai.Mistral':
     import mistralai
+
     return mistralai.Mistral(api_key=api_key)
 
 
@@ -143,9 +144,7 @@ async def fim_completions(
     return result.dict()
 
 
-_embedding_dimensions_cache: dict[str, int] = {
-    'mistral-embed': 1024
-}
+_embedding_dimensions_cache: dict[str, int] = {'mistral-embed': 1024}
 
 
 @pxt.udf(batch_size=16, resource_pool='request-rate:mistral')
@@ -172,10 +171,7 @@ async def embeddings(input: Batch[str], *, model: str) -> Batch[pxt.Array[(None,
         An array representing the application of the given embedding to `input`.
     """
     Env.get().require_package('mistralai')
-    result = await _mistralai_client().embeddings.create_async(
-        inputs=input,
-        model=model,
-    )
+    result = _mistralai_client().embeddings.create(inputs=input, model=model)
     return [np.array(data.embedding, dtype=np.float64) for data in result.data]
 
 
@@ -190,6 +186,7 @@ _T = TypeVar('_T')
 
 def _opt(arg: Optional[_T]) -> Union[_T, 'mistralai.types.basemodel.Unset']:
     from mistralai.types import UNSET
+
     return arg if arg is not None else UNSET
 
 

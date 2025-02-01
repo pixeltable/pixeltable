@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 @register_client('replicate')
 def _(api_token: str) -> 'replicate.Client':
     import replicate
+
     return replicate.Client(api_token=api_token)
 
 
