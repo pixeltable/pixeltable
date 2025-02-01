@@ -9,7 +9,6 @@ import time
 from typing import Optional, Awaitable, Collection
 
 from pixeltable import env, func
-
 from .globals import Dispatcher, FnCallArgs, Scheduler
 
 _logger = logging.getLogger('pixeltable')
