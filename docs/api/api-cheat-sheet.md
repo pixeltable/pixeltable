@@ -58,15 +58,9 @@ import pixeltable as pxt
 from pixeltable.iterators import AudioSplitter
 video_t = pxt.create_table('tbl_name', {'video': pxt.Video})
 video_t.add_computed_column(audio=video_t.video.extract_audio(format='mp3'))
-audio_chunk_view = pxt.create_view(
-            "audio_chunks",
-            video_t,
-            iterator=AudioSplitter.create(
-                audio=video_t.audio,
-                chunk_duration_sec=5.0
-            ))
+audio_chunk_view = pxt.create_view("audio_chunks", video_t, iterator=AudioSplitter.create(audio=video_t.audio, chunk_duration_sec=5.0))
 ```
-`chunk_duration_sec` takes in time duration of audio chunk in seconds
+`chunk_duration_sec` is time duration of an audio chunk in seconds
 
 ## Pixeltable types
 
