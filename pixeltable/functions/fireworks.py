@@ -43,6 +43,10 @@ async def chat_completions(
     Equivalent to the Fireworks AI `chat/completions` API endpoint.
     For additional details, see: [https://docs.fireworks.ai/api-reference/post-chatcompletions](https://docs.fireworks.ai/api-reference/post-chatcompletions)
 
+    Request throttling:
+    Applies the rate limit set in the config (section `fireworks`, key `rate_limit`). If no rate
+    limit is configured, uses a default of 600 RPM.
+
     __Requirements:__
 
     - `pip install fireworks-ai`
@@ -65,8 +69,11 @@ async def chat_completions(
     """
     kwargs = {'max_tokens': max_tokens, 'top_k': top_k, 'top_p': top_p, 'temperature': temperature}
     kwargs_not_none = {k: v for k, v in kwargs.items() if v is not None}
+
+    # for debugging purposes:
     #res_sync = _fireworks_client().chat.completions.create(model=model, messages=messages, **kwargs_not_none)
     #res_sync_dict = res_sync.dict()
+
     if request_timeout is None:
         request_timeout = env.Env.get().config.get_int_value('timeout', section='fireworks') or 600
     # TODO: this timeout doesn't really work, I think it only applies to returning the stream, but not to the timing

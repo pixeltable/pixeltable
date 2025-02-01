@@ -36,6 +36,10 @@ async def run(
 
     For additional details, see: <https://replicate.com/docs/topics/models/run-a-model>
 
+    Request throttling:
+    Applies the rate limit set in the config (section `replicate`, key `rate_limit`). If no rate
+    limit is configured, uses a default of 600 RPM.
+
     __Requirements:__
 
     - `pip install replicate`

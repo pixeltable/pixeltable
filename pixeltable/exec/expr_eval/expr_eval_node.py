@@ -35,6 +35,8 @@ class ExprEvalNode(ExecNode):
     TODO:
     - Literal handling: currently, Literal values are copied into slots via the normal evaluation mechanism, which is
       needless overhead; instead: pre-populate Literal slots in _init_row()
+    - dynamically determine MAX_BUFFERED_ROWS, based on the avg memory consumption of a row and our configured memory
+      limit
     - local model inference on gpu: currently, no attempt is made to ensure that models can fit onto the gpu
       simultaneously, which will cause errors; instead, the execution should be divided into sequential phases, each
       of which only contains a subset of the models which is known to fit onto the gpu simultaneously
@@ -236,6 +238,7 @@ class ExprEvalNode(ExecNode):
         exc_event_aw = asyncio.create_task(self.exc_event.wait(), name='exc_event.wait()')
         input_batch_aw: Optional[asyncio.Task] = None
         completed_aw: Optional[asyncio.Task] = None
+        closed_evaluators = False  # True after calling Evaluator.close()
 
         try:
             while True:
@@ -275,11 +278,12 @@ class ExprEvalNode(ExecNode):
                     assert self.output_buffer.num_rows == 0
                     return
 
-                if self.input_complete and self.avail_input_rows == 0:
+                if self.input_complete and self.avail_input_rows == 0 and not closed_evaluators:
                     # no more input rows to dispatch, but we're still waiting for rows to finish:
                     # close  all slot evaluators to flush queued rows
                     for evaluator in self.slot_evaluators.values():
                         evaluator.close()
+                    closed_evaluators = True
 
                 # we don't have a full batch of rows at this point and need to wait
                 aws = {exc_event_aw}  # always wait for an exception

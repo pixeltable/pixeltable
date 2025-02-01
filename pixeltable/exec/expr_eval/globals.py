@@ -53,7 +53,7 @@ class Scheduler(abc.ABC):
         num_retries: int
 
         def __lt__(self, other: Scheduler.QueueItem) -> bool:
-            # prioritize by number of retries
+            # prioritize by number of retries (more retries = higher priority)
             return self.num_retries > other.num_retries
 
     resource_pool: str

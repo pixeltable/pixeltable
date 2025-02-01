@@ -21,7 +21,7 @@ def _ensure_loaded() -> None:
     env.Env.get().get_client('gemini')
 
 
-@pxt.udf
+@pxt.udf(resource_pool='request-rate:gemini')
 async def generate_content(
     contents: str,
     *,
@@ -40,6 +40,10 @@ async def generate_content(
     """
     Generate content from the specified model. For additional details, see:
     <https://ai.google.dev/gemini-api/docs>
+
+    Request throttling:
+    Applies the rate limit set in the config (section `gemini`, key `rate_limit`). If no rate
+    limit is configured, uses a default of 600 RPM.
 
     __Requirements:__
 

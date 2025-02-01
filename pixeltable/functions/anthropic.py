@@ -88,6 +88,10 @@ async def messages(
     Equivalent to the Anthropic `messages` API endpoint.
     For additional details, see: <https://docs.anthropic.com/en/api/messages>
 
+    Request throttling:
+    Uses the rate limit-related headers returned by the API to throttle requests adaptively, based on available
+    request and token capacity. No configuration is necessary.
+
     __Requirements:__
 
     - `pip install anthropic`
@@ -106,7 +110,7 @@ async def messages(
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
         >>> msgs = [{'role': 'user', 'content': tbl.prompt}]
-        ... tbl['response'] = messages(msgs, model='claude-3-haiku-20240307')
+        ... tbl.add_computed_column(response= messages(msgs, model='claude-3-haiku-20240307'))
     """
 
     # it doesn't look like count_tokens() actually exists in the current version of the library

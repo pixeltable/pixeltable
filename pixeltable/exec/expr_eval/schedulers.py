@@ -227,6 +227,18 @@ class RateLimitsScheduler(Scheduler):
 class RequestRateScheduler(Scheduler):
     """
     Scheduler for FunctionCalls with a fixed request rate limit and no runtime resource usage reports.
+
+    Rate limits are supplied in the config, in one of two ways:
+    - resource_pool='request-rate:<endpoint>':
+      * a single rate limit for all calls against that endpoint
+      * in the config: section '<endpoint>', key 'rate_limit'
+    - resource_pool='request-rate:<endpoint>:<model>':
+        * a single rate limit for all calls against that model
+        * in the config: section '<endpoint>.rate_limits', key '<model>'
+    - if no rate limit is found in the config, uses a default of 600 RPM
+
+    TODO:
+    - adaptive rate limiting based on 429 errors
     """
     secs_per_request: float  # inverted rate limit
     num_in_flight: int
@@ -235,6 +247,7 @@ class RequestRateScheduler(Scheduler):
 
     TIME_FORMAT = '%H:%M.%S %f'
     MAX_RETRIES = 10
+    DEFAULT_RATE_LIMIT = 600  # requests per minute
 
     def __init__(self, resource_pool: str, dispatcher: Dispatcher):
         super().__init__(resource_pool, dispatcher)
@@ -243,6 +256,8 @@ class RequestRateScheduler(Scheduler):
         self.num_in_flight = 0
         self.total_requests = 0
         self.total_retried = 0
+
+        # try to get the rate limit from the config
         elems = resource_pool.split(':')
         section: str
         key: str
@@ -258,7 +273,7 @@ class RequestRateScheduler(Scheduler):
             section = f'{endpoint}.rate_limits'
             key = model
         requests_per_min = env.Env.get().config.get_int_value(key, section=section)
-        requests_per_min = requests_per_min if requests_per_min is not None else 600
+        requests_per_min = requests_per_min or self.DEFAULT_RATE_LIMIT
         self.secs_per_request = 1 / (requests_per_min / 60)
 
     @classmethod
