@@ -3,8 +3,6 @@ from typing import Optional
 import av
 import math
 
-from requests_toolbelt.multipart.encoder import total_len
-
 import pixeltable as pxt
 import pixeltable.env as env
 from pixeltable.iterators.audio import AudioSplitter
