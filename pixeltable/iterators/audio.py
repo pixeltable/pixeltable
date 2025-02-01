@@ -15,7 +15,7 @@ _logger = logging.getLogger('pixeltable')
 class AudioSplitter(ComponentIterator):
     """
     Iterator over audio data and split it in the chunks of audio clips duration of which is provided in chunk_duration_sec.
-    Iterator yields audio chunk as AudioType along with information about start and end time of each audio chunk.
+    Iterator yields audio chunk as pxt.Audio along with information about start and end time of each audio chunk.
     If there is no audio in the input then no chunks are yielded.
 
     Args:
