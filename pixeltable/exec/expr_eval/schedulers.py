@@ -243,6 +243,7 @@ class RequestRateScheduler(Scheduler):
     TODO:
     - adaptive rate limiting based on 429 errors
     """
+
     secs_per_request: float  # inverted rate limit
     num_in_flight: int
     total_requests: int
@@ -316,7 +317,8 @@ class RequestRateScheduler(Scheduler):
             pxt_fn = request.fn_call.fn
             assert isinstance(pxt_fn, func.CallableFunction)
             _logger.debug(
-                f'scheduler {self.resource_pool}: start evaluating slot {request.fn_call.slot_idx}, batch_size={len(request.rows)}')
+                f'scheduler {self.resource_pool}: start evaluating slot {request.fn_call.slot_idx}, batch_size={len(request.rows)}'
+            )
             self.total_requests += 1
             if request.is_batched:
                 batch_result = await pxt_fn.aexec_batch(*request.batch_args, **request.batch_kwargs)
@@ -328,7 +330,8 @@ class RequestRateScheduler(Scheduler):
                 request.row[request.fn_call.slot_idx] = result
             end_ts = datetime.datetime.now(tz=datetime.timezone.utc)
             _logger.debug(
-                f'scheduler {self.resource_pool}: evaluated slot {request.fn_call.slot_idx} in {end_ts - start_ts}, batch_size={len(request.rows)}')
+                f'scheduler {self.resource_pool}: evaluated slot {request.fn_call.slot_idx} in {end_ts - start_ts}, batch_size={len(request.rows)}'
+            )
             self.dispatcher.dispatch(request.rows)
 
         except Exception as exc:
@@ -347,7 +350,8 @@ class RequestRateScheduler(Scheduler):
             self.dispatcher.dispatch_exc(request.rows, request.fn_call.slot_idx, exc_tb)
         finally:
             _logger.debug(
-                f'Scheduler stats: #in-flight={self.num_in_flight} #requests={self.total_requests}, #retried={self.total_retried}')
+                f'Scheduler stats: #in-flight={self.num_in_flight} #requests={self.total_requests}, #retried={self.total_retried}'
+            )
             if is_task:
                 self.num_in_flight -= 1
 

@@ -27,11 +27,7 @@ def _replicate_client() -> 'replicate.Client':
 
 
 @pxt.udf(resource_pool='request-rate:replicate')
-async def run(
-    input: dict[str, Any],
-    *,
-    ref: str,
-) -> dict[str, Any]:
+async def run(input: dict[str, Any], *, ref: str) -> dict[str, Any]:
     """
     Run a model on Replicate.
 

@@ -46,9 +46,11 @@ class Scheduler(abc.ABC):
     - schedulers are responsible for aborting execution when a) the task is cancelled or b) when an exception occurred
       elsewhere (indicated by dispatcher.exc_event)
     """
+
     @dataclass(frozen=True)
     class QueueItem:
         """Container of work items for queueing schedulers"""
+
         request: FnCallArgs
         num_retries: int
 

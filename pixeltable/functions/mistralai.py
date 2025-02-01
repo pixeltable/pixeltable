@@ -139,7 +139,7 @@ async def fim_completions(
         min_tokens=_opt(min_tokens),
         stop=stop,
         random_seed=_opt(random_seed),
-        suffix=_opt(suffix)
+        suffix=_opt(suffix),
     )
     return result.dict()
 

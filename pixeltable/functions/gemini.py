@@ -85,6 +85,7 @@ async def generate_content(
     response = await model.generate_content_async(contents, generation_config=gc)
     return response.to_dict()
 
+
 @generate_content.resource_pool
 def _(model_name: str) -> str:
     return f'request-rate:gemini:{model_name}'

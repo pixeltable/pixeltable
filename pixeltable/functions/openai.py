@@ -33,6 +33,7 @@ _logger = logging.getLogger('pixeltable')
 @env.register_client('openai')
 def _(api_key: str) -> 'openai.AsyncOpenAI':
     import openai
+
     return openai.AsyncOpenAI(
         api_key=api_key,
         # recommended to increase limits for async client to avoid connection errors
@@ -175,7 +176,7 @@ async def speech(
     voice: str,
     response_format: Optional[str] = None,
     speed: Optional[float] = None,
-    timeout: Optional[float] = None
+    timeout: Optional[float] = None,
 ) -> pxt.Audio:
     """
     Generates audio from the input text.
@@ -214,7 +215,8 @@ async def speech(
         voice=voice,  # type: ignore
         response_format=_opt(response_format),  # type: ignore
         speed=_opt(speed),
-        timeout=_opt(timeout))
+        timeout=_opt(timeout),
+    )
     ext = response_format or 'mp3'
     output_filename = str(env.Env.get().tmp_dir / f'{uuid.uuid4()}.{ext}')
     content.write_to_file(output_filename)
@@ -229,7 +231,7 @@ async def transcriptions(
     language: Optional[str] = None,
     prompt: Optional[str] = None,
     temperature: Optional[float] = None,
-    timeout: Optional[float] = None
+    timeout: Optional[float] = None,
 ) -> dict:
     """
     Transcribes audio into the input language.
@@ -262,8 +264,12 @@ async def transcriptions(
     """
     file = pathlib.Path(audio)
     transcription = await _openai_client().audio.transcriptions.create(
-        file=file, model=model, language=_opt(language), prompt=_opt(prompt), temperature=_opt(temperature),
-        timeout=_opt(timeout)
+        file=file,
+        model=model,
+        language=_opt(language),
+        prompt=_opt(prompt),
+        temperature=_opt(temperature),
+        timeout=_opt(timeout),
     )
     return transcription.dict()
 
@@ -275,7 +281,7 @@ async def translations(
     model: str,
     prompt: Optional[str] = None,
     temperature: Optional[float] = None,
-    timeout: Optional[float] = None
+    timeout: Optional[float] = None,
 ) -> dict:
     """
     Translates audio into English.
@@ -353,7 +359,7 @@ async def chat_completions(
     tools: Optional[list[dict]] = None,
     tool_choice: Optional[dict] = None,
     user: Optional[str] = None,
-    timeout: Optional[float] = None
+    timeout: Optional[float] = None,
 ) -> dict:
     """
     Creates a model response for the given chat conversation.
@@ -441,13 +447,7 @@ async def chat_completions(
 
 
 @pxt.udf
-async def vision(
-    prompt: str,
-    image: PIL.Image.Image,
-    *,
-    model: str,
-    timeout: Optional[float] = None
-) -> str:
+async def vision(prompt: str, image: PIL.Image.Image, *, model: str, timeout: Optional[float] = None) -> str:
     """
     Analyzes an image with the OpenAI vision capability. This is a convenience function that takes an image and
     prompt, and constructs a chat completion request that utilizes OpenAI vision.
@@ -494,11 +494,13 @@ async def vision(
     # make sure the pool info exists prior to making the request
     resource_pool = _rate_limits_pool(model)
     rate_limits_info = env.Env.get().get_resource_pool_info(
-        resource_pool, lambda: OpenAIRateLimitsInfo(_chat_completions_get_request_resources))
+        resource_pool, lambda: OpenAIRateLimitsInfo(_chat_completions_get_request_resources)
+    )
     result = await _openai_client().chat.completions.with_raw_response.create(
         messages=messages,  # type: ignore
         model=model,
-        timeout=_opt(timeout))
+        timeout=_opt(timeout),
+    )
 
     requests_info, tokens_info = _get_header_info(result.headers)
     rate_limits_info.record(requests=requests_info, tokens=tokens_info)
@@ -529,7 +531,7 @@ async def embeddings(
     model: str,
     dimensions: Optional[int] = None,
     user: Optional[str] = None,
-    timeout: Optional[float] = None
+    timeout: Optional[float] = None,
 ) -> Batch[pxt.Array[(None,), pxt.Float]]:
     """
     Creates an embedding vector representing the input text.
@@ -569,10 +571,16 @@ async def embeddings(
     _logger.debug(f'embeddings: batch_size={len(input)}')
     resource_pool = _rate_limits_pool(model)
     rate_limits_info = env.Env.get().get_resource_pool_info(
-        resource_pool, lambda: OpenAIRateLimitsInfo(_embeddings_get_request_resources))
+        resource_pool, lambda: OpenAIRateLimitsInfo(_embeddings_get_request_resources)
+    )
     result = await _openai_client().embeddings.with_raw_response.create(
-        input=input, model=model, dimensions=_opt(dimensions), user=_opt(user), encoding_format='float',
-        timeout=_opt(timeout))
+        input=input,
+        model=model,
+        dimensions=_opt(dimensions),
+        user=_opt(user),
+        encoding_format='float',
+        timeout=_opt(timeout),
+    )
     requests_info, tokens_info = _get_header_info(result.headers)
     rate_limits_info.record(requests=requests_info, tokens=tokens_info)
     return [np.array(data['embedding'], dtype=np.float64) for data in json.loads(result.content)['data']]
@@ -601,7 +609,7 @@ async def image_generations(
     size: Optional[str] = None,
     style: Optional[str] = None,
     user: Optional[str] = None,
-    timeout: Optional[float] = None
+    timeout: Optional[float] = None,
 ) -> PIL.Image.Image:
     """
     Creates an image given a prompt.
@@ -641,7 +649,7 @@ async def image_generations(
         style=_opt(style),  # type: ignore
         user=_opt(user),
         response_format='b64_json',
-        timeout=_opt(timeout)
+        timeout=_opt(timeout),
     )
     b64_str = result.data[0].b64_json
     b64_bytes = base64.b64decode(b64_str)
@@ -702,6 +710,7 @@ async def moderations(input: str, *, model: str = 'omni-moderation-latest') -> d
     result = await _openai_client().moderations.create(input=input, model=_opt(model))
     return result.dict()
 
+
 @speech.resource_pool
 @transcriptions.resource_pool
 @translations.resource_pool
@@ -709,6 +718,7 @@ async def moderations(input: str, *, model: str = 'omni-moderation-latest') -> d
 @moderations.resource_pool
 def _(model: str) -> str:
     return f'request-rate:openai:{model}'
+
 
 @chat_completions.resource_pool
 @vision.resource_pool

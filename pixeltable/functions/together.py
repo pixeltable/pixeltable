@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 @env.register_client('together')
 def _(api_key: str) -> 'together.AsyncTogether':
     import together
+
     return together.AsyncTogether(api_key=api_key)
 
 

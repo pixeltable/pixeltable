@@ -71,15 +71,16 @@ async def chat_completions(
     kwargs_not_none = {k: v for k, v in kwargs.items() if v is not None}
 
     # for debugging purposes:
-    #res_sync = _fireworks_client().chat.completions.create(model=model, messages=messages, **kwargs_not_none)
-    #res_sync_dict = res_sync.dict()
+    # res_sync = _fireworks_client().chat.completions.create(model=model, messages=messages, **kwargs_not_none)
+    # res_sync_dict = res_sync.dict()
 
     if request_timeout is None:
         request_timeout = env.Env.get().config.get_int_value('timeout', section='fireworks') or 600
     # TODO: this timeout doesn't really work, I think it only applies to returning the stream, but not to the timing
     # of the chunks; addressing this would require a timeout for the task running this udf
     stream = _fireworks_client().chat.completions.acreate(
-        model=model, messages=messages, request_timeout=request_timeout, **kwargs_not_none)
+        model=model, messages=messages, request_timeout=request_timeout, **kwargs_not_none
+    )
     chunks = []
     async for chunk in stream:
         chunks.append(chunk)
@@ -107,7 +108,7 @@ async def chat_completions(
         ],
         'usage': {},
     }
-    for chunk  in chunks:
+    for chunk in chunks:
         d = chunk.dict()
         if 'usage' in d and d['usage'] is not None:
             res['usage'] = d['usage']
@@ -122,7 +123,6 @@ async def chat_completions(
         if chunk.choices[0].delta.function is not None:
             res['choices'][0]['message']['function'] = chunk.choices[0].delta.function
     return res
-
 
 
 __all__ = local_public_names(__name__)
