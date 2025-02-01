@@ -1,4 +1,4 @@
-from PIL.Image import Quantize, Transpose, Dither
+from PIL.Image import Dither, Quantize, Transpose
 
 from pixeltable import Table
 from pixeltable.functions.image import alpha_composite, blend, composite

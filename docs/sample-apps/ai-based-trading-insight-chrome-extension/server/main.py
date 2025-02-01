@@ -28,48 +28,31 @@ if 'ANTHROPIC_API_KEY' not in os.environ:
 app = FastAPI()
 
 app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    CORSMiddleware, allow_origins=['*'], allow_credentials=True, allow_methods=['*'], allow_headers=['*']
 )
 
 pxt.drop_dir('trade_analysis', force=True)
 pxt.create_dir('trade_analysis')
 
 analysis_table = pxt.create_table(
-    'trade_analysis.analysis',
-    {
-        'image': pxt.Image,
-        'timestamp': pxt.Timestamp,
-        'request_id': pxt.String,
-    }
+    'trade_analysis.analysis', {'image': pxt.Image, 'timestamp': pxt.Timestamp, 'request_id': pxt.String}
 )
 
-analysis_table.add_computed_column(
-    image_raw=pxt_image.b64_encode(analysis_table.image, 'jpeg')
-)
+analysis_table.add_computed_column(image_raw=pxt_image.b64_encode(analysis_table.image, 'jpeg'))
+
 
 @pxt.udf
 def create_messages(image_raw: str) -> list[dict]:
-    return [{
-        'role': 'user',
-        'content': [
-            {
-                'type': 'image',
-                'source': {
-                    'type': 'base64',
-                    'media_type': 'image/jpeg',
-                    'data': image_raw
-                }
-            },
-            {
-                'type': 'text',
-                'text': "Please analyze this trading chart:"
-            }
-        ]
-    }]
+    return [
+        {
+            'role': 'user',
+            'content': [
+                {'type': 'image', 'source': {'type': 'base64', 'media_type': 'image/jpeg', 'data': image_raw}},
+                {'type': 'text', 'text': 'Please analyze this trading chart:'},
+            ],
+        }
+    ]
+
 
 @pxt.udf
 def parse_support_resistance(analysis: str) -> dict[str, list[Optional[float]]]:
@@ -98,17 +81,12 @@ def parse_support_resistance(analysis: str) -> dict[str, list[Optional[float]]]:
                 except ValueError:
                     continue
 
-        return {
-            'support': support_levels,
-            'resistance': resistance_levels
-        }
+        return {'support': support_levels, 'resistance': resistance_levels}
 
     except Exception as e:
-        logger.error(f"Error in parse_support_resistance: {e}")
-        return {
-            'support': [None, None, None],
-            'resistance': [None, None, None]
-        }
+        logger.error(f'Error in parse_support_resistance: {e}')
+        return {'support': [None, None, None], 'resistance': [None, None, None]}
+
 
 @pxt.udf
 def extract_technical_indicators(analysis: str) -> dict:
@@ -121,7 +99,7 @@ def extract_technical_indicators(analysis: str) -> dict:
             'stochastic': '-',
             'volume': '-',
             'current_price': '-',
-            'vwap': '-'
+            'vwap': '-',
         }
 
         for line in lines:
@@ -140,11 +118,11 @@ def extract_technical_indicators(analysis: str) -> dict:
             elif 'VWAP:' in line:
                 indicators['vwap'] = line.lstrip('VWAP:').strip()
 
-        logger.info(f"Extracted indicators: {indicators}")
+        logger.info(f'Extracted indicators: {indicators}')
         return indicators
 
     except Exception as e:
-        logger.error(f"Error parsing technical indicators: {e}")
+        logger.error(f'Error parsing technical indicators: {e}')
         return {
             'macd': '-',
             'rsi': '-',
@@ -152,18 +130,15 @@ def extract_technical_indicators(analysis: str) -> dict:
             'stochastic': '-',
             'volume': '-',
             'current_price': '-',
-            'vwap': '-'
+            'vwap': '-',
         }
+
 
 @pxt.udf
 def extract_trade_setup(analysis: str) -> dict:
     try:
         lines = analysis.split('\n')
-        trade_setup = {
-            'entry': '-',
-            'stop_loss': '-',
-            'target': '-'
-        }
+        trade_setup = {'entry': '-', 'stop_loss': '-', 'target': '-'}
 
         for line in lines:
             if 'Entry:' in line:
@@ -175,12 +150,9 @@ def extract_trade_setup(analysis: str) -> dict:
 
         return trade_setup
     except Exception as e:
-        logger.error(f"Error parsing trade setup: {e}")
-        return {
-            'entry': '-',
-            'stop_loss': '-',
-            'target': '-'
-        }
+        logger.error(f'Error parsing trade setup: {e}')
+        return {'entry': '-', 'stop_loss': '-', 'target': '-'}
+
 
 @pxt.udf
 def extract_signal_type(analysis: str) -> str:
@@ -204,7 +176,7 @@ def extract_signal_type(analysis: str) -> str:
         sentiment_matches = {
             'BULLISH': len(re.findall(r'\b(BULLISH|UPTREND|LONG|CALL)\b', analysis_upper)),
             'BEARISH': len(re.findall(r'\b(BEARISH|DOWNTREND|SHORT|PUT)\b', analysis_upper)),
-            'NEUTRAL': len(re.findall(r'\b(NEUTRAL|SIDEWAYS|CONSOLIDATING)\b', analysis_upper))
+            'NEUTRAL': len(re.findall(r'\b(NEUTRAL|SIDEWAYS|CONSOLIDATING)\b', analysis_upper)),
         }
 
         max_sentiment = max(sentiment_matches.items(), key=lambda x: x[1])
@@ -213,8 +185,9 @@ def extract_signal_type(analysis: str) -> str:
 
         return 'NEUTRAL'
     except Exception as e:
-        logger.error(f"Error extracting signal type: {e}")
+        logger.error(f'Error extracting signal type: {e}')
         return 'NEUTRAL'
+
 
 @pxt.udf
 def parse_summary(analysis: str) -> str:
@@ -223,7 +196,7 @@ def parse_summary(analysis: str) -> str:
             r'Summary\s*[:=-]\s*(.*?)(?=\n\n|\n[A-Z]|$)',
             r'Summary:\s*(.*?)(?=\n\d|\n[A-Z]|$)',
             r'Overall Analysis\s*[:=-]\s*(.*?)(?=\n\n|\n[A-Z]|$)',
-            r'\*\*Summary\*\*:?\s*(.*?)(?=\n\n|\n[A-Z]|$)'
+            r'\*\*Summary\*\*:?\s*(.*?)(?=\n\n|\n[A-Z]|$)',
         ]
 
         for pattern in summary_patterns:
@@ -233,7 +206,7 @@ def parse_summary(analysis: str) -> str:
                 if summary:
                     summary = re.sub(r'\s+', ' ', summary)
                     summary = summary.strip('*- ')
-                    return summary if len(summary) > 5 else "Summary not available."
+                    return summary if len(summary) > 5 else 'Summary not available.'
 
         sections = analysis.split('\n\n')
         for section in reversed(sections):
@@ -243,14 +216,13 @@ def parse_summary(analysis: str) -> str:
                 if summary and len(summary) > 5:
                     return summary
 
-        return "Analysis summary not available."
+        return 'Analysis summary not available.'
     except Exception as e:
-        logger.error(f"Error parsing summary: {e}")
-        return "Error retrieving analysis summary."
+        logger.error(f'Error parsing summary: {e}')
+        return 'Error retrieving analysis summary.'
 
-analysis_table.add_computed_column(
-    messages=create_messages(analysis_table.image_raw)
-)
+
+analysis_table.add_computed_column(messages=create_messages(analysis_table.image_raw))
 
 analysis_table.add_computed_column(
     claude_response=messages(
@@ -323,43 +295,33 @@ FORMAT RULES:
 - Support/Resistance labeled as S1/S2/S3 and R1/R2/R3
 - Missing data marked as "Not Available"
 - Signal Type must be  BULLISH, BEARISH, or NEUTRAL
-- Each section must follow exact format for reliable parsing"""
+- Each section must follow exact format for reliable parsing""",
     )
 )
 
-analysis_table.add_computed_column(
-    analysis_text=analysis_table.claude_response.content[0].text
-)
+analysis_table.add_computed_column(analysis_text=analysis_table.claude_response.content[0].text)
 
-analysis_table.add_computed_column(
-    levels=parse_support_resistance(analysis_table.analysis_text)
-)
+analysis_table.add_computed_column(levels=parse_support_resistance(analysis_table.analysis_text))
 
-analysis_table.add_computed_column(
-    indicators=extract_technical_indicators(analysis_table.analysis_text)
-)
+analysis_table.add_computed_column(indicators=extract_technical_indicators(analysis_table.analysis_text))
 
-analysis_table.add_computed_column(
-    trade_setup=extract_trade_setup(analysis_table.analysis_text)
-)
+analysis_table.add_computed_column(trade_setup=extract_trade_setup(analysis_table.analysis_text))
 
-analysis_table.add_computed_column(
-    signal_type=extract_signal_type(analysis_table.analysis_text)
-)
+analysis_table.add_computed_column(signal_type=extract_signal_type(analysis_table.analysis_text))
 
-analysis_table.add_computed_column(
-    summary=parse_summary(analysis_table.analysis_text)
-)
+analysis_table.add_computed_column(summary=parse_summary(analysis_table.analysis_text))
+
 
 class ScreenshotRequest(BaseModel):
     screenshot: str
     requestId: Optional[str] = None
 
-@app.post("/analyze")
+
+@app.post('/analyze')
 async def analyze_screenshot(request: ScreenshotRequest):
     try:
-        request_id = request.requestId or f"auto_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{os.urandom(4).hex()}"
-        logger.info(f"Processing analysis request: {request_id}")
+        request_id = request.requestId or f'auto_{datetime.now().strftime("%Y%m%d_%H%M%S")}_{os.urandom(4).hex()}'
+        logger.info(f'Processing analysis request: {request_id}')
 
         base64_data = request.screenshot.split(',')[1] if ',' in request.screenshot else request.screenshot
         image_data = base64.b64decode(base64_data)
@@ -368,24 +330,22 @@ async def analyze_screenshot(request: ScreenshotRequest):
         if pil_image.mode != 'RGB':
             pil_image = pil_image.convert('RGB')
 
-        analysis_table.insert([{
-            'image': pil_image,
-            'timestamp': datetime.now(),
-            'request_id': request_id
-        }])
+        analysis_table.insert([{'image': pil_image, 'timestamp': datetime.now(), 'request_id': request_id}])
 
-        result = analysis_table.where(
-            analysis_table.request_id == request_id
-        ).select(
-            analysis_table.levels,
-            analysis_table.indicators,
-            analysis_table.trade_setup,
-            analysis_table.signal_type,
-            analysis_table.summary
-        ).tail(1)
+        result = (
+            analysis_table.where(analysis_table.request_id == request_id)
+            .select(
+                analysis_table.levels,
+                analysis_table.indicators,
+                analysis_table.trade_setup,
+                analysis_table.signal_type,
+                analysis_table.summary,
+            )
+            .tail(1)
+        )
 
         if not result:
-            raise HTTPException(status_code=500, detail="No analysis results found")
+            raise HTTPException(status_code=500, detail='No analysis results found')
 
         return {
             'request_id': request_id,
@@ -394,14 +354,16 @@ async def analyze_screenshot(request: ScreenshotRequest):
             'technical_indicators': result['indicators'][0],
             'trade_setup': result['trade_setup'][0],
             'signal_type': result['signal_type'][0],
-            'summary': result['summary'][0]
+            'summary': result['summary'][0],
         }
 
     except Exception as e:
-        logger.error(f"Analysis error for request {request_id if 'request_id' in locals() else 'unknown'}: {str(e)}")
+        logger.error(f'Analysis error for request {request_id if "request_id" in locals() else "unknown"}: {str(e)}')
         raise HTTPException(status_code=500, detail=str(e))
 
-if __name__ == "__main__":
+
+if __name__ == '__main__':
     import uvicorn
-    logger.info("Starting server...")
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+
+    logger.info('Starting server...')
+    uvicorn.run(app, host='0.0.0.0', port=8000)

@@ -81,14 +81,14 @@ class TestAudio:
                         'name': 'flac',
                         'profile': None,
                         'channels': 1,
-                        'codec_tag': '\\x00\\x00\\x00\\x00'
+                        'codec_tag': '\\x00\\x00\\x00\\x00',
                     },
-                    'duration_seconds': 60.0
+                    'duration_seconds': 60.0,
                 }
             ],
             'bit_rate': 342510,
             'metadata': {'encoder': 'Lavf61.1.100'},
-            'bit_exact': False
+            'bit_exact': False,
         }
 
     def __get_chunk_counts(self, files, target_chunk_size_sec) -> dict[str, int]:

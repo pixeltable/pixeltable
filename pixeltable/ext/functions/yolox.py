@@ -55,9 +55,7 @@ def yolox(images: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0
     with torch.no_grad():
         output_tensor = model(batch_tensor)
 
-    outputs = postprocess(
-        output_tensor, 80, threshold, exp.nmsthre, class_agnostic=False
-    )
+    outputs = postprocess(output_tensor, 80, threshold, exp.nmsthre, class_agnostic=False)
 
     results: list[dict] = []
     for image in images:
@@ -65,11 +63,13 @@ def yolox(images: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0
         if outputs[0] is None:
             results.append({'bboxes': [], 'scores': [], 'labels': []})
         else:
-            results.append({
-                'bboxes': [(output[:4] / ratio).tolist() for output in outputs[0]],
-                'scores': [output[4].item() * output[5].item() for output in outputs[0]],
-                'labels': [int(output[6]) for output in outputs[0]]
-            })
+            results.append(
+                {
+                    'bboxes': [(output[:4] / ratio).tolist() for output in outputs[0]],
+                    'scores': [output[4].item() * output[5].item() for output in outputs[0]],
+                    'labels': [int(output[6]) for output in outputs[0]],
+                }
+            )
     return results
 
 

@@ -14,6 +14,7 @@ from pixeltable.env import Env
 if TYPE_CHECKING:
     from whisper import Whisper  # type: ignore[import-untyped]
 
+
 @pxt.udf
 def transcribe(
     audio: pxt.Audio,

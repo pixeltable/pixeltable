@@ -19,6 +19,7 @@ def dummy_fn(i: int) -> int:
 
 T = typing.TypeVar('T')
 
+
 class TestFunction:
     @staticmethod
     @pxt.udf
@@ -29,11 +30,14 @@ class TestFunction:
     @pxt.uda
     class agg(pxt.Aggregator):
         """An aggregator."""
+
         def __init__(self):
             self.sum = 0
+
         def update(self, val: int) -> None:
             if val is not None:
                 self.sum += val
+
         def value(self) -> int:
             return self.sum
 
@@ -63,6 +67,7 @@ class TestFunction:
         @pxt.udf(_force_stored=True)
         def f1(a: int, b: float) -> float:
             return a + b
+
         t.add_computed_column(f1=f1(t.c1, t.c2))
 
         func.FunctionRegistry.get().clear_cache()
@@ -132,27 +137,35 @@ class TestFunction:
 
         # bad default value
         with pytest.raises(excs.Error) as exc_info:
+
             @pxt.udf
             def f1(a: int, b: float, c: float = '') -> float:  # type: ignore[assignment]
                 return a + b + c
+
         assert 'default value' in str(exc_info.value).lower()
         # missing param type
         with pytest.raises(excs.Error) as exc_info:
+
             @pxt.udf
-            def f1(a: int, b: float, c = '') -> float:
+            def f1(a: int, b: float, c='') -> float:
                 return a + b + c
+
         assert 'cannot infer pixeltable type for parameter c' in str(exc_info.value).lower()
         # bad parameter name
         with pytest.raises(excs.Error) as exc_info:
+
             @pxt.udf
             def f1(group_by: int) -> int:
                 return group_by
+
         assert 'reserved' in str(exc_info.value)
         # bad parameter name
         with pytest.raises(excs.Error) as exc_info:
+
             @pxt.udf
             def f1(order_by: int) -> int:
                 return order_by
+
         assert 'reserved' in str(exc_info.value)
 
     @staticmethod
@@ -180,27 +193,35 @@ class TestFunction:
         assert result[1] == {'increment': 3, 'successor': 3, 'append': 'bx'}
 
         with pytest.raises(excs.Error) as exc_info:
+
             @pxt.udf(is_method=True, is_property=True)
             def udf7(n: int) -> int:
                 return n + 1
+
         assert 'Cannot specify both `is_method` and `is_property` (in function `udf7`)' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
+
             @pxt.udf(is_property=True)
             def udf8(a: int, b: int) -> int:
                 return a + b
-        assert "`is_property=True` expects a UDF with exactly 1 parameter, but `udf8` has 2" in str(exc_info.value)
+
+        assert '`is_property=True` expects a UDF with exactly 1 parameter, but `udf8` has 2' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
+
             @pxt.udf(is_method=True, _force_stored=True)
             def udf9(n: int) -> int:
                 return n + 1
+
         assert 'Stored functions cannot be declared using `is_method` or `is_property`' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
+
             @pxt.udf(is_property=True, _force_stored=True)
             def udf10(n: int) -> int:
                 return n + 1
+
         assert 'Stored functions cannot be declared using `is_method` or `is_property`' in str(exc_info.value)
 
     def test_query(self, reset_db) -> None:
@@ -224,10 +245,7 @@ class TestFunction:
         validate_update_status(t.insert(rows))
 
     def test_query2(self, reset_db) -> None:
-        schema = {
-            'query_text': pxt.String,
-            'i': pxt.Int,
-        }
+        schema = {'query_text': pxt.String, 'i': pxt.Int}
         queries = pxt.create_table('queries', schema)
         query_rows = [
             {'query_text': 'how much is the stock of AI companies up?', 'i': 1},
@@ -236,17 +254,19 @@ class TestFunction:
         validate_update_status(queries.insert(query_rows), expected_rows=len(query_rows))
 
         chunks = pxt.create_table('test_doc_chunks', {'text': pxt.StringType()})
-        chunks.insert([
-            {'text': 'the stock of artificial intelligence companies is up 1000%'},
-            {
-                'text': (
-                         'the term machine learning has fallen out of fashion now that AI has been '
-                         'rehabilitated and is now the new hotness'
-                )
-            },
-            {'text': 'machine learning is a subset of artificial intelligence'},
-            {'text': 'gas car companies are in danger of being left behind by electric car companies'},
-        ])
+        chunks.insert(
+            [
+                {'text': 'the stock of artificial intelligence companies is up 1000%'},
+                {
+                    'text': (
+                        'the term machine learning has fallen out of fashion now that AI has been '
+                        'rehabilitated and is now the new hotness'
+                    )
+                },
+                {'text': 'machine learning is a subset of artificial intelligence'},
+                {'text': 'gas car companies are in danger of being left behind by electric car companies'},
+            ]
+        )
 
         # # TODO: make this work
         # @pxt.query
@@ -256,7 +276,7 @@ class TestFunction:
 
         @pxt.query
         def retrieval(s: str, n: int):
-            """ simply returns 2 passages from the table"""
+            """simply returns 2 passages from the table"""
             return chunks.select(chunks.text).limit(2)
 
         res = queries.select(queries.i, out=retrieval(queries.query_text, queries.i)).collect()
@@ -314,7 +334,7 @@ class TestFunction:
 
         with pytest.raises(excs.Error) as exc_info:
             self.binding_test_udf.using(p1=5)
-        assert "Expected type `String` for parameter `p1`; got `Int`" in str(exc_info.value)
+        assert 'Expected type `String` for parameter `p1`; got `Int`' in str(exc_info.value)
 
         with pytest.raises(TypeError) as exc_info:
             _ = pb1(p1='a')
@@ -362,6 +382,7 @@ class TestFunction:
             @pxt.expr_udf
             def add1(x, y) -> int:
                 return x + y
+
         assert 'cannot infer pixeltable type' in str(exc_info.value).lower()
 
         with pytest.raises(excs.Error) as exc_info:
@@ -369,6 +390,7 @@ class TestFunction:
             @pxt.expr_udf(param_types=[pxt.IntType()])
             def add1(x, y) -> int:
                 return x + y
+
         assert 'missing type for parameter y' in str(exc_info.value).lower()
 
         with pytest.raises(TypeError) as t_exc_info:
@@ -376,6 +398,7 @@ class TestFunction:
             @pxt.expr_udf
             def add1(*, x: int) -> int:
                 return x
+
             _ = t.select(add1(t.c2)).collect()
         assert 'takes 0 positional arguments' in str(t_exc_info.value).lower()
 
@@ -387,48 +410,62 @@ class TestFunction:
     # correct error messages.
     def test_invalid_udfs(self):
         with pytest.raises(excs.Error) as exc_info:
+
             @pxt.udf
             def udf1(name: Batch[str]) -> str:
                 return ''
+
         assert 'batched parameters in udf, but no `batch_size` given' in str(exc_info.value).lower()
 
         with pytest.raises(excs.Error) as exc_info:
+
             @pxt.udf(batch_size=32)
             def udf2(name: Batch[str]) -> str:
                 return ''
+
         assert 'batch_size is specified; Python return type must be a `Batch`' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
+
             @pxt.udf
             def udf3(name: str) -> Optional[np.ndarray]:
                 return None
+
         assert 'cannot infer pixeltable return type' in str(exc_info.value).lower()
 
         with pytest.raises(excs.Error) as exc_info:
+
             @pxt.udf
             def udf4(array: np.ndarray) -> str:
                 return ''
+
         assert 'cannot infer pixeltable type for parameter array' in str(exc_info.value).lower()
 
         with pytest.raises(excs.Error) as exc_info:
+
             @pxt.udf
             def udf5(name: str, untyped) -> str:
                 return ''
+
         assert 'cannot infer pixeltable type for parameter untyped' in str(exc_info.value).lower()
 
         with pytest.raises(ValueError) as v_exc_info:
+
             @udf6.conditional_return_type
             def _(wrong_param: str) -> pxt.ColumnType:
                 return pxt.StringType()
+
         assert '`wrong_param` that is not in a signature' in str(v_exc_info.value).lower()
 
         with pytest.raises(excs.Error) as exc_info:
             from .module_with_duplicate_udf import duplicate_udf
-        assert 'A UDF with that name already exists: tests.module_with_duplicate_udf.duplicate_udf' in str(exc_info.value)
+        assert 'A UDF with that name already exists: tests.module_with_duplicate_udf.duplicate_udf' in str(
+            exc_info.value
+        )
 
     def test_udf_docstring(self) -> None:
-        assert self.func.__doc__ == "A UDF."
-        assert self.agg.__doc__ == "An aggregator."
+        assert self.func.__doc__ == 'A UDF.'
+        assert self.agg.__doc__ == 'An aggregator.'
 
     @pxt.udf  # type: ignore[misc]
     def overloaded_udf(x: str, y: str, z: str = 'a') -> str:
@@ -525,7 +562,6 @@ class TestFunction:
 
         reload_tester.run_reload_test()
 
-
     @pxt.uda
     class overloaded_uda(pxt.Aggregator):
         def __init__(self) -> None:
@@ -612,11 +648,7 @@ class TestFunction:
         res = t.order_by(t.c2).select(c1=fc_str2, c2=fc_int2, c3=fc_float2).collect()
         res_direct = t.order_by(t.c2).select(t.c1, t.c2, t.c3).collect()
         assert len(res) == 1
-        assert res[0] == {
-            'c1': max(res_direct['c1']),
-            'c2': max(res_direct['c2']),
-            'c3': max(res_direct['c3']),
-        }
+        assert res[0] == {'c1': max(res_direct['c1']), 'c2': max(res_direct['c2']), 'c3': max(res_direct['c3'])}
 
     def test_tool_errors(self):
         with pytest.raises(excs.Error) as exc_info:

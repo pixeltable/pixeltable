@@ -9,7 +9,7 @@ _logger = logging.getLogger('pixeltable.http.server')
 
 def get_file_uri(http_address: str, file_path: str) -> str:
     """Get the URI for a file path, with the given prefix.
-        Used in the client to generate a URI
+    Used in the client to generate a URI
     """
     abs_path = pathlib.Path(file_path)
     assert abs_path.is_absolute()
@@ -19,15 +19,16 @@ def get_file_uri(http_address: str, file_path: str) -> str:
 
 class AbsolutePathHandler(http.server.SimpleHTTPRequestHandler):
     """Serves all absolute paths, not just the current directory"""
+
     def translate_path(self, path: str) -> str:
         """
-            Translate a /-separated PATH to the local filename syntax.
-            overrides http.server.SimpleHTTPRequestHandler.translate_path
+        Translate a /-separated PATH to the local filename syntax.
+        overrides http.server.SimpleHTTPRequestHandler.translate_path
 
-            This is only useful for file serving.
+        This is only useful for file serving.
 
-            Code initially taken from there:
-            https://github.com/python/cpython/blob/f5406ef454662b98df107775d18ff71ae6849618/Lib/http/server.py#L834
+        Code initially taken from there:
+        https://github.com/python/cpython/blob/f5406ef454662b98df107775d18ff71ae6849618/Lib/http/server.py#L834
         """
         _logger.info(f'translate path {path=}')
         # abandon query parameters, taken from http.server.SimpleHTTPRequestHandler
@@ -57,7 +58,7 @@ class LoggingHTTPServer(http.server.ThreadingHTTPServer):
 
 
 def make_server(address: str, port: int) -> http.server.HTTPServer:
-    """Create a file server with pixeltable specific config """
+    """Create a file server with pixeltable specific config"""
     return LoggingHTTPServer((address, port), AbsolutePathHandler)
 
 

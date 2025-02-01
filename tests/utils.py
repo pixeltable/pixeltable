@@ -14,10 +14,9 @@ import PIL.Image
 import pytest
 
 import pixeltable as pxt
-from pixeltable import exprs
 import pixeltable.exceptions as excs
 import pixeltable.utils.s3 as s3_util
-from pixeltable import catalog
+from pixeltable import catalog, exprs
 from pixeltable.catalog.globals import UpdateStatus
 from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
@@ -62,12 +61,7 @@ def create_table_data(
                 'attributes': {},
                 'tags': [],
                 'label': 'potted plant',
-                'bounding_box': [
-                    0.37028125,
-                    0.3345305164319249,
-                    0.038593749999999996,
-                    0.16314553990610328,
-                ],
+                'bounding_box': [0.37028125, 0.3345305164319249, 0.038593749999999996, 0.16314553990610328],
                 'mask': None,
                 'confidence': None,
                 'index': None,
@@ -79,12 +73,7 @@ def create_table_data(
                 'attributes': {},
                 'tags': [],
                 'label': 'potted plant',
-                'bounding_box': [
-                    0.37028125,
-                    0.3345305164319249,
-                    0.038593749999999996,
-                    0.16314553990610328,
-                ],
+                'bounding_box': [0.37028125, 0.3345305164319249, 0.038593749999999996, 0.16314553990610328],
                 'mask': None,
                 'confidence': None,
                 'index': None,
@@ -149,10 +138,7 @@ def create_test_tbl(name: str = 'test_tbl') -> catalog.Table:
         'f3': 1.0,
         'f4': True,
         'f5': [1.0, 2.0, 3.0, 4.0],
-        'f6': {
-            'f7': 'test string 2',
-            'f8': [1.0, 2.0, 3.0, 4.0],
-        },
+        'f6': {'f7': 'test string 2', 'f8': [1.0, 2.0, 3.0, 4.0]},
     }
     d2 = [d1, d1]
 
@@ -170,10 +156,7 @@ def create_test_tbl(name: str = 'test_tbl') -> catalog.Table:
             'f4': bool(i % 2),
             'f5': list(range(5 + i // 10)),
             #'f5': [1.0, 2.0, 3.0, 4.0],
-            'f6': {
-                'f7': 'test string 2',
-                'f8': [1.0, 2.0, 3.0, 4.0],
-            },
+            'f6': {'f7': 'test string 2', 'f8': [1.0, 2.0, 3.0, 4.0]},
         }
         c6_data.append(d)
 
@@ -196,11 +179,7 @@ def create_test_tbl(name: str = 'test_tbl') -> catalog.Table:
 
 
 def create_img_tbl(name: str = 'test_img_tbl', num_rows: int = 0) -> catalog.Table:
-    schema = {
-        'img': pxt.Required[pxt.Image],
-        'category': pxt.Required[pxt.String],
-        'split': pxt.Required[pxt.String],
-    }
+    schema = {'img': pxt.Required[pxt.Image], 'category': pxt.Required[pxt.String], 'split': pxt.Required[pxt.String]}
     tbl = pxt.create_table(name, schema)
     rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
     if num_rows > 0:
@@ -260,17 +239,22 @@ def create_scalars_tbl(num_rows: int, seed: int = 0, percent_nulls: int = 10) ->
     for i in range(num_rows):
         str_idx = int(rng.integers(0, 26))
         days = int(rng.integers(0, delta_days))
-        seconds = int(rng.integers(0, 60*60*24))
-        example_rows.append({
-            'row_id': i,
-            'c_bool': None if rng.integers(0, 100) < percent_nulls else bool(rng.choice([True, False])),
-            'c_float': None if rng.integers(0, 100) < percent_nulls else float(rng.uniform(0, 1)),
-            'c_int': None if rng.integers(0, 100) < percent_nulls else int(rng.integers(0, 10)),
-            'c_string': None if rng.integers(0, 100) < percent_nulls else str_chars[str_idx:str_idx + 3],
-            'c_timestamp': None if rng.integers(0, 100) < percent_nulls else start_date + datetime.timedelta(days=days, seconds=seconds),
-        })
+        seconds = int(rng.integers(0, 60 * 60 * 24))
+        example_rows.append(
+            {
+                'row_id': i,
+                'c_bool': None if rng.integers(0, 100) < percent_nulls else bool(rng.choice([True, False])),
+                'c_float': None if rng.integers(0, 100) < percent_nulls else float(rng.uniform(0, 1)),
+                'c_int': None if rng.integers(0, 100) < percent_nulls else int(rng.integers(0, 10)),
+                'c_string': None if rng.integers(0, 100) < percent_nulls else str_chars[str_idx : str_idx + 3],
+                'c_timestamp': None
+                if rng.integers(0, 100) < percent_nulls
+                else start_date + datetime.timedelta(days=days, seconds=seconds),
+            }
+        )
     tbl.insert(example_rows)
     return tbl
+
 
 def read_data_file(dir_name: str, file_name: str, path_col_names: Optional[list[str]] = None) -> list[dict[str, Any]]:
     """
@@ -351,6 +335,7 @@ def __image_mode(path: str) -> str:
     finally:
         image.close()
 
+
 def get_multimedia_commons_video_uris(n: int = 10) -> list[str]:
     uri = 's3://multimedia-commons/data/videos/mp4/'
     parsed = urllib.parse.urlparse(uri)
@@ -367,9 +352,10 @@ def get_multimedia_commons_video_uris(n: int = 10) -> list[str]:
         for obj in page['Contents']:
             if len(uris) >= n:
                 return uris
-            uri = f"s3://{bucket_name}/{obj['Key']}"
+            uri = f's3://{bucket_name}/{obj["Key"]}'
             uris.append(uri)
     return uris
+
 
 def get_audio_files(include_bad_audio: bool = False) -> list[str]:
     tests_dir = Path(os.path.dirname(__file__))
@@ -443,12 +429,12 @@ def validate_update_status(status: UpdateStatus, expected_rows: Optional[int] = 
 
 
 def validate_sync_status(
-        status: SyncStatus,
-        expected_external_rows_created: Optional[int] = None,
-        expected_external_rows_updated: Optional[int] = None,
-        expected_external_rows_deleted: Optional[int] = None,
-        expected_pxt_rows_updated: Optional[int] = None,
-        expected_num_excs: Optional[int] = 0
+    status: SyncStatus,
+    expected_external_rows_created: Optional[int] = None,
+    expected_external_rows_updated: Optional[int] = None,
+    expected_external_rows_deleted: Optional[int] = None,
+    expected_pxt_rows_updated: Optional[int] = None,
+    expected_num_excs: Optional[int] = 0,
 ) -> None:
     if expected_external_rows_created is not None:
         assert status.external_rows_created == expected_external_rows_created, status
@@ -466,13 +452,7 @@ def make_test_arrow_table(output_path: Path) -> str:
     import pyarrow as pa
     from pyarrow import parquet
 
-    float_array = [
-        [1.0, 2.0],
-        [10.0, 20.0],
-        [100.0, 200.0],
-        [1000.0, 2000.0],
-        [10000.0, 20000.0],
-    ]
+    float_array = [[1.0, 2.0], [10.0, 20.0], [100.0, 200.0], [1000.0, 2000.0], [10000.0, 20000.0]]
     value_dict: dict[str, list] = {
         'c_id': [1, 2, 3, 4, 5],
         'c_int64': [-10, -20, -30, -40, None],
@@ -551,9 +531,7 @@ def stock_price(ticker: str) -> float:
         return 0.0
 
 
-SAMPLE_IMAGE_URL = (
-    'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000009.jpg'
-)
+SAMPLE_IMAGE_URL = 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000009.jpg'
 
 
 class ReloadTester:

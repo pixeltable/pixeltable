@@ -16,7 +16,7 @@ class TestSnapshot:
         orig_query: Union[pxt.Table, pxt.DataFrame],
         snap: pxt.Table,
         extra_items: dict[str, Any],
-        reload_md: bool
+        reload_md: bool,
     ) -> None:
         tbl_path, snap_path = tbl._path, snap._path
         # run the initial query against the base table here, before reloading, otherwise the filter breaks
@@ -32,7 +32,7 @@ class TestSnapshot:
 
         # view select list: base cols followed by view cols
         column_names = list(snap._schema.keys())
-        snap_select_list = [snap[col_name] for col_name in column_names[len(extra_items):]]
+        snap_select_list = [snap[col_name] for col_name in column_names[len(extra_items) :]]
         snap_select_list.extend([snap[col_name] for col_name in extra_items.keys()])
         snap_query = snap.select(*snap_select_list).order_by(snap.c2)
         r1 = list(orig_resultset)
@@ -83,11 +83,15 @@ class TestSnapshot:
                 for has_cols in [False, True]:
                     reload_catalog()
                     tbl = create_test_tbl(name=tbl_path)
-                    schema = {
-                        'v1': tbl.c3 * 2.0,
-                        # include a lambda to make sure that is handled correctly
-                        'v2': tbl.c3.apply(lambda x: x * 2.0, col_type=pxt.Float)
-                    } if has_cols else {}
+                    schema = (
+                        {
+                            'v1': tbl.c3 * 2.0,
+                            # include a lambda to make sure that is handled correctly
+                            'v2': tbl.c3.apply(lambda x: x * 2.0, col_type=pxt.Float),
+                        }
+                        if has_cols
+                        else {}
+                    )
                     extra_items = {'v1': tbl.c3 * 2.0, 'v2': tbl.c3 * 2.0} if has_cols else {}
                     query: Union[pxt.Table, pxt.DataFrame] = tbl.where(tbl.c2 < 10) if has_filter else tbl
                     snap = pxt.create_snapshot(snap_path, query, additional_columns=schema)
@@ -101,7 +105,7 @@ class TestSnapshot:
             pxt.create_snapshot('snap2', tbl, additional_columns={'c1': pxt.Int})
 
     def __test_create_if_exists(self, sname: str, t: pxt.Table, s: pxt.Table) -> None:
-        """ Helper function for testing if_exists parameter while creating a snaphot.
+        """Helper function for testing if_exists parameter while creating a snaphot.
 
         Args:
             sname: name of an existing snapshot
@@ -112,7 +116,9 @@ class TestSnapshot:
         # invalid if_exists value is rejected
         with pytest.raises(excs.Error) as exc_info:
             pxt.create_snapshot(sname, t, if_exists='invalid')  # type: ignore[arg-type]
-        assert "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']" in str(exc_info.value).lower()
+        assert (
+            "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']" in str(exc_info.value).lower()
+        )
 
         # scenario 1: a snapshot exists at the path already
         with pytest.raises(pxt.Error, match=r'already exists'):
@@ -163,7 +169,7 @@ class TestSnapshot:
                 pxt.create_snapshot('not_snapshot', t, if_exists=_ie)  # type: ignore[arg-type]
             err_msg = str(exc_info.value).lower()
             assert 'already exists' in err_msg and 'is not a snapshot' in err_msg
-            assert 'not_snapshot' in pxt.list_tables(), f"with if_exists={_ie}"
+            assert 'not_snapshot' in pxt.list_tables(), f'with if_exists={_ie}'
 
     def test_create_if_exists(self, reset_db, reload_tester: ReloadTester) -> None:
         """Test the if_exists parameter while creating a snapshot."""
@@ -330,14 +336,16 @@ class TestSnapshot:
 
             # v1
             assert np.all(
-                v.select(v.v1).order_by(v.c2).collect().to_pandas()['v1'] == \
-                t.select(t.c3).order_by(t.c2).collect().to_pandas()['c3'] + 1)
+                v.select(v.v1).order_by(v.c2).collect().to_pandas()['v1']
+                == t.select(t.c3).order_by(t.c2).collect().to_pandas()['c3'] + 1
+            )
             assert np.all(s1.select(s1.v1).order_by(s1.c2).collect().to_pandas()['v1'] == orig_c3 + 1)
             assert np.all(s2.select(s2.v1).order_by(s2.c2).collect().to_pandas()['v1'] == orig_c3 + 1)
             assert np.all(s3.select(s3.v1).order_by(s3.c2).collect().to_pandas()['v1'] == orig_c3 + 1)
             assert np.all(
-                s4.select(s4.v1).order_by(s4.c2).collect().to_pandas()['v1'] == \
-                t.select(t.c3).order_by(t.c2).collect().to_pandas()['c3'] + 1)
+                s4.select(s4.v1).order_by(s4.c2).collect().to_pandas()['v1']
+                == t.select(t.c3).order_by(t.c2).collect().to_pandas()['c3'] + 1
+            )
 
         validate(t, v, s1, s2, s3, s4)
 

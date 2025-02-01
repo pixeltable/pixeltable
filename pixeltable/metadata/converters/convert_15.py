@@ -1,4 +1,3 @@
-
 import inspect
 import logging
 from typing import Any
@@ -37,8 +36,5 @@ def __update_md(orig_d: dict, binary_obj: bytes) -> Any:
         params.append(func.Parameter(name=name, col_type=col_type, kind=kind, default=default, is_batched=is_batched))
     is_batched = 'batch_size' in orig_d
     sig = func.Signature(return_type, params, is_batched=is_batched)
-    d = {
-        'signature': sig.as_dict(),
-        'batch_size': orig_d['batch_size'] if is_batched else None,
-    }
+    d = {'signature': sig.as_dict(), 'batch_size': orig_d['batch_size'] if is_batched else None}
     return d

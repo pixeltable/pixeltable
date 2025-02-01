@@ -8,7 +8,7 @@ the [Working with Anthropic](https://pixeltable.readme.io/docs/working-with-anth
 import datetime
 import json
 import logging
-from typing import TYPE_CHECKING, Any, Optional, TypeVar, Union, cast, Iterable
+from typing import TYPE_CHECKING, Any, Iterable, Optional, TypeVar, Union, cast
 
 import httpx
 
@@ -22,13 +22,16 @@ if TYPE_CHECKING:
 
 _logger = logging.getLogger('pixeltable')
 
+
 @env.register_client('anthropic')
 def _(api_key: str) -> 'anthropic.AsyncAnthropic':
     import anthropic
+
     return anthropic.AsyncAnthropic(
         api_key=api_key,
         # recommended to increase limits for async client to avoid connection errors
-        http_client = httpx.AsyncClient(limits=httpx.Limits(max_keepalive_connections=100, max_connections=500)))
+        http_client=httpx.AsyncClient(limits=httpx.Limits(max_keepalive_connections=100, max_connections=500)),
+    )
 
 
 def _anthropic_client() -> 'anthropic.AsyncAnthropic':
@@ -36,7 +39,6 @@ def _anthropic_client() -> 'anthropic.AsyncAnthropic':
 
 
 class AnthropicRateLimitsInfo(env.RateLimitsInfo):
-
     def __init__(self):
         super().__init__(self._get_request_resources)
 
@@ -186,7 +188,8 @@ async def messages(
     rate_limits_info.record(
         requests=(requests_limit, requests_remaining, requests_reset),
         input_tokens=(input_tokens_limit, input_tokens_remaining, input_tokens_reset),
-        output_tokens=(output_tokens_limit, output_tokens_remaining, output_tokens_reset))
+        output_tokens=(output_tokens_limit, output_tokens_remaining, output_tokens_reset),
+    )
 
     result_dict = json.loads(result.text)
     return result_dict
@@ -206,12 +209,7 @@ def invoke_tools(tools: Tools, response: exprs.Expr) -> exprs.InlineDict:
 def _anthropic_response_to_pxt_tool_calls(response: dict) -> Optional[dict]:
     anthropic_tool_calls = [r for r in response['content'] if r['type'] == 'tool_use']
     if len(anthropic_tool_calls) > 0:
-        return {
-            tool_call['name']: {
-                'args': tool_call['input']
-            }
-            for tool_call in anthropic_tool_calls
-        }
+        return {tool_call['name']: {'args': tool_call['input']} for tool_call in anthropic_tool_calls}
     return None
 
 
@@ -220,6 +218,7 @@ _T = TypeVar('_T')
 
 def _opt(arg: _T) -> Union[_T, 'anthropic.NotGiven']:
     import anthropic
+
     return arg if arg is not None else anthropic.NOT_GIVEN
 
 

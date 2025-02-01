@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 # `Function`, which is not natively JSON-serializable; Pydantic provides a way of customizing its default
 # serialization behavior, whereas dataclasses do not.)
 
+
 class Tool(pydantic.BaseModel):
     # Allow arbitrary types so that we can include a Pixeltable function in the schema.
     # We will implement a model_serializer to ensure the Tool model can be serialized.
@@ -41,24 +42,16 @@ class Tool(pydantic.BaseModel):
             'description': self.description or self.fn._docstring(),
             'parameters': {
                 'type': 'object',
-                'properties': {
-                    param.name: param.col_type._to_json_schema()
-                    for param in self.parameters.values()
-                }
+                'properties': {param.name: param.col_type._to_json_schema() for param in self.parameters.values()},
             },
-            'required': [
-                param.name for param in self.parameters.values() if not param.col_type.nullable
-            ],
+            'required': [param.name for param in self.parameters.values() if not param.col_type.nullable],
             'additionalProperties': False,  # TODO Handle kwargs?
         }
 
     # `tool_calls` must be in standardized tool invocation format:
     # {tool_name: {'args': {name1: value1, name2: value2, ...}}, ...}
     def invoke(self, tool_calls: 'exprs.Expr') -> 'exprs.FunctionCall':
-        kwargs = {
-            param.name: self.__extract_tool_arg(param, tool_calls)
-            for param in self.parameters.values()
-        }
+        kwargs = {param.name: self.__extract_tool_arg(param, tool_calls) for param in self.parameters.values()}
         return self.fn(**kwargs)
 
     def __extract_tool_arg(self, param: Parameter, tool_calls: 'exprs.Expr') -> 'exprs.Expr':
@@ -93,10 +86,7 @@ class Tools(pydantic.BaseModel):
     def _invoke(self, tool_calls: 'exprs.Expr') -> 'exprs.InlineDict':
         from pixeltable import exprs
 
-        return exprs.InlineDict({
-            tool.name or tool.fn.name: tool.invoke(tool_calls)
-            for tool in self.tools
-        })
+        return exprs.InlineDict({tool.name or tool.fn.name: tool.invoke(tool_calls) for tool in self.tools})
 
     def choice(
         self,
@@ -111,7 +101,8 @@ class Tools(pydantic.BaseModel):
         if tool is not None:
             try:
                 tool_obj = next(
-                    t for t in self.tools
+                    t
+                    for t in self.tools
                     if (isinstance(tool, Function) and t.fn == tool)
                     or (isinstance(tool, str) and (t.name or t.fn.name) == tool)
                 )
@@ -144,7 +135,9 @@ def _extract_bool_tool_arg(tool_calls: dict[str, Any], func_name: str, param_nam
 T = TypeVar('T')
 
 
-def _extract_arg(eval_fn: Callable[[Any], T], tool_calls: dict[str, Any], func_name: str, param_name: str) -> Optional[T]:
+def _extract_arg(
+    eval_fn: Callable[[Any], T], tool_calls: dict[str, Any], func_name: str, param_name: str
+) -> Optional[T]:
     if func_name in tool_calls:
         arguments = tool_calls[func_name]['args']
         if param_name in arguments:

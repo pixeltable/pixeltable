@@ -215,11 +215,7 @@ def _(model_id: str) -> pxt.ArrayType:
 
 @pxt.udf(batch_size=4)
 def detr_for_object_detection(
-    image: Batch[PIL.Image.Image],
-    *,
-    model_id: str,
-    threshold: float = 0.5,
-    revision: str = 'no_timm',
+    image: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0.5, revision: str = 'no_timm'
 ) -> Batch[dict]:
     """
     Computes DETR object detections for the specified image. `model_id` should be a reference to a pretrained
@@ -287,10 +283,7 @@ def detr_for_object_detection(
 
 @pxt.udf(batch_size=4)
 def vit_for_image_classification(
-    image: Batch[PIL.Image.Image],
-    *,
-    model_id: str,
-    top_k: int = 5
+    image: Batch[PIL.Image.Image], *, model_id: str, top_k: int = 5
 ) -> Batch[dict[str, Any]]:
     """
     Computes image classifications for the specified image using a Vision Transformer (ViT) model.
@@ -362,12 +355,7 @@ def vit_for_image_classification(
 
 
 @pxt.udf
-def speech2text_for_conditional_generation(
-    audio: pxt.Audio,
-    *,
-    model_id: str,
-    language: Optional[str] = None,
-) -> str:
+def speech2text_for_conditional_generation(audio: pxt.Audio, *, model_id: str, language: Optional[str] = None) -> str:
     """
     Transcribes or translates speech to text using a Speech2Text model. `model_id` should be a reference to a
     pretrained [Speech2Text](https://huggingface.co/docs/transformers/en/model_doc/speech_to_text) model.
@@ -419,7 +407,8 @@ def speech2text_for_conditional_generation(
     if language is not None and language not in processor.tokenizer.lang_code_to_id:
         raise excs.Error(
             f"Language code '{language}' is not supported by the model '{model_id}'. "
-            f"Supported languages are: {list(processor.tokenizer.lang_code_to_id.keys())}")
+            f'Supported languages are: {list(processor.tokenizer.lang_code_to_id.keys())}'
+        )
 
     forced_bos_token_id: Optional[int] = None if language is None else processor.tokenizer.lang_code_to_id[language]
 
@@ -439,11 +428,7 @@ def speech2text_for_conditional_generation(
     assert waveform.dim() == 1
 
     with torch.no_grad():
-        inputs = processor(
-            waveform,
-            sampling_rate=model_sampling_rate,
-            return_tensors='pt'
-        )
+        inputs = processor(waveform, sampling_rate=model_sampling_rate, return_tensors='pt')
         generated_ids = model.generate(**inputs.to(device), forced_bos_token_id=forced_bos_token_id).to('cpu')
 
     transcription = processor.batch_decode(generated_ids, skip_special_tokens=True)
@@ -480,10 +465,7 @@ T = TypeVar('T')
 
 
 def _lookup_model(
-    model_id: str,
-    create: Callable[..., T],
-    device: Optional[str] = None,
-    pass_device_to_create: bool = False
+    model_id: str, create: Callable[..., T], device: Optional[str] = None, pass_device_to_create: bool = False
 ) -> T:
     from torch import nn
 

@@ -2,15 +2,15 @@ import abc
 import asyncio
 from dataclasses import dataclass
 from types import TracebackType
-from typing import Any, Protocol, Optional
+from typing import Any, Optional, Protocol
 
-from pixeltable import exprs
-from pixeltable import func
+from pixeltable import exprs, func
 
 
 @dataclass
 class FnCallArgs:
     """Container for everything needed to execute a FunctionCall against one or more DataRows"""
+
     fn_call: exprs.FunctionCall
     rows: list[exprs.DataRow]
     # single call
@@ -44,6 +44,7 @@ class Scheduler(abc.ABC):
     - schedulers are responsible for aborting execution when a) the task is cancelled or b) when an exception occurred
       elsewhere (indicated by dispatcher.exc_event)
     """
+
     @abc.abstractmethod
     def submit(self, item: FnCallArgs) -> None:
         pass
@@ -63,6 +64,7 @@ class Dispatcher(Protocol):
     Exceptions: evaluators/schedulers need to check exc_event prior to starting long-running (non-interruptible)
         computations
     """
+
     row_builder: exprs.RowBuilder
     exc_event: asyncio.Event
     schedulers: dict[str, Scheduler]  # key: resource pool id
@@ -90,6 +92,7 @@ class Evaluator(abc.ABC):
     - evaluators are responsible for aborting execution when a) the task is cancelled or b) when an exception occurred
       elsewhere (indicated by dispatcher.exc_event)
     """
+
     dispatcher: Dispatcher
     is_closed: bool
 
@@ -110,4 +113,3 @@ class Evaluator(abc.ABC):
         """Indicates that there may not be any more rows getting scheduled"""
         self.is_closed = True
         self._close()
-

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import inspect
 from typing import Any, Callable, Optional, Sequence
 from uuid import UUID
-import asyncio
 
 import cloudpickle  # type: ignore[import-untyped]
 
@@ -20,6 +20,7 @@ class CallableFunction(Function):
     - references to lambdas and functions defined in notebooks, which are pickled and serialized to the store
     - functions that are defined in modules are serialized via the default mechanism
     """
+
     py_fns: list[Callable]
     self_name: Optional[str]
     batch_size: Optional[int]
@@ -32,7 +33,7 @@ class CallableFunction(Function):
         self_name: Optional[str] = None,
         batch_size: Optional[int] = None,
         is_method: bool = False,
-        is_property: bool = False
+        is_property: bool = False,
     ):
         assert len(signatures) > 0
         assert len(signatures) == len(py_fns)
@@ -165,6 +166,7 @@ class CallableFunction(Function):
             # this is not a module function
             assert not self.is_method and not self.is_property
             from .function_registry import FunctionRegistry
+
             id = FunctionRegistry.get().create_stored_function(self)
             return {'id': id.hex}
         return super()._as_dict()
@@ -173,15 +175,13 @@ class CallableFunction(Function):
     def _from_dict(cls, d: dict) -> Function:
         if 'id' in d:
             from .function_registry import FunctionRegistry
+
             return FunctionRegistry.get().get_stored_function(UUID(hex=d['id']))
         return super()._from_dict(d)
 
     def to_store(self) -> tuple[dict, bytes]:
         assert not self.is_polymorphic  # multi-signature UDFs not allowed for stored fns
-        md = {
-            'signature': self.signature.as_dict(),
-            'batch_size': self.batch_size,
-        }
+        md = {'signature': self.signature.as_dict(), 'batch_size': self.batch_size}
         return md, cloudpickle.dumps(self.py_fn)
 
     @classmethod

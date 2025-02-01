@@ -18,10 +18,16 @@ from pixeltable.metadata.schema import Dir, Function, Table, TableSchemaVersion,
 from pixeltable.utils.filecache import FileCache
 
 from .utils import (
-    create_all_datatypes_tbl, create_img_tbl, create_test_tbl, reload_catalog, skip_test_if_not_installed, ReloadTester
+    ReloadTester,
+    create_all_datatypes_tbl,
+    create_img_tbl,
+    create_test_tbl,
+    reload_catalog,
+    skip_test_if_not_installed,
 )
 
 _logger = logging.getLogger('pixeltable')
+
 
 @pytest.fixture(autouse=True)
 def pxt_test_harness() -> Iterator[None]:
@@ -29,6 +35,7 @@ def pxt_test_harness() -> Iterator[None]:
     _logger.info(f'Running Pixeltable test: {current_test}')
     yield
     _logger.info(f'Finished Pixeltable test: {current_test}')
+
 
 @pytest.fixture(scope='session')
 def init_env(tmp_path_factory, worker_id) -> None:
@@ -97,9 +104,11 @@ def clean_db(restore_tables: bool = True) -> None:
 def test_tbl(reset_db) -> catalog.Table:
     return create_test_tbl()
 
+
 @pytest.fixture(scope='function')
 def reload_tester(init_env) -> ReloadTester:
     return ReloadTester()
+
 
 @pytest.fixture(scope='function')
 def test_tbl_exprs(test_tbl: catalog.Table) -> list[exprs.Expr]:
@@ -108,11 +117,9 @@ def test_tbl_exprs(test_tbl: catalog.Table) -> list[exprs.Expr]:
         t.c1,
         t.c7['*'].f1,
         exprs.Literal('test'),
-        exprs.InlineDict({
-            'a': t.c1, 'b': t.c6.f1, 'c': 17,
-            'd': exprs.InlineDict({'e': t.c2}),
-            'f': exprs.InlineList([t.c3, t.c3])
-        }),
+        exprs.InlineDict(
+            {'a': t.c1, 'b': t.c6.f1, 'c': 17, 'd': exprs.InlineDict({'e': t.c2}), 'f': exprs.InlineList([t.c3, t.c3])}
+        ),
         exprs.InlineList([[t.c2, t.c2], [t.c2, t.c2]]),
         t.c2 > 5,
         t.c2 == None,
@@ -137,13 +144,16 @@ def test_tbl_exprs(test_tbl: catalog.Table) -> list[exprs.Expr]:
         pxtf.sum(t.c2, group_by=t.c4, order_by=t.c3),
     ]
 
+
 @pytest.fixture(scope='function')
 def all_datatypes_tbl(reset_db) -> catalog.Table:
     return create_all_datatypes_tbl()
 
+
 @pytest.fixture(scope='function')
 def img_tbl(reset_db) -> catalog.Table:
     return create_img_tbl('test_img_tbl')
+
 
 @pytest.fixture(scope='function')
 def img_tbl_exprs(indexed_img_tbl: catalog.Table) -> list[exprs.Expr]:
@@ -155,34 +165,37 @@ def img_tbl_exprs(indexed_img_tbl: catalog.Table) -> list[exprs.Expr]:
         t.img.rotate(90).resize([224, 224]),
         t.img.fileurl,
         t.img.localpath,
-        t.img.similarity('red truck', idx='img_idx0')
+        t.img.similarity('red truck', idx='img_idx0'),
     ]
+
 
 @pytest.fixture(scope='function')
 def multi_img_tbl_exprs(multi_idx_img_tbl: catalog.Table) -> list[exprs.Expr]:
     t = multi_idx_img_tbl
-    return [
-        t.img.similarity('red truck', idx='img_idx1'),
-        t.img.similarity('red truck', idx='img_idx2'),
-    ]
+    return [t.img.similarity('red truck', idx='img_idx1'), t.img.similarity('red truck', idx='img_idx2')]
+
 
 @pytest.fixture(scope='function')
 def small_img_tbl(reset_db) -> catalog.Table:
     return create_img_tbl('small_img_tbl', num_rows=40)
+
 
 @pytest.fixture(scope='function')
 def indexed_img_tbl(reset_db) -> pxt.Table:
     skip_test_if_not_installed('transformers')
     t = create_img_tbl('indexed_img_tbl', num_rows=40)
     from .utils import clip_embed
+
     t.add_embedding_index('img', idx_name='img_idx0', metric='cosine', image_embed=clip_embed, string_embed=clip_embed)
     return t
+
 
 @pytest.fixture(scope='function')
 def multi_idx_img_tbl(reset_db) -> pxt.Table:
     skip_test_if_not_installed('transformers')
     t = create_img_tbl('multi_idx_img_tbl', num_rows=4)
     from .utils import clip_embed
+
     t.add_embedding_index('img', idx_name='img_idx1', metric='cosine', image_embed=clip_embed, string_embed=clip_embed)
     t.add_embedding_index('img', idx_name='img_idx2', metric='cosine', image_embed=clip_embed, string_embed=clip_embed)
     return t

@@ -2,6 +2,7 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
+
 from .utils import make_tbl, reload_catalog
 
 
@@ -74,7 +75,9 @@ class TestDirs:
         # invalid if_exists value is rejected
         with pytest.raises(excs.Error) as exc_info:
             pxt.create_dir('dir1', if_exists='invalid')  # type: ignore[arg-type]
-        assert "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']" in str(exc_info.value).lower()
+        assert (
+            "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']" in str(exc_info.value).lower()
+        )
 
         # scenrio 1: path already has a directory
 
@@ -130,7 +133,7 @@ class TestDirs:
             assert 'already exists' in err_msg and 'not a dir' in err_msg, f" for if_exists='{_ie}'"
 
     def _test_drop_if_not_exists(self, dir_name: str) -> None:
-        """ Test if_not_exists parameter of drop_dir """
+        """Test if_not_exists parameter of drop_dir"""
         orig_dirs = pxt.list_dirs(recursive=True)
         # if_not_exists parameter can be used control behavior
         # of drop_dir when the directory doesn't exist.
