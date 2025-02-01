@@ -1,4 +1,3 @@
-import logging
 from typing import Any, Iterator, Optional, Union
 
 import numpy as np
@@ -6,11 +5,7 @@ import pyarrow as pa
 import datetime
 
 import pixeltable.type_system as ts
-from pixeltable.env import Env
 
-_tz_def = Env().get().default_time_zone
-
-_logger = logging.getLogger(__name__)
 
 _pa_to_pt: dict[pa.DataType, ts.ColumnType] = {
     pa.string(): ts.StringType(nullable=True),
