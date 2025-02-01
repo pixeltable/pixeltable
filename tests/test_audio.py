@@ -1,7 +1,8 @@
 from typing import Optional
 
-import av
+import av  # type: ignore[import-untyped]
 import math
+
 
 import pixeltable as pxt
 import pixeltable.env as env

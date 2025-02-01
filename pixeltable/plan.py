@@ -5,6 +5,7 @@ import enum
 from typing import Any, Iterable, Optional, Sequence, Literal
 from uuid import UUID
 
+
 import sqlalchemy as sql
 
 import pixeltable as pxt
@@ -166,10 +167,13 @@ class Analyzer:
             raise excs.Error(
                 f'Invalid non-aggregate expression in aggregate query: {self.select_list[is_agg_output.index(False)]}')
 
-        # check that filter doesn't contain aggregates
+        # check that Where clause and filter doesn't contain aggregates
+        if self.sql_where_clause is not None:
+            if any(_is_agg_fn_call(e) for e in self.sql_where_clause.subexprs(expr_class=exprs.FunctionCall)):
+                raise excs.Error(f'where() cannot contain aggregate functions: {self.sql_where_clause}')
         if self.filter is not None:
             if any(_is_agg_fn_call(e) for e in self.filter.subexprs(expr_class=exprs.FunctionCall)):
-                raise excs.Error(f'Filter cannot contain aggregate functions: {self.filter}')
+                raise excs.Error(f'where() cannot contain aggregate functions: {self.filter}')
 
         # check that grouping exprs don't contain aggregates and can be expressed as SQL (we perform sort-based
         # aggregation and rely on the SqlScanNode returning data in the correct order)
@@ -283,7 +287,8 @@ class Planner:
         computed_exprs = row_builder.output_exprs - row_builder.input_exprs
         if len(computed_exprs) > 0:
             # add an ExprEvalNode when there are exprs to compute
-            plan = exec.ExprEvalNode(row_builder, computed_exprs, plan.output_exprs, input=plan)
+            plan = exec.ExprEvalNode(
+                row_builder, computed_exprs, plan.output_exprs, input=plan, maintain_input_order=False)
 
         stored_col_info = row_builder.output_slot_idxs()
         stored_img_col_info = [info for info in stored_col_info if info.col.col_type.is_image_type()]
@@ -548,7 +553,7 @@ class Planner:
             plan = exec.ComponentIterationNode(target, plan)
         if len(view_output_exprs) > 0:
             plan = exec.ExprEvalNode(
-                row_builder, output_exprs=view_output_exprs, input_exprs=base_output_exprs,input=plan)
+                row_builder, output_exprs=view_output_exprs, input_exprs=base_output_exprs, input=plan)
 
         stored_img_col_info = [info for info in row_builder.output_slot_idxs() if info.col.col_type.is_image_type()]
         plan.set_stored_img_cols(stored_img_col_info)
@@ -750,10 +755,12 @@ class Planner:
             ctx.batch_size = 16
 
             # do aggregation in SQL if all agg exprs can be translated
-            if (sql_elements.contains_all(analyzer.select_list)
-                    and sql_elements.contains_all(analyzer.grouping_exprs)
-                    and isinstance(plan, exec.SqlNode)
-                    and plan.to_cte() is not None):
+            if (
+                sql_elements.contains_all(analyzer.select_list)
+                and sql_elements.contains_all(analyzer.grouping_exprs)
+                and isinstance(plan, exec.SqlNode)
+                and plan.to_cte() is not None
+            ):
                 plan = exec.SqlAggregationNode(
                     row_builder, input=plan, select_list=analyzer.select_list, group_by_items=analyzer.group_by_clause)
             else:
@@ -770,13 +777,21 @@ class Planner:
                 # we need an ExprEvalNode to evaluate the remaining output exprs
                 plan = exec.ExprEvalNode(row_builder, eval_ctx.target_exprs, sql_exprs, input=plan)
             # we're returning everything to the user, so we might as well do it in a single batch
+            # TODO: return smaller batches in order to increase inter-ExecNode parallelism
             ctx.batch_size = 0
 
+        sql_node = plan.get_node(exec.SqlNode)
         if len(analyzer.order_by_clause) > 0:
             # we have the last SqlNode we created produce the ordering
-            sql_node = plan.get_node(exec.SqlNode)
             assert sql_node is not None
             sql_node.set_order_by(analyzer.order_by_clause)
+
+        # if we don't need an ordered result, tell the ExprEvalNode not to maintain input order (which allows us to
+        # return batches earlier)
+        if sql_node is not None and len(sql_node.order_by_clause) == 0:
+            expr_eval_node = plan.get_node(exec.ExprEvalNode)
+            if expr_eval_node is not None:
+                expr_eval_node.set_input_order(False)
 
         if limit is not None:
             plan.set_limit(limit)

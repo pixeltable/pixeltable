@@ -1,5 +1,6 @@
 import datetime
 import pathlib
+from typing import TYPE_CHECKING, Iterable
 import pytest
 import pixeltable as pxt
 
@@ -8,6 +9,8 @@ from pixeltable import exceptions as excs
 
 from ..utils import get_image_files, make_test_arrow_table, skip_test_if_not_installed
 
+if TYPE_CHECKING:
+    import pyarrow as pa
 
 class TestParquet:
     def test_import_parquet(self, reset_db, tmp_path: pathlib.Path) -> None:
@@ -56,7 +59,7 @@ class TestParquet:
         t.insert([  {'c1': 1, 'c2': 'row1', 'c3': datetime.datetime(2012, 1, 1, 12, 0, 0, 25, tz)},
                     {'c1': 2, 'c2': 'row2', 'c3': datetime.datetime(2012, 2, 1, 12, 0, 0, 25, tz)}])
 
-        tz_default = Env().get().default_time_zone
+        tz_default = Env.get().default_time_zone
 
         print("test_export_parquet_simple with tz: ", tz, "and default tz: ", tz_default)
 
@@ -67,9 +70,9 @@ class TestParquet:
         assert ptest1.num_rows == 2
         assert ptest1.column_names == ['c1', 'c2', 'c3']
         assert ptest1.schema.types == [pa.int64(), pa.string(), pa.timestamp('us', tz=datetime.timezone.utc)]
-        assert pa.array(ptest1.column('c1')).equals(pa.array([1, 2]))
-        assert pa.array(ptest1.column('c2')).equals(pa.array(['row1', 'row2']))
-        assert pa.array(ptest1.column('c3')).equals(pa.array([datetime.datetime(2012, 1, 1, 12, 0, 0, 25, tz).astimezone(datetime.timezone.utc),
+        assert pa.array(ptest1.column('c1')).equals(self.__pa_array([1, 2]))
+        assert pa.array(ptest1.column('c2')).equals(self.__pa_array(['row1', 'row2']))
+        assert pa.array(ptest1.column('c3')).equals(self.__pa_array([datetime.datetime(2012, 1, 1, 12, 0, 0, 25, tz).astimezone(datetime.timezone.utc),
                                                               datetime.datetime(2012, 2, 1, 12, 0, 0, 25, tz).astimezone(datetime.timezone.utc)]))
 
         export_file2 = tmp_path / 'test2.pq'
@@ -78,8 +81,8 @@ class TestParquet:
         ptest2 = parquet.read_table(str(export_file2))
         assert ptest2.num_rows == 2
         assert ptest2.column_names == ['c1', 'c2']
-        assert pa.array(ptest2.column('c1')).equals(pa.array([1, 2]))
-        assert pa.array(ptest2.column('c2')).equals(pa.array(['row1', 'row2']))
+        assert pa.array(ptest2.column('c1')).equals(self.__pa_array([1, 2]))
+        assert pa.array(ptest2.column('c2')).equals(self.__pa_array(['row1', 'row2']))
 
         export_file3 = tmp_path / 'test3.pq'
         pxt.io.export_parquet(t.where(t.c1 == 1), export_file3)
@@ -87,9 +90,9 @@ class TestParquet:
         ptest3 = parquet.read_table(str(export_file3))
         assert ptest3.num_rows == 1
         assert ptest3.column_names == ['c1', 'c2', 'c3']
-        assert pa.array(ptest3.column('c1')).equals(pa.array([1]))
-        assert pa.array(ptest3.column('c2')).equals(pa.array(['row1']))
-        assert pa.array(ptest3.column('c3')).equals(pa.array([datetime.datetime(2012, 1, 1, 12, 0, 0, 25, tz).astimezone(datetime.timezone.utc)]))
+        assert pa.array(ptest3.column('c1')).equals(self.__pa_array([1]))
+        assert pa.array(ptest3.column('c2')).equals(self.__pa_array(['row1']))
+        assert pa.array(ptest3.column('c3')).equals(self.__pa_array([datetime.datetime(2012, 1, 1, 12, 0, 0, 25, tz).astimezone(datetime.timezone.utc)]))
 
         it = pxt.io.import_parquet('imported_test1', parquet_path=str(export_file1))
         assert it.count() == t.count()
@@ -186,3 +189,10 @@ class TestParquet:
         with pytest.raises(excs.Error) as exc_info:
             imported_tab = pxt.io.import_parquet('imported_image', parquet_path=str(export_path))
         assert 'Could not infer pixeltable type for column c1 from parquet file' in str(exc_info.value)
+
+    def __pa_array(self, obj: Iterable) -> 'pa.Array':
+        """The output of pa.array can be either a pa.Array or a pa.ChunkedArray; this forces the former"""
+        import pyarrow as pa
+        arr = pa.array(obj)
+        assert isinstance(arr, pa.Array)
+        return arr

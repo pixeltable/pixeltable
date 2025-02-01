@@ -68,7 +68,7 @@ class InsertableTable(Table):
             cat.tbls[tbl._id] = tbl
 
             _logger.info(f'Created table `{name}`, id={tbl_version.id}')
-            print(f'Created table `{name}`.')
+            Env.get().console_logger.info(f'Created table `{name}`.')
             return tbl
 
     def get_metadata(self) -> dict[str, Any]:
@@ -134,7 +134,7 @@ class InsertableTable(Table):
             f'Inserted {status.num_rows} row{"" if status.num_rows == 1 else "s"} '
             f'with {status.num_excs} error{"" if status.num_excs == 1 else "s"}{cols_with_excs_str}.'
         )
-        print(msg)
+        Env.get().console_logger.info(msg)
         _logger.info(f'InsertableTable {self._name}: {msg}')
         FileCache.get().emit_eviction_warnings()
         return status
@@ -164,7 +164,7 @@ class InsertableTable(Table):
                     row[col_name] = checked_val
                 except TypeError as e:
                     msg = str(e)
-                    raise excs.Error(f'Error in column {col.name}: {msg[0].lower() + msg[1:]}\nRow: {row}')
+                    raise excs.Error(f'Error in column {col.name}: {msg[0].lower() + msg[1:]}\nRow: {row}') from e
 
     def delete(self, where: Optional['pxt.exprs.Expr'] = None) -> UpdateStatus:
         """Delete rows in this table.
