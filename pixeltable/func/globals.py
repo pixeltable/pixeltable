@@ -28,10 +28,12 @@ def validate_symbol_path(fn_path: str) -> None:
     fn_name = path_elems[-1]
     if any(el == '<locals>' for el in path_elems):
         raise excs.Error(
-            f'{fn_name}(): nested functions are not supported. Move the function to the module level or into a class.')
+            f'{fn_name}(): nested functions are not supported. Move the function to the module level or into a class.'
+        )
     if any(not el.isidentifier() for el in path_elems):
         raise excs.Error(
-            f'{fn_name}(): cannot resolve symbol path {fn_path}. Move the function to the module level or into a class.')
+            f'{fn_name}(): cannot resolve symbol path {fn_path}. Move the function to the module level or into a class.'
+        )
 
 
 def get_caller_module_path() -> str:

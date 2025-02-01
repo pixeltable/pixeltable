@@ -23,10 +23,7 @@ class PxtPlugin(Plugin):
         pxt.Audio: 'builtins.str',
         pxt.Document: 'builtins.str',
     }
-    __FULLNAME_MAP = {
-        f'{k.__module__}.{k.__name__}': v
-        for k, v in __TYPE_MAP.items()
-    }
+    __FULLNAME_MAP = {f'{k.__module__}.{k.__name__}': v for k, v in __TYPE_MAP.items()}
 
     def get_function_hook(self, fullname: str) -> Optional[Callable[[FunctionContext], Type]]:
         return adjust_uda_type
@@ -47,11 +44,14 @@ class PxtPlugin(Plugin):
             return adjust_uda_methods
         return None
 
+
 def plugin(version: str) -> type:
     return PxtPlugin
 
+
 _AGGREGATOR_FULLNAME = f'{pxt.Aggregator.__module__}.{pxt.Aggregator.__name__}'
 _FN_CALL_FULLNAME = f'{pxt.exprs.Expr.__module__}.{pxt.exprs.Expr.__name__}'
+
 
 def adjust_uda_type(ctx: FunctionContext) -> Type:
     """
@@ -61,12 +61,12 @@ def adjust_uda_type(ctx: FunctionContext) -> Type:
     """
     ret_type = ctx.default_return_type
     if isinstance(ret_type, Instance):
-        if (
-            ret_type.type.fullname == _AGGREGATOR_FULLNAME
-            or any(base.type.fullname == _AGGREGATOR_FULLNAME for base in ret_type.type.bases)
+        if ret_type.type.fullname == _AGGREGATOR_FULLNAME or any(
+            base.type.fullname == _AGGREGATOR_FULLNAME for base in ret_type.type.bases
         ):
             ret_type = AnyType(TypeOfAny.special_form)
     return ret_type
+
 
 def adjust_pxt_type(ctx: AnalyzeTypeContext, subst_name: str) -> Type:
     """
@@ -75,6 +75,7 @@ def adjust_pxt_type(ctx: AnalyzeTypeContext, subst_name: str) -> Type:
     if subst_name == 'typing.Any':
         return AnyType(TypeOfAny.special_form)
     return ctx.api.named_type(subst_name, [])
+
 
 def adjust_kwargs(ctx: MethodSigContext) -> FunctionLike:
     """
@@ -99,6 +100,7 @@ def adjust_kwargs(ctx: MethodSigContext) -> FunctionLike:
     new_arg_kinds = sig.arg_kinds[-1:]
     return sig.copy_modified(arg_names=new_arg_names, arg_types=new_arg_types, arg_kinds=new_arg_kinds)
 
+
 def adjust_uda_methods(ctx: ClassDefContext) -> bool:
     """
     Mypy does not handle the `@pxt.uda` aggregator well; it continues to treat the decorated class as a class,
@@ -109,34 +111,12 @@ def adjust_uda_methods(ctx: ClassDefContext) -> bool:
     fn_arg = nodes.Argument(nodes.Var('fn'), AnyType(TypeOfAny.special_form), None, nodes.ARG_POS)
     args_arg = nodes.Argument(nodes.Var('args'), AnyType(TypeOfAny.special_form), None, nodes.ARG_STAR)
     kwargs_arg = nodes.Argument(nodes.Var('kwargs'), AnyType(TypeOfAny.special_form), None, nodes.ARG_STAR2)
+    add_method_to_class(ctx.api, ctx.cls, '__init__', args=[args_arg, kwargs_arg], return_type=NoneType())
     add_method_to_class(
-        ctx.api,
-        ctx.cls,
-        "__init__",
-        args=[args_arg, kwargs_arg],
-        return_type=NoneType(),
+        ctx.api, ctx.cls, 'to_sql', args=[fn_arg], return_type=AnyType(TypeOfAny.special_form), is_staticmethod=True
     )
     add_method_to_class(
-        ctx.api,
-        ctx.cls,
-        "to_sql",
-        args=[fn_arg],
-        return_type=AnyType(TypeOfAny.special_form),
-        is_staticmethod=True,
+        ctx.api, ctx.cls, 'overload', args=[fn_arg], return_type=AnyType(TypeOfAny.special_form), is_staticmethod=True
     )
-    add_method_to_class(
-        ctx.api,
-        ctx.cls,
-        "overload",
-        args=[fn_arg],
-        return_type=AnyType(TypeOfAny.special_form),
-        is_staticmethod=True,
-    )
-    add_attribute_to_class(
-        ctx.api,
-        ctx.cls,
-        "signatures",
-        typ=list_type,
-        is_classvar=True,
-    )
+    add_attribute_to_class(ctx.api, ctx.cls, 'signatures', typ=list_type, is_classvar=True)
     return True

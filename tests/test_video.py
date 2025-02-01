@@ -12,18 +12,14 @@ from .utils import get_video_files, reload_catalog, skip_test_if_not_installed, 
 
 
 class TestVideo:
-    def create_tbls(
-        self, base_name: str = 'video_tbl', view_name: str = 'frame_view'
-    ) -> tuple[pxt.Table, pxt.Table]:
+    def create_tbls(self, base_name: str = 'video_tbl', view_name: str = 'frame_view') -> tuple[pxt.Table, pxt.Table]:
         pxt.drop_table(view_name, if_not_exists='ignore')
         pxt.drop_table(base_name, if_not_exists='ignore')
         base_t = pxt.create_table(base_name, {'video': pxt.Video})
         view_t = pxt.create_view(view_name, base_t, iterator=FrameIterator.create(video=base_t.video, fps=1))
         return base_t, view_t
 
-    def create_and_insert(
-        self, stored: Optional[bool], paths: list[str]
-    ) -> tuple[pxt.Table, pxt.Table]:
+    def create_and_insert(self, stored: Optional[bool], paths: list[str]) -> tuple[pxt.Table, pxt.Table]:
         base_t, view_t = self.create_tbls()
 
         view_t.add_computed_column(transform=view_t.frame.rotate(90), stored=stored)
@@ -79,11 +75,19 @@ class TestVideo:
         videos = pxt.create_table('videos', {'video': pxt.Video})
         frames_all = pxt.create_view('frames_all', videos, iterator=FrameIterator.create(video=videos.video))
         frames_1_0 = pxt.create_view('frames_1_0', videos, iterator=FrameIterator.create(video=videos.video, fps=1))
-        frames_0_5 = pxt.create_view('frames_0_5', videos, iterator=FrameIterator.create(video=videos.video, fps=1/2))
-        frames_0_33 = pxt.create_view('frames_0_33', videos, iterator=FrameIterator.create(video=videos.video, fps=1/3))
-        num_frames_10 = pxt.create_view('num_frames_10', videos, iterator=FrameIterator.create(video=videos.video, num_frames=10))
-        num_frames_50 = pxt.create_view('num_frames_50', videos, iterator=FrameIterator.create(video=videos.video, num_frames=50))
-        num_frames_1000 = pxt.create_view('num_frames_1000', videos, iterator=FrameIterator.create(video=videos.video, num_frames=1000))
+        frames_0_5 = pxt.create_view('frames_0_5', videos, iterator=FrameIterator.create(video=videos.video, fps=1 / 2))
+        frames_0_33 = pxt.create_view(
+            'frames_0_33', videos, iterator=FrameIterator.create(video=videos.video, fps=1 / 3)
+        )
+        num_frames_10 = pxt.create_view(
+            'num_frames_10', videos, iterator=FrameIterator.create(video=videos.video, num_frames=10)
+        )
+        num_frames_50 = pxt.create_view(
+            'num_frames_50', videos, iterator=FrameIterator.create(video=videos.video, num_frames=50)
+        )
+        num_frames_1000 = pxt.create_view(
+            'num_frames_1000', videos, iterator=FrameIterator.create(video=videos.video, num_frames=1000)
+        )
         videos.insert(video=path)
         assert frames_all.count() == 449
         assert frames_1_0.count() == 15
@@ -93,7 +97,9 @@ class TestVideo:
         assert num_frames_50.count() == 50
         assert num_frames_1000.count() == 449
         with pytest.raises(excs.Error) as exc_info:
-            _ = pxt.create_view('invalid_args', videos, iterator=FrameIterator.create(video=videos.video, fps=1/2, num_frames=10))
+            _ = pxt.create_view(
+                'invalid_args', videos, iterator=FrameIterator.create(video=videos.video, fps=1 / 2, num_frames=10)
+            )
         assert 'At most one of `fps` or `num_frames` may be specified' in str(exc_info.value)
 
     def test_computed_cols(self, reset_db) -> None:
@@ -141,14 +147,9 @@ class TestVideo:
                         'language': 'und',
                         'handler_name': 'L-SMASH Video Handler',
                         'vendor_id': '[0][0][0][0]',
-                        'encoder': 'Lavc60.31.102 libx264'
+                        'encoder': 'Lavc60.31.102 libx264',
                     },
-                    'codec_context': {
-                        'name': 'h264',
-                        'codec_tag': 'avc1',
-                        'profile': 'High',
-                        'pix_fmt': 'yuv420p'
-                    }
+                    'codec_context': {'name': 'h264', 'codec_tag': 'avc1', 'profile': 'High', 'pix_fmt': 'yuv420p'},
                 }
             ],
         }
@@ -169,7 +170,8 @@ class TestVideo:
                     'metadata': {
                         'language': 'eng',
                         'ENCODER': 'Lavc60.31.102 libvpx-vp9',
-                        'DURATION': '00:00:14.981000000'},
+                        'DURATION': '00:00:14.981000000',
+                    },
                     'average_rate': 30000.0 / 1001,
                     'base_rate': 30000.0 / 1001,
                     'guessed_rate': 30000.0 / 1001,
@@ -179,8 +181,8 @@ class TestVideo:
                         'name': 'vp9',
                         'codec_tag': '\\x00\\x00\\x00\\x00',
                         'profile': 'Profile 0',
-                        'pix_fmt': 'yuv420p'
-                    }
+                        'pix_fmt': 'yuv420p',
+                    },
                 },
                 {
                     'type': 'audio',
@@ -191,16 +193,16 @@ class TestVideo:
                     'metadata': {
                         'language': 'eng',
                         'ENCODER': 'Lavc60.31.102 libopus',
-                        'DURATION': '00:00:15.026000000'
+                        'DURATION': '00:00:15.026000000',
                     },
                     'codec_context': {
                         'name': 'opus',
                         'codec_tag': '\\x00\\x00\\x00\\x00',
                         'profile': None,
-                        'channels': 2
-                    }
-                }
-            ]
+                        'channels': 2,
+                    },
+                },
+            ],
         }
 
     # window function that simply passes through the frame

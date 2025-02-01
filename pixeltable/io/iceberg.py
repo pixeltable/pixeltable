@@ -5,10 +5,7 @@ import pixeltable as pxt
 from pixeltable.utils.arrow import to_arrow_schema, to_pa_tables
 
 
-def export_static_iceberg(
-    table: pxt.Table,
-    iceberg_path: str,
-    ) -> None:
+def export_static_iceberg(table: pxt.Table, iceberg_path: str) -> None:
     """
     Exports a dataframe's data to one or more Parquet files. Requires pyarrow to be installed.
 
@@ -25,16 +22,9 @@ def export_static_iceberg(
                         If False, will raise an error if the Dataframe has any image column.
                         Default False.
     """
-    catalog = SqlCatalog(
-        'default',
-        uri=f'sqlite:///{iceberg_path}/catalog.db',
-        warehouse=f'file://{iceberg_path}',
-    )
+    catalog = SqlCatalog('default', uri=f'sqlite:///{iceberg_path}/catalog.db', warehouse=f'file://{iceberg_path}')
     catalog.create_namespace('default')
-    iceberg_tbl = catalog.create_table(
-        'default.test',
-        schema=to_arrow_schema(table._schema),
-    )
+    iceberg_tbl = catalog.create_table('default.test', schema=to_arrow_schema(table._schema))
     for pa_table in to_pa_tables(table.select()):
         iceberg_tbl.append(pa_table)
 

@@ -63,7 +63,7 @@ class Parameter:
             col_type=ts.ColumnType.from_dict(d['col_type']) if d['col_type'] is not None else None,
             kind=getattr(inspect.Parameter, d['kind']),
             is_batched=d['is_batched'],
-            default=default
+            default=default,
         )
 
     def to_py_param(self) -> inspect.Parameter:
@@ -80,6 +80,7 @@ class Signature:
 
     - self.is_batched: return type is a Batch[...] type
     """
+
     SPECIAL_PARAM_NAMES = ['group_by', 'order_by']
 
     def __init__(self, return_type: ts.ColumnType, parameters: list[Parameter], is_batched: bool = False):
@@ -131,9 +132,12 @@ class Signature:
             if param_name not in other.parameters:
                 return False
             other_param = other.parameters[param_name]
-            if (param.kind != other_param.kind or
-                (param.col_type is None) != (other_param.col_type is None) or  # this can happen if they are varargs
-                param.col_type is not None and not other_param.col_type.is_supertype_of(param.col_type, ignore_nullable=True)):
+            if (
+                param.kind != other_param.kind
+                or (param.col_type is None) != (other_param.col_type is None)  # this can happen if they are varargs
+                or param.col_type is not None
+                and not other_param.col_type.is_supertype_of(param.col_type, ignore_nullable=True)
+            ):
                 return False
 
         # Check (iii)
@@ -193,7 +197,7 @@ class Signature:
         py_params: Optional[list[inspect.Parameter]] = None,
         param_types: Optional[list[ts.ColumnType]] = None,
         type_substitutions: Optional[dict] = None,
-        is_cls_method: bool = False
+        is_cls_method: bool = False,
     ) -> list[Parameter]:
         assert (py_fn is None) != (py_params is None)
         if py_fn is not None:
@@ -229,8 +233,11 @@ class Signature:
                 if param_type is None:
                     raise excs.Error(f'Cannot infer pixeltable type for parameter {param.name}')
 
-            parameters.append(Parameter(
-                param.name, col_type=param_type, kind=param.kind, is_batched=is_batched, default=param.default))
+            parameters.append(
+                Parameter(
+                    param.name, col_type=param_type, kind=param.kind, is_batched=is_batched, default=param.default
+                )
+            )
 
         return parameters
 
@@ -241,7 +248,7 @@ class Signature:
         param_types: Optional[list[ts.ColumnType]] = None,
         return_type: Optional[ts.ColumnType] = None,
         type_substitutions: Optional[dict] = None,
-        is_cls_method: bool = False
+        is_cls_method: bool = False,
     ) -> Signature:
         """Create a signature for the given Callable.
         Infer the parameter and return types, if none are specified.
@@ -250,7 +257,9 @@ class Signature:
         if type_substitutions is None:
             type_substitutions = {}
 
-        parameters = cls.create_parameters(py_fn=py_fn, param_types=param_types, is_cls_method=is_cls_method, type_substitutions=type_substitutions)
+        parameters = cls.create_parameters(
+            py_fn=py_fn, param_types=param_types, is_cls_method=is_cls_method, type_substitutions=type_substitutions
+        )
         sig = inspect.signature(py_fn)
         if return_type is None:
             py_type: Optional[type]

@@ -4,16 +4,19 @@ import abc
 import asyncio
 import logging
 import sys
-from typing import Iterable, Iterator, Optional, TypeVar, AsyncIterator
+from typing import AsyncIterator, Iterable, Iterator, Optional, TypeVar
 
 import pixeltable.exprs as exprs
+
 from .data_row_batch import DataRowBatch
 from .exec_context import ExecContext
 
 _logger = logging.getLogger('pixeltable')
 
+
 class ExecNode(abc.ABC):
     """Base class of all execution nodes"""
+
     output_exprs: Iterable[exprs.Expr]
     row_builder: exprs.RowBuilder
     input: Optional[ExecNode]
@@ -22,8 +25,12 @@ class ExecNode(abc.ABC):
     ctx: Optional[ExecContext]
 
     def __init__(
-            self, row_builder: exprs.RowBuilder, output_exprs: Iterable[exprs.Expr],
-            input_exprs: Iterable[exprs.Expr], input: Optional[ExecNode] = None):
+        self,
+        row_builder: exprs.RowBuilder,
+        output_exprs: Iterable[exprs.Expr],
+        input_exprs: Iterable[exprs.Expr],
+        input: Optional[ExecNode] = None,
+    ):
         self.output_exprs = output_exprs
         self.row_builder = row_builder
         self.input = input
@@ -31,8 +38,7 @@ class ExecNode(abc.ABC):
         output_slot_idxs = {e.slot_idx for e in output_exprs}
         output_dependencies = row_builder.get_dependencies(output_exprs, exclude=input_exprs)
         self.flushed_img_slots = [
-            e.slot_idx for e in output_dependencies
-            if e.col_type.is_image_type() and e.slot_idx not in output_slot_idxs
+            e.slot_idx for e in output_dependencies if e.col_type.is_image_type() and e.slot_idx not in output_slot_idxs
         ]
         self.stored_img_cols = []
         self.ctx = None  # all nodes of a tree share the same context
@@ -57,6 +63,7 @@ class ExecNode(abc.ABC):
             # check if we are already in an event loop (eg, Jupyter's); if so, patch it to allow nested event loops
             _ = asyncio.get_event_loop()
             import nest_asyncio  # type: ignore
+
             nest_asyncio.apply()
         except RuntimeError:
             pass

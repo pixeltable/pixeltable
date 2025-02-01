@@ -11,6 +11,7 @@ import pixeltable as pxt
 
 logger = griffe.get_logger(__name__)  # type: ignore[attr-defined]
 
+
 class PxtGriffeExtension(Extension):
     """Implementation of a Pixeltable custom griffe extension."""
 
@@ -22,7 +23,8 @@ class PxtGriffeExtension(Extension):
         if isinstance(obj, Function):
             # See if the (Python) function has a @pxt.udf decorator
             if any(
-                isinstance(dec.value, griffe.expressions.Expr) and dec.value.canonical_path in ['pixeltable.func.udf', 'pixeltable.udf']
+                isinstance(dec.value, griffe.expressions.Expr)
+                and dec.value.canonical_path in ['pixeltable.func.udf', 'pixeltable.udf']
                 for dec in obj.decorators
             ):
                 # Update the template
@@ -36,7 +38,7 @@ class PxtGriffeExtension(Extension):
         """
         func.extra['mkdocstrings']['template'] = 'udf.html.jinja'
         # Dynamically load the UDF reference so we can inspect the Pixeltable signature directly
-        warnings.simplefilter("ignore")
+        warnings.simplefilter('ignore')
         udf = dynamic_import(func.path)
         assert isinstance(udf, pxt.Function)
         # Convert the return type to a Pixeltable type reference

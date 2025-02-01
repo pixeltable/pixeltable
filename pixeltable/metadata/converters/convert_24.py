@@ -15,11 +15,16 @@ def __substitute_md(k: Optional[str], v: Any) -> Optional[tuple[Optional[str], A
     from pixeltable import func
     from pixeltable.func.globals import resolve_symbol
 
-    if (isinstance(v, dict) and
-        '_classpath' in v and
-        v['_classpath'] in ['pixeltable.func.callable_function.CallableFunction',
-                            'pixeltable.func.aggregate_function.AggregateFunction',
-                            'pixeltable.func.expr_template_function.ExprTemplateFunction']):
+    if (
+        isinstance(v, dict)
+        and '_classpath' in v
+        and v['_classpath']
+        in [
+            'pixeltable.func.callable_function.CallableFunction',
+            'pixeltable.func.aggregate_function.AggregateFunction',
+            'pixeltable.func.expr_template_function.ExprTemplateFunction',
+        ]
+    ):
         if 'path' in v:
             assert 'signature' not in v
             f = resolve_symbol(__substitute_path(v['path']))
@@ -33,14 +38,8 @@ def __substitute_md(k: Optional[str], v: Any) -> Optional[tuple[Optional[str], A
         # and InlineDict back in convert_20, but not for FunctionCall.
         assert 'args' in v and isinstance(v['args'], list)
         assert 'kwargs' in v and isinstance(v['kwargs'], dict)
-        v['args'] = [
-            (None, arg) if idx == -1 else (idx, arg)
-            for idx, arg in v['args']
-        ]
-        v['kwargs'] = {
-            k: (None, arg) if idx == -1 else (idx, arg)
-            for k, (idx, arg) in v['kwargs'].items()
-        }
+        v['args'] = [(None, arg) if idx == -1 else (idx, arg) for idx, arg in v['args']]
+        v['kwargs'] = {k: (None, arg) if idx == -1 else (idx, arg) for k, (idx, arg) in v['kwargs'].items()}
         return k, v
 
     return None

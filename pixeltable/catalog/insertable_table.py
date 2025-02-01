@@ -35,8 +35,15 @@ class InsertableTable(Table):
     # MODULE-LOCAL, NOT PUBLIC
     @classmethod
     def _create(
-        cls, dir_id: UUID, name: str, schema: dict[str, ts.ColumnType], df: Optional[pxt.DataFrame],
-        primary_key: list[str], num_retained_versions: int, comment: str, media_validation: MediaValidation
+        cls,
+        dir_id: UUID,
+        name: str,
+        schema: dict[str, ts.ColumnType],
+        df: Optional[pxt.DataFrame],
+        primary_key: list[str],
+        num_retained_versions: int,
+        comment: str,
+        media_validation: MediaValidation,
     ) -> InsertableTable:
         columns = cls._create_columns(schema)
         cls._verify_schema(columns)
@@ -51,8 +58,14 @@ class InsertableTable(Table):
 
         with orm.Session(Env.get().engine, future=True) as session:
             _, tbl_version = TableVersion.create(
-                session, dir_id, name, columns, num_retained_versions=num_retained_versions, comment=comment,
-                media_validation=media_validation)
+                session,
+                dir_id,
+                name,
+                columns,
+                num_retained_versions=num_retained_versions,
+                comment=comment,
+                media_validation=media_validation,
+            )
             tbl = cls(dir_id, tbl_version)
             # TODO We need to commit before doing the insertion, in order to avoid a primary key (version) collision
             #   when the table metadata gets updated. Once we have a notion of user-defined transactions in
@@ -84,16 +97,12 @@ class InsertableTable(Table):
         /,
         *,
         print_stats: bool = False,
-        on_error: Literal['abort', 'ignore'] = 'abort'
+        on_error: Literal['abort', 'ignore'] = 'abort',
     ) -> UpdateStatus: ...
 
     @overload
     def insert(
-        self,
-        *,
-        print_stats: bool = False,
-        on_error: Literal['abort', 'ignore'] = 'abort',
-        **kwargs: Any
+        self, *, print_stats: bool = False, on_error: Literal['abort', 'ignore'] = 'abort', **kwargs: Any
     ) -> UpdateStatus: ...
 
     def insert(  # type: ignore[misc]
@@ -103,7 +112,7 @@ class InsertableTable(Table):
         *,
         print_stats: bool = False,
         on_error: Literal['abort', 'ignore'] = 'abort',
-        **kwargs: Any
+        **kwargs: Any,
     ) -> UpdateStatus:
         if rows is None:
             rows = [kwargs]
@@ -127,8 +136,9 @@ class InsertableTable(Table):
         if status.num_excs == 0:
             cols_with_excs_str = ''
         else:
-            cols_with_excs_str = \
+            cols_with_excs_str = (
                 f' across {len(status.cols_with_excs)} column{"" if len(status.cols_with_excs) == 1 else "s"}'
+            )
             cols_with_excs_str += f' ({", ".join(status.cols_with_excs)})'
         msg = (
             f'Inserted {status.num_rows} row{"" if status.num_rows == 1 else "s"} '

@@ -8,7 +8,6 @@ import pyarrow as pa
 import pixeltable as pxt
 import pixeltable.type_system as ts
 
-
 _pa_to_pt: dict[pa.DataType, ts.ColumnType] = {
     pa.string(): ts.StringType(nullable=True),
     pa.bool_(): ts.BoolType(nullable=True),
@@ -92,10 +91,7 @@ def to_pydict(batch: Union[pa.Table, pa.RecordBatch]) -> dict[str, Union[list, n
 def to_pa_tables(df: pxt.DataFrame, batch_size: int = 1_000) -> Iterator[pa.Table]:
     schema = to_arrow_schema(df._schema)
     for rows in more_itertools.batched((list(row) for row in df._exec()), batch_size):
-        cols = {
-            col_name: [row[idx] for row in rows]
-            for idx, col_name in enumerate(df._schema.keys())
-        }
+        cols = {col_name: [row[idx] for row in rows] for idx, col_name in enumerate(df._schema.keys())}
         yield pa.Table.from_pydict(cols, schema=schema)
 
 

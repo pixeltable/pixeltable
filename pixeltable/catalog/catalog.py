@@ -8,18 +8,22 @@ from uuid import UUID
 import sqlalchemy as sql
 import sqlalchemy.orm as orm
 
+import pixeltable.metadata.schema as schema
+
+from .path_dict import PathDict
+from .table import Table
 from .table_version import TableVersion
 from .table_version_path import TableVersionPath
-from .table import Table
-from .path_dict import PathDict
 
-import pixeltable.env as env
-import pixeltable.metadata.schema as schema
+# This import must go last to avoid circular imports.
+import pixeltable.env as env  # isort: skip
 
 _logger = logging.getLogger('pixeltable')
 
+
 class Catalog:
     """A repository of catalog objects"""
+
     _instance: Optional[Catalog] = None
 
     @classmethod
@@ -28,7 +32,7 @@ class Catalog:
             cls._instance = cls()
             with orm.Session(env.Env.get().engine, future=True) as session:
                 cls._instance._load_table_versions(session)
-                #cls._instance._load_functions(session)
+                # cls._instance._load_functions(session)
         return cls._instance
 
     @classmethod
@@ -62,17 +66,24 @@ class Catalog:
             _logger.info(f'Initialized catalog')
 
     def _load_snapshot_version(
-            self, tbl_id: UUID, version: int, base: Optional[TableVersion], session: orm.Session
+        self, tbl_id: UUID, version: int, base: Optional[TableVersion], session: orm.Session
     ) -> TableVersion:
-        q = session.query(schema.Table, schema.TableSchemaVersion) \
-            .select_from(schema.Table) \
-            .join(schema.TableVersion) \
-            .join(schema.TableSchemaVersion) \
-            .where(schema.Table.id == tbl_id) \
-            .where(sql.text(f"({schema.TableVersion.__table__}.md->>'version')::int = {version}")) \
-            .where(sql.text((
-                f"({schema.TableVersion.__table__}.md->>'schema_version')::int = "
-                f"{schema.TableSchemaVersion.__table__}.{schema.TableSchemaVersion.schema_version.name}")))
+        q = (
+            session.query(schema.Table, schema.TableSchemaVersion)
+            .select_from(schema.Table)
+            .join(schema.TableVersion)
+            .join(schema.TableSchemaVersion)
+            .where(schema.Table.id == tbl_id)
+            .where(sql.text(f"({schema.TableVersion.__table__}.md->>'version')::int = {version}"))
+            .where(
+                sql.text(
+                    (
+                        f"({schema.TableVersion.__table__}.md->>'schema_version')::int = "
+                        f'{schema.TableSchemaVersion.__table__}.{schema.TableSchemaVersion.schema_version.name}'
+                    )
+                )
+            )
+        )
         tbl_record, schema_version_record = q.one()
         tbl_md = schema.md_from_dict(schema.TableMd, tbl_record.md)
         schema_version_md = schema.md_from_dict(schema.TableSchemaVersionMd, schema_version_record.md)
@@ -86,15 +97,22 @@ class Catalog:
 
         # load tables/views;
         # do this in ascending order of creation ts so that we can resolve base references in one pass
-        q = session.query(schema.Table, schema.TableSchemaVersion) \
-            .select_from(schema.Table) \
-            .join(schema.TableVersion) \
-            .join(schema.TableSchemaVersion) \
-            .where(sql.text(f"({schema.TableVersion.__table__}.md->>'version')::int = 0")) \
-            .where(sql.text((
-                f"({schema.Table.__table__}.md->>'current_schema_version')::int = "
-                f"{schema.TableSchemaVersion.__table__}.{schema.TableSchemaVersion.schema_version.name}"))) \
+        q = (
+            session.query(schema.Table, schema.TableSchemaVersion)
+            .select_from(schema.Table)
+            .join(schema.TableVersion)
+            .join(schema.TableSchemaVersion)
+            .where(sql.text(f"({schema.TableVersion.__table__}.md->>'version')::int = 0"))
+            .where(
+                sql.text(
+                    (
+                        f"({schema.Table.__table__}.md->>'current_schema_version')::int = "
+                        f'{schema.TableSchemaVersion.__table__}.{schema.TableSchemaVersion.schema_version.name}'
+                    )
+                )
+            )
             .order_by(sql.text(f"({schema.TableVersion.__table__}.md->>'created_at')::float"))
+        )
 
         for tbl_record, schema_version_record in q.all():
             tbl_md = schema.md_from_dict(schema.TableMd, tbl_record.md)
@@ -129,14 +147,19 @@ class Catalog:
                     view_path = base_path
                 else:
                     tbl_version = TableVersion(
-                        tbl_record.id, tbl_md, tbl_md.current_version, schema_version_md, is_snapshot=is_snapshot,
+                        tbl_record.id,
+                        tbl_md,
+                        tbl_md.current_version,
+                        schema_version_md,
+                        is_snapshot=is_snapshot,
                         base=base_path.tbl_version if is_snapshot else None,
-                        base_path=base_path if not is_snapshot else None)
+                        base_path=base_path if not is_snapshot else None,
+                    )
                     view_path = TableVersionPath(tbl_version, base=base_path)
 
                 tbl: Table = View(
-                    tbl_record.id, tbl_record.dir_id, tbl_md.name, view_path, base_tbl_id,
-                    snapshot_only=snapshot_only)
+                    tbl_record.id, tbl_record.dir_id, tbl_md.name, view_path, base_tbl_id, snapshot_only=snapshot_only
+                )
                 self.tbl_dependents[base_tbl_id].append(tbl)
 
             else:

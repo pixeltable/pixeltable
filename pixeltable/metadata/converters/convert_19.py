@@ -22,13 +22,10 @@ def _(engine: sql.engine.Engine) -> None:
             store_name = f'{store_prefix}_{id.hex}'
             column_md = md['column_md']
             timestamp_cols = [
-                col_id for col_id, col in column_md.items()
-                if col['col_type']['_classname'] == 'TimestampType'
+                col_id for col_id, col in column_md.items() if col['col_type']['_classname'] == 'TimestampType'
             ]
             for col_id in timestamp_cols:
-                conn.execute(
-                    sql.text(f'ALTER TABLE {store_name} ALTER COLUMN col_{col_id} TYPE TIMESTAMPTZ')
-                )
+                conn.execute(sql.text(f'ALTER TABLE {store_name} ALTER COLUMN col_{col_id} TYPE TIMESTAMPTZ'))
 
 
 def __update_timestamp_literals(k: Any, v: Any) -> Optional[tuple[Any, Any]]:
