@@ -198,14 +198,13 @@ class TestAudio:
             ),
         )
         assert audio_chunk_view.count() == 12
-        result = audio_chunk_view.collect()
-        print(result)
-        assert all(result['audio'] == audio_filepath for result in result)
-        assert result[-1]['end_time_sec'] == 60
-        for i in range(len(result)):
-            assert math.floor(result[i]['start_time_sec']) == i * 5.0
-        for i in range(len(result) - 1):
-            assert round(result[i]['duration_sec']) == 5.0
+        results = audio_chunk_view.collect()
+        assert all(result['audio'] == audio_filepath for result in results)
+        assert results[-1]['end_time_sec'] == 60
+        for i in range(len(results)):
+            assert math.floor(results[i]['start_time_sec']) == i * 5.0
+        for i in range(len(results) - 1):
+            assert round(results[i]['duration_sec']) == 5.0
 
         audio_chunk_view = pxt.create_view(
             'audio_chunks_overlap',
@@ -219,14 +218,14 @@ class TestAudio:
             ),
         )
         assert audio_chunk_view.count() == 5
-        result = audio_chunk_view.collect()
-        assert all(result['audio'] == audio_filepath for result in result)
-        assert result[-1]['end_time_sec'] == 60
-        assert round(result[-1]['duration_sec']) == 4
-        for i in range(len(result)):
-            assert math.floor(result[i]['start_time_sec']) == i * 14.0
-        for i in range(len(result) - 1):
-            assert round(result[i]['duration_sec']) == 17
+        results = audio_chunk_view.collect()
+        assert all(result['audio'] == audio_filepath for result in results)
+        assert results[-1]['end_time_sec'] == 60
+        assert round(results[-1]['duration_sec']) == 4
+        for i in range(len(results)):
+            assert math.floor(results[i]['start_time_sec']) == i * 14.0
+        for i in range(len(results) - 1):
+            assert round(results[i]['duration_sec']) == 17
 
         audio_chunk_view = pxt.create_view(
             'audio_chunks_overlap_with_drop',
@@ -240,10 +239,10 @@ class TestAudio:
             ),
         )
         assert audio_chunk_view.count() == 4
-        result = audio_chunk_view.collect()
-        assert all(result['audio'] == audio_filepath for result in result)
-        assert result[-1]['end_time_sec'] < 59
-        for i in range(len(result)):
-            assert math.floor(result[i]['start_time_sec']) == i * 14.0
-        for i in range(len(result)):
-            assert round(result[i]['duration_sec']) == 17.0
+        results = audio_chunk_view.collect()
+        assert all(result['audio'] == audio_filepath for result in results)
+        assert results[-1]['end_time_sec'] < 59
+        for i in range(len(results)):
+            assert math.floor(results[i]['start_time_sec']) == i * 14.0
+        for i in range(len(results)):
+            assert round(results[i]['duration_sec']) == 17.0
