@@ -149,30 +149,30 @@ class TestAudio:
     def test_audio_iterator_build_chunks(self, reset_db) -> None:
         chunks = AudioSplitter.build_chunks(0, 1005, 100, 0, 10, drop_incomplete_chunks=True)
         assert len(chunks) == 10
-        assert all((chunk[1] - chunk[0]) is 100 for chunk in chunks)
+        assert all((chunk[1] - chunk[0]) == 100 for chunk in chunks)
         chunks = AudioSplitter.build_chunks(0, 1005, 100, 10, 10, drop_incomplete_chunks=True)
         assert len(chunks) == 10
-        assert all((chunk[1] - chunk[0]) is 110 for chunk in chunks[:9])
+        assert all((chunk[1] - chunk[0]) == 110 for chunk in chunks[:9])
         assert chunks[-1][0] == 900
         assert chunks[-1][1] == 1005
         chunks = AudioSplitter.build_chunks(0, 1005, 100, 10, 0, drop_incomplete_chunks=False)
         assert len(chunks) == 10
-        assert all((chunk[1] - chunk[0]) is 110 for chunk in chunks[:9])
+        assert all((chunk[1] - chunk[0]) == 110 for chunk in chunks[:9])
         assert chunks[-1][0] == 900
         assert chunks[-1][1] == 1005
         chunks = AudioSplitter.build_chunks(0, 1005, 100, 0, 0, drop_incomplete_chunks=False)
         assert len(chunks) == 11
-        assert all((chunk[1] - chunk[0]) is 100 for chunk in chunks[:10])
+        assert all((chunk[1] - chunk[0]) == 100 for chunk in chunks[:10])
         assert chunks[-1][0] == 1000
         assert chunks[-1][1] == 1005
         chunks = AudioSplitter.build_chunks(0, 1055, 100, 10, 60, drop_incomplete_chunks=True)
         assert len(chunks) == 10
-        assert all((chunk[1] - chunk[0]) is 110 for chunk in chunks[:10])
+        assert all((chunk[1] - chunk[0]) == 110 for chunk in chunks[:10])
         assert chunks[-1][0] == 900
         assert chunks[-1][1] == 1010
         chunks = AudioSplitter.build_chunks(0, 1055, 100, 10, 55, drop_incomplete_chunks=True)
         assert len(chunks) == 11
-        assert all((chunk[1] - chunk[0]) is 110 for chunk in chunks[:10])
+        assert all((chunk[1] - chunk[0]) == 110 for chunk in chunks[:10])
         assert chunks[-1][0] == 1000
         assert chunks[-1][1] == 1055
         chunks = AudioSplitter.build_chunks(1000, 1005, 100, 0, 10, drop_incomplete_chunks=True)
@@ -197,7 +197,7 @@ class TestAudio:
                 drop_incomplete_chunks=False,
             ),
         )
-        assert audio_chunk_view.count() is 12
+        assert audio_chunk_view.count() == 12
         result = audio_chunk_view.collect()
         print(result)
         assert all(result['audio'] == audio_filepath for result in result)
@@ -218,7 +218,7 @@ class TestAudio:
                 drop_incomplete_chunks=False,
             ),
         )
-        assert audio_chunk_view.count() is 5
+        assert audio_chunk_view.count() == 5
         result = audio_chunk_view.collect()
         assert all(result['audio'] == audio_filepath for result in result)
         assert result[-1]['end_time_sec'] == 60
@@ -239,7 +239,7 @@ class TestAudio:
                 drop_incomplete_chunks=True,
             ),
         )
-        assert audio_chunk_view.count() is 4
+        assert audio_chunk_view.count() == 4
         result = audio_chunk_view.collect()
         assert all(result['audio'] == audio_filepath for result in result)
         assert result[-1]['end_time_sec'] < 59
