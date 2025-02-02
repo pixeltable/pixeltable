@@ -17,8 +17,7 @@ from typing import TYPE_CHECKING, Any, Callable, Optional, Type, TypeVar, Union,
 
 import httpx
 import numpy as np
-import PIL.Image
-import tenacity
+import PIL
 
 import pixeltable as pxt
 from pixeltable import env, exprs
@@ -32,38 +31,18 @@ _logger = logging.getLogger('pixeltable')
 
 
 @env.register_client('openai')
-def _(api_key: str) -> tuple['openai.OpenAI', 'openai.AsyncOpenAI']:
+def _(api_key: str) -> 'openai.AsyncOpenAI':
     import openai
 
-    return (
-        openai.OpenAI(api_key=api_key),
-        openai.AsyncOpenAI(
-            api_key=api_key,
-            # recommended to increase limits for async client to avoid connection errors
-            http_client=httpx.AsyncClient(limits=httpx.Limits(max_keepalive_connections=100, max_connections=500)),
-        ),
+    return openai.AsyncOpenAI(
+        api_key=api_key,
+        # recommended to increase limits for async client to avoid connection errors
+        http_client=httpx.AsyncClient(limits=httpx.Limits(max_keepalive_connections=100, max_connections=500)),
     )
 
 
-def _openai_client() -> 'openai.OpenAI':
-    return env.Env.get().get_client('openai')[0]
-
-
-def _async_openai_client() -> 'openai.AsyncOpenAI':
-    return env.Env.get().get_client('openai')[1]
-
-
-# Exponential backoff decorator using tenacity.
-# TODO(aaron-siegel): Right now this hardwires random exponential backoff with defaults suggested
-# by OpenAI. Should we investigate making this more customizable in the future?
-def _retry(fn: Callable) -> Callable:
-    import openai
-
-    return tenacity.retry(
-        retry=tenacity.retry_if_exception_type(openai.RateLimitError),
-        wait=tenacity.wait_random_exponential(multiplier=1, max=60),
-        stop=tenacity.stop_after_attempt(20),
-    )(fn)
+def _openai_client() -> 'openai.AsyncOpenAI':
+    return env.Env.get().get_client('openai')
 
 
 # models that share rate limits; see https://platform.openai.com/settings/organization/limits for details
@@ -101,7 +80,7 @@ _shared_rate_limits = {
 }
 
 
-def _resource_pool(model: str) -> str:
+def _rate_limits_pool(model: str) -> str:
     for model_family, models in _shared_rate_limits.items():
         if model in models:
             return f'rate-limits:openai:{model_family}'
@@ -119,7 +98,7 @@ class OpenAIRateLimitsInfo(env.RateLimitsInfo):
             # ConnectionError: we occasionally see this error when the AsyncConnectionPool is trying to close
             # expired connections
             # (AsyncConnectionPool._close_expired_connections() fails with ConnectionError when executing
-            # 'await connection.aclose()', which is potentially a bug in AsyncConnectionPool)
+            # 'await connection.aclose()', which is very likely a bug in AsyncConnectionPool)
             openai.APIConnectionError,
             # the following errors are retryable according to OpenAI's API documentation
             openai.RateLimitError,
@@ -190,14 +169,24 @@ def _get_header_info(
 
 
 @pxt.udf
-def speech(
-    input: str, *, model: str, voice: str, response_format: Optional[str] = None, speed: Optional[float] = None
+async def speech(
+    input: str,
+    *,
+    model: str,
+    voice: str,
+    response_format: Optional[str] = None,
+    speed: Optional[float] = None,
+    timeout: Optional[float] = None,
 ) -> pxt.Audio:
     """
     Generates audio from the input text.
 
     Equivalent to the OpenAI `audio/speech` API endpoint.
     For additional details, see: [https://platform.openai.com/docs/guides/text-to-speech](https://platform.openai.com/docs/guides/text-to-speech)
+
+    Request throttling:
+    Applies the rate limit set in the config (section `openai.rate_limits`; use the model id as the key). If no rate
+    limit is configured, uses a default of 600 RPM.
 
     __Requirements:__
 
@@ -218,10 +207,15 @@ def speech(
         Add a computed column that applies the model `tts-1` to an existing Pixeltable column `tbl.text`
         of the table `tbl`:
 
-        >>> tbl['audio'] = speech(tbl.text, model='tts-1', voice='nova')
+        >>> tbl.add_computed_column(audio=speech(tbl.text, model='tts-1', voice='nova'))
     """
-    content = _retry(_openai_client().audio.speech.create)(
-        input=input, model=model, voice=voice, response_format=_opt(response_format), speed=_opt(speed)
+    content = await _openai_client().audio.speech.create(
+        input=input,
+        model=model,
+        voice=voice,  # type: ignore
+        response_format=_opt(response_format),  # type: ignore
+        speed=_opt(speed),
+        timeout=_opt(timeout),
     )
     ext = response_format or 'mp3'
     output_filename = str(env.Env.get().tmp_dir / f'{uuid.uuid4()}.{ext}')
@@ -230,19 +224,24 @@ def speech(
 
 
 @pxt.udf
-def transcriptions(
+async def transcriptions(
     audio: pxt.Audio,
     *,
     model: str,
     language: Optional[str] = None,
     prompt: Optional[str] = None,
     temperature: Optional[float] = None,
+    timeout: Optional[float] = None,
 ) -> dict:
     """
     Transcribes audio into the input language.
 
     Equivalent to the OpenAI `audio/transcriptions` API endpoint.
     For additional details, see: [https://platform.openai.com/docs/guides/speech-to-text](https://platform.openai.com/docs/guides/speech-to-text)
+
+    Request throttling:
+    Applies the rate limit set in the config (section `openai.rate_limits`; use the model id as the key). If no rate
+    limit is configured, uses a default of 600 RPM.
 
     __Requirements:__
 
@@ -261,24 +260,38 @@ def transcriptions(
         Add a computed column that applies the model `whisper-1` to an existing Pixeltable column `tbl.audio`
         of the table `tbl`:
 
-        >>> tbl['transcription'] = transcriptions(tbl.audio, model='whisper-1', language='en')
+        >>> tbl.add_computed_column(transcription=transcriptions(tbl.audio, model='whisper-1', language='en'))
     """
     file = pathlib.Path(audio)
-    transcription = _retry(_openai_client().audio.transcriptions.create)(
-        file=file, model=model, language=_opt(language), prompt=_opt(prompt), temperature=_opt(temperature)
+    transcription = await _openai_client().audio.transcriptions.create(
+        file=file,
+        model=model,
+        language=_opt(language),
+        prompt=_opt(prompt),
+        temperature=_opt(temperature),
+        timeout=_opt(timeout),
     )
     return transcription.dict()
 
 
 @pxt.udf
-def translations(
-    audio: pxt.Audio, *, model: str, prompt: Optional[str] = None, temperature: Optional[float] = None
+async def translations(
+    audio: pxt.Audio,
+    *,
+    model: str,
+    prompt: Optional[str] = None,
+    temperature: Optional[float] = None,
+    timeout: Optional[float] = None,
 ) -> dict:
     """
     Translates audio into English.
 
     Equivalent to the OpenAI `audio/translations` API endpoint.
     For additional details, see: [https://platform.openai.com/docs/guides/speech-to-text](https://platform.openai.com/docs/guides/speech-to-text)
+
+    Request throttling:
+    Applies the rate limit set in the config (section `openai.rate_limits`; use the model id as the key). If no rate
+    limit is configured, uses a default of 600 RPM.
 
     __Requirements:__
 
@@ -297,11 +310,11 @@ def translations(
         Add a computed column that applies the model `whisper-1` to an existing Pixeltable column `tbl.audio`
         of the table `tbl`:
 
-        >>> tbl['translation'] = translations(tbl.audio, model='whisper-1', language='en')
+        >>> tbl.add_computed_column(translation=translations(tbl.audio, model='whisper-1', language='en'))
     """
     file = pathlib.Path(audio)
-    translation = _retry(_openai_client().audio.translations.create)(
-        file=file, model=model, prompt=_opt(prompt), temperature=_opt(temperature)
+    translation = await _openai_client().audio.translations.create(
+        file=file, model=model, prompt=_opt(prompt), temperature=_opt(temperature), timeout=_opt(timeout)
     )
     return translation.dict()
 
@@ -346,12 +359,17 @@ async def chat_completions(
     tools: Optional[list[dict]] = None,
     tool_choice: Optional[dict] = None,
     user: Optional[str] = None,
+    timeout: Optional[float] = None,
 ) -> dict:
     """
     Creates a model response for the given chat conversation.
 
     Equivalent to the OpenAI `chat/completions` API endpoint.
     For additional details, see: [https://platform.openai.com/docs/guides/chat-completions](https://platform.openai.com/docs/guides/chat-completions)
+
+    Request throttling:
+    Uses the rate limit-related headers returned by the API to throttle requests adaptively, based on available
+    request and token capacity. No configuration is necessary.
 
     __Requirements:__
 
@@ -374,7 +392,7 @@ async def chat_completions(
                 {'role': 'system', 'content': 'You are a helpful assistant.'},
                 {'role': 'user', 'content': tbl.prompt}
             ]
-            tbl['response'] = chat_completions(messages, model='gpt-4o-mini')
+            tbl.add_computed_column(response=chat_completions(messages, model='gpt-4o-mini'))
     """
     if tools is not None:
         tools = [{'type': 'function', 'function': tool} for tool in tools]
@@ -394,13 +412,13 @@ async def chat_completions(
         extra_body = {'parallel_tool_calls': False}
 
     # make sure the pool info exists prior to making the request
-    resource_pool = _resource_pool(model)
+    resource_pool = _rate_limits_pool(model)
     rate_limits_info = env.Env.get().get_resource_pool_info(
         resource_pool, lambda: OpenAIRateLimitsInfo(_chat_completions_get_request_resources)
     )
 
     # cast(Any, ...): avoid mypy errors
-    result = await _async_openai_client().chat.completions.with_raw_response.create(
+    result = await _openai_client().chat.completions.with_raw_response.create(
         messages=messages,
         model=model,
         frequency_penalty=_opt(frequency_penalty),
@@ -418,7 +436,7 @@ async def chat_completions(
         tools=_opt(cast(Any, tools)),
         tool_choice=_opt(cast(Any, tool_choice_)),
         user=_opt(user),
-        timeout=10,
+        timeout=_opt(timeout),
         extra_body=extra_body,
     )
 
@@ -429,12 +447,16 @@ async def chat_completions(
 
 
 @pxt.udf
-def vision(prompt: str, image: PIL.Image.Image, *, model: str) -> str:
+async def vision(prompt: str, image: PIL.Image.Image, *, model: str, timeout: Optional[float] = None) -> str:
     """
     Analyzes an image with the OpenAI vision capability. This is a convenience function that takes an image and
     prompt, and constructs a chat completion request that utilizes OpenAI vision.
 
     For additional details, see: [https://platform.openai.com/docs/guides/vision](https://platform.openai.com/docs/guides/vision)
+
+    Request throttling:
+    Uses the rate limit-related headers returned by the API to throttle requests adaptively, based on available
+    request and token capacity. No configuration is necessary.
 
     __Requirements:__
 
@@ -452,7 +474,7 @@ def vision(prompt: str, image: PIL.Image.Image, *, model: str) -> str:
         Add a computed column that applies the model `gpt-4o-mini` to an existing Pixeltable column `tbl.image`
         of the table `tbl`:
 
-        >>> tbl['response'] = vision("What's in this image?", tbl.image, model='gpt-4o-mini')
+        >>> tbl.add_computed_column(response=vision("What's in this image?", tbl.image, model='gpt-4o-mini'))
     """
     # TODO(aaron-siegel): Decompose CPU/GPU ops into separate functions
     bytes_arr = io.BytesIO()
@@ -468,8 +490,23 @@ def vision(prompt: str, image: PIL.Image.Image, *, model: str) -> str:
             ],
         }
     ]
-    result = _retry(_openai_client().chat.completions.create)(messages=messages, model=model)
-    return result.choices[0].message.content
+
+    # make sure the pool info exists prior to making the request
+    resource_pool = _rate_limits_pool(model)
+    rate_limits_info = env.Env.get().get_resource_pool_info(
+        resource_pool, lambda: OpenAIRateLimitsInfo(_chat_completions_get_request_resources)
+    )
+    result = await _openai_client().chat.completions.with_raw_response.create(
+        messages=messages,  # type: ignore
+        model=model,
+        timeout=_opt(timeout),
+    )
+
+    requests_info, tokens_info = _get_header_info(result.headers)
+    rate_limits_info.record(requests=requests_info, tokens=tokens_info)
+
+    result = json.loads(result.text)
+    return result['choices'][0]['message']['content']
 
 
 #####################################
@@ -489,13 +526,22 @@ def _embeddings_get_request_resources(input: list[str]) -> dict[str, int]:
 
 @pxt.udf(batch_size=32)
 async def embeddings(
-    input: Batch[str], *, model: str, dimensions: Optional[int] = None, user: Optional[str] = None
+    input: Batch[str],
+    *,
+    model: str,
+    dimensions: Optional[int] = None,
+    user: Optional[str] = None,
+    timeout: Optional[float] = None,
 ) -> Batch[pxt.Array[(None,), pxt.Float]]:
     """
     Creates an embedding vector representing the input text.
 
     Equivalent to the OpenAI `embeddings` API endpoint.
     For additional details, see: [https://platform.openai.com/docs/guides/embeddings](https://platform.openai.com/docs/guides/embeddings)
+
+    Request throttling:
+    Uses the rate limit-related headers returned by the API to throttle requests adaptively, based on available
+    request and token capacity. No configuration is necessary.
 
     __Requirements:__
 
@@ -516,15 +562,24 @@ async def embeddings(
         Add a computed column that applies the model `text-embedding-3-small` to an existing
         Pixeltable column `tbl.text` of the table `tbl`:
 
-        >>> tbl['embed'] = embeddings(tbl.text, model='text-embedding-3-small')
+        >>> tbl.add_computed_column(embed=embeddings(tbl.text, model='text-embedding-3-small'))
+
+        Add an embedding index to an existing column `text`, using the model `text-embedding-3-small`:
+
+        >>> tbl.add_embedding_index(embedding=embeddings.using(model='text-embedding-3-small'))
     """
     _logger.debug(f'embeddings: batch_size={len(input)}')
-    resource_pool = _resource_pool(model)
+    resource_pool = _rate_limits_pool(model)
     rate_limits_info = env.Env.get().get_resource_pool_info(
         resource_pool, lambda: OpenAIRateLimitsInfo(_embeddings_get_request_resources)
     )
-    result = await _async_openai_client().embeddings.with_raw_response.create(
-        input=input, model=model, dimensions=_opt(dimensions), user=_opt(user), encoding_format='float'
+    result = await _openai_client().embeddings.with_raw_response.create(
+        input=input,
+        model=model,
+        dimensions=_opt(dimensions),
+        user=_opt(user),
+        encoding_format='float',
+        timeout=_opt(timeout),
     )
     requests_info, tokens_info = _get_header_info(result.headers)
     rate_limits_info.record(requests=requests_info, tokens=tokens_info)
@@ -546,7 +601,7 @@ def _(model: str, dimensions: Optional[int] = None) -> pxt.ArrayType:
 
 
 @pxt.udf
-def image_generations(
+async def image_generations(
     prompt: str,
     *,
     model: str = 'dall-e-2',
@@ -554,12 +609,17 @@ def image_generations(
     size: Optional[str] = None,
     style: Optional[str] = None,
     user: Optional[str] = None,
+    timeout: Optional[float] = None,
 ) -> PIL.Image.Image:
     """
     Creates an image given a prompt.
 
     Equivalent to the OpenAI `images/generations` API endpoint.
     For additional details, see: [https://platform.openai.com/docs/guides/images](https://platform.openai.com/docs/guides/images)
+
+    Request throttling:
+    Applies the rate limit set in the config (section `openai.rate_limits`; use the model id as the key). If no rate
+    limit is configured, uses a default of 600 RPM.
 
     __Requirements:__
 
@@ -578,17 +638,18 @@ def image_generations(
         Add a computed column that applies the model `dall-e-2` to an existing
         Pixeltable column `tbl.text` of the table `tbl`:
 
-        >>> tbl['gen_image'] = image_generations(tbl.text, model='dall-e-2')
+        >>> tbl.add_computed_column(gen_image=image_generations(tbl.text, model='dall-e-2'))
     """
     # TODO(aaron-siegel): Decompose CPU/GPU ops into separate functions
-    result = _retry(_openai_client().images.generate)(
+    result = await _openai_client().images.generate(
         prompt=prompt,
         model=_opt(model),
-        quality=_opt(quality),
-        size=_opt(size),
-        style=_opt(style),
+        quality=_opt(quality),  # type: ignore
+        size=_opt(size),  # type: ignore
+        style=_opt(style),  # type: ignore
         user=_opt(user),
         response_format='b64_json',
+        timeout=_opt(timeout),
     )
     b64_str = result.data[0].b64_json
     b64_bytes = base64.b64decode(b64_str)
@@ -616,12 +677,16 @@ def _(size: Optional[str] = None) -> pxt.ImageType:
 
 
 @pxt.udf
-def moderations(input: str, *, model: str = 'omni-moderation-latest') -> dict:
+async def moderations(input: str, *, model: str = 'omni-moderation-latest') -> dict:
     """
     Classifies if text is potentially harmful.
 
     Equivalent to the OpenAI `moderations` API endpoint.
     For additional details, see: [https://platform.openai.com/docs/guides/moderation](https://platform.openai.com/docs/guides/moderation)
+
+    Request throttling:
+    Applies the rate limit set in the config (section `openai.rate_limits`; use the model id as the key). If no rate
+    limit is configured, uses a default of 600 RPM.
 
     __Requirements:__
 
@@ -640,22 +705,26 @@ def moderations(input: str, *, model: str = 'omni-moderation-latest') -> dict:
         Add a computed column that applies the model `text-moderation-stable` to an existing
         Pixeltable column `tbl.input` of the table `tbl`:
 
-        >>> tbl['moderations'] = moderations(tbl.text, model='text-moderation-stable')
+        >>> tbl.add_computed_column(moderations=moderations(tbl.text, model='text-moderation-stable'))
     """
-    result = _retry(_openai_client().moderations.create)(input=input, model=_opt(model))
+    result = await _openai_client().moderations.create(input=input, model=_opt(model))
     return result.dict()
 
 
-# @speech.resource_pool
-# @transcriptions.resource_pool
-# @translations.resource_pool
-@chat_completions.resource_pool
-# @vision.resource_pool
-@embeddings.resource_pool
-# @image_generations.resource_pool
-# @moderations.resource_pool
+@speech.resource_pool
+@transcriptions.resource_pool
+@translations.resource_pool
+@image_generations.resource_pool
+@moderations.resource_pool
 def _(model: str) -> str:
-    return _resource_pool(model)
+    return f'request-rate:openai:{model}'
+
+
+@chat_completions.resource_pool
+@vision.resource_pool
+@embeddings.resource_pool
+def _(model: str) -> str:
+    return _rate_limits_pool(model)
 
 
 def invoke_tools(tools: Tools, response: exprs.Expr) -> exprs.InlineDict:

@@ -29,8 +29,8 @@ def _mistralai_client() -> 'mistralai.Mistral':
     return Env.get().get_client('mistral')
 
 
-@pxt.udf
-def chat_completions(
+@pxt.udf(resource_pool='request-rate:mistral')
+async def chat_completions(
     messages: list[dict[str, str]],
     *,
     model: str,
@@ -47,6 +47,10 @@ def chat_completions(
 
     Equivalent to the Mistral AI `chat/completions` API endpoint.
     For additional details, see: <https://docs.mistral.ai/api/#tag/chat>
+
+    Request throttling:
+    Applies the rate limit set in the config (section `mistral`, key `rate_limit`). If no rate
+    limit is configured, uses a default of 600 RPM.
 
     __Requirements:__
 
@@ -66,28 +70,25 @@ def chat_completions(
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
         >>> messages = [{'role': 'user', 'content': tbl.prompt}]
-        ... tbl['response'] = completions(messages, model='mistral-latest-small')
+        ... tbl.add_computed_column(response=completions(messages, model='mistral-latest-small'))
     """
     Env.get().require_package('mistralai')
-    return (
-        _mistralai_client()
-        .chat.complete(
-            messages=messages,  # type: ignore[arg-type]
-            model=model,
-            temperature=temperature,
-            top_p=top_p,
-            max_tokens=_opt(max_tokens),
-            stop=stop,
-            random_seed=_opt(random_seed),
-            response_format=response_format,  # type: ignore[arg-type]
-            safe_prompt=safe_prompt,
-        )
-        .dict()
+    result = await _mistralai_client().chat.complete_async(
+        messages=messages,  # type: ignore[arg-type]
+        model=model,
+        temperature=temperature,
+        top_p=top_p,
+        max_tokens=_opt(max_tokens),
+        stop=stop,
+        random_seed=_opt(random_seed),
+        response_format=response_format,  # type: ignore[arg-type]
+        safe_prompt=safe_prompt,
     )
+    return result.dict()
 
 
-@pxt.udf
-def fim_completions(
+@pxt.udf(resource_pool='request-rate:mistral')
+async def fim_completions(
     prompt: str,
     *,
     model: str,
@@ -104,6 +105,10 @@ def fim_completions(
 
     Equivalent to the Mistral AI `fim/completions` API endpoint.
     For additional details, see: <https://docs.mistral.ai/api/#tag/fim>
+
+    Request throttling:
+    Applies the rate limit set in the config (section `mistral`, key `rate_limit`). If no rate
+    limit is configured, uses a default of 600 RPM.
 
     __Requirements:__
 
@@ -122,36 +127,37 @@ def fim_completions(
         Add a computed column that applies the model `codestral-latest`
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
-        >>> tbl['response'] = completions(tbl.prompt, model='codestral-latest')
+        >>> tbl.add_computed_column(response=completions(tbl.prompt, model='codestral-latest'))
     """
     Env.get().require_package('mistralai')
-    return (
-        _mistralai_client()
-        .fim.complete(
-            prompt=prompt,
-            model=model,
-            temperature=temperature,
-            top_p=top_p,
-            max_tokens=_opt(max_tokens),
-            min_tokens=_opt(min_tokens),
-            stop=stop,
-            random_seed=_opt(random_seed),
-            suffix=_opt(suffix),
-        )
-        .dict()
+    result = await _mistralai_client().fim.complete_async(
+        prompt=prompt,
+        model=model,
+        temperature=temperature,
+        top_p=top_p,
+        max_tokens=_opt(max_tokens),
+        min_tokens=_opt(min_tokens),
+        stop=stop,
+        random_seed=_opt(random_seed),
+        suffix=_opt(suffix),
     )
+    return result.dict()
 
 
 _embedding_dimensions_cache: dict[str, int] = {'mistral-embed': 1024}
 
 
-@pxt.udf(batch_size=16)
-def embeddings(input: Batch[str], *, model: str) -> Batch[pxt.Array[(None,), pxt.Float]]:
+@pxt.udf(batch_size=16, resource_pool='request-rate:mistral')
+async def embeddings(input: Batch[str], *, model: str) -> Batch[pxt.Array[(None,), pxt.Float]]:
     """
     Embeddings API.
 
     Equivalent to the Mistral AI `embeddings` API endpoint.
     For additional details, see: <https://docs.mistral.ai/api/#tag/embeddings>
+
+    Request throttling:
+    Applies the rate limit set in the config (section `mistral`, key `rate_limit`). If no rate
+    limit is configured, uses a default of 600 RPM.
 
     __Requirements:__
 

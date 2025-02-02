@@ -26,12 +26,16 @@ def _replicate_client() -> 'replicate.Client':
     return Env.get().get_client('replicate')
 
 
-@pxt.udf
-def run(input: dict[str, Any], *, ref: str) -> dict[str, Any]:
+@pxt.udf(resource_pool='request-rate:replicate')
+async def run(input: dict[str, Any], *, ref: str) -> dict[str, Any]:
     """
     Run a model on Replicate.
 
     For additional details, see: <https://replicate.com/docs/topics/models/run-a-model>
+
+    Request throttling:
+    Applies the rate limit set in the config (section `replicate`, key `rate_limit`). If no rate
+    limit is configured, uses a default of 600 RPM.
 
     __Requirements:__
 
@@ -49,17 +53,17 @@ def run(input: dict[str, Any], *, ref: str) -> dict[str, Any]:
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
         >>> input = {'system_prompt': 'You are a helpful assistant.', 'prompt': tbl.prompt}
-        ... tbl['response'] = run(input, ref='meta/meta-llama-3-8b-instruct')
+        ... tbl.add_computed_column(response=run(input, ref='meta/meta-llama-3-8b-instruct'))
 
         Add a computed column that uses the model `black-forest-labs/flux-schnell`
         to generate images from an existing Pixeltable column `tbl.prompt`:
 
         >>> input = {'prompt': tbl.prompt, 'go_fast': True, 'megapixels': '1'}
-        ... tbl['response'] = run(input, ref='black-forest-labs/flux-schnell')
-        ... tbl['image'] = tbl.response.output[0].astype(pxt.Image)
+        ... tbl.add_computed_column(response=run(input, ref='black-forest-labs/flux-schnell'))
+        ... tbl.add_computed_column(image=tbl.response.output[0].astype(pxt.Image))
     """
     Env.get().require_package('replicate')
-    return _replicate_client().run(ref, input, use_file_output=False)
+    return await _replicate_client().async_run(ref, input, use_file_output=False)
 
 
 __all__ = local_public_names(__name__)
