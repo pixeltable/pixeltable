@@ -10,6 +10,7 @@ import datetime
 import io
 import json
 import logging
+import math
 import pathlib
 import re
 import uuid
@@ -446,8 +447,45 @@ async def chat_completions(
     return json.loads(result.text)
 
 
+def _vision_get_request_resources(
+    prompt: str, image: PIL.Image.Image, max_tokens: Optional[int], n: Optional[int]
+) -> dict[str, int]:
+    completion_tokens = n * max_tokens
+    prompt_tokens = len(prompt) / 4
+
+    # calculate image tokens based on
+    # https://platform.openai.com/docs/guides/vision/calculating-costs#calculating-costs
+    # assuming detail='high' (which appears to be the default, according to community forum posts)
+
+    # number of 512x512 crops; ceil(): partial crops still count as full crops
+    crops_width = math.ceil(image.width / 512)
+    crops_height = math.ceil(image.height / 512)
+    total_crops = crops_width * crops_height
+
+    BASE_TOKENS = 85  # base cost for the initial 512x512 overview
+    CROP_TOKENS = 170  # cost per additional 512x512 crop
+    img_tokens = BASE_TOKENS + (CROP_TOKENS * total_crops)
+
+    total_tokens = (
+        prompt_tokens
+        + img_tokens
+        + completion_tokens
+        + 4  # for <im_start>{role/name}\n{content}<im_end>\n
+        + 2  # for reply's <im_start>assistant
+    )
+    return {'requests': 1, 'tokens': int(total_tokens)}
+
+
 @pxt.udf
-async def vision(prompt: str, image: PIL.Image.Image, *, model: str, timeout: Optional[float] = None) -> str:
+async def vision(
+    prompt: str,
+    image: PIL.Image.Image,
+    *,
+    model: str,
+    max_tokens: Optional[int] = 1024,
+    n: Optional[int] = 1,
+    timeout: Optional[float] = None,
+) -> str:
     """
     Analyzes an image with the OpenAI vision capability. This is a convenience function that takes an image and
     prompt, and constructs a chat completion request that utilizes OpenAI vision.
@@ -494,11 +532,13 @@ async def vision(prompt: str, image: PIL.Image.Image, *, model: str, timeout: Op
     # make sure the pool info exists prior to making the request
     resource_pool = _rate_limits_pool(model)
     rate_limits_info = env.Env.get().get_resource_pool_info(
-        resource_pool, lambda: OpenAIRateLimitsInfo(_chat_completions_get_request_resources)
+        resource_pool, lambda: OpenAIRateLimitsInfo(_vision_get_request_resources)
     )
     result = await _openai_client().chat.completions.with_raw_response.create(
         messages=messages,  # type: ignore
         model=model,
+        max_tokens=_opt(max_tokens),
+        n=_opt(n),
         timeout=_opt(timeout),
     )
 
