@@ -445,7 +445,7 @@ class FunctionCall(Expr):
         Returns a list of dicts mapping each param name to its value when this FunctionCall is evaluated against
         data_rows
         """
-        assert all(name in self._param_values for name in param_names)
+        assert all(name in self._param_values for name in param_names), f'{param_names}, {self._param_values.keys()}'
         result: list[dict[str, Any]] = []
         for row in data_rows:
             d: dict[str, Any] = {}

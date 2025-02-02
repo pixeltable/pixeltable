@@ -447,7 +447,15 @@ async def chat_completions(
 
 
 @pxt.udf
-async def vision(prompt: str, image: PIL.Image.Image, *, model: str, timeout: Optional[float] = None) -> str:
+async def vision(
+    prompt: str,
+    image: PIL.Image.Image,
+    *,
+    model: str,
+    max_tokens: Optional[int] = 1024,
+    n: Optional[int] = 1,
+    timeout: Optional[float] = None,
+) -> str:
     """
     Analyzes an image with the OpenAI vision capability. This is a convenience function that takes an image and
     prompt, and constructs a chat completion request that utilizes OpenAI vision.
@@ -499,6 +507,8 @@ async def vision(prompt: str, image: PIL.Image.Image, *, model: str, timeout: Op
     result = await _openai_client().chat.completions.with_raw_response.create(
         messages=messages,  # type: ignore
         model=model,
+        max_tokens=_opt(max_tokens),
+        n=_opt(n),
         timeout=_opt(timeout),
     )
 
