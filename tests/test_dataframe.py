@@ -275,6 +275,19 @@ class TestDataFrame:
             _ = t.order_by(datetime.datetime.now()).collect()  # type: ignore[arg-type]
         assert 'Invalid expression' in str(exc_info.value)
 
+    def test_limit2(self, test_tbl: catalog.Table) -> None:
+        t = test_tbl
+        nrows = 3
+        res = t.select(t.c4).limit(nrows).collect()
+        assert len(res) == nrows
+
+        @pxt.query
+        def get_lim(n: int):
+            return t.select(t.c4, folded_flt=(5.7 * n)-4).limit((3 * (n + 1) // 2) - 1)
+
+        res = t.select(t.c4, get_lim(1)).collect()
+        assert res[0]['get_lim'] == [{'c4': False, 'folded_flt': 1.7000000000000002}, {'c4': True, 'folded_flt': 1.7000000000000002}]
+
     def test_limit(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         nrows = 3

@@ -193,6 +193,9 @@ class Expr(abc.ABC):
                 return new.copy()
         for i in range(len(self.components)):
             self.components[i] = self.components[i].substitute(spec)
+        if self.is_foldable():
+            self = self.folded()
+            print(self)
         self.id = self._create_id()
         return self
 
@@ -379,7 +382,7 @@ class Expr(abc.ABC):
 
     def is_foldable(self) ->bool:
         """Returns True if this expr is constant-foldable."""
-        return false
+        return False
 
     @classmethod
     def from_array(cls, elements: Iterable) -> Optional[Expr]:
