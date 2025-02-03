@@ -148,10 +148,9 @@ class AudioSplitter(ComponentIterator):
             output_container = av.open(chunk_file, mode='w')
             input_stream = self.container.streams.audio[0]
             codec_name = AudioSplitter.__codec_map.get(input_stream.codec_context.name, input_stream.codec_context.name)
-            output_stream = output_container.add_stream(codec_name, rate=input_stream.codec_context.sample_rate)
-            output_stream.channels = input_stream.codec_context.channels
-            output_stream.time_base = input_stream.time_base
-
+            output_stream = output_container.add_stream(
+                codec_name, rate=input_stream.codec_context.sample_rate, channels=input_stream.codec_context.channels
+            )
             frame_count = 0
             # Since frames don't align with chunk boundaries, we may have read an extra frame in previous iteration
             # Seek to the nearest frame in stream at current chunk start time
