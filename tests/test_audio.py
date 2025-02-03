@@ -199,6 +199,7 @@ class TestAudio:
         )
         assert audio_chunk_view.count() == 12
         results = audio_chunk_view.collect()
+        print(results)
         assert all(result['audio'] == audio_filepath for result in results)
         assert results[-1]['end_time_sec'] == 60
         for i in range(len(results)):
