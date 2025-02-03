@@ -148,9 +148,10 @@
       ]
     },
     {
-      "group": "Ecosystem",
+      "group": "Built-in Integrations",
       "pages": [
-        "docs/integrations/frameworks"
+        "docs/integrations/frameworks",
+        "docs/integrations/models"
       ]
     },
       {
