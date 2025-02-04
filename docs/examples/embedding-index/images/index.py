@@ -20,12 +20,12 @@ if TABLE_NAME not in pxt.list_tables():
     image_view = pxt.create_view(VIEW_NAME, image_index, if_exists='ignore')
 
     # Define the embedding model
-    embed_model = clip.using(model_id='openai/clip-vit-base-patch32')    
+    embed_model = clip.using(model_id='openai/clip-vit-base-patch32')
 
     # Create embedding index
     image_view.add_embedding_index(column='image_file', image_embed=embed_model, if_exists='ignore')
 
-else: 
+else:
     image_index = pxt.get_table(TABLE_NAME)
     image_view = pxt.get_table(VIEW_NAME)
 

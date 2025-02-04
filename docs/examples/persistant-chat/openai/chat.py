@@ -17,12 +17,10 @@ if table_name not in pxt.list_tables():
     pxt.create_dir(DIRECTORY, if_exists='ignore')
 
     # Create the table
-    conversations = pxt.create_table(
-        path_str=table_name, schema_or_df={'prompt': pxt.String}, if_exists='ignore'
-    )
+    conversations = pxt.create_table(path_str=table_name, schema_or_df={'prompt': pxt.String}, if_exists='ignore')
 
     # Create the message column
-    conversations.add_computed_column(messages=[{"role":"user", "content": conversations.prompt}])
+    conversations.add_computed_column(messages=[{'role': 'user', 'content': conversations.prompt}])
 
     # Create the OpenAI response column
     conversations.add_computed_column(response=chat_completions(messages=conversations.messages, model=MODEL))

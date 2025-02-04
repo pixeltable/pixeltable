@@ -43,4 +43,4 @@ sim = websites_chunks.text.similarity(query_text)
 
 # Get top 20 most similar sentences with their scores
 results = websites_chunks.order_by(sim, asc=False).select(websites_chunks.text, sim=sim).limit(5).collect()
-print(results["text"])
+print(results['text'])

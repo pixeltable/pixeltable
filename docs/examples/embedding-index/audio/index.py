@@ -12,7 +12,6 @@ if DELETE_INDEX:
     pxt.drop_table(TABLE_NAME, force=True)
 
 if TABLE_NAME not in pxt.list_tables():
-
     # Create audio table
     pxt.create_dir(DIRECTORY)
     audio_index = pxt.create_table(TABLE_NAME, {'audio_file': pxt.Audio})
@@ -33,7 +32,7 @@ if TABLE_NAME not in pxt.list_tables():
     # Create embedding index
     sentences_view.add_embedding_index(column='text', string_embed=embed_model)
 
-else: 
+else:
     audio_index = pxt.get_table(TABLE_NAME)
 
 
@@ -48,4 +47,4 @@ sim = sentences_view.text.similarity(query_text)
 
 # Get top 20 most similar sentences with their scores
 results = sentences_view.order_by(sim, asc=False).select(sentences_view.text, sim=sim).limit(5).collect()
-print(results["text"])
+print(results['text'])
