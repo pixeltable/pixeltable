@@ -1,117 +1,162 @@
 ---
-title: "Quick Start"
-description: "Get started with Pixeltable in two steps: define your app structure, then use it"
-icon: "rocket"
+title: '10-min tour of Pixeltable'
+description: 'Welcome to Pixeltable! In this tutorial, we will survey how to create tables, populate them with data, and enhance them with built-in and user-defined transformations and AI operations.'
+icon: 'rocket'
 ---
 
-# Building Your First AI App
+<Note>
+This guide will get you from zero to a working AI application in under 5 minutes. Learn more by looking at this tutorial on [Github](https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/pixeltable-basics.ipynb).
+</Note>
 
-Pixeltable apps work in two phases:
-1. Define your table structure (once)
-2. Use your app (anytime)
+## Create Your First AI Workfload
+
+Let's build a simple image analysis app that combines object detection and GPT-4 Vision.
+
+## Installation
+
+  ```bash
+  pip install -qU torch transformers openai pixeltable
+  ```
 
 <Steps>
-  <Step title="Install Pixeltable">
-    ```bash
-    pip install pixeltable
-    ```
-  </Step>
-
-  <Step title="Define Your Table Structure" icon="table">
-    Create `schema.py`:
+  <Step title="Create Table Structure">
     ```python
     import pixeltable as pxt
-    from pixeltable.functions import openai
+    from pixeltable.functions import huggingface, openai
+    
+    # Create directory for our app
+    pxt.drop_dir('demo', force=True)  
+    pxt.create_dir('demo')
+    
+    # Create table with image column
+    t = pxt.create_table('demo.first', {'input_image': pxt.Image})
+    ```
 
-    # Initialize directory for table organization
-    pxt.create_dir("chatbot")
+    <Tip>
+    Create a persistent and verstioned table that holds data.
+    </Tip>
+  </Step>
 
-    # Define data schema
-    conversations = pxt.create_table(
-        path_str="chatbot.conversations", 
-        schema_or_df={"prompt": pxt.String}, 
-        if_exists="ignore"
-    )
-
-    # Configure processing pipeline
-    conversations.add_computed_column(
-        messages=[{"role": "user", "content": conversations.prompt}]
-    )
-
-    conversations.add_computed_column(
-        response=openai.chat_completions(
-            messages=conversations.messages,
-            model="gpt-4o-mini",
+  <Step title="Add Object Detection">
+    ```python
+    # Add ResNet-50 object detection
+    t.add_computed_column(
+        detections=huggingface.detr_for_object_detection(
+            t.input_image, 
+            model_id='facebook/detr-resnet-50'
         )
     )
+    
+    # Extract just the labels
+    t.add_computed_column(detections_text=t.detections.label_text)
+    ```
 
-    conversations.add_computed_column(
-        answer=conversations.response.choices[0].message.content
+    <Tip>
+    Computed columns are automatically populated whenever new data is added to their input columns.
+    </Tip>
+  </Step>
+
+ <Step title="Add your OpenAI Key">
+  ```python
+  import os
+  import getpass
+  if 'OPENAI_API_KEY' not in os.environ:
+    os.environ['OPENAI_API_KEY'] = getpass.getpass('Enter your OpenAI API key:')
+  ```
+  </Step>
+
+  <Step title="Add GPT-4 Vision Analysis">
+    ```python
+    # Add GPT-4 Vision analysis
+    t.add_computed_column(
+        vision=openai.vision(
+            prompt="Describe what's in this image.",
+            image=t.input_image,
+            model='gpt-4o-mini'
+        )
     )
     ```
   </Step>
 
-  <Step title="Use Your App" icon="play">
-    Create `app.py`:
+  <Step title="Use Your App">
     ```python
-    import pixeltable as pxt
+  # Insert an image
+  t.insert(input_image='https://raw.github.com/pixeltable/pixeltable/release/docs/resources/images/000000000025.jpg')
 
-    # Connect to your app
-    conversations = pxt.get_table("chatbot.conversations")
-
-    # Use it!
-    conversations.insert([
-        {"prompt": "Write a haiku about dogs."}
-    ])
-
-    # Get results
-    print(conversations.collect())
+  # Retrieve results
+  t.select(
+      t.input_image,
+      t.detections_text,
+      t.vision
+  ).collect()
     ```
   </Step>
 </Steps>
 
-## What Makes This Different?
+<Accordion title="What happened behind the scenes?">
+  - Pixeltable automatically:
+    1. Created a persistent table
+    2. Downloaded and cached the ResNet model
+    3. Orchestrate the GPT-4 API call
+    4. Created an efficient processing pipeline
+    5. Stored all results for future use
+</Accordion>
 
-<Steps>
-  <Step title="Persistent Storage" icon="database">
-    Every interaction is automatically stored and versioned:
-    ```python
-    # Query past conversations
-    conversations = pxt.get_table("chatbot.conversations")
-    ```
-  </Step>
+## Key Features
 
-  <Step title="Type-Safe Pipeline" icon="diagram-project">
-    Catch errors before runtime with schema validation:
-    ```python
-    # Your pipeline is validated when defined
-    conversations.add_computed_column(
-        messages=[{"role": "user", "content": conversations.prompt}]
-    )
-    ```
-  </Step>  
-  
-  <Step title="Production Ready" icon="rocket">
-    Scale from prototype to production without rewriting:
-    ```python
-    # Insert many prompts at once
-    conversations.insert([
-        {"prompt": p} for p in prompts
-    ])
-    ```
-  </Step>
-</Steps>
+<CardGroup cols={2}>
+  <Card title="Persistent Storage" icon="database">
+    All data and computed results are automatically stored and versioned. Your app state persists between sessions.
+  </Card>
+  <Card title="Computed Columns" icon="calculator">
+    Define transformations once, they run automatically on new data. Perfect for ML pipelines.
+  </Card>
+  <Card title="Multimodal Support" icon="photo-film">
+    Handle images, video, audio, and text seamlessly in one unified interface.
+  </Card>
+  <Card title="AI Integration" icon="brain">
+    Built-in support for popular AI services like OpenAI, Hugging Face, and Anthropic.
+  </Card>
+</CardGroup>
+
+## Custom Functions
+
+Extend Pixeltable with your own functions using the `@pxt.udf` decorator:
+
+```python
+@pxt.udf
+def top_detection(detect: dict) -> str:
+    scores = detect['scores']
+    label_text = detect['label_text']
+    i = scores.index(max(scores))
+    return label_text[i]
+
+# Use it in a computed column
+t.add_computed_column(top=top_detection(t.detections))
+```
+
+## See It In Action
+
+<iframe
+  width="560"
+  height="315"
+  src="https://www.youtube.com/embed/4KzFe50RQkQ"
+  title="YouTube video player"
+  frameborder="0"
+  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+  allowfullscreen
+></iframe>
 
 ## Next Steps
 
 <CardGroup cols={3}>
-  <Card title="Core Concepts" icon="book" href="/docs/fundamentals/tables-and-operations">
-    Learn about tables, operations, and core Pixeltable concepts
+  <Card title="RAG Tutorial" icon="books" href="/tutorials/rag">
+    Build a production-grade RAG system
   </Card>
-  <Card title="Build Workflows" icon="diagram-project" href="/docs/fundamentals/computed-columns">
-    Master computed columns and create data processing pipelines
+  <Card title="Video Analysis" icon="video" href="/tutorials/video">
+    Process video with object detection
   </Card>
-  <Card title="Customize" icon="screwdriver-wrench" href="/docs/fundamentals/custom-functions">
-    Create custom functions and extend Pixeltable's capabilities
+  <Card title="LLM Integration" icon="message" href="/tutorials/llm">
+    Work with OpenAI and other LLM providers
   </Card>
 </CardGroup>

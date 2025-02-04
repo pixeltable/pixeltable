@@ -1,35 +1,31 @@
 {
   "$schema": "https://mintlify.com/schema.json",
-  "name": "Pixeltable",
+  "name": "Pixeltable Documentation",
   "logo": {
     "light": "/logo/pxt-light.svg",
     "dark": "/logo/pxt-dark.svg"
   },
-  "modeToggle": {
-    "default": "dark",
-    "isHidden": true
-  },
+  "favicon": "/favicon.svg",
   "colors": {
-    "primary": "#3B82F6", 
-    "light": "#60A5FA",
-    "dark": "#2563EB",
-    "anchors": {
-      "from": "#4F46E5",
-      "to": "#FFFFFF"
-    },
-    "background": {
-      "dark": "#181C1F"
-    }
+  "primary": "#19191B",       
+  "light": "#71717A",        
+  "dark": "#09080B",          
+  "anchors": {
+    "from": "#18181B",        
+    "to": "#404040"          
   },
+  "background": {
+    "dark": "#08080B"       
+  }
+},
   "font": {
     "headings": {
-      "family": "DM Sans"
+      "family": "SF Pro Display"
     },
     "body": {
-      "family": "Inter"
+      "family": "SF Pro Text"
     }
   },
-  "favicon": "favicon.svg",
   "topbarLinks": [
     {
       "name": "Discord",
@@ -48,10 +44,21 @@
     "type": "github",
     "url": "https://github.com/pixeltable/pixeltable"
   },
+  "feedback": {
+    "suggestEdit": true,
+    "raiseIssue": true
+  },
+  "search": {
+    "prompt": "Search Pixeltable docs...",
+    "placeholder": "Try 'getting started' or 'computed columns'"
+  },
+  "versions": [
+    "v0.3.2"
+  ],
   "tabs": [
     {
-      "name": "Tutorials",
-      "url": "/docs/tutorials"
+      "name": "Fundamentals",
+      "url": "/docs/fundamentals"
     },
     {
       "name": "API Reference",
@@ -77,51 +84,52 @@
       ]
     },
     {
-      "group": "Fundamentals",
+      "group": "Multimodal Data Store",
       "pages": [
-        "docs/fundamentals/tables-and-operations",
-        "docs/fundamentals/views",
-        "docs/fundamentals/filtering-and-selecting",
-        "docs/fundamentals/computed-columns",
-        "docs/fundamentals/custom-functions",            
-        "docs/fundamentals/embedding-index"
+        "docs/datastore/tables-and-operations",
+        "docs/datastore/views",
+        "docs/datastore/computed-columns",          
+        "docs/datastore/embedding-index",
+        "docs/ai-apps/bringing-data",
+        "docs/ai-apps/filtering-and-selecting",
+        "docs/ai-apps/custom-functions"
       ]
-    },        
-    {          
-      "group": "Examples",
+    },
+    {
+      "group": "Building AI Applications",
       "pages": [
-        "docs/examples/overview",          
         {
-          "group": "Chat",
-          "pages": [
-            "docs/examples/chat/multimodal",
-            "docs/examples/chat/memory",
-            "docs/examples/chat/tools"
-          ]
-        },
-        {
-          "group": "Vision",
-          "pages": [
-            "docs/examples/vision/label-studio",
-            "docs/examples/vision/voxel51",
-            "docs/examples/vision/yolox"
-          ]
-        },            
-        {
-          "group": "Search",
-          "pages": [
-            "docs/examples/search/audio",
-            "docs/examples/search/images",
-            "docs/examples/search/PDF",
-            "docs/examples/search/website"
-          ]
-        },
-        {
-          "group": "Evaluation",
-          "pages": [
-            "docs/examples/evaluations/llm-as-a-judge"
-          ]
-        }           
+
+              "group": "Chat",
+              "pages": [
+                "docs/examples/chat/multimodal",
+                "docs/examples/chat/memory",
+                "docs/examples/chat/tools"
+              ]
+            },
+            {
+              "group": "Vision",
+              "pages": [
+                "docs/examples/vision/label-studio",
+                "docs/examples/vision/voxel51",
+                "docs/examples/vision/yolox"
+              ]
+            },            
+            {
+              "group": "Search",
+              "pages": [
+                "docs/examples/search/audio",
+                "docs/examples/search/images",
+                "docs/examples/search/PDF",
+                "docs/examples/search/website"
+              ]
+            },
+            {
+              "group": "Evaluation",
+              "pages": [
+                "docs/examples/evaluations/llm-as-a-judge"
+              ]
+            }               
       ]
     },
     {
@@ -138,13 +146,13 @@
       ]
     },
     {
-      "group": "Tutorials",
+      "group": "Core Concepts",
       "pages": [
-        "docs/tutorials/fundamentals",
-        "docs/tutorials/feature-guide",
-        "docs/tutorials/use-cases",
-        "docs/tutorials/interactive-demos",
-        "docs/tutorials/sample-apps"
+        "docs/fundamentals/core-concepts",
+        "docs/fundamentals/feature-guide",
+        "docs/fundamentals/use-cases",
+        "docs/fundamentals/interactive-demos",
+        "docs/fundamentals/sample-apps"
       ]
     },
     {
@@ -160,5 +168,10 @@
           "docs/integrations/embedding-model"
         ]
       }
-  ]
+  ],
+    "footerSocials": {
+      "twitter": "https://twitter.com/pixeltablehq",
+      "github": "https://github.com/pixeltable/pixeltable",
+      "discord": "https://discord.com/invite/QPyqFYx2UN"
+    }
 }

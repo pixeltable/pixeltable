@@ -1,0 +1,419 @@
+---
+title: 'Bringing Data'
+description: 'A comprehensive guide to inserting, referencing, and importing data in Pixeltable'
+icon: 'file-import'
+---
+
+# Working with Data in Pixeltable
+
+Pixeltable provides a unified interface for working with diverse data types - from structured tables to unstructured media files. This guide covers everything you need to know about bringing your data into Pixeltable.
+
+## Supported Data Types & Formats
+
+<AccordionGroup>
+  <Accordion title="Basic Types (Int, Float, Bool, String, Timestamp)" icon="code">
+    ```python
+    import pixeltable as pxt
+    from datetime import datetime
+    
+    # Create table with basic data types
+    basic_table = pxt.create_table('myproject.basic_types', {
+        'id': pxt.Int,                  # Integer values
+        'score': pxt.Float,             # Floating point numbers  
+        'active': pxt.Bool,             # Boolean values
+        'name': pxt.String,             # Text data
+        'created_at': pxt.Timestamp     # DateTime values
+    })
+
+    # Insert single row
+    basic_table.insert({
+        'id': 1,
+        'score': 95.5,
+        'active': True,
+        'name': 'Example',
+        'created_at': datetime.now()
+    })
+
+    # Batch insert
+    basic_table.insert([
+        {
+            'id': 2,
+            'score': 88.3,
+            'active': True,
+            'name': 'Test A',
+            'created_at': datetime(2024, 1, 1)
+        },
+        {
+            'id': 3, 
+            'score': 76.9,
+            'active': False,
+            'name': 'Test B',
+            'created_at': datetime(2024, 1, 15)
+        }
+    ])
+
+    # Import from CSV
+    pxt.io.import_csv('myproject.from_csv', 'data.csv', 
+        schema_overrides={
+            'id': pxt.Int,
+            'score': pxt.Float,
+            'active': pxt.Bool,
+            'created_at': pxt.Timestamp
+        }
+    )
+
+    # Import from Excel
+    pxt.io.import_excel('myproject.from_excel', 'data.xlsx',
+        schema_overrides={
+            'id': pxt.Int,
+            'score': pxt.Float,
+            'active': pxt.Bool,
+            'created_at': pxt.Timestamp
+        }
+    )
+    ```
+  </Accordion>
+
+  <Accordion title="Array Type" icon="table-cells">
+    ```python
+    # Create table with array columns
+    array_table = pxt.create_table('myproject.arrays', {
+        'fixed_vector': pxt.Array[(768,), pxt.Float],      # Fixed-size vector
+        'variable_tensor': pxt.Array[(None, 512), pxt.Float], # Variable first dimension
+        'integer_array': pxt.Array[(10,), pxt.Int],        # Integer array
+        'boolean_mask': pxt.Array[(100,), pxt.Bool]        # Boolean array
+    })
+
+    # Insert array data
+    array_table.insert({
+        'fixed_vector': np.random.randn(768),
+        'variable_tensor': np.random.randn(5, 512),
+        'integer_array': np.arange(10),
+        'boolean_mask': np.random.choice([True, False], 100)
+    })
+    ```
+  </Accordion>
+
+  <Accordion title="JSON Type" icon="brackets-curly">
+    ```python
+    # Create table with JSON columns
+    json_table = pxt.create_table('myproject.json_data', {
+        'metadata': pxt.Json,           # Arbitrary JSON data
+        'config': pxt.Json,             # Configuration objects
+        'features': pxt.Json            # Nested structures
+    })
+
+    # Insert structured data
+    json_table.insert({
+        'metadata': {
+            'source': 'api',
+            'version': '1.0',
+            'tags': ['test', 'example']
+        },
+        'config': {
+            'mode': 'testing',
+            'parameters': {
+                'batch_size': 32,
+                'learning_rate': 0.001
+            }
+        },
+        'features': {
+            'numeric': [1, 2, 3],
+            'categorical': {
+                'color': 'red',
+                'size': 'large'
+            }
+        }
+    })
+
+    # Import JSON file
+    pxt.io.import_json('myproject.from_json', 'data.json',
+        schema_overrides={
+            'metadata': pxt.Json,
+            'config': pxt.Json
+        }
+    )
+    ```
+  </Accordion>
+
+  <Accordion title="Image Type" icon="image">
+    ```python
+    # Create table with image columns
+    image_table = pxt.create_table('myproject.images', {
+        'original': pxt.Image,                  # Any valid image
+        'thumbnail': pxt.Image[(224, 224)],     # Fixed size constraint
+        'rgb_only': pxt.Image['RGB'],           # Mode constraint
+        'thumbnail_rgb': pxt.Image[(64, 64), 'RGB']  # Both constraints
+    })
+
+    # Insert local files
+    image_table.insert([
+        {'original': '/path/to/image1.jpg'},
+        {'original': '/path/to/image2.png'}
+    ])
+
+    # Insert URLs
+    image_table.insert([
+        {'original': 'https://example.com/image1.jpg'},
+        {'original': 'https://example.com/image2.png'}
+    ])
+
+    # Insert from cloud storage
+    image_table.insert([
+        {'original': 's3://my-bucket/image1.jpg'},
+        {'original': 'gs://my-bucket/image2.png'}
+    ])
+    ```
+  </Accordion>
+
+  <Accordion title="Video Type" icon="film">
+    ```python
+    # Create table with video columns
+    video_table = pxt.create_table('myproject.videos', {
+        'video': pxt.Video,            # Video file reference
+        'preview': pxt.Image,          # Thumbnail/preview image
+        'metadata': pxt.Json           # Video metadata
+    })
+
+    # Insert local video files
+    video_table.insert([
+        {'video': '/path/to/video1.mp4'},
+        {'video': '/path/to/video2.webm'}
+    ])
+
+    # Insert video URLs
+    video_table.insert([
+        {'video': 'https://example.com/video1.mp4'},
+        {'video': 'https://example.com/video2.webm'}
+    ])
+
+    # Insert from cloud storage
+    video_table.insert([
+        {'video': 's3://my-bucket/video1.mp4'},
+        {'video': 'gs://my-bucket/video2.webm'}
+    ])
+    ```
+  </Accordion>
+
+  <Accordion title="Audio Type" icon="volume-high">
+    ```python
+    # Create table with audio columns
+    audio_table = pxt.create_table('myproject.audio', {
+        'audio': pxt.Audio,           # Audio file reference
+        'metadata': pxt.Json,         # Audio metadata
+        'transcript': pxt.String      # Transcribed text
+    })
+
+    # Insert local audio files
+    audio_table.insert([
+        {'audio': '/path/to/audio1.mp3'},
+        {'audio': '/path/to/audio2.wav'}
+    ])
+
+    # Insert audio URLs
+    audio_table.insert([
+        {'audio': 'https://example.com/audio1.mp3'},
+        {'audio': 'https://example.com/audio2.wav'}
+    ])
+
+    # Insert from cloud storage
+    audio_table.insert([
+        {'audio': 's3://my-bucket/audio1.mp3'},
+        {'audio': 'gs://my-bucket/audio2.wav'}
+    ])
+    ```
+  </Accordion>
+
+  <Accordion title="Document Type" icon="file">
+    ```python
+    # Create table with document columns
+    doc_table = pxt.create_table('myproject.documents', {
+        'document': pxt.Document,     # Document file reference
+        'metadata': pxt.Json,         # Document metadata
+        'text': pxt.String           # Extracted text
+    })
+
+    # Insert local documents
+    doc_table.insert([
+        {'document': '/path/to/doc1.pdf'},
+        {'document': '/path/to/doc2.docx'},
+        {'document': '/path/to/text1.md'}
+    ])
+
+    # Insert document URLs
+    doc_table.insert([
+        {'document': 'https://example.com/doc1.pdf'},
+        {'document': 'https://example.com/doc2.docx'}
+    ])
+
+    # Insert from cloud storage
+    doc_table.insert([
+        {'document': 's3://my-bucket/doc1.pdf'},
+        {'document': 'gs://my-bucket/doc2.docx'}
+    ])
+    ```
+  </Accordion>
+
+</AccordionGroup>
+
+## Import Functions
+
+<AccordionGroup>
+  <Accordion title="CSV Import" icon="file-csv">
+    ```python
+    # Basic CSV import with schema inference
+    table1 = pxt.io.import_csv(
+        'myproject.data',
+        'data.csv'
+    )
+
+    # CSV import with schema overrides
+    table2 = pxt.io.import_csv(
+        'myproject.data_typed',
+        'data.csv',
+        schema_overrides={
+            'id': pxt.Int,
+            'name': pxt.String,
+            'score': pxt.Float,
+            'active': pxt.Bool,
+            'created_at': pxt.Timestamp
+        }
+    )
+
+    # CSV import with pandas options
+    table3 = pxt.io.import_csv(
+        'myproject.data_options',
+        'data.csv',
+        sep=';',                # Custom separator
+        encoding='utf-8',       # Specify encoding
+        na_values=['NA', '-'],  # Custom NA values
+        parse_dates=['date']    # Parse date columns
+    )
+    ```
+  </Accordion>
+
+  <Accordion title="Excel Import" icon="file-excel">
+    ```python
+    # Basic Excel import
+    table1 = pxt.io.import_excel(
+        'myproject.excel_data',
+        'data.xlsx'
+    )
+
+    # Excel import with schema overrides
+    table2 = pxt.io.import_excel(
+        'myproject.excel_typed',
+        'data.xlsx',
+        schema_overrides={
+            'id': pxt.Int,
+            'amount': pxt.Float,
+            'date': pxt.Timestamp
+        }
+    )
+
+    # Excel import with options
+    table3 = pxt.io.import_excel(
+        'myproject.excel_options',
+        'data.xlsx',
+        sheet_name='Sheet2',    # Specific sheet
+        header=1,               # Header row
+        na_values=['NA', '-'],  # Custom NA values
+        parse_dates=['date']    # Parse date columns
+    )
+    ```
+  </Accordion>
+
+  <Accordion title="Parquet Import" icon="database">
+    ```python
+    # Basic Parquet import
+    table1 = pxt.io.import_parquet(
+        'myproject.parquet_data',
+        'data.parquet'
+    )
+
+    # Parquet import with schema overrides
+    table2 = pxt.io.import_parquet(
+        'myproject.parquet_typed',
+        'data.parquet',
+        schema_overrides={
+            'features': pxt.Array[(100,), pxt.Float],
+            'labels': pxt.Array[(10,), pxt.Int]
+        }
+    )
+
+    # Import from directory of Parquet files
+    table3 = pxt.io.import_parquet(
+        'myproject.parquet_dir',
+        'data/*.parquet'  # Glob pattern
+    )
+    ```
+  </Accordion>
+
+  <Accordion title="JSON Import" icon="curly-braces">
+    ```python
+    # Basic JSON import
+    table1 = pxt.io.import_json(
+        'myproject.json_data',
+        'data.json'
+    )
+
+    # JSON import with schema overrides
+    table2 = pxt.io.import_json(
+        'myproject.json_typed',
+        'data.json',
+        schema_overrides={
+            'metadata': pxt.Json,
+            'features': pxt.Array[(None,), pxt.Float]
+        }
+    )
+
+    # Import from URL
+    table3 = pxt.io.import_json(
+        'myproject.json_url',
+        'https://api.example.com/data.json'
+    )
+    ```
+  </Accordion>
+
+  <Accordion title="Hugging Face Dataset Import" icon="brain">
+    ```python
+    from datasets import load_dataset
+
+    # Load Hugging Face dataset
+    dataset = load_dataset('mnist', split='train[:1000]')
+
+    # Import with default schema inference
+    table1 = pxt.io.import_huggingface_dataset(
+        'myproject.hf_data',
+        dataset
+    )
+
+    # Import with schema overrides
+    table2 = pxt.io.import_huggingface_dataset(
+        'myproject.hf_typed',
+        dataset,
+        schema_overrides={
+            'image': pxt.Image,
+            'label': pxt.Int
+        }
+    )
+
+    # Import with split information
+    table3 = pxt.io.import_huggingface_dataset(
+        'myproject.hf_split',
+        dataset,
+        column_name_for_split='split_info'
+    )
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Key Points
+
+- All media types (Image, Video, Audio, Document) support local files, URLs, and cloud storage paths
+- Array types require explicit shape and dtype specifications
+- JSON type can store any valid JSON data structure
+- Basic types (Int, Float, Bool, String, Timestamp) match their Python equivalents
+- Import functions support schema overrides to ensure correct type assignment
+- Use batch inserts for better performance when adding multiple rows
+- Cloud storage paths (s3://, gs://) require appropriate credentials to be configured

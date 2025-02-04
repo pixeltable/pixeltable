@@ -1,196 +1,213 @@
 ---
-title: 'Getting Started'
-description: 'Build production-ready AI applications with unified data infrastructure'
+title: 'Overview'
+description: 'Tired of choosing between months of infrastructure work or limited frameworks? Pixeltable gives you both speed and control. Pixeltable provide a declarative, incremental approach for multimodal AI workloads.'
 icon: "table"
 ---
 
-# Pixeltable -- Open Source AI Data Infrastructure
+## Core Capabilities
 
-Tired of choosing between months of infrastructure work or limited frameworks? Pixeltable gives you both speed and control. Pixeltable provide a **declarative**, **incremental** approach for **multimodal** AI workloads.
+<CardGroup cols={2}>
+<Card 
+  title="Multimodal Data Store" 
+  icon="database"
+  href="/docs/datastore/tables-and-operations"
+>
+  - Universal data ingestion (S3, URLs, local files)
+  - Automatic versioning and lineage tracking
+  - Efficient chunking and preprocessing
+  - Rich query capabilities at any granularity
+</Card>
+
+<Card 
+  title="AI Development Orchestration" 
+  icon="brain-circuit"
+  href="/docs/ai-apps/embedding-index"
+>
+  - Seamless model integration (OpenAI, HuggingFace)
+  - Built-in vector similarity search
+  - Automatic orchestration of AI workloads
+  - Real-time inference and streaming
+</Card>
+</CardGroup>
+
+## Quick Examples
 
 <CodeGroup>
-```python Declarative
-# Persistent and versioned tables holding data
-t = pxt.create_table('image_table', {'image': pxt.Image})
+```python Multimodal Chat Interface
+import pixeltable as pxt
+from pixeltable.iterators import DocumentSplitter
+from pixeltable.functions import openai, image
 
-# Express data transformations, model inference, and custom logic
-t.add_computed_column(detections=yolox(images.image,model_id='yolox_s'))
+# Initialize conversation store
+messages = pxt.create_table('chat.messages', {
+    'session_id': pxt.String,
+    'role': pxt.String,
+    'content': pxt.String,
+    'image': pxt.Image,  # Optional image attachment
+    'timestamp': pxt.Timestamp
+})
 
-# Insert data from any source to run inference (URL, S3, Files, Pandas, XML...)
-t.insert([
-    {'image': 's3://bucket/image.jpg'},
-    {'image': 'https://example.com/image.png'},
-    {'image': '/local/path/image.jpg'}
-])
-
-```
-
-```python Multimodal
-# Efficiently manage text, images, video, and audio in a unified interface
-t = pxt.create_table(
-    "multimdodal_table",
-    {
-      'document': pxt.Document,   # For HTML, MD, .txt, PDF, XML documents
-      'video': pxt.Video,         # For video files
-      'audio': pxt.Audio,         # For audio files
-      'question': pxt.String,     # User queries
-      'timestamp': pxt.Timestamp, # For DateTime values
-      'metadata': pxt.Json,       # For lists or dictionaries
-      'embedding': pxt.Array[(512,), pxt.Float]
-      ... and more
-    }
+# Add computed columns for image analysis
+messages['image_description'] = image.analyze(
+    messages.image,
+    model='gpt-4-vision'
 )
+
+# Create context management system
+@messages.query
+def get_context(session_id: str, limit: int = 5):
+    return messages.where(
+        messages.session_id == session_id
+    ).order_by(
+        messages.timestamp, asc=False
+    ).limit(limit)
+
+# Add response generation
+messages['response'] = openai.chat_completions(
+    model='gpt-4',
+    messages=[
+        {
+            'role': 'system',
+            'content': 'You are a helpful assistant.'
+        },
+        *get_context(messages.session_id)
+    ]
+).choices[0].message.content
 ```
 
-```python Incremental
-# Pixeltable handles data orchestration from data to model outputs
-chat_table.insert([{
-                    'user_id': user_id,
-                    'question': message.content,
-                    'timestamp': datetime.now()
-                }])
-result = chat_table.select(
-           chat_table.response).order_by(chat_table.timestamp,            
-           asc=False).limit(1).collect()
+```python Object detection in images using DETR model
+import pixeltable as pxt
+from pixeltable.functions import huggingface
 
-response = result['response'][0]
+# Create a table to store data persistently
+t = pxt.create_table('image', {'image': pxt.Image})
+
+# Insert some images
+prefix = 'https://upload.wikimedia.org/wikipedia/commons'
+paths = [
+    '/1/15/Cat_August_2010-4.jpg',
+    '/e/e1/Example_of_a_Dog.jpg',
+    '/thumb/b/bf/Bird_Diversity_2013.png/300px-Bird_Diversity_2013.png'
+]
+t.insert({'image': prefix + p} for p in paths)
+
+# Add a computed column for image classification
+t.add_computed_column(classification=huggingface.detr_for_object_detection(
+    t.image,
+    model_id='facebook/detr-resnet-50'
+))
+
+# Retrieve the rows where cats have been identified
+t.select(animal = t.image,
+         classification = t.classification.label_text[0]) \
+.where(t.classification.label_text[0]=='cat').head()
+```
+
+```python Text and Image Similarity Search
+import pixeltable as pxt
+from pixeltable.functions.huggingface import clip
+from pixeltable.iterators import FrameIterator
+import PIL.Image
+
+video_table = pxt.create_table('videos', {'video': pxt.Video})
+
+video_table.insert([{'video': '/video.mp4'}])
+
+frames_view = pxt.create_view(
+    'frames', video_table, iterator=FrameIterator.create(video=video_table.video))
+
+# Create an index on the 'frame' column that allows text and image search
+frames_view.add_embedding_index('frame', embed=clip.using('openai/clip-vit-base-patch32'))
+
+# Now we will retrieve images based on a sample image
+sample_image = '/image.jpeg'
+sim = frames_view.frame.similarity(sample_image)
+frames_view.order_by(sim, asc=False).limit(5).select(frames_view.frame, sim=sim).collect()
+
+# Now we will retrieve images based on a string
+sample_text = 'red truck'
+sim = frames_view.frame.similarity(sample_text)
+frames_view.order_by(sim, asc=False).limit(5).select(frames_view.frame, sim=sim).collect()
 ```
 </CodeGroup>
 
----
 
-# Installation
-
-```bash
-pip install -U pixeltable
-```
----
-
-## Core Features
-
-Pixeltable enables you to store, transform, index, and iterate on your data with built-in versioning, lineage tracking, and incremental updates.
+## Application Domains
 
 <CardGroup cols={2}>
 <Card 
-  title="Build AI Agents" 
-  icon="robot"
-  href="/docs/agents/overview"
+  title="Chat & LLM Systems" 
+  icon="message"
+  href="/examples/chat/overview"
 >
-  <CardGroup cols={1}>
-   <Card title="Conversation & Memory" href="/docs/agents/chat">
-     Long-term memory, dynamic context windows, RAG integration, and temporal history tracking.
-   </Card>
-    <Card title="Agents" href="/docs/agents/tools">
-      Create agents that leverage tools and retrieval systems.
-    </Card>  
-  </CardGroup>
+  - Multimodal chat interfaces
+  - Context-aware memory systems
+  - Tool integration (web search, APIs)
+  - RAG pipelines with auto-indexing
 </Card>
 
 <Card 
-  title="Process Visual Data" 
+  title="Computer Vision Pipelines" 
   icon="camera"
-  href="/docs/vision/overview"
+  href="/examples/vision/overview"
 >
-  <CardGroup cols={1}>
-    <Card title="Image Understanding" href="/docs/vision/images">
-      Object detection, segmentation, classification and tracking.
-    </Card>
-    <Card title="Video Analysis" href="/docs/vision/video">
-      Real-time video processing with temporal consistency.
-    </Card>
-  </CardGroup>
+  - Label Studio data pipelines
+  - Real-time object detection 
+  - Video processing & analysis
+  - Dataset curation with Voxel51
 </Card>
 
 <Card 
-  title="Production ML" 
-  icon="brain"
-  href="/docs/ml/overview"
+  title="Search Applications" 
+  icon="magnifying-glass"
+  href="/examples/search/overview"
 >
-  <CardGroup cols={1}>
-    <Card title="MLOps Pipeline" href="/docs/ml/traditional">
-      End-to-end supervised, unsupervised and reinforcement learning.
-    </Card>
-    <Card title="Custom Models" href="/docs/ml/custom">
-      Deploy your own models, algorithms and processing pipelines.
-    </Card>
-  </CardGroup>
+  - Audio content search
+  - Visual similarity search
+  - Document & web indexing
+  - Cross-modal retrieval
 </Card>
 
 <Card 
-  title="Vector Database" 
-  icon="database"
-  href="/docs/vector/overview"
+  title="Evaluation Infrastructure" 
+  icon="square-check"
+  href="/examples/evaluation/overview"
 >
-  <CardGroup cols={1}>
-    <Card title="Multimodal Storage" href="/docs/vector/storage">
-      Index and version images, audio, video and text embeddings.
-    </Card>
-    <Card title="Advanced Search" href="/docs/vector/search">
-      Multimodal search on images, audio, video and text.
-    </Card>
-  </CardGroup>
+  - LLM-based evaluation
+  - Model comparison frameworks
+  - Automated metrics pipelines
+  - Performance monitoring
 </Card>
 </CardGroup>
 
-<CardGroup cols={2}>
- <Card 
-   title="Automated Computation" 
-   icon="diagram-project"
-   href="/docs/production/pipeline"
- >
-   <CardGroup cols={1}>
-     <Card title="Event Processing" href="/docs/production/events">
-       Incremental updates, async processing, and optimized data.
-     </Card>
-     <Card title="Pipeline Orchestration" href="/docs/production/orchestration">
-       DAG-based workflow management with dependency tracking.
-     </Card>
-   </CardGroup>
- </Card>
-
- <Card 
-   title="LLM & Model Optimization" 
-   icon="wand-magic-sparkles"
-   href="/docs/production/optimization"
- >
-   <CardGroup cols={1}>
-     <Card title="Prompt Engineering" href="/docs/production/prompts">
-       Test, version, and evaluate prompts with comprehensive metrics.
-     </Card>
-     <Card title="Performance Evaluation" href="/docs/production/evaluation">
-       Automated testing, monitoring, and metric collection.
-     </Card>
-   </CardGroup>
- </Card>
-</CardGroup>
-
----
-
-## Next Steps
+## Get Started
 
 <Steps>
-  <Step title="Installation" icon="download">
-    [Install the Python package](/docs/overview/installation)
+  <Step title="Install Pixeltable" icon="download">
+    ```bash
+    pip install pixeltable
+    ```
   </Step>
   
-  <Step title="First Project" icon="play">
-    [Build a persistent chatbot](/docs/overview/quick-start) with conversation history in under 10 minutes
+  <Step title="Choose Example" icon="list-check">
+    Select a starter template from our examples gallery
   </Step>
   
-  <Step title="Explore Examples" icon="lightbulb">
-    Browse our [library of examples](/docs/examples/overview) to get started
-  </Step>
-
-  <Step title="Production" icon="rocket">
-    [Deploy to production](/docs/production/deployment) with our best practices guide
+  <Step title="Build Your App" icon="code">
+    Follow our guides to customize for your needs
   </Step>
 </Steps>
 
----
-
 ## Community & Support
 
-- 📚 [Documentation](https://docs.pixeltable.com)
-- 💬 [Discord Community](https://discord.gg/pixeltable)
-- 🐙 [GitHub Repository](https://github.com/pixeltable/pixeltable)
-- 📧 [Support Email](mailto:support@pixeltable.com)
+<CardGroup cols={3}>
+  <Card title="Join Discord" icon="discord" href="https://discord.gg/QPyqFYx2UN">
+    Get help from our community
+  </Card>
+  <Card title="Read Docs" icon="book" href="/docs/overview/quick-start">
+    Learn Pixeltable fundamentals
+  </Card>
+  <Card title="GitHub" icon="github" href="https://github.com/pixeltable/pixeltable">
+    Star us and contribute
+  </Card>
+</CardGroup>
