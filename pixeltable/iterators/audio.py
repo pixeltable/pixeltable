@@ -130,12 +130,10 @@ class AudioSplitter(ComponentIterator):
     @classmethod
     def output_schema(cls, *args: Any, **kwargs: Any) -> tuple[dict[str, ts.ColumnType], list[str]]:
         return {
-            'chunk_idx': ts.IntType(),
             'start_time_sec': ts.FloatType(),
             'end_time_sec': ts.FloatType(),
-            'duration_sec': ts.FloatType(),
             'audio_chunk': ts.AudioType(nullable=True),
-        }, ['audio_chunk']
+        }, []
 
     def __next__(self) -> dict[str, Any]:
         if self.next_pos >= len(self.chunks_to_extract):
@@ -188,10 +186,8 @@ class AudioSplitter(ComponentIterator):
                 output_container.close()
 
             result = {
-                'chunk_idx': self.next_pos,
                 'start_time_sec': round(float(chunk_start_pts * self.audio_time_base), 4),
                 'end_time_sec': round(float(chunk_end_pts * self.audio_time_base), 4),
-                'duration_sec': round(float((chunk_end_pts - chunk_start_pts) * self.audio_time_base), 4),
                 'audio_chunk': chunk_file if frame_count > 0 else None,
             }
             _logger.debug('audio chunk result: %s', result)

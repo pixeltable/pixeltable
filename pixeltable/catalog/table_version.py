@@ -473,7 +473,10 @@ class TableVersion:
         if not col.stored:
             # if the column is intentionally not stored, we want to avoid the overhead of an index
             return None
-        if not col.col_type.is_scalar_type() and not (col.col_type.is_media_type() and not col.is_computed):
+        # Skip index for stored media columns produced by an iterator
+        if not col.col_type.is_scalar_type() and not (
+            col.col_type.is_media_type() and not (col.is_computed or self.is_iterator_column(col))
+        ):
             # wrong type for a B-tree
             return None
         if col.col_type.is_bool_type():
