@@ -1,5 +1,0 @@
-DIRECTORY = 'agent'
-AUDIO_FILE = 's3://pixeltable-public/audio/10-minute tour of Pixeltable.mp3'
-EMBEDDING_MODEL = 'intfloat/e5-large-v2'
-WHISPER_MODEL = 'base.en'
-OPENAI_MODEL = 'gpt-4o-mini'

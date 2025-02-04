@@ -1,3 +1,0 @@
-openai
-pixeltable
-pydantic
