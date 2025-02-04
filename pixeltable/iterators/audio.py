@@ -201,10 +201,4 @@ class AudioSplitter(ComponentIterator):
         self.container.close()
 
     def set_pos(self, pos: int) -> None:
-        if pos == self.next_pos:
-            return  # already there
-        # get the start of chunk which is already saved in presentation time
-        target_chunk_start = self.chunks_to_extract[pos][0]
-        _logger.debug(f'seeking to presentation time {target_chunk_start} (at iterator index {pos})')
-        self.container.seek(target_chunk_start, backward=True, stream=self.container.streams.audio[0])
-        self.next_pos = pos
+        pass
