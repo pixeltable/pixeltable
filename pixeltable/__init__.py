@@ -14,7 +14,6 @@ from .globals import (
     drop_dir,
     drop_table,
     get_table,
-    get_view,
     init,
     list_dirs,
     list_functions,
