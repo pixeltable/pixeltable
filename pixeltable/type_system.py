@@ -9,17 +9,18 @@ import typing
 import urllib.parse
 import urllib.request
 from pathlib import Path
+
+from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
 from typing import Any, Iterable, Mapping, Optional, Sequence, Union
 
-import PIL.Image
 import av  # type: ignore
 import jsonschema
 import jsonschema.protocols
 import jsonschema.validators
 import numpy as np
+import PIL.Image
 import pydantic
 import sqlalchemy as sql
-from typing import _GenericAlias  # type: ignore[attr-defined]
 from typing_extensions import _AnnotatedAlias
 
 import pixeltable.exceptions as excs
@@ -45,9 +46,11 @@ class ColumnType:
 
         @classmethod
         def supertype(
-                cls, type1: 'ColumnType.Type', type2: 'ColumnType.Type',
-                # we need to pass this in because we can't easily append it as a class member
-                common_supertypes: dict[tuple['ColumnType.Type', 'ColumnType.Type'], 'ColumnType.Type']
+            cls,
+            type1: 'ColumnType.Type',
+            type2: 'ColumnType.Type',
+            # we need to pass this in because we can't easily append it as a class member
+            common_supertypes: dict[tuple['ColumnType.Type', 'ColumnType.Type'], 'ColumnType.Type'],
         ) -> Optional['ColumnType.Type']:
             if type1 == type2:
                 return type1
@@ -59,23 +62,23 @@ class ColumnType:
                 return t
             return None
 
-
     @enum.unique
     class DType(enum.Enum):
         """
         Base type used in images and arrays
         """
-        BOOL = 0,
-        INT8 = 1,
-        INT16 = 2,
-        INT32 = 3,
-        INT64 = 4,
-        UINT8 = 5,
-        UINT16 = 6,
-        UINT32 = 7,
-        UINT64 = 8,
-        FLOAT16 = 9,
-        FLOAT32 = 10,
+
+        BOOL = (0,)
+        INT8 = (1,)
+        INT16 = (2,)
+        INT32 = (3,)
+        INT64 = (4,)
+        UINT8 = (5,)
+        UINT16 = (6,)
+        UINT32 = (7,)
+        UINT64 = (8,)
+        FLOAT16 = (9,)
+        FLOAT32 = (10,)
         FLOAT64 = 11
 
     scalar_types = {Type.STRING, Type.INT, Type.FLOAT, Type.BOOL, Type.TIMESTAMP}
@@ -113,10 +116,7 @@ class ColumnType:
         return json.dumps([t.as_dict() for t in type_list])
 
     def as_dict(self) -> dict:
-        return {
-            '_classname': self.__class__.__name__,
-            **self._as_dict(),
-        }
+        return {'_classname': self.__class__.__name__, **self._as_dict()}
 
     def _as_dict(self) -> dict:
         return {'nullable': self.nullable}
@@ -277,10 +277,7 @@ class ColumnType:
 
     @classmethod
     def from_python_type(
-        cls,
-        t: Union[type, _GenericAlias],
-        nullable_default: bool = False,
-        allow_builtin_types: bool = True
+        cls, t: Union[type, _GenericAlias], nullable_default: bool = False, allow_builtin_types: bool = True
     ) -> Optional[ColumnType]:
         """
         Convert a Python type into a Pixeltable `ColumnType` instance.
@@ -309,9 +306,7 @@ class ColumnType:
             required_args = typing.get_args(t)
             assert len(required_args) == 1
             return cls.from_python_type(
-                required_args[0],
-                nullable_default=False,
-                allow_builtin_types=allow_builtin_types
+                required_args[0], nullable_default=False, allow_builtin_types=allow_builtin_types
             )
         elif origin is typing.Annotated:
             annotated_args = typing.get_args(t)
@@ -349,7 +344,7 @@ class ColumnType:
         cls,
         t: Union[ColumnType, type, _AnnotatedAlias],
         nullable_default: bool = False,
-        allow_builtin_types: bool = True
+        allow_builtin_types: bool = True,
     ) -> ColumnType:
         """
         Convert any type recognizable by Pixeltable to its corresponding ColumnType.
@@ -415,7 +410,7 @@ class ColumnType:
 
     def _create_literal(self, val: Any) -> Any:
         """Create a literal of this type from val, including any needed conversions.
-             val is guaranteed to be non-None"""
+        val is guaranteed to be non-None"""
         return val
 
     def create_literal(self, val: Any) -> Any:
@@ -484,12 +479,7 @@ class ColumnType:
 
     def to_json_schema(self) -> dict[str, Any]:
         if self.nullable:
-            return {
-                'anyOf': [
-                    self._to_json_schema(),
-                    {'type': 'null'},
-                ]
-            }
+            return {'anyOf': [self._to_json_schema(), {'type': 'null'}]}
         else:
             return self._to_json_schema()
 
@@ -612,7 +602,6 @@ class TimestampType(ColumnType):
 
 
 class JsonType(ColumnType):
-
     json_schema: Optional[dict[str, Any]]
     __validator: Optional[jsonschema.protocols.Validator]
 
@@ -699,8 +688,7 @@ class JsonType(ColumnType):
         superschema = self.__superschema(self.json_schema, other.json_schema)
 
         return JsonType(
-            json_schema=(None if len(superschema) == 0 else superschema),
-            nullable=(self.nullable or other.nullable)
+            json_schema=(None if len(superschema) == 0 else superschema), nullable=(self.nullable or other.nullable)
         )
 
     @classmethod
@@ -755,7 +743,7 @@ class JsonType(ColumnType):
         a_type = a.get('type')
         b_type = b.get('type')
 
-        if (a_type in ('string', 'integer', 'number', 'boolean', 'object', 'array') and a_type == b_type):
+        if a_type in ('string', 'integer', 'number', 'boolean', 'object', 'array') and a_type == b_type:
             # a and b both have the same type designation, but are not identical. This can happen if
             # (for example) they have validators or other attributes that differ. In this case, we
             # generalize to {'type': t}, where t is their shared type, with no other qualifications.
@@ -793,12 +781,29 @@ class JsonType(ColumnType):
 
 
 class ArrayType(ColumnType):
-    def __init__(self, shape: tuple[Union[int, None], ...], dtype: ColumnType, nullable: bool = False):
+    shape: Optional[tuple[Optional[int], ...]]
+    pxt_dtype: Optional[ColumnType]
+    dtype: Optional[ColumnType.Type]
+
+    def __init__(
+        self,
+        shape: Optional[tuple[Optional[int], ...]] = None,
+        dtype: Optional[ColumnType] = None,
+        nullable: bool = False,
+    ):
         super().__init__(self.Type.ARRAY, nullable=nullable)
+        assert shape is None or dtype is not None, (shape, dtype)  # cannot specify a shape without a dtype
+        assert (
+            dtype is None
+            or dtype.is_int_type()
+            or dtype.is_float_type()
+            or dtype.is_bool_type()
+            or dtype.is_string_type()
+        )
+
         self.shape = shape
-        assert dtype.is_int_type() or dtype.is_float_type() or dtype.is_bool_type() or dtype.is_string_type()
-        self.pxt_dtype = dtype
-        self.dtype = dtype._type
+        self.pxt_dtype = dtype  # we need this for copy() and __str__()
+        self.dtype = None if dtype is None else dtype._type
 
     def copy(self, nullable: bool) -> ColumnType:
         return ArrayType(self.shape, self.pxt_dtype, nullable=nullable)
@@ -812,28 +817,38 @@ class ArrayType(ColumnType):
     def supertype(self, other: ColumnType) -> Optional[ArrayType]:
         if not isinstance(other, ArrayType):
             return None
+        super_dtype = self.Type.supertype(self.dtype, other.dtype, self.common_supertypes)
+        if super_dtype is None:
+            # if the dtypes are incompatible, then the supertype is a fully general array
+            return ArrayType(nullable=(self.nullable or other.nullable))
+        super_shape: Optional[tuple[Optional[int], ...]]
         if len(self.shape) != len(other.shape):
-            return None
-        base_type = self.Type.supertype(self.dtype, other.dtype, self.common_supertypes)
-        if base_type is None:
-            return None
-        shape = [n1 if n1 == n2 else None for n1, n2 in zip(self.shape, other.shape)]
-        return ArrayType(tuple(shape), self.make_type(base_type), nullable=(self.nullable or other.nullable))
+            super_shape = None
+        else:
+            super_shape = tuple(n1 if n1 == n2 else None for n1, n2 in zip(self.shape, other.shape))
+        return ArrayType(super_shape, self.make_type(super_dtype), nullable=(self.nullable or other.nullable))
 
     def _as_dict(self) -> dict:
         result = super()._as_dict()
-        result.update(shape=list(self.shape), dtype=self.dtype.value)
+        shape_as_list = None if self.shape is None else list(self.shape)
+        dtype_value = None if self.dtype is None else self.dtype.value
+        result.update(shape=shape_as_list, dtype=dtype_value)
         return result
 
     def _to_base_str(self) -> str:
+        if self.shape is None and self.dtype is None:
+            return 'Array'
+        if self.shape is None:
+            return f'Array[{self.pxt_dtype}]'
+        assert self.dtype is not None
         return f'Array[{self.shape}, {self.pxt_dtype}]'
 
     @classmethod
     def _from_dict(cls, d: dict) -> ColumnType:
         assert 'shape' in d
         assert 'dtype' in d
-        shape = tuple(d['shape'])
-        dtype = cls.make_type(cls.Type(d['dtype']))
+        shape = None if d['shape'] is None else tuple(d['shape'])
+        dtype = None if d['dtype'] is None else cls.make_type(cls.Type(d['dtype']))
         return cls(shape, dtype, nullable=d['nullable'])
 
     @classmethod
@@ -855,32 +870,49 @@ class ArrayType(ColumnType):
     def is_valid_literal(self, val: np.ndarray) -> bool:
         if not isinstance(val, np.ndarray):
             return False
-        if len(val.shape) != len(self.shape):
+
+        # If a dtype is specified, check that there's a match
+        if self.dtype is not None and not np.issubdtype(val.dtype, self.numpy_dtype()):
             return False
-        # check that the shapes are compatible
-        for n1, n2 in zip(val.shape, self.shape):
-            if n1 is None:
+
+        # If no dtype is specified, we still need to check that the dtype is one of the supported types
+        if self.dtype is None and not any(
+            np.issubdtype(val.dtype, ndtype) for ndtype in [np.int64, np.float32, np.bool_, np.str_]
+        ):
+            return False
+
+        # If a shape is specified, check that there's a match
+        if self.shape is not None:
+            if len(val.shape) != len(self.shape):
                 return False
-            if n2 is None:
-                # wildcard
-                continue
-            if n1 != n2:
-                return False
-        return np.issubdtype(val.dtype, self.numpy_dtype())
+            # check that the shapes are compatible
+            for n1, n2 in zip(val.shape, self.shape):
+                assert n1 is not None  # `val` must have a concrete shape
+                if n2 is None:
+                    continue  # wildcard
+                if n1 != n2:
+                    return False
+
+        return True
 
     def _to_json_schema(self) -> dict[str, Any]:
-        return {
-            'type': 'array',
-            'items': self.pxt_dtype._to_json_schema(),
-        }
+        return {'type': 'array', 'items': self.pxt_dtype._to_json_schema()}
 
     def _validate_literal(self, val: Any) -> None:
         if not isinstance(val, np.ndarray):
             raise TypeError(f'Expected numpy.ndarray, got {val.__class__.__name__}')
         if not self.is_valid_literal(val):
-            raise TypeError((
-                f'Expected ndarray({self.shape}, dtype={self.numpy_dtype()}), '
-                f'got ndarray({val.shape}, dtype={val.dtype})'))
+            if self.shape is not None:
+                raise TypeError(
+                    f'Expected numpy.ndarray({self.shape}, dtype={self.numpy_dtype()}), '
+                    f'got numpy.ndarray({val.shape}, dtype={val.dtype})'
+                )
+            elif self.dtype is not None:
+                raise TypeError(
+                    f'Expected numpy.ndarray of dtype {self.numpy_dtype()}, got numpy.ndarray of dtype {val.dtype}'
+                )
+            else:
+                raise TypeError(f'Unsupported dtype for numpy.ndarray: {val.dtype}')
 
     def _create_literal(self, val: Any) -> Any:
         if isinstance(val, (list, tuple)):
@@ -892,7 +924,9 @@ class ArrayType(ColumnType):
     def to_sa_type(self) -> sql.types.TypeEngine:
         return sql.LargeBinary()
 
-    def numpy_dtype(self) -> np.dtype:
+    def numpy_dtype(self) -> Optional[np.dtype]:
+        if self.dtype is None:
+            return None
         if self.dtype == self.Type.INT:
             return np.dtype(np.int64)
         if self.dtype == self.Type.FLOAT:
@@ -901,20 +935,24 @@ class ArrayType(ColumnType):
             return np.dtype(np.bool_)
         if self.dtype == self.Type.STRING:
             return np.dtype(np.str_)
-        assert False
+        assert False, self.dtype
 
 
 class ImageType(ColumnType):
     def __init__(
-            self, width: Optional[int] = None, height: Optional[int] = None, size: Optional[tuple[int, int]] = None,
-            mode: Optional[str] = None, nullable: bool = False
+        self,
+        width: Optional[int] = None,
+        height: Optional[int] = None,
+        size: Optional[tuple[int, int]] = None,
+        mode: Optional[str] = None,
+        nullable: bool = False,
     ):
         """
         TODO: does it make sense to specify only width or height?
         """
         super().__init__(self.Type.IMAGE, nullable=nullable)
-        assert not(width is not None and size is not None)
-        assert not(height is not None and size is not None)
+        assert not (width is not None and size is not None)
+        assert not (height is not None and size is not None)
         if size is not None:
             self.width = size[0]
             self.height = size[1]
@@ -1104,6 +1142,7 @@ class DocumentType(ColumnType):
     def validate_media(self, val: Any) -> None:
         assert isinstance(val, str)
         from pixeltable.utils.documents import get_document_handle
+
         dh = get_document_handle(val)
         if dh is None:
             raise excs.Error(f'Not a recognized document format: {val}')
@@ -1117,6 +1156,7 @@ class Required(typing.Generic[T]):
     Marker class to indicate that a column is non-nullable in a schema definition. This has no meaning as a type hint,
     and is intended only for schema declarations.
     """
+
     pass
 
 
@@ -1139,6 +1179,7 @@ class _PxtType:
     `Image[(300, 300), 'RGB']`. The specialized forms resolve to `typing.Annotated` instances whose annotation is a
     `ColumnType`.
     """
+
     def __init__(self):
         raise TypeError(f'Type `{type(self)}` cannot be instantiated.')
 
@@ -1174,6 +1215,8 @@ class Array(np.ndarray, _PxtType):
         params = item if isinstance(item, tuple) else (item,)
         shape: Optional[tuple] = None
         dtype: Optional[ColumnType] = None
+        if not any(isinstance(param, (type, _AnnotatedAlias)) for param in params):
+            raise TypeError('Array type parameter must include a dtype.')
         for param in params:
             if isinstance(param, tuple):
                 if not all(n is None or (isinstance(n, int) and n >= 1) for n in param):
@@ -1181,21 +1224,17 @@ class Array(np.ndarray, _PxtType):
                 if shape is not None:
                     raise TypeError(f'Duplicate Array type parameter: {param}')
                 shape = param
-            elif isinstance(param, type) or isinstance(param, _AnnotatedAlias):
+            elif isinstance(param, (type, _AnnotatedAlias)):
                 if dtype is not None:
                     raise TypeError(f'Duplicate Array type parameter: {param}')
                 dtype = ColumnType.normalize_type(param, allow_builtin_types=False)
             else:
                 raise TypeError(f'Invalid Array type parameter: {param}')
-        if shape is None:
-            raise TypeError('Array type is missing parameter: shape')
-        if dtype is None:
-            raise TypeError('Array type is missing parameter: dtype')
         return typing.Annotated[np.ndarray, ArrayType(shape=shape, dtype=dtype, nullable=False)]
 
     @classmethod
     def as_col_type(cls, nullable: bool) -> ColumnType:
-        raise TypeError('Array type cannot be used without specifying shape and dtype')
+        return ArrayType(nullable=nullable)
 
 
 class Image(PIL.Image.Image, _PxtType):
@@ -1219,7 +1258,11 @@ class Image(PIL.Image.Image, _PxtType):
         mode: Optional[str] = None
         for param in params:
             if isinstance(param, tuple):
-                if len(param) != 2 or not isinstance(param[0], (int, type(None))) or not isinstance(param[1], (int, type(None))):
+                if (
+                    len(param) != 2
+                    or not isinstance(param[0], (int, type(None)))
+                    or not isinstance(param[1], (int, type(None)))
+                ):
                     raise TypeError(f'Invalid Image type parameter: {param}')
                 if size is not None:
                     raise TypeError(f'Duplicate Image type parameter: {param}')

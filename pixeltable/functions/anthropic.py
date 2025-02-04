@@ -8,7 +8,7 @@ the [Working with Anthropic](https://pixeltable.readme.io/docs/working-with-anth
 import datetime
 import json
 import logging
-from typing import TYPE_CHECKING, Any, Optional, TypeVar, Union, cast, Iterable
+from typing import TYPE_CHECKING, Any, Iterable, Optional, TypeVar, Union, cast
 
 import httpx
 
@@ -22,13 +22,16 @@ if TYPE_CHECKING:
 
 _logger = logging.getLogger('pixeltable')
 
+
 @env.register_client('anthropic')
 def _(api_key: str) -> 'anthropic.AsyncAnthropic':
     import anthropic
+
     return anthropic.AsyncAnthropic(
         api_key=api_key,
         # recommended to increase limits for async client to avoid connection errors
-        http_client = httpx.AsyncClient(limits=httpx.Limits(max_keepalive_connections=100, max_connections=500)))
+        http_client=httpx.AsyncClient(limits=httpx.Limits(max_keepalive_connections=100, max_connections=500)),
+    )
 
 
 def _anthropic_client() -> 'anthropic.AsyncAnthropic':
@@ -36,7 +39,6 @@ def _anthropic_client() -> 'anthropic.AsyncAnthropic':
 
 
 class AnthropicRateLimitsInfo(env.RateLimitsInfo):
-
     def __init__(self):
         super().__init__(self._get_request_resources)
 
@@ -80,12 +82,17 @@ async def messages(
     tools: Optional[list[dict]] = None,
     top_k: Optional[int] = None,
     top_p: Optional[float] = None,
+    timeout: Optional[float] = None,
 ) -> dict:
     """
     Create a Message.
 
     Equivalent to the Anthropic `messages` API endpoint.
     For additional details, see: <https://docs.anthropic.com/en/api/messages>
+
+    Request throttling:
+    Uses the rate limit-related headers returned by the API to throttle requests adaptively, based on available
+    request and token capacity. No configuration is necessary.
 
     __Requirements:__
 
@@ -105,7 +112,7 @@ async def messages(
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
         >>> msgs = [{'role': 'user', 'content': tbl.prompt}]
-        ... tbl['response'] = messages(msgs, model='claude-3-haiku-20240307')
+        ... tbl.add_computed_column(response= messages(msgs, model='claude-3-haiku-20240307'))
     """
 
     # it doesn't look like count_tokens() actually exists in the current version of the library
@@ -158,7 +165,7 @@ async def messages(
         tool_choice=_opt(cast(Any, tool_choice_)),
         top_k=_opt(top_k),
         top_p=_opt(top_p),
-        timeout=10,
+        timeout=_opt(timeout),
     )
 
     requests_limit_str = result.headers.get('anthropic-ratelimit-requests-limit')
@@ -186,7 +193,8 @@ async def messages(
     rate_limits_info.record(
         requests=(requests_limit, requests_remaining, requests_reset),
         input_tokens=(input_tokens_limit, input_tokens_remaining, input_tokens_reset),
-        output_tokens=(output_tokens_limit, output_tokens_remaining, output_tokens_reset))
+        output_tokens=(output_tokens_limit, output_tokens_remaining, output_tokens_reset),
+    )
 
     result_dict = json.loads(result.text)
     return result_dict
@@ -206,12 +214,7 @@ def invoke_tools(tools: Tools, response: exprs.Expr) -> exprs.InlineDict:
 def _anthropic_response_to_pxt_tool_calls(response: dict) -> Optional[dict]:
     anthropic_tool_calls = [r for r in response['content'] if r['type'] == 'tool_use']
     if len(anthropic_tool_calls) > 0:
-        return {
-            tool_call['name']: {
-                'args': tool_call['input']
-            }
-            for tool_call in anthropic_tool_calls
-        }
+        return {tool_call['name']: {'args': tool_call['input']} for tool_call in anthropic_tool_calls}
     return None
 
 
@@ -220,6 +223,7 @@ _T = TypeVar('_T')
 
 def _opt(arg: _T) -> Union[_T, 'anthropic.NotGiven']:
     import anthropic
+
     return arg if arg is not None else anthropic.NOT_GIVEN
 
 

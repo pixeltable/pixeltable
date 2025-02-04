@@ -4,6 +4,7 @@ from typing import Any
 def get_client(**kwargs: Any) -> Any:
     import boto3
     import botocore
+
     try:
         boto3.Session().get_credentials().get_frozen_credentials()
         config = botocore.config.Config(**kwargs)

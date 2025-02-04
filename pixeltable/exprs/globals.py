@@ -7,6 +7,7 @@ from typing import Union
 # Python types corresponding to our literal types
 LiteralPythonTypes = Union[str, int, float, bool, datetime.datetime]
 
+
 def print_slice(s: slice) -> str:
     start_str = f'{str(s.start) if s.start is not None else ""}'
     stop_str = f'{str(s.stop) if s.stop is not None else ""}'

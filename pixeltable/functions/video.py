@@ -52,6 +52,7 @@ class make_video(pxt.Aggregator):
     """
     Aggregator that creates a video from a sequence of images.
     """
+
     def __init__(self, fps: int = 25):
         """follows https://pyav.org/docs/develop/cookbook/numpy.html#generating-video"""
         self.container: Optional[av.container.OutputContainer] = None

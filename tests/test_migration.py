@@ -26,7 +26,6 @@ _logger = logging.getLogger('pixeltable')
 
 
 class TestMigration:
-
     @pytest.mark.skipif(platform.system() == 'Windows', reason='Does not run on Windows')
     @pytest.mark.skipif(sys.version_info >= (3, 10), reason='Runs only on Python 3.9 (due to pickling issue)')
     def test_db_migration(self, init_env) -> None:
@@ -60,15 +59,9 @@ class TestMigration:
             _logger.info(f'DB URL: {db_url}')
             clean_db(restore_tables=False)
             with open(dump_file, 'rb') as dump:
-                gunzip_process = subprocess.Popen(
-                    ["gunzip", "-c"],
-                    stdin=dump,
-                    stdout=subprocess.PIPE
-                )
+                gunzip_process = subprocess.Popen(['gunzip', '-c'], stdin=dump, stdout=subprocess.PIPE)
                 subprocess.run(
-                    [pg_restore_binary, '-d', db_url, '-U', 'postgres'],
-                    stdin=gunzip_process.stdout,
-                    check=True
+                    [pg_restore_binary, '-d', db_url, '-U', 'postgres'], stdin=gunzip_process.stdout, check=True
                 )
 
             with orm.Session(env.engine) as session:
@@ -110,10 +103,12 @@ class TestMigration:
         assert VERSION in versions_found, (
             f'No DB dump found for current schema version {VERSION}. You can generate one with:\n'
             f'`python tool/create_test_db_dump.py`\n'
-            f'`mv target/*.dump.gz target/*.toml tests/data/dbdumps`')
+            f'`mv target/*.dump.gz target/*.toml tests/data/dbdumps`'
+        )
         assert VERSION in VERSION_NOTES, (
             f'No version notes found for current schema version {VERSION}. '
-            f'Please add them to pixeltable/metadata/notes.py.')
+            f'Please add them to pixeltable/metadata/notes.py.'
+        )
 
     @classmethod
     def _verify_v24(cls, upgraded_from: int) -> None:
@@ -188,9 +183,13 @@ class TestMigration:
         assert ts1.tzinfo is not None  # ensure timestamps are aware
 
         # Test that InlineLists are properly loaded
-        inline_list_exprs = v.where(v.c2 == 19).select(v.base_table_inline_list_exprs).head(1)['base_table_inline_list_exprs'][0]
+        inline_list_exprs = (
+            v.where(v.c2 == 19).select(v.base_table_inline_list_exprs).head(1)['base_table_inline_list_exprs'][0]
+        )
         assert inline_list_exprs == ['test string 19', ['test string 19', 19]]
-        inline_list_mixed = v.where(v.c2 == 19).select(v.base_table_inline_list_mixed).head(1)['base_table_inline_list_mixed'][0]
+        inline_list_mixed = (
+            v.where(v.c2 == 19).select(v.base_table_inline_list_mixed).head(1)['base_table_inline_list_mixed'][0]
+        )
         assert inline_list_mixed == [1, 'a', 'test string 19', [1, 'a', 'test string 19'], 1, 'a']
 
         # Test that InlineDicts are properly loaded
@@ -238,15 +237,14 @@ class TestMigration:
                 'f3': float(21.0),
                 'f4': True,
                 'f5': [1.0, 2.0, 3.0, 4.0],
-                'f6': {
-                    'f7': 'test string 2',
-                    'f8': [1.0, 2.0, 3.0, 4.0],
-                },
+                'f6': {'f7': 'test string 2', 'f8': [1.0, 2.0, 3.0, 4.0]},
             },
-            c7=[]
+            c7=[],
         )
         validate_update_status(status)
-        inline_list_mixed = t.where(t.c2 == 21).select(t.base_table_inline_list_mixed).head(1)['base_table_inline_list_mixed'][0]
+        inline_list_mixed = (
+            t.where(t.c2 == 21).select(t.base_table_inline_list_mixed).head(1)['base_table_inline_list_mixed'][0]
+        )
         assert inline_list_mixed == [1, 'a', 'test string 21', [1, 'a', 'test string 21'], 1, 'a']
 
     @staticmethod

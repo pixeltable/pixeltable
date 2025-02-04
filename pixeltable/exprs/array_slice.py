@@ -15,6 +15,7 @@ class ArraySlice(Expr):
     """
     Slice operation on an array, eg, t.array_col[:, 1:2].
     """
+
     def __init__(self, arr: Expr, index: tuple[Union[int, slice], ...]):
         assert arr.col_type.is_array_type()
         # determine result type
@@ -68,4 +69,3 @@ class ArraySlice(Expr):
             else:
                 index.append(el)
         return cls(components[0], tuple(index))
-

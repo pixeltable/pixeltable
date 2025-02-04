@@ -3,8 +3,8 @@ from typing import Optional
 
 from pixeltable.func import Function
 
-
 # Utilities related to the organization of the Pixeltable codebase.
+
 
 def local_public_names(mod_name: str, exclude: Optional[list[str]] = None) -> list[str]:
     """

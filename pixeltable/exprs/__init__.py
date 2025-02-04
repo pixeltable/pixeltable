@@ -9,6 +9,7 @@ from .expr import Expr
 from .expr_dict import ExprDict
 from .expr_set import ExprSet
 from .function_call import FunctionCall
+from .globals import ArithmeticOperator, ComparisonOperator, LogicalOperator
 from .in_predicate import InPredicate
 from .inline_expr import InlineArray, InlineDict, InlineList
 from .is_null import IsNull
@@ -17,10 +18,9 @@ from .json_path import RELATIVE_PATH_ROOT, JsonPath
 from .literal import Literal
 from .method_ref import MethodRef
 from .object_ref import ObjectRef
-from .row_builder import RowBuilder, ColumnSlotIdx, ExecProfile
+from .row_builder import ColumnSlotIdx, ExecProfile, RowBuilder
 from .rowid_ref import RowidRef
 from .similarity_expr import SimilarityExpr
 from .sql_element_cache import SqlElementCache
 from .type_cast import TypeCast
 from .variable import Variable
-from .globals import ComparisonOperator, LogicalOperator, ArithmeticOperator

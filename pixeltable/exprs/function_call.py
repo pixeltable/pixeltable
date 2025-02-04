@@ -22,7 +22,6 @@ from .sql_element_cache import SqlElementCache
 
 
 class FunctionCall(Expr):
-
     fn: func.Function
     is_method_call: bool
     agg_init_args: dict[str, Any]
@@ -58,7 +57,7 @@ class FunctionCall(Expr):
         return_type: ts.ColumnType,
         order_by_clause: Optional[list[Any]] = None,
         group_by_clause: Optional[list[Any]] = None,
-        is_method_call: bool = False
+        is_method_call: bool = False,
     ):
         if order_by_clause is None:
             order_by_clause = []
@@ -69,7 +68,7 @@ class FunctionCall(Expr):
 
         self.fn = fn
         self.is_method_call = is_method_call
-        #self.normalize_args(fn.name, signature, bound_args)
+        # self.normalize_args(fn.name, signature, bound_args)
         self.resource_pool = fn.call_resource_pool(bound_args)
         signature = fn.signature
 
@@ -79,8 +78,10 @@ class FunctionCall(Expr):
         for arg_name, arg in bound_args.items():
             param = signature.parameters[arg_name]
             if (
-                param.col_type is not None and not param.col_type.nullable
-                and isinstance(arg, Expr) and arg.col_type.nullable
+                param.col_type is not None
+                and not param.col_type.nullable
+                and isinstance(arg, Expr)
+                and arg.col_type.nullable
             ):
                 return_type = return_type.copy(nullable=True)
                 break
@@ -96,7 +97,9 @@ class FunctionCall(Expr):
             self.agg_init_args = {
                 arg_name: arg for arg_name, arg in bound_args.items() if arg_name in fn.init_param_names[0]
             }
-            bound_args = {arg_name: arg for arg_name, arg in bound_args.items() if arg_name not in fn.init_param_names[0]}
+            bound_args = {
+                arg_name: arg for arg_name, arg in bound_args.items() if arg_name not in fn.init_param_names[0]
+            }
 
         # construct components, args, kwargs
         self.args = []
@@ -171,7 +174,8 @@ class FunctionCall(Expr):
         # (that's done in SQL)
         if len(order_by_clause) > 0 and not isinstance(order_by_clause[0], Expr):
             raise excs.Error(
-                f'order_by argument needs to be a Pixeltable expression, but instead is a {type(order_by_clause[0])}')
+                f'order_by argument needs to be a Pixeltable expression, but instead is a {type(order_by_clause[0])}'
+            )
         # don't add components after this, everthing after order_by_start_idx is part of the order_by clause
         self.order_by_start_idx = len(self.components)
         self.components.extend(order_by_clause)
@@ -257,7 +261,8 @@ class FunctionCall(Expr):
                 ):
                     raise excs.Error(
                         f'Parameter {param_name} (in function {fn_name}): argument type {arg.col_type} does not match parameter type '
-                        f'{param.col_type}')
+                        f'{param.col_type}'
+                    )
 
     def _equals(self, other: FunctionCall) -> bool:
         if self.fn != other.fn:
@@ -282,7 +287,7 @@ class FunctionCall(Expr):
             ('kwargs', self.kwargs),
             ('group_by_start_idx', self.group_by_start_idx),
             ('group_by_stop_idx', self.group_by_stop_idx),
-            ('order_by_start_idx', self.order_by_start_idx)
+            ('order_by_start_idx', self.order_by_start_idx),
         ]
 
     def __repr__(self) -> str:
@@ -298,13 +303,14 @@ class FunctionCall(Expr):
     def _print_args(self, start_idx: int = 0, inline: bool = True) -> str:
         def print_arg(arg: Any) -> str:
             return repr(arg) if isinstance(arg, str) else str(arg)
-        arg_strs = [
-            print_arg(arg) if idx is None else str(self.components[idx]) for idx, arg in self.args[start_idx:]
-        ]
-        arg_strs.extend([
-            f'{param_name}={print_arg(arg) if idx is None else str(self.components[idx])}'
-            for param_name, (idx, arg) in self.kwargs.items()
-        ])
+
+        arg_strs = [print_arg(arg) if idx is None else str(self.components[idx]) for idx, arg in self.args[start_idx:]]
+        arg_strs.extend(
+            [
+                f'{param_name}={print_arg(arg) if idx is None else str(self.components[idx])}'
+                for param_name, (idx, arg) in self.kwargs.items()
+            ]
+        )
         if len(self.order_by) > 0:
             assert isinstance(self.fn, func.AggregateFunction)
             if self.fn.requires_order_by:
@@ -322,18 +328,22 @@ class FunctionCall(Expr):
 
     @property
     def group_by(self) -> list[Expr]:
-        return self.components[self.group_by_start_idx:self.group_by_stop_idx]
+        return self.components[self.group_by_start_idx : self.group_by_stop_idx]
 
     @property
     def order_by(self) -> list[Expr]:
-        return self.components[self.order_by_start_idx:]
+        return self.components[self.order_by_start_idx :]
 
     @property
     def is_window_fn_call(self) -> bool:
-        return isinstance(self.fn, func.AggregateFunction) and self.fn.allows_window and (
-            not self.fn.allows_std_agg
-            or self.has_group_by()
-            or (len(self.order_by) > 0 and not self.fn.requires_order_by)
+        return (
+            isinstance(self.fn, func.AggregateFunction)
+            and self.fn.allows_window
+            and (
+                not self.fn.allows_std_agg
+                or self.has_group_by()
+                or (len(self.order_by) > 0 and not self.fn.requires_order_by)
+            )
         )
 
     def get_window_sort_exprs(self) -> tuple[list[Expr], list[Expr]]:
@@ -435,7 +445,7 @@ class FunctionCall(Expr):
         Returns a list of dicts mapping each param name to its value when this FunctionCall is evaluated against
         data_rows
         """
-        assert all(name in self._param_values for name in param_names)
+        assert all(name in self._param_values for name in param_names), f'{param_names}, {self._param_values.keys()}'
         result: list[dict[str, Any]] = []
         for row in data_rows:
             d: dict[str, Any] = {}
@@ -512,16 +522,12 @@ class FunctionCall(Expr):
         fn = func.Function.from_dict(d['fn'])
         assert not fn.is_polymorphic
         return_type = ts.ColumnType.from_dict(d['return_type']) if 'return_type' in d else None
-        group_by_exprs = components[d['group_by_start_idx']:d['group_by_stop_idx']]
-        order_by_exprs = components[d['order_by_start_idx']:]
+        group_by_exprs = components[d['group_by_start_idx'] : d['group_by_stop_idx']]
+        order_by_exprs = components[d['order_by_start_idx'] :]
 
-        args = [
-            expr if idx is None else components[idx]
-            for idx, expr in d['args']
-        ]
+        args = [expr if idx is None else components[idx] for idx, expr in d['args']]
         kwargs = {
-            param_name: (expr if idx is None else components[idx])
-            for param_name, (idx, expr) in d['kwargs'].items()
+            param_name: (expr if idx is None else components[idx]) for param_name, (idx, expr) in d['kwargs'].items()
         }
 
         # `Function.from_dict()` does signature matching, so it is safe to assume that `args` and `kwargs` are
@@ -538,9 +544,7 @@ class FunctionCall(Expr):
         # for now, as a hack, we do the unpacking here for the specific case of an InlineList of Literals (the only
         # case where this is necessary to support existing conditional_return_type implementations). Once the general
         # pattern is implemented, we can remove this hack.
-        unpacked_bound_args = {
-            param_name: cls.__unpack_bound_arg(arg) for param_name, arg in bound_args.items()
-        }
+        unpacked_bound_args = {param_name: cls.__unpack_bound_arg(arg) for param_name, arg in bound_args.items()}
 
         # Evaluate the call_return_type as defined in the current codebase.
         call_return_type = fn.call_return_type([], unpacked_bound_args)
@@ -567,13 +571,7 @@ class FunctionCall(Expr):
                     f'Return type as currently defined: `{call_return_type}`'
                 )
 
-        fn_call = cls(
-            fn,
-            bound_args,
-            return_type,
-            group_by_clause=group_by_exprs,
-            order_by_clause=order_by_exprs
-        )
+        fn_call = cls(fn, bound_args, return_type, group_by_clause=group_by_exprs, order_by_clause=order_by_exprs)
         return fn_call
 
     @classmethod

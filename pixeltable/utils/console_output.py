@@ -1,5 +1,6 @@
 import logging
 
+
 def map_level(verbosity: int) -> int:
     """
         Map verbosity level to logging level.
@@ -19,6 +20,7 @@ def map_level(verbosity: int) -> int:
         return logging.DEBUG
     return logging.INFO
 
+
 class ConsoleOutputHandler(logging.StreamHandler):
     def __init__(self, stream):
         super().__init__(stream)
@@ -29,13 +31,14 @@ class ConsoleOutputHandler(logging.StreamHandler):
         else:
             self.stream.write(record.msg + '\n')
 
+
 class ConsoleMessageFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         if hasattr(record, 'user_visible') and record.user_visible:
             return True
         return False
 
-class ConsoleLogger(logging.LoggerAdapter):
-    def __init__(self, logger:logging.Logger):
-        super().__init__(logger, extra={'user_visible' : True})
 
+class ConsoleLogger(logging.LoggerAdapter):
+    def __init__(self, logger: logging.Logger):
+        super().__init__(logger, extra={'user_visible': True})

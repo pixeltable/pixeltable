@@ -1,3 +1,4 @@
+from .__version__ import __version__, __version_tuple__
 from .catalog import Column, InsertableTable, Table, UpdateStatus, View
 from .dataframe import DataFrame
 from .exceptions import Error
@@ -9,15 +10,28 @@ from .type_system import (Array, ArrayType, Audio, AudioType, Bool, BoolType, Co
                           FloatType, Image, ImageType, Int, IntType, Json, JsonType, Required, String, StringType,
                           Timestamp, TimestampType, Video, VideoType)
 
-from . import ext, functions, io, iterators
-from .__version__ import __version__, __version_tuple__
+# This import must go last to avoid circular imports.
+from . import ext, functions, io, iterators  # isort: skip
 
-# This is the safest / most maintainable way to do this: start with the default and "blacklist" stuff that
-# we don't want in there. (Using a "whitelist" is considerably harder to maintain.)
+# This is the safest / most maintainable way to construct __all__: start with the default and "blacklist"
+# stuff that we don't want in there. (Using a "whitelist" is considerably harder to maintain.)
 
 __default_dir = set(symbol for symbol in dir() if not symbol.startswith('_'))
-__removed_symbols = {'catalog', 'dataframe', 'env', 'exceptions', 'exec', 'exprs', 'func', 'globals', 'index',
-                     'metadata', 'plan', 'type_system', 'utils'}
+__removed_symbols = {
+    'catalog',
+    'dataframe',
+    'env',
+    'exceptions',
+    'exec',
+    'exprs',
+    'func',
+    'globals',
+    'index',
+    'metadata',
+    'plan',
+    'type_system',
+    'utils',
+}
 __all__ = sorted(list(__default_dir - __removed_symbols))
 
 

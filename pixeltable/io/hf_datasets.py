@@ -4,7 +4,7 @@ import logging
 import math
 import random
 import typing
-from typing import Union, Optional, Any
+from typing import Any, Optional, Union
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
@@ -13,7 +13,7 @@ from pixeltable import exceptions as excs
 if typing.TYPE_CHECKING:
     import datasets  # type: ignore[import-untyped]
 
-_logger = logging.getLogger(__name__)
+_logger = logging.getLogger('pixeltable')
 
 # use 100MB as the batch size limit for loading a huggingface dataset into pixeltable.
 # The primary goal is to bound memory use, regardless of dataset size.
@@ -103,6 +103,7 @@ def import_huggingface_dataset(
         A handle to the newly created [`Table`][pixeltable.Table].
     """
     import datasets
+
     import pixeltable as pxt
 
     if table_path in pxt.list_tables():

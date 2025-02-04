@@ -35,6 +35,7 @@ class Separator(enum.Enum):
 @dataclasses.dataclass
 class DocumentSectionMetadata:
     """Metadata for a subsection of a document (ie, a structural element like a heading or paragraph)"""
+
     # html and markdown metadata
     sourceline: Optional[int] = None
     # the stack of headings up to the most recently observed one;
@@ -50,6 +51,7 @@ class DocumentSectionMetadata:
 @dataclasses.dataclass
 class DocumentSection:
     """A single document chunk, according to some of the splitting criteria"""
+
     text: Optional[str]
     metadata: Optional[DocumentSectionMetadata]
 
@@ -93,6 +95,7 @@ class DocumentSplitter(ComponentIterator):
 
     Chunked text will be cleaned with `ftfy.fix_text` to fix up common problems with unicode sequences.
     """
+
     METADATA_COLUMN_TYPES = {
         ChunkMetadata.TITLE: StringType(nullable=True),
         ChunkMetadata.HEADING: JsonType(nullable=True),
@@ -102,10 +105,16 @@ class DocumentSplitter(ComponentIterator):
     }
 
     def __init__(
-            self, document: str, *, separators: str, limit: Optional[int] = None, overlap: Optional[int] = None,
-            metadata: str = '',
-            html_skip_tags: Optional[list[str]] = None, tiktoken_encoding: Optional[str] = 'cl100k_base',
-            tiktoken_target_model: Optional[str] = None
+        self,
+        document: str,
+        *,
+        separators: str,
+        limit: Optional[int] = None,
+        overlap: Optional[int] = None,
+        metadata: str = '',
+        html_skip_tags: Optional[list[str]] = None,
+        tiktoken_encoding: Optional[str] = 'cl100k_base',
+        tiktoken_target_model: Optional[str] = None,
     ):
         """Init method for `DocumentSplitter` class.
 
@@ -234,13 +243,14 @@ class DocumentSplitter(ComponentIterator):
     def _html_sections(self) -> Iterator[DocumentSection]:
         """Create DocumentSections reflecting the html-specific separators"""
         import bs4
+
         emit_on_paragraph = Separator.PARAGRAPH in self._separators or Separator.SENTENCE in self._separators
         emit_on_heading = Separator.HEADING in self._separators or emit_on_paragraph
         # current state
         accumulated_text: list[str] = []  # currently accumulated text
         # accumulate pieces then join before emit to avoid quadratic complexity of string concatenation
 
-        headings: dict[str, str] = {}   # current state of observed headings (level -> text)
+        headings: dict[str, str] = {}  # current state of observed headings (level -> text)
         sourceline = 0  # most recently seen sourceline
 
         def update_metadata(el: bs4.Tag) -> None:
@@ -300,7 +310,7 @@ class DocumentSplitter(ComponentIterator):
         # current state
         accumulated_text: list[str] = []  # currently accumulated text
         # accumulate pieces then join before emit to avoid quadratic complexity of string concatenation
-        headings: dict[str, str] = {}   # current state of observed headings (level -> text)
+        headings: dict[str, str] = {}  # current state of observed headings (level -> text)
 
         def update_headings(heading: dict) -> None:
             # update current state
@@ -353,6 +363,7 @@ class DocumentSplitter(ComponentIterator):
     def _pdf_sections(self) -> Iterator[DocumentSection]:
         """Create DocumentSections reflecting the pdf-specific separators"""
         import fitz  # type: ignore[import-untyped]
+
         doc: fitz.Document = self._doc_handle.pdf_doc
         assert doc is not None
 
@@ -385,8 +396,7 @@ class DocumentSplitter(ComponentIterator):
                     yield DocumentSection(text=_emit_text(), metadata=metadata)
 
             if accumulated_text and emit_on_page and not emit_on_paragraph:
-                yield DocumentSection(text=_emit_text(),
-                                      metadata=DocumentSectionMetadata(page=page_number))
+                yield DocumentSection(text=_emit_text(), metadata=DocumentSectionMetadata(page=page_number))
                 accumulated_text = []
 
         if accumulated_text and not emit_on_page:
@@ -411,6 +421,7 @@ class DocumentSplitter(ComponentIterator):
 
     def _token_chunks(self, input: Iterable[DocumentSection]) -> Iterator[DocumentSection]:
         import tiktoken
+
         if self._tiktoken_target_model is not None:
             encoding = tiktoken.encoding_for_model(self._tiktoken_target_model)
         else:

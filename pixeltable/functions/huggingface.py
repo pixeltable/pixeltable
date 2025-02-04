@@ -46,7 +46,7 @@ def sentence_transformer(
         Add a computed column that applies the model `all-mpnet-base-2` to an existing Pixeltable column `tbl.sentence`
         of the table `tbl`:
 
-        >>> tbl['result'] = sentence_transformer(tbl.sentence, model_id='all-mpnet-base-v2')
+        >>> tbl.add_computed_column(result=sentence_transformer(tbl.sentence, model_id='all-mpnet-base-v2'))
     """
     env.Env.get().require_package('sentence_transformers')
     device = resolve_torch_device('auto')
@@ -111,9 +111,9 @@ def cross_encoder(sentences1: Batch[str], sentences2: Batch[str], *, model_id: s
         Add a computed column that applies the model `ms-marco-MiniLM-L-4-v2` to the sentences in
         columns `tbl.sentence1` and `tbl.sentence2`:
 
-        >>> tbl['result'] = sentence_transformer(
-                tbl.sentence1, tbl.sentence2, model_id='ms-marco-MiniLM-L-4-v2'
-            )
+        >>> tbl.add_computed_column(result=sentence_transformer(
+        ...     tbl.sentence1, tbl.sentence2, model_id='ms-marco-MiniLM-L-4-v2'
+        ... ))
     """
     env.Env.get().require_package('sentence_transformers')
     device = resolve_torch_device('auto')
@@ -215,11 +215,7 @@ def _(model_id: str) -> pxt.ArrayType:
 
 @pxt.udf(batch_size=4)
 def detr_for_object_detection(
-    image: Batch[PIL.Image.Image],
-    *,
-    model_id: str,
-    threshold: float = 0.5,
-    revision: str = 'no_timm',
+    image: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0.5, revision: str = 'no_timm'
 ) -> Batch[dict]:
     """
     Computes DETR object detections for the specified image. `model_id` should be a reference to a pretrained
@@ -250,11 +246,11 @@ def detr_for_object_detection(
         Add a computed column that applies the model `facebook/detr-resnet-50` to an existing
         Pixeltable column `image` of the table `tbl`:
 
-        >>> tbl['detections'] = detr_for_object_detection(
+        >>> tbl.add_computed_column(detections=detr_for_object_detection(
         ...     tbl.image,
         ...     model_id='facebook/detr-resnet-50',
         ...     threshold=0.8
-        ... )
+        ... ))
     """
     env.Env.get().require_package('transformers')
     device = resolve_torch_device('auto')
@@ -287,10 +283,7 @@ def detr_for_object_detection(
 
 @pxt.udf(batch_size=4)
 def vit_for_image_classification(
-    image: Batch[PIL.Image.Image],
-    *,
-    model_id: str,
-    top_k: int = 5
+    image: Batch[PIL.Image.Image], *, model_id: str, top_k: int = 5
 ) -> Batch[dict[str, Any]]:
     """
     Computes image classifications for the specified image using a Vision Transformer (ViT) model.
@@ -326,11 +319,11 @@ def vit_for_image_classification(
         Add a computed column that applies the model `google/vit-base-patch16-224` to an existing
         Pixeltable column `image` of the table `tbl`, returning the 10 most likely classes for each image:
 
-        >>> tbl['image_class'] = vit_for_image_classification(
+        >>> tbl.add_computed_column(image_class=vit_for_image_classification(
         ...     tbl.image,
         ...     model_id='google/vit-base-patch16-224',
         ...     top_k=10
-        ... )
+        ... ))
     """
     env.Env.get().require_package('transformers')
     device = resolve_torch_device('auto')
@@ -362,12 +355,7 @@ def vit_for_image_classification(
 
 
 @pxt.udf
-def speech2text_for_conditional_generation(
-    audio: pxt.Audio,
-    *,
-    model_id: str,
-    language: Optional[str] = None,
-) -> str:
+def speech2text_for_conditional_generation(audio: pxt.Audio, *, model_id: str, language: Optional[str] = None) -> str:
     """
     Transcribes or translates speech to text using a Speech2Text model. `model_id` should be a reference to a
     pretrained [Speech2Text](https://huggingface.co/docs/transformers/en/model_doc/speech_to_text) model.
@@ -390,19 +378,19 @@ def speech2text_for_conditional_generation(
         Add a computed column that applies the model `facebook/s2t-small-librispeech-asr` to an existing
         Pixeltable column `audio` of the table `tbl`:
 
-        >>> tbl['transcription'] = speech2text_for_conditional_generation(
+        >>> tbl.add_computed_column(transcription=speech2text_for_conditional_generation(
         ...     tbl.audio,
         ...     model_id='facebook/s2t-small-librispeech-asr'
-        ... )
+        ... ))
 
         Add a computed column that applies the model `facebook/s2t-medium-mustc-multilingual-st` to an existing
         Pixeltable column `audio` of the table `tbl`, translating the audio to French:
 
-        >>> tbl['translation'] = speech2text_for_conditional_generation(
+        >>> tbl.add_computed_column(translation=speech2text_for_conditional_generation(
         ...     tbl.audio,
         ...     model_id='facebook/s2t-medium-mustc-multilingual-st',
         ...     language='fr'
-        ... )
+        ... ))
     """
     env.Env.get().require_package('transformers')
     env.Env.get().require_package('torchaudio')
@@ -419,7 +407,8 @@ def speech2text_for_conditional_generation(
     if language is not None and language not in processor.tokenizer.lang_code_to_id:
         raise excs.Error(
             f"Language code '{language}' is not supported by the model '{model_id}'. "
-            f"Supported languages are: {list(processor.tokenizer.lang_code_to_id.keys())}")
+            f'Supported languages are: {list(processor.tokenizer.lang_code_to_id.keys())}'
+        )
 
     forced_bos_token_id: Optional[int] = None if language is None else processor.tokenizer.lang_code_to_id[language]
 
@@ -439,11 +428,7 @@ def speech2text_for_conditional_generation(
     assert waveform.dim() == 1
 
     with torch.no_grad():
-        inputs = processor(
-            waveform,
-            sampling_rate=model_sampling_rate,
-            return_tensors='pt'
-        )
+        inputs = processor(waveform, sampling_rate=model_sampling_rate, return_tensors='pt')
         generated_ids = model.generate(**inputs.to(device), forced_bos_token_id=forced_bos_token_id).to('cpu')
 
     transcription = processor.batch_decode(generated_ids, skip_special_tokens=True)
@@ -466,7 +451,7 @@ def detr_to_coco(image: PIL.Image.Image, detr_info: dict[str, Any]) -> dict[str,
         Add a computed column that converts the output `tbl.detections` to COCO format, where `tbl.image`
         is the image for which detections were computed:
 
-        >>> tbl['detections_coco'] = detr_to_coco(tbl.image, tbl.detections)
+        >>> tbl.add_computed_column(detections_coco=detr_to_coco(tbl.image, tbl.detections))
     """
     bboxes, labels = detr_info['boxes'], detr_info['labels']
     annotations = [
@@ -480,10 +465,7 @@ T = TypeVar('T')
 
 
 def _lookup_model(
-    model_id: str,
-    create: Callable[..., T],
-    device: Optional[str] = None,
-    pass_device_to_create: bool = False
+    model_id: str, create: Callable[..., T], device: Optional[str] = None, pass_device_to_create: bool = False
 ) -> T:
     from torch import nn
 

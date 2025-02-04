@@ -13,7 +13,6 @@ from .utils import skip_test_if_not_installed
 
 
 class TestTypes:
-
     json_schema_1 = {
         'properties': {
             'a': {'type': 'string'},  # required in 1 and 2
@@ -93,26 +92,33 @@ class TestTypes:
             List[Dict[str, int]]: (JsonType(nullable=False), 'Json'),
             Dict[int, str]: (JsonType(nullable=False), 'Json'),
             PIL.Image.Image: (ImageType(nullable=False), 'Image'),
-
             # Pixeltable types
             String: (StringType(nullable=False), 'String'),
             Int: (IntType(nullable=False), 'Int'),
             Float: (FloatType(nullable=False), 'Float'),
             Bool: (BoolType(nullable=False), 'Bool'),
             Timestamp: (TimestampType(nullable=False), 'Timestamp'),
-            Image: (ImageType(height=None, width=None, mode=None, nullable=False), 'Image'),
+            Array: (ArrayType(nullable=False), 'Array'),
             Json: (JsonType(nullable=False), 'Json'),
+            Image: (ImageType(height=None, width=None, mode=None, nullable=False), 'Image'),
             Video: (VideoType(nullable=False), 'Video'),
             Audio: (AudioType(nullable=False), 'Audio'),
             Document: (DocumentType(nullable=False), 'Document'),
-
             # Pixeltable types with specialized parameters
+            Array[Int]: (ArrayType(dtype=IntType(), nullable=False), 'Array[Int]'),  # type: ignore[misc]
             Array[(None,), Int]: (ArrayType((None,), dtype=IntType(), nullable=False), 'Array[(None,), Int]'),  # type: ignore[misc]
-            Array[(5, None, 3), Float]: (ArrayType((5, None, 3), dtype=FloatType(), nullable=False), 'Array[(5, None, 3), Float]'),  # type: ignore[misc]
+            Array[(5,), Bool]: (ArrayType((5,), dtype=BoolType(), nullable=False), 'Array[(5,), Bool]'),  # type: ignore[misc]
+            Array[(5, None, 3), Float]: (  # type: ignore[misc]
+                ArrayType((5, None, 3), dtype=FloatType(), nullable=False),
+                'Array[(5, None, 3), Float]',
+            ),
             Image[(100, 200)]: (ImageType(width=100, height=200, mode=None, nullable=False), 'Image[(100, 200)]'),  # type: ignore[misc]
             Image[(100, None)]: (ImageType(width=100, height=None, mode=None, nullable=False), 'Image[(100, None)]'),  # type: ignore[misc]
             Image[(None, 200)]: (ImageType(width=None, height=200, mode=None, nullable=False), 'Image[(None, 200)]'),  # type: ignore[misc]
-            Image[(100, 200), 'RGB']: (ImageType(width=100, height=200, mode='RGB', nullable=False), "Image[(100, 200), 'RGB']"),  # type: ignore[misc]
+            Image[(100, 200), 'RGB']: (  # type: ignore[misc]
+                ImageType(width=100, height=200, mode='RGB', nullable=False),
+                "Image[(100, 200), 'RGB']",
+            ),
             Image['RGB']: (ImageType(height=None, width=None, mode='RGB', nullable=False), "Image['RGB']"),  # type: ignore[misc]
         }
         for py_type, (pxt_type, string) in test_cases.items():
@@ -125,7 +131,7 @@ class TestTypes:
             assert ColumnType.from_python_type(Union[None, py_type]) == nullable_pxt_type
 
             assert ColumnType.from_python_type(py_type, nullable_default=True) == nullable_pxt_type
-            assert ColumnType.from_python_type(Required[py_type], nullable_default=True) == pxt_type    # type: ignore[valid-type]
+            assert ColumnType.from_python_type(Required[py_type], nullable_default=True) == pxt_type  # type: ignore[valid-type]
             assert ColumnType.from_python_type(Optional[py_type], nullable_default=True) == nullable_pxt_type
             assert ColumnType.from_python_type(Union[None, py_type], nullable_default=True) == nullable_pxt_type
 
@@ -140,19 +146,49 @@ class TestTypes:
             (BoolType(), IntType(), IntType()),
             (BoolType(), FloatType(), FloatType()),
             (IntType(), StringType(), None),
-            (ArrayType((1, 2, 3), dtype=IntType()), ArrayType((3, 2, 1), dtype=IntType()), ArrayType((None, 2, None), dtype=IntType())),
-            (ArrayType((1, 2, 3), dtype=IntType()), ArrayType((1, 2), dtype=IntType()), None),
-            (ArrayType((1, 2, 3), dtype=IntType()), ArrayType((3, 2, 1), dtype=FloatType()), ArrayType((None, 2, None), dtype=FloatType())),
-            (ArrayType((1, 2, 3), dtype=IntType()), ArrayType((3, 2, 1), dtype=StringType()), None),
-            (ImageType(height=100, width=200, mode='RGB'), ImageType(height=100, width=200, mode='RGB'), ImageType(height=100, width=200, mode='RGB')),
-            (ImageType(height=100, width=200, mode='RGB'), ImageType(height=100, width=200, mode='RGBA'), ImageType(height=100, width=200, mode=None)),
-            (ImageType(height=100, width=200, mode='RGB'), ImageType(height=100, width=300, mode='RGB'), ImageType(height=100, width=None, mode='RGB')),
-            (ImageType(height=100, width=200, mode='RGB'), ImageType(height=300, width=200, mode='RGB'), ImageType(height=None, width=200, mode='RGB')),
+            (
+                ArrayType((1, 2, 3), dtype=IntType()),
+                ArrayType((3, 2, 1), dtype=IntType()),
+                ArrayType((None, 2, None), dtype=IntType()),
+            ),
+            (ArrayType((1, 2, 3), dtype=IntType()), ArrayType((1, 2), dtype=IntType()), ArrayType(dtype=IntType())),
+            (
+                ArrayType((1, 2, 3), dtype=IntType()),
+                ArrayType((3, 2, 1), dtype=FloatType()),
+                ArrayType((None, 2, None), dtype=FloatType()),
+            ),
+            (ArrayType((1, 2, 3), dtype=IntType()), ArrayType((3, 2, 1), dtype=StringType()), ArrayType()),
+            (ArrayType((1, 2, 3), dtype=IntType()), ArrayType((1, 2), dtype=StringType()), ArrayType()),
+            (ArrayType(), IntType(), None),
+            (
+                ImageType(height=100, width=200, mode='RGB'),
+                ImageType(height=100, width=200, mode='RGB'),
+                ImageType(height=100, width=200, mode='RGB'),
+            ),
+            (
+                ImageType(height=100, width=200, mode='RGB'),
+                ImageType(height=100, width=200, mode='RGBA'),
+                ImageType(height=100, width=200, mode=None),
+            ),
+            (
+                ImageType(height=100, width=200, mode='RGB'),
+                ImageType(height=100, width=300, mode='RGB'),
+                ImageType(height=100, width=None, mode='RGB'),
+            ),
+            (
+                ImageType(height=100, width=200, mode='RGB'),
+                ImageType(height=300, width=200, mode='RGB'),
+                ImageType(height=None, width=200, mode='RGB'),
+            ),
             (ImageType(height=100, width=200, mode='RGB'), ImageType(height=300, width=400, mode='RGBA'), ImageType()),
             (ImageType(height=100, width=200, mode='RGB'), ImageType(), ImageType()),
             (JsonType(), JsonType(), JsonType()),
             (JsonType(json_schema=self.json_schema_1), JsonType(), JsonType()),
-            (JsonType(json_schema=self.json_schema_1), JsonType(json_schema=self.json_schema_2), JsonType(json_schema=self.json_schema_12)),
+            (
+                JsonType(json_schema=self.json_schema_1),
+                JsonType(json_schema=self.json_schema_2),
+                JsonType(json_schema=self.json_schema_12),
+            ),
             (JsonType(), IntType(), None),
         ]
         for t1, t2, expected in test_cases:
@@ -161,8 +197,8 @@ class TestTypes:
                     t1n = t1.copy(nullable=n1)
                     t2n = t2.copy(nullable=n2)
                     expectedn = None if expected is None else expected.copy(nullable=(n1 or n2))
-                    assert t1n.supertype(t2n) == expectedn
-                    assert t2n.supertype(t1n) == expectedn
+                    assert t1n.supertype(t2n) == expectedn, (t1n, t2n)
+                    assert t2n.supertype(t1n) == expectedn, (t1n, t2n)
 
     def test_json_schemas(self, init_env) -> None:
         skip_test_if_not_installed('pydantic')
@@ -175,7 +211,7 @@ class TestTypes:
 
         json_type = ColumnType.from_python_type(Json[SampleModel.model_json_schema()])  # type: ignore[misc]
         assert isinstance(json_type, JsonType)
-        assert(str(json_type) == 'Json[SampleModel]')
+        assert str(json_type) == 'Json[SampleModel]'
 
         with pytest.raises(jsonschema.exceptions.SchemaError) as exc_info:
             Json[self.bad_json_schema]  # type: ignore[misc]

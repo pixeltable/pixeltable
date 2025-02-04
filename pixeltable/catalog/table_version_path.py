@@ -84,6 +84,7 @@ class TableVersionPath:
     def get_column_ref(self, col_name: str) -> exprs.ColumnRef:
         """Return a ColumnRef for the given column name."""
         from pixeltable.exprs import ColumnRef
+
         if col_name not in self.tbl_version.cols_by_name:
             if self.base is None:
                 raise AttributeError(f'Column {col_name} unknown')
@@ -121,11 +122,13 @@ class TableVersionPath:
             return None
 
     def has_column(self, col: Column, include_bases: bool = True) -> bool:
-        """Return True if this table has the given column.
-        """
+        """Return True if this table has the given column."""
         assert col.tbl is not None
-        if col.tbl.id == self.tbl_version.id and col.tbl.effective_version == self.tbl_version.effective_version \
-                and col.id in self.tbl_version.cols_by_id:
+        if (
+            col.tbl.id == self.tbl_version.id
+            and col.tbl.effective_version == self.tbl_version.effective_version
+            and col.id in self.tbl_version.cols_by_id
+        ):
             # the column is visible in this table version
             return True
         elif self.base is not None and include_bases:
@@ -136,7 +139,7 @@ class TableVersionPath:
     def as_dict(self) -> dict:
         return {
             'tbl_version': self.tbl_version.as_dict(),
-            'base': self.base.as_dict() if self.base is not None else None
+            'base': self.base.as_dict() if self.base is not None else None,
         }
 
     @classmethod

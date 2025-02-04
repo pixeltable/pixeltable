@@ -19,6 +19,7 @@ class MediaStore:
     the table id/column id/version are redundant but useful for identifying all files for a table
     or all files created for a particular version of a table
     """
+
     pattern = re.compile(r'([0-9a-fA-F]+)_(\d+)_(\d+)_([0-9a-fA-F]+)')  # tbl_id, col_id, version, uuid
 
     @classmethod
@@ -59,7 +60,7 @@ class MediaStore:
 
     @classmethod
     def stats(cls) -> list[tuple[UUID, int, int, int]]:
-        paths = glob.glob(str(Env.get().media_dir) + "/**", recursive=True)
+        paths = glob.glob(str(Env.get().media_dir) + '/**', recursive=True)
         # key: (tbl_id, col_id), value: (num_files, size)
         d: dict[tuple[UUID, int], list[int]] = defaultdict(lambda: [0, 0])
         for p in paths:
