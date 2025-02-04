@@ -1,213 +1,293 @@
 ---
-title: 'Overview'
-description: 'Tired of choosing between months of infrastructure work or limited frameworks? Pixeltable gives you both speed and control. Pixeltable provide a declarative, incremental approach for multimodal AI workloads.'
-icon: "table"
+title: 'Building with Pixeltable'
+description: 'Stop choosing between months of infrastructure work and limited frameworks. Pixeltable gives you a **declarative**, **incremental** approach for **multimodal** AI products in days, not months.'
+icon: "rocket"
 ---
-
-## Core Capabilities
 
 <CardGroup cols={2}>
 <Card 
-  title="Multimodal Data Store" 
+  title="AI Data Infrastructure" 
   icon="database"
   href="/docs/datastore/tables-and-operations"
 >
-  - Universal data ingestion (S3, URLs, local files)
-  - Automatic versioning and lineage tracking
-  - Efficient chunking and preprocessing
-  - Rich query capabilities at any granularity
+  - All your AI data & models in one table interface
 </Card>
 
 <Card 
-  title="AI Development Orchestration" 
+  title="Storage + Orchestration" 
   icon="brain-circuit"
-  href="/docs/ai-apps/embedding-index"
+  href="/docs/datastore/computed-columns"
 >
-  - Seamless model integration (OpenAI, HuggingFace)
-  - Built-in vector similarity search
-  - Automatic orchestration of AI workloads
-  - Real-time inference and streaming
+  - An declarative interface for all your AI workloads
 </Card>
 </CardGroup>
 
-## Quick Examples
-
-<CodeGroup>
-```python Multimodal Chat Interface
-import pixeltable as pxt
-from pixeltable.iterators import DocumentSplitter
-from pixeltable.functions import openai, image
-
-# Initialize conversation store
-messages = pxt.create_table('chat.messages', {
-    'session_id': pxt.String,
-    'role': pxt.String,
-    'content': pxt.String,
-    'image': pxt.Image,  # Optional image attachment
-    'timestamp': pxt.Timestamp
-})
-
-# Add computed columns for image analysis
-messages['image_description'] = image.analyze(
-    messages.image,
-    model='gpt-4-vision'
-)
-
-# Create context management system
-@messages.query
-def get_context(session_id: str, limit: int = 5):
-    return messages.where(
-        messages.session_id == session_id
-    ).order_by(
-        messages.timestamp, asc=False
-    ).limit(limit)
-
-# Add response generation
-messages['response'] = openai.chat_completions(
-    model='gpt-4',
-    messages=[
-        {
-            'role': 'system',
-            'content': 'You are a helpful assistant.'
-        },
-        *get_context(messages.session_id)
-    ]
-).choices[0].message.content
-```
-
-```python Object detection in images using DETR model
-import pixeltable as pxt
-from pixeltable.functions import huggingface
-
-# Create a table to store data persistently
-t = pxt.create_table('image', {'image': pxt.Image})
-
-# Insert some images
-prefix = 'https://upload.wikimedia.org/wikipedia/commons'
-paths = [
-    '/1/15/Cat_August_2010-4.jpg',
-    '/e/e1/Example_of_a_Dog.jpg',
-    '/thumb/b/bf/Bird_Diversity_2013.png/300px-Bird_Diversity_2013.png'
-]
-t.insert({'image': prefix + p} for p in paths)
-
-# Add a computed column for image classification
-t.add_computed_column(classification=huggingface.detr_for_object_detection(
-    t.image,
-    model_id='facebook/detr-resnet-50'
-))
-
-# Retrieve the rows where cats have been identified
-t.select(animal = t.image,
-         classification = t.classification.label_text[0]) \
-.where(t.classification.label_text[0]=='cat').head()
-```
-
-```python Text and Image Similarity Search
-import pixeltable as pxt
-from pixeltable.functions.huggingface import clip
-from pixeltable.iterators import FrameIterator
-import PIL.Image
-
-video_table = pxt.create_table('videos', {'video': pxt.Video})
-
-video_table.insert([{'video': '/video.mp4'}])
-
-frames_view = pxt.create_view(
-    'frames', video_table, iterator=FrameIterator.create(video=video_table.video))
-
-# Create an index on the 'frame' column that allows text and image search
-frames_view.add_embedding_index('frame', embed=clip.using('openai/clip-vit-base-patch32'))
-
-# Now we will retrieve images based on a sample image
-sample_image = '/image.jpeg'
-sim = frames_view.frame.similarity(sample_image)
-frames_view.order_by(sim, asc=False).limit(5).select(frames_view.frame, sim=sim).collect()
-
-# Now we will retrieve images based on a string
-sample_text = 'red truck'
-sim = frames_view.frame.similarity(sample_text)
-frames_view.order_by(sim, asc=False).limit(5).select(frames_view.frame, sim=sim).collect()
-```
-</CodeGroup>
-
-
-## Application Domains
-
-<CardGroup cols={2}>
-<Card 
-  title="Chat & LLM Systems" 
-  icon="message"
-  href="/examples/chat/overview"
->
-  - Multimodal chat interfaces
-  - Context-aware memory systems
-  - Tool integration (web search, APIs)
-  - RAG pipelines with auto-indexing
-</Card>
-
-<Card 
-  title="Computer Vision Pipelines" 
-  icon="camera"
-  href="/examples/vision/overview"
->
-  - Label Studio data pipelines
-  - Real-time object detection 
-  - Video processing & analysis
-  - Dataset curation with Voxel51
-</Card>
-
-<Card 
-  title="Search Applications" 
-  icon="magnifying-glass"
-  href="/examples/search/overview"
->
-  - Audio content search
-  - Visual similarity search
-  - Document & web indexing
-  - Cross-modal retrieval
-</Card>
-
-<Card 
-  title="Evaluation Infrastructure" 
-  icon="square-check"
-  href="/examples/evaluation/overview"
->
-  - LLM-based evaluation
-  - Model comparison frameworks
-  - Automated metrics pipelines
-  - Performance monitoring
-</Card>
-</CardGroup>
-
-## Get Started
+## Getting Started
 
 <Steps>
-  <Step title="Install Pixeltable" icon="download">
+  <Step title="Start Building (Step 1)" icon="code">
     ```bash
     pip install pixeltable
     ```
+    Get up and running with basic [tables](/docs/datastore/tables-and-operations), [queries](/docs/ai-apps/filtering-and-selecting), and [computed columns](docs/datastore/computed-columns).
+
+    <CodeGroup>
+    ```python table
+    # Create a table to hold data
+    t = pxt.create_table('films_table', {
+        'name': pxt.String,
+        'revenue': pxt.Float,
+        'budget': pxt.Float
+    })
+    ```
+    ```python query
+    # Insert data into a table
+    t.insert([
+      {'name': 'Inside Out', 'revenue': 800.5, 'budget': 200.0},
+      {'name': 'Toy Story', 'revenue': 1073.4, 'budget': 200.0}
+    ])
+
+  # Retrieves all the rows in the table.
+  t.collect()
+    ```
+    ```python transform
+    # Add a new column for the profit calculation
+    t.add_computed_column(profit=(t.revenue - t.budget))
+
+    # It will automatically compute its value for all rows
+    t.select(t.profit).head()
+    ``` 
+    </CodeGroup>
   </Step>
   
-  <Step title="Choose Example" icon="list-check">
-    Select a starter template from our examples gallery
+  <Step title="Add Processing (Step 2)" icon="sparkles">
+    Add [LLMs](docs/integrations/frameworks#cloud-llm-providers), [computer vision](/docs/examples/vision/yolox), [embeddings indices](docs/datastore/embedding-index), and build your first [multimodal chatbot](/docs/examples/chat/multimodal).
+      <CodeGroup>
+    ```python embedding index
+    from pixeltable.functions.huggingface import clip
+    import PIL.Image
+
+    # create embedding index on the 'img' column of table 't'
+    t.add_embedding_index(
+        'img',
+        embedding=clip.using(model_id='openai/clip-vit-base-patch32')
+    )
+
+    # index is kept up-to-date enabling relevant searches
+    sim = t.img.similarity(sample_img)
+
+    res = (
+        t.order_by(sim, asc=False)  # Order by similarity
+        .where(t.id != 6)  # Metadata filtering
+        .limit(2)  # Limit number of results to 2
+        .select(t.id, t.img, sim)
+        .collect()  # Retrieve results now
+    )
+    ```
+    ```python llms
+    from pixeltable.functions import openai
+
+    # Assemble the prompt and instructions
+    messages = [
+        {
+            'role': 'system',
+            'content': 'Please read the following passages.'
+        },
+        {
+            'role': 'user',
+            'content': queries_t.prompt
+        }
+    ]
+
+    # Add a computed column that calls OpenAI
+    queries_t.add_computed_column(
+        response=openai.chat_completions(model='gpt-4o-mini',
+        messages=messages)
+    )
+        ```
+        ```python computer vision
+    from pixeltable.ext.functions.yolox import yolox
+
+    # compute object detections using the `yolox_tiny` model
+    frames_view.add_computed_column(detect_yolox_tiny=yolox(
+        frames_view.frame, model_id='yolox_tiny', threshold=0.25
+    ))
+
+    # The inference in the computed column is now stored
+    frames_view.select(
+        frames_view.frame,
+        frames_view.detect_yolox_tiny
+    ).show(3)
+    ``` 
+    </CodeGroup>
   </Step>
   
-  <Step title="Build Your App" icon="code">
-    Follow our guides to customize for your needs
+  <Step title="Scale Up (Step 3" icon="chart-mixed">
+    Handle [production data](/docs/ai-apps/bringing-data) volumes, and deploy your application.
+      <CodeGroup>
+    ```python bring cloud data
+    # Import media datad (videos, images, audio...)
+    v = pxt.create_table('external_data.videos', {'video': pxt.Video})
+
+    prefix = 's3://multimedia-commons/'
+    paths = [
+        'data/videos/mp4/ffe/ffb/ffeffbef41bbc269810b2a1a888de.mp4',
+        'data/videos/mp4/ffe/feb/ffefebb41485539f964760e6115fbc44.mp4',
+        'data/videos/mp4/ffe/f73/ffef7384d698b5f70d411c696247169.mp4'
+    ]
+    v.insert({'video': prefix + p} for p in paths)
+    ```
+    ```python chunking with views
+    # Optimize large-scale data processing
+    from pixeltable.iterators import DocumentSplitter
+
+        # Create chunked views for efficient processing
+        doc_chunks = pxt.create_view(
+            'app.chunks',
+            analysis,
+            iterator=DocumentSplitter.create(
+                document=analysis.document,
+                separators='sentence',
+                limit=500  # Control chunk size
+            )
+        )
+    ```
+    ```python serving
+    from fastapi import FastAPI, HTTPException
+    from pydantic import BaseModel
+
+    app = FastAPI()
+
+    class AnalysisRequest(BaseModel):
+        document: str
+        metadata: dict = {}
+    
+    @app.post("/analyze")
+    async def analyze_document(request: AnalysisRequest):
+        try:
+            # Insert document for processing
+            analysis.insert([{
+                'document': request.document,
+                'metadata': request.metadata,
+                'timestamp': datetime.now()
+            }])
+            
+            # Get analysis results using computed columns
+            result = analysis.select(
+                analysis.embeddings,
+                analysis.summary,
+                analysis.sentiment
+            ).tail(1)
+            
+            return {
+                "status": "success",
+                "results": result.to_dict('records')[0]
+            }
+        except Exception as e:
+            raise HTTPException(status_code=0, detail=str(e))
+    ```
+    </CodeGroup>
   </Step>
 </Steps>
 
-## Community & Support
+## Popular Use Cases
+
+<CardGroup cols={2}>
+<Card 
+  title="Enterprise Chat Systems" 
+  icon="message"
+  href="https://huggingface.co/spaces/Pixeltable/AI-Chatbot-With-Retrieval-Augmented-Generation"
+>
+  <CardGroup cols={1}>
+    <Card title="Multimodal RAG Chatbot" icon="brain-circuit" href="https://huggingface.co/spaces/Pixeltable/Multi-LLM-RAG-with-Groundtruth-Comparison">
+      Build RAG systems that compare multiple LLMs with ground truth evaluation.
+    </Card>
+    <Card title="Discord AI Assistant" icon="discord" href="https://github.com/pixeltable/pixeltable/tree/main/examples/discord-bot">
+      Create context-aware chat bots with semantic search and memory.
+    </Card>
+    <Card title="Document Analysis Bot" icon="file-search" href="https://huggingface.co/spaces/Pixeltable/Document-to-Audio-Synthesis">
+      Convert and analyze documents with multimodal processing.
+    </Card>
+  </CardGroup>
+</Card>
+
+<Card 
+  title="Visual Understanding" 
+  icon="camera"
+  href="https://huggingface.co/spaces/Pixeltable/object-detection-in-videos-with-yolox"
+>
+  <CardGroup cols={1}>
+    <Card title="Video Object Detection" icon="video" href="https://huggingface.co/spaces/Pixeltable/object-detection-in-videos-with-yolox">
+      Real-time object detection in videos using YOLOX.
+    </Card>
+    <Card title="Visual Search Engine" icon="magnifying-glass" href="https://huggingface.co/spaces/Pixeltable/Text-and-Image-similarity-search-nextjs-fastapi">
+      Text and image similarity search on video frames.
+    </Card>
+    <Card title="Call Analysis Tool" icon="phone" href="https://huggingface.co/spaces/Pixeltable/Call-Analysis-AI-Tool">
+      Analyze video calls with automatic transcription and insights.
+    </Card>
+  </CardGroup>
+</Card>
+
+<Card 
+  title="Document Intelligence" 
+  icon="file-lines"
+  href="https://huggingface.co/spaces/Pixeltable/Document-to-Audio-Synthesis"
+>
+  <CardGroup cols={1}>
+    <Card title="Document Audio Synthesis" icon="file-audio" href="https://huggingface.co/spaces/Pixeltable/Document-to-Audio-Synthesis">
+      Convert documents to natural speech with context-aware processing.
+    </Card>
+    <Card title="Social Media Generator" icon="share-nodes" href="https://huggingface.co/spaces/Pixeltable/video-to-social-media-post-generator">
+      Generate social posts from video content analysis.
+    </Card>
+    <Card title="Collaborative Writing" icon="pen-to-square" href="https://huggingface.co/spaces/Pixeltable/Collaborative-Story-Builder">
+      Build AI-powered collaborative writing tools.
+    </Card>
+  </CardGroup>
+</Card>
+
+<Card 
+  title="AI Development Tools" 
+  icon="code"
+  href="https://huggingface.co/spaces/Pixeltable/Prompt-Engineering-and-LLM-Studio"
+>
+  <CardGroup cols={1}>
+    <Card title="LLM Studio" icon="flask" href="https://huggingface.co/spaces/Pixeltable/Prompt-Engineering-and-LLM-Studio">
+      Test and compare LLM performance with structured evaluation.
+    </Card>
+    <Card title="Financial Analysis" icon="chart-line" href="https://huggingface.co/spaces/Pixeltable/AI-Financial-Analysis-Platform">
+      Build AI-powered financial analysis tools.
+    </Card>
+    <Card title="RPG Adventure" icon="gamepad" href="https://huggingface.co/spaces/Pixeltable/AI-RPG-Adventure">
+      Create interactive AI storytelling experiences.
+    </Card>
+  </CardGroup>
+</Card>
+</CardGroup>
+
+## Next Steps
 
 <CardGroup cols={3}>
-  <Card title="Join Discord" icon="discord" href="https://discord.gg/QPyqFYx2UN">
-    Get help from our community
+  <Card 
+    title="Explore Examples" 
+    icon="rocket" 
+    href="https://huggingface.co/Pixeltable"
+  >
+    Check out our Hugging Face demos
   </Card>
-  <Card title="Read Docs" icon="book" href="/docs/overview/quick-start">
-    Learn Pixeltable fundamentals
+  <Card 
+    title="Join Discord" 
+    icon="discord" 
+    href="https://discord.gg/6MnmFYZJ9N"
+  >
+    Get help from the community
   </Card>
-  <Card title="GitHub" icon="github" href="https://github.com/pixeltable/pixeltable">
-    Star us and contribute
+  <Card 
+    title="GitHub" 
+    icon="github" 
+    href="https://github.com/pixeltable/pixeltable"
+  >
+    Star us on GitHub
   </Card>
 </CardGroup>

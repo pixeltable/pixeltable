@@ -4,106 +4,66 @@ description: 'Learn the fundamentals of Pixeltable tables, types, and the develo
 icon: 'database'
 ---
 
-# Development Lifecycle
+## Core Concepts
 
-Pixeltable applications work in two distinct phases:
-1. **Definition Phase**: Define your data structure and processing pipeline (once)
-2. **Usage Phase**: Connect to and use your application (anytime)
+<CardGroup cols={3}>
+  <Card title="Tables" icon="table">
+    Central data structure for organizing multimodal data and computations
+  </Card>
+  <Card title="Computed Columns" icon="calculator">
+    Data transformations and model inferences
+  </Card>
+  <Card title="Versioning" icon="code-branch">
+    Built-in tracking of data and schema changes
+  </Card>
+</CardGroup>
 
-<Note>
-This separation allows you to define your schema and pipeline in one file, then use it across multiple applications or scripts.
-</Note>
-
-## Phase 1: Definition
-
-Create `schema.py` to define your application structure:
-
-```python
-import pixeltable as pxt
-from pixeltable.functions import openai
-
-# Create a directory to organize data (optional)
-pxt.drop_dir('movies', force=True)
-pxt.create_dir('movies')
-
-# Define your table structure
-movies = pxt.create_table(
-    path_str="movies.collection",
-    schema_or_df={
-        "title": pxt.String,
-        "year": pxt.Int,
-        "plot": pxt.String,
-        "budget": pxt.Float
-    }
-)
-
-# Add computed columns for AI processing
-movies.add_computed_column(
-    messages=[{
-        "role": "user", 
-        "content": f"Summarize this plot: {movies.plot}"
-    }]
-)
-
-movies.add_computed_column(
-    summary=openai.chat_completions(
-        messages=movies.messages,
-        model="gpt-4o-mini"
-    ).choices[0].message.content
-)
-```
-
-## Phase 2: Usage
-
-Create `app.py` to use your defined structure:
-
-```python
-import pixeltable as pxt
-
-# Connect to your existing table
-movies = pxt.get_table("movies.collection")
-
-# Use it!
-movies.insert([{
-    "title": "Inception",
-    "year": 2010,
-    "plot": "A thief who steals corporate secrets...",
-    "budget": 160.0
-}])
-
-# View results
-print(movies.collect())
-```
+<Info>
+Learn more about Pixeltable tables and the data operations with our [in-depth guide](https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/fundamentals/tables-and-data-operations.ipynb).
+</Info>
 
 ## Type System
 
-<AccordionGroup>
-  <Accordion title="Basic Types" icon="code">
-    Import types from the `pixeltable` package:
+<Tabs>
+  <Tab title="Basic Types">
     ```python
+    # Import types
     import pixeltable as pxt
     
-    # Available basic types
-    pxt.String   # Text data
-    pxt.Int      # Integer numbers
-    pxt.Float    # Decimal numbers
-    pxt.Bool     # True/False values
-    pxt.DateTime # Date and time values
+    # Schema definition
+    table = pxt.create_table('example', {
+        'text': pxt.String,     # Text data
+        'count': pxt.Int,       # Integer numbers
+        'score': pxt.Float,     # Decimal numbers
+        'active': pxt.Bool,     # Boolean values
+        'created': pxt.Timestamp # Date/time values
+    })
     ```
-  </Accordion>
-
-  <Accordion title="Complex Types" icon="layer-group">
-    Special types for AI/ML workflows:
+  </Tab>
+  
+  <Tab title="Media Types">
     ```python
-    pxt.Array    # Numerical arrays (embeddings)
-    pxt.Json     # Arbitrary JSON structures
-    pxt.Image    # Image files and metadata
-    pxt.Video    # Video files and metadata
-    pxt.Audio    # Audio files and metadata
-    pxt.Document # Text documents and PDFs
+    # Media handling
+    media = pxt.create_table('media', {
+        'image': pxt.Image[(224, 224), 'RGB'],  # With size & mode
+        'video': pxt.Video,                     # Video reference
+        'audio': pxt.Audio,                     # Audio file
+        'document': pxt.Document                # PDF/text doc
+    })
     ```
-  </Accordion>
-</AccordionGroup>
+  </Tab>
+  
+  <Tab title="ML Types">
+    ```python
+    # ML-specific types
+    ml_data = pxt.create_table('ml_features', {
+        'embedding': pxt.Array[(768,), pxt.Float], # Fixed-size array
+        'features': pxt.Array[(None, 512)],        # Variable first dim
+        'metadata': pxt.Json                       # Flexible JSON data
+    })
+    ```
+  </Tab>
+</Tabs>
 
 ## Data Operations
 
@@ -319,3 +279,386 @@ Always use a `where()` clause with `delete()`. Without it, all rows in the table
     Quick reference
   </Card>
 </CardGroup>
+
+---
+title: 'Tables & Data Management'
+description: 'Master Pixeltable data structures, computed columns, and multimodal pipelines'
+icon: 'database'
+---
+
+# Pixeltable Tables
+
+Pixeltable provides a unified interface for managing AI/ML data pipelines, with powerful features for handling multimodal data, automatic versioning, and seamless integration with modern AI workflows.
+
+
+## Development Lifecycle
+
+<Steps>
+  <Step title="Schema Definition">
+    Create a `schema.py` file to define your data structure and processing pipeline:
+    ```python
+    import pixeltable as pxt
+    from pixeltable.functions import openai
+    from pixeltable.functions.huggingface import clip_image
+    
+    # Create organization directory
+    pxt.create_dir('ai_workflow')
+    
+    # Create multimodal table
+    media = pxt.create_table(
+        'ai_workflow.media',
+        {
+            'image': pxt.Image,          # Support for image data
+            'video': pxt.Video,          # Video file reference 
+            'description': pxt.String,    # Text description
+            'embedding': pxt.Array[(512,)], # Image embedding
+            'timestamp': pxt.Timestamp
+        }
+    )
+    ```
+  </Step>
+
+  <Step title="Add Computed Columns">
+    Define automatic transformations and AI processing:
+    ```python
+    # Generate image embeddings
+    media['image_embedding'] = clip_image(
+        media.image, 
+        model_id='openai/clip-vit-base-patch32'
+    )
+    
+    # Create prompt for LLM
+    @pxt.udf
+    def create_prompt(img_desc: str) -> list[dict]:
+        return [{
+            'role': 'user',
+            'content': f'Analyze this image: {img_desc}'
+        }]
+    
+    media['messages'] = create_prompt(media.description)
+    
+    # Add LLM analysis
+    media['analysis'] = openai.chat_completions(
+        messages=media.messages,
+        model='gpt-4o-mini'
+    ).choices[0].message.content
+    ```
+  </Step>
+
+  <Step title="Usage & Application">
+    Create `app.py` to use your defined structure:
+    ```python
+    import pixeltable as pxt
+    
+    # Connect to existing table
+    media = pxt.get_table('ai_workflow.media')
+    
+    # Add new data - computed columns process automatically
+    media.insert([{
+        'image': 'path/to/image.jpg',
+        'description': 'Sunset over mountains',
+        'timestamp': datetime.now()
+    }])
+    
+    # Query with similarity search
+    similar = media.where(
+        media.image_embedding.similarity('mountain lake') > 0.8
+    ).collect()
+    ```
+  </Step>
+</Steps>
+
+## Type System
+
+<AccordionGroup>
+  <Accordion title="Basic Types" icon="code">
+    Import types from the `pixeltable` package:
+    ```python    
+    # Available basic types
+    pxt.String   # Text data
+    pxt.Int      # Integer numbers
+    pxt.Float    # Decimal numbers
+    pxt.Bool     # True/False values
+    pxt.DateTime # Date and time values
+    ```
+  </Accordion>
+
+  <Accordion title="Complex Types" icon="layer-group">
+    Special types for AI/ML workflows:
+    ```python
+    pxt.Array    # Numerical arrays (embeddings)
+    pxt.Json     # Arbitrary JSON structures
+    pxt.Image    # Image files and metadata
+    pxt.Video    # Video files and metadata
+    pxt.Audio    # Audio files and metadata
+    pxt.Document # Text documents and PDFs
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Data Operations
+
+### Querying Data
+
+<AccordionGroup>
+  <Accordion title="Basic Queries" icon="magnifying-glass">
+    ```python
+    # Count rows
+    table.count()
+    
+    # Get rows
+    table.collect()                  # All rows
+    table.limit(5).collect()        # First 5 rows
+    table.head()                    # First rows by insertion
+    table.tail()                    # Last rows by insertion
+    
+    # Filter data
+    table.where(table.score > 0.8).collect()
+    table.where(
+        (table.created >= start_date) & 
+        (table.active == True)
+    ).collect()
+    ```
+  </Accordion>
+
+  <Accordion title="Advanced Queries" icon="wand-magic-sparkles">
+    ```python
+    # Complex conditions
+    results = table.where(
+        table.text.contains('AI') & 
+        ~table.embedding.is_null()
+    ).order_by(
+        table.score, 
+        asc=False
+    ).select(
+        table.text,
+        table.score,
+        confidence=table.score * 100
+    ).collect()
+    
+    # Similarity search
+    similar = table.where(
+        table.embedding.similarity(query_vector) > 0.7
+    ).collect()
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Modifying Data
+
+<CodeGroup>
+  ```python Insert
+  # Single row
+  table.insert(
+      text="Example",
+      count=1,
+      score=0.95
+  )
+  
+  # Multiple rows
+  table.insert([
+      {'text': 'First', 'count': 1},
+      {'text': 'Second', 'count': 2}
+  ])
+  ```
+
+  ```python Update
+  # Update all matching rows
+  table.where(
+      table.score < 0.5
+  ).update({
+      'active': False,
+      'score': table.score * 1.1
+  })
+  
+  # Batch updates
+  updates = [
+      {'id': 1, 'score': 0.9},
+      {'id': 2, 'score': 0.8}
+  ]
+  table.batch_update(updates)
+  ```
+
+  ```python Delete
+  # Delete with condition
+  table.where(
+      table.score < 0.3
+  ).delete()
+  
+  # Revert last operation
+  table.revert()
+  ```
+</CodeGroup>
+
+### Schema Changes
+
+```python
+# Add column
+table.add_column(category=pxt.String)
+
+# Add computed column
+table.add_computed_column(
+    length=table.text.len()
+)
+
+# Drop column
+table.drop_column('category')
+
+# Describe schema
+table.describe()
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Schema Design" icon="sitemap">
+    - Keep schema definition in separate files
+    - Use clear, descriptive column names
+    - Document computed column dependencies
+    - Consider data types and constraints carefully
+  </Card>
+  
+  <Card title="Error Handling" icon="shield-check">
+    - Always validate table existence
+    - Handle missing data gracefully
+    - Use transactions for critical operations
+    - Implement proper error recovery
+  </Card>
+  
+  <Card title="Performance" icon="bolt">
+    - Use batch operations for multiple rows
+    - Leverage computed columns for caching
+    - Index columns used in frequent queries
+    - Monitor memory usage with large datasets
+  </Card>
+  
+  <Card title="Production" icon="rocket">
+    - Separate development and production code
+    - Version control your schema definitions
+    - Monitor computed column performance
+    - Implement proper logging and monitoring
+  </Card>
+</CardGroup>
+
+## Common Patterns
+
+### Production Setup
+
+```python
+# config.py
+TABLE_PATH = 'production.data'
+
+# schema.py
+def init_schema():
+    pxt.create_table(
+        TABLE_PATH,
+        schema,
+        if_exists='ignore'  # Don't overwrite in production
+    )
+
+# app.py
+table = pxt.get_table(TABLE_PATH)
+if table is None:
+    raise RuntimeError("Schema not initialized!")
+```
+
+### Data Pipeline
+
+```python
+# Define processing stages
+@pxt.udf
+def preprocess(data: str) -> dict:
+    # Custom preprocessing logic
+    return {'processed': data.lower()}
+
+# Create pipeline
+table.add_computed_column(
+    stage1=preprocess(table.raw_data)
+)
+
+table.add_computed_column(
+    stage2=openai.embeddings(
+        table.stage1.processed
+    )
+)
+
+table.add_computed_column(
+    final=my_model(table.stage2)
+)
+```
+
+## Advanced Features
+
+<AccordionGroup>
+  <Accordion title="Embedding Indexes" icon="database">
+    Create and use similarity search indexes:
+    ```python
+    # Add embedding index
+    table.add_embedding_index(
+        'text_embedding',
+        string_embed=sentence_transformer
+    )
+    
+    # Similarity search
+    similar = table.where(
+        table.text_embedding.similarity('query') > 0.8
+    ).collect()
+    ```
+  </Accordion>
+
+  <Accordion title="Custom Functions" icon="function">
+    Define reusable transformations:
+    ```python
+    @pxt.udf
+    def custom_transform(data: str) -> dict:
+        # Complex processing logic
+        return processed_data
+    
+    # Use in computed column
+    table.add_computed_column(
+        transformed=custom_transform(table.raw_data)
+    )
+    ```
+  </Accordion>
+
+  <Accordion title="Media Processing" icon="photo-film">
+    Handle images and videos:
+    ```python
+    from pixeltable.iterators import FrameIterator
+    
+    # Create frame view
+    frames = pxt.create_view(
+        'video_frames',
+        videos_table,
+        iterator=FrameIterator.create(
+            video=videos_table.video,
+            fps=1
+        )
+    )
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Additional Resources
+
+<CardGroup cols={3}>
+  <Card title="API Reference" icon="book" href="https://pixeltable.github.io/pixeltable/">
+    Complete API documentation
+  </Card>
+  
+  <Card title="Examples" icon="lightbulb" href="https://huggingface.co/Pixeltable">
+    Sample applications on Hugging Face
+  </Card>
+  
+  <Card title="GitHub" icon="github" href="https://github.com/pixeltable/pixeltable">
+    Source code and contributions
+  </Card>
+</CardGroup>
+
+<Note>
+Remember that Pixeltable automatically handles versioning and lineage tracking. Every operation is recorded and can be reverted if needed.
+</Note>
+
+<Warning>
+Always use `where()` clauses with `delete()` operations. Without a condition, all rows will be deleted! While operations can be reverted, it's better to be explicit with data modifications.
+</Warning>

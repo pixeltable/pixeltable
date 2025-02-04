@@ -90,9 +90,9 @@
         "docs/datastore/views",
         "docs/datastore/computed-columns",          
         "docs/datastore/embedding-index",
-        "docs/ai-apps/bringing-data",
-        "docs/ai-apps/filtering-and-selecting",
-        "docs/ai-apps/custom-functions"
+        "docs/datastore/bringing-data",
+        "docs/datastore/filtering-and-selecting",
+        "docs/datastore/custom-functions"
       ]
     },
     {
@@ -104,7 +104,8 @@
               "pages": [
                 "docs/examples/chat/multimodal",
                 "docs/examples/chat/memory",
-                "docs/examples/chat/tools"
+                "docs/examples/chat/tools",
+                "docs/examples/overview"
               ]
             },
             {
