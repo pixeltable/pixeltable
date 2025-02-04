@@ -7,11 +7,11 @@ import inspect
 import json
 import sys
 import typing
-from typing import TYPE_CHECKING, Any, Callable, Iterator, Optional, TypeVar, Union, overload, Iterable
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Optional, TypeVar, Union, overload
 from uuid import UUID
 
 import sqlalchemy as sql
-from typing_extensions import _AnnotatedAlias, Self
+from typing_extensions import Self, _AnnotatedAlias
 
 import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
@@ -24,11 +24,13 @@ from .globals import ArithmeticOperator, ComparisonOperator, LiteralPythonTypes,
 if TYPE_CHECKING:
     from pixeltable import exprs
 
+
 class ExprScope:
     """
     Representation of the scope in which an Expr needs to be evaluated. Used to determine nesting of scopes.
     parent is None: outermost scope
     """
+
     def __init__(self, parent: Optional[ExprScope]):
         self.parent = parent
 
@@ -205,14 +207,18 @@ class Expr(abc.ABC):
         """
         from .column_ref import ColumnRef
         from .expr_set import ExprSet
+
         if resolve_cols is None:
             resolve_cols = set()
         result = self
         while True:
-            target_col_refs = ExprSet([
-                e for e in result.subexprs()
-                if isinstance(e, ColumnRef) and e.col.is_computed and (not e.col.is_stored or e.col in resolve_cols)
-            ])
+            target_col_refs = ExprSet(
+                [
+                    e
+                    for e in result.subexprs()
+                    if isinstance(e, ColumnRef) and e.col.is_computed and (not e.col.is_stored or e.col in resolve_cols)
+                ]
+            )
             if len(target_col_refs) == 0:
                 return result
             result = result.substitute({ref: ref.col.value_expr for ref in target_col_refs})
@@ -220,6 +226,7 @@ class Expr(abc.ABC):
     def is_bound_by(self, tbls: list[catalog.TableVersionPath]) -> bool:
         """Returns True if this expr can be evaluated in the context of tbls."""
         from .column_ref import ColumnRef
+
         col_refs = self.subexprs(ColumnRef)
         for col_ref in col_refs:
             if not any(tbl.has_column(col_ref.col) for tbl in tbls):
@@ -232,7 +239,7 @@ class Expr(abc.ABC):
         return self._retarget(tbl_versions)
 
     def _retarget(self, tbl_versions: dict[UUID, catalog.TableVersion]) -> Self:
-        for i in range (len(self.components)):
+        for i in range(len(self.components)):
             self.components[i] = self.components[i]._retarget(tbl_versions)
         return self
 
@@ -264,13 +271,14 @@ class Expr(abc.ABC):
 
     @overload
     def subexprs(
-        self, expr_class: type[T], filter: Optional[Callable[[Expr], bool]] = None,
-        traverse_matches: bool = True
+        self, expr_class: type[T], filter: Optional[Callable[[Expr], bool]] = None, traverse_matches: bool = True
     ) -> Iterator[T]: ...
 
     def subexprs(
-        self, expr_class: Optional[type[T]] = None, filter: Optional[Callable[[Expr], bool]] = None,
-        traverse_matches: bool = True
+        self,
+        expr_class: Optional[type[T]] = None,
+        filter: Optional[Callable[[Expr], bool]] = None,
+        traverse_matches: bool = True,
     ) -> Iterator[T]:
         """
         Iterate over all subexprs, including self.
@@ -288,20 +296,30 @@ class Expr(abc.ABC):
     @overload
     @classmethod
     def list_subexprs(
-        cls, expr_list: Iterable[Expr], *, filter: Optional[Callable[[Expr], bool]] = None, traverse_matches: bool = True
+        cls,
+        expr_list: Iterable[Expr],
+        *,
+        filter: Optional[Callable[[Expr], bool]] = None,
+        traverse_matches: bool = True,
     ) -> Iterator[Expr]: ...
 
     @overload
     @classmethod
     def list_subexprs(
-        cls, expr_list: Iterable[Expr], expr_class: type[T], filter: Optional[Callable[[Expr], bool]] = None,
-        traverse_matches: bool = True
+        cls,
+        expr_list: Iterable[Expr],
+        expr_class: type[T],
+        filter: Optional[Callable[[Expr], bool]] = None,
+        traverse_matches: bool = True,
     ) -> Iterator[T]: ...
 
     @classmethod
     def list_subexprs(
-        cls, expr_list: Iterable[Expr], expr_class: Optional[type[T]] = None,
-        filter: Optional[Callable[[Expr], bool]] = None, traverse_matches: bool = True
+        cls,
+        expr_list: Iterable[Expr],
+        expr_class: Optional[type[T]] = None,
+        filter: Optional[Callable[[Expr], bool]] = None,
+        traverse_matches: bool = True,
     ) -> Iterator[T]:
         """Produce subexprs for all exprs in list. Can contain duplicates."""
         for e in expr_list:
@@ -322,6 +340,7 @@ class Expr(abc.ABC):
         """Returns table ids referenced by this expr."""
         from .column_ref import ColumnRef
         from .rowid_ref import RowidRef
+
         return {ref.col.tbl.id for ref in self.subexprs(ColumnRef)} | {ref.tbl.id for ref in self.subexprs(RowidRef)}
 
     @classmethod
@@ -334,6 +353,7 @@ class Expr(abc.ABC):
         result: list[catalog.Column] = []
         assert '_classname' in expr_dict
         from .column_ref import ColumnRef
+
         if expr_dict['_classname'] == 'ColumnRef':
             result.append(ColumnRef.get_column(expr_dict))
         if 'components' in expr_dict:
@@ -359,10 +379,12 @@ class Expr(abc.ABC):
     @classmethod
     def from_array(cls, elements: Iterable) -> Optional[Expr]:
         from .inline_expr import InlineArray
+
         inline_array = InlineArray(elements)
         constant_array = inline_array.as_constant()
         if constant_array is not None:
             from .literal import Literal
+
             return Literal(constant_array, inline_array.col_type)
         else:
             return inline_array
@@ -379,13 +401,16 @@ class Expr(abc.ABC):
             expr: Optional[Expr] = None
             if isinstance(o, (list, tuple)):
                 from .inline_expr import InlineList
+
                 expr = InlineList(o)
             elif isinstance(o, dict):
                 from .inline_expr import InlineDict
+
                 expr = InlineDict(o)
             elif isinstance(o, Expr):
                 expr = o
                 from .literal import Literal
+
                 if isinstance(expr, Literal):
                     return expr
             # Check if the expression is constant
@@ -393,6 +418,7 @@ class Expr(abc.ABC):
                 expr_value = expr.as_constant()
                 if expr_value is not None:
                     from .literal import Literal
+
                     return Literal(expr_value)
                 else:
                     return expr
@@ -401,6 +427,7 @@ class Expr(abc.ABC):
             obj_type = ts.ColumnType.infer_literal_type(o)
             if obj_type is not None:
                 from .literal import Literal
+
                 return Literal(o, col_type=obj_type)
         return None
 
@@ -444,10 +471,7 @@ class Expr(abc.ABC):
         Turn Expr object into a dict that can be passed to json.dumps().
         Subclasses override _as_dict().
         """
-        return {
-            '_classname': self.__class__.__name__,
-            **self._as_dict(),
-        }
+        return {'_classname': self.__class__.__name__, **self._as_dict()}
 
     @classmethod
     def as_dict_list(self, expr_list: list[Expr]) -> list[dict]:
@@ -485,6 +509,7 @@ class Expr(abc.ABC):
 
     def isin(self, value_set: Any) -> 'exprs.InPredicate':
         from .in_predicate import InPredicate
+
         if isinstance(value_set, Expr):
             return InPredicate(self, value_set_expr=value_set)
         else:
@@ -492,6 +517,7 @@ class Expr(abc.ABC):
 
     def astype(self, new_type: Union[ts.ColumnType, type, _AnnotatedAlias]) -> 'exprs.TypeCast':
         from pixeltable.exprs import TypeCast
+
         # Interpret the type argument the same way we would if given in a schema
         col_type = ts.ColumnType.normalize_type(new_type, nullable_default=True, allow_builtin_types=False)
         if not self.col_type.nullable:
@@ -500,7 +526,9 @@ class Expr(abc.ABC):
             col_type = col_type.copy(nullable=False)
         return TypeCast(self, col_type)
 
-    def apply(self, fn: Callable, *, col_type: Union[ts.ColumnType, type, _AnnotatedAlias, None] = None) -> 'exprs.FunctionCall':
+    def apply(
+        self, fn: Callable, *, col_type: Union[ts.ColumnType, type, _AnnotatedAlias, None] = None
+    ) -> 'exprs.FunctionCall':
         if col_type is not None:
             col_type = ts.ColumnType.normalize_type(col_type)
         function = self._make_applicator_function(fn, col_type)
@@ -509,10 +537,7 @@ class Expr(abc.ABC):
 
     def __dir__(self) -> list[str]:
         attrs = ['isin', 'astype', 'apply']
-        attrs += [
-            f.name
-            for f in func.FunctionRegistry.get().get_type_methods(self.col_type.type_enum)
-        ]
+        attrs += [f.name for f in func.FunctionRegistry.get().get_type_methods(self.col_type.type_enum)]
         return attrs
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
@@ -521,9 +546,11 @@ class Expr(abc.ABC):
     def __getitem__(self, index: object) -> Expr:
         if self.col_type.is_json_type():
             from .json_path import JsonPath
+
             return JsonPath(self)[index]
         if self.col_type.is_array_type():
             from .array_slice import ArraySlice
+
             if not isinstance(index, tuple):
                 index = (index,)
             if any(not isinstance(i, (int, slice)) for i in index):
@@ -537,6 +564,7 @@ class Expr(abc.ABC):
         """
         from .json_path import JsonPath
         from .method_ref import MethodRef
+
         if self.col_type.is_json_type():
             return JsonPath(self).__getattr__(name)
         else:
@@ -555,7 +583,8 @@ class Expr(abc.ABC):
 
     def __bool__(self) -> bool:
         raise TypeError(
-            'Pixeltable expressions cannot be used in conjunction with Python boolean operators (and/or/not)')
+            'Pixeltable expressions cannot be used in conjunction with Python boolean operators (and/or/not)'
+        )
 
     def __lt__(self, other: object) -> 'exprs.Comparison':
         return self._make_comparison(ComparisonOperator.LT, other)
@@ -566,6 +595,7 @@ class Expr(abc.ABC):
     def __eq__(self, other: object) -> 'exprs.Expr':  # type: ignore[override]
         if other is None:
             from .is_null import IsNull
+
             return IsNull(self)
         return self._make_comparison(ComparisonOperator.EQ, other)
 
@@ -573,6 +603,7 @@ class Expr(abc.ABC):
         if other is None:
             from .compound_predicate import CompoundPredicate
             from .is_null import IsNull
+
             return CompoundPredicate(LogicalOperator.NOT, [IsNull(self)])
         return self._make_comparison(ComparisonOperator.NE, other)
 
@@ -589,6 +620,7 @@ class Expr(abc.ABC):
         # TODO: check for compatibility
         from .comparison import Comparison
         from .literal import Literal
+
         if isinstance(other, Expr):
             return Comparison(op, self, other)
         if isinstance(other, typing.get_args(LiteralPythonTypes)):
@@ -641,6 +673,7 @@ class Expr(abc.ABC):
         # TODO: check for compatibility
         from .arithmetic_expr import ArithmeticExpr
         from .literal import Literal
+
         if isinstance(other, Expr):
             return ArithmeticExpr(op, self, other)
         if isinstance(other, typing.get_args(LiteralPythonTypes)):
@@ -655,6 +688,7 @@ class Expr(abc.ABC):
         # TODO: check for compatibility
         from .arithmetic_expr import ArithmeticExpr
         from .literal import Literal
+
         assert not isinstance(other, Expr)  # Else the left-handed form would have evaluated first
         if isinstance(other, typing.get_args(LiteralPythonTypes)):
             return ArithmeticExpr(op, Literal(other), self)
@@ -666,6 +700,7 @@ class Expr(abc.ABC):
         if not other.col_type.is_bool_type():
             raise TypeError(f'Other needs to be an expression that returns a boolean: {other.col_type}')
         from .compound_predicate import CompoundPredicate
+
         return CompoundPredicate(LogicalOperator.AND, [self, other])
 
     def __or__(self, other: object) -> Expr:
@@ -674,14 +709,15 @@ class Expr(abc.ABC):
         if not other.col_type.is_bool_type():
             raise TypeError(f'Other needs to be an expression that returns a boolean: {other.col_type}')
         from .compound_predicate import CompoundPredicate
+
         return CompoundPredicate(LogicalOperator.OR, [self, other])
 
     def __invert__(self) -> Expr:
         from .compound_predicate import CompoundPredicate
+
         return CompoundPredicate(LogicalOperator.NOT, [self])
 
-    def split_conjuncts(
-            self, condition: Callable[[Expr], bool]) -> tuple[list[Expr], Optional[Expr]]:
+    def split_conjuncts(self, condition: Callable[[Expr], bool]) -> tuple[list[Expr], Optional[Expr]]:
         """
         Returns clauses of a conjunction that meet condition in the first element.
         The second element contains remaining clauses, rolled into a conjunction.
@@ -721,7 +757,8 @@ class Expr(abc.ABC):
         if fn_type is None:
             raise excs.Error(
                 f'Column type of `{fn.__name__}` cannot be inferred. '
-                f'Use `.apply({fn.__name__}, col_type=...)` to specify.')
+                f'Use `.apply({fn.__name__}, col_type=...)` to specify.'
+            )
 
         # TODO(aaron-siegel) Currently we assume that `fn` has exactly one required parameter
         # and all optional parameters take their default values. Should we provide a more
@@ -741,17 +778,15 @@ class Expr(abc.ABC):
             second_param = next(params_iter) if len(params) >= 2 else None
             # Check that fn has at least one positional parameter
             if len(params) == 0 or first_param.kind in (inspect.Parameter.KEYWORD_ONLY, inspect.Parameter.VAR_KEYWORD):
-                raise excs.Error(
-                    f'Function `{fn.__name__}` has no positional parameters.'
-                )
+                raise excs.Error(f'Function `{fn.__name__}` has no positional parameters.')
             # Check that fn has at most one required parameter, i.e., its second parameter
             # has no default and is not a varargs
-            if len(params) >= 2 and \
-                    second_param.kind not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD) and \
-                    second_param.default == inspect.Parameter.empty:
-                raise excs.Error(
-                    f'Function `{fn.__name__}` has multiple required parameters.'
-                )
+            if (
+                len(params) >= 2
+                and second_param.kind not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
+                and second_param.default == inspect.Parameter.empty
+            ):
+                raise excs.Error(f'Function `{fn.__name__}` has multiple required parameters.')
         except ValueError:
             # inspect.signature(fn) will raise a `ValueError` if `fn` is a builtin; I don't
             # know of any way to get the signature of a builtin, nor to check for this in
@@ -765,7 +800,8 @@ class Expr(abc.ABC):
         # We also set the display_name explicitly, so that the `FunctionCall` gets the
         # name of `decorated_fn`, not the lambda.
         return func.make_function(
-            decorated_fn=lambda x: fn(x), return_type=fn_type, param_types=[self.col_type], function_name=fn.__name__)
+            decorated_fn=lambda x: fn(x), return_type=fn_type, param_types=[self.col_type], function_name=fn.__name__
+        )
 
 
 # A dictionary of result types of various stdlib functions that are

@@ -19,6 +19,7 @@ class MethodRef(Expr):
     When a `MethodRef` is called, it returns a `FunctionCall` with the base expression as the first argument.
     The effective arity of a `MethodRef` is one less than the arity of the underlying `Function`.
     """
+
     # TODO: Should this even be an `Expr`? It can't actually be evaluated directly (it has to be first
     #   converted to a `FunctionCall` by binding any remaining parameters).
 

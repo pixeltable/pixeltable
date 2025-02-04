@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 @register_client('mistral')
 def _(api_key: str) -> 'mistralai.Mistral':
     import mistralai
+
     return mistralai.Mistral(api_key=api_key)
 
 
@@ -28,8 +29,8 @@ def _mistralai_client() -> 'mistralai.Mistral':
     return Env.get().get_client('mistral')
 
 
-@pxt.udf
-def chat_completions(
+@pxt.udf(resource_pool='request-rate:mistral')
+async def chat_completions(
     messages: list[dict[str, str]],
     *,
     model: str,
@@ -46,6 +47,10 @@ def chat_completions(
 
     Equivalent to the Mistral AI `chat/completions` API endpoint.
     For additional details, see: <https://docs.mistral.ai/api/#tag/chat>
+
+    Request throttling:
+    Applies the rate limit set in the config (section `mistral`, key `rate_limit`). If no rate
+    limit is configured, uses a default of 600 RPM.
 
     __Requirements:__
 
@@ -65,10 +70,10 @@ def chat_completions(
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
         >>> messages = [{'role': 'user', 'content': tbl.prompt}]
-        ... tbl['response'] = completions(messages, model='mistral-latest-small')
+        ... tbl.add_computed_column(response=completions(messages, model='mistral-latest-small'))
     """
     Env.get().require_package('mistralai')
-    return _mistralai_client().chat.complete(
+    result = await _mistralai_client().chat.complete_async(
         messages=messages,  # type: ignore[arg-type]
         model=model,
         temperature=temperature,
@@ -78,11 +83,12 @@ def chat_completions(
         random_seed=_opt(random_seed),
         response_format=response_format,  # type: ignore[arg-type]
         safe_prompt=safe_prompt,
-    ).dict()
+    )
+    return result.dict()
 
 
-@pxt.udf
-def fim_completions(
+@pxt.udf(resource_pool='request-rate:mistral')
+async def fim_completions(
     prompt: str,
     *,
     model: str,
@@ -99,6 +105,10 @@ def fim_completions(
 
     Equivalent to the Mistral AI `fim/completions` API endpoint.
     For additional details, see: <https://docs.mistral.ai/api/#tag/fim>
+
+    Request throttling:
+    Applies the rate limit set in the config (section `mistral`, key `rate_limit`). If no rate
+    limit is configured, uses a default of 600 RPM.
 
     __Requirements:__
 
@@ -117,10 +127,10 @@ def fim_completions(
         Add a computed column that applies the model `codestral-latest`
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
-        >>> tbl['response'] = completions(tbl.prompt, model='codestral-latest')
+        >>> tbl.add_computed_column(response=completions(tbl.prompt, model='codestral-latest'))
     """
     Env.get().require_package('mistralai')
-    return _mistralai_client().fim.complete(
+    result = await _mistralai_client().fim.complete_async(
         prompt=prompt,
         model=model,
         temperature=temperature,
@@ -129,22 +139,25 @@ def fim_completions(
         min_tokens=_opt(min_tokens),
         stop=stop,
         random_seed=_opt(random_seed),
-        suffix=_opt(suffix)
-    ).dict()
+        suffix=_opt(suffix),
+    )
+    return result.dict()
 
 
-_embedding_dimensions_cache: dict[str, int] = {
-    'mistral-embed': 1024
-}
+_embedding_dimensions_cache: dict[str, int] = {'mistral-embed': 1024}
 
 
-@pxt.udf(batch_size=16)
-def embeddings(input: Batch[str], *, model: str) -> Batch[pxt.Array[(None,), pxt.Float]]:
+@pxt.udf(batch_size=16, resource_pool='request-rate:mistral')
+async def embeddings(input: Batch[str], *, model: str) -> Batch[pxt.Array[(None,), pxt.Float]]:
     """
     Embeddings API.
 
     Equivalent to the Mistral AI `embeddings` API endpoint.
     For additional details, see: <https://docs.mistral.ai/api/#tag/embeddings>
+
+    Request throttling:
+    Applies the rate limit set in the config (section `mistral`, key `rate_limit`). If no rate
+    limit is configured, uses a default of 600 RPM.
 
     __Requirements:__
 
@@ -158,10 +171,7 @@ def embeddings(input: Batch[str], *, model: str) -> Batch[pxt.Array[(None,), pxt
         An array representing the application of the given embedding to `input`.
     """
     Env.get().require_package('mistralai')
-    result = _mistralai_client().embeddings.create(
-        inputs=input,
-        model=model,
-    )
+    result = _mistralai_client().embeddings.create(inputs=input, model=model)
     return [np.array(data.embedding, dtype=np.float64) for data in result.data]
 
 
@@ -176,6 +186,7 @@ _T = TypeVar('_T')
 
 def _opt(arg: Optional[_T]) -> Union[_T, 'mistralai.types.basemodel.Unset']:
     from mistralai.types import UNSET
+
     return arg if arg is not None else UNSET
 
 

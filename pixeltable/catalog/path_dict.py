@@ -17,8 +17,10 @@ from .schema_object import SchemaObject
 
 _logger = logging.getLogger('pixeltable')
 
+
 class PathDict:
     """Keep track of all paths in a Db instance"""
+
     def __init__(self):
         self.dir_contents: dict[UUID, dict[str, SchemaObject]] = {}
         self.schema_objs: dict[UUID, SchemaObject] = {}
@@ -64,7 +66,7 @@ class PathDict:
         """
         schema_obj = self.get_object(path)
         if schema_obj is None:
-            raise excs.Error(f"No such path: {str(path)}")
+            raise excs.Error(f'No such path: {str(path)}')
         return schema_obj
 
     def get_object(self, path: Path) -> Optional[SchemaObject]:
@@ -86,11 +88,11 @@ class PathDict:
             if component not in self.dir_contents[dir._id]:
                 if i == len(path.components) - 1:
                     return None
-                raise excs.Error(f'No such path: {".".join(path.components[:i + 1])}')
+                raise excs.Error(f'No such path: {".".join(path.components[: i + 1])}')
             schema_obj = self.dir_contents[dir._id][component]
             if i < len(path.components) - 1:
                 if not isinstance(schema_obj, Dir):
-                    raise excs.Error(f'Not a directory: {".".join(path.components[:i + 1])}')
+                    raise excs.Error(f'Not a directory: {".".join(path.components[: i + 1])}')
                 dir = schema_obj
         return schema_obj
 
@@ -145,10 +147,11 @@ class PathDict:
         obj = self.get_object(path)
         if expected is not None:
             if obj is None:
-                raise excs.Error(f"No such path: {str(path)}")
+                raise excs.Error(f'No such path: {str(path)}')
             if not isinstance(obj, expected):
                 raise excs.Error(
-                    f'{str(path)} needs to be a {expected._display_name()} but is a {type(obj)._display_name()}')
+                    f'{str(path)} needs to be a {expected._display_name()} but is a {type(obj)._display_name()}'
+                )
         if expected is None and obj is not None:
             raise excs.Error(f"{type(obj)._display_name()} '{str(path)}' already exists")
 
@@ -164,4 +167,3 @@ class PathDict:
             for dir in [obj for obj in self.dir_contents[dir._id].values() if isinstance(obj, Dir)]:
                 result.extend(self.get_children(copy.copy(parent).append(dir._name), child_type, recursive))
         return result
-

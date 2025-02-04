@@ -6,10 +6,10 @@ import urllib.parse
 import urllib.request
 from typing import Any, Optional
 
-import PIL
-import PIL.Image
 import numpy as np
 import pgvector.sqlalchemy  # type: ignore[import-untyped]
+import PIL
+import PIL.Image
 import sqlalchemy as sql
 
 from pixeltable import env

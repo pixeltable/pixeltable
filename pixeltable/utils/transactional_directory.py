@@ -24,9 +24,9 @@ def transactional_directory(folder_path: Path) -> Generator[Path, Any, Any]:
             (temp_folder / "subfolder2").mkdir()
     """
     if folder_path.exists():
-        raise excs.Error(f"Folder {folder_path} already exists")
+        raise excs.Error(f'Folder {folder_path} already exists')
 
-    tmp_folder = folder_path.parent / f".tmp_{folder_path.name}"
+    tmp_folder = folder_path.parent / f'.tmp_{folder_path.name}'
     # Remove the temporary folder if it already exists, eg if the previous run crashed
     shutil.rmtree(str(tmp_folder), ignore_errors=True)
     tmp_folder.mkdir(parents=True)

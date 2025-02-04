@@ -16,8 +16,7 @@ if TYPE_CHECKING:
 
 
 @pytest.mark.skipif(
-    sysconfig.get_platform() == 'linux-aarch64',
-    reason='libsndfile.so is missing on Linux ARM instances in CI'
+    sysconfig.get_platform() == 'linux-aarch64', reason='libsndfile.so is missing on Linux ARM instances in CI'
 )
 @pytest.mark.flaky(reruns=3, only_rerun='HfHubHTTPError')
 class TestHfDatasets:
@@ -50,10 +49,7 @@ class TestHfDatasets:
                 'schema_override': {'emb': pxt.Array[(1024,), pxt.Float]},  # type: ignore[misc]
             },
             # example of dataset dictionary with multiple splits
-            {
-                'dataset_name': 'rotten_tomatoes',
-                'dataset': datasets.load_dataset('rotten_tomatoes'),
-            }
+            {'dataset_name': 'rotten_tomatoes', 'dataset': datasets.load_dataset('rotten_tomatoes')},
         ]
 
         # test a column name for splits other than the default of 'split'

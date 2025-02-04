@@ -22,19 +22,24 @@ def create_system_info(engine: sql.engine.Engine) -> None:
         session.flush()
         session.commit()
 
+
 # conversion functions for upgrading the metadata schema from one version to the following
 # key: old schema version
 converter_cbs: dict[int, Callable[[sql.engine.Engine], None]] = {}
+
 
 def register_converter(version: int) -> Callable[[Callable[[sql.engine.Engine], None]], None]:
     def decorator(fn: Callable[[sql.engine.Engine], None]) -> None:
         global converter_cbs
         converter_cbs[version] = fn
+
     return decorator
+
 
 # load all converter modules
 for _, modname, _ in pkgutil.iter_modules([os.path.dirname(__file__) + '/converters']):
     importlib.import_module('pixeltable.metadata.converters.' + modname)
+
 
 def upgrade_md(engine: sql.engine.Engine) -> None:
     """Upgrade the metadata schema to the current version"""
@@ -47,7 +52,9 @@ def upgrade_md(engine: sql.engine.Engine) -> None:
         while md_version < VERSION:
             if md_version not in converter_cbs:
                 raise RuntimeError(f'No metadata converter for version {md_version}')
-            print(f'Converting metadata from version {md_version} to {md_version + 1}')
+            from pixeltable.env import Env
+
+            Env.get().console_logger.info(f'Converting metadata from version {md_version} to {md_version + 1}')
             converter_cbs[md_version](engine)
             md_version += 1
         # update system info

@@ -7,6 +7,7 @@ from sqlalchemy.dialects import postgresql
 def log_stmt(logger: logging.Logger, stmt) -> None:
     logger.debug(f'executing {str(stmt.compile(dialect=postgresql.dialect()))}')
 
+
 def log_explain(logger: logging.Logger, stmt: sql.sql.ClauseElement, conn: sql.engine.Connection) -> None:
     try:
         # don't set dialect=Env.get().engine.dialect: x % y turns into x %% y, which results in a syntax error

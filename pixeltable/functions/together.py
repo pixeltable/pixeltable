@@ -25,12 +25,13 @@ if TYPE_CHECKING:
 
 
 @env.register_client('together')
-def _(api_key: str) -> 'together.Together':
+def _(api_key: str) -> 'together.AsyncTogether':
     import together
-    return together.Together(api_key=api_key)
+
+    return together.AsyncTogether(api_key=api_key)
 
 
-def _together_client() -> 'together.Together':
+def _together_client() -> 'together.AsyncTogether':
     return env.Env.get().get_client('together')
 
 
@@ -39,6 +40,7 @@ T = TypeVar('T')
 
 def _retry(fn: Callable[..., T]) -> Callable[..., T]:
     import together
+
     return tenacity.retry(
         retry=tenacity.retry_if_exception_type(together.error.RateLimitError),
         wait=tenacity.wait_random_exponential(multiplier=1, max=60),
@@ -46,8 +48,8 @@ def _retry(fn: Callable[..., T]) -> Callable[..., T]:
     )(fn)
 
 
-@pxt.udf
-def completions(
+@pxt.udf(resource_pool='request-rate:together:chat')
+async def completions(
     prompt: str,
     *,
     model: str,
@@ -68,6 +70,10 @@ def completions(
     Equivalent to the Together AI `completions` API endpoint.
     For additional details, see: [https://docs.together.ai/reference/completions-1](https://docs.together.ai/reference/completions-1)
 
+    Request throttling:
+    Applies the rate limit set in the config (section `together.rate_limits`, key `chat`). If no rate
+    limit is configured, uses a default of 600 RPM.
+
     __Requirements:__
 
     - `pip install together`
@@ -85,29 +91,27 @@ def completions(
         Add a computed column that applies the model `mistralai/Mixtral-8x7B-v0.1` to an existing Pixeltable column `tbl.prompt`
         of the table `tbl`:
 
-        >>> tbl['response'] = completions(tbl.prompt, model='mistralai/Mixtral-8x7B-v0.1')
+        >>> tbl.add_computed_column(response=completions(tbl.prompt, model='mistralai/Mixtral-8x7B-v0.1'))
     """
-    return (
-        _retry(_together_client().completions.create)(
-            prompt=prompt,
-            model=model,
-            max_tokens=max_tokens,
-            stop=stop,
-            temperature=temperature,
-            top_p=top_p,
-            top_k=top_k,
-            repetition_penalty=repetition_penalty,
-            logprobs=logprobs,
-            echo=echo,
-            n=n,
-            safety_model=safety_model,
-        )
-        .dict()
+    result = await _together_client().completions.create(
+        prompt=prompt,
+        model=model,
+        max_tokens=max_tokens,
+        stop=stop,
+        temperature=temperature,
+        top_p=top_p,
+        top_k=top_k,
+        repetition_penalty=repetition_penalty,
+        logprobs=logprobs,
+        echo=echo,
+        n=n,
+        safety_model=safety_model,
     )
+    return result.dict()
 
 
-@pxt.udf
-def chat_completions(
+@pxt.udf(resource_pool='request-rate:together:chat')
+async def chat_completions(
     messages: list[dict[str, str]],
     *,
     model: str,
@@ -131,6 +135,10 @@ def chat_completions(
     Equivalent to the Together AI `chat/completions` API endpoint.
     For additional details, see: [https://docs.together.ai/reference/chat-completions-1](https://docs.together.ai/reference/chat-completions-1)
 
+    Request throttling:
+    Applies the rate limit set in the config (section `together.rate_limits`, key `chat`). If no rate
+    limit is configured, uses a default of 600 RPM.
+
     __Requirements:__
 
     - `pip install together`
@@ -149,28 +157,26 @@ def chat_completions(
         of the table `tbl`:
 
         >>> messages = [{'role': 'user', 'content': tbl.prompt}]
-        ... tbl['response'] = chat_completions(messages, model='mistralai/Mixtral-8x7B-v0.1')
+        ... tbl.add_computed_column(response=chat_completions(messages, model='mistralai/Mixtral-8x7B-v0.1'))
     """
-    return (
-        _retry(_together_client().chat.completions.create)(
-            messages=messages,
-            model=model,
-            max_tokens=max_tokens,
-            stop=stop,
-            temperature=temperature,
-            top_p=top_p,
-            top_k=top_k,
-            repetition_penalty=repetition_penalty,
-            logprobs=logprobs,
-            echo=echo,
-            n=n,
-            safety_model=safety_model,
-            response_format=response_format,
-            tools=tools,
-            tool_choice=tool_choice,
-        )
-        .dict()
+    result = await _together_client().chat.completions.create(
+        messages=messages,
+        model=model,
+        max_tokens=max_tokens,
+        stop=stop,
+        temperature=temperature,
+        top_p=top_p,
+        top_k=top_k,
+        repetition_penalty=repetition_penalty,
+        logprobs=logprobs,
+        echo=echo,
+        n=n,
+        safety_model=safety_model,
+        response_format=response_format,
+        tools=tools,
+        tool_choice=tool_choice,
     )
+    return result.dict()
 
 
 _embedding_dimensions_cache = {
@@ -185,13 +191,17 @@ _embedding_dimensions_cache = {
 }
 
 
-@pxt.udf(batch_size=32)
-def embeddings(input: Batch[str], *, model: str) -> Batch[pxt.Array[(None,), pxt.Float]]:
+@pxt.udf(batch_size=32, resource_pool='request-rate:together:embeddings')
+async def embeddings(input: Batch[str], *, model: str) -> Batch[pxt.Array[(None,), pxt.Float]]:
     """
     Query an embedding model for a given string of text.
 
     Equivalent to the Together AI `embeddings` API endpoint.
     For additional details, see: [https://docs.together.ai/reference/embeddings-2](https://docs.together.ai/reference/embeddings-2)
+
+    Request throttling:
+    Applies the rate limit set in the config (section `together.rate_limits`, key `embeddings`). If no rate
+    limit is configured, uses a default of 600 RPM.
 
     __Requirements:__
 
@@ -208,9 +218,9 @@ def embeddings(input: Batch[str], *, model: str) -> Batch[pxt.Array[(None,), pxt
         Add a computed column that applies the model `togethercomputer/m2-bert-80M-8k-retrieval`
         to an existing Pixeltable column `tbl.text` of the table `tbl`:
 
-        >>> tbl['response'] = embeddings(tbl.text, model='togethercomputer/m2-bert-80M-8k-retrieval')
+        >>> tbl.add_computed_column(response=embeddings(tbl.text, model='togethercomputer/m2-bert-80M-8k-retrieval'))
     """
-    result = _retry(_together_client().embeddings.create)(input=input, model=model)
+    result = await _together_client().embeddings.create(input=input, model=model)
     return [np.array(data.embedding, dtype=np.float64) for data in result.data]
 
 
@@ -223,8 +233,8 @@ def _(model: str) -> pxt.ArrayType:
     return pxt.ArrayType((dimensions,), dtype=pxt.FloatType())
 
 
-@pxt.udf
-def image_generations(
+@pxt.udf(resource_pool='request-rate:together:images')
+async def image_generations(
     prompt: str,
     *,
     model: str,
@@ -239,6 +249,10 @@ def image_generations(
 
     Equivalent to the Together AI `images/generations` API endpoint.
     For additional details, see: [https://docs.together.ai/reference/post_images-generations](https://docs.together.ai/reference/post_images-generations)
+
+    Request throttling:
+    Applies the rate limit set in the config (section `together.rate_limits`, key `images`). If no rate
+    limit is configured, uses a default of 600 RPM.
 
     __Requirements:__
 
@@ -257,9 +271,9 @@ def image_generations(
         Add a computed column that applies the model `stabilityai/stable-diffusion-xl-base-1.0`
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
-        >>> tbl['response'] = image_generations(tbl.prompt, model='stabilityai/stable-diffusion-xl-base-1.0')
+        >>> tbl.add_computed_column(response=image_generations(tbl.prompt, model='stabilityai/stable-diffusion-xl-base-1.0'))
     """
-    result = _retry(_together_client().images.generate)(
+    result = await _together_client().images.generate(
         prompt=prompt, model=model, steps=steps, seed=seed, height=height, width=width, negative_prompt=negative_prompt
     )
     if result.data[0].b64_json is not None:

@@ -15,6 +15,7 @@ from .utils import assert_resultset_eq, get_test_video_files, reload_catalog, va
 
 class ConstantImgIterator(ComponentIterator):
     """Component iterator that generates a fixed number of all-black 1280x720 images."""
+
     def __init__(self, video: str, *, num_frames: int = 10):
         self.img = PIL.Image.new('RGB', (1280, 720))
         self.next_frame_idx = 0
@@ -24,10 +25,7 @@ class ConstantImgIterator(ComponentIterator):
 
     @classmethod
     def input_schema(cls) -> dict[str, pxt.ColumnType]:
-        return {
-            'video': pxt.VideoType(nullable=False),
-            'fps': pxt.FloatType()
-        }
+        return {'video': pxt.VideoType(nullable=False), 'fps': pxt.FloatType()}
 
     @classmethod
     def output_schema(cls, *args: Any, **kwargs: Any) -> tuple[dict[str, pxt.ColumnType], list[str]]:
@@ -61,7 +59,6 @@ class ConstantImgIterator(ComponentIterator):
 
 
 class TestComponentView:
-
     def test_basic(self, reset_db) -> None:
         # create video table
         schema = {'video': pxt.Video, 'angle': pxt.Int, 'other_angle': pxt.Int}
@@ -111,8 +108,13 @@ class TestComponentView:
         assert np.all(res['pos'] == res['frame_idx'])
 
         video_url = video_t.select(video_t.video.fileurl).collect()[0, 0]
-        result = view_t.where(view_t.video == video_url).select(view_t.frame_idx).order_by(view_t.frame_idx) \
-            .collect().to_pandas()
+        result = (
+            view_t.where(view_t.video == video_url)
+            .select(view_t.frame_idx)
+            .order_by(view_t.frame_idx)
+            .collect()
+            .to_pandas()
+        )
         assert len(result) > 0
         assert np.all(result['frame_idx'] == pd.Series(range(len(result))))
 
@@ -141,60 +143,70 @@ class TestComponentView:
         video_t = pxt.create_table('video_tbl', {'video': pxt.Video})
         # create frame view with manually updated column
         view_t = pxt.create_view(
-            'test_view', video_t, additional_columns={'annotation': pxt.Json},
-            iterator=FrameIterator.create(video=video_t.video, fps=1))
+            'test_view',
+            video_t,
+            additional_columns={'annotation': pxt.Json},
+            iterator=FrameIterator.create(video=video_t.video, fps=1),
+        )
 
         video_filepaths = get_test_video_files()
         rows = [{'video': p} for p in video_filepaths]
         status = video_t.insert(rows)
         assert status.num_excs == 0
         import urllib
+
         video_url = urllib.parse.urljoin('file:', urllib.request.pathname2url(video_filepaths[0]))
         validate_update_status(
             view_t.update({'annotation': {'a': 1}}, where=view_t.video == video_url),
-            expected_rows=view_t.where(view_t.video == video_url).count())
+            expected_rows=view_t.where(view_t.video == video_url).count(),
+        )
         assert view_t.where(view_t.annotation != None).count() == view_t.where(view_t.video == video_url).count()
 
         # batch update with _rowid works
         validate_update_status(
             view_t.batch_update(
-                [{'annotation': {'a': 1}, '_rowid': (1, 0)}, {'annotation': {'a': 1}, '_rowid': (1, 1)}]),
-            expected_rows=2)
+                [{'annotation': {'a': 1}, '_rowid': (1, 0)}, {'annotation': {'a': 1}, '_rowid': (1, 1)}]
+            ),
+            expected_rows=2,
+        )
         with pytest.raises(AssertionError):
             # malformed _rowid
             view_t.batch_update([{'annotation': {'a': 1}, '_rowid': (1,)}])
 
         with pytest.raises(excs.Error) as excinfo:
             _ = pxt.create_view(
-                'bad_view', video_t, additional_columns={'annotation': pxt.Required[pxt.Json]},
-                iterator=FrameIterator.create(video=video_t.video, fps=1))
+                'bad_view',
+                video_t,
+                additional_columns={'annotation': pxt.Required[pxt.Json]},
+                iterator=FrameIterator.create(video=video_t.video, fps=1),
+            )
         assert 'must be nullable' in str(excinfo.value)
 
     # break up the snapshot tests for better (future) parallelization
     def test_snapshot1(self, reset_db) -> None:
         has_column = False
-        has_filter  = False
+        has_filter = False
         for reload_md in [False, True]:
             reload_catalog()
             self.run_snapshot_test(has_column=has_column, has_filter=has_filter, reload_md=reload_md)
 
     def test_snapshot2(self, reset_db) -> None:
         has_column = True
-        has_filter  = False
+        has_filter = False
         for reload_md in [False, True]:
             reload_catalog()
             self.run_snapshot_test(has_column=has_column, has_filter=has_filter, reload_md=reload_md)
 
     def test_snapshot3(self, reset_db) -> None:
         has_column = False
-        has_filter  = True
+        has_filter = True
         for reload_md in [False, True]:
             reload_catalog()
             self.run_snapshot_test(has_column=has_column, has_filter=has_filter, reload_md=reload_md)
 
     def test_snapshot4(self, reset_db) -> None:
         has_column = True
-        has_filter  = True
+        has_filter = True
         for reload_md in [False, True]:
             reload_catalog()
             self.run_snapshot_test(has_column=has_column, has_filter=has_filter, reload_md=reload_md)
@@ -213,17 +225,20 @@ class TestComponentView:
         assert status.num_excs == 0
 
         # create frame view with a computed column
-        view_t = pxt.create_view(
-            view_path, video_t, iterator=ConstantImgIterator.create(video=video_t.video))
+        view_t = pxt.create_view(view_path, video_t, iterator=ConstantImgIterator.create(video=video_t.video))
         view_t.add_computed_column(
             cropped=view_t.frame.crop([view_t.margin, view_t.margin, view_t.frame.width, view_t.frame.height]),
-            stored=True)
+            stored=True,
+        )
         snap_col_expr = [view_t.cropped.width * view_t.cropped.height] if has_column else []
-        view_query = \
-            view_t.select(
-                    view_t.margin, view_t.frame.width, view_t.frame.height, view_t.cropped.width,
-                    view_t.cropped.height, *snap_col_expr)\
-                .order_by(view_t.video, view_t.pos)
+        view_query = view_t.select(
+            view_t.margin,
+            view_t.frame.width,
+            view_t.frame.height,
+            view_t.cropped.width,
+            view_t.cropped.height,
+            *snap_col_expr,
+        ).order_by(view_t.video, view_t.pos)
         if has_filter:
             view_query = view_query.where(view_t.frame_idx < 10)
         orig_resultset = view_query.collect()
@@ -233,11 +248,14 @@ class TestComponentView:
         schema = {'c1': view_t.cropped.width * view_t.cropped.height} if has_column else {}
         snap_t = pxt.create_snapshot(snap_path, query, additional_columns=schema)
         snap_cols = [snap_t.c1] if has_column else []
-        snap_query = \
-            snap_t.select(
-                    snap_t.margin, snap_t.frame.width, snap_t.frame.height, snap_t.cropped.width,
-                    snap_t.cropped.height, *snap_cols)\
-                .order_by(snap_t.video, snap_t.pos)
+        snap_query = snap_t.select(
+            snap_t.margin,
+            snap_t.frame.width,
+            snap_t.frame.height,
+            snap_t.cropped.width,
+            snap_t.cropped.height,
+            *snap_cols,
+        ).order_by(snap_t.video, snap_t.pos)
         assert_resultset_eq(snap_query.collect(), orig_resultset)
 
         if reload_md:
@@ -245,11 +263,14 @@ class TestComponentView:
             video_t = pxt.get_table(base_path)
             snap_t = pxt.get_table(snap_path)
             snap_cols = [snap_t.c1] if has_column else []
-            snap_query = \
-                snap_t.select(
-                        snap_t.margin, snap_t.frame.width, snap_t.frame.height, snap_t.cropped.width,
-                        snap_t.cropped.height, *snap_cols) \
-                    .order_by(snap_t.video, snap_t.pos)
+            snap_query = snap_t.select(
+                snap_t.margin,
+                snap_t.frame.width,
+                snap_t.frame.height,
+                snap_t.cropped.width,
+                snap_t.cropped.height,
+                *snap_cols,
+            ).order_by(snap_t.video, snap_t.pos)
 
         # snapshot is unaffected by base insert()
         status = video_t.insert(rows)
@@ -305,46 +326,50 @@ class TestComponentView:
         def check_view():
             assert_resultset_eq(
                 v1.select(v1.int3).order_by(v1.video, v1.pos).collect(),
-                v1.select(v1.int1 + 1).order_by(v1.video, v1.pos).collect())
+                v1.select(v1.int1 + 1).order_by(v1.video, v1.pos).collect(),
+            )
             assert_resultset_eq(
                 v1.select(v1.int4).order_by(v1.video, v1.pos).collect(),
-                v1.select(v1.frame_idx + 1).order_by(v1.video, v1.pos).collect())
+                v1.select(v1.frame_idx + 1).order_by(v1.video, v1.pos).collect(),
+            )
             assert_resultset_eq(
-                v1\
-                    .select(v1.video, v1.img1.width, v1.img1.height)\
-                    .order_by(v1.video, v1.pos).collect(),
-                v1\
-                    .select(v1.video, v1.frame.width - v1.int1 - 1, v1.frame.height - v1.int1 - 1)\
-                    .order_by(v1.video, v1.pos).collect())
+                v1.select(v1.video, v1.img1.width, v1.img1.height).order_by(v1.video, v1.pos).collect(),
+                v1.select(v1.video, v1.frame.width - v1.int1 - 1, v1.frame.height - v1.int1 - 1)
+                .order_by(v1.video, v1.pos)
+                .collect(),
+            )
             assert_resultset_eq(
                 v2.select(v2.int5).order_by(v2.video, v2.pos).collect(),
-                v2.select(v2.int1 + 1).order_by(v2.video, v2.pos).collect())
+                v2.select(v2.int1 + 1).order_by(v2.video, v2.pos).collect(),
+            )
             assert_resultset_eq(
                 v2.select(v2.int6).order_by(v2.video, v2.pos).collect(),
-                v2.select(v2.int2 + 1).order_by(v2.video, v2.pos).collect())
+                v2.select(v2.int2 + 1).order_by(v2.video, v2.pos).collect(),
+            )
             assert_resultset_eq(
-                v2 \
-                    .select(v2.video, v2.img3.width, v2.img3.height) \
-                    .order_by(v2.video, v2.pos).collect(),
-                v2 \
-                    .select(v2.video, v2.frame.width - v2.int1 * 2 - 2, v2.frame.height - v2.int1 * 2 - 2) \
-                    .order_by(v2.video, v2.pos).collect())
+                v2.select(v2.video, v2.img3.width, v2.img3.height).order_by(v2.video, v2.pos).collect(),
+                v2.select(v2.video, v2.frame.width - v2.int1 * 2 - 2, v2.frame.height - v2.int1 * 2 - 2)
+                .order_by(v2.video, v2.pos)
+                .collect(),
+            )
             assert_resultset_eq(
-                v2 \
-                    .select(v2.video, v2.img4.width, v2.img4.height) \
-                    .order_by(v2.video, v2.pos).collect(),
-                v2 \
-                    .select(
-                        v2.video, v2.frame.width - v2.frame_idx - v2.int2 - 2,
-                        v2.frame.height - v2.frame_idx - v2.int2 - 2) \
-                    .order_by(v2.video, v2.pos).collect())
-            assert_resultset_eq(
-                v2.select(v2.int7).order_by(v2.video, v2.pos).collect(),
-                v2.select(v2.img3.width + v2.img4.width).order_by(v2.video, v2.pos).collect())
+                v2.select(v2.video, v2.img4.width, v2.img4.height).order_by(v2.video, v2.pos).collect(),
+                v2.select(
+                    v2.video, v2.frame.width - v2.frame_idx - v2.int2 - 2, v2.frame.height - v2.frame_idx - v2.int2 - 2
+                )
+                .order_by(v2.video, v2.pos)
+                .collect(),
+            )
             assert_resultset_eq(
                 v2.select(v2.int7).order_by(v2.video, v2.pos).collect(),
-                v2.select(v2.frame.width - v2.int1 * 2 - 2 + v2.frame.width - v2.frame_idx - v2.int2 - 2)\
-                    .order_by(v2.video, v2.pos).collect())
+                v2.select(v2.img3.width + v2.img4.width).order_by(v2.video, v2.pos).collect(),
+            )
+            assert_resultset_eq(
+                v2.select(v2.int7).order_by(v2.video, v2.pos).collect(),
+                v2.select(v2.frame.width - v2.int1 * 2 - 2 + v2.frame.width - v2.frame_idx - v2.int2 - 2)
+                .order_by(v2.video, v2.pos)
+                .collect(),
+            )
 
         # load data
         rows = [{'video': p, 'int1': i, 'int2': len(video_filepaths) - i} for i, p in enumerate(video_filepaths)]
@@ -356,10 +381,13 @@ class TestComponentView:
         # TODO: how to test that img4 doesn't get recomputed as part of the computation of int7?
         # need to collect more runtime stats (eg, called functions)
         import urllib
+
         video_url = urllib.parse.urljoin('file:', urllib.request.pathname2url(video_filepaths[0]))
         status = video_t.update({'int1': video_t.int1 + 1}, where=video_t.video == video_url)
         assert status.num_rows == 1 + v1.where(v1.video == video_url).count() + v2.where(v2.video == video_url).count()
-        assert sorted('int1 int3 img1 int5 img3 int7'.split()) == sorted([str.split('.')[1] for str in status.updated_cols])
+        assert sorted('int1 int3 img1 int5 img3 int7'.split()) == sorted(
+            [str.split('.')[1] for str in status.updated_cols]
+        )
         check_view()
 
         # update int2: propagates to img4, int6, int7

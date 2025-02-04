@@ -60,8 +60,7 @@ class CompoundPredicate(Expr):
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return super()._id_attrs() + [('operator', self.operator.value)]
 
-    def split_conjuncts(
-            self, condition: Callable[[Expr], bool]) -> tuple[list[Expr], Optional[Expr]]:
+    def split_conjuncts(self, condition: Callable[[Expr], bool]) -> tuple[list[Expr], Optional[Expr]]:
         if self.operator == LogicalOperator.OR or self.operator == LogicalOperator.NOT:
             return super().split_conjuncts(condition)
         matches = [op for op in self.components if condition(op)]
@@ -97,4 +96,3 @@ class CompoundPredicate(Expr):
     def _from_dict(cls, d: dict, components: list[Expr]) -> CompoundPredicate:
         assert 'operator' in d
         return cls(LogicalOperator(d['operator']), components)
-

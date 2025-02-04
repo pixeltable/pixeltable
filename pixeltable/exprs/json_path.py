@@ -23,7 +23,7 @@ class JsonPath(Expr):
         self,
         anchor: Optional['pxt.exprs.Expr'],
         path_elements: Optional[list[Union[str, int, slice]]] = None,
-        scope_idx: int = 0
+        scope_idx: int = 0,
     ) -> None:
         """
         anchor can be None, in which case this is a relative JsonPath and the anchor is set later via set_anchor().
@@ -44,15 +44,13 @@ class JsonPath(Expr):
 
     def __repr__(self) -> str:
         # else "R": the anchor is RELATIVE_PATH_ROOT
-        return (f'{str(self._anchor) if self._anchor is not None else "R"}'
-            f'{"." if isinstance(self.path_elements[0], str) else ""}{self._json_path()}')
+        return (
+            f'{str(self._anchor) if self._anchor is not None else "R"}'
+            f'{"." if isinstance(self.path_elements[0], str) else ""}{self._json_path()}'
+        )
 
     def _as_dict(self) -> dict:
-        path_elements = [
-            [el.start, el.stop, el.step] if isinstance(el, slice)
-            else el
-            for el in self.path_elements
-        ]
+        path_elements = [[el.start, el.stop, el.step] if isinstance(el, slice) else el for el in self.path_elements]
         return {'path_elements': path_elements, 'scope_idx': self.scope_idx, **super()._as_dict()}
 
     @classmethod
@@ -61,11 +59,7 @@ class JsonPath(Expr):
         assert 'scope_idx' in d
         assert len(components) <= 1
         anchor = components[0] if len(components) == 1 else None
-        path_elements = [
-            slice(el[0], el[1], el[2]) if isinstance(el, list)
-            else el
-            for el in d['path_elements']
-        ]
+        path_elements = [slice(el[0], el[1], el[2]) if isinstance(el, list) else el for el in d['path_elements']]
         return cls(anchor, path_elements, d['scope_idx'])
 
     @property
@@ -114,7 +108,7 @@ class JsonPath(Expr):
         anchor_name = self._anchor.default_column_name() if self._anchor is not None else ''
         ret_name = f'{anchor_name}.{self._json_path()}'
 
-        def cleanup_char(s : str) -> str:
+        def cleanup_char(s: str) -> str:
             if s == '.':
                 return '_'
             elif s == '*':
@@ -125,7 +119,7 @@ class JsonPath(Expr):
                 return ''
 
         clean_name = ''.join(map(cleanup_char, ret_name))
-        clean_name = clean_name.lstrip('_') # remove leading underscore
+        clean_name = clean_name.lstrip('_')  # remove leading underscore
         if clean_name == '':
             clean_name = None
 
@@ -144,9 +138,9 @@ class JsonPath(Expr):
         *two* rows (each containing col val 0), not a single row with [0, 0].
         We need to use a workaround: retrieve the entire dict, then use jmespath to extract the path correctly.
         """
-        #path_str = '$.' + '.'.join(self.path_elements)
-        #assert isinstance(self._anchor(), ColumnRef)
-        #return sql.func.jsonb_path_query(self._anchor().col.sa_col, path_str)
+        # path_str = '$.' + '.'.join(self.path_elements)
+        # assert isinstance(self._anchor(), ColumnRef)
+        # return sql.func.jsonb_path_query(self._anchor().col.sa_col, path_str)
         return None
 
     def _json_path(self) -> str:

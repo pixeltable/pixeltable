@@ -1,4 +1,4 @@
-from typing import Iterator, Any
+from typing import Any, Iterator
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
@@ -30,11 +30,8 @@ class StringSplitter(ComponentIterator):
 
     @classmethod
     def input_schema(cls, *args: Any, **kwargs: Any) -> dict[str, ts.ColumnType]:
-        return {
-            'text': ts.StringType(),
-            'separators': ts.StringType(),
-        }
+        return {'text': ts.StringType(), 'separators': ts.StringType()}
 
     @classmethod
-    def output_schema(cls,  *args: Any, **kwargs: Any) -> tuple[dict[str, ts.ColumnType], list[str]]:
+    def output_schema(cls, *args: Any, **kwargs: Any) -> tuple[dict[str, ts.ColumnType], list[str]]:
         return {'text': ts.StringType()}, []

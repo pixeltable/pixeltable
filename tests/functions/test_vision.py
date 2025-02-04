@@ -35,14 +35,20 @@ class TestVision:
         )
         v.add_computed_column(
             eval_b=eval_detections(
-                v.detections_b.bboxes, v.detections_b.labels, v.detections_b.scores, v.gt.bboxes, v.gt.labels, min_iou=0.8
+                v.detections_b.bboxes,
+                v.detections_b.labels,
+                v.detections_b.scores,
+                v.gt.bboxes,
+                v.gt.labels,
+                min_iou=0.8,
             )
         )
         _ = v.select(mean_ap(v.eval_a)).show()[0, 0]
         _ = v.select(mean_ap(v.eval_b)).show()[0, 0]
 
-        _ = v.select(draw_bounding_boxes(
-            v.frame_s, boxes=v.detections_a.bboxes, labels=v.detections_a.labels, fill=True)).collect()
+        _ = v.select(
+            draw_bounding_boxes(v.frame_s, boxes=v.detections_a.bboxes, labels=v.detections_a.labels, fill=True)
+        ).collect()
 
     def test_draw_bounding_boxes(self, reset_db) -> None:
         skip_test_if_not_installed('yolox')
@@ -60,25 +66,41 @@ class TestVision:
         from pixeltable.functions.vision import draw_bounding_boxes
 
         # default label colors
-        _ = v.select(draw_bounding_boxes(
-            v.frame_s, boxes=v.detections_a.bboxes, labels=v.detections_a.labels, fill=True)).collect()
-        _ = v.select(draw_bounding_boxes(
-            v.frame_s, boxes=v.detections_a.bboxes, labels=v.detections_a.labels, fill=False, width=3)).collect()
-        _ = v.select(draw_bounding_boxes(
-            v.frame_s, boxes=v.detections_a.bboxes, labels=v.detections_a.labels, color='red')).collect()
+        _ = v.select(
+            draw_bounding_boxes(v.frame_s, boxes=v.detections_a.bboxes, labels=v.detections_a.labels, fill=True)
+        ).collect()
+        _ = v.select(
+            draw_bounding_boxes(
+                v.frame_s, boxes=v.detections_a.bboxes, labels=v.detections_a.labels, fill=False, width=3
+            )
+        ).collect()
+        _ = v.select(
+            draw_bounding_boxes(v.frame_s, boxes=v.detections_a.bboxes, labels=v.detections_a.labels, color='red')
+        ).collect()
 
         # explicit box colors
         num_boxes = len(v.where(v.pos == 0).select(v.detections_a.bboxes).collect()[0, 0])
         box_colors = ['red'] * num_boxes
-        _ = v.where(v.pos == 0).select(draw_bounding_boxes(
-                v.frame_s, boxes=v.detections_a.bboxes, labels=v.detections_a.labels, box_colors=box_colors)
-            ).collect()
+        _ = (
+            v.where(v.pos == 0)
+            .select(
+                draw_bounding_boxes(
+                    v.frame_s, boxes=v.detections_a.bboxes, labels=v.detections_a.labels, box_colors=box_colors
+                )
+            )
+            .collect()
+        )
 
         with pytest.raises(pxt.Error) as exc_info:
             # multiple color specifications
-            _ = v.select(draw_bounding_boxes(
-                v.frame_s, boxes=v.detections_a.bboxes, labels=v.detections_a.labels,
-                box_colors=['red', 'green'], color='red')
+            _ = v.select(
+                draw_bounding_boxes(
+                    v.frame_s,
+                    boxes=v.detections_a.bboxes,
+                    labels=v.detections_a.labels,
+                    box_colors=['red', 'green'],
+                    color='red',
+                )
             ).collect()
         assert 'only one of' in str(exc_info.value).lower()
 

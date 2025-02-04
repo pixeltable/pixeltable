@@ -1,16 +1,18 @@
+from __future__ import annotations
+
 import abc
 import asyncio
 from dataclasses import dataclass
 from types import TracebackType
-from typing import Any, Protocol, Optional
+from typing import Any, Optional, Protocol
 
-from pixeltable import exprs
-from pixeltable import func
+from pixeltable import exprs, func
 
 
 @dataclass
 class FnCallArgs:
     """Container for everything needed to execute a FunctionCall against one or more DataRows"""
+
     fn_call: exprs.FunctionCall
     rows: list[exprs.DataRow]
     # single call
@@ -37,16 +39,36 @@ class FnCallArgs:
 
 class Scheduler(abc.ABC):
     """
-    Base class for schedulers. A scheduler executes FunctionCalls against a limited resource pool.
+    Base class for queueing schedulers. A scheduler executes FunctionCalls against a limited resource pool.
 
     Expected behavior:
     - all created tasks must be recorded in dispatcher.tasks
     - schedulers are responsible for aborting execution when a) the task is cancelled or b) when an exception occurred
       elsewhere (indicated by dispatcher.exc_event)
     """
-    @abc.abstractmethod
+
+    @dataclass(frozen=True)
+    class QueueItem:
+        """Container of work items for queueing schedulers"""
+
+        request: FnCallArgs
+        num_retries: int
+
+        def __lt__(self, other: Scheduler.QueueItem) -> bool:
+            # prioritize by number of retries (more retries = higher priority)
+            return self.num_retries > other.num_retries
+
+    resource_pool: str
+    queue: asyncio.PriorityQueue[QueueItem]  # prioritizes retries
+    dispatcher: Dispatcher
+
+    def __init__(self, resource_pool: str, dispatcher: Dispatcher):
+        self.resource_pool = resource_pool
+        self.queue = asyncio.PriorityQueue()
+        self.dispatcher = dispatcher
+
     def submit(self, item: FnCallArgs) -> None:
-        pass
+        self.queue.put_nowait(self.QueueItem(item, 0))
 
     @classmethod
     @abc.abstractmethod
@@ -63,6 +85,7 @@ class Dispatcher(Protocol):
     Exceptions: evaluators/schedulers need to check exc_event prior to starting long-running (non-interruptible)
         computations
     """
+
     row_builder: exprs.RowBuilder
     exc_event: asyncio.Event
     schedulers: dict[str, Scheduler]  # key: resource pool id
@@ -90,6 +113,7 @@ class Evaluator(abc.ABC):
     - evaluators are responsible for aborting execution when a) the task is cancelled or b) when an exception occurred
       elsewhere (indicated by dispatcher.exc_event)
     """
+
     dispatcher: Dispatcher
     is_closed: bool
 
@@ -110,4 +134,3 @@ class Evaluator(abc.ABC):
         """Indicates that there may not be any more rows getting scheduled"""
         self.is_closed = True
         self._close()
-

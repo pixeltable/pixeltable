@@ -17,9 +17,9 @@ from pixeltable.env import Env
 
 _logger = logging.getLogger('pixeltable')
 
+
 @dataclass
 class CacheEntry:
-
     key: str
     tbl_id: UUID
     col_id: int
@@ -56,6 +56,7 @@ class FileCache:
     TODO:
     - implement MRU eviction for queries that exceed the capacity
     """
+
     __instance: Optional[FileCache] = None
 
     cache: OrderedDict[str, CacheEntry]
@@ -79,8 +80,7 @@ class FileCache:
 
     FileCacheColumnStats = namedtuple('FileCacheColumnStats', ('tbl_id', 'col_id', 'num_files', 'total_size'))
     FileCacheStats = namedtuple(
-        'FileCacheStats',
-        ('total_size', 'num_requests', 'num_hits', 'num_evictions', 'column_stats')
+        'FileCacheStats', ('total_size', 'num_requests', 'num_hits', 'num_evictions', 'column_stats')
     )
 
     @classmethod
@@ -154,7 +154,7 @@ class FileCache:
                 f'Consider increasing the cache size to at least {round(suggested_cache_size / (1 << 30), 1)} GiB '
                 f'(it is currently {round(self.capacity_bytes / (1 << 30), 1)} GiB).\n'
                 f'You can do this by setting the value of `file_cache_size_g` in: {str(Env.get()._config_file)}',
-                excs.PixeltableWarning
+                excs.PixeltableWarning,
             )
             self.new_redownload_witnessed = False
 
@@ -195,7 +195,9 @@ class FileCache:
             self.evicted_working_set_keys.add(key)
             self.new_redownload_witnessed = True
         self.keys_retrieved.add(key)
-        entry = CacheEntry(key, tbl_id, col_id, file_info.st_size, datetime.fromtimestamp(file_info.st_mtime), path.suffix)
+        entry = CacheEntry(
+            key, tbl_id, col_id, file_info.st_size, datetime.fromtimestamp(file_info.st_mtime), path.suffix
+        )
         self.cache[key] = entry
         self.total_size += entry.size
         new_path = entry.path
@@ -217,7 +219,9 @@ class FileCache:
                 # Make a record of the eviction, so that we can generate a warning later if the key is retrieved again.
                 self.keys_evicted_after_retrieval.add(lru_entry.key)
             os.remove(str(lru_entry.path))
-            _logger.debug(f'evicted entry for cell {lru_entry.key} from file cache (of size {lru_entry.size // (1 << 20)} MiB)')
+            _logger.debug(
+                f'evicted entry for cell {lru_entry.key} from file cache (of size {lru_entry.size // (1 << 20)} MiB)'
+            )
 
     def set_capacity(self, capacity_bytes: int) -> None:
         self.capacity_bytes = capacity_bytes
@@ -232,11 +236,12 @@ class FileCache:
             t[0] += 1
             t[1] += entry.size
         col_stats = [
-            self.FileCacheColumnStats(tbl_id, col_id, num_files, size) for (tbl_id, col_id), (num_files, size) in d.items()
+            self.FileCacheColumnStats(tbl_id, col_id, num_files, size)
+            for (tbl_id, col_id), (num_files, size) in d.items()
         ]
         col_stats.sort(key=lambda e: e[3], reverse=True)
         return self.FileCacheStats(self.total_size, self.num_requests, self.num_hits, self.num_evictions, col_stats)
 
     def debug_print(self) -> None:
         for entry in self.cache.values():
-            print(f'CacheEntry: tbl_id={entry.tbl_id}, col_id={entry.col_id}, size={entry.size}')
+            _logger.debug(f'CacheEntry: tbl_id={entry.tbl_id}, col_id={entry.col_id}, size={entry.size}')
