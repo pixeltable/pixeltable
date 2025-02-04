@@ -138,58 +138,6 @@ print(chunks.collect())
   </Card>
 </CardGroup>
 
-## Best Practices
-
-<CardGroup cols={2}>
-  <Card title="View Design" icon="paintbrush">
-    - Use views for data transformations
-    - Keep transformation logic in the view definition
-    - Design views to be reusable
-  </Card>
-  
-  <Card title="Performance" icon="gauge">
-    - Consider chunking size for document views
-    - Use appropriate indexes on base tables
-    - Monitor view computation time
-  </Card>
-</CardGroup>
-
-## Common Patterns
-
-<AccordionGroup>
-  <Accordion title="Document Processing" icon="file-lines">
-    ```python
-    # Create document chunks view
-    chunks = pxt.create_view(
-        'docs.chunks',
-        documents,
-        iterator=DocumentSplitter.create(
-            document=documents.document,
-            separators='token_limit',
-            limit=300
-        )
-    )
-    
-    # Add embeddings
-    chunks.add_computed_column(
-        embedding=model(chunks.text)
-    )
-    ```
-  </Accordion>
-
-  <Accordion title="Filtered Views" icon="filter">
-    ```python
-    # Create view of recent documents
-    recent_docs = pxt.create_view(
-        'docs.recent',
-        documents.where(
-            documents.timestamp >= (datetime.now() - timedelta(days=30))
-        )
-    )
-    ```
-  </Accordion>
-</AccordionGroup>
-
 ## Key Features
 
 <CardGroup cols={3}>

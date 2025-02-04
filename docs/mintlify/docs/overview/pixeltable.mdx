@@ -1,26 +1,30 @@
 ---
 title: 'Building with Pixeltable'
-description: 'Stop choosing between months of infrastructure work and limited frameworks. Pixeltable gives you a **declarative**, **incremental** approach for **multimodal** AI products in days, not months.'
+description: 'Stop choosing between months of data infrastructure work or limited AI frameworks. Pixeltable gives you a **declarative**, **incremental** approach for building **multimodal** AI products in days, not months.'
 icon: "rocket"
 ---
 
 <CardGroup cols={2}>
 <Card 
-  title="AI Data Infrastructure" 
+  title="Open Source Data Infrastructure" 
   icon="database"
   href="/docs/datastore/tables-and-operations"
 >
-  - All your AI data & models in one table interface
+  - All AI data & models in one table interface
 </Card>
 
 <Card 
-  title="Storage + Orchestration" 
+  title="Storage meets Orchestration" 
   icon="brain-circuit"
   href="/docs/datastore/computed-columns"
 >
-  - An declarative interface for all your AI workloads
+  - A declarative interface for AI workloads
 </Card>
 </CardGroup>
+
+<Note>
+The below steps will get you started in 1 minute. Learn more by looking at this tutorial on [Github](https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/pixeltable-basics.ipynb).
+</Note>
 
 ## Getting Started
 
@@ -29,7 +33,7 @@ icon: "rocket"
     ```bash
     pip install pixeltable
     ```
-    Get up and running with basic [tables](/docs/datastore/tables-and-operations), [queries](/docs/ai-apps/filtering-and-selecting), and [computed columns](docs/datastore/computed-columns).
+    Get up and running with basic [tables](/docs/datastore/tables-and-operations), [queries](/docs/datastore/filtering-and-selecting), and [computed columns](docs/datastore/computed-columns).
 
     <CodeGroup>
     ```python table
@@ -58,10 +62,14 @@ icon: "rocket"
     t.select(t.profit).head()
     ``` 
     </CodeGroup>
+
+  <Info>
+  All data and computed results are automatically stored and versioned.
+  </Info>
   </Step>
   
   <Step title="Add Processing (Step 2)" icon="sparkles">
-    Add [LLMs](docs/integrations/frameworks#cloud-llm-providers), [computer vision](/docs/examples/vision/yolox), [embeddings indices](docs/datastore/embedding-index), and build your first [multimodal chatbot](/docs/examples/chat/multimodal).
+    Add [LLMs](docs/integrations/frameworks#cloud-llm-providers), [computer vision](/docs/examples/vision/yolox), [embeddings indices](docs/datastore/embedding-index), and build your first [multimodal app](/docs/examples/chat/multimodal).
       <CodeGroup>
     ```python embedding index
     from pixeltable.functions.huggingface import clip
@@ -95,12 +103,12 @@ icon: "rocket"
         },
         {
             'role': 'user',
-            'content': queries_t.prompt
+            'content': t.prompt # generated from the 'prompt' column
         }
     ]
 
     # Add a computed column that calls OpenAI
-    queries_t.add_computed_column(
+    t.add_computed_column(
         response=openai.chat_completions(model='gpt-4o-mini',
         messages=messages)
     )
@@ -120,14 +128,17 @@ icon: "rocket"
     ).show(3)
     ``` 
     </CodeGroup>
+  <Info>
+  Define transformations once, they run on new data. Perfect for AI orchestration.
+  </Info>
   </Step>
   
   <Step title="Scale Up (Step 3" icon="chart-mixed">
-    Handle [production data](/docs/ai-apps/bringing-data) volumes, and deploy your application.
+    Handle [production data](/docs/datastore/bringing-data) volumes, and deploy your application.
       <CodeGroup>
     ```python bring cloud data
-    # Import media datad (videos, images, audio...)
-    v = pxt.create_table('external_data.videos', {'video': pxt.Video})
+    # Import media data (videos, images, audio...)
+    v = pxt.create_table('videos', {'video': pxt.Video})
 
     prefix = 's3://multimedia-commons/'
     paths = [
@@ -141,16 +152,16 @@ icon: "rocket"
     # Optimize large-scale data processing
     from pixeltable.iterators import DocumentSplitter
 
-        # Create chunked views for efficient processing
-        doc_chunks = pxt.create_view(
-            'app.chunks',
-            analysis,
-            iterator=DocumentSplitter.create(
-                document=analysis.document,
-                separators='sentence',
-                limit=500  # Control chunk size
-            )
+    # Create chunked views for efficient processing
+    doc_chunks = pxt.create_view(
+        'chunks',
+        analysis,
+        iterator=DocumentSplitter.create(
+            document=analysis.document,
+            separators='sentence',
+            limit=500  # Control chunk size
         )
+    )
     ```
     ```python serving
     from fastapi import FastAPI, HTTPException
@@ -187,6 +198,9 @@ icon: "rocket"
             raise HTTPException(status_code=0, detail=str(e))
     ```
     </CodeGroup>
+  <Info>
+Handle images, video, audio, numbers, array and text seamlessly in one interface.
+</Info>
   </Step>
 </Steps>
 
@@ -196,17 +210,17 @@ icon: "rocket"
 <Card 
   title="Enterprise Chat Systems" 
   icon="message"
-  href="https://huggingface.co/spaces/Pixeltable/AI-Chatbot-With-Retrieval-Augmented-Generation"
+  href="/docs/examples/chat/multimodal"
 >
   <CardGroup cols={1}>
-    <Card title="Multimodal RAG Chatbot" icon="brain-circuit" href="https://huggingface.co/spaces/Pixeltable/Multi-LLM-RAG-with-Groundtruth-Comparison">
+    <Card title="Multi-model RAG Chatbot" icon="brain-circuit" href="https://huggingface.co/spaces/Pixeltable/Multi-LLM-RAG-with-Groundtruth-Comparison">
       Build RAG systems that compare multiple LLMs with ground truth evaluation.
     </Card>
     <Card title="Discord AI Assistant" icon="discord" href="https://github.com/pixeltable/pixeltable/tree/main/examples/discord-bot">
       Create context-aware chat bots with semantic search and memory.
     </Card>
-    <Card title="Document Analysis Bot" icon="file-search" href="https://huggingface.co/spaces/Pixeltable/Document-to-Audio-Synthesis">
-      Convert and analyze documents with multimodal processing.
+    <Card title="Agentic Workflows" icon="toolbox" href="/docs/examples/chat/tools">
+      Build a swarm of agents with access to unlimited tools
     </Card>
   </CardGroup>
 </Card>
@@ -217,10 +231,10 @@ icon: "rocket"
   href="https://huggingface.co/spaces/Pixeltable/object-detection-in-videos-with-yolox"
 >
   <CardGroup cols={1}>
-    <Card title="Video Object Detection" icon="video" href="https://huggingface.co/spaces/Pixeltable/object-detection-in-videos-with-yolox">
+    <Card title="Video Object Detection" icon="video" href="http://localhost:3000/docs/examples/vision/yolox">
       Real-time object detection in videos using YOLOX.
     </Card>
-    <Card title="Visual Search Engine" icon="magnifying-glass" href="https://huggingface.co/spaces/Pixeltable/Text-and-Image-similarity-search-nextjs-fastapi">
+    <Card title="Visual Search Engine" icon="magnifying-glass" href="https://huggingface.co/spaces/Pixeltable/Text-image-similarity-search-on-video-frames-embedding-indexes">
       Text and image similarity search on video frames.
     </Card>
     <Card title="Call Analysis Tool" icon="phone" href="https://huggingface.co/spaces/Pixeltable/Call-Analysis-AI-Tool">
@@ -232,10 +246,10 @@ icon: "rocket"
 <Card 
   title="Document Intelligence" 
   icon="file-lines"
-  href="https://huggingface.co/spaces/Pixeltable/Document-to-Audio-Synthesis"
+  href="https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/use-cases/audio-transcriptions.ipynb"
 >
   <CardGroup cols={1}>
-    <Card title="Document Audio Synthesis" icon="file-audio" href="https://huggingface.co/spaces/Pixeltable/Document-to-Audio-Synthesis">
+    <Card title="Document Audio Synthesis" icon="file-audio" href="http://localhost:3000/docs/fundamentals/sample-apps">
       Convert documents to natural speech with context-aware processing.
     </Card>
     <Card title="Social Media Generator" icon="share-nodes" href="https://huggingface.co/spaces/Pixeltable/video-to-social-media-post-generator">
@@ -248,7 +262,7 @@ icon: "rocket"
 </Card>
 
 <Card 
-  title="AI Development Tools" 
+  title="Vertical AI Products" 
   icon="code"
   href="https://huggingface.co/spaces/Pixeltable/Prompt-Engineering-and-LLM-Studio"
 >
@@ -256,8 +270,8 @@ icon: "rocket"
     <Card title="LLM Studio" icon="flask" href="https://huggingface.co/spaces/Pixeltable/Prompt-Engineering-and-LLM-Studio">
       Test and compare LLM performance with structured evaluation.
     </Card>
-    <Card title="Financial Analysis" icon="chart-line" href="https://huggingface.co/spaces/Pixeltable/AI-Financial-Analysis-Platform">
-      Build AI-powered financial analysis tools.
+    <Card title="AI-Based Trading Chrome Extension" icon="chart-line" href="https://chromewebstore.google.com/detail/ai-based-day-trading-insi/floglldkiolbdpcfeanilapjmilliiac">
+      Real-time trading analysis using AI for technical indicators.
     </Card>
     <Card title="RPG Adventure" icon="gamepad" href="https://huggingface.co/spaces/Pixeltable/AI-RPG-Adventure">
       Create interactive AI storytelling experiences.
@@ -272,16 +286,16 @@ icon: "rocket"
   <Card 
     title="Explore Examples" 
     icon="rocket" 
-    href="https://huggingface.co/Pixeltable"
+    href="http://localhost:3000/docs/fundamentals/sample-apps"
   >
-    Check out our Hugging Face demos
+    Check out our apps
   </Card>
   <Card 
     title="Join Discord" 
     icon="discord" 
-    href="https://discord.gg/6MnmFYZJ9N"
+    href="https://discord.gg/QPyqFYx2UN"
   >
-    Get help from the community
+    Get help and mingle
   </Card>
   <Card 
     title="GitHub" 

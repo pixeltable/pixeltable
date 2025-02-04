@@ -20,10 +20,10 @@
 },
   "font": {
     "headings": {
-      "family": "SF Pro Display"
+      "family": "Inter"
     },
     "body": {
-      "family": "SF Pro Text"
+      "family": "Inter"
     }
   },
   "topbarLinks": [
@@ -88,10 +88,10 @@
       "pages": [
         "docs/datastore/tables-and-operations",
         "docs/datastore/views",
-        "docs/datastore/computed-columns",          
-        "docs/datastore/embedding-index",
         "docs/datastore/bringing-data",
         "docs/datastore/filtering-and-selecting",
+        "docs/datastore/computed-columns",          
+        "docs/datastore/embedding-index",
         "docs/datastore/custom-functions"
       ]
     },

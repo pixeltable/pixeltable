@@ -160,8 +160,7 @@ Pixeltable provides a unified interface for working with diverse data types - fr
 
     # Insert from cloud storage
     image_table.insert([
-        {'original': 's3://my-bucket/image1.jpg'},
-        {'original': 'gs://my-bucket/image2.png'}
+        {'original': 's3://my-bucket/image1.jpg'}
     ])
     ```
   </Accordion>
@@ -171,8 +170,6 @@ Pixeltable provides a unified interface for working with diverse data types - fr
     # Create table with video columns
     video_table = pxt.create_table('myproject.videos', {
         'video': pxt.Video,            # Video file reference
-        'preview': pxt.Image,          # Thumbnail/preview image
-        'metadata': pxt.Json           # Video metadata
     })
 
     # Insert local video files
@@ -189,8 +186,7 @@ Pixeltable provides a unified interface for working with diverse data types - fr
 
     # Insert from cloud storage
     video_table.insert([
-        {'video': 's3://my-bucket/video1.mp4'},
-        {'video': 'gs://my-bucket/video2.webm'}
+        {'video': 's3://my-bucket/video1.mp4'}
     ])
     ```
   </Accordion>
@@ -200,8 +196,6 @@ Pixeltable provides a unified interface for working with diverse data types - fr
     # Create table with audio columns
     audio_table = pxt.create_table('myproject.audio', {
         'audio': pxt.Audio,           # Audio file reference
-        'metadata': pxt.Json,         # Audio metadata
-        'transcript': pxt.String      # Transcribed text
     })
 
     # Insert local audio files
@@ -218,8 +212,7 @@ Pixeltable provides a unified interface for working with diverse data types - fr
 
     # Insert from cloud storage
     audio_table.insert([
-        {'audio': 's3://my-bucket/audio1.mp3'},
-        {'audio': 'gs://my-bucket/audio2.wav'}
+        {'audio': 's3://my-bucket/audio1.mp3'}
     ])
     ```
   </Accordion>
@@ -229,8 +222,6 @@ Pixeltable provides a unified interface for working with diverse data types - fr
     # Create table with document columns
     doc_table = pxt.create_table('myproject.documents', {
         'document': pxt.Document,     # Document file reference
-        'metadata': pxt.Json,         # Document metadata
-        'text': pxt.String           # Extracted text
     })
 
     # Insert local documents
@@ -248,8 +239,7 @@ Pixeltable provides a unified interface for working with diverse data types - fr
 
     # Insert from cloud storage
     doc_table.insert([
-        {'document': 's3://my-bucket/doc1.pdf'},
-        {'document': 'gs://my-bucket/doc2.docx'}
+        {'document': 's3://my-bucket/doc1.pdf'}
     ])
     ```
   </Accordion>
@@ -377,7 +367,7 @@ Pixeltable provides a unified interface for working with diverse data types - fr
 
   <Accordion title="Hugging Face Dataset Import" icon="brain">
     ```python
-    from datasets import load_dataset
+    import datasets
 
     # Load Hugging Face dataset
     dataset = load_dataset('mnist', split='train[:1000]')
@@ -416,4 +406,4 @@ Pixeltable provides a unified interface for working with diverse data types - fr
 - Basic types (Int, Float, Bool, String, Timestamp) match their Python equivalents
 - Import functions support schema overrides to ensure correct type assignment
 - Use batch inserts for better performance when adding multiple rows
-- Cloud storage paths (s3://, gs://) require appropriate credentials to be configured
+- Cloud storage paths (s3://) require appropriate credentials to be configured

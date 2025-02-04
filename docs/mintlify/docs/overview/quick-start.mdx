@@ -8,9 +8,9 @@ icon: 'rocket'
 This guide will get you from zero to a working AI application in under 5 minutes. Learn more by looking at this tutorial on [Github](https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/pixeltable-basics.ipynb).
 </Note>
 
-## Create Your First AI Workfload
+## Create Your First AI Product
 
-Let's build a simple image analysis app that combines object detection and GPT-4 Vision.
+Let's build an image analysis application that combines object detection and GPT-4 Vision.
 
 ## Installation
 
@@ -24,7 +24,7 @@ Let's build a simple image analysis app that combines object detection and GPT-4
     import pixeltable as pxt
     from pixeltable.functions import huggingface, openai
     
-    # Create directory for our app
+    # Create directory for our tables
     pxt.drop_dir('demo', force=True)  
     pxt.create_dir('demo')
     
@@ -33,7 +33,7 @@ Let's build a simple image analysis app that combines object detection and GPT-4
     ```
 
     <Tip>
-    Create a persistent and verstioned table that holds data.
+    This creates a persistent and verstioned table that holds data.
     </Tip>
   </Step>
 
@@ -52,7 +52,7 @@ Let's build a simple image analysis app that combines object detection and GPT-4
     ```
 
     <Tip>
-    Computed columns are automatically populated whenever new data is added to their input columns.
+    Computed columns are populated whenever new data is added to their input columns.
     </Tip>
   </Step>
 
@@ -67,7 +67,6 @@ Let's build a simple image analysis app that combines object detection and GPT-4
 
   <Step title="Add GPT-4 Vision Analysis">
     ```python
-    # Add GPT-4 Vision analysis
     t.add_computed_column(
         vision=openai.vision(
             prompt="Describe what's in this image.",
@@ -78,7 +77,7 @@ Let's build a simple image analysis app that combines object detection and GPT-4
     ```
   </Step>
 
-  <Step title="Use Your App">
+  <Step title="Use Your Application">
     ```python
   # Insert an image
   t.insert(input_image='https://raw.github.com/pixeltable/pixeltable/release/docs/resources/images/000000000025.jpg')
@@ -94,12 +93,12 @@ Let's build a simple image analysis app that combines object detection and GPT-4
 </Steps>
 
 <Accordion title="What happened behind the scenes?">
-  - Pixeltable automatically:
-    1. Created a persistent table
-    2. Downloaded and cached the ResNet model
-    3. Orchestrate the GPT-4 API call
-    4. Created an efficient processing pipeline
-    5. Stored all results for future use
+Pixeltable automatically:
+  1. Created a persistent table
+  2. Downloaded and cached the ResNet model
+  3. Orchestrate the GPT-4 API call
+  4. Created an efficient processing pipeline
+  5. Stored all results for future use
 </Accordion>
 
 ## Key Features
@@ -109,13 +108,13 @@ Let's build a simple image analysis app that combines object detection and GPT-4
     All data and computed results are automatically stored and versioned. Your app state persists between sessions.
   </Card>
   <Card title="Computed Columns" icon="calculator">
-    Define transformations once, they run automatically on new data. Perfect for ML pipelines.
+    Define transformations once, they run automatically on new data. Perfect for AI orchestration.
   </Card>
   <Card title="Multimodal Support" icon="photo-film">
     Handle images, video, audio, and text seamlessly in one unified interface.
   </Card>
   <Card title="AI Integration" icon="brain">
-    Built-in support for popular AI services like OpenAI, Hugging Face, and Anthropic.
+    Built-in support for popular AI services like OpenAI, YOLOX, Hugging Face, Label Studio, Replicate, Anthropic...
   </Card>
 </CardGroup>
 
@@ -150,13 +149,13 @@ t.add_computed_column(top=top_detection(t.detections))
 ## Next Steps
 
 <CardGroup cols={3}>
-  <Card title="RAG Tutorial" icon="books" href="/tutorials/rag">
+  <Card title="RAG Tutorial" icon="books" href="https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/use-cases/rag-demo.ipynb">
     Build a production-grade RAG system
   </Card>
-  <Card title="Video Analysis" icon="video" href="/tutorials/video">
+  <Card title="Video Analysis" icon="video" href="https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/use-cases/object-detection-in-videos.ipynb">
     Process video with object detection
   </Card>
-  <Card title="LLM Integration" icon="message" href="/tutorials/llm">
+  <Card title="LLM Integration" icon="message" href="/docs/integrations/frameworks#local-llm-runtimes">
     Work with OpenAI and other LLM providers
   </Card>
 </CardGroup>
