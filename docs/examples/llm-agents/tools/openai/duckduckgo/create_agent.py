@@ -21,11 +21,7 @@ def search_news(keywords: str, max_results: int = 20) -> str:
     try:
         with DDGS() as ddgs:
             results = ddgs.news(
-                keywords=keywords,
-                region='wt-wt',
-                safesearch='off',
-                timelimit='m',
-                max_results=max_results,
+                keywords=keywords, region='wt-wt', safesearch='off', timelimit='m', max_results=max_results
             )
             formatted_results = []
             for i, r in enumerate(results, 1):
@@ -45,10 +41,7 @@ tools = pxt.tools(search_news)
 # Add initial response from OpenAI
 news_agent.add_computed_column(
     initial_response=chat_completions(
-        model=OPENAI_MODEL,
-        messages=messages,
-        tools=tools,
-        tool_choice=tools.choice(required=True),
+        model=OPENAI_MODEL, messages=messages, tools=tools, tool_choice=tools.choice(required=True)
     )
 )
 
@@ -75,10 +68,7 @@ news_agent.add_computed_column(news_response_prompt=create_prompt(news_agent.pro
 
 # Send back to OpenAI for final response
 messages = [
-    {
-        'role': 'system',
-        'content': "Answer the user's question based on the results.",
-    },
+    {'role': 'system', 'content': "Answer the user's question based on the results."},
     {'role': 'user', 'content': news_agent.news_response_prompt},
 ]
 

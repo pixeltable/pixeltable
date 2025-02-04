@@ -3,6 +3,7 @@ from config import DIRECTORY, OPENAI_MODEL
 import pixeltable as pxt
 from pixeltable.functions import openai
 
+
 # Create prompt for Agentic RAG
 @pxt.udf
 def create_prompt(question: str, tool_result: list[dict]) -> str:
@@ -15,18 +16,15 @@ def create_prompt(question: str, tool_result: list[dict]) -> str:
     {tool_result}
     """
 
-def create_agent():
 
+def create_agent():
     # Create agent table
     agent_table = pxt.create_table(
-        path_str=f'{DIRECTORY}.conversations',
-        schema_or_df={'prompt': pxt.String},
-        if_exists='ignore',
+        path_str=f'{DIRECTORY}.conversations', schema_or_df={'prompt': pxt.String}, if_exists='ignore'
     )
 
     # Get pdf index
     pdf_embedding_index = pxt.get_table(f'{DIRECTORY}.pdf_chunks')
-
 
     # Create query-as-a-tool for Agentic RAG
     @pxt.query
@@ -40,9 +38,10 @@ def create_agent():
         """
         similarity = pdf_embedding_index.text.similarity(query_text)
         return (
-            pdf_embedding_index.order_by(similarity, asc=False).select(pdf_embedding_index.text, sim=similarity).limit(10)
+            pdf_embedding_index.order_by(similarity, asc=False)
+            .select(pdf_embedding_index.text, sim=similarity)
+            .limit(10)
         )
-
 
     agent_tools = pxt.tools(search_pdf)
 
@@ -55,10 +54,7 @@ def create_agent():
     # Add tool response column
     agent_table.add_computed_column(
         tool_response=openai.chat_completions(
-            model=OPENAI_MODEL,
-            messages=messages,
-            tools=agent_tools,
-            tool_choice=agent_tools.choice(required=True),
+            model=OPENAI_MODEL, messages=messages, tools=agent_tools, tool_choice=agent_tools.choice(required=True)
         )
     )
 

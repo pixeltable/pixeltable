@@ -20,13 +20,7 @@ pdf_table = pxt.get_table(pdf_table_name)
 agent_table = pxt.get_table(agent_table_name)
 
 # Insert sample pdfs
-document_urls = [
-    DOCUMENT_URL + doc
-    for doc in [
-        'Mclean-Equity-Alphabet.pdf',
-        'Zacks-Nvidia-Repeport.pdf',
-    ]
-]
+document_urls = [DOCUMENT_URL + doc for doc in ['Mclean-Equity-Alphabet.pdf', 'Zacks-Nvidia-Repeport.pdf']]
 pdf_table.insert({'pdf': url} for url in document_urls)
 
 # Ask question

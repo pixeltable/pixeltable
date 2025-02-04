@@ -19,11 +19,7 @@ def search_news(keywords: str, max_results: int = 20) -> str:
     try:
         with DDGS() as ddgs:
             results = ddgs.news(
-                keywords=keywords,
-                region='wt-wt',
-                safesearch='off',
-                timelimit='m',
-                max_results=max_results,
+                keywords=keywords, region='wt-wt', safesearch='off', timelimit='m', max_results=max_results
             )
             formatted_results = []
             for i, r in enumerate(results, 1):

@@ -29,10 +29,7 @@ tools = pxt.tools(stock_info)
 # Add initial response from OpenAI
 finance_agent.add_computed_column(
     initial_response=chat_completions(
-        model=OPENAI_MODEL,
-        messages=messages,
-        tools=tools,
-        tool_choice=tools.choice(required=True),
+        model=OPENAI_MODEL, messages=messages, tools=tools, tool_choice=tools.choice(required=True)
     )
 )
 
@@ -59,10 +56,7 @@ finance_agent.add_computed_column(stock_response_prompt=create_prompt(finance_ag
 
 # Send back to OpenAI for final response
 messages = [
-    {
-        'role': 'system',
-        'content': "Answer the user's question based on the results.",
-    },
+    {'role': 'system', 'content': "Answer the user's question based on the results."},
     {'role': 'user', 'content': finance_agent.stock_response_prompt},
 ]
 

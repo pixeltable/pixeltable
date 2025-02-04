@@ -5,9 +5,7 @@ from pixeltable.functions import openai
 
 # Create agent table
 agent_table = pxt.create_table(
-    path_str=f'{DIRECTORY}.conversations',
-    schema_or_df={'prompt': pxt.String},
-    if_exists='ignore',
+    path_str=f'{DIRECTORY}.conversations', schema_or_df={'prompt': pxt.String}, if_exists='ignore'
 )
 
 # Get website index
@@ -57,10 +55,7 @@ messages = [
 # Add tool response column
 agent_table.add_computed_column(
     tool_response=openai.chat_completions(
-        model=OPENAI_MODEL,
-        messages=messages,
-        tools=agent_tools,
-        tool_choice=agent_tools.choice(required=True),
+        model=OPENAI_MODEL, messages=messages, tools=agent_tools, tool_choice=agent_tools.choice(required=True)
     )
 )
 
