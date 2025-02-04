@@ -220,7 +220,8 @@ class TestAudio:
         )
         assert audio_chunk_view.count() == 5
         results = audio_chunk_view.order_by(audio_chunk_view.pos).collect()
-        assert all(result['audio'] == audio_filepath for result in results)
+        for result in results:
+            assert result['audio'] == audio_filepath
         assert results[-1]['end_time_sec'] == 60
         assert round(results[-1]['end_time_sec'] - results[-1]['start_time_sec']) == 4
         for i in range(len(results)):
@@ -241,7 +242,8 @@ class TestAudio:
         )
         assert audio_chunk_view.count() == 4
         results = audio_chunk_view.order_by(audio_chunk_view.pos).collect()
-        assert all(result['audio'] == audio_filepath for result in results)
+        for result in results:
+            assert result['audio'] == audio_filepath
         assert results[-1]['end_time_sec'] < 59
         for i in range(len(results)):
             assert math.floor(results[i]['start_time_sec']) == i * 14.0
