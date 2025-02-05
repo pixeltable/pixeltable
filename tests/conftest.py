@@ -199,3 +199,6 @@ def multi_idx_img_tbl(reset_db) -> pxt.Table:
     t.add_embedding_index('img', idx_name='img_idx1', metric='cosine', image_embed=clip_embed, string_embed=clip_embed)
     t.add_embedding_index('img', idx_name='img_idx2', metric='cosine', image_embed=clip_embed, string_embed=clip_embed)
     return t
+
+
+assert False, 'Force tests to fail'
