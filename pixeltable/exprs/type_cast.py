@@ -3,7 +3,9 @@ from typing import Any, Optional
 import sqlalchemy as sql
 
 import pixeltable.type_system as ts
+import pixeltable.exprs as exprs
 
+from .literal import Literal
 from .expr import DataRow, Expr
 from .row_builder import RowBuilder
 from .sql_element_cache import SqlElementCache
@@ -41,6 +43,26 @@ class TypeCast(Expr):
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         original_val = data_row[self._underlying.slot_idx]
         data_row[self.slot_idx] = self.col_type.create_literal(original_val)
+
+    @property
+    def _op1(self) -> Expr:
+        return self.components[0]
+
+    def is_constant(self) -> bool:
+        return self.is_foldable()
+
+    def _as_constant(self):
+        return self.folded()
+
+    def is_foldable(self) -> bool:
+        return self.col_type.is_numeric_type() and self._op1.col_type.is_numeric_type() and isinstance(self._op1, Literal)
+
+    def folded(self) -> exprs.Expr:
+        op1_val = self._op1.as_constant()
+        if self.col_type.is_int_type():
+            return exprs.Expr.from_object(int(op1_val))
+        elif self.col_type.is_float_type():
+            return exprs.Expr.from_object(float(op1_val))
 
     def _as_dict(self) -> dict:
         return {'new_type': self.col_type.as_dict(), **super()._as_dict()}

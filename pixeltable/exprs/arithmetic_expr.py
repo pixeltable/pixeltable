@@ -6,13 +6,14 @@ import sqlalchemy as sql
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
+import pixeltable.exprs as exprs
 
+from .literal import Literal
 from .data_row import DataRow
 from .expr import Expr
 from .globals import ArithmeticOperator
 from .row_builder import RowBuilder
 from .sql_element_cache import SqlElementCache
-
 
 class ArithmeticExpr(Expr):
     """
@@ -126,6 +127,33 @@ class ArithmeticExpr(Expr):
             data_row[self.slot_idx] = op1_val % op2_val
         elif self.operator == ArithmeticOperator.FLOORDIV:
             data_row[self.slot_idx] = op1_val // op2_val
+
+    def is_constant(self) -> bool:
+        return self.is_foldable()
+
+    def _as_constant(self):
+        return self.folded()
+
+    def is_foldable(self) -> bool:
+        op1_ok = self._op1.col_type.is_numeric_type() and isinstance(self._op1, Literal)
+        op2_ok = self._op2.col_type.is_numeric_type() and isinstance(self._op2, Literal)
+        return op1_ok and op2_ok
+
+    def folded(self) -> exprs.Expr:
+        op1_val = self._op1.as_constant()
+        op2_val = self._op2.as_constant()
+        if self.operator == ArithmeticOperator.ADD:
+            return exprs.Expr.from_object(op1_val + op2_val)
+        elif self.operator == ArithmeticOperator.SUB:
+            return exprs.Expr.from_object(op1_val - op2_val)
+        elif self.operator == ArithmeticOperator.MUL:
+            return exprs.Expr.from_object(op1_val * op2_val)
+        elif self.operator == ArithmeticOperator.DIV:
+            return exprs.Expr.from_object(op1_val / op2_val)
+        elif self.operator == ArithmeticOperator.MOD:
+            return exprs.Expr.from_object(op1_val % op2_val)
+        elif self.operator == ArithmeticOperator.FLOORDIV:
+            return exprs.Expr.from_object(op1_val // op2_val)
 
     def _as_dict(self) -> dict:
         return {'operator': self.operator.value, **super()._as_dict()}
