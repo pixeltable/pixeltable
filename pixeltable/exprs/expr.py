@@ -139,6 +139,9 @@ class Expr(abc.ABC):
         for attr, value in self._id_attrs():
             hasher.update(attr.encode('utf-8'))
             hasher.update(str(value).encode('utf-8'))
+        # Include the col_type of the expression to avoid expressions with identical str() representations
+        # but different types being considered the same expression, e.g. str(int(4)) == "4"
+        hasher.update(str(self.col_type).encode('utf-8'))
         for expr in self.components:
             hasher.update(str(expr.id).encode('utf-8'))
         # truncate to machine's word size
@@ -186,6 +189,7 @@ class Expr(abc.ABC):
     def substitute(self, spec: dict[Expr, Expr]) -> Expr:
         """
         Replace 'old' with 'new' recursively.
+        The call must take the form: with expr = expr.substitute(spec)
         """
         for old, new in spec.items():
             if self.equals(old):

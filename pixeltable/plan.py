@@ -448,7 +448,7 @@ class Planner:
         recomputed_exprs = [
             c.value_expr.copy().resolve_computed_cols(resolve_cols=recomputed_base_cols) for c in recomputed_base_cols
         ]
-        # the RowUpdateNode updates columns in-place, ie, in the original ColumnRef; no further sustitution is needed
+        # the RowUpdateNode updates columns in-place, ie, in the original ColumnRef; no further substitution is needed
         select_list.extend(recomputed_exprs)
 
         # ExecNode tree (from bottom to top):
@@ -666,7 +666,7 @@ class Planner:
         where_clause: Optional[exprs.Expr] = None,
         group_by_clause: Optional[list[exprs.Expr]] = None,
         order_by_clause: Optional[list[tuple[exprs.Expr, bool]]] = None,
-        limit: Optional[int] = None,
+        limit: Optional[exprs.Expr] = None,
         ignore_errors: bool = False,
         exact_version_only: Optional[list[catalog.TableVersion]] = None,
     ) -> exec.ExecNode:
@@ -712,7 +712,7 @@ class Planner:
         row_builder: exprs.RowBuilder,
         analyzer: Analyzer,
         eval_ctx: exprs.RowBuilder.EvalCtx,
-        limit: Optional[int] = None,
+        limit: Optional[exprs.Expr] = None,
         with_pk: bool = False,
         exact_version_only: Optional[list[catalog.TableVersion]] = None,
     ) -> exec.ExecNode:

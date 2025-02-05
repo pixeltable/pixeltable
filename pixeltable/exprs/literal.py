@@ -65,9 +65,8 @@ class Literal(Expr):
         return super()._id_attrs() + [('val', self.val)]
 
     def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
-        # we need to return something here so that we can generate a Where clause for predicates
-        # that involve literals (like Where c > 0)
-        return sql.sql.expression.literal(self.val)
+        # Return a sql object so that constants can participate in SQL expressions
+        return sql.sql.expression.literal(self.val, type_=self.col_type.to_sa_type())
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         # this will be called, even though sql_expr() does not return None

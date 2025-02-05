@@ -74,7 +74,7 @@ class ArithmeticExpr(Expr):
             # TODO: Should we cast the NULLs to NaNs when they are retrieved back into Python?
             nullif = sql.sql.func.nullif(right, 0)
             # We have to cast to a `float`, or else we'll get a `Decimal`
-            return sql.sql.expression.cast(left / nullif, sql.Float)
+            return sql.sql.expression.cast(left / nullif, self.col_type.to_sa_type())
         if self.operator == ArithmeticOperator.MOD:
             if self.col_type.is_int_type():
                 nullif = sql.sql.func.nullif(right, 0)
@@ -90,9 +90,9 @@ class ArithmeticExpr(Expr):
             # mimic the behavior of Python's // operator.
             nullif = sql.sql.func.nullif(right, 0)
             if self.col_type.is_int_type():
-                return sql.sql.expression.cast(sql.func.floor(left / nullif), sql.Integer)
+                return sql.sql.expression.cast(sql.func.floor(left / nullif), self.col_type.to_sa_type())
             if self.col_type.is_float_type():
-                return sql.sql.expression.cast(sql.func.floor(left / nullif), sql.Float)
+                return sql.sql.expression.cast(sql.func.floor(left / nullif), self.col_type.to_sa_type())
         assert False
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
