@@ -59,17 +59,20 @@ class ExecNode(abc.ABC):
         pass
 
     def __iter__(self) -> Iterator[DataRowBatch]:
+        running_loop: Optional[asyncio.AbstractEventLoop] = None
+        loop: asyncio.AbstractEventLoop
         try:
-            # check if we are already in an event loop (eg, Jupyter's); if so, patch it to allow nested event loops
-            _ = asyncio.get_event_loop()
+            # check if we are already in an event loop (eg, Jupyter's); if so, patch it to allow
+            # multiple run_until_complete()
+            running_loop = asyncio.get_running_loop()
             import nest_asyncio  # type: ignore
 
             nest_asyncio.apply()
+            loop = running_loop
+            _logger.debug(f'Patched running loop')
         except RuntimeError:
-            pass
-
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
 
         if 'pytest' in sys.modules:
             loop.set_debug(True)
@@ -82,7 +85,8 @@ class ExecNode(abc.ABC):
         except StopAsyncIteration:
             pass
         finally:
-            loop.close()
+            if loop != running_loop:
+                loop.close()
 
     def open(self) -> None:
         """Bottom-up initialization of nodes for execution. Must be called before __next__."""

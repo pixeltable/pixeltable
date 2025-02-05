@@ -46,7 +46,7 @@ def sentence_transformer(
         Add a computed column that applies the model `all-mpnet-base-2` to an existing Pixeltable column `tbl.sentence`
         of the table `tbl`:
 
-        >>> tbl['result'] = sentence_transformer(tbl.sentence, model_id='all-mpnet-base-v2')
+        >>> tbl.add_computed_column(result=sentence_transformer(tbl.sentence, model_id='all-mpnet-base-v2'))
     """
     env.Env.get().require_package('sentence_transformers')
     device = resolve_torch_device('auto')
@@ -111,9 +111,9 @@ def cross_encoder(sentences1: Batch[str], sentences2: Batch[str], *, model_id: s
         Add a computed column that applies the model `ms-marco-MiniLM-L-4-v2` to the sentences in
         columns `tbl.sentence1` and `tbl.sentence2`:
 
-        >>> tbl['result'] = sentence_transformer(
-                tbl.sentence1, tbl.sentence2, model_id='ms-marco-MiniLM-L-4-v2'
-            )
+        >>> tbl.add_computed_column(result=sentence_transformer(
+        ...     tbl.sentence1, tbl.sentence2, model_id='ms-marco-MiniLM-L-4-v2'
+        ... ))
     """
     env.Env.get().require_package('sentence_transformers')
     device = resolve_torch_device('auto')
@@ -246,11 +246,11 @@ def detr_for_object_detection(
         Add a computed column that applies the model `facebook/detr-resnet-50` to an existing
         Pixeltable column `image` of the table `tbl`:
 
-        >>> tbl['detections'] = detr_for_object_detection(
+        >>> tbl.add_computed_column(detections=detr_for_object_detection(
         ...     tbl.image,
         ...     model_id='facebook/detr-resnet-50',
         ...     threshold=0.8
-        ... )
+        ... ))
     """
     env.Env.get().require_package('transformers')
     device = resolve_torch_device('auto')
@@ -319,11 +319,11 @@ def vit_for_image_classification(
         Add a computed column that applies the model `google/vit-base-patch16-224` to an existing
         Pixeltable column `image` of the table `tbl`, returning the 10 most likely classes for each image:
 
-        >>> tbl['image_class'] = vit_for_image_classification(
+        >>> tbl.add_computed_column(image_class=vit_for_image_classification(
         ...     tbl.image,
         ...     model_id='google/vit-base-patch16-224',
         ...     top_k=10
-        ... )
+        ... ))
     """
     env.Env.get().require_package('transformers')
     device = resolve_torch_device('auto')
@@ -378,19 +378,19 @@ def speech2text_for_conditional_generation(audio: pxt.Audio, *, model_id: str, l
         Add a computed column that applies the model `facebook/s2t-small-librispeech-asr` to an existing
         Pixeltable column `audio` of the table `tbl`:
 
-        >>> tbl['transcription'] = speech2text_for_conditional_generation(
+        >>> tbl.add_computed_column(transcription=speech2text_for_conditional_generation(
         ...     tbl.audio,
         ...     model_id='facebook/s2t-small-librispeech-asr'
-        ... )
+        ... ))
 
         Add a computed column that applies the model `facebook/s2t-medium-mustc-multilingual-st` to an existing
         Pixeltable column `audio` of the table `tbl`, translating the audio to French:
 
-        >>> tbl['translation'] = speech2text_for_conditional_generation(
+        >>> tbl.add_computed_column(translation=speech2text_for_conditional_generation(
         ...     tbl.audio,
         ...     model_id='facebook/s2t-medium-mustc-multilingual-st',
         ...     language='fr'
-        ... )
+        ... ))
     """
     env.Env.get().require_package('transformers')
     env.Env.get().require_package('torchaudio')
@@ -451,7 +451,7 @@ def detr_to_coco(image: PIL.Image.Image, detr_info: dict[str, Any]) -> dict[str,
         Add a computed column that converts the output `tbl.detections` to COCO format, where `tbl.image`
         is the image for which detections were computed:
 
-        >>> tbl['detections_coco'] = detr_to_coco(tbl.image, tbl.detections)
+        >>> tbl.add_computed_column(detections_coco=detr_to_coco(tbl.image, tbl.detections))
     """
     bboxes, labels = detr_info['boxes'], detr_info['labels']
     annotations = [
