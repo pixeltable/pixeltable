@@ -907,7 +907,7 @@ class DataFrame:
             limit=self.limit_val,
         )
 
-    def limit(self, n: Union[int, exprs.Expr]) -> DataFrame:
+    def limit(self, n: int) -> DataFrame:
         """ Limit the number of rows in the DataFrame.
 
         Args:

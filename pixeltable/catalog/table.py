@@ -212,7 +212,7 @@ class Table(SchemaObject):
         """
         return self._df().group_by(*items)
 
-    def limit(self, n: Union[int, 'exprs.Expr']) -> 'pxt.DataFrame':
+    def limit(self, n: int) -> 'pxt.DataFrame':
         return self._df().limit(n)
 
     def collect(self) -> 'pxt.dataframe.DataFrameResultSet':

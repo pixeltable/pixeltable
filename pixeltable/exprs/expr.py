@@ -404,31 +404,26 @@ class Expr(abc.ABC):
         """
         Try to turn a literal object into an Expr.
         """
+        from .literal import Literal
+        from .inline_expr import InlineList, InlineDict
+
         # Try to create a literal. We need to check for InlineList/InlineDict
         # first, to prevent them from inappropriately being interpreted as JsonType
         # literals.
         if isinstance(o, (list, tuple, dict, Expr)):
             expr: Optional[Expr] = None
             if isinstance(o, (list, tuple)):
-                from .inline_expr import InlineList
-
                 expr = InlineList(o)
             elif isinstance(o, dict):
-                from .inline_expr import InlineDict
-
                 expr = InlineDict(o)
             elif isinstance(o, Expr):
                 expr = o
-                from .literal import Literal
-
                 if isinstance(expr, Literal):
                     return expr
             # Check if the expression is constant
             if expr is not None:
                 expr_value = expr.as_constant()
                 if expr_value is not None:
-                    from .literal import Literal
-
                     return Literal(expr_value)
                 else:
                     return expr
@@ -436,8 +431,6 @@ class Expr(abc.ABC):
             # convert scalar to a literal
             obj_type = ts.ColumnType.infer_literal_type(o)
             if obj_type is not None:
-                from .literal import Literal
-
                 return Literal(o, col_type=obj_type)
         return None
 
