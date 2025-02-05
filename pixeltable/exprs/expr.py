@@ -186,18 +186,34 @@ class Expr(abc.ABC):
         memo[id(self)] = result
         return result
 
+    @property
+    def _op1(self) -> Expr:
+        return self.components[0]
+
+    @property
+    def _op2(self) -> Expr:
+        return self.components[1]
+
     def substitute(self, spec: dict[Expr, Expr]) -> Expr:
         """
         Replace 'old' with 'new' recursively, and return a new version of the expression
         This method must be used in the form: expr = expr.substitute(spec)
         """
+        from .literal import Literal
+        if isinstance(self, Literal):
+            return self
         for old, new in spec.items():
             if self.equals(old):
                 return new.copy()
         for i in range(len(self.components)):
             self.components[i] = self.components[i].substitute(spec)
-        if self.is_foldable():
-            self = self.folded()
+        if self.is_constant():
+            # self = self.folded()
+            v = self.as_constant()
+            if v is not None:
+                e = self.from_object(v)
+                if e is not None:
+                    self = e
         self.id = self._create_id()
         return self
 
@@ -369,7 +385,7 @@ class Expr(abc.ABC):
 
     def is_constant(self) -> bool:
         """Returns True if this expr is a constant."""
-        return all(comp.is_constant() for comp in self.components)
+        return False
 
     def _as_constant(self) -> Any:
         return None

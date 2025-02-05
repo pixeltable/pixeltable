@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 import sqlalchemy as sql
 
@@ -48,14 +48,6 @@ class ArithmeticExpr(Expr):
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return super()._id_attrs() + [('operator', self.operator.value)]
-
-    @property
-    def _op1(self) -> Expr:
-        return self.components[0]
-
-    @property
-    def _op2(self) -> Expr:
-        return self.components[1]
 
     def sql_expr(self, sql_elements: SqlElementCache) -> Optional[sql.ColumnElement]:
         assert self.col_type.is_int_type() or self.col_type.is_float_type() or self.col_type.is_json_type()
@@ -110,23 +102,49 @@ class ArithmeticExpr(Expr):
                 f'{self.operator} requires numeric type, but {self._op2} has type {type(op2_val).__name__}'
             )
 
-        # if either operand is None, always return None
-        if op1_val is None or op2_val is None:
-            data_row[self.slot_idx] = None
-            return
+        data_row[self.slot_idx] = self.eval_nullable(op1_val, op2_val)
 
+    def eval_nullable(self, op1_val: Optional[Union[int, float]], op2_val: Optional[Union[int, float]]) -> Optional[Union[int, float]]:
+        """
+        Return the result of evaluating the expression on two nullable int/float operands,
+        None is interpreted as SQL NULL
+        """
+        if op1_val is None or op2_val is None:
+            return None
+        return self.eval_non_null(op1_val, op2_val)
+
+    def eval_non_null(self, op1_val: Union[int, float], op2_val: Union[int, float]) -> Union[int, float]:
+        """
+        Return the result of evaluating the expression on two int/float operands
+        """
         if self.operator == ArithmeticOperator.ADD:
-            data_row[self.slot_idx] = op1_val + op2_val
+            return op1_val + op2_val
         elif self.operator == ArithmeticOperator.SUB:
-            data_row[self.slot_idx] = op1_val - op2_val
+            return op1_val - op2_val
         elif self.operator == ArithmeticOperator.MUL:
-            data_row[self.slot_idx] = op1_val * op2_val
+            return op1_val * op2_val
         elif self.operator == ArithmeticOperator.DIV:
-            data_row[self.slot_idx] = op1_val / op2_val
+            return op1_val / op2_val
         elif self.operator == ArithmeticOperator.MOD:
-            data_row[self.slot_idx] = op1_val % op2_val
+            return op1_val % op2_val
         elif self.operator == ArithmeticOperator.FLOORDIV:
-            data_row[self.slot_idx] = op1_val // op2_val
+            return op1_val // op2_val
+
+    def is_constant(self) -> bool:
+        return self.is_foldable()
+
+    def _as_constant(self):
+        return self.folded()
+
+    def is_foldable(self) -> bool:
+        op1_ok = self._op1.col_type.is_numeric_type() and isinstance(self._op1, Literal)
+        op2_ok = self._op2.col_type.is_numeric_type() and isinstance(self._op2, Literal)
+        return op1_ok and op2_ok
+
+    def folded(self) -> Union[int, float]:
+        op1_val = self._op1.as_constant()
+        op2_val = self._op2.as_constant()
+        return self.eval_non_null(op1_val, op2_val)
 
     def is_constant(self) -> bool:
         return self.is_foldable()

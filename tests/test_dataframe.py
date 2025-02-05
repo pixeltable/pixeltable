@@ -307,6 +307,43 @@ class TestDataFrame:
         print(results.schema)
         reload_tester.run_reload_test()
 
+    def test_limit2(self, test_tbl: catalog.Table) -> None:
+        t = test_tbl
+        nrows = 3
+        res = t.select(t.c4).limit(nrows).collect()
+        assert len(res) == nrows
+
+        @pxt.query
+        def get_lim(n: int):
+            return t.select(t.c4, folded_flt=(5.7 * n)-4).limit((3 * (n + 1) // 2) - 1)
+
+        res = t.select(t.c4, get_lim(1)).collect()
+        assert res[0]['get_lim'] == [{'c4': False, 'folded_flt': 1.7000000000000002}, {'c4': True, 'folded_flt': 1.7000000000000002}]
+
+    def test_limit4(self, test_tbl: catalog.Table) -> None:
+        t = test_tbl
+
+        @pxt.query
+        def get_lim(n: float):
+            return t.select(t.c4).limit(n.astype(pxt.Int))
+
+        res = t.select(t.c4, get_lim(2.2)).collect()
+        assert res[0]['get_lim'] == [{'c4': False}, {'c4': True}]
+
+    def test_limit5(self, test_tbl: catalog.Table) -> None:
+        t = test_tbl
+        res = t.select(t.c4, foo=[2, 3, 4]).limit(2).collect()
+        print(res)
+        assert res[0]['foo'] == [2, 3, 4]
+
+        @pxt.query
+        def get_val(n: int):
+            return t.select(foo=[2, 3, n]).limit(2)
+
+        res = t.select(t.c4, get_val(4)).limit(2).collect()
+        print(res)
+        assert res[0]['get_val'][0]['foo'] == [2, 3, 4]
+
     def test_head_tail(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         res = t.head(10).to_pandas()

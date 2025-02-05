@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 import sqlalchemy as sql
 
@@ -22,16 +22,9 @@ class TypeCast(Expr):
         self.components: list[Expr] = [underlying]
         self.id: Optional[int] = self._create_id()
 
-    @property
-    def _underlying(self):
-        return self.components[0]
-
     def _equals(self, other: 'TypeCast') -> bool:
         # `TypeCast` has no properties beyond those captured by `Expr`.
         return True
-
-    def _id_attrs(self) -> list[tuple[str, Any]]:
-        return super()._id_attrs() + [('new_type', self.col_type)]
 
     def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
         """
@@ -41,28 +34,24 @@ class TypeCast(Expr):
         return None
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
-        original_val = data_row[self._underlying.slot_idx]
+        original_val = data_row[self._op1.slot_idx]
         data_row[self.slot_idx] = self.col_type.create_literal(original_val)
-
-    @property
-    def _op1(self) -> Expr:
-        return self.components[0]
 
     def is_constant(self) -> bool:
         return self.is_foldable()
 
-    def _as_constant(self):
+    def _as_constant(self) -> Any:
         return self.folded()
 
     def is_foldable(self) -> bool:
-        return self.col_type.is_numeric_type() and self._op1.col_type.is_numeric_type() and isinstance(self._op1, Literal)
+        return self.col_type.is_numeric_type() and (self._op1.col_type.is_numeric_type() or self._op1.col_type.is_bool_type()) and isinstance(self._op1, Literal)
 
-    def folded(self) -> exprs.Expr:
+    def folded(self) -> Union[int, float]:
         op1_val = self._op1.as_constant()
         if self.col_type.is_int_type():
-            return exprs.Expr.from_object(int(op1_val))
+            return int(op1_val)
         elif self.col_type.is_float_type():
-            return exprs.Expr.from_object(float(op1_val))
+            return float(op1_val)
 
     def _as_dict(self) -> dict:
         return {'new_type': self.col_type.as_dict(), **super()._as_dict()}
@@ -74,4 +63,4 @@ class TypeCast(Expr):
         return cls(components[0], ts.ColumnType.from_dict(d['new_type']))
 
     def __repr__(self) -> str:
-        return f'{self._underlying}.astype({self.col_type._to_str(as_schema=True)})'
+        return f'{self._op1}.astype({self.col_type._to_str(as_schema=True)})'

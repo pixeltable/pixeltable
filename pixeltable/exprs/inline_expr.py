@@ -61,6 +61,9 @@ class InlineArray(Expr):
     def _equals(self, _: InlineArray) -> bool:
         return True  # Always true if components match
 
+    def is_constant(self) -> bool:
+        return all(comp.is_constant() for comp in self.components)
+
     def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
         return None
 
@@ -110,6 +113,9 @@ class InlineList(Expr):
 
     def _equals(self, _: InlineList) -> bool:
         return True  # Always true if components match
+
+    def is_constant(self) -> bool:
+        return all(comp.is_constant() for comp in self.components)
 
     def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
         return None
@@ -169,6 +175,9 @@ class InlineDict(Expr):
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return super()._id_attrs() + [('keys', self.keys)]
+
+    def is_constant(self) -> bool:
+        return all(comp.is_constant() for comp in self.components)
 
     def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
         return None
