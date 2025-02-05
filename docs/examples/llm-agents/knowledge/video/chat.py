@@ -1,31 +1,38 @@
-from config import DIRECTORY, DOCUMENT_URL
-
+import config
 import pixeltable as pxt
 
-from tables.index import create_index
-from tables.agent import create_agent
+from pixel.agent import create_agent
+from pixel.index import create_index
 
-pdf_table_name = f'{DIRECTORY}.pdfs'
-agent_table_name = f'{DIRECTORY}.conversations'
+# Create project
+pxt.create_dir(config.PROJECT_NAME, if_exists='ignore')
 
-# Create if tables do not exist
-if pdf_table_name not in pxt.list_tables():
-    create_index()
+# Create video index
+video_table, video_index = create_index(
+    index_name=config.VIDEO_INDEX_NAME,
+    view_name=config.VIDEO_CHUNKS_NAME,
+    purge=config.DELETE_ALL
+)
 
-if agent_table_name not in pxt.list_tables():
-    create_agent()
+# Insert sample video
+videos = [
+    config.VIDEO_FILE +
+    f'Lex-Fridman-Podcast-430-Excerpt-{n}.mp4'
+    for n in range(3)
+]
+video_table.insert({'video_file': video} for video in videos)
 
-# Fetch tables
-pdf_table = pxt.get_table(pdf_table_name)
-agent_table = pxt.get_table(agent_table_name)
-
-# Insert sample pdfs
-document_urls = [DOCUMENT_URL + doc for doc in ['Mclean-Equity-Alphabet.pdf', 'Zacks-Nvidia-Repeport.pdf']]
-pdf_table.insert({'pdf': url} for url in document_urls)
+# Create agent
+video_rag_agent = create_agent(
+    agent_name=config.AGENT_NAME,
+    index=video_index,
+    system_prompt=config.SYSTEM_PROMPT,
+    purge=config.DELETE_ALL
+)
 
 # Ask question
-question = 'Explain the Nvidia report'
-agent_table.insert([{'prompt': question}])
+question = 'What is happiness?'
+video_rag_agent.insert([{'prompt': question}])
 
 # Show results
-print('\nAnswer:', agent_table.answer.show())
+print('\nAnswer:', video_rag_agent.answer.show())

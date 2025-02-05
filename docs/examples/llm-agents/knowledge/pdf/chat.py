@@ -1,31 +1,34 @@
-from config import DIRECTORY, DOCUMENT_URL
-
+import config
 import pixeltable as pxt
 
-from tables.index import create_index
-from tables.agent import create_agent
+from pixel.agent import create_agent
+from pixel.index import create_index
 
-pdf_table_name = f'{DIRECTORY}.pdfs'
-agent_table_name = f'{DIRECTORY}.conversations'
+# Create project
+pxt.create_dir(config.PROJECT_NAME, if_exists='ignore')
 
-# Create if tables do not exist
-if pdf_table_name not in pxt.list_tables():
-    create_index()
-
-if agent_table_name not in pxt.list_tables():
-    create_agent()
-
-# Fetch tables
-pdf_table = pxt.get_table(pdf_table_name)
-agent_table = pxt.get_table(agent_table_name)
+# Create pdf index
+pdf_source_table, pdf_index = create_index(
+    index_name=config.PDF_INDEX_NAME,
+    chunks_name=config.PDF_CHUNKS_NAME,
+    purge=config.DELETE_ALL
+)
 
 # Insert sample pdfs
-document_urls = [DOCUMENT_URL + doc for doc in ['Mclean-Equity-Alphabet.pdf', 'Zacks-Nvidia-Repeport.pdf']]
-pdf_table.insert({'pdf': url} for url in document_urls)
+document_urls = [config.DOCUMENT_URL + doc for doc in ['Mclean-Equity-Alphabet.pdf', 'Zacks-Nvidia-Repeport.pdf']]
+pdf_source_table.insert({'pdf': url} for url in document_urls)
+
+# Create agent
+financial_research_agent = create_agent(
+    agent_name=config.AGENT_NAME,
+    index=pdf_index,
+    system_prompt=config.SYSTEM_PROMPT,
+    purge=config.DELETE_ALL
+)
 
 # Ask question
 question = 'Explain the Nvidia report'
-agent_table.insert([{'prompt': question}])
+financial_research_agent.insert([{'prompt': question}])
 
 # Show results
-print('\nAnswer:', agent_table.answer.show())
+print('\nAnswer:', financial_research_agent.answer.show())
