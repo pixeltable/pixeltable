@@ -134,43 +134,43 @@ export default function VideoSearch() {
     }
 }
 
-  return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="max-w-7xl mx-auto p-6">
-        {/* Header */}
-        <div className="mb-8 text-center">
-          <img
-            src="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/pixeltable-logo-large.png"
-            alt="Pixeltable"
-            className="h-12 mb-4 mx-auto"
-          />
-          <h1 className="text-4xl font-bold mb-2 text-black-600">
+return (
+  <div className="min-h-screen bg-gray-50">
+    <div className="max-w-7xl mx-auto p-6">
+      {/* Header */}
+      <div className="mb-8 text-center">
+        <img
+          src="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/pixeltable-logo-large.png"
+          alt="Pixeltable"
+          className="h-12 mb-4 mx-auto"
+        />
+        <h1 className="text-4xl font-bold mb-2 text-gray-900">
           Text and Image similarity search with embedding indexes
-          </h1>
-          <p className="text-black-600 max-w-2xl mx-auto">
+        </h1>
+        <p className="text-gray-900 max-w-2xl mx-auto">
           Pixeltable is a declarative interface for working with text, images, embeddings, and even video, enabling you to store, transform, index, and iterate on data.
-          </p>
-        </div>
+        </p>
+      </div>
 
-        {/* Info Sections */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
-          {/* How it Works */}
-          <div className="bg-white rounded-xl shadow-md overflow-hidden">
-            <button
-              onClick={() => setAccordionState(prev => ({
-                ...prev,
-                howItWorks: !prev.howItWorks
-              }))}
-              className="w-full text-left px-6 py-4 flex justify-between items-center bg-gray-50 hover:bg-gray-100 transition-colors"
-            >
-              <h3 className="text-lg font-semibold text-gray-800">How It Works</h3>
-              <svg
-                className={`w-5 h-5 transform transition-transform ${
-                  accordionState.howItWorks ? 'rotate-180' : ''
-                }`}
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
+      {/* Info Sections */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+        {/* How it Works */}
+        <div className="bg-white rounded-xl shadow-md overflow-hidden">
+          <button
+            onClick={() => setAccordionState(prev => ({
+              ...prev,
+              howItWorks: !prev.howItWorks
+            }))}
+            className="w-full text-left px-6 py-4 flex justify-between items-center bg-gray-50 hover:bg-gray-100 transition-colors"
+          >
+            <h3 className="text-lg font-semibold text-gray-900">How It Works</h3>
+            <svg
+              className={`w-5 h-5 transform transition-transform ${
+                accordionState.howItWorks ? 'rotate-180' : ''
+              }`}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
               >
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
               </svg>
