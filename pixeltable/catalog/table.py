@@ -536,7 +536,7 @@ class Table(SchemaObject):
 
             Alternatively, this can also be expressed as:
 
-            >>> tbl['new_col'] = pxt.Int
+            >>> tbl.add_columns({'new_col': pxt.Int})
         """
         self._check_is_dropped()
         # verify kwargs
