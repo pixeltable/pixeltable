@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import dataclasses
 import importlib
-import inspect
 import logging
 import time
 import uuid
@@ -16,7 +15,6 @@ import sqlalchemy.orm as orm
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.exprs as exprs
-import pixeltable.func as func
 import pixeltable.index as index
 import pixeltable.type_system as ts
 from pixeltable.env import Env
@@ -28,6 +26,7 @@ from pixeltable.utils.media_store import MediaStore
 from ..func.globals import resolve_symbol
 from .column import Column
 from .globals import _POS_COLUMN_NAME, _ROWID_COLUMN_NAME, MediaValidation, UpdateStatus, is_valid_identifier
+from .versioned_table import VersionedTable
 
 if TYPE_CHECKING:
     from pixeltable import exec, store
@@ -50,74 +49,40 @@ class TableVersion:
     - mutable TableVersions record their TableVersionPath, which is needed for expr evaluation in updates
     """
 
-    id: UUID
-    name: str
+    tbl: VersionedTable
     version: int
     comment: str
     media_validation: MediaValidation
     num_retained_versions: int
     schema_version: int
-    view_md: Optional[schema.ViewMd]
-    is_snapshot: bool
     effective_version: Optional[int]
     path: Optional[pxt.catalog.TableVersionPath]
-    base: Optional[TableVersion]
     next_col_id: int
     next_idx_id: int
     next_rowid: int
-    predicate: Optional[exprs.Expr]
     mutable_views: list[TableVersion]
-    iterator_cls: Optional[type[ComponentIterator]]
-    iterator_args: Optional[exprs.InlineDict]
-    num_iterator_cols: int
 
-    # contains complete history of columns, incl dropped ones
-    cols: list[Column]
     # contains only user-facing (named) columns visible in this version
     cols_by_name: dict[str, Column]
     # contains only columns visible in this version, both system and user
     cols_by_id: dict[int, Column]
-    # needed for _create_tbl_md()
-    idx_md: dict[int, schema.IndexMd]
-    # contains only actively maintained indices
-    idxs_by_name: dict[str, TableVersion.IndexInfo]
-
-    external_stores: dict[str, pxt.io.ExternalStore]
-    store_tbl: 'store.StoreBase'
-
-    @dataclasses.dataclass
-    class IndexInfo:
-        id: int
-        name: str
-        idx: index.IndexBase
-        col: Column
-        val_col: Column
-        undo_col: Column
 
     def __init__(
         self,
-        id: UUID,
+        tbl: VersionedTable,
         tbl_md: schema.TableMd,
         version: int,
         schema_version_md: schema.TableSchemaVersionMd,
-        base: Optional[TableVersion] = None,
         base_path: Optional[pxt.catalog.TableVersionPath] = None,
-        is_snapshot: Optional[bool] = None,
     ):
-        # only one of base and base_path can be non-None
-        assert base is None or base_path is None
-        self.id = id
-        self.name = tbl_md.name
+        self.tbl = tbl
         self.version = version
         self.comment = schema_version_md.comment
         self.num_retained_versions = schema_version_md.num_retained_versions
         self.schema_version = schema_version_md.schema_version
-        self.view_md = tbl_md.view_md  # save this as-is, it's needed for _create_md()
-        is_view = tbl_md.view_md is not None
-        self.is_snapshot = (is_view and tbl_md.view_md.is_snapshot) or bool(is_snapshot)
         self.media_validation = MediaValidation[schema_version_md.media_validation.upper()]
         # a mutable TableVersion doesn't have a static version
-        self.effective_version = self.version if self.is_snapshot else None
+        self.effective_version = self.version if self.tbl.is_snapshot else None
 
         # mutable tables need their TableVersionPath for expr eval during updates
         from .table_version_path import TableVersionPath
@@ -127,7 +92,7 @@ class TableVersion:
         else:
             self.path = TableVersionPath(self, base=base_path) if base_path is not None else TableVersionPath(self)
 
-        self.base = base_path.tbl_version if base_path is not None else base
+        #self.base = base_path.tbl_version if base_path is not None else base
         if self.is_snapshot:
             self.next_col_id = -1
             self.next_idx_id = -1  # TODO: can snapshots have separate indices?
@@ -138,47 +103,74 @@ class TableVersion:
             self.next_idx_id = tbl_md.next_idx_id
             self.next_rowid = tbl_md.next_row_id
 
-        # view-specific initialization
-        from pixeltable import exprs
-
-        predicate_dict = None if not is_view or tbl_md.view_md.predicate is None else tbl_md.view_md.predicate
-        self.predicate = exprs.Expr.from_dict(predicate_dict) if predicate_dict is not None else None
         self.mutable_views = []  # targets for update propagation
         if self.base is not None and not self.base.is_snapshot and not self.is_snapshot:
-            self.base.mutable_views.append(self)
-
-        # component view-specific initialization
-        self.iterator_cls = None
-        self.iterator_args = None
-        self.num_iterator_cols = 0
-        if is_view and tbl_md.view_md.iterator_class_fqn is not None:
-            module_name, class_name = tbl_md.view_md.iterator_class_fqn.rsplit('.', 1)
-            module = importlib.import_module(module_name)
-            self.iterator_cls = getattr(module, class_name)
-            self.iterator_args = exprs.InlineDict.from_dict(tbl_md.view_md.iterator_args)
-            output_schema, _ = self.iterator_cls.output_schema(**self.iterator_args.to_kwargs())
-            self.num_iterator_cols = len(output_schema)
-            assert tbl_md.view_md.iterator_args is not None
-
-        # register this table version now so that it's available when we're re-creating value exprs
-        cat = pxt.catalog.Catalog.get()
-        cat.tbl_versions[(self.id, self.effective_version)] = self
+            self.mutable_views.append(self)
 
         # init schema after we determined whether we're a component view, and before we create the store table
-        self.cols = []
         self.cols_by_name = {}
         self.cols_by_id = {}
-        self.idx_md = tbl_md.index_md
-        self.idxs_by_name = {}
-        self.external_stores = {}
 
         self._init_schema(tbl_md, schema_version_md)
 
-        # Init external stores (this needs to happen after the schema is created)
-        self._init_external_stores(tbl_md)
-
     def __hash__(self) -> int:
         return hash(self.id)
+
+    @property
+    def id(self) -> UUID:
+        return self.tbl.id
+
+    @property
+    def name(self) -> str:
+        return self.tbl.name
+
+    @property
+    def base(self) -> Optional[VersionedTable]:
+        return self.tbl.base
+
+    @property
+    def view_md(self) -> Optional[schema.ViewMd]:
+        return self.tbl.view_md
+
+    @property
+    def is_snapshot(self) -> bool:
+        return self.tbl.is_snapshot
+
+    @property
+    def predicate(self) -> Optional[exprs.Expr]:
+        return self.tbl.predicate
+
+    @property
+    def iterator_cls(self) -> Optional[type[ComponentIterator]]:
+        return self.tbl.iterator_cls
+
+    @property
+    def iterator_args(self) -> Optional[exprs.InlineDict]:
+        return self.tbl.iterator_args
+
+    @property
+    def num_iterator_cols(self) -> int:
+        return self.tbl.num_iterator_cols
+
+    @property
+    def cols(self) -> list[Column]:
+        return self.tbl.cols
+
+    @property
+    def idx_md(self) -> dict[int, schema.IndexMd]:
+        return self.tbl.idx_md
+
+    @property
+    def idxs_by_name(self) -> dict[str, VersionedTable.IndexInfo]:
+        return self.tbl.idxs_by_name
+
+    @property
+    def external_stores(self) -> dict[str, pxt.io.ExternalStore]:
+        return self.tbl.external_stores
+
+    @property
+    def store_tbl(self) -> 'store.StoreBase':
+        return self.tbl.store_tbl
 
     def _get_column(self, tbl_id: UUID, col_id: int) -> Column:
         if self.id == tbl_id:
@@ -377,10 +369,8 @@ class TableVersion:
         import pixeltable.index as index_module
 
         for md in tbl_md.index_md.values():
-            if (
-                md.schema_version_add > self.schema_version
-                or md.schema_version_drop is not None
-                and md.schema_version_drop <= self.schema_version
+            if md.schema_version_add > self.schema_version or (
+                md.schema_version_drop is not None and md.schema_version_drop <= self.schema_version
             ):
                 # index not visible in this schema version
                 continue
@@ -613,7 +603,9 @@ class TableVersion:
     ) -> UpdateStatus:
         """Add and populate columns within the current transaction"""
         cols = list(cols)
-        row_count = self.store_tbl.count(conn=conn)
+        #row_count = self.store_tbl.count(conn=conn)
+        # TODO: run count plan
+        row_count = 0
         for col in cols:
             if not col.col_type.nullable and not col.is_computed:
                 if row_count > 0:
@@ -684,7 +676,6 @@ class TableVersion:
 
     def drop_column(self, col: Column) -> None:
         """Drop a column from the table."""
-        from pixeltable.catalog import Catalog
 
         assert not self.is_snapshot
 
@@ -719,6 +710,7 @@ class TableVersion:
         for col in cols:
             if col.value_expr is not None:
                 # update Column.dependent_cols
+                # TODO: what about dependencies on base columns?
                 for c in self.cols:
                     if c == col:
                         break
@@ -1244,7 +1236,8 @@ class TableVersion:
             store.delete()
 
     def is_view(self) -> bool:
-        return self.base is not None
+        #return self.base is not None
+        return self.view_md is not None
 
     def is_component_view(self) -> bool:
         return self.iterator_cls is not None

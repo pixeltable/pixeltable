@@ -33,7 +33,7 @@ class StoreBase:
     - v_max: version at which the row was deleted (or MAX_VERSION if it's still live)
     """
 
-    tbl_version: catalog.TableVersion
+    tbl: catalog.VersionedTable
     sa_md: sql.MetaData
     sa_tbl: Optional[sql.Table]
     _pk_cols: list[sql.Column]
@@ -43,13 +43,13 @@ class StoreBase:
 
     __INSERT_BATCH_SIZE = 1000
 
-    def __init__(self, tbl_version: catalog.TableVersion):
-        self.tbl_version = tbl_version
+    def __init__(self, tbl: catalog.VersionedTable):
+        self.tbl = tbl
         self.sa_md = sql.MetaData()
         self.sa_tbl = None
         # We need to declare a `base` variable here, even though it's only defined for instances of `StoreView`,
         # since it's referenced by various methods of `StoreBase`
-        self.base = None if tbl_version.base is None else tbl_version.base.store_tbl
+        self.base = None if tbl.base is None else tbl.base.store_tbl
         self.create_sa_tbl()
 
     def pk_columns(self) -> list[sql.Column]:
@@ -73,10 +73,10 @@ class StoreBase:
         return [*rowid_cols, self.v_min_col, self.v_max_col]
 
     def create_sa_tbl(self) -> None:
-        """Create self.sa_tbl from self.tbl_version."""
+        """Create self.sa_tbl from self.tbl."""
         system_cols = self._create_system_columns()
         all_cols = system_cols.copy()
-        for col in [c for c in self.tbl_version.cols if c.is_stored]:
+        for col in [c for c in self.tbl.cols if c.is_stored]:
             # re-create sql.Column for each column, regardless of whether it already has sa_col set: it was bound
             # to the last sql.Table version we created and cannot be reused
             col.create_sa_cols()
@@ -94,13 +94,13 @@ class StoreBase:
         # - base x view joins can be executed as merge joins
         # - speeds up ORDER BY rowid DESC
         # - allows filtering for a particular table version in index scan
-        idx_name = f'sys_cols_idx_{self.tbl_version.id.hex}'
+        idx_name = f'sys_cols_idx_{self.tbl.id.hex}'
         idxs.append(sql.Index(idx_name, *system_cols))
 
         # v_min/v_max indices: speeds up base table scans needed to propagate a base table insert or delete
-        idx_name = f'vmin_idx_{self.tbl_version.id.hex}'
+        idx_name = f'vmin_idx_{self.tbl.id.hex}'
         idxs.append(sql.Index(idx_name, self.v_min_col, postgresql_using='brin'))
-        idx_name = f'vmax_idx_{self.tbl_version.id.hex}'
+        idx_name = f'vmax_idx_{self.tbl.id.hex}'
         idxs.append(sql.Index(idx_name, self.v_max_col, postgresql_using='brin'))
 
         self.sa_tbl = sql.Table(self._storage_name(), self.sa_md, *all_cols, *idxs)
@@ -130,7 +130,7 @@ class StoreBase:
             # not a tmp file
             return file_url
         _, ext = os.path.splitext(file_path)
-        new_path = str(MediaStore.prepare_media_path(self.tbl_version.id, col.id, v_min, ext=ext))
+        new_path = str(MediaStore.prepare_media_path(self.tbl.id, col.id, v_min, ext=ext))
         os.rename(file_path, new_path)
         new_file_url = urllib.parse.urljoin('file:', urllib.request.pathname2url(new_path))
         return new_file_url
@@ -158,21 +158,21 @@ class StoreBase:
             table_row[pk_col.name] = pk_val
         return table_row, num_excs
 
-    def count(self, conn: Optional[sql.engine.Connection] = None) -> int:
-        """Return the number of rows visible in self.tbl_version"""
-        stmt = (
-            sql.select(sql.func.count('*'))
-            .select_from(self.sa_tbl)
-            .where(self.v_min_col <= self.tbl_version.version)
-            .where(self.v_max_col > self.tbl_version.version)
-        )
-        if conn is None:
-            with env.Env.get().engine.connect() as conn:
-                result = conn.execute(stmt).scalar_one()
-        else:
-            result = conn.execute(stmt).scalar_one()
-        assert isinstance(result, int)
-        return result
+    # def count(self, conn: Optional[sql.engine.Connection] = None) -> int:
+    #     """Return the number of rows visible in self.tbl_version"""
+    #     stmt = (
+    #         sql.select(sql.func.count('*'))
+    #         .select_from(self.sa_tbl)
+    #         .where(self.v_min_col <= self.tbl.version)
+    #         .where(self.v_max_col > self.tbl.version)
+    #     )
+    #     if conn is None:
+    #         with env.Env.get().engine.connect() as conn:
+    #             result = conn.execute(stmt).scalar_one()
+    #     else:
+    #         result = conn.execute(stmt).scalar_one()
+    #     assert isinstance(result, int)
+    #     return result
 
     def create(self, conn: sql.engine.Connection) -> None:
         self.sa_md.create_all(bind=conn)
@@ -233,7 +233,7 @@ class StoreBase:
             sql.exc.DBAPIError if there was a SQL error during execution
             excs.Error if on_error='abort' and there was an exception during row evaluation
         """
-        assert col.tbl.id == self.tbl_version.id
+        assert col.tbl.id == self.tbl.id
         num_excs = 0
         num_rows = 0
 
@@ -357,7 +357,7 @@ class StoreBase:
                             if progress_bar is None:
                                 warnings.simplefilter('ignore', category=TqdmWarning)
                                 progress_bar = tqdm(
-                                    desc=f'Inserting rows into `{self.tbl_version.name}`',
+                                    desc=f'Inserting rows into `{self.tbl.name}`',
                                     unit=' rows',
                                     ncols=100,
                                     file=sys.stdout,
@@ -378,7 +378,8 @@ class StoreBase:
         v = versions[0]
         if v is None:
             # we're looking at live rows
-            clause = sql.and_(self.v_min_col <= self.tbl_version.version, self.v_max_col == schema.Table.MAX_VERSION)
+            clause = self.v_max_col == schema.Table.MAX_VERSION
+            #clause = sql.and_(self.v_min_col <= self.tbl.version, self.v_max_col == schema.Table.MAX_VERSION)
         else:
             # we're looking at a specific version
             clause = self.v_min_col == v if match_on_vmin else self.v_max_col == v
@@ -414,7 +415,7 @@ class StoreBase:
             sql.true() if len(base_versions) == 0 else self.base._versions_clause(base_versions, match_on_vmin)
         )
         set_clause: dict[sql.Column, Union[int, sql.Column]] = {self.v_max_col: current_version}
-        for index_info in self.tbl_version.idxs_by_name.values():
+        for index_info in self.tbl.idxs_by_name.values():
             # copy value column to undo column
             set_clause[index_info.undo_col.sa_col] = index_info.val_col.sa_col
             # set value column to NULL
@@ -441,7 +442,7 @@ class StoreTable(StoreBase):
         return [self.rowid_col]
 
     def _storage_name(self) -> str:
-        return f'tbl_{self.tbl_version.id.hex}'
+        return f'tbl_{self.tbl.id.hex}'
 
     def _rowid_join_predicate(self) -> sql.ColumnElement[bool]:
         return sql.true()
@@ -458,7 +459,7 @@ class StoreView(StoreBase):
         return self.rowid_cols
 
     def _storage_name(self) -> str:
-        return f'view_{self.tbl_version.id.hex}'
+        return f'view_{self.tbl.id.hex}'
 
     def _rowid_join_predicate(self) -> sql.ColumnElement[bool]:
         return sql.and_(
@@ -492,7 +493,7 @@ class StoreComponentView(StoreView):
     def create_sa_tbl(self) -> None:
         super().create_sa_tbl()
         # we need to fix up the 'pos' column in TableVersion
-        self.tbl_version.cols_by_name['pos'].sa_col = self.pos_col
+        #self.tbl.cols_by_name['pos'].sa_col = self.pos_col
 
     def _rowid_join_predicate(self) -> sql.ColumnElement[bool]:
         return sql.and_(

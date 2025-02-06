@@ -16,10 +16,11 @@ import threading
 import uuid
 import warnings
 from abc import abstractmethod
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from sys import stdout
-from typing import TYPE_CHECKING, Any, Callable, Optional, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Iterator, Optional, TypeVar
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pixeltable_pgserver
@@ -80,6 +81,7 @@ class Env:
     _initialized: bool
 
     _resource_pool_info: dict[str, Any]
+    _current_conn: Optional[sql.Connection]
 
     @classmethod
     def get(cls) -> Env:
@@ -135,6 +137,7 @@ class Env:
         self._initialized = False
 
         self._resource_pool_info = {}
+        self._current_conn = None
 
     @property
     def config(self) -> Config:
@@ -163,6 +166,22 @@ class Env:
         tz_name = None if tz is None else tz.key
         self.engine.dispose()
         self._create_engine(time_zone_name=tz_name)
+
+    @property
+    def conn(self) -> Optional[sql.Connection]:
+        return self._current_conn
+
+    @contextmanager
+    def begin(self) -> Iterator[sql.Connection]:
+        """
+        Return a context manager that yields a connection to the database.
+        """
+        with self.engine.begin() as conn:
+            self._current_conn = conn
+            try:
+                yield conn
+            finally:
+                self._current_conn = None
 
     def configure_logging(
         self,

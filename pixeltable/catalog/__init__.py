@@ -1,4 +1,5 @@
 from .catalog import Catalog
+from .versioned_table import VersionedTable
 from .column import Column
 from .dir import Dir
 from .globals import IfExistsParam, IfNotExistsParam, MediaValidation, UpdateStatus, is_valid_identifier, is_valid_path

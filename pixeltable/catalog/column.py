@@ -61,18 +61,18 @@ class Column:
 
         Args:
             name: column name; None for system columns (eg, index columns)
-            col_type: column type; can be None if the type can be derived from ``computed_with``
+            col_type: column type; can be None if the type can be derived from computed_with
             computed_with: an Expr that computes the column value
             is_pk: if True, this column is part of the primary key
             stored: determines whether a computed column is present in the stored table or recomputed on demand
             col_id: column ID (only used internally)
 
-        Computed columns: those have a non-None ``computed_with`` argument
-        - when constructed by the user: ``computed_with`` was constructed explicitly and is passed in;
+        Computed columns: those have a non-None computed_with argument
+        - when constructed by the user: computed_with was constructed explicitly and is passed in;
           col_type is None
-        - when loaded from md store: ``computed_with`` is set and col_type is set
+        - when loaded from md store: computed_with is set and col_type is set
 
-        ``stored`` (only valid for computed image columns):
+        stored (only valid for computed image columns):
         - if True: the column is present in the stored table
         - if False: the column is not present in the stored table and recomputed during a query
         - if None: the system chooses for you (at present, this is always False, but this may change in the future)
@@ -231,8 +231,6 @@ class Column:
         return f'Column({self.id!r}, {self.name!r}, tbl={self.tbl.name!r})'
 
     def __hash__(self) -> int:
-        # TODO(aaron-siegel): This and __eq__ do not capture the table version. We need to rethink the Column
-        #     abstraction (perhaps separating out the version-dependent properties into a different abstraction).
         assert self.tbl is not None
         return hash((self.tbl.id, self.id))
 
