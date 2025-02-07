@@ -1,31 +1,38 @@
+from pathlib import Path
+from typing import Union
+from pyiceberg.catalog import Catalog
 from pyiceberg.catalog.sql import SqlCatalog
-from pyiceberg.table import StaticTable
 
 import pixeltable as pxt
 from pixeltable.utils.arrow import to_arrow_schema, to_pa_tables
 
 
-def export_static_iceberg(table: pxt.Table, iceberg_path: str) -> None:
-    """
-    Exports a dataframe's data to one or more Parquet files. Requires pyarrow to be installed.
+def export_iceberg(table: pxt.Table, catalog: Catalog) -> None:
+    ancestors = [table] + table._bases
+    for t in ancestors:
+        # Select only those columns that are defined in this table (columns inherited from ancestor
+        # tables will be handled separately)
+        # TODO: This is selecting only named columns; do we also want to preserve system columns such as errortype?
+        col_refs = [t[col] for col in t._tbl_version.cols_by_name]
+        df = t.select(*col_refs)
+        namespace = _iceberg_namespace(t)
+        catalog.create_namespace_if_not_exists(namespace)
+        arrow_schema = to_arrow_schema(df._schema, include_rowid=True)
+        iceberg_tbl = catalog.create_table(f'{namespace}.{table._name}', schema=arrow_schema)
+        for pa_table in to_pa_tables(df, arrow_schema, include_rowid=True):
+            iceberg_tbl.append(pa_table)
 
-    It additionally writes the pixeltable metadata in a json file, which would otherwise
-    not be available in the parquet format.
 
-    Args:
-        table_or_df : Table or Dataframe to export.
-        parquet_path : Path to directory to write the parquet files to.
-        partition_size_bytes : The maximum target size for each chunk. Default 100_000_000 bytes.
-        inline_images : If True, images are stored inline in the parquet file. This is useful
-                        for small images, to be imported as pytorch dataset. But can be inefficient
-                        for large images, and cannot be imported into pixeltable.
-                        If False, will raise an error if the Dataframe has any image column.
-                        Default False.
-    """
-    catalog = SqlCatalog('default', uri=f'sqlite:///{iceberg_path}/catalog.db', warehouse=f'file://{iceberg_path}')
-    catalog.create_namespace('default')
-    iceberg_tbl = catalog.create_table('default.test', schema=to_arrow_schema(table._schema))
-    for pa_table in to_pa_tables(table.select()):
-        iceberg_tbl.append(pa_table)
+def sqlite_catalog(iceberg_path: Union[str, Path]) -> SqlCatalog:
+    if isinstance(iceberg_path, str):
+        iceberg_path = Path(iceberg_path)
+    iceberg_path.mkdir(exist_ok=True)
+    return SqlCatalog('default', uri=f'sqlite:///{iceberg_path}/catalog.db', warehouse=f'file://{iceberg_path}')
 
-    StaticTable.from_metadata
+
+def _iceberg_namespace(table: pxt.Table) -> str:
+    """Iceberg tables must have a namespace, so we prepend `pxt` to the table path."""
+    if len(table._parent._path) == 0:
+        return 'pxt'
+    else:
+        return f'pxt.{table._parent._path}'

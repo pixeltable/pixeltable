@@ -67,8 +67,12 @@ def to_pixeltable_schema(arrow_schema: pa.Schema) -> dict[str, ts.ColumnType]:
     return {field.name: to_pixeltable_type(field.type) for field in arrow_schema}
 
 
-def to_arrow_schema(pixeltable_schema: dict[str, Any]) -> pa.Schema:
-    return pa.schema((name, to_arrow_type(typ)) for name, typ in pixeltable_schema.items())  # type: ignore[misc]
+def to_arrow_schema(pixeltable_schema: dict[str, Any], include_rowid: bool = False) -> pa.Schema:
+    entries = [(name, to_arrow_type(typ)) for name, typ in pixeltable_schema.items()]
+    if include_rowid:
+        entries.append(('_rowid', pa.list_(pa.int64())))
+        entries.append(('_v_min', pa.int64()))
+    return pa.schema(entries)  # type: ignore[misc]
 
 
 def to_pydict(batch: Union[pa.Table, pa.RecordBatch]) -> dict[str, Union[list, np.ndarray]]:
@@ -88,11 +92,22 @@ def to_pydict(batch: Union[pa.Table, pa.RecordBatch]) -> dict[str, Union[list, n
     return out
 
 
-def to_pa_tables(df: pxt.DataFrame, batch_size: int = 1_000) -> Iterator[pa.Table]:
-    schema = to_arrow_schema(df._schema)
-    for rows in more_itertools.batched((list(row) for row in df._exec()), batch_size):
+def to_pa_tables(df: pxt.DataFrame, arrow_schema: pa.Schema, batch_size: int = 1_000, include_rowid: bool = False) -> Iterator[pa.Table]:
+    for rows in more_itertools.batched(__to_pa_rows(df, include_rowid), batch_size):
         cols = {col_name: [row[idx] for row in rows] for idx, col_name in enumerate(df._schema.keys())}
-        yield pa.Table.from_pydict(cols, schema=schema)
+        if include_rowid:
+            cols['_rowid'] = [row[-2] for row in rows]
+            cols['_v_min'] = [row[-1] for row in rows]
+        yield pa.Table.from_pydict(cols, schema=arrow_schema)
+
+
+def __to_pa_rows(df: pxt.DataFrame, include_rowid: bool = False) -> Iterator[list]:
+    for row in df._exec():
+        result = list(row)
+        if include_rowid:
+            result.append(row.rowid)
+            result.append(row.v_min)
+        yield result
 
 
 def iter_tuples(batch: Union[pa.Table, pa.RecordBatch]) -> Iterator[dict[str, Any]]:
