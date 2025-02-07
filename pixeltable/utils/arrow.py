@@ -1,4 +1,5 @@
 import datetime
+import json
 from typing import Any, Iterator, Optional, Union
 
 import more_itertools
@@ -103,11 +104,17 @@ def to_pa_tables(df: pxt.DataFrame, arrow_schema: pa.Schema, batch_size: int = 1
 
 def __to_pa_rows(df: pxt.DataFrame, include_rowid: bool = False) -> Iterator[list]:
     for row in df._exec():
-        result = list(row)
+        result = [__to_pa_value(val, col_type) for val, col_type in zip(row, df._schema.values())]
         if include_rowid:
             result.append(row.rowid)
             result.append(row.v_min)
         yield result
+
+
+def __to_pa_value(val: Any, col_type: ts.ColumnType) -> Any:
+    if col_type.is_json_type():
+        return json.dumps(val)  # Export JSON as strings
+    return val
 
 
 def iter_tuples(batch: Union[pa.Table, pa.RecordBatch]) -> Iterator[dict[str, Any]]:

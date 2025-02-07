@@ -18,7 +18,7 @@ def export_iceberg(table: pxt.Table, catalog: Catalog) -> None:
         namespace = _iceberg_namespace(t)
         catalog.create_namespace_if_not_exists(namespace)
         arrow_schema = to_arrow_schema(df._schema, include_rowid=True)
-        iceberg_tbl = catalog.create_table(f'{namespace}.{table._name}', schema=arrow_schema)
+        iceberg_tbl = catalog.create_table(f'{namespace}.{t._name}', schema=arrow_schema)
         for pa_table in to_pa_tables(df, arrow_schema, include_rowid=True):
             iceberg_tbl.append(pa_table)
 
