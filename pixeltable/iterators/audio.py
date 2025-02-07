@@ -36,11 +36,11 @@ class AudioSplitter(ComponentIterator):
 
     # audio stream details
     container: av.container.input.InputContainer
-    audio_time_base: Fraction
+    audio_time_base: Fraction  # unit of presentation time, samples per second
 
     # List of chunks to extract
     # Each chunk is defined by start and end presentation timestamps in audio file (int)
-    chunks_to_extract: Optional[list[tuple[int, int]]] = []
+    chunks_to_extract_in_pts: Optional[list[tuple[int, int]]] = []
     # next chunk to extract
     next_pos: int
 
@@ -62,6 +62,8 @@ class AudioSplitter(ComponentIterator):
             raise excs.Error('chunk_duration_sec must be a positive number')
         if chunk_duration_sec < min_chunk_duration_sec:
             raise excs.Error('chunk_duration_sec must be at least min_chunk_duration_sec')
+        if overlap_sec >= chunk_duration_sec:
+            raise excs.Error('overlap_sec must be less than chunk_duration_sec')
         audio_path = Path(audio)
         assert audio_path.exists() and audio_path.is_file()
         self.audio_path = audio_path
@@ -80,14 +82,14 @@ class AudioSplitter(ComponentIterator):
         total_audio_duration_pts = self.container.streams.audio[0].duration or 0
         total_audio_duration_sec = float(total_audio_duration_pts * self.audio_time_base)
 
-        self.chunks_to_extract = [
-            (math.floor(start / self.audio_time_base), math.ceil(end / self.audio_time_base))
+        self.chunks_to_extract_in_pts = [
+            (round(start / self.audio_time_base), round(end / self.audio_time_base))
             for (start, end) in self.build_chunks(
                 audio_start_time_sec, total_audio_duration_sec, chunk_duration_sec, overlap_sec, min_chunk_duration_sec
             )
         ]
         _logger.debug(
-            f'AudioIterator: path={self.audio_path} total_audio_duration_pts={total_audio_duration_pts} chunks_to_extract={self.chunks_to_extract}'
+            f'AudioIterator: path={self.audio_path} total_audio_duration_pts={total_audio_duration_pts} chunks_to_extract_in_pts={self.chunks_to_extract_in_pts}'
         )
 
     @classmethod
@@ -99,20 +101,24 @@ class AudioSplitter(ComponentIterator):
         overlap_sec: float,
         min_chunk_duration_sec: float,
     ) -> list[tuple[float, float]]:
-        chunks_to_extract: list[tuple[float, float]] = []
+        chunks_to_extract_in_sec: list[tuple[float, float]] = []
         current_pos = start_time_sec
         while current_pos < total_duration_sec:
-            chunk_start = max(start_time_sec, current_pos - overlap_sec)
+            chunk_start = current_pos
             chunk_end = min(chunk_start + chunk_duration_sec, total_duration_sec)
-            chunks_to_extract.append((chunk_start, chunk_end))
-            current_pos = chunk_end
-        # If the last chunk is smaller than min_chunk_duration_sec, drop it
+            chunks_to_extract_in_sec.append((chunk_start, chunk_end))
+            if chunk_end >= total_duration_sec:
+                break
+            current_pos = chunk_end - overlap_sec
+        # If the last chunk is smaller than min_chunk_duration_sec then drop the last chunk from the list
+        # Note that the last chunk includes the overlap duration, make sure to account for it when checking for minimum chunk size
         if (
-            len(chunks_to_extract) > 0
-            and float(chunks_to_extract[-1][1] - chunks_to_extract[-1][0] - overlap_sec) < min_chunk_duration_sec
+            len(chunks_to_extract_in_sec) > 0
+            and (chunks_to_extract_in_sec[-1][1] - chunks_to_extract_in_sec[-1][0] - overlap_sec)
+            < min_chunk_duration_sec
         ):
-            return chunks_to_extract[:-1]
-        return chunks_to_extract
+            return chunks_to_extract_in_sec[:-1]  # return all but the last chunk
+        return chunks_to_extract_in_sec
 
     @classmethod
     def input_schema(cls) -> dict[str, ts.ColumnType]:
@@ -132,9 +138,9 @@ class AudioSplitter(ComponentIterator):
         }, []
 
     def __next__(self) -> dict[str, Any]:
-        if self.next_pos >= len(self.chunks_to_extract):
+        if self.next_pos >= len(self.chunks_to_extract_in_pts):
             raise StopIteration
-        target_chunk_start, target_chunk_end = self.chunks_to_extract[self.next_pos]
+        target_chunk_start, target_chunk_end = self.chunks_to_extract_in_pts[self.next_pos]
         chunk_start_pts = 0
         chunk_end_pts = 0
         chunk_file = str(env.Env.get().tmp_dir / f'{uuid.uuid4()}{self.audio_path.suffix}')

@@ -2,10 +2,11 @@ import math
 from typing import Counter, Optional
 
 import av  # type: ignore[import-untyped]
-import numpy as np
+import pytest
 
 import pixeltable as pxt
 import pixeltable.env as env
+from pixeltable import exceptions as excs
 from pixeltable.iterators.audio import AudioSplitter
 from pixeltable.utils.media_store import MediaStore
 
@@ -267,3 +268,37 @@ class TestAudio:
         results = reload_tester.run_query(audio_chunk_view.order_by(audio_chunk_view.pos))
         for result in results:
             assert result['audio'] == audio_filepath
+
+    def test_create_audio_iterator(self, reset_db) -> None:
+        audio_filepath = get_audio_file('jfk_1961_0109_cityuponahill-excerpt.flac')  # 60s audio file
+        base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio})
+        validate_update_status(base_t.insert([{'audio': audio_filepath}]))
+        with pytest.raises(excs.Error) as excinfo:
+            _ = pxt.create_view(
+                'audio_chunks',
+                base_t,
+                iterator=AudioSplitter.create(
+                    audio=base_t.audio, chunk_duration_sec=-1, overlap_sec=1, min_chunk_duration_sec=1
+                ),
+            )
+        assert 'chunk_duration_sec must be a positive number' in str(excinfo.value)
+
+        with pytest.raises(excs.Error) as excinfo:
+            _ = pxt.create_view(
+                'audio_chunks',
+                base_t,
+                iterator=AudioSplitter.create(
+                    audio=base_t.audio, chunk_duration_sec=1, overlap_sec=0, min_chunk_duration_sec=2
+                ),
+            )
+        assert 'chunk_duration_sec must be at least min_chunk_duration_sec' in str(excinfo.value)
+
+        with pytest.raises(excs.Error) as excinfo:
+            _ = pxt.create_view(
+                'audio_chunks',
+                base_t,
+                iterator=AudioSplitter.create(
+                    audio=base_t.audio, chunk_duration_sec=1, overlap_sec=1, min_chunk_duration_sec=0
+                ),
+            )
+        assert 'overlap_sec must be less than chunk_duration_sec' in str(excinfo.value)
