@@ -57,7 +57,7 @@ export default function VideoSearch() {
     formData.append('file', videoFile)
 
     try {
-      const response = await fetch('http://localhost:8000/api/process-video', {
+      const response = await fetch('http://localhost:8081/api/process-video', {
         method: 'POST',
         body: formData,
       })
@@ -102,7 +102,7 @@ export default function VideoSearch() {
         formData.append('search_type', searchType)
         formData.append('num_results', numResults.toString())
 
-        const response = await fetch('http://localhost:8000/api/search', {
+        const response = await fetch('http://localhost:8081/api/search', {
             method: 'POST',
             body: formData,
         })

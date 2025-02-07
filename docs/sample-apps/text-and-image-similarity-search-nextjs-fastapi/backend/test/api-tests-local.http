@@ -9,6 +9,17 @@ Content-Type: video/mp4
 < ./../../../../../tests/data/videos/bangkok.mp4
 --boundary123--
 
+### Test Process Video Endpoint
+POST http://127.0.0.1:8081/api/process-video
+Content-Type: multipart/form-data; boundary=boundary123
+
+--boundary123
+Content-Disposition: form-data; name="file"; filename="CFLT-week3.mp4"
+Content-Type: video/mp4
+
+< /Users/kamir/Downloads/mov-en/CFLT-week3.mp4
+--boundary123--
+
 ### ✅ Test: Text Search (Valid)
 POST http://127.0.0.1:8081/api/search
 Content-Type: multipart/form-data; boundary=boundary123
