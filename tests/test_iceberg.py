@@ -1,4 +1,7 @@
+import io
 import json
+
+import numpy as np
 import pixeltable as pxt
 from pixeltable.env import Env
 from pixeltable.io.iceberg import export_iceberg, sqlite_catalog
@@ -9,7 +12,6 @@ class TestIceberg:
     def test_iceberg(self, test_tbl: pxt.Table):
         catalog_path = Env.get().create_tmp_path()
         catalog = sqlite_catalog(catalog_path)
-        test_tbl.drop_column('c8')  # Arrays are not working yet
         export_iceberg(test_tbl, catalog)
 
         # Reinstantiate a catalog to test reads from scratch
@@ -27,10 +29,15 @@ class TestIceberg:
             print(f'Checking column: {col}')
             pxt_values = pxt_data[col]
             iceberg_values = list(iceberg_data[col])
-            if tbl._schema[col].is_json_type():
+            if tbl._schema[col].is_array_type():
+                iceberg_values = [np.load(io.BytesIO(val)) for val in iceberg_values]
+                for pxt_val, iceberg_val in zip(pxt_values, iceberg_values):
+                    assert np.array_equal(pxt_val, iceberg_val)
+            elif tbl._schema[col].is_json_type():
                 # JSON columns were exported as strings; check that they parse properly
-                iceberg_values = [json.loads(val) for val in iceberg_values]
-            assert pxt_values == iceberg_values
+                assert pxt_values == [json.loads(val) for val in iceberg_values]
+            else:
+                assert pxt_values == iceberg_values
 
     def test_iceberg_views(self, test_tbl: pxt.Table):
         catalog_path = Env.get().create_tmp_path()

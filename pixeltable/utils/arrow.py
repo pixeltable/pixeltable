@@ -1,4 +1,5 @@
 import datetime
+import io
 import json
 from typing import Any, Iterator, Optional, Union
 
@@ -27,7 +28,8 @@ _pt_to_pa: dict[type[ts.ColumnType], pa.DataType] = {
     ts.BoolType: pa.bool_(),
     ts.IntType: pa.int64(),
     ts.FloatType: pa.float32(),
-    ts.JsonType: pa.string(),  # TODO(orm) pa.struct() is possible
+    ts.ArrayType: pa.binary(),
+    ts.JsonType: pa.string(),
     ts.ImageType: pa.binary(),  # inline image
     ts.AudioType: pa.string(),  # path
     ts.VideoType: pa.string(),  # path
@@ -58,8 +60,6 @@ def to_arrow_type(pixeltable_type: ts.ColumnType) -> Optional[pa.DataType]:
     """
     if pixeltable_type.__class__ in _pt_to_pa:
         return _pt_to_pa[pixeltable_type.__class__]
-    elif isinstance(pixeltable_type, ts.ArrayType):
-        return pa.fixed_shape_tensor(pa.from_numpy_dtype(pixeltable_type.numpy_dtype()), pixeltable_type.shape)
     else:
         return None
 
@@ -68,7 +68,7 @@ def to_pixeltable_schema(arrow_schema: pa.Schema) -> dict[str, ts.ColumnType]:
     return {field.name: to_pixeltable_type(field.type) for field in arrow_schema}
 
 
-def to_arrow_schema(pixeltable_schema: dict[str, Any], include_rowid: bool = False) -> pa.Schema:
+def to_arrow_schema(pixeltable_schema: dict[str, ts.ColumnType], include_rowid: bool = False) -> pa.Schema:
     entries = [(name, to_arrow_type(typ)) for name, typ in pixeltable_schema.items()]
     if include_rowid:
         entries.append(('_rowid', pa.list_(pa.int64())))
@@ -112,6 +112,11 @@ def __to_pa_rows(df: pxt.DataFrame, include_rowid: bool = False) -> Iterator[lis
 
 
 def __to_pa_value(val: Any, col_type: ts.ColumnType) -> Any:
+    if col_type.is_array_type():
+        assert isinstance(val, np.ndarray)
+        arr = io.BytesIO()
+        np.save(arr, val)
+        return arr.getvalue()
     if col_type.is_json_type():
         return json.dumps(val)  # Export JSON as strings
     return val
