@@ -103,11 +103,12 @@ class AudioSplitter(ComponentIterator):
     ) -> list[tuple[float, float]]:
         chunks_to_extract_in_sec: list[tuple[float, float]] = []
         current_pos = start_time_sec
-        while current_pos < total_duration_sec:
+        end_time = start_time_sec + total_duration_sec
+        while current_pos < end_time:
             chunk_start = current_pos
-            chunk_end = min(chunk_start + chunk_duration_sec, total_duration_sec)
+            chunk_end = min(chunk_start + chunk_duration_sec, end_time)
             chunks_to_extract_in_sec.append((chunk_start, chunk_end))
-            if chunk_end >= total_duration_sec:
+            if chunk_end >= end_time:
                 break
             current_pos = chunk_end - overlap_sec
         # If the last chunk is smaller than min_chunk_duration_sec then drop the last chunk from the list
@@ -185,15 +186,20 @@ class AudioSplitter(ComponentIterator):
             # flush encoder
             output_container.mux(output_stream.encode(None))
             output_container.close()
-
-        result = {
-            'start_time_sec': round(float(chunk_start_pts * self.audio_time_base), 4),
-            'end_time_sec': round(float(chunk_end_pts * self.audio_time_base), 4),
-            'audio_chunk': chunk_file if frame_count > 0 else None,
-        }
-        _logger.debug('audio chunk result: %s', result)
-        self.next_pos += 1
-        return result
+            result = {
+                'start_time_sec': round(float(chunk_start_pts * self.audio_time_base), 4),
+                'end_time_sec': round(float(chunk_end_pts * self.audio_time_base), 4),
+                'audio_chunk': chunk_file if frame_count > 0 else None,
+            }
+            _logger.debug('audio chunk result: %s', result)
+            self.next_pos += 1
+            return result
+        else:
+            # It's possible that there are no frames in the range of the last chunk, stop the iterator in this case.
+            # Note that start_time points at the first frame so case applies only for the last chunk
+            assert self.next_pos == len(self.chunks_to_extract_in_pts) - 1
+            self.next_pos += 1
+            raise StopIteration
 
     def close(self) -> None:
         self.container.close()

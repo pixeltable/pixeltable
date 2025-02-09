@@ -103,9 +103,10 @@ class TestAudio:
         effective_chunk_duration_sec = chunk_duration_sec - overlap_sec
         chunk_count = 0
         start = start_time_sec
+        end = start_time_sec + total_duration_sec
         while True:
-            if start + chunk_duration_sec >= total_duration_sec:
-                last_chunk_size = total_duration_sec - start - overlap_sec
+            if start + chunk_duration_sec >= end:
+                last_chunk_size = end - start - overlap_sec
                 if last_chunk_size > 0 and last_chunk_size >= min_chunk_duration_sec:
                     chunk_count += 1
                 break
@@ -182,12 +183,12 @@ class TestAudio:
         assert chunks[-1][1] == 1000
         chunks = AudioSplitter.build_chunks(0, 1005, 100, 10, 0)
         assert len(chunks) == self.__count_chunks(0, 1005, 100, 10, 0)
-        assert all((chunk[1] - chunk[0]) == 100 for chunk in chunks[:11])
+        assert all((chunk[1] - chunk[0]) == 100 for chunk in chunks[:-1])
         assert chunks[-1][0] == 990
         assert chunks[-1][1] == 1005
         chunks = AudioSplitter.build_chunks(0, 1005, 100, 0, 0)
         assert len(chunks) == self.__count_chunks(0, 1005, 100, 0, 0)
-        assert all((chunk[1] - chunk[0]) == 100 for chunk in chunks[:10])
+        assert all((chunk[1] - chunk[0]) == 100 for chunk in chunks[:-1])
         assert chunks[-1][0] == 1000
         assert chunks[-1][1] == 1005
         chunks = AudioSplitter.build_chunks(0, 1.25, 0.15, 0, 0.051)
@@ -197,11 +198,13 @@ class TestAudio:
         assert round(chunks[-1][1], 2) == 1.2
         chunks = AudioSplitter.build_chunks(0.2, 1.25, 0.15, 0, 0.05)
         assert len(chunks) == self.__count_chunks(0.2, 1.25, 0.15, 0, 0.05)
-        assert all(round((chunk[1] - chunk[0]), 2) == 0.15 for chunk in chunks)
-        assert round(chunks[-1][0], 2) == 1.1
-        assert round(chunks[-1][1], 2) == 1.25
-        chunks = AudioSplitter.build_chunks(1000, 1005, 100, 0, 10)
+        assert all(round((chunk[1] - chunk[0]), 2) == 0.15 for chunk in chunks[:-1])
+        assert round(chunks[-1][0], 2) == 1.4
+        assert round(chunks[-1][1], 2) == 1.45
+        chunks = AudioSplitter.build_chunks(1000, 5, 100, 0, 10)
         assert len(chunks) == 0
+        chunks = AudioSplitter.build_chunks(1000, 1005, 100, 0, 10)
+        assert len(chunks) == 10
         chunks = AudioSplitter.build_chunks(0, 5, 100, 0, 10)
         assert len(chunks) == 0
         chunks = AudioSplitter.build_chunks(0, 0, 100, 10, 0)
@@ -222,6 +225,10 @@ class TestAudio:
         assert len(chunks) == self.__count_chunks(0, 60, 14, 7.5, 10)
         assert round(chunks[-1][0], 2) == 45.5
         assert round(chunks[-1][1], 2) == 59.5
+        chunks = AudioSplitter.build_chunks(10, 60, 14, 7.5, 10)
+        assert len(chunks) == self.__count_chunks(0, 60, 14, 7.5, 10)
+        assert round(chunks[-1][0], 2) == 55.5
+        assert round(chunks[-1][1], 2) == 69.5
 
     def test_audio_iterator_single_file(self, reset_db, reload_tester: ReloadTester) -> None:
         audio_filepath = get_audio_file('jfk_1961_0109_cityuponahill-excerpt.flac')  # 60s audio file
@@ -234,7 +241,7 @@ class TestAudio:
                 audio=base_t.audio, chunk_duration_sec=5.0, overlap_sec=0.0, min_chunk_duration_sec=0.0
             ),
         )
-        assert audio_chunk_view.count() == 12
+        assert audio_chunk_view.count() == self.__get_chunk_count(audio_filepath, 5.0, 0.0, 0.0)
         results = reload_tester.run_query(audio_chunk_view.order_by(audio_chunk_view.pos))
         for result in results:
             assert result['audio'] == audio_filepath
@@ -251,7 +258,7 @@ class TestAudio:
                 audio=base_t.audio, chunk_duration_sec=14.0, overlap_sec=2.5, min_chunk_duration_sec=0.0
             ),
         )
-        assert audio_chunk_view.count() == 5
+        assert audio_chunk_view.count() == self.__get_chunk_count(audio_filepath, 14.0, 2.5, 0.0)
         results = reload_tester.run_query(audio_chunk_view.order_by(audio_chunk_view.pos))
         for result in results:
             assert result['audio'] == audio_filepath
@@ -264,7 +271,7 @@ class TestAudio:
                 audio=base_t.audio, chunk_duration_sec=14.0, overlap_sec=7.5, min_chunk_duration_sec=10
             ),
         )
-        assert audio_chunk_view.count() == 8
+        assert audio_chunk_view.count() == self.__get_chunk_count(audio_filepath, 14.0, 7.5, 10.0)
         results = reload_tester.run_query(audio_chunk_view.order_by(audio_chunk_view.pos))
         for result in results:
             assert result['audio'] == audio_filepath
