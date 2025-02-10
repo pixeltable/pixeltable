@@ -1,0 +1,184 @@
+# Knowledge Agents
+
+In this example, we'll build an AI agent that can intelligently search and retrieve information from a self-scaling multimodal database.
+
+
+## Steps
+
+1. Create index
+2. Add search tool to agent
+3. Initialize agent
+4. Ask questions
+
+
+## Prerequisites
+
+```bash
+pip install pixeltable openai 
+```
+
+## Agent Implementation
+
+The agent implementation consists of several components that work together to create a RAG-powered conversational agent:
+
+```python
+import config
+import pixeltable as pxt
+from pixeltable.functions import openai
+
+def create_search_tool(index):
+    """Create a search tool that can be used by the agent."""
+    @pxt.query
+    def search(query_text: str) -> str:
+        """Search tool to find relevant passages."""
+        similarity = index.text.similarity(query_text)
+        return (
+            index.order_by(similarity, asc=False)
+            .select(index.text, sim=similarity)
+            .limit(10)
+        )
+    
+    return pxt.tools(search)
+
+def setup_agent_table(agent_table, agent_tools, system_prompt: str):
+    """Set up the agent table with necessary computed columns."""
+    # Define message structure for tool response
+    tool_messages = [
+        {'role': 'system', 'content': system_prompt},
+        {'role': 'user', 'content': agent_table.prompt},
+    ]
+
+    # Add tool response column
+    agent_table.add_computed_column(
+        tool_response=openai.chat_completions(
+            model=config.AGENT_MODEL,
+            messages=tool_messages,
+            tools=agent_tools,
+            tool_choice=agent_tools.choice(required=True),
+        )
+    )
+    
+    # Add tool result column
+    agent_table.add_computed_column(
+        tool_result=openai.invoke_tools(agent_tools, agent_table.tool_response)
+    )
+    
+    # Add interpretation column
+    agent_table.add_computed_column(
+        interpret_tool_result=create_prompt(agent_table.prompt, agent_table.tool_result)
+    )
+
+    # Set up final response columns
+    result_messages = [
+        {'role': 'system', 'content': "Answer the user's question from the tool result."},
+        {'role': 'user', 'content': agent_table.interpret_tool_result},
+    ]
+
+    agent_table.add_computed_column(
+        final_response=openai.chat_completions(
+            model=config.AGENT_MODEL, 
+            messages=result_messages
+        )
+    )
+    
+    agent_table.add_computed_column(
+        answer=agent_table.final_response.choices[0].message.content
+    )
+
+@pxt.udf
+def create_prompt(question: str, tool_result: list[dict]) -> str:
+    """Create a prompt combining the question and search results."""
+    return f"""
+    QUESTION:
+    {question}
+    
+    SEARCH TOOL RESULT:
+    {tool_result}
+    """
+
+def create_agent(agent_name: str, index: pxt.Table, system_prompt: str, purge: bool = False) -> pxt.Table:
+    """Create or get a persistent agent with index search capabilities."""
+    # Delete agent table if requested
+    if purge:
+        pxt.drop_table(agent_name, force=True)
+
+    # Get existing or create new agent table
+    if agent_name not in pxt.list_tables():
+        # Create new table
+        agent = pxt.create_table(
+            path_str=agent_name, 
+            schema_or_df={'prompt': pxt.String}, 
+            if_exists='ignore'
+        )
+        
+        # Create and set up tools
+        agent_tools = create_search_tool(index)
+        
+        # Build table
+        setup_agent_table(agent, agent_tools, system_prompt)
+    else:
+        agent = pxt.get_table(agent_name)
+
+    return agent
+```
+
+## Basic Usage
+
+Here's how to use the agent creation framework:
+
+```python
+import config
+import pixeltable as pxt
+
+from create_agent import create_agent
+from create_index import create_index
+
+# Create project
+pxt.create_dir(config.PROJECT_NAME, if_exists='ignore')
+
+# Create content index (implementation varies by content type)
+content_table, content_index = create_index(
+    index_name=config.INDEX_NAME,
+    chunks_name=config.CHUNKS_NAME,
+    purge=config.DELETE_ALL
+)
+
+# Insert content
+content_table.insert([{'content_file': config.CONTENT_FILE}])
+
+# Create agent
+rag_agent = create_agent(
+    agent_name=config.AGENT_NAME,
+    index=content_index,
+    system_prompt=config.SYSTEM_PROMPT,
+    purge=config.DELETE_ALL
+)
+
+# Ask question
+question = 'What is this content about?'
+rag_agent.insert([{'prompt': question}])
+
+# Show results
+print('\nAnswer:', rag_agent.answer.show())
+```
+
+## Configuration
+
+Create a `config.py` file to manage your settings:
+
+```python
+# Project settings
+PROJECT_NAME = "knowledge-agents"
+DELETE_ALL = True  # Set to False in production
+
+# Agent settings
+AGENT_MODEL = "gpt-4"  # or another OpenAI model
+SYSTEM_PROMPT = """You are a helpful AI assistant that answers questions based on the provided content.
+Always provide accurate, relevant information from the source material."""
+```
+
+## Content-Specific Implementation
+
+The implementation varies based on the content type (audio, PDF, video, website). Each type requires its own specific indexing strategy, which will be detailed in the following sections once you provide the `create_index` implementations.
+
+Would you like to share the `create_index` implementation for audio content now?

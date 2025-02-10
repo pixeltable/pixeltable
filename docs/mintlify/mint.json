@@ -11,7 +11,7 @@
   "light": "#71717A",        
   "dark": "#09080B",          
   "anchors": {
-    "from": "#18181B",        
+    "from": "#0A2F5C",        
     "to": "#404040"          
   },
   "background": {
@@ -84,7 +84,7 @@
       ]
     },
     {
-      "group": "Multimodal Data Store",
+      "group": "Multimodal AI Infrastructure",
       "pages": [
         "docs/datastore/tables-and-operations",
         "docs/datastore/views",
@@ -98,40 +98,76 @@
     {
       "group": "Building AI Applications",
       "pages": [
+        "docs/examples/overview",
         {
-
-              "group": "Chat",
+          "group": "Agentic workflows",
+          "pages": [
+            "docs/examples/agentic-workflows/knowledge",
+            "docs/examples/agentic-workflows/memory",
+            "docs/examples/agentic-workflows/object-detection",
+            "docs/examples/agentic-workflows/tools",
+            "docs/examples/agentic-workflows/teams",
+            "docs/examples/agentic-workflows/evaluation"
+          ]
+        },
+        {
+          "group": "AI Search",
+          "pages": [
+            "docs/examples/search/audio",
+            "docs/examples/search/images",
+            "docs/examples/search/PDF",
+            "docs/examples/search/website",
+            "docs/examples/search/hybrid-recall",
+            "docs/examples/search/metadata-filtering"
+          ]
+        },
+        {
+          "group": "AWS Deployment",
+          "pages": [
+            "docs/examples/aws/lambda",
+            "docs/examples/aws/ecs"
+          ]
+        },
+        {
+          "group": "Computer Vision",
+          "pages": [
+            "docs/examples/vision/label-studio",
+            "docs/examples/vision/voxel51",
+            "docs/examples/vision/yolox"
+          ]
+        },        
+        {
+              "group": "Persistent Chatbot",
               "pages": [
-                "docs/examples/chat/multimodal",
-                "docs/examples/chat/memory",
-                "docs/examples/chat/tools",
-                "docs/examples/overview"
-              ]
-            },
-            {
-              "group": "Vision",
-              "pages": [
-                "docs/examples/vision/label-studio",
-                "docs/examples/vision/voxel51",
-                "docs/examples/vision/yolox"
-              ]
-            },            
-            {
-              "group": "Search",
-              "pages": [
-                "docs/examples/search/audio",
-                "docs/examples/search/images",
-                "docs/examples/search/PDF",
-                "docs/examples/search/website"
-              ]
-            },
-            {
-              "group": "Evaluation",
-              "pages": [
+                "docs/examples/chatbot/multimodal",
+                "docs/examples/chatbot/memory",
+                "docs/examples/chatbot/tools",
                 "docs/examples/evaluations/llm-as-a-judge"
+
               ]
-            }               
+            },
+            {
+              "group": "Machine Learning",
+              "pages": [
+                "docs/examples/predictive-modeling/forecasting",
+                "docs/examples/predictive-modeling/classification",
+                "docs/examples/predictive-modeling/regression",
+                "docs/examples/predictive-modeling/clustering"
+              ]
+            },
+            {
+              "group": "Sample Applications",
+              "pages": [
+                "docs/examples/sample-apps/ai-trading-chrome-extension",
+                "docs/examples/sample-apps/multimodal-search-nextjs-fastapi",
+                "docs/examples/sample-apps/prompt-optimization-studio-gradio-application",
+                "docs/examples/sample-apps/multimodal-chat-nextjs-fastapi",
+                "docs/examples/sample-apps/context-aware-discord-bot"
+
+              ]
+            }                                    
       ]
+
     },
     {
       "group": "Support",
