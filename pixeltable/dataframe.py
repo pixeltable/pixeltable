@@ -1019,14 +1019,6 @@ class DataFrame:
         return d
 
     @classmethod
-    def limit_val_from_dict(cls, lv: Any) -> exprs.Expr:
-        if lv is None:
-            return None
-        if isinstance(lv, int):
-            return exprs.Literal(lv, ts.IntType(nullable=False))
-        return exprs.Expr.from_dict(lv)
-
-    @classmethod
     def from_dict(cls, d: dict[str, Any]) -> 'DataFrame':
         tbls = [catalog.TableVersionPath.from_dict(tbl_dict) for tbl_dict in d['from_clause']['tbls']]
         join_clauses = [plan.JoinClause(**clause_dict) for clause_dict in d['from_clause']['join_clauses']]
@@ -1044,7 +1036,7 @@ class DataFrame:
             if d['order_by_clause'] is not None
             else None
         )
-        limit_val = cls.limit_val_from_dict(d['limit_val'])
+        limit_val = exprs.Expr.from_dict(d['limit_val']) if d['limit_val'] is not None else None
         return DataFrame(
             from_clause=from_clause,
             select_list=select_list,
