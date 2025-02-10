@@ -36,7 +36,7 @@ class AudioSplitter(ComponentIterator):
 
     # audio stream details
     container: av.container.input.InputContainer
-    audio_time_base: Fraction  # unit of presentation time, samples per second
+    audio_time_base: Fraction  # seconds per presentation time
 
     # List of chunks to extract
     # Each chunk is defined by start and end presentation timestamps in audio file (int)

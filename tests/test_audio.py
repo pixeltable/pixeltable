@@ -148,6 +148,7 @@ class TestAudio:
         assert len(results) == sum(file_to_chunks.values())
         for file, count in file_to_chunks.items():
             assert count == file_to_chunks_from_view.get(file, 0)
+        reload_tester.run_reload_test()
 
     def test_audio_iterator_on_videos(self, reset_db, reload_tester: ReloadTester) -> None:
         video_filepaths = get_video_files()
@@ -171,6 +172,7 @@ class TestAudio:
         assert len(results) == sum(file_to_chunks.values())
         for file, count in file_to_chunks.items():
             assert count == file_to_chunks_from_view.get(file, 0)
+        reload_tester.run_reload_test()
 
     def test_audio_iterator_build_chunks(self) -> None:
         chunks = AudioSplitter.build_chunks(0, 1005, 100, 0, 10)
@@ -275,6 +277,7 @@ class TestAudio:
         results = reload_tester.run_query(audio_chunk_view.order_by(audio_chunk_view.pos))
         for result in results:
             assert result['audio'] == audio_filepath
+        reload_tester.run_reload_test()
 
     def test_create_audio_iterator(self, reset_db) -> None:
         audio_filepath = get_audio_file('jfk_1961_0109_cityuponahill-excerpt.flac')  # 60s audio file
