@@ -115,7 +115,7 @@ class ExecNode(abc.ABC):
             return self.input.get_node(node_class)
         return None
 
-    def set_limit(self, limit: exprs.Expr) -> None:
+    def set_limit(self, limit: int) -> None:
         """Default implementation propagates to input"""
         if self.input is not None:
             self.input.set_limit(limit)

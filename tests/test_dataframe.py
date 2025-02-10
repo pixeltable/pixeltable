@@ -299,12 +299,14 @@ class TestDataFrame:
         assert res[0]['get_lim'] == [{'c4': False}, {'c4': True}]
 
         with pytest.raises(excs.Error, match='must be of type int'):
-            _ = t.limit(5.3).collect()
+            _ = t.limit(5.3).collect()  # type: ignore[arg-type]
+
+        v = pxt.create_view('view1', t, additional_columns={'get_lim': get_lim(3)})
 
         results = reload_tester.run_query(
-            t.select(t.c4, get_lim(3)).limit(3)
+            v.select(v.c4, v.get_lim).limit(3)
         )
-        print(results.schema)
+        print(results)
         reload_tester.run_reload_test()
 
     def test_limit2(self, test_tbl: catalog.Table) -> None:
@@ -325,7 +327,7 @@ class TestDataFrame:
 
         @pxt.query
         def get_lim(n: float):
-            return t.select(t.c4).limit(n.astype(pxt.Int))
+            return t.select(t.c4).limit(n.astype(pxt.Int)) # type: ignore[attr-defined]
 
         res = t.select(t.c4, get_lim(2.2)).collect()
         assert res[0]['get_lim'] == [{'c4': False}, {'c4': True}]

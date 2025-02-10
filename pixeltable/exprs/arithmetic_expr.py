@@ -104,7 +104,7 @@ class ArithmeticExpr(Expr):
 
         data_row[self.slot_idx] = self.eval_nullable(op1_val, op2_val)
 
-    def eval_nullable(self, op1_val: Optional[Union[int, float]], op2_val: Optional[Union[int, float]]) -> Optional[Union[int, float]]:
+    def eval_nullable(self, op1_val: Union[int, float, None], op2_val: Union[int, float, None]) -> Union[int, float, None]:
         """
         Return the result of evaluating the expression on two nullable int/float operands,
         None is interpreted as SQL NULL
@@ -131,12 +131,9 @@ class ArithmeticExpr(Expr):
             return op1_val // op2_val
 
     def is_constant(self) -> bool:
-        return self.is_foldable()
-
-    def _as_constant(self):
-        return self.folded()
-
-    def is_foldable(self) -> bool:
+        '''
+        Return True if the operation may be folded over its operands.
+        '''
         op1_ok = self._op1.col_type.is_numeric_type() and isinstance(self._op1, Literal)
         op2_ok = self._op2.col_type.is_numeric_type() and isinstance(self._op2, Literal)
         return op1_ok and op2_ok
@@ -146,32 +143,8 @@ class ArithmeticExpr(Expr):
         op2_val = self._op2.as_constant()
         return self.eval_non_null(op1_val, op2_val)
 
-    def is_constant(self) -> bool:
-        return self.is_foldable()
-
     def _as_constant(self):
         return self.folded()
-
-    def is_foldable(self) -> bool:
-        op1_ok = self._op1.col_type.is_numeric_type() and isinstance(self._op1, Literal)
-        op2_ok = self._op2.col_type.is_numeric_type() and isinstance(self._op2, Literal)
-        return op1_ok and op2_ok
-
-    def folded(self) -> exprs.Expr:
-        op1_val = self._op1.as_constant()
-        op2_val = self._op2.as_constant()
-        if self.operator == ArithmeticOperator.ADD:
-            return exprs.Expr.from_object(op1_val + op2_val)
-        elif self.operator == ArithmeticOperator.SUB:
-            return exprs.Expr.from_object(op1_val - op2_val)
-        elif self.operator == ArithmeticOperator.MUL:
-            return exprs.Expr.from_object(op1_val * op2_val)
-        elif self.operator == ArithmeticOperator.DIV:
-            return exprs.Expr.from_object(op1_val / op2_val)
-        elif self.operator == ArithmeticOperator.MOD:
-            return exprs.Expr.from_object(op1_val % op2_val)
-        elif self.operator == ArithmeticOperator.FLOORDIV:
-            return exprs.Expr.from_object(op1_val // op2_val)
 
     def _as_dict(self) -> dict:
         return {'operator': self.operator.value, **super()._as_dict()}

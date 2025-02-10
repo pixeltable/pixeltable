@@ -867,7 +867,8 @@ class Planner:
                 expr_eval_node.set_input_order(False)
 
         if limit is not None:
-            plan.set_limit(limit)
+            assert isinstance(limit, exprs.Literal)
+            plan.set_limit(limit.as_constant())
 
         plan.set_ctx(ctx)
         return plan

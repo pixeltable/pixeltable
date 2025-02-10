@@ -82,7 +82,7 @@ class SqlNode(ExecNode):
     where_clause_element: Optional[sql.ColumnElement]
 
     order_by_clause: OrderByClause
-    limit: Optional[exprs.Expr]
+    limit: Optional[int]
 
     def __init__(
         self,
@@ -161,8 +161,7 @@ class SqlNode(ExecNode):
 
         if self.py_filter is None and self.limit is not None:
             # if we don't have a Python filter, we can apply the limit to stmt
-            limit = self.sql_elements.get(self.limit)
-            stmt = stmt.limit(limit)
+            stmt = stmt.limit(self.limit)
 
         return stmt
 
@@ -261,7 +260,7 @@ class SqlNode(ExecNode):
         assert combined is not None
         self.order_by_clause = combined
 
-    def set_limit(self, limit: exprs.Expr) -> None:
+    def set_limit(self, limit: int) -> None:
         self.limit = limit
 
     def _log_explain(self, stmt: sql.Select) -> None:
@@ -328,7 +327,7 @@ class SqlNode(ExecNode):
                 output_row = None
                 num_rows_returned += 1
 
-            if self.limit is not None and num_rows_returned == self.limit.as_constant():
+            if self.limit is not None and num_rows_returned == self.limit:
                 break
 
             if self.ctx.batch_size > 0 and len(output_batch) == self.ctx.batch_size:

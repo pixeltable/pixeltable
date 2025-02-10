@@ -208,7 +208,6 @@ class Expr(abc.ABC):
         for i in range(len(self.components)):
             self.components[i] = self.components[i].substitute(spec)
         if self.is_constant():
-            # self = self.folded()
             v = self.as_constant()
             if v is not None:
                 e = self.from_object(v)
