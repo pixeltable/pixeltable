@@ -523,6 +523,12 @@ class TestExprs:
             1,
             (100, 100),
             [200, 200],
+            # This will produce a Json type literal object
+            ['a', 'b', 'c'],
+            # This is an np.array, dtype='<U1' : col_type = StringType
+            pxt.array(['a', 'b', 'c']),
+            # This is an np.array, dtype='<U7' : col_type = StringType
+            pxt.array(['abc', 'd', 'efghijk']),
             {'b': [4, 5]},
             {'c' : {}},
             {'d': {'d': 6, 'e': [7, 8], 'f': {}, 'g': {'h': 9}}}

@@ -861,8 +861,9 @@ class ArrayType(ColumnType):
             dtype = FloatType()
         elif val.dtype == np.bool_:
             dtype = BoolType()
-        elif val.dtype == np.str_:
-            dtype = StringType()
+        elif np.issubdtype(val.dtype, np.str_):
+            # Note that this includes NumPy types like '<U1' -- arrays of single Unicode characters
+            dtype: ColumnType = StringType()
         else:
             return None
         return cls(val.shape, dtype=dtype, nullable=nullable)
