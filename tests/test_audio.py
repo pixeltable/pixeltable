@@ -106,7 +106,7 @@ class TestAudio:
         end = start_time_sec + total_duration_sec
         while True:
             if start + chunk_duration_sec >= end:
-                last_chunk_size = end - start - overlap_sec
+                last_chunk_size = end - start
                 if last_chunk_size > 0 and last_chunk_size >= min_chunk_duration_sec:
                     chunk_count += 1
                 break
@@ -178,8 +178,8 @@ class TestAudio:
         chunks = AudioSplitter.build_chunks(0, 1005, 100, 0, 10)
         assert len(chunks) == self.__count_chunks(0, 1005, 100, 0, 10)
         assert all((chunk[1] - chunk[0]) == 100 for chunk in chunks)
-        chunks = AudioSplitter.build_chunks(0, 1005, 100, 10, 10)
-        assert len(chunks) == self.__count_chunks(0, 1005, 100, 10, 10)
+        chunks = AudioSplitter.build_chunks(0, 1005, 100, 10, 16)
+        assert len(chunks) == self.__count_chunks(0, 1005, 100, 10, 16)
         assert all((chunk[1] - chunk[0]) == 100 for chunk in chunks)
         assert chunks[-1][0] == 900
         assert chunks[-1][1] == 1000
@@ -219,8 +219,8 @@ class TestAudio:
         assert len(chunks) == self.__count_chunks(0, 11.17, 0.5, 0.1, 0.0)
         assert round(chunks[-1][0], 2) == 10.8
         assert round(chunks[-1][1], 2) == 11.17
-        chunks = AudioSplitter.build_chunks(0, 11.17, 0.5, 0.1, 0.3)
-        assert len(chunks) == self.__count_chunks(0, 11.17, 0.5, 0.1, 0.3)
+        chunks = AudioSplitter.build_chunks(0, 11.17, 0.5, 0.1, 0.4)
+        assert len(chunks) == self.__count_chunks(0, 11.17, 0.5, 0.1, 0.4)
         assert round(chunks[-1][0], 2) == 10.40
         assert round(chunks[-1][1], 2) == 10.90
         chunks = AudioSplitter.build_chunks(0, 60, 14, 7.5, 10)

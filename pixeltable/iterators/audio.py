@@ -112,11 +112,9 @@ class AudioSplitter(ComponentIterator):
                 break
             current_pos = chunk_end - overlap_sec
         # If the last chunk is smaller than min_chunk_duration_sec then drop the last chunk from the list
-        # Note that the last chunk includes the overlap duration, make sure to account for it when checking for minimum chunk size
         if (
             len(chunks_to_extract_in_sec) > 0
-            and (chunks_to_extract_in_sec[-1][1] - chunks_to_extract_in_sec[-1][0] - overlap_sec)
-            < min_chunk_duration_sec
+            and (chunks_to_extract_in_sec[-1][1] - chunks_to_extract_in_sec[-1][0]) < min_chunk_duration_sec
         ):
             return chunks_to_extract_in_sec[:-1]  # return all but the last chunk
         return chunks_to_extract_in_sec
