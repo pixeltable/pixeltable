@@ -1,5 +1,8 @@
 import io
 import json
+import shutil
+import urllib.parse
+import uuid
 from pathlib import Path
 from typing import Any, Iterator, Union
 
@@ -14,18 +17,23 @@ import pixeltable.type_system as ts
 from pixeltable.utils.arrow import _pt_to_pa
 
 
-def export_iceberg(table: pxt.Table, catalog: Catalog) -> None:
+def export_iceberg(table: pxt.Table, iceberg_catalog: Catalog) -> None:
     ancestors = [table] + table._bases
     for t in ancestors:
         # Select only those columns that are defined in this table (columns inherited from ancestor
         # tables will be handled separately)
         # TODO: This is selecting only named columns; do we also want to preserve system columns such as errortype?
-        col_refs = [t[col] for col in t._tbl_version.cols_by_name]
+        col_refs = []
+        for col_name, col in t._tbl_version.cols_by_name.items():
+            if col.col_type.is_media_type():
+                col_refs.append(t[col_name].fileurl)
+            else:
+                col_refs.append(t[col_name])
         df = t.select(*col_refs)
         namespace = __iceberg_namespace(t)
-        catalog.create_namespace_if_not_exists(namespace)
+        iceberg_catalog.create_namespace_if_not_exists(namespace)
         arrow_schema = __to_arrow_schema_iceberg(df._schema)
-        iceberg_tbl = catalog.create_table(f'{namespace}.{t._name}', schema=arrow_schema)
+        iceberg_tbl = iceberg_catalog.create_table(f'{namespace}.{t._name}', schema=arrow_schema)
         for pa_table in __to_pa_tables(df, arrow_schema):
             iceberg_tbl.append(pa_table)
 
@@ -56,6 +64,8 @@ def __to_arrow_schema_iceberg(pxt_schema: dict[str, ts.ColumnType]) -> pa.Schema
 def __to_arrow_type_iceberg(col_type: ts.ColumnType) -> pa.DataType:
     if col_type.is_array_type():
         return pa.binary()
+    if col_type.is_media_type():
+        return pa.string()
     return _pt_to_pa.get(col_type.__class__)
 
 
@@ -83,4 +93,21 @@ def __to_pa_value(val: Any, col_type: ts.ColumnType) -> Any:
         return arr.getvalue()
     if col_type.is_json_type():
         return json.dumps(val)  # Export JSON as strings
+    if col_type.is_media_type():
+        assert isinstance(val, str)
+        return __process_media_url(val)
     return val
+
+
+def __process_media_url(url: str) -> str:
+    parsed_url = urllib.parse.urlparse(url)
+    if parsed_url.scheme == 'file':
+        # It's the URL of a local file. Make a copy of the file in the archive location and return
+        # a pxt:// URI that identifies the copied file.
+        path = Path(parsed_url.path)
+        new_filename = f'{uuid.uuid4().hex}.{path.suffix}'
+        new_path = ...
+        shutil.copyfile(path, new_path)
+        return f'pxt://username/datapath/_media/{new_filename}'
+    # For any type of URL other than a local file, just return the URL as-is.
+    return url
