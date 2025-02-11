@@ -28,8 +28,7 @@ _pt_to_pa: dict[type[ts.ColumnType], pa.DataType] = {
     ts.BoolType: pa.bool_(),
     ts.IntType: pa.int64(),
     ts.FloatType: pa.float32(),
-    ts.ArrayType: pa.binary(),
-    ts.JsonType: pa.string(),
+    ts.JsonType: pa.string(),  # TODO(orm) pa.struct() is possible
     ts.ImageType: pa.binary(),  # inline image
     ts.AudioType: pa.string(),  # path
     ts.VideoType: pa.string(),  # path
@@ -60,6 +59,8 @@ def to_arrow_type(pixeltable_type: ts.ColumnType) -> Optional[pa.DataType]:
     """
     if pixeltable_type.__class__ in _pt_to_pa:
         return _pt_to_pa[pixeltable_type.__class__]
+    elif isinstance(pixeltable_type, ts.ArrayType):
+        return pa.fixed_shape_tensor(pa.from_numpy_dtype(pixeltable_type.numpy_dtype()), pixeltable_type.shape)
     else:
         return None
 
@@ -68,12 +69,8 @@ def to_pixeltable_schema(arrow_schema: pa.Schema) -> dict[str, ts.ColumnType]:
     return {field.name: to_pixeltable_type(field.type) for field in arrow_schema}
 
 
-def to_arrow_schema(pixeltable_schema: dict[str, ts.ColumnType], include_rowid: bool = False) -> pa.Schema:
-    entries = [(name, to_arrow_type(typ)) for name, typ in pixeltable_schema.items()]
-    if include_rowid:
-        entries.append(('_rowid', pa.list_(pa.int64())))
-        entries.append(('_v_min', pa.int64()))
-    return pa.schema(entries)  # type: ignore[misc]
+def to_arrow_schema(pixeltable_schema: dict[str, Any]) -> pa.Schema:
+    return pa.schema((name, to_arrow_type(typ)) for name, typ in pixeltable_schema.items())  # type: ignore[misc]
 
 
 def to_pydict(batch: Union[pa.Table, pa.RecordBatch]) -> dict[str, Union[list, np.ndarray]]:
@@ -91,35 +88,6 @@ def to_pydict(batch: Union[pa.Table, pa.RecordBatch]) -> dict[str, Union[list, n
             out[name] = col.to_pylist()
 
     return out
-
-
-def to_pa_tables(df: pxt.DataFrame, arrow_schema: pa.Schema, batch_size: int = 1_000, include_rowid: bool = False) -> Iterator[pa.Table]:
-    for rows in more_itertools.batched(__to_pa_rows(df, include_rowid), batch_size):
-        cols = {col_name: [row[idx] for row in rows] for idx, col_name in enumerate(df._schema.keys())}
-        if include_rowid:
-            cols['_rowid'] = [row[-2] for row in rows]
-            cols['_v_min'] = [row[-1] for row in rows]
-        yield pa.Table.from_pydict(cols, schema=arrow_schema)
-
-
-def __to_pa_rows(df: pxt.DataFrame, include_rowid: bool = False) -> Iterator[list]:
-    for row in df._exec():
-        result = [__to_pa_value(val, col_type) for val, col_type in zip(row, df._schema.values())]
-        if include_rowid:
-            result.append(row.rowid)
-            result.append(row.v_min)
-        yield result
-
-
-def __to_pa_value(val: Any, col_type: ts.ColumnType) -> Any:
-    if col_type.is_array_type():
-        assert isinstance(val, np.ndarray)
-        arr = io.BytesIO()
-        np.save(arr, val)
-        return arr.getvalue()
-    if col_type.is_json_type():
-        return json.dumps(val)  # Export JSON as strings
-    return val
 
 
 def iter_tuples(batch: Union[pa.Table, pa.RecordBatch]) -> Iterator[dict[str, Any]]:

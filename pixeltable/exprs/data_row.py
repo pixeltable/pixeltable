@@ -4,7 +4,7 @@ import datetime
 import io
 import urllib.parse
 import urllib.request
-from typing import Any, Optional
+from typing import Any, Iterable, Iterator, Optional
 
 import numpy as np
 import pgvector.sqlalchemy  # type: ignore[import-untyped]
@@ -15,7 +15,7 @@ import sqlalchemy as sql
 from pixeltable import env
 
 
-class DataRow:
+class DataRow(Iterable[Any]):
     """
     Encapsulates all data and execution state needed by RowBuilder and DataRowBatch:
     - state for in-memory computation
@@ -158,6 +158,10 @@ class DataRow:
                 self.vals[index].load()
 
         return self.vals[index]
+
+    def __iter__(self) -> Iterator[Any]:
+        for i in range(len(self.vals)):
+            yield self[i]
 
     def get_stored_val(self, index: int, sa_col_type: Optional[sql.types.TypeEngine] = None) -> Any:
         """Return the value that gets stored in the db"""

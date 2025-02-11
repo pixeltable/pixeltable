@@ -2,13 +2,14 @@ import io
 import json
 
 import numpy as np
+from pyiceberg.table import Table as IcebergTable
+
 import pixeltable as pxt
 from pixeltable.env import Env
 from pixeltable.io.iceberg import export_iceberg, sqlite_catalog
-from pyiceberg.table import Table as IcebergTable
+
 
 class TestIceberg:
-
     def test_iceberg(self, test_tbl: pxt.Table):
         catalog_path = Env.get().create_tmp_path()
         catalog = sqlite_catalog(catalog_path)
@@ -56,7 +57,7 @@ class TestIceberg:
         assert catalog.list_tables('pxt') == [('pxt', 'test_tbl')]
         assert set(catalog.list_tables('pxt.iceberg_dir.subdir')) == {
             ('pxt', 'iceberg_dir', 'subdir', 'test_view'),
-            ('pxt', 'iceberg_dir', 'subdir', 'test_subview')
+            ('pxt', 'iceberg_dir', 'subdir', 'test_subview'),
         }
         self.__check_iceberg_tbl(test_tbl, catalog.load_table('pxt.test_tbl'))
         self.__check_iceberg_tbl(view, catalog.load_table('pxt.iceberg_dir.subdir.test_view'))
