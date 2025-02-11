@@ -111,24 +111,6 @@
           ]
         },
         {
-          "group": "AI Search",
-          "pages": [
-            "docs/examples/search/audio",
-            "docs/examples/search/images",
-            "docs/examples/search/PDF",
-            "docs/examples/search/website",
-            "docs/examples/search/hybrid-recall",
-            "docs/examples/search/metadata-filtering"
-          ]
-        },
-        {
-          "group": "AWS Deployment",
-          "pages": [
-            "docs/examples/aws/lambda",
-            "docs/examples/aws/ecs"
-          ]
-        },
-        {
           "group": "Computer Vision",
           "pages": [
             "docs/examples/vision/label-studio",
@@ -156,7 +138,18 @@
               ]
             },
             {
-              "group": "Sample Applications",
+              "group": "Multimodal Search",
+              "pages": [
+                "docs/examples/search/audio",
+                "docs/examples/search/images",
+                "docs/examples/search/PDF",
+                "docs/examples/search/website",
+                "docs/examples/search/hybrid-recall",
+                "docs/examples/search/metadata-filtering"
+              ]
+            },            
+            {
+              "group": "Sample Deployments",
               "pages": [
                 "docs/examples/sample-apps/ai-trading-chrome-extension",
                 "docs/examples/sample-apps/multimodal-search-nextjs-fastapi",
