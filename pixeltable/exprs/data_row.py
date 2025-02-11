@@ -15,7 +15,7 @@ import sqlalchemy as sql
 from pixeltable import env
 
 
-class DataRow(Iterable[Any]):
+class DataRow:
     """
     Encapsulates all data and execution state needed by RowBuilder and DataRowBatch:
     - state for in-memory computation
@@ -158,10 +158,6 @@ class DataRow(Iterable[Any]):
                 self.vals[index].load()
 
         return self.vals[index]
-
-    def __iter__(self) -> Iterator[Any]:
-        for i in range(len(self.vals)):
-            yield self[i]
 
     def get_stored_val(self, index: int, sa_col_type: Optional[sql.types.TypeEngine] = None) -> Any:
         """Return the value that gets stored in the db"""

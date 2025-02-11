@@ -1,5 +1,10 @@
+import filecmp
 import io
 import json
+import tarfile
+import urllib.parse
+from pathlib import Path
+from typing import Optional
 
 import numpy as np
 from pyiceberg.table import Table as IcebergTable
@@ -9,37 +14,21 @@ from pixeltable.env import Env
 from pixeltable.io.iceberg import TablePackager
 from pixeltable.utils.iceberg import sqlite_catalog
 
+from .utils import SAMPLE_IMAGE_URL, get_image_files, get_video_files
+
 
 class TestIceberg:
 
     def test_iceberg(self, test_tbl: pxt.Table):
         packager = TablePackager(test_tbl)
-        dest = packager.package()
+        bundle_path = packager.package()
 
         # Reinstantiate a catalog to test reads from scratch
+        dest = self.__extract_bundle(bundle_path)
         catalog = sqlite_catalog(dest / 'warehouse')
         assert catalog.list_tables('pxt') == [('pxt', 'test_tbl')]
         iceberg_tbl = catalog.load_table('pxt.test_tbl')
         self.__check_iceberg_tbl(test_tbl, iceberg_tbl)
-
-    def __check_iceberg_tbl(self, tbl: pxt.Table, iceberg_tbl: IcebergTable):
-        iceberg_data = iceberg_tbl.scan().to_pandas()
-        # Only check columns defined in the table (not ancestors)
-        col_refs = [tbl[col] for col in tbl._tbl_version.cols_by_name]
-        pxt_data = tbl.select(*col_refs).collect()
-        for col in tbl._tbl_version.cols_by_name:
-            print(f'Checking column: {col}')
-            pxt_values = pxt_data[col]
-            iceberg_values = list(iceberg_data[col])
-            if tbl._schema[col].is_array_type():
-                iceberg_values = [np.load(io.BytesIO(val)) for val in iceberg_values]
-                for pxt_val, iceberg_val in zip(pxt_values, iceberg_values):
-                    assert np.array_equal(pxt_val, iceberg_val)
-            elif tbl._schema[col].is_json_type():
-                # JSON columns were exported as strings; check that they parse properly
-                assert pxt_values == [json.loads(val) for val in iceberg_values]
-            else:
-                assert pxt_values == iceberg_values
 
     def test_iceberg_views(self, test_tbl: pxt.Table):
         pxt.create_dir('iceberg_dir')
@@ -49,8 +38,9 @@ class TestIceberg:
         subview = pxt.create_view('iceberg_dir.subdir.test_subview', view)
         subview.add_computed_column(vvc2=(subview.vc2 + 1))
         packager = TablePackager(subview)
-        dest = packager.package()
+        bundle_path = packager.package()
 
+        dest = self.__extract_bundle(bundle_path)
         catalog = sqlite_catalog(dest / 'warehouse')
         assert catalog.list_tables('pxt') == [('pxt', 'test_tbl')]
         assert set(catalog.list_tables('pxt.iceberg_dir.subdir')) == {
@@ -60,3 +50,69 @@ class TestIceberg:
         self.__check_iceberg_tbl(test_tbl, catalog.load_table('pxt.test_tbl'))
         self.__check_iceberg_tbl(view, catalog.load_table('pxt.iceberg_dir.subdir.test_view'))
         self.__check_iceberg_tbl(subview, catalog.load_table('pxt.iceberg_dir.subdir.test_subview'))
+
+    def test_media_packaging(self, reset_db):
+        t = pxt.create_table('media_tbl', {'image': pxt.Image, 'video': pxt.Video})
+        images = get_image_files()[:10]
+        videos = get_video_files()[:2]
+        t.insert({'image': image} for image in images)
+        t.insert({'video': video} for video in videos)
+        t.insert(image=SAMPLE_IMAGE_URL)  # Test an image from a remote URL
+        t.add_computed_column(rot=t.image.rotate(90))  # Add a stored computed column to test from media store
+        print(repr(t.select(t.image.fileurl, t.rot.fileurl).collect()))
+        print(repr(t.select(t.video.fileurl).collect()))
+
+        packager = TablePackager(t)
+        bundle_path = packager.package()
+
+        dest = self.__extract_bundle(bundle_path)
+        catalog = sqlite_catalog(dest / 'warehouse')
+        self.__check_iceberg_tbl(t, catalog.load_table('pxt.media_tbl'), dest / 'media')
+
+    def __extract_bundle(self, bundle_path: Path) -> Path:
+        tmp_dir = Path(Env.get().create_tmp_path())
+        with tarfile.open(bundle_path, 'r:bz2') as tf:
+            tf.extractall(tmp_dir)
+        return tmp_dir
+
+    def __check_iceberg_tbl(self, tbl: pxt.Table, iceberg_tbl: IcebergTable, media_dir: Optional[Path] = None) -> None:
+        iceberg_data = iceberg_tbl.scan().to_pandas()
+        # Only check columns defined in the table (not ancestors)
+        col_refs = [tbl[col_name] for col_name, col in tbl._tbl_version.cols_by_name.items() if not col.col_type.is_media_type()]
+        media_col_refs = {
+            col_name: tbl[col_name].fileurl for col_name, col in tbl._tbl_version.cols_by_name.items() if col.col_type.is_media_type()
+        }
+        pxt_data = tbl.select(*col_refs, **media_col_refs).collect()
+        for col in tbl._tbl_version.cols_by_name:
+            print(f'Checking column: {col}')
+            pxt_values: list = pxt_data[col]
+            iceberg_values = list(iceberg_data[col])
+            if tbl._schema[col].is_array_type():
+                iceberg_values = [np.load(io.BytesIO(val)) for val in iceberg_values]
+                for pxt_val, iceberg_val in zip(pxt_values, iceberg_values):
+                    assert np.array_equal(pxt_val, iceberg_val)
+            elif tbl._schema[col].is_json_type():
+                # JSON columns were exported as strings; check that they parse properly
+                assert pxt_values == [json.loads(val) for val in iceberg_values]
+            elif tbl._schema[col].is_media_type():
+                assert media_dir is not None
+                self.__check_media(pxt_values, iceberg_values, media_dir)
+            else:
+                assert pxt_values == iceberg_values
+
+    def __check_media(self, pxt_values: list, iceberg_values: list, media_dir: Path) -> None:
+        for pxt_val, iceberg_val in zip(pxt_values, iceberg_values):
+            if pxt_val is None:
+                assert iceberg_val is None
+                continue
+            assert isinstance(pxt_val, str)
+            assert isinstance(iceberg_val, str)
+            parsed_url = urllib.parse.urlparse(pxt_val)
+            if parsed_url.scheme == 'file':
+                assert iceberg_val.startswith('pxtmedia://')
+                path = Path(urllib.parse.unquote(urllib.request.url2pathname(parsed_url.path)))
+                bundled_path = media_dir / iceberg_val.removeprefix('pxtmedia://')
+                assert bundled_path.exists(), bundled_path
+                assert filecmp.cmp(path, bundled_path)
+            else:
+                assert pxt_val == iceberg_val
