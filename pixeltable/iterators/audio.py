@@ -23,7 +23,6 @@ class AudioSplitter(ComponentIterator):
     If the input contains no audio, no chunks are yielded.
 
     Args:
-        audio: Path of the audio file
         chunk_duration_sec: Audio chunk duration in seconds
         overlap_sec: Overlap between consecutive chunks in seconds.
         min_chunk_duration_sec: Drop the last chunk if it is smaller than min_chunk_duration_sec
