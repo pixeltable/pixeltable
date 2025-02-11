@@ -5,9 +5,9 @@ import builtins
 import json
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING, Any, Iterable, Literal, Optional, Union, overload
 
 from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
-from typing import TYPE_CHECKING, Any, Callable, Iterable, Literal, Optional, Sequence, Union, overload
 from uuid import UUID
 
 import pandas as pd
@@ -21,6 +21,7 @@ import pixeltable.exprs as exprs
 import pixeltable.index as index
 import pixeltable.metadata.schema as schema
 import pixeltable.type_system as ts
+from pixeltable.env import Env
 
 from ..exprs import ColumnRef
 from ..utils.description_helper import DescriptionHelper
@@ -140,7 +141,10 @@ class Table(SchemaObject):
 
     def __getattr__(self, name: str) -> 'pxt.exprs.ColumnRef':
         """Return a ColumnRef for the given name."""
-        return self._tbl_version_path.get_column_ref(name)
+        col = self._tbl_version_path.get_column(name, include_bases=True)
+        from pixeltable.exprs import ColumnRef
+
+        return ColumnRef(col)
 
     def __getitem__(self, name: str) -> 'pxt.exprs.ColumnRef':
         """Return a ColumnRef for the given name."""
@@ -487,23 +491,25 @@ class Table(SchemaObject):
             col_name: {'type': ts.ColumnType.normalize_type(spec, nullable_default=True, allow_builtin_types=False)}
             for col_name, spec in schema.items()
         }
-        # handle existing columns based on if_exists parameter
-        cols_to_ignore = self._ignore_or_drop_existing_columns(
-            list(col_schema.keys()), IfExistsParam.validated(if_exists, 'if_exists')
-        )
-        # if all columns to be added already exist and user asked to ignore
-        # existing columns, there's nothing to do.
-        for cname in cols_to_ignore:
-            assert cname in col_schema
-            del col_schema[cname]
-        if len(col_schema) == 0:
-            return UpdateStatus()
-        new_cols = self._create_columns(col_schema)
-        for new_col in new_cols:
-            self._verify_column(new_col)
-        status = self._tbl_version.add_columns(new_cols, print_stats=False, on_error='abort')
-        FileCache.get().emit_eviction_warnings()
-        return status
+
+        with Env.get().begin():
+            # handle existing columns based on if_exists parameter
+            cols_to_ignore = self._ignore_or_drop_existing_columns(
+                list(col_schema.keys()), IfExistsParam.validated(if_exists, 'if_exists')
+            )
+            # if all columns to be added already exist and user asked to ignore
+            # existing columns, there's nothing to do.
+            for cname in cols_to_ignore:
+                assert cname in col_schema
+                del col_schema[cname]
+            if len(col_schema) == 0:
+                return UpdateStatus()
+            new_cols = self._create_columns(col_schema)
+            for new_col in new_cols:
+                self._verify_column(new_col)
+            status = self._tbl_version.add_columns(new_cols, print_stats=False, on_error='abort')
+            FileCache.get().emit_eviction_warnings()
+            return status
 
     def add_column(
         self,

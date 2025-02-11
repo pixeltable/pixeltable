@@ -6,9 +6,11 @@ from uuid import UUID
 
 import pixeltable as pxt
 from pixeltable import exprs
+from pixeltable.metadata import schema
 
 from .column import Column
 from .table_version import TableVersion
+from .table_version_handle import TableVersionHandle
 
 _logger = logging.getLogger('pixeltable')
 
@@ -25,10 +27,32 @@ class TableVersionPath:
     table/view.
     """
 
-    def __init__(self, tbl_version: TableVersion, base: Optional[TableVersionPath] = None):
+    tbl_version: TableVersionHandle
+    base: Optional[TableVersionPath]
+
+    def __init__(self, tbl_version: TableVersionHandle, base: Optional[TableVersionPath] = None):
         assert tbl_version is not None
-        self.tbl_version = tbl_version
+        self._tbl_version = tbl_version
         self.base = base
+
+    @property
+    def tbl_version(self) -> TableVersion:
+        return self._tbl_version.get()
+
+    @classmethod
+    def from_md(cls, path: schema.TableVersionPath) -> TableVersionPath:
+        assert len(path) > 0
+        path: Optional[TableVersionPath] = None
+        for tbl_id_str, effective_version in path[::-1]:
+            tbl_id = UUID(tbl_id_str)
+            path = TableVersionPath(TableVersionHandle(tbl_id, effective_version), base=path)
+        return path
+
+    def as_md(self) -> schema.TableVersionPath:
+        result = [(self.tbl_version.tbl_id.hex, self.tbl_version.effective_version)]
+        if self.base is not None:
+            result.extend(self.base.as_md())
+        return result
 
     def tbl_id(self) -> UUID:
         """Return the id of the table/view that this path represents"""
@@ -81,17 +105,6 @@ class TableVersionPath:
             return None
         return self.base.find_tbl_version(id)
 
-    def get_column_ref(self, col_name: str) -> exprs.ColumnRef:
-        """Return a ColumnRef for the given column name."""
-        from pixeltable.exprs import ColumnRef
-
-        if col_name not in self.tbl_version.cols_by_name:
-            if self.base is None:
-                raise AttributeError(f'Column {col_name} unknown')
-            return self.base.get_column_ref(col_name)
-        col = self.tbl_version.cols_by_name[col_name]
-        return ColumnRef(col)
-
     def columns(self) -> list[Column]:
         """Return all user columns visible in this tbl version path, including columns from bases"""
         result = list(self.tbl_version.cols_by_name.values())
@@ -121,6 +134,16 @@ class TableVersionPath:
         else:
             return None
 
+    def get_column_by_id(self, tbl_id: UUID, col_id: int) -> Optional[Column]:
+        """Return the column for the given tbl/col id"""
+        if self.tbl_version.id == tbl_id:
+            assert col_id in self.tbl_version.cols_by_id
+            return self.tbl_version.cols_by_id[col_id]
+        elif self.base is not None:
+            return self.base.get_column_by_id(tbl_id, col_id)
+        else:
+            return None
+
     def has_column(self, col: Column, include_bases: bool = True) -> bool:
         """Return True if this table has the given column."""
         assert col.tbl is not None
@@ -138,12 +161,12 @@ class TableVersionPath:
 
     def as_dict(self) -> dict:
         return {
-            'tbl_version': self.tbl_version.as_dict(),
+            'tbl_version': self._tbl_version.as_dict(),
             'base': self.base.as_dict() if self.base is not None else None,
         }
 
     @classmethod
     def from_dict(cls, d: dict) -> TableVersionPath:
-        tbl_version = TableVersion.from_dict(d['tbl_version'])
+        tbl_version = TableVersionHandle.from_dict(d['tbl_version'])
         base = TableVersionPath.from_dict(d['base']) if d['base'] is not None else None
         return cls(tbl_version, base)

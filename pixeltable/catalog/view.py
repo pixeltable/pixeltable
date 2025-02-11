@@ -128,77 +128,70 @@ class View(Table):
                     )
             columns = iterator_cols + columns
 
-        with orm.Session(Env.get().engine, future=True) as session:
-            from pixeltable.exprs import InlineDict
+        session = Env.get().session
+        from pixeltable.exprs import InlineDict
 
-            iterator_args_expr: exprs.Expr = InlineDict(iterator_args) if iterator_args is not None else None
-            iterator_class_fqn = (
-                f'{iterator_cls.__module__}.{iterator_cls.__name__}' if iterator_cls is not None else None
+        iterator_args_expr: exprs.Expr = InlineDict(iterator_args) if iterator_args is not None else None
+        iterator_class_fqn = f'{iterator_cls.__module__}.{iterator_cls.__name__}' if iterator_cls is not None else None
+        base_version_path = cls._get_snapshot_path(base) if is_snapshot else base
+
+        # if this is a snapshot, we need to retarget all exprs to the snapshot tbl versions
+        if is_snapshot:
+            predicate = predicate.retarget(base_version_path) if predicate is not None else None
+            iterator_args_expr = (
+                iterator_args_expr.retarget(base_version_path) if iterator_args_expr is not None else None
             )
-            base_version_path = cls._get_snapshot_path(base) if is_snapshot else base
-            base_versions = [
-                (tbl_version.id.hex, tbl_version.version if is_snapshot or tbl_version.is_snapshot else None)
-                for tbl_version in base_version_path.get_tbl_versions()
-            ]
+            for col in columns:
+                if col.value_expr is not None:
+                    col.set_value_expr(col.value_expr.retarget(base_version_path))
 
-            # if this is a snapshot, we need to retarget all exprs to the snapshot tbl versions
-            if is_snapshot:
-                predicate = predicate.retarget(base_version_path) if predicate is not None else None
-                iterator_args_expr = (
-                    iterator_args_expr.retarget(base_version_path) if iterator_args_expr is not None else None
-                )
-                for col in columns:
-                    if col.value_expr is not None:
-                        col.set_value_expr(col.value_expr.retarget(base_version_path))
+        view_md = md_schema.ViewMd(
+            is_snapshot=is_snapshot,
+            predicate=predicate.as_dict() if predicate is not None else None,
+            base_versions=base_version_path.as_md(),
+            iterator_class_fqn=iterator_class_fqn,
+            iterator_args=iterator_args_expr.as_dict() if iterator_args_expr is not None else None,
+        )
 
-            view_md = md_schema.ViewMd(
-                is_snapshot=is_snapshot,
-                predicate=predicate.as_dict() if predicate is not None else None,
-                base_versions=base_versions,
-                iterator_class_fqn=iterator_class_fqn,
-                iterator_args=iterator_args_expr.as_dict() if iterator_args_expr is not None else None,
-            )
-
-            id, tbl_version = TableVersion.create(
-                session,
+        id, tbl_version = TableVersion.create(
+            dir_id,
+            name,
+            columns,
+            num_retained_versions,
+            comment,
+            media_validation=media_validation,
+            # base_path=base_version_path,
+            view_md=view_md,
+        )
+        if tbl_version is None:
+            # this is purely a snapshot: we use the base's tbl version path
+            view = cls(id, dir_id, name, base_version_path, base.tbl_id(), snapshot_only=True)
+            _logger.info(f'created snapshot {name}')
+        else:
+            view = cls(
+                id,
                 dir_id,
                 name,
-                columns,
-                num_retained_versions,
-                comment,
-                media_validation=media_validation,
-                base_path=base_version_path,
-                view_md=view_md,
+                TableVersionPath(tbl_version, base=base_version_path),
+                base.tbl_id(),
+                snapshot_only=False,
             )
-            if tbl_version is None:
-                # this is purely a snapshot: we use the base's tbl version path
-                view = cls(id, dir_id, name, base_version_path, base.tbl_id(), snapshot_only=True)
-                _logger.info(f'created snapshot {name}')
-            else:
-                view = cls(
-                    id,
-                    dir_id,
-                    name,
-                    TableVersionPath(tbl_version, base=base_version_path),
-                    base.tbl_id(),
-                    snapshot_only=False,
-                )
-                _logger.info(f'Created view `{name}`, id={tbl_version.id}')
+            _logger.info(f'Created view `{name}`, id={tbl_version.id}')
 
-                from pixeltable.plan import Planner
+            from pixeltable.plan import Planner
 
-                plan, num_values_per_row = Planner.create_view_load_plan(view._tbl_version_path)
-                num_rows, num_excs, cols_with_excs = tbl_version.store_tbl.insert_rows(
-                    plan, session.connection(), v_min=tbl_version.version
-                )
-                Env.get().console_logger.info(f'Created view `{name}` with {num_rows} rows, {num_excs} exceptions.')
+            plan, num_values_per_row = Planner.create_view_load_plan(view._tbl_version_path)
+            num_rows, num_excs, cols_with_excs = tbl_version.store_tbl.insert_rows(
+                plan, session.connection(), v_min=tbl_version.version
+            )
+            Env.get().console_logger.info(f'Created view `{name}` with {num_rows} rows, {num_excs} exceptions.')
 
-            session.commit()
-            cat = Catalog.get()
-            cat.tbl_dependents[view._id] = []
-            cat.tbl_dependents[base.tbl_id()].append(view)
-            cat.tbls[view._id] = view
-            return view
+        session.commit()
+        cat = Catalog.get()
+        cat.tbl_dependents[view._id] = []
+        cat.tbl_dependents[base.tbl_id()].append(view)
+        cat.tbls[view._id] = view
+        return view
 
     @classmethod
     def _verify_column(cls, col: Column) -> None:
@@ -218,7 +211,7 @@ class View(Table):
         tbl_version = tbl_version_path.tbl_version
         if not tbl_version.is_snapshot:
             # create and register snapshot version
-            tbl_version = tbl_version.create_snapshot_copy()
+            tbl_version = tbl_version.get().create_snapshot_copy()
             assert tbl_version.is_snapshot
 
         return TableVersionPath(

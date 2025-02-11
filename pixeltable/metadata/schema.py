@@ -129,12 +129,16 @@ class IndexMd:
     init_args: dict[str, Any]
 
 
+# a stored table version path is a list of (table id as str, effective table version)
+TableVersionPath = list[tuple[str, Optional[int]]]
+
+
 @dataclasses.dataclass
 class ViewMd:
     is_snapshot: bool
 
     # (table id, version); for mutable views, all versions are None
-    base_versions: list[tuple[str, Optional[int]]]
+    base_versions: TableVersionPath
 
     # filter predicate applied to the base table; view-only
     predicate: Optional[dict[str, Any]]

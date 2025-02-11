@@ -8,6 +8,7 @@ import sqlalchemy as sql
 
 import pixeltable.catalog as catalog
 import pixeltable.exprs as exprs
+from pixeltable.env import Env
 
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
@@ -264,10 +265,11 @@ class SqlNode(ExecNode):
         self.limit = limit
 
     def _log_explain(self, stmt: sql.Select) -> None:
+        conn = Env.get().conn
         try:
             # don't set dialect=Env.get().engine.dialect: x % y turns into x %% y, which results in a syntax error
             stmt_str = str(stmt.compile(compile_kwargs={'literal_binds': True}))
-            explain_result = self.ctx.conn.execute(sql.text(f'EXPLAIN {stmt_str}'))
+            explain_result = conn.execute(sql.text(f'EXPLAIN {stmt_str}'))
             explain_str = '\n'.join([str(row) for row in explain_result])
             _logger.debug(f'SqlScanNode explain:\n{explain_str}')
         except Exception as e:
@@ -275,7 +277,6 @@ class SqlNode(ExecNode):
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
         # run the query; do this here rather than in _open(), exceptions are only expected during iteration
-        assert self.ctx.conn is not None
         with warnings.catch_warnings(record=True) as w:
             stmt = self._create_stmt()
             try:
@@ -286,7 +287,8 @@ class SqlNode(ExecNode):
                 pass
             self._log_explain(stmt)
 
-            result_cursor = self.ctx.conn.execute(stmt)
+            conn = Env.get().conn
+            result_cursor = conn.execute(stmt)
             for warning in w:
                 pass
 

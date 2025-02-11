@@ -11,6 +11,7 @@ import sqlalchemy as sql
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable import catalog, exprs, func
+from pixeltable.env import Env
 
 from .base import IndexBase
 
@@ -131,7 +132,7 @@ class EmbeddingIndex(IndexBase):
         """Return the sqlalchemy type of the index value column"""
         return self.index_col_type
 
-    def create_index(self, index_name: str, index_value_col: catalog.Column, conn: sql.engine.Connection) -> None:
+    def create_index(self, index_name: str, index_value_col: catalog.Column) -> None:
         """Create the index on the index value column"""
         idx = sql.Index(
             index_name,
@@ -140,6 +141,7 @@ class EmbeddingIndex(IndexBase):
             postgresql_with={'m': 16, 'ef_construction': 64},
             postgresql_ops={index_value_col.sa_col.name: self.PGVECTOR_OPS[self.metric]},
         )
+        conn = Env.get().conn
         idx.create(bind=conn)
 
     def similarity_clause(self, val_column: catalog.Column, item: Any) -> sql.ColumnElement:

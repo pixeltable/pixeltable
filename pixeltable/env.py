@@ -29,7 +29,6 @@ import toml
 from tqdm import TqdmWarning
 
 import pixeltable.exceptions as excs
-from pixeltable import metadata
 from pixeltable.utils.console_output import ConsoleLogger, ConsoleMessageFilter, ConsoleOutputHandler, map_level
 from pixeltable.utils.http_server import make_server
 
@@ -82,6 +81,7 @@ class Env:
 
     _resource_pool_info: dict[str, Any]
     _current_conn: Optional[sql.Connection]
+    _current_session: Optional[sql.orm.Session]
 
     @classmethod
     def get(cls) -> Env:
@@ -138,6 +138,7 @@ class Env:
 
         self._resource_pool_info = {}
         self._current_conn = None
+        self._current_session = None
 
     @property
     def config(self) -> Config:
@@ -169,19 +170,33 @@ class Env:
 
     @property
     def conn(self) -> Optional[sql.Connection]:
+        assert self._current_conn is not None
         return self._current_conn
+
+    @property
+    def session(self) -> Optional[sql.orm.Session]:
+        assert self._current_session is not None
+        return self._current_session
 
     @contextmanager
     def begin(self) -> Iterator[sql.Connection]:
         """
         Return a context manager that yields a connection to the database.
         """
-        with self.engine.begin() as conn:
-            self._current_conn = conn
-            try:
-                yield conn
-            finally:
-                self._current_conn = None
+        if self._current_conn is None:
+            assert self._current_session is None
+            with self.engine.begin() as conn:
+                with sql.orm.Session(conn) as session:
+                    self._current_conn = conn
+                    self._current_session = session
+                    try:
+                        yield conn
+                    finally:
+                        self._current_session = None
+                        self._current_conn = None
+        else:
+            assert self._current_session is not None
+            yield self._current_conn
 
     def configure_logging(
         self,
@@ -393,9 +408,9 @@ class Env:
         self._create_engine(time_zone_name=tz_name, echo=echo)
 
         if create_db:
-            from pixeltable.metadata import schema
+            import pixeltable.metadata as metadata
 
-            schema.base_metadata.create_all(self._sa_engine)
+            metadata.schema.base_metadata.create_all(self._sa_engine)
             metadata.create_system_info(self._sa_engine)
 
         self.console_logger.info(f'Connected to Pixeltable database at: {self.db_url}')
@@ -478,6 +493,8 @@ class Env:
             engine.dispose()
 
     def _upgrade_metadata(self) -> None:
+        import pixeltable.metadata as metadata
+
         metadata.upgrade_md(self._sa_engine)
 
     def get_client(self, name: str) -> Any:
@@ -640,7 +657,7 @@ class Env:
             self._logger.info(f'Loading spaCy model: {spacy_model}')
             self._spacy_nlp = spacy.load(spacy_model)
         except Exception as exc:
-            self._logger.warn(f'Failed to load spaCy model: {spacy_model}', exc_info=exc)
+            self._logger.warning(f'Failed to load spaCy model: {spacy_model}', exc_info=exc)
             warnings.warn(
                 f"Failed to load spaCy model '{spacy_model}'. spaCy features will not be available.",
                 excs.PixeltableWarning,

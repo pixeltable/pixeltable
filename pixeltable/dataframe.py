@@ -243,14 +243,13 @@ class DataFrame:
         vars = self._vars()
         return {name: var.col_type for name, var in vars.items()}
 
-    def _exec(self, conn: Optional[sql.engine.Connection] = None) -> Iterator[exprs.DataRow]:
+    def _exec(self) -> Iterator[exprs.DataRow]:
         """Run the query and return rows as a generator.
         This function must not modify the state of the DataFrame, otherwise it breaks dataset caching.
         """
         plan = self._create_query_plan()
 
-        def exec_plan(conn: sql.engine.Connection) -> Iterator[exprs.DataRow]:
-            plan.ctx.set_conn(conn)
+        def exec_plan() -> Iterator[exprs.DataRow]:
             plan.open()
             try:
                 for row_batch in plan:
@@ -258,18 +257,13 @@ class DataFrame:
             finally:
                 plan.close()
 
-        if conn is None:
-            with Env.get().engine.begin() as conn:
-                yield from exec_plan(conn)
-        else:
-            yield from exec_plan(conn)
+        yield from exec_plan()
 
-    async def _aexec(self, conn: sql.engine.Connection) -> AsyncIterator[exprs.DataRow]:
+    async def _aexec(self) -> AsyncIterator[exprs.DataRow]:
         """Run the query and return rows as a generator.
         This function must not modify the state of the DataFrame, otherwise it breaks dataset caching.
         """
         plan = self._create_query_plan()
-        plan.ctx.set_conn(conn)
         plan.open()
         try:
             async for row_batch in plan:
@@ -427,9 +421,9 @@ class DataFrame:
             msg += f'\nStack:\n{nl.join(stack_trace[-1:1:-1])}'
         raise excs.Error(msg)
 
-    def _output_row_iterator(self, conn: Optional[sql.engine.Connection] = None) -> Iterator[list]:
+    def _output_row_iterator(self) -> Iterator[list]:
         try:
-            for data_row in self._exec(conn):
+            for data_row in self._exec():
                 yield [data_row[e.slot_idx] for e in self._select_list_exprs]
         except excs.ExprEvalError as e:
             self._raise_expr_eval_err(e)
@@ -437,14 +431,12 @@ class DataFrame:
             raise excs.Error(f'Error during SQL execution:\n{e}')
 
     def collect(self) -> DataFrameResultSet:
-        return self._collect()
+        with Env.get().begin():
+            return DataFrameResultSet(list(self._output_row_iterator()), self.schema)
 
-    def _collect(self, conn: Optional[sql.engine.Connection] = None) -> DataFrameResultSet:
-        return DataFrameResultSet(list(self._output_row_iterator(conn)), self.schema)
-
-    async def _acollect(self, conn: sql.engine.Connection) -> DataFrameResultSet:
+    async def _acollect(self) -> DataFrameResultSet:
         try:
-            result = [[row[e.slot_idx] for e in self._select_list_exprs] async for row in self._aexec(conn)]
+            result = [[row[e.slot_idx] for e in self._select_list_exprs] async for row in self._aexec()]
             return DataFrameResultSet(result, self.schema)
         except excs.ExprEvalError as e:
             self._raise_expr_eval_err(e)
@@ -460,7 +452,7 @@ class DataFrame:
         from pixeltable.plan import Planner
 
         stmt = Planner.create_count_stmt(self._first_tbl, self.where_clause)
-        with Env.get().engine.connect() as conn:
+        with Env.get().connect() as conn:
             result: int = conn.execute(stmt).scalar_one()
             assert isinstance(result, int)
             return result
@@ -1028,15 +1020,18 @@ class DataFrame:
             else None
         )
         limit_val = d['limit_val']
-        return DataFrame(
-            from_clause=from_clause,
-            select_list=select_list,
-            where_clause=where_clause,
-            group_by_clause=group_by_clause,
-            grouping_tbl=grouping_tbl,
-            order_by_clause=order_by_clause,
-            limit=limit_val,
-        )
+
+        # we need to wrap the construction with a transaction, because it might need to load metadata
+        with Env.get().begin():
+            return DataFrame(
+                from_clause=from_clause,
+                select_list=select_list,
+                where_clause=where_clause,
+                group_by_clause=group_by_clause,
+                grouping_tbl=grouping_tbl,
+                order_by_clause=order_by_clause,
+                limit=limit_val,
+            )
 
     def _hash_result_set(self) -> str:
         """Return a hash that changes when the result set changes."""

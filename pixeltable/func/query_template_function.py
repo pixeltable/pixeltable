@@ -21,7 +21,7 @@ class QueryTemplateFunction(Function):
 
     template_df: Optional['DataFrame']
     self_name: Optional[str]
-    conn: Optional[sql.engine.Connection]
+    # conn: Optional[sql.engine.Connection]
     defaults: dict[str, exprs.Literal]
 
     @classmethod
@@ -53,7 +53,7 @@ class QueryTemplateFunction(Function):
         # if we're running as part of an ongoing update operation, we need to use the same connection, otherwise
         # we end up with a deadlock
         # TODO: figure out a more general way to make execution state available
-        self.conn = None
+        # self.conn = None
 
         # convert defaults to Literals
         self.defaults = {}  # key: param name, value: default value converted to a Literal
@@ -67,8 +67,8 @@ class QueryTemplateFunction(Function):
     def _update_as_overload_resolution(self, signature_idx: int) -> None:
         pass  # only one signature supported for QueryTemplateFunction
 
-    def set_conn(self, conn: Optional[sql.engine.Connection]) -> None:
-        self.conn = conn
+    # def set_conn(self, conn: Optional[sql.engine.Connection]) -> None:
+    #     self.conn = conn
 
     @property
     def is_async(self) -> bool:
@@ -82,7 +82,7 @@ class QueryTemplateFunction(Function):
             {param_name: default for param_name, default in self.defaults.items() if param_name not in bound_args}
         )
         bound_df = self.template_df.bind(bound_args)
-        result = await bound_df._acollect(self.conn)
+        result = await bound_df._acollect()
         return list(result)
 
     @property

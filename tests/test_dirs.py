@@ -7,13 +7,19 @@ from .utils import make_tbl, reload_catalog
 
 
 class TestDirs:
+    def test_a(self, reset_db) -> None:
+        dir1 = pxt.create_dir('dir1')
+        dir2 = pxt.create_dir('dir1.sub1')
+        with pytest.raises(excs.Error):
+            _ = pxt.create_dir('dir2.sub1')
+
     def test_create(self, reset_db) -> None:
         dirs = ['dir1', 'dir1.sub1', 'dir1.sub1.subsub1']
         for name in dirs:
             dir = pxt.create_dir(name)
-            assert dir._path == name
-            assert dir._name == name.split('.')[-1]
-            assert dir._parent._path == '.'.join(name.split('.')[:-1])
+            md = dir.get_metadata()
+            assert md['path'] == name
+            assert md['name'] == name.split('.')[-1]
 
         # invalid names
         with pytest.raises(excs.Error, match=r'Invalid path format'):
@@ -30,21 +36,22 @@ class TestDirs:
             pxt.create_dir('dir1:sub2.')
 
         # existing dirs raise error by default
-        with pytest.raises(excs.Error, match=r'already exists'):
+        with pytest.raises(excs.Error, match=r'is an existing'):
             pxt.create_dir('dir1')
-        with pytest.raises(excs.Error, match=r'already exists'):
+        with pytest.raises(excs.Error, match=r'is an existing'):
             pxt.create_dir('dir1.sub1')
-        with pytest.raises(excs.Error, match=r'already exists'):
+        with pytest.raises(excs.Error, match=r'is an existing'):
             pxt.create_dir('dir1.sub1.subsub1')
 
         # existing table
         make_tbl('dir1.t1')
-        with pytest.raises(excs.Error, match=r'already exists'):
+        t = pxt.get_table('dir1.t1')
+        with pytest.raises(excs.Error, match=r'is an existing'):
             pxt.create_dir('dir1.t1')
-        with pytest.raises(excs.Error, match=r'No such path'):
+        with pytest.raises(excs.Error, match='does not exist'):
             pxt.create_dir('dir2.sub2')
         make_tbl('t2')
-        with pytest.raises(excs.Error, match=r'Not a directory'):
+        with pytest.raises(excs.Error, match=f"Directory 't2' does not exist"):
             pxt.create_dir('t2.sub2')
 
         # new client: force loading from store
@@ -69,7 +76,7 @@ class TestDirs:
         id_before = {}
         for name in dirs:
             dir = pxt.create_dir(name)
-            assert dir._path == name
+            assert dir._path() == name
             id_before[name] = dir._id
 
         # invalid if_exists value is rejected
