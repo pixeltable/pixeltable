@@ -486,6 +486,54 @@ class TestView:
         assert v2._version == v2_version
         check_views()
 
+    def test_unstored_columns_non_image(self, reset_db) -> None:
+        t = self.create_tbl()
+        print(t)
+
+        t_res = t.select(t.c1, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7, t.c8, t.d1, t.c10, t.d2).head(5)
+        print(t_res)
+
+        add_schema1 = {
+            'uc1': {'value': t.c1, 'stored': False},
+            'uc1n': {'value': t.c1n, 'stored': False},
+            'uc2': {'value': t.c2, 'stored': False},
+            'uc3': {'value': t.c3, 'stored': False},
+            'uc4': {'value': t.c4, 'stored': False},
+            'uc5': {'value': t.c5, 'stored': False},
+            'uc6': {'value': t.c6, 'stored': False},
+            'uc7': {'value': t.c7, 'stored': False},
+            'uc8': {'value': t.c8, 'stored': False},
+            'ud1': {'value': t.d1, 'stored': False},
+            'uc10': {'value': t.c10, 'stored': False},
+            'ud2': {'value': t.d2, 'stored': False},
+        }
+
+        v1 = pxt.create_view('v1', t, additional_columns=add_schema1)
+        v1_res = v1.select(v1.uc1, v1.uc2, v1.uc3, v1.uc4, v1.uc5, v1.uc6, v1.uc7, v1.uc8, v1.ud1, v1.uc10, v1.ud2).head(5)
+        print(v1_res)
+
+        assert_resultset_eq(v1_res, t_res, compare_col_names=False)
+
+        add_schema2 = {
+            'vc1': {'value': v1.uc1, 'stored': False},
+            'vc1n': {'value': v1.uc1n, 'stored': False},
+            'vc2': {'value': v1.uc2, 'stored': False},
+            'vc3': {'value': v1.uc3, 'stored': False},
+            'vc4': {'value': v1.uc4, 'stored': False},
+            'vc5': {'value': v1.uc5, 'stored': False},
+            'vc6': {'value': v1.uc6, 'stored': False},
+            'vc7': {'value': v1.uc7, 'stored': False},
+            'vc8': {'value': v1.uc8, 'stored': False},
+            'vd1': {'value': v1.ud1, 'stored': False},
+            'vc10': {'value': v1.uc10, 'stored': False},
+            'vd2': {'value': v1.ud2, 'stored': False},
+        }
+
+        v2 = pxt.create_view('v2', v1, additional_columns=add_schema2)
+        v2_res = v2.select(v2.vc1, v2.vc2, v2.vc3, v2.vc4, v2.vc5, v2.vc6, v2.vc7, v2.vc8, v2.vd1, v2.vc10, v2.vd2).head(5)
+        print(v2_res)
+        assert_resultset_eq(v2_res, t_res, compare_col_names=False)
+
     def test_unstored_columns(self, reset_db) -> None:
         """Test chained views with unstored columns"""
         # create table with image column and two updateable int columns
