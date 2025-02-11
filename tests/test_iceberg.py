@@ -6,17 +6,18 @@ from pyiceberg.table import Table as IcebergTable
 
 import pixeltable as pxt
 from pixeltable.env import Env
-from pixeltable.io.iceberg import export_iceberg, sqlite_catalog
+from pixeltable.io.iceberg import TablePackager
+from pixeltable.utils.iceberg import sqlite_catalog
 
 
 class TestIceberg:
+
     def test_iceberg(self, test_tbl: pxt.Table):
-        catalog_path = Env.get().create_tmp_path()
-        catalog = sqlite_catalog(catalog_path)
-        export_iceberg(test_tbl, catalog)
+        packager = TablePackager(test_tbl)
+        dest = packager.package()
 
         # Reinstantiate a catalog to test reads from scratch
-        catalog = sqlite_catalog(catalog_path)
+        catalog = sqlite_catalog(dest / 'warehouse')
         assert catalog.list_tables('pxt') == [('pxt', 'test_tbl')]
         iceberg_tbl = catalog.load_table('pxt.test_tbl')
         self.__check_iceberg_tbl(test_tbl, iceberg_tbl)
@@ -41,19 +42,16 @@ class TestIceberg:
                 assert pxt_values == iceberg_values
 
     def test_iceberg_views(self, test_tbl: pxt.Table):
-        catalog_path = Env.get().create_tmp_path()
-        catalog = sqlite_catalog(catalog_path)
-        test_tbl.drop_column('c8')  # Arrays are not working yet
-
         pxt.create_dir('iceberg_dir')
         pxt.create_dir('iceberg_dir.subdir')
         view = pxt.create_view('iceberg_dir.subdir.test_view', test_tbl)
         view.add_computed_column(vc2=(view.c2 + 1))
         subview = pxt.create_view('iceberg_dir.subdir.test_subview', view)
         subview.add_computed_column(vvc2=(subview.vc2 + 1))
-        export_iceberg(subview, catalog)
+        packager = TablePackager(subview)
+        dest = packager.package()
 
-        catalog = sqlite_catalog(catalog_path)
+        catalog = sqlite_catalog(dest / 'warehouse')
         assert catalog.list_tables('pxt') == [('pxt', 'test_tbl')]
         assert set(catalog.list_tables('pxt.iceberg_dir.subdir')) == {
             ('pxt', 'iceberg_dir', 'subdir', 'test_view'),

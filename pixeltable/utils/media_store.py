@@ -30,7 +30,7 @@ class MediaStore:
         the environment's media_dir.
         """
         id_hex = uuid.uuid4().hex
-        parent = Env.get().media_dir / tbl_id.hex / id_hex[0:2] / id_hex[0:4]
+        parent = Env.get().media_dir / tbl_id.hex / id_hex[:2] / id_hex[:4]
         parent.mkdir(parents=True, exist_ok=True)
         return parent / f'{tbl_id.hex}_{col_id}_{version}_{id_hex}{ext or ""}'
 
