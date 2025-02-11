@@ -13,6 +13,7 @@ from . import (
     mistralai,
     ollama,
     openai,
+    replicate,
     string,
     timestamp,
     together,

@@ -82,12 +82,17 @@ async def messages(
     tools: Optional[list[dict]] = None,
     top_k: Optional[int] = None,
     top_p: Optional[float] = None,
+    timeout: Optional[float] = None,
 ) -> dict:
     """
     Create a Message.
 
     Equivalent to the Anthropic `messages` API endpoint.
     For additional details, see: <https://docs.anthropic.com/en/api/messages>
+
+    Request throttling:
+    Uses the rate limit-related headers returned by the API to throttle requests adaptively, based on available
+    request and token capacity. No configuration is necessary.
 
     __Requirements:__
 
@@ -107,7 +112,7 @@ async def messages(
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
         >>> msgs = [{'role': 'user', 'content': tbl.prompt}]
-        ... tbl['response'] = messages(msgs, model='claude-3-haiku-20240307')
+        ... tbl.add_computed_column(response= messages(msgs, model='claude-3-haiku-20240307'))
     """
 
     # it doesn't look like count_tokens() actually exists in the current version of the library
@@ -160,7 +165,7 @@ async def messages(
         tool_choice=_opt(cast(Any, tool_choice_)),
         top_k=_opt(top_k),
         top_p=_opt(top_p),
-        timeout=10,
+        timeout=_opt(timeout),
     )
 
     requests_limit_str = result.headers.get('anthropic-ratelimit-requests-limit')
