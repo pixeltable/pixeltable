@@ -1,5 +1,6 @@
 import io
 import json
+import logging
 import tarfile
 import urllib.parse
 import urllib.request
@@ -17,6 +18,8 @@ import pixeltable.type_system as ts
 from pixeltable.env import Env
 from pixeltable.utils.arrow import _pt_to_pa
 from pixeltable.utils.iceberg import sqlite_catalog
+
+_logger = logging.getLogger('pixeltable')
 
 
 class TablePackager:
@@ -54,12 +57,16 @@ class TablePackager:
         Export the table to a tarball containing Iceberg tables and media files.
         """
         assert not self.tmp_dir.exists()  # Packaging can only be done once per TablePackager instance
+        _logger.info(f"Packaging table '{self.table._path}' and its ancestors in: {self.tmp_dir}")
         self.tmp_dir.mkdir()
         self.iceberg_catalog = sqlite_catalog(self.tmp_dir / 'warehouse')
         ancestors = [self.table] + self.table._bases
         for t in ancestors:
+            _logger.info(f"Exporting table '{t._path}'.")
             self.__export_table(t)
+        _logger.info(f'Building archive.')
         bundle_path = self.__build_tarball()
+        _logger.info(f'Packaging complete: {bundle_path}')
         return bundle_path
 
     def __export_table(self, t: pxt.Table) -> None:
