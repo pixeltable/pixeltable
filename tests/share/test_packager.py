@@ -11,14 +11,14 @@ from pyiceberg.table import Table as IcebergTable
 
 import pixeltable as pxt
 from pixeltable.env import Env
-from pixeltable.io.iceberg import TablePackager
+from pixeltable.share.packager import TablePackager
 from pixeltable.utils.iceberg import sqlite_catalog
 
-from .utils import SAMPLE_IMAGE_URL, get_image_files, get_video_files
+from ..utils import SAMPLE_IMAGE_URL, get_image_files, get_video_files
 
 
-class TestIceberg:
-    def test_iceberg(self, test_tbl: pxt.Table):
+class TestPackager:
+    def test_packager(self, test_tbl: pxt.Table):
         packager = TablePackager(test_tbl)
         bundle_path = packager.package()
 
@@ -29,7 +29,7 @@ class TestIceberg:
         iceberg_tbl = catalog.load_table('pxt.test_tbl')
         self.__check_iceberg_tbl(test_tbl, iceberg_tbl)
 
-    def test_iceberg_views(self, test_tbl: pxt.Table):
+    def test_packager_with_views(self, test_tbl: pxt.Table):
         pxt.create_dir('iceberg_dir')
         pxt.create_dir('iceberg_dir.subdir')
         view = pxt.create_view('iceberg_dir.subdir.test_view', test_tbl)
@@ -50,7 +50,7 @@ class TestIceberg:
         self.__check_iceberg_tbl(view, catalog.load_table('pxt.iceberg_dir.subdir.test_view'))
         self.__check_iceberg_tbl(subview, catalog.load_table('pxt.iceberg_dir.subdir.test_subview'))
 
-    def test_media_packaging(self, reset_db):
+    def test_media_packager(self, reset_db):
         t = pxt.create_table('media_tbl', {'image': pxt.Image, 'video': pxt.Video})
         images = get_image_files()[:10]
         videos = get_video_files()[:2]

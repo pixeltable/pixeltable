@@ -4,7 +4,7 @@ import datetime
 import io
 import urllib.parse
 import urllib.request
-from typing import Any, Iterable, Iterator, Optional
+from typing import Any, Optional
 
 import numpy as np
 import pgvector.sqlalchemy  # type: ignore[import-untyped]

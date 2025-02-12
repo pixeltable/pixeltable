@@ -1,13 +1,9 @@
 import datetime
-import io
-import json
 from typing import Any, Iterator, Optional, Union
 
-import more_itertools
 import numpy as np
 import pyarrow as pa
 
-import pixeltable as pxt
 import pixeltable.type_system as ts
 
 _pa_to_pt: dict[pa.DataType, ts.ColumnType] = {
