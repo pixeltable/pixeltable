@@ -50,6 +50,18 @@ f = pxt.create_view('frame_view_name', t, iterator=FrameIterator.create(video=t.
 
 `fps=0` extracts frames at the original frame rate.
 
+## Audio extraction from video data and audio chunking
+
+Extract audio from video data
+```python
+import pixeltable as pxt
+from pixeltable.iterators import AudioSplitter
+video_t = pxt.create_table('tbl_name', {'video': pxt.Video})
+video_t.add_computed_column(audio=video_t.video.extract_audio(format='mp3'))
+audio_chunk_view = pxt.create_view("audio_chunks", video_t, iterator=AudioSplitter.create(audio=video_t.audio, chunk_duration_sec=5.0))
+```
+`chunk_duration_sec` is the time duration of an audio chunk in seconds
+
 ## Pixeltable types
 
 | Pixeltable type | Corresponding Python type    |
