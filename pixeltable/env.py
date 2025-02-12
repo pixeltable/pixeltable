@@ -627,8 +627,11 @@ class Env:
             self.__optional_packages['spacy'].is_installed = False
 
     def clear_tmp_dir(self) -> None:
-        shutil.rmtree(self._tmp_dir)
-        self._tmp_dir.mkdir()
+        for path in glob.glob(f'{self._tmp_dir}/*'):
+            if os.path.isdir(path):
+                shutil.rmtree(path)
+            else:
+                os.remove(path)
 
     def num_tmp_files(self) -> int:
         return len(glob.glob(f'{self._tmp_dir}/*'))
