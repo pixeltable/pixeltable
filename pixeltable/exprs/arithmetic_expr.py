@@ -130,21 +130,17 @@ class ArithmeticExpr(Expr):
         elif self.operator == ArithmeticOperator.FLOORDIV:
             return op1_val // op2_val
 
-    def is_constant(self) -> bool:
-        '''
-        Return True if the operation may be folded over its operands.
-        '''
-        op1_ok = self._op1.col_type.is_numeric_type() and isinstance(self._op1, Literal)
-        op2_ok = self._op2.col_type.is_numeric_type() and isinstance(self._op2, Literal)
-        return op1_ok and op2_ok
+    def as_literal(self) -> Optional[Literal]:
+        if not isinstance(self._op1, Literal):
+            return None
+        if not isinstance(self._op2, Literal):
+            return None
+        op1_val = self._op1.val
+        op2_val = self._op2.val
+        assert self._op1.col_type.is_numeric_type() or op1_val is None
+        assert self._op2.col_type.is_numeric_type() or op2_val is None
 
-    def folded(self) -> Union[int, float]:
-        op1_val = self._op1.as_constant()
-        op2_val = self._op2.as_constant()
-        return self.eval_non_null(op1_val, op2_val)
-
-    def _as_constant(self):
-        return self.folded()
+        return Literal(self.eval_nullable(op1_val, op2_val), self.col_type)
 
     def _as_dict(self) -> dict:
         return {'operator': self.operator.value, **super()._as_dict()}

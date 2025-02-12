@@ -868,7 +868,7 @@ class Planner:
 
         if limit is not None:
             assert isinstance(limit, exprs.Literal)
-            plan.set_limit(limit.as_constant())
+            plan.set_limit(limit.val)
 
         plan.set_ctx(ctx)
         return plan

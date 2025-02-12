@@ -207,12 +207,7 @@ class Expr(abc.ABC):
                 return new.copy()
         for i in range(len(self.components)):
             self.components[i] = self.components[i].substitute(spec)
-        if self.is_constant():
-            v = self.as_constant()
-            if v is not None:
-                e = self.from_object(v)
-                if e is not None:
-                    self = e
+        self = self.maybe_literal()
         self.id = self._create_id()
         return self
 
@@ -382,37 +377,22 @@ class Expr(abc.ABC):
                 result.extend(cls.get_refd_columns(component_dict))
         return result
 
-    def is_constant(self) -> bool:
-        """Returns True if this expr is a constant."""
-        return False
-
-    def _as_constant(self) -> Any:
+    def as_literal(self) -> Optional[Expr]:
         return None
-
-    def as_constant(self) -> Any:
-        """
-        If expression is a constant then return the associated value which will be converted to a Literal.
-        """
-        if self.is_constant():
-            return self._as_constant()
-        return None
-
-    def is_foldable(self) ->bool:
-        """Returns True if this expr is constant-foldable."""
-        return False
 
     @classmethod
     def from_array(cls, elements: Iterable) -> Optional[Expr]:
         from .inline_expr import InlineArray
 
         inline_array = InlineArray(elements)
-        constant_array = inline_array.as_constant()
-        if constant_array is not None:
-            from .literal import Literal
+        return inline_array.maybe_literal()
 
-            return Literal(constant_array, inline_array.col_type)
+    def maybe_literal(self: Expr) -> Expr:
+        lit_expr = self.as_literal()
+        if lit_expr is not None:
+            return lit_expr
         else:
-            return inline_array
+            return self
 
     @classmethod
     def from_object(cls, o: object) -> Optional[Expr]:
@@ -425,23 +405,19 @@ class Expr(abc.ABC):
         # Try to create a literal. We need to check for InlineList/InlineDict
         # first, to prevent them from inappropriately being interpreted as JsonType
         # literals.
+        if isinstance(o, Literal):
+            return o
+
         if isinstance(o, (list, tuple, dict, Expr)):
-            expr: Optional[Expr] = None
+            expr: Expr
             if isinstance(o, (list, tuple)):
                 expr = InlineList(o)
             elif isinstance(o, dict):
                 expr = InlineDict(o)
-            elif isinstance(o, Expr):
+            else:
                 expr = o
-                if isinstance(expr, Literal):
-                    return expr
-            # Check if the expression is constant
-            if expr is not None:
-                expr_value = expr.as_constant()
-                if expr_value is not None:
-                    return Literal(expr_value)
-                else:
-                    return expr
+
+            return expr.maybe_literal()
         else:
             # convert scalar to a literal
             obj_type = ts.ColumnType.infer_literal_type(o)

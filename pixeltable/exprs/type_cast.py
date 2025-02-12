@@ -37,21 +37,16 @@ class TypeCast(Expr):
         original_val = data_row[self._op1.slot_idx]
         data_row[self.slot_idx] = self.col_type.create_literal(original_val)
 
-    def _as_constant(self) -> Any:
-        return self.folded()
+    def as_literal(self) -> Optional[Literal]:
+        if not(self.col_type.is_numeric_type() and (self._op1.col_type.is_numeric_type() or self._op1.col_type.is_bool_type()) and isinstance(self._op1, Literal)):
+            return None
 
-    def is_constant(self) -> bool:
-        '''
-        Return True if the operation may be folded over its operands.
-        '''
-        return self.col_type.is_numeric_type() and (self._op1.col_type.is_numeric_type() or self._op1.col_type.is_bool_type()) and isinstance(self._op1, Literal)
-
-    def folded(self) -> Union[int, float]:
-        op1_val = self._op1.as_constant()
+        op1_val = self._op1.val
         if self.col_type.is_int_type():
-            return int(op1_val)
+            return Literal(int(op1_val), self.col_type)
         elif self.col_type.is_float_type():
-            return float(op1_val)
+            return Literal(float(op1_val), self.col_type)
+#        assert False
         return None
 
     def _as_dict(self) -> dict:

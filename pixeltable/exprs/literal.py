@@ -89,11 +89,8 @@ class Literal(Expr):
         else:
             return {'val': self.val, **super()._as_dict()}
 
-    def _as_constant(self) -> Any:
-        return self.val
-
-    def is_constant(self) -> bool:
-        return True
+    def as_literal(self) -> Optional[Literal]:
+        return self
 
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr]) -> Literal:

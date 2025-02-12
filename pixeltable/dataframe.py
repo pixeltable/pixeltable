@@ -405,7 +405,7 @@ class DataFrame:
         if limit_val is not None:
             limit_val = limit_val.substitute(var_exprs)
             if limit_val is not None and not isinstance(limit_val, exprs.Literal):
-                raise excs.Error(f'Limit value must be a constant, but got type {limit_val}')
+                raise excs.Error(f'limit(): parameter must be a constant, but got {limit_val}')
 
         return DataFrame(
             from_clause=self._from_clause,
@@ -919,7 +919,7 @@ class DataFrame:
         assert n is not None
         n = exprs.Expr.from_object(n)
         if not n.col_type.is_int_type():
-            raise excs.Error(f'Limit(): parameter must be of type int, instead of {n.col_type}')
+            raise excs.Error(f'limit(): parameter must be of type int, instead of {n.col_type}')
         return DataFrame(
             from_clause=self._from_clause,
             select_list=self.select_list,
