@@ -53,7 +53,7 @@ def transcribe(
         Add a computed column that applies the model `base.en` to an existing Pixeltable column `tbl.audio`
         of the table `tbl`:
 
-        >>> tbl['result'] = transcribe(tbl.audio, model='base.en')
+        >>> tbl.add_computed_column(result=transcribe(tbl.audio, model='base.en'))
     """
     Env.get().require_package('whisper')
     Env.get().require_package('torch')
