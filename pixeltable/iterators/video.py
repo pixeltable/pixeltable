@@ -24,7 +24,6 @@ class FrameIterator(ComponentIterator):
     frame of the video will always be extracted, and the remaining frames will be spaced as evenly as possible.
 
     Args:
-        video: URL or path of the video to use for frame extraction.
         fps: Number of frames to extract per second of video. This may be a fractional value, such as 0.5.
             If omitted or set to 0.0, then the native framerate of the video will be used (all frames will be
             extracted). If `fps` is greater than the frame rate of the video, an error will be raised.
