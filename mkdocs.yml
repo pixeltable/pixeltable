@@ -24,6 +24,7 @@ nav:
     - pixeltable: pixeltable/pixeltable.md
     - pixeltable.io: pixeltable/io.md
     - pixeltable.iterators:
+      - AudioSplitter: pixeltable/iterators/audio-splitter.md
       - ComponentIterator: pixeltable/iterators/component-iterator.md
       - DocumentSplitter: pixeltable/iterators/document-splitter.md
       - FrameIterator: pixeltable/iterators/frame-iterator.md
