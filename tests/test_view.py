@@ -509,7 +509,9 @@ class TestView:
         }
 
         v1 = pxt.create_view('v1', t, additional_columns=add_schema1)
-        v1_res = v1.select(v1.uc1, v1.uc2, v1.uc3, v1.uc4, v1.uc5, v1.uc6, v1.uc7, v1.uc8, v1.ud1, v1.uc10, v1.ud2).head(5)
+        v1_res = v1.select(
+            v1.uc1, v1.uc2, v1.uc3, v1.uc4, v1.uc5, v1.uc6, v1.uc7, v1.uc8, v1.ud1, v1.uc10, v1.ud2
+        ).head(5)
         print(v1_res)
 
         assert_resultset_eq(v1_res, t_res, compare_col_names=False)
@@ -530,7 +532,9 @@ class TestView:
         }
 
         v2 = pxt.create_view('v2', v1, additional_columns=add_schema2)
-        v2_res = v2.select(v2.vc1, v2.vc2, v2.vc3, v2.vc4, v2.vc5, v2.vc6, v2.vc7, v2.vc8, v2.vd1, v2.vc10, v2.vd2).head(5)
+        v2_res = v2.select(
+            v2.vc1, v2.vc2, v2.vc3, v2.vc4, v2.vc5, v2.vc6, v2.vc7, v2.vc8, v2.vd1, v2.vc10, v2.vd2
+        ).head(5)
         print(v2_res)
         assert_resultset_eq(v2_res, t_res, compare_col_names=False)
 
