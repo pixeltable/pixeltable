@@ -279,7 +279,7 @@ class TestDataFrame:
     def test_expr_unique_id(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         # Multiple constants with the same string representation but different types must be unique (expr.id)
-        res = t.select(t.c2, t.c1, t.c1 =='2', t.c1 < '4', t.c2 == 4).limit(4).collect()
+        res = t.select(t.c2, t.c1, t.c1 == '2', t.c1 < '4', t.c2 == 4).limit(4).collect()
         print(res)
         assert len(res) == 4
 
@@ -303,9 +303,7 @@ class TestDataFrame:
 
         v = pxt.create_view('view1', t, additional_columns={'get_lim': get_lim(3)})
 
-        results = reload_tester.run_query(
-            v.select(v.c4, v.get_lim).limit(3)
-        )
+        results = reload_tester.run_query(v.select(v.c4, v.get_lim).limit(3))
         print(results)
         reload_tester.run_reload_test()
 
@@ -317,17 +315,20 @@ class TestDataFrame:
 
         @pxt.query
         def get_lim(n: int):
-            return t.select(t.c4, folded_flt=(5.7 * n)-4).limit((3 * (n + 1) // 2) - 1)
+            return t.select(t.c4, folded_flt=(5.7 * n) - 4).limit((3 * (n + 1) // 2) - 1)
 
         res = t.select(t.c4, get_lim(1)).collect()
-        assert res[0]['get_lim'] == [{'c4': False, 'folded_flt': 1.7000000000000002}, {'c4': True, 'folded_flt': 1.7000000000000002}]
+        assert res[0]['get_lim'] == [
+            {'c4': False, 'folded_flt': 1.7000000000000002},
+            {'c4': True, 'folded_flt': 1.7000000000000002},
+        ]
 
     def test_limit4(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
 
         @pxt.query
         def get_lim(n: float):
-            return t.select(t.c4).limit(n.astype(pxt.Int)) # type: ignore[attr-defined]
+            return t.select(t.c4).limit(n.astype(pxt.Int))  # type: ignore[attr-defined]
 
         res = t.select(t.c4, get_lim(2.2)).collect()
         assert res[0]['get_lim'] == [{'c4': False}, {'c4': True}]

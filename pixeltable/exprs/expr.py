@@ -200,6 +200,7 @@ class Expr(abc.ABC):
         This method must be used in the form: expr = expr.substitute(spec)
         """
         from .literal import Literal
+
         if isinstance(self, Literal):
             return self
         for old, new in spec.items():

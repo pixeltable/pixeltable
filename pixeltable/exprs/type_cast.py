@@ -38,7 +38,11 @@ class TypeCast(Expr):
         data_row[self.slot_idx] = self.col_type.create_literal(original_val)
 
     def as_literal(self) -> Optional[Literal]:
-        if not(self.col_type.is_numeric_type() and (self._op1.col_type.is_numeric_type() or self._op1.col_type.is_bool_type()) and isinstance(self._op1, Literal)):
+        if not (
+            self.col_type.is_numeric_type()
+            and (self._op1.col_type.is_numeric_type() or self._op1.col_type.is_bool_type())
+            and isinstance(self._op1, Literal)
+        ):
             return None
 
         op1_val = self._op1.val
@@ -46,7 +50,7 @@ class TypeCast(Expr):
             return Literal(int(op1_val), self.col_type)
         elif self.col_type.is_float_type():
             return Literal(float(op1_val), self.col_type)
-#        assert False
+        #        assert False
         return None
 
     def _as_dict(self) -> dict:

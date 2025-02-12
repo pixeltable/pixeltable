@@ -530,8 +530,8 @@ class TestExprs:
             # This is an np.array, dtype='<U7' : col_type = StringType
             pxt.array(['abc', 'd', 'efghijk']),
             {'b': [4, 5]},
-            {'c' : {}},
-            {'d': {'d': 6, 'e': [7, 8], 'f': {}, 'g': {'h': 9}}}
+            {'c': {}},
+            {'d': {'d': 6, 'e': [7, 8], 'f': {}, 'g': {'h': 9}}},
         )
         print(result.show(5))
         exprs = [expr[0] for expr in result.select_list]
@@ -539,11 +539,7 @@ class TestExprs:
             assert isinstance(e, Literal)
 
         result = t.select(
-            1,
-            (100, 100),
-            {'a': [t.c1, 3]},
-            {'b': [4, 5]},
-            {'c': {'d': 6, 'e': [7, 8], 'f': {}, 'g': {'h': t.c2}}}
+            1, (100, 100), {'a': [t.c1, 3]}, {'b': [4, 5]}, {'c': {'d': 6, 'e': [7, 8], 'f': {}, 'g': {'h': t.c2}}}
         )
         print(result.show(5))
         exprs = [expr[0] for expr in result.select_list]
@@ -559,7 +555,7 @@ class TestExprs:
             {'a': [t.c1, 3]},
             {'b': [4, 5]},
             {'c': {'d': 6, 'e': [7, 8], 'f': (t.c1, t.c3), 'g': {'h': 9}}},
-            {'d': t.c1}
+            {'d': t.c1},
         )
         print(result.show(5))
         exprs = [expr[0] for expr in result.select_list]

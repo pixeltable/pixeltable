@@ -908,7 +908,7 @@ class DataFrame:
         )
 
     def limit(self, n: int) -> DataFrame:
-        """ Limit the number of rows in the DataFrame.
+        """Limit the number of rows in the DataFrame.
 
         Args:
             n: Number of rows to select.

@@ -85,7 +85,9 @@ class InlineArray(Expr):
         assert isinstance(self.col_type, ts.ArrayType)
         if not all(isinstance(comp, Literal) for comp in self.components):
             return None
-        return Literal(np.array([c.as_literal().val for c in self.components], dtype=self.col_type.numpy_dtype()), self.col_type)
+        return Literal(
+            np.array([c.as_literal().val for c in self.components], dtype=self.col_type.numpy_dtype()), self.col_type
+        )
 
 
 class InlineList(Expr):
@@ -210,4 +212,3 @@ class InlineDict(Expr):
         if not all(isinstance(comp, Literal) for comp in self.components):
             return None
         return Literal(dict(zip(self.keys, (c.as_literal().val for c in self.components))), self.col_type)
-

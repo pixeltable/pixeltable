@@ -14,6 +14,7 @@ def _(engine: sql.engine.Engine) -> None:
 def __substitute_md(k: Optional[str], v: Any) -> Optional[tuple[Optional[str], Any]]:
     from pixeltable.exprs.literal import Literal
     import pixeltable.type_system as ts
+
     if k == 'limit_val' and v is not None:
         assert isinstance(v, int)
         newv = Literal(v, ts.IntType(nullable=False)).as_dict()

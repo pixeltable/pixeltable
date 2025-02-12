@@ -15,6 +15,7 @@ from .globals import ArithmeticOperator
 from .row_builder import RowBuilder
 from .sql_element_cache import SqlElementCache
 
+
 class ArithmeticExpr(Expr):
     """
     Allows arithmetic exprs on json paths
@@ -104,7 +105,9 @@ class ArithmeticExpr(Expr):
 
         data_row[self.slot_idx] = self.eval_nullable(op1_val, op2_val)
 
-    def eval_nullable(self, op1_val: Union[int, float, None], op2_val: Union[int, float, None]) -> Union[int, float, None]:
+    def eval_nullable(
+        self, op1_val: Union[int, float, None], op2_val: Union[int, float, None]
+    ) -> Union[int, float, None]:
         """
         Return the result of evaluating the expression on two nullable int/float operands,
         None is interpreted as SQL NULL
