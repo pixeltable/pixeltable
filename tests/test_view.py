@@ -13,6 +13,18 @@ from .utils import ReloadTester, assert_resultset_eq, create_test_tbl, reload_ca
 
 logger = logging.getLogger('pixeltable')
 
+test_unstored_base_val: int = 0
+
+from pixeltable.func import Batch
+
+
+@pxt.udf(batch_size=20)
+def add_unstored_base_val(vals: Batch[int]) -> Batch[int]:
+    results = []
+    for val in vals:
+        results.append(val + test_unstored_base_val)
+    return results
+
 
 class TestView:
     """
@@ -537,6 +549,21 @@ class TestView:
         ).head(5)
         print(v2_res)
         assert_resultset_eq(v2_res, t_res, compare_col_names=False)
+
+        add_schema3 = {
+            'wc2a': {'value': add_unstored_base_val(v2.vc2), 'stored': True},
+            'wc2b': {'value': add_unstored_base_val(v2.vc2), 'stored': False},
+        }
+
+        global test_unstored_base_val
+        test_unstored_base_val = 1000
+        v3 = pxt.create_view('v3', v2, additional_columns=add_schema3)
+
+        test_unstored_base_val = 2000
+        v3_res = v3.select(v3.wc2a, v3.wc2b).head(5)
+        print(v3_res)
+        for row in v3_res:
+            assert row['wc2a'] + 1000 == row['wc2b']
 
     def test_unstored_columns(self, reset_db) -> None:
         """Test chained views with unstored columns"""
