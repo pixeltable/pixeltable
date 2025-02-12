@@ -34,7 +34,7 @@ class TestPackager:
         pxt.create_dir('iceberg_dir.subdir')
         view = pxt.create_view('iceberg_dir.subdir.test_view', test_tbl)
         view.add_computed_column(vc2=(view.c2 + 1))
-        subview = pxt.create_view('iceberg_dir.subdir.test_subview', view)
+        subview = pxt.create_view('iceberg_dir.subdir.test_subview', view.where(view.c2 % 5 == 0))
         subview.add_computed_column(vvc2=(subview.vc2 + 1))
         packager = TablePackager(subview)
         bundle_path = packager.package()
@@ -46,8 +46,8 @@ class TestPackager:
             ('pxt', 'iceberg_dir', 'subdir', 'test_view'),
             ('pxt', 'iceberg_dir', 'subdir', 'test_subview'),
         }
-        self.__check_iceberg_tbl(test_tbl, catalog.load_table('pxt.test_tbl'))
-        self.__check_iceberg_tbl(view, catalog.load_table('pxt.iceberg_dir.subdir.test_view'))
+        self.__check_iceberg_tbl(test_tbl, catalog.load_table('pxt.test_tbl'), scope_tbl=subview)
+        self.__check_iceberg_tbl(view, catalog.load_table('pxt.iceberg_dir.subdir.test_view'), scope_tbl=subview)
         self.__check_iceberg_tbl(subview, catalog.load_table('pxt.iceberg_dir.subdir.test_subview'))
 
     def test_media_packager(self, reset_db):
@@ -66,7 +66,7 @@ class TestPackager:
 
         dest = self.__extract_bundle(bundle_path)
         catalog = sqlite_catalog(dest / 'warehouse')
-        self.__check_iceberg_tbl(t, catalog.load_table('pxt.media_tbl'), dest / 'media')
+        self.__check_iceberg_tbl(t, catalog.load_table('pxt.media_tbl'), media_dir=(dest / 'media'))
 
     def __extract_bundle(self, bundle_path: Path) -> Path:
         tmp_dir = Path(Env.get().create_tmp_path())
@@ -74,7 +74,13 @@ class TestPackager:
             tf.extractall(tmp_dir)
         return tmp_dir
 
-    def __check_iceberg_tbl(self, tbl: pxt.Table, iceberg_tbl: IcebergTable, media_dir: Optional[Path] = None) -> None:
+    def __check_iceberg_tbl(
+        self,
+        tbl: pxt.Table,
+        iceberg_tbl: IcebergTable,
+        media_dir: Optional[Path] = None,
+        scope_tbl: Optional[pxt.Table] = None,  # If specified, use instead of `tbl` to select rows
+    ) -> None:
         iceberg_data = iceberg_tbl.scan().to_pandas()
         # Only check columns defined in the table (not ancestors)
         col_refs = [
@@ -85,7 +91,8 @@ class TestPackager:
             for col_name, col in tbl._tbl_version.cols_by_name.items()
             if col.col_type.is_media_type()
         }
-        pxt_data = tbl.select(*col_refs, **media_col_refs).collect()
+        scope_tbl = scope_tbl or tbl
+        pxt_data = scope_tbl.select(*col_refs, **media_col_refs).collect()
         for col in tbl._tbl_version.cols_by_name:
             print(f'Checking column: {col}')
             pxt_values: list = pxt_data[col]

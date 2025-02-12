@@ -76,7 +76,9 @@ class TablePackager:
             for col_name, col in t._tbl_version.cols_by_name.items()
             if col.col_type.is_media_type()
         }
-        df = t.select(*col_refs, **media_col_refs)
+        # Run the select() on `self.table`, not `t`, so that we export only those rows that are actually present in
+        # `self.table`.
+        df = self.table.select(*col_refs, **media_col_refs)
         namespace = self.__iceberg_namespace(t)
         self.iceberg_catalog.create_namespace_if_not_exists(namespace)
         iceberg_schema = self.__to_iceberg_schema(df._schema)
