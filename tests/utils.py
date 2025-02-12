@@ -366,6 +366,14 @@ def get_audio_files(include_bad_audio: bool = False) -> list[str]:
     return glob_result
 
 
+def get_audio_file(name: str) -> Optional[str]:
+    tests_dir = Path(os.path.dirname(__file__))
+    audio_dir = tests_dir / 'data' / 'audio'
+    file_path = audio_dir / name
+    glob_result = glob.glob(f'{file_path}', recursive=True)
+    return glob_result.pop(0) if len(glob_result) > 0 else None
+
+
 def get_documents() -> list[str]:
     tests_dir = Path(os.path.dirname(__file__))
     docs_dir = tests_dir / 'data' / 'documents'
