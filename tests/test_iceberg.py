@@ -18,7 +18,6 @@ from .utils import SAMPLE_IMAGE_URL, get_image_files, get_video_files
 
 
 class TestIceberg:
-
     def test_iceberg(self, test_tbl: pxt.Table):
         packager = TablePackager(test_tbl)
         bundle_path = packager.package()
@@ -78,9 +77,13 @@ class TestIceberg:
     def __check_iceberg_tbl(self, tbl: pxt.Table, iceberg_tbl: IcebergTable, media_dir: Optional[Path] = None) -> None:
         iceberg_data = iceberg_tbl.scan().to_pandas()
         # Only check columns defined in the table (not ancestors)
-        col_refs = [tbl[col_name] for col_name, col in tbl._tbl_version.cols_by_name.items() if not col.col_type.is_media_type()]
+        col_refs = [
+            tbl[col_name] for col_name, col in tbl._tbl_version.cols_by_name.items() if not col.col_type.is_media_type()
+        ]
         media_col_refs = {
-            col_name: tbl[col_name].fileurl for col_name, col in tbl._tbl_version.cols_by_name.items() if col.col_type.is_media_type()
+            col_name: tbl[col_name].fileurl
+            for col_name, col in tbl._tbl_version.cols_by_name.items()
+            if col.col_type.is_media_type()
         }
         pxt_data = tbl.select(*col_refs, **media_col_refs).collect()
         for col in tbl._tbl_version.cols_by_name:
