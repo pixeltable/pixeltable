@@ -400,8 +400,8 @@ class Expr(abc.ABC):
         """
         Try to turn a literal object into an Expr.
         """
+        from .inline_expr import InlineDict, InlineList
         from .literal import Literal
-        from .inline_expr import InlineList, InlineDict
 
         # Try to create a literal. We need to check for InlineList/InlineDict
         # first, to prevent them from inappropriately being interpreted as JsonType

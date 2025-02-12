@@ -2,11 +2,11 @@ from typing import Any, Optional, Union
 
 import sqlalchemy as sql
 
-import pixeltable.type_system as ts
 import pixeltable.exprs as exprs
+import pixeltable.type_system as ts
 
-from .literal import Literal
 from .expr import DataRow, Expr
+from .literal import Literal
 from .row_builder import RowBuilder
 from .sql_element_cache import SqlElementCache
 

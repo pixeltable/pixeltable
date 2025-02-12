@@ -5,13 +5,13 @@ from typing import Any, Optional, Union
 import sqlalchemy as sql
 
 import pixeltable.exceptions as excs
-import pixeltable.type_system as ts
 import pixeltable.exprs as exprs
+import pixeltable.type_system as ts
 
-from .literal import Literal
 from .data_row import DataRow
 from .expr import Expr
 from .globals import ArithmeticOperator
+from .literal import Literal
 from .row_builder import RowBuilder
 from .sql_element_cache import SqlElementCache
 
