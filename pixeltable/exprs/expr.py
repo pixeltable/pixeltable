@@ -141,7 +141,7 @@ class Expr(abc.ABC):
             hasher.update(str(value).encode('utf-8'))
         # Include the col_type of the expression to avoid expressions with identical str() representations
         # but different types being considered the same expression, e.g. str(int(4)) == "4"
-        hasher.update(str(self.col_type).encode('utf-8'))
+        hasher.update(repr(self.col_type).encode('utf-8'))
         for expr in self.components:
             hasher.update(str(expr.id).encode('utf-8'))
         # truncate to machine's word size
