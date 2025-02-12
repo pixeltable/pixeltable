@@ -70,6 +70,7 @@ def reset_db(init_env) -> None:
     # (such as test_migration.py) may leave the DB in a broken state.
     clean_db()
     Env.get().default_time_zone = None
+    Env.get().clear_tmp_dir()
     reload_catalog()
     FileCache.get().set_capacity(10 << 30)  # 10 GiB
 
