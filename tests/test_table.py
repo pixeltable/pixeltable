@@ -16,6 +16,7 @@ import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable import catalog, exceptions as excs
 from pixeltable.exprs import ColumnRef
+from pixeltable.func import Batch
 from pixeltable.io.external_store import MockProject
 from pixeltable.iterators import FrameIterator
 from pixeltable.utils.filecache import FileCache
@@ -37,8 +38,6 @@ from .utils import (
     strip_lines,
     validate_update_status,
 )
-
-from pixeltable.func import Batch
 
 test_unstored_table_base_val: int = 0
 
