@@ -38,6 +38,14 @@ class ArithmeticExpr(Expr):
 
         self.id = self._create_id()
 
+    @property
+    def _op1(self) -> Expr:
+        return self.components[0]
+
+    @property
+    def _op2(self) -> Expr:
+        return self.components[1]
+
     def __repr__(self) -> str:
         # add parentheses around operands that are ArithmeticExprs to express precedence
         op1_str = f'({self._op1})' if isinstance(self._op1, ArithmeticExpr) else str(self._op1)

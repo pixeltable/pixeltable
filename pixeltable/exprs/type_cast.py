@@ -26,6 +26,10 @@ class TypeCast(Expr):
         # `TypeCast` has no properties beyond those captured by `Expr`.
         return True
 
+    @property
+    def _op1(self) -> Expr:
+        return self.components[0]
+
     def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
         """
         sql_expr() is unimplemented for now, in order to sidestep potentially thorny

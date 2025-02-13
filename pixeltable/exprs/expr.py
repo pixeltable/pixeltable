@@ -186,14 +186,6 @@ class Expr(abc.ABC):
         memo[id(self)] = result
         return result
 
-    @property
-    def _op1(self) -> Expr:
-        return self.components[0]
-
-    @property
-    def _op2(self) -> Expr:
-        return self.components[1]
-
     def substitute(self, spec: dict[Expr, Expr]) -> Expr:
         """
         Replace 'old' with 'new' recursively, and return a new version of the expression
