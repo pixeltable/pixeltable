@@ -855,13 +855,15 @@ class ArrayType(ColumnType):
     def from_literal(cls, val: np.ndarray, nullable: bool = False) -> Optional[ArrayType]:
         # determine our dtype
         assert isinstance(val, np.ndarray)
+        dtype: ColumnType
         if np.issubdtype(val.dtype, np.integer):
-            dtype: ColumnType = IntType()
+            dtype = IntType()
         elif np.issubdtype(val.dtype, np.floating):
             dtype = FloatType()
         elif val.dtype == np.bool_:
             dtype = BoolType()
-        elif val.dtype == np.str_:
+        elif np.issubdtype(val.dtype, np.str_):
+            # Note that this includes NumPy types like '<U1' -- arrays of single Unicode characters
             dtype = StringType()
         else:
             return None

@@ -248,6 +248,3 @@ class ColumnRef(Expr):
         col = cls.get_column(d)
         perform_validation = d['perform_validation']
         return cls(col, perform_validation=perform_validation)
-
-    def is_constant(self) -> bool:
-        return False

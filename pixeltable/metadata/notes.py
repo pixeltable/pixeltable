@@ -2,6 +2,7 @@
 # rather than as a comment, so that the existence of a description can be enforced by
 # the unit tests when new versions are added.
 VERSION_NOTES = {
+    27: 'Enable pxt.query parameterization of limit clauses',
     26: 'Rename clip_text and clip_image to clip',
     25: 'Functions with multiple signatures',
     24: 'Added TableMd/IndexMd.indexed_col_tbl_id',
