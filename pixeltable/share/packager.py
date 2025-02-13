@@ -11,7 +11,7 @@ from typing import Any, Iterator
 import more_itertools
 import numpy as np
 import pyarrow as pa
-from pyiceberg.catalog import Catalog
+import pyiceberg.catalog
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
@@ -44,7 +44,7 @@ class TablePackager:
 
     table: pxt.Table  # The table to be packaged
     tmp_dir: Path  # Temporary directory where the package will reside
-    iceberg_catalog: Catalog
+    iceberg_catalog: pyiceberg.catalog.Catalog
     media_files: dict[Path, str]  # Mapping from local media file paths to their tarball names
 
     def __init__(self, table: pxt.Table) -> None:
@@ -70,22 +70,25 @@ class TablePackager:
         return bundle_path
 
     def __export_table(self, t: pxt.Table) -> None:
-        # Select only those columns that are defined in this table (columns inherited from ancestor
-        # tables will be handled separately)
+        # Select only those columns that are stored columns and are defined in this table (columns inherited from
+        # ancestor tables will be handled separately)
         # TODO: This is selecting only named columns; do we also want to preserve system columns such as errortype?
         col_refs = [
-            t[col_name] for col_name, col in t._tbl_version.cols_by_name.items() if not col.col_type.is_media_type()
+            t[col_name]
+            for col_name, col in t._tbl_version.cols_by_name.items()
+            if col.is_stored and not col.col_type.is_media_type()
         ]
+        media_col_refs = {
+            col_name: t[col_name]
+            for col_name, col in t._tbl_version.cols_by_name.items()
+            if col.is_stored and col.col_type.is_media_type()
+        }
         # For media columns, we substitute `col.fileurl` so that we always get the URL (which may be a file:// URL;
         # these will be specially handled later)
-        media_col_refs = {
-            col_name: t[col_name].fileurl
-            for col_name, col in t._tbl_version.cols_by_name.items()
-            if col.col_type.is_media_type()
-        }
+        media_fileurl_refs = {col_name: col_ref.fileurl for col_name, col_ref in media_col_refs.items()}
         # Run the select() on `self.table`, not `t`, so that we export only those rows that are actually present in
         # `self.table`.
-        df = self.table.select(*col_refs, **media_col_refs)
+        df = self.table.select(*col_refs, **media_fileurl_refs)
         namespace = self.__iceberg_namespace(t)
         self.iceberg_catalog.create_namespace_if_not_exists(namespace)
         iceberg_schema = self.__to_iceberg_schema(df._schema)
@@ -93,12 +96,8 @@ class TablePackager:
 
         # We can't rely on df._schema for the column types, since we substituted `fileurl`s for media columns.
         # Separately construct a list of actual column types in the same order of appearance as in the data frame.
-        actual_col_types = [
-            col.col_type for col in t._tbl_version.cols_by_name.values() if not col.col_type.is_media_type()
-        ]
-        actual_col_types.extend(
-            col.col_type for col in t._tbl_version.cols_by_name.values() if col.col_type.is_media_type()
-        )
+        actual_col_types = [col_ref.col_type for col_ref in col_refs]
+        actual_col_types.extend(col_ref.col_type for col_ref in media_col_refs.values())
 
         # Populate the Iceberg table with data.
         for pa_table in self.__to_pa_tables(df, actual_col_types, iceberg_schema):
