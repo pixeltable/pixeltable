@@ -378,7 +378,15 @@ class Expr(abc.ABC):
 
     @classmethod
     def from_array(cls, elements: Iterable) -> Optional[Expr]:
+        import numpy as np
+
         from .inline_expr import InlineArray
+        from .literal import Literal
+
+        if isinstance(elements, np.ndarray):
+            pxttype = ts.ArrayType.from_literal(elements)
+            if pxttype is not None:
+                return Literal(elements, col_type=pxttype)
 
         inline_array = InlineArray(elements)
         return inline_array.maybe_literal()
@@ -398,6 +406,8 @@ class Expr(abc.ABC):
         """
         Try to turn a literal object into an Expr.
         """
+        import numpy as np
+
         from .inline_expr import InlineDict, InlineList
         from .literal import Literal
 
@@ -407,9 +417,13 @@ class Expr(abc.ABC):
         if isinstance(o, Literal):
             return o
 
-        if isinstance(o, (list, tuple, dict, Expr)):
+        if isinstance(o, (np.ndarray, list, tuple, dict, Expr)):
             expr: Expr
-            if isinstance(o, (list, tuple)):
+            if isinstance(o, np.ndarray):
+                pxttype = ts.ArrayType.from_literal(o)
+                if pxttype is not None:
+                    return Literal(o, col_type=pxttype)
+            elif isinstance(o, (list, tuple)):
                 expr = InlineList(o)
             elif isinstance(o, dict):
                 expr = InlineDict(o)

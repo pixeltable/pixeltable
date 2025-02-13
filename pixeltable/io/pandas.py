@@ -185,20 +185,9 @@ def __np_dtype_to_pxt_type(np_dtype: np.dtype, data_col: pd.Series, nullable: bo
     """
     Infers a Pixeltable type based on a Numpy dtype.
     """
-    if np.issubdtype(np_dtype, np.integer):
-        return pxt.IntType(nullable=nullable)
-
-    if np.issubdtype(np_dtype, np.floating):
-        return pxt.FloatType(nullable=nullable)
-
-    if np.issubdtype(np_dtype, np.bool_):
-        return pxt.BoolType(nullable=nullable)
-
-    if np.issubdtype(np_dtype, np.character):
-        return pxt.StringType(nullable=nullable)
-
-    if np.issubdtype(np_dtype, np.datetime64):
-        return pxt.TimestampType(nullable=nullable)
+    pxttype = ts.ArrayType.from_np_dtype(np_dtype, nullable)
+    if pxttype is not None:
+        return pxttype
 
     if np_dtype == np.object_:
         # The `object_` dtype can mean all sorts of things; see if we can infer the Pixeltable type

@@ -578,12 +578,8 @@ class DataFrame:
         # analyze select list; wrap literals with the corresponding expressions
         select_list: list[tuple[exprs.Expr, Optional[str]]] = []
         for raw_expr, name in base_list:
-            if isinstance(raw_expr, exprs.Expr):
-                select_list.append((raw_expr, name))
-            elif isinstance(raw_expr, (dict, list, tuple)):
+            if isinstance(raw_expr, (np.ndarray, dict, list, tuple, exprs.Expr)):
                 select_list.append((exprs.Expr.from_object(raw_expr), name))
-            elif isinstance(raw_expr, np.ndarray):
-                select_list.append((exprs.Expr.from_array(raw_expr), name))
             else:
                 select_list.append((exprs.Literal(raw_expr), name))
             expr = select_list[-1][0]
