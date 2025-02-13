@@ -1,0 +1,245 @@
+---
+title: 'Custom Functions'
+description: 'Create and use custom functions (UDFs) in Pixeltable'
+icon: 'function'
+---
+
+# Overview
+
+User-Defined Functions (UDFs) in Pixeltable allow you to:
+- Write custom Python functions for data processing
+- Integrate them into computed columns and queries
+- Optimize performance through batching
+- Create reusable components for your data pipeline
+
+<Note>
+All UDFs require type hints for parameters and return values. This enables Pixeltable to validate and optimize your data pipeline before execution.
+</Note>
+
+## Basic UDF Creation
+
+<CodeGroup>
+```python Basic
+@pxt.udf
+def add_tax(price: float, rate: float = 0.1) -> float:
+    return price * (1 + rate)
+
+# Use in computed column
+table.add_computed_column(
+    price_with_tax=add_tax(table.price)
+)
+```
+
+```python With Type Checking
+from typing import List
+
+@pxt.udf
+def process_tags(tags: List[str]) -> str:
+    return ", ".join(sorted(tags))
+
+# Use in computed column
+table.add_computed_column(
+    formatted_tags=process_tags(table.tags)
+)
+```
+</CodeGroup>
+
+## UDF Types
+
+<Tabs>
+  <Tab title="Local UDFs">
+    ```python
+    # Defined directly in your code
+    @pxt.udf
+    def extract_year(date_str: str) -> int:
+        return int(date_str.split('-')[0])
+        
+    # Used immediately
+    table.add_computed_column(
+        year=extract_year(table.date)
+    )
+    ```
+    <Note>
+    Local UDFs are serialized with their columns. Changes to the UDF only affect new columns.
+    </Note>
+  </Tab>
+
+  <Tab title="Module UDFs">
+    ```python
+    # In my_functions.py
+    @pxt.udf
+    def clean_text(text: str) -> str:
+        return text.strip().lower()
+        
+    # In your application
+    from my_functions import clean_text
+    table.add_computed_column(
+        clean_content=clean_text(table.content)
+    )
+    ```
+    <Note>
+    Module UDFs are referenced by path. Changes to the UDF affect all uses after reload.
+    </Note>
+  </Tab>
+
+  <Tab title="Batched UDFs">
+    ```python
+    from pixeltable.func import Batch
+    
+    @pxt.udf(batch_size=32)
+    def process_batch(items: Batch[str]) -> Batch[str]:
+        results = []
+        for item in items:
+            results.append(item.upper())
+        return results
+        
+    # Used like a regular UDF
+    table.add_computed_column(
+        processed=process_batch(table.text)
+    )
+    ```
+    <Note>
+    Batched UDFs process multiple rows at once for better performance.
+    </Note>
+  </Tab>
+</Tabs>
+
+## Supported Types
+
+<AccordionGroup>
+  <Accordion title="Basic Types" icon="code">
+    Native Python types supported in UDFs:
+    ```python
+    @pxt.udf
+    def process_data(
+        text: str,           # String data
+        count: int,          # Integer numbers
+        score: float,        # Floating point
+        active: bool,        # Boolean
+        items: list[str],    # Generic lists
+        meta: dict[str,any]  # Dictionaries
+    ) -> str:
+        return "Processed"
+    ```
+  </Accordion>
+
+  <Accordion title="Complex Types" icon="layer-group">
+    Pixeltable-specific types:
+    ```python
+    @pxt.udf
+    def process_media(
+        img: PIL.Image.Image,    # Images
+        embeddings: pxt.Array,   # Numerical arrays
+        config: pxt.Json,        # JSON data
+        doc: pxt.Document        # Documents
+    ) -> str:
+        return "Processed"
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Performance Optimization
+
+<CardGroup cols={1}>
+  <Card title="Batching" icon="layer-group">
+    ```python
+    @pxt.udf(batch_size=16)
+    def embed_texts(
+        texts: Batch[str]
+    ) -> Batch[pxt.Array]:
+        # Process multiple texts at once
+        return model.encode(texts)
+    ```
+  </Card>
+  
+  <Card title="Caching" icon="database">
+    ```python
+    @pxt.udf
+    def expensive_operation(text: str) -> str:
+        # Cache model instance
+        if not hasattr(expensive_operation, 'model'):
+            expensive_operation.model = load_model()
+        return expensive_operation.model(text)
+    ```
+  </Card>
+</CardGroup>
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Type Safety" icon="shield-check">
+    - Always provide complete type hints
+    - Use specific types over generic ones
+    - Validate input ranges where appropriate
+    ```python
+    @pxt.udf
+    def validate_score(score: float) -> float:
+        if not 0 <= score <= 100:
+            raise ValueError("Score must be between 0 and 100")
+        return score
+    ```
+  </Accordion>
+
+  <Accordion title="Performance" icon="gauge-high">
+    - Use batching for GPU operations
+    - Cache expensive resources
+    - Process data in chunks when possible
+    ```python
+    @pxt.udf(batch_size=32)
+    def process_chunk(items: Batch[str]) -> Batch[str]:
+        if not hasattr(process_chunk, 'model'):
+            process_chunk.model = load_expensive_model()
+        return process_chunk.model.process_batch(items)
+    ```
+  </Accordion>
+
+  <Accordion title="Organization" icon="folder-tree">
+    - Keep related UDFs in modules
+    - Use clear, descriptive names
+    - Document complex operations
+    ```python
+    @pxt.udf
+    def normalize_text(
+        text: str,
+        lowercase: bool = True,
+        remove_punctuation: bool = True
+    ) -> str:
+        """Normalize text by optionally lowercasing and removing punctuation."""
+        if lowercase:
+            text = text.lower()
+        if remove_punctuation:
+            text = text.translate(str.maketrans("", "", string.punctuation))
+        return text
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Error Handling
+
+<Warning>
+Always handle potential errors in UDFs to prevent pipeline failures. Pixeltable tracks exceptions but cannot recover automatically.
+</Warning>
+
+```python
+@pxt.udf
+def safe_process(text: str) -> str:
+    try:
+        return complex_processing(text)
+    except Exception as e:
+        logger.error(f"Processing failed: {e}")
+        return ""  # Return safe default
+```
+
+## Additional Resources
+
+<CardGroup cols={3}>
+  <Card title="API Documentation" icon="book" href="https://pixeltable.github.io/pixeltable/">
+    Complete API reference
+  </Card>
+  <Card title="UDF Examples" icon="code" href="/docs/examples/udfs">
+    Example implementations
+  </Card>
+  <Card title="Performance Guide" icon="gauge" href="/docs/optimization">
+    Optimization tips
+  </Card>
+</CardGroup>

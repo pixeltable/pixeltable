@@ -1,0 +1,142 @@
+---
+title: "Gemini"
+
+---
+
+[![Kaggle](\images\docs\static\images\open-in-kaggle.svg)](https://kaggle.com/kernels/welcome?src=https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/integrations/working-with-gemini.ipynb) [![Colab](\images\docs\assets\colab-badge.svg)](https://colab.research.google.com/github/pixeltable/pixeltable/blob/main/docs/notebooks/integrations/working-with-gemini.ipynb) [![Download Notebook](\images\docs\badge\⬇-Download-Notebook-blue)](https://raw.githubusercontent.com/pixeltable/pixeltable/blob/main/docs/notebooks/integrations/working-with-gemini.ipynb)
+
+# Working with Gemini in Pixeltable
+
+Pixeltable's Gemini integration enables you to access the Gemini LLM via the Google Gemini API.
+
+## Prerequisites
+
+* A Google AI Studio account with an API key ([https://aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey))
+
+## Important Notes
+
+* Google AI Studio usage may incur costs based on your plan.
+* Be mindful of sensitive data and consider security measures when integrating with external services.
+
+First you'll need to install required libraries and enter a Gemini API key obtained via Google AI Studio.
+
+<CodeGroup>
+  ```python python
+  %pip install -qU pixeltable google-generativeai
+  ```
+</CodeGroup>
+
+```
+Note: you may need to restart the kernel to use updated packages.
+```
+
+<CodeGroup>
+  ```python python
+  import os
+  import getpass
+
+  if 'GEMINI_API_KEY' not in os.environ:
+      os.environ['GEMINI_API_KEY'] = getpass.getpass('Google AI Studio API Key:')
+  ```
+</CodeGroup>
+
+Now let's create a Pixeltable directory to hold the tables for our demo.
+
+<CodeGroup>
+  ```python python
+  import pixeltable as pxt
+
+  # Remove the `gemini_demo` directory and its contents, if it exists
+  pxt.drop_dir('gemini_demo', force=True)
+  pxt.create_dir('gemini_demo')
+  ```
+</CodeGroup>
+
+```
+Connected to Pixeltable database at: postgresql+psycopg
+://postgres:@/pixeltable?host=/Users/anushas-pxt/.pixeltable/pgdata
+Created directory `gemini_demo`.
+<pixeltable.catalog.dir.Dir at 0x3425c73a0>
+```
+
+## Generate content
+
+Create a Table: In Pixeltable, create a table with columns to represent your input data and the columns where you want to store the results from Gemini.
+
+<CodeGroup>
+  ```python python
+  from pixeltable.functions import gemini
+
+  # Create a table in Pixeltable and pick a model hosted on Google AI Studio with some parameters
+
+  t = pxt.create_table('gemini_demo.story', {'input': pxt.String})
+
+  t.add_computed_column(output=gemini.generate_content(
+      t.input,
+      model_name='gemini-1.5-flash',
+      candidate_count=3,
+      stop_sequences=['\n'],
+      max_output_tokens=300,
+      temperature=1.0,
+      top_p=0.95,
+      top_k=40,
+  ))
+  ```
+</CodeGroup>
+
+```
+Created table `story`.
+Added 0 column values with 0 errors.
+UpdateStatus(num_rows=0, num_computed_values=0, num_excs=0, updated_cols=[], cols_with_excs=[])
+```
+
+<CodeGroup>
+  ```python python
+  # Ask Gemini to generate some content based on the input
+  t.insert([
+      {'input': 'Write a story about a magic backpack.'}, 
+      {'input': 'Tell me a science joke.'}
+  ])
+  ```
+</CodeGroup>
+
+```
+Inserting rows into `story`: 2 rows [00:00, 361.73 rows/s]████████| 4/4 [00:03<00:00,  1.10 cells/s]
+Computing cells: 100%|████████████████████████████████████████████| 4/4 [00:03<00:00,  1.10 cells/s]
+Inserted 2 rows with 0 errors.
+UpdateStatus(num_rows=2, num_computed_values=4, num_excs=0, updated_cols=[], cols_with_excs=[])
+```
+
+<CodeGroup>
+  ```python python
+  # Parse the response into a new column
+  t.add_computed_column(response=t.output['candidates'][0]['content']['parts'][0]['text'])
+  t.select(t.input, t.response).show()
+  ```
+</CodeGroup>
+
+```
+Computing cells: 100%|████████████████████████████████████████████| 2/2 [00:00<00:00, 25.38 cells/s]
+Added 2 column values with 0 errors.
+```
+
+| input                                 | response                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Write a story about a magic backpack. | Elara wasn't your average twelve-year-old. While other kids obsessed over pop stars and social media, Elara dreamt of unexplored jungles and forgotten ruins. This yearning found its unlikely manifestation in a battered, leather backpack she'd discovered tucked away in her grandmother's attic. It wasn't particularly special to look at, except for a single, intricately carved silver clasp shaped like a hummingbird. |
+| Tell me a science joke.               | Why did the white bear dissolve in water? Because it was polar!                                                                                                                                                                                                                                                                                                                                                                  |
+
+### Learn More
+
+To learn more about advanced techniques like RAG operations in Pixeltable, check out the [RAG Operations in Pixeltable](https://pixeltable.readme.io/docs/rag-operations-in-pixeltable) tutorial.
+
+If you have any questions, don't hesitate to reach out.
+
+***
+
+* [Table of Contents](#)
+
+* * [Working with Gemini in Pixeltable](#working-with-gemini-in-pixeltable)
+
+    * [Prerequisites](#prerequisites)
+    * [Important Notes](#important-notes)
+    * [Generate content](#generate-content)
