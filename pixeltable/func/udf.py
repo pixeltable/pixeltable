@@ -1,17 +1,20 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Optional, Sequence, overload
+import inspect
+from typing import TYPE_CHECKING, Any, Callable, Optional, Sequence, overload
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
+from pixeltable import catalog
 
 from .callable_function import CallableFunction
 from .expr_template_function import ExprTemplate, ExprTemplateFunction
-from .function import Function
 from .function_registry import FunctionRegistry
 from .globals import validate_symbol_path
-from .signature import Signature
+from .signature import Parameter, Signature
 
+if TYPE_CHECKING:
+    from pixeltable import exprs
 
 # Decorator invoked without parentheses: @pxt.udf
 @overload
@@ -32,6 +35,16 @@ def udf(
 ) -> Callable[[Callable], CallableFunction]: ...
 
 
+# pxt.udf() called explicitly on a Table:
+@overload
+def udf(
+    table: catalog.Table,
+    /,
+    *,
+    return_value: Optional['exprs.Expr'],
+) -> ExprTemplateFunction: ...
+
+
 def udf(*args, **kwargs):
     """A decorator to create a Function from a function definition.
 
@@ -44,6 +57,10 @@ def udf(*args, **kwargs):
         # Decorator invoked without parentheses: @pxt.udf
         # Simply call make_function with defaults.
         return make_function(decorated_fn=args[0])
+
+    elif len(args) == 1 and isinstance(args[0], catalog.Table):
+        # pxt.udf() called explicitly on a Table
+        return from_table(args[0], kwargs.pop('return_value', None))
 
     else:
         # Decorator schema invoked with parentheses: @pxt.udf(**kwargs)
@@ -214,3 +231,53 @@ def expr_udf(*args: Any, **kwargs: Any) -> Any:
     else:
         assert len(args) == 0 and len(kwargs) == 1 and 'param_types' in kwargs
         return lambda py_fn: make_expr_template(py_fn, kwargs['param_types'])
+
+def from_table(tbl: catalog.Table, return_value: Optional['exprs.Expr']) -> ExprTemplateFunction:
+    """
+    """
+    from pixeltable import exprs
+    from pixeltable.exprs.expr_dict import ExprDict
+
+    ancestors = [tbl] + tbl._bases
+    ancestors.reverse()  # We must traverse the ancestors in order from base to derived
+
+    subst: ExprDict[exprs.Expr] = ExprDict()
+    result_dict: dict[str, exprs.Expr] = {}
+    params: list[Parameter] = []
+
+    for t in ancestors:
+        for col in t._tbl_version.cols_by_name.values():
+            # Determine a canonical unused name for this column. This step is necessary because a view may have column
+            # names that "shadow" columns in its base table, but those shadowed columns may still be needed as inputs
+            # in the UDF signature.
+            n = 0
+            name = col.name
+            while name in result_dict:
+                n += 1
+                name = f'{col.name}_{n}'
+
+            if col.is_computed:
+                # Computed column. Apply any existing substitutions and add the new expression to the subst dict.
+                new_expr = col.value_expr.copy()
+                new_expr.substitute(subst)
+                subst[t[col.name]] = new_expr  # Substitute new_expr for ColumnRefs to this column
+                result_dict[name] = new_expr
+            else:
+                # Data column. Include it as a parameter and add a variable expression as the subst dict.
+                var = exprs.Variable(name, col.col_type)
+                subst[t[col.name]] = var  # Substitute var for ColumnRefs to this column
+                result_dict[name] = var
+                # Since this is a data column, it becomes a UDF parameter.
+                # If the column is nullable, then the parameter will have a default value of None.
+                default_value = None if col.col_type.nullable else inspect.Parameter.empty
+                param = Parameter(name, col.col_type, inspect._ParameterKind.POSITIONAL_OR_KEYWORD, default_value)
+                params.append(param)
+
+    if return_value is None:
+        return_value = exprs.InlineDict(result_dict)
+    else:
+        return_value = return_value.copy()
+        return_value.substitute(subst)
+
+    template = ExprTemplate(return_value, Signature(return_value.col_type, params))
+    return ExprTemplateFunction([template], name=f'{tbl._name}_as_udf')
