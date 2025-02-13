@@ -142,14 +142,16 @@ class ArithmeticExpr(Expr):
             return op1_val // op2_val
 
     def as_literal(self) -> Optional[Literal]:
-        if not isinstance(self._op1, Literal):
+        op1_lit = self._op1.as_literal()
+        if op1_lit is None:
             return None
-        if not isinstance(self._op2, Literal):
+        op2_lit = self._op2.as_literal()
+        if op2_lit is None:
             return None
-        op1_val = self._op1.val
-        op2_val = self._op2.val
-        assert self._op1.col_type.is_numeric_type() or op1_val is None
-        assert self._op2.col_type.is_numeric_type() or op2_val is None
+        op1_val = op1_lit.val
+        assert op1_lit.col_type.is_numeric_type() or op1_val is None
+        op2_val = op2_lit.val
+        assert op2_lit.col_type.is_numeric_type() or op2_val is None
 
         return Literal(self.eval_nullable(op1_val, op2_val), self.col_type)
 

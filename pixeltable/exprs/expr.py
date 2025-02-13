@@ -371,6 +371,9 @@ class Expr(abc.ABC):
         return result
 
     def as_literal(self) -> Optional[Expr]:
+        """
+        Return a Literal expression if this expression can be evaluated to a constant value, otherwise return None.
+        """
         return None
 
     @classmethod
@@ -381,6 +384,9 @@ class Expr(abc.ABC):
         return inline_array.maybe_literal()
 
     def maybe_literal(self: Expr) -> Expr:
+        """
+        Return a Literal if this expression can be evaluated to a constant value, otherwise return the expression.
+        """
         lit_expr = self.as_literal()
         if lit_expr is not None:
             return lit_expr
