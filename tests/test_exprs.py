@@ -441,7 +441,7 @@ class TestExprs:
 
         with pytest.raises(excs.Error) as exc_info:
             t.select(t.c6 + t.c2.apply(math.floor, col_type=pxt.Int)).collect()
-        assert '+ requires numeric type, but c6 has type dict' in str(exc_info.value)
+        assert '+ requires numeric types, but c6 has type dict' in str(exc_info.value)
 
     def test_comparison(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
