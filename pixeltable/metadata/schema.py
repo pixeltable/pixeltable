@@ -83,7 +83,7 @@ class Dir(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, nullable=False
     )
     parent_id: orm.Mapped[uuid.UUID] = orm.mapped_column(UUID(as_uuid=True), ForeignKey('dirs.id'), nullable=True)
-    md = sql.Column(JSONB, nullable=False)
+    md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # DirMd
 
 
 @dataclasses.dataclass
@@ -190,7 +190,7 @@ class Table(Base):
 
     id: orm.Mapped[uuid.UUID] = orm.mapped_column(UUID(as_uuid=True), primary_key=True, nullable=False)
     dir_id: orm.Mapped[uuid.UUID] = orm.mapped_column(UUID(as_uuid=True), ForeignKey('dirs.id'), nullable=False)
-    md = sql.Column(JSONB, nullable=False)  # TableMd
+    md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # TableMd
 
 
 @dataclasses.dataclass
@@ -202,9 +202,9 @@ class TableVersionMd:
 
 class TableVersion(Base):
     __tablename__ = 'tableversions'
-    tbl_id = sql.Column(UUID(as_uuid=True), ForeignKey('tables.id'), primary_key=True, nullable=False)
-    version = sql.Column(BigInteger, primary_key=True, nullable=False)
-    md = sql.Column(JSONB, nullable=False)  # TableVersionMd
+    tbl_id: orm.Mapped[uuid.UUID] = orm.mapped_column(UUID(as_uuid=True), ForeignKey('tables.id'), primary_key=True, nullable=False)
+    version: orm.Mapped[int] = orm.mapped_column(BigInteger, primary_key=True, nullable=False)
+    md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)
 
 
 @dataclasses.dataclass
@@ -242,9 +242,9 @@ class TableSchemaVersionMd:
 class TableSchemaVersion(Base):
     __tablename__ = 'tableschemaversions'
 
-    tbl_id = sql.Column(UUID(as_uuid=True), ForeignKey('tables.id'), primary_key=True, nullable=False)
-    schema_version = sql.Column(BigInteger, primary_key=True, nullable=False)
-    md = sql.Column(JSONB, nullable=False)  # TableSchemaVersionMd
+    tbl_id: orm.Mapped[uuid.UUID] = orm.mapped_column(UUID(as_uuid=True), ForeignKey('tables.id'), primary_key=True, nullable=False)
+    schema_version: orm.Mapped[int] = orm.mapped_column(BigInteger, primary_key=True, nullable=False)
+    md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # TableSchemaVersionMd
 
 
 @dataclasses.dataclass
@@ -267,7 +267,7 @@ class Function(Base):
 
     __tablename__ = 'functions'
 
-    id = sql.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, nullable=False)
-    dir_id = sql.Column(UUID(as_uuid=True), ForeignKey('dirs.id'), nullable=True)
-    md = sql.Column(JSONB, nullable=False)  # FunctionMd
-    binary_obj = sql.Column(LargeBinary, nullable=True)
+    id: orm.Mapped[uuid.UUID] = orm.mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, nullable=False)
+    dir_id: orm.Mapped[uuid.UUID] = orm.mapped_column(UUID(as_uuid=True), ForeignKey('dirs.id'), nullable=False)
+    md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # FunctionMd
+    binary_obj: orm.Mapped[Optional[bytes]] = orm.mapped_column(LargeBinary, nullable=True)

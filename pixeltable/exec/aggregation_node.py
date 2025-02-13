@@ -29,7 +29,7 @@ class AggregationNode(ExecNode):
 
     def __init__(
         self,
-        tbl: catalog.TableVersion,
+        tbl: catalog.TableVersionHandle,
         row_builder: exprs.RowBuilder,
         group_by: Optional[list[exprs.Expr]],
         agg_fn_calls: list[exprs.FunctionCall],

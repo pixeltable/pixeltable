@@ -200,8 +200,7 @@ class TableVersion:
             self._create_tbl_md(),
             self.version,
             self._create_schema_version_md(preceding_schema_version=0),  # preceding_schema_version: dummy value
-            # is_snapshot=True,
-            # base=self.base,
+            mutable_views=[]
         )
 
     @classmethod
@@ -322,8 +321,7 @@ class TableVersion:
         from .catalog import Catalog
 
         cat = Catalog.get()
-        del cat.tbl_versions[(self.id, self.effective_version)]
-        # TODO: remove from tbl_dependents
+        cat.clear_tbl_version(self)
 
     def _init_schema(self, tbl_md: schema.TableMd, schema_version_md: schema.TableSchemaVersionMd) -> None:
         # create columns first, so the indices can reference them
@@ -463,11 +461,10 @@ class TableVersion:
         self.version += 1
         preceding_schema_version = self.schema_version
         self.schema_version = self.version
-        with Env.get().engine.begin() as conn:
-            status = self._add_index(col, idx_name, idx, conn)
-            self._update_md(time.time(), conn, preceding_schema_version=preceding_schema_version)
-            _logger.info(f'Added index {idx_name} on column {col.name} to table {self.name}')
-            return status
+        status = self._add_index(col, idx_name, idx)
+        self._update_md(time.time(), preceding_schema_version=preceding_schema_version)
+        _logger.info(f'Added index {idx_name} on column {col.name} to table {self.name}')
+        return status
 
     def _add_default_index(self, col: Column) -> Optional[UpdateStatus]:
         """Add a B-tree index on this column if it has a compatible type"""
@@ -566,10 +563,9 @@ class TableVersion:
         del self.idxs_by_name[idx_md.name]
         del self.idx_md[idx_id]
 
-        with Env.get().engine.begin() as conn:
-            self._drop_columns([idx_info.val_col, idx_info.undo_col])
-            self._update_md(time.time(), conn, preceding_schema_version=preceding_schema_version)
-            _logger.info(f'Dropped index {idx_md.name} on table {self.name}')
+        self._drop_columns([idx_info.val_col, idx_info.undo_col])
+        self._update_md(time.time(), preceding_schema_version=preceding_schema_version)
+        _logger.info(f'Dropped index {idx_md.name} on table {self.name}')
 
     def add_columns(
         self, cols: Iterable[Column], print_stats: bool, on_error: Literal['abort', 'ignore']
@@ -686,23 +682,22 @@ class TableVersion:
         preceding_schema_version = self.schema_version
         self.schema_version = self.version
 
-        with Env.get().engine.begin() as conn:
-            # drop this column and all dependent index columns and indices
-            dropped_cols = [col]
-            dropped_idx_names: list[str] = []
-            for idx_info in self.idxs_by_name.values():
-                if idx_info.col != col:
-                    continue
-                dropped_cols.extend([idx_info.val_col, idx_info.undo_col])
-                idx_md = self.idx_md[idx_info.id]
-                idx_md.schema_version_drop = self.schema_version
-                assert idx_md.name in self.idxs_by_name
-                dropped_idx_names.append(idx_md.name)
-            # update idxs_by_name
-            for idx_name in dropped_idx_names:
-                del self.idxs_by_name[idx_name]
-            self._drop_columns(dropped_cols)
-            self._update_md(time.time(), conn, preceding_schema_version=preceding_schema_version)
+        # drop this column and all dependent index columns and indices
+        dropped_cols = [col]
+        dropped_idx_names: list[str] = []
+        for idx_info in self.idxs_by_name.values():
+            if idx_info.col != col:
+                continue
+            dropped_cols.extend([idx_info.val_col, idx_info.undo_col])
+            idx_md = self.idx_md[idx_info.id]
+            idx_md.schema_version_drop = self.schema_version
+            assert idx_md.name in self.idxs_by_name
+            dropped_idx_names.append(idx_md.name)
+        # update idxs_by_name
+        for idx_name in dropped_idx_names:
+            del self.idxs_by_name[idx_name]
+        self._drop_columns(dropped_cols)
+        self._update_md(time.time(), preceding_schema_version=preceding_schema_version)
         _logger.info(f'Dropped column {col.name} from table {self.name}, new version: {self.version}')
 
     def _drop_columns(self, cols: Iterable[Column]) -> None:
@@ -745,8 +740,7 @@ class TableVersion:
         preceding_schema_version = self.schema_version
         self.schema_version = self.version
 
-        with Env.get().engine.begin() as conn:
-            self._update_md(time.time(), conn, preceding_schema_version=preceding_schema_version)
+        self._update_md(time.time(), preceding_schema_version=preceding_schema_version)
         _logger.info(f'Renamed column {old_name} to {new_name} in table {self.name}, new version: {self.version}')
 
     def set_comment(self, new_comment: Optional[str]):
@@ -766,8 +760,7 @@ class TableVersion:
         self.version += 1
         preceding_schema_version = self.schema_version
         self.schema_version = self.version
-        with Env.get().engine.begin() as conn:
-            self._update_md(time.time(), conn, preceding_schema_version=preceding_schema_version)
+        self._update_md(time.time(), preceding_schema_version=preceding_schema_version)
         _logger.info(f'[{self.name}] Updating table schema to version: {self.version}')
 
     def insert(
@@ -824,8 +817,8 @@ class TableVersion:
         for view in self.mutable_views:
             from pixeltable.plan import Planner
 
-            plan, _ = Planner.create_view_load_plan(view.path, propagates_insert=True)
-            status = view._insert(plan, timestamp, print_stats=print_stats)
+            plan, _ = Planner.create_view_load_plan(view.get().path, propagates_insert=True)
+            status = view.get()._insert(plan, timestamp, print_stats=print_stats)
             result.num_rows += status.num_rows
             result.num_excs += status.num_excs
             result.num_computed_values += status.num_computed_values
@@ -861,22 +854,20 @@ class TableVersion:
             if analysis_info.filter is not None:
                 raise excs.Error(f'Filter {analysis_info.filter} not expressible in SQL')
 
-        with Env.get().engine.begin() as conn:
-            plan, updated_cols, recomputed_cols = Planner.create_update_plan(self.path, update_spec, [], where, cascade)
-            from pixeltable.exprs import SqlElementCache
+        plan, updated_cols, recomputed_cols = Planner.create_update_plan(self.path, update_spec, [], where, cascade)
+        from pixeltable.exprs import SqlElementCache
 
-            result = self.propagate_update(
-                plan,
-                where.sql_expr(SqlElementCache()) if where is not None else None,
-                recomputed_cols,
-                base_versions=[],
-                conn=conn,
-                timestamp=time.time(),
-                cascade=cascade,
-                show_progress=True,
-            )
-            result.updated_cols = updated_cols
-            return result
+        result = self.propagate_update(
+            plan,
+            where.sql_expr(SqlElementCache()) if where is not None else None,
+            recomputed_cols,
+            base_versions=[],
+            timestamp=time.time(),
+            cascade=cascade,
+            show_progress=True,
+        )
+        result.updated_cols = updated_cols
+        return result
 
     def batch_update(
         self,
@@ -895,33 +886,29 @@ class TableVersion:
         assert len(rowids) == 0 or len(rowids) == len(batch)
         cols_with_excs: set[str] = set()
 
-        with Env.get().engine.begin() as conn:
-            from pixeltable.plan import Planner
+        from pixeltable.plan import Planner
 
-            plan, row_update_node, delete_where_clause, updated_cols, recomputed_cols = (
-                Planner.create_batch_update_plan(self.path, batch, rowids, cascade=cascade)
-            )
-            result = self.propagate_update(
-                plan,
-                delete_where_clause,
-                recomputed_cols,
-                base_versions=[],
-                conn=conn,
-                timestamp=time.time(),
-                cascade=cascade,
-            )
-            result.updated_cols = [c.qualified_name for c in updated_cols]
+        plan, row_update_node, delete_where_clause, updated_cols, recomputed_cols = (
+            Planner.create_batch_update_plan(self.path, batch, rowids, cascade=cascade)
+        )
+        result = self.propagate_update(
+            plan,
+            delete_where_clause,
+            recomputed_cols,
+            base_versions=[],
+            timestamp=time.time(),
+            cascade=cascade,
+        )
+        result.updated_cols = [c.qualified_name for c in updated_cols]
 
-            unmatched_rows = row_update_node.unmatched_rows()
-            if len(unmatched_rows) > 0:
-                if error_if_not_exists:
-                    raise excs.Error(f'batch_update(): {len(unmatched_rows)} row(s) not found')
-                if insert_if_not_exists:
-                    insert_status = self.insert(
-                        unmatched_rows, None, conn=conn, print_stats=False, fail_on_exception=False
-                    )
-                    result += insert_status
-            return result
+        unmatched_rows = row_update_node.unmatched_rows()
+        if len(unmatched_rows) > 0:
+            if error_if_not_exists:
+                raise excs.Error(f'batch_update(): {len(unmatched_rows)} row(s) not found')
+            if insert_if_not_exists:
+                insert_status = self.insert(unmatched_rows, None, print_stats=False, fail_on_exception=False)
+                result += insert_status
+        return result
 
     def _validate_update_spec(
         self, value_spec: dict[str, Any], allow_pk: bool, allow_exprs: bool
@@ -1001,8 +988,8 @@ class TableVersion:
                 if len(recomputed_cols) > 0:
                     from pixeltable.plan import Planner
 
-                    plan = Planner.create_view_update_plan(view.path, recompute_targets=recomputed_cols)
-                status = view.propagate_update(
+                    plan = Planner.create_view_update_plan(view.get().path, recompute_targets=recomputed_cols)
+                status = view.get().propagate_update(
                     plan, None, recomputed_view_cols, base_versions=base_versions, timestamp=timestamp, cascade=True
                 )
                 result.num_rows += status.num_rows
@@ -1031,8 +1018,7 @@ class TableVersion:
                 raise excs.Error(f'Filter {analysis_info.filter} not expressible in SQL')
             sql_where_clause = analysis_info.sql_where_clause
 
-        with Env.get().engine.begin() as conn:
-            num_rows = self.propagate_delete(sql_where_clause, base_versions=[], conn=conn, timestamp=time.time())
+        num_rows = self.propagate_delete(sql_where_clause, base_versions=[], timestamp=time.time())
 
         status = UpdateStatus(num_rows=num_rows)
         return status
@@ -1057,7 +1043,7 @@ class TableVersion:
         else:
             pass
         for view in self.mutable_views:
-            num_rows += view.propagate_delete(
+            num_rows += view.get().propagate_delete(
                 where=None, base_versions=[self.version] + base_versions, timestamp=timestamp
             )
         return num_rows
@@ -1122,7 +1108,7 @@ class TableVersion:
             if len(added_cols) > 0:
                 next_col_id = min(col.id for col in added_cols)
                 for col in added_cols:
-                    self._delete_column(col, conn)
+                    self._delete_column(col)
                 self.next_col_id = next_col_id
 
             # remove newly-added indices from the lookup structures
@@ -1188,7 +1174,7 @@ class TableVersion:
 
         # propagate to views
         for view in self.mutable_views:
-            view._revert(session)
+            view.get()._revert(session)
         _logger.info(f'TableVersion {self.name}: reverted to version {self.version}')
 
     def _init_external_stores(self, tbl_md: schema.TableMd) -> None:
@@ -1199,18 +1185,16 @@ class TableVersion:
             self.external_stores[store.name] = store
 
     def link_external_store(self, store: pxt.io.ExternalStore) -> None:
-        with Env.get().engine.begin() as conn:
-            store.link(self, conn)  # May result in additional metadata changes
-            self.external_stores[store.name] = store
-            self._update_md(time.time(), conn, update_tbl_version=False)
+        store.link(self)  # May result in additional metadata changes
+        self.external_stores[store.name] = store
+        self._update_md(time.time(), update_tbl_version=False)
 
     def unlink_external_store(self, store_name: str, delete_external_data: bool) -> None:
         assert store_name in self.external_stores
         store = self.external_stores[store_name]
-        with Env.get().engine.begin() as conn:
-            store.unlink(self, conn)  # May result in additional metadata changes
-            del self.external_stores[store_name]
-            self._update_md(time.time(), conn, update_tbl_version=False)
+        store.unlink(self)  # May result in additional metadata changes
+        del self.external_stores[store_name]
+        self._update_md(time.time(), update_tbl_version=False)
 
         if delete_external_data and isinstance(store, pxt.io.external_store.Project):
             store.delete()
@@ -1356,4 +1340,4 @@ class TableVersion:
 
         id = UUID(d['id'])
         effective_version = d['effective_version']
-        return catalog.Catalog.get().tbl_versions[(id, effective_version)]
+        return catalog.Catalog.get().get_tbl_version(id, effective_version)

@@ -1,6 +1,6 @@
 import dataclasses
 import logging
-from typing import Any, Iterable, Literal, Optional, Type, Union
+from typing import Any, Iterable, Literal, Optional, Type, Union, cast
 from uuid import UUID
 
 import pandas as pd
@@ -28,97 +28,98 @@ def init() -> None:
     _ = Catalog.get()
 
 
-def _get_or_drop_existing_path2(
-    path_str: str,
-    expected_obj_type: type[catalog.SchemaObject],
-    expected_snapshot: bool,
-    if_exists: catalog.IfExistsParam,
-) -> Optional[catalog.SchemaObject]:
-    """Handle schema object path collision during creation according to the if_exists parameter.
-
-    Args:
-        path_str: An existing and valid path to the dir, table, view, or snapshot.
-        expected_obj_type: Whether the caller of this function is creating a dir, table, or view at the existing path.
-        expected_snapshot: Whether the caller of this function is creating a snapshot at the existing path.
-        if_exists: Directive regarding how to handle the existing path.
-
-    Returns:
-        A handle to the existing dir, table, view, or snapshot, if `if_exists='ignore'`, otherwise `None`.
-
-    Raises:
-        Error: If the existing path is not of the expected type, or if the existing path has dependents and
-            `if_exists='replace'` or `if_exists='replace_force'`.
-    """
-    cat = Catalog.get()
-    path = catalog.Path(path_str)
-    assert cat.paths.get_object(path) is not None
-
-    if if_exists == catalog.IfExistsParam.ERROR:
-        raise excs.Error(f'Path `{path_str}` already exists.')
-
-    existing_path = cat.paths[path]
-    existing_path_is_snapshot = (
-        'is_snapshot' in existing_path.get_metadata() and existing_path.get_metadata()['is_snapshot']
-    )
-    obj_type_str = 'Snapshot' if expected_snapshot else expected_obj_type._display_name().capitalize()
-    # Check if the existing path is of expected type.
-    if not isinstance(existing_path, expected_obj_type) or (expected_snapshot and not existing_path_is_snapshot):
-        raise excs.Error(
-            f'Path `{path_str}` already exists but is not a {obj_type_str}. Cannot {if_exists.name.lower()} it.'
-        )
-
-    # if_exists='ignore' return the handle to the existing object.
-    assert isinstance(existing_path, expected_obj_type)
-    if if_exists == catalog.IfExistsParam.IGNORE:
-        return existing_path
-
-    # Check if the existing object has dependents. If so, cannot replace it
-    # unless if_exists='replace_force'.
-    has_dependents = existing_path._has_dependents
-    if if_exists == catalog.IfExistsParam.REPLACE and has_dependents:
-        raise excs.Error(
-            f"{obj_type_str} `{path_str}` already exists and has dependents. Use `if_exists='replace_force'` to replace it."
-        )
-    else:
-        assert if_exists == catalog.IfExistsParam.REPLACE_FORCE or not has_dependents
-        # Drop the existing path so it can be replaced.
-        # Any errors during drop will be raised.
-        _logger.info(f'Dropping {obj_type_str} `{path_str}` to replace it.')
-        if isinstance(existing_path, catalog.Dir):
-            drop_dir(path_str, force=True)
-        else:
-            drop_table(path_str, force=True)
-        assert cat.paths.get_object(path) is None
-
-    return None
+# def _get_or_drop_existing_path2(
+#     path_str: str,
+#     expected_obj_type: type[catalog.SchemaObject],
+#     expected_snapshot: bool,
+#     if_exists: catalog.IfExistsParam,
+# ) -> Optional[catalog.SchemaObject]:
+#     """Handle schema object path collision during creation according to the if_exists parameter.
+#
+#     Args:
+#         path_str: An existing and valid path to the dir, table, view, or snapshot.
+#         expected_obj_type: Whether the caller of this function is creating a dir, table, or view at the existing path.
+#         expected_snapshot: Whether the caller of this function is creating a snapshot at the existing path.
+#         if_exists: Directive regarding how to handle the existing path.
+#
+#     Returns:
+#         A handle to the existing dir, table, view, or snapshot, if `if_exists='ignore'`, otherwise `None`.
+#
+#     Raises:
+#         Error: If the existing path is not of the expected type, or if the existing path has dependents and
+#             `if_exists='replace'` or `if_exists='replace_force'`.
+#     """
+#     cat = Catalog.get()
+#     path = catalog.Path(path_str)
+#     assert cat.paths.get_object(path) is not None
+#
+#     if if_exists == catalog.IfExistsParam.ERROR:
+#         raise excs.Error(f'Path `{path_str}` already exists.')
+#
+#     existing_path = cat.paths[path]
+#     existing_path_is_snapshot = (
+#         'is_snapshot' in existing_path.get_metadata() and existing_path.get_metadata()['is_snapshot']
+#     )
+#     obj_type_str = 'Snapshot' if expected_snapshot else expected_obj_type._display_name().capitalize()
+#     # Check if the existing path is of expected type.
+#     if not isinstance(existing_path, expected_obj_type) or (expected_snapshot and not existing_path_is_snapshot):
+#         raise excs.Error(
+#             f'Path `{path_str}` already exists but is not a {obj_type_str}. Cannot {if_exists.name.lower()} it.'
+#         )
+#
+#     # if_exists='ignore' return the handle to the existing object.
+#     assert isinstance(existing_path, expected_obj_type)
+#     if if_exists == catalog.IfExistsParam.IGNORE:
+#         return existing_path
+#
+#     # Check if the existing object has dependents. If so, cannot replace it
+#     # unless if_exists='replace_force'.
+#     has_dependents = existing_path._has_dependents
+#     if if_exists == catalog.IfExistsParam.REPLACE and has_dependents:
+#         raise excs.Error(
+#             f"{obj_type_str} `{path_str}` already exists and has dependents. Use `if_exists='replace_force'` to replace it."
+#         )
+#     else:
+#         assert if_exists == catalog.IfExistsParam.REPLACE_FORCE or not has_dependents
+#         # Drop the existing path so it can be replaced.
+#         # Any errors during drop will be raised.
+#         _logger.info(f'Dropping {obj_type_str} `{path_str}` to replace it.')
+#         if isinstance(existing_path, catalog.Dir):
+#             drop_dir(path_str, force=True)
+#         else:
+#             drop_table(path_str, force=True)
+#         assert cat.paths.get_object(path) is None
+#
+#     return None
 
 
 def _handle_path_collision(
-    path_str: str,
-    expected_obj_type: type[catalog.SchemaObject],
-    expected_snapshot: bool,
-    if_exists: catalog.IfExistsParam,
+    path: str, expected_obj_type: type[catalog.SchemaObject], expected_snapshot: bool, if_exists: catalog.IfExistsParam
 ) -> Optional[catalog.SchemaObject]:
     cat = Catalog.get()
     obj: Optional[catalog.SchemaObject]
     if if_exists == catalog.IfExistsParam.ERROR:
-        _ = cat.get_schema_object(path_str, raise_if_exists=True)
+        _ = cat.get_schema_object(path, raise_if_exists=True)
         obj = None
     else:
-        obj = cat.get_schema_object(path_str, expected=expected_obj_type)
+        obj = cat.get_schema_object(path, expected=expected_obj_type)
     if obj is None:
         return None
 
     if if_exists == IfExistsParam.IGNORE:
         return obj
 
-    # TODO: deal with dependents
-    # we drop the existing schema object
+    # drop the existing schema object
     if isinstance(obj, catalog.Dir):
-        _drop_dir(obj._id, force=True)
+        dir_contents = cat.get_dir_contents(obj._id)
+        if len(dir_contents) > 0 and if_exists == IfExistsParam.REPLACE:
+            raise excs.Error(
+                f'Directory {path!r} already exists and is not empty. Use `if_exists="replace_force"` to replace it.'
+            )
+        _drop_dir(obj._id, path, force=True)
     else:
         assert isinstance(obj, catalog.Table)
-        _drop_table(obj._id, force=True)
+        _drop_table(obj, force=True)
     return None
 
 
@@ -503,10 +504,6 @@ def move(path: str, new_path: str) -> None:
         obj._move(new_p.name, dest_dir._id)
 
 
-def _drop_table(tbl_id: UUID, force: bool = False) -> None:
-    pass
-
-
 def drop_table(
     table: Union[str, catalog.Table], force: bool = False, if_not_exists: Literal['error', 'ignore'] = 'error'
 ) -> None:
@@ -547,29 +544,33 @@ def drop_table(
     tbl: Optional[catalog.Table]
     with Env.get().begin():
         if isinstance(table, str):
-            # tbl_path_obj = catalog.Path(table)
             if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
-            tbl = cat.get_schema_object(
-                table, expected=catalog.Table, raise_if_not_exists=if_not_exists_ == IfNotExistsParam.ERROR or force
+            tbl = (
+                catalog.Table,
+                cat.get_schema_object(
+                    table, expected=catalog.Table, raise_if_not_exists=if_not_exists_ == IfNotExistsParam.ERROR or force
+                ),
             )
             if tbl is None:
                 _logger.info(f'Skipped table `{table}` (does not exist).')
                 return
         else:
             tbl = table
-            tbl_path_obj = catalog.Path(tbl._path)
+        _drop_table(tbl, force=force)
 
-        assert isinstance(tbl, catalog.Table)
-        if len(cat.tbl_dependents[tbl._id]) > 0:
-            dependent_paths = [dep._path for dep in cat.tbl_dependents[tbl._id]]
-            if force:
-                for dependent_path in dependent_paths:
-                    drop_table(dependent_path, force=True)
-            else:
-                raise excs.Error(f'Table {tbl._path} has dependents: {", ".join(dependent_paths)}')
-        tbl._drop()
-        del cat.paths[tbl_path_obj]
-        _logger.info(f'Dropped table `{tbl._path}`.')
+
+def _drop_table(tbl: catalog.Table, force: bool = False) -> None:
+    cat = Catalog.get()
+    view_ids = cat.get_views(tbl._id)
+    if len(view_ids) > 0:
+        view_paths = [cat.get_tbl_path(id) for id in view_ids]
+        if force:
+            for view_path in view_paths:
+                drop_table(view_path, force=True)
+        else:
+            raise excs.Error(f'Table {tbl._path} has dependents: {", ".join(view_paths)}')
+    tbl._drop()
+    _logger.info(f'Dropped table `{tbl._path}`.')
 
 
 def list_tables(dir_path: str = '', recursive: bool = True) -> list[str]:
@@ -662,15 +663,11 @@ def create_dir(
         return dir
 
 
-def _drop_dir(dir_id: UUID, force: bool = False) -> None:
-    pass
-
-
-def drop_dir(path_str: str, force: bool = False, if_not_exists: Literal['error', 'ignore'] = 'error') -> None:
+def drop_dir(path: str, force: bool = False, if_not_exists: Literal['error', 'ignore'] = 'error') -> None:
     """Remove a directory.
 
     Args:
-        path_str: Name or path of the directory.
+        path: Name or path of the directory.
         force: If `True`, will also drop all tables and subdirectories of this directory, recursively, along
             with any views or snapshots that depend on any of the dropped tables.
         if_not_exists: Directive regarding how to handle if the path does not exist.
@@ -704,46 +701,33 @@ def drop_dir(path_str: str, force: bool = False, if_not_exists: Literal['error',
         >>> pxt.drop_dir('my_dir', force=True)
     """
     cat = Catalog.get()
-    path = catalog.Path(path_str)
-    obj = cat.paths.get_object(path)
-    if obj is None:
-        _if_not_exists = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
-        if _if_not_exists == catalog.IfNotExistsParam.IGNORE or force:
-            _logger.info(f'Skipped directory `{path_str}` (does not exist).')
-            return
-        else:
-            raise excs.Error(f'Directory `{path_str}` does not exist.')
-
-    if not isinstance(obj, catalog.Dir):
-        raise excs.Error(
-            f'{str(path)} needs to be a {catalog.Dir._display_name()} but is a {type(obj)._display_name()}'
+    _if_not_exists = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
+    with Env.get().begin():
+        dir = cat.get_schema_object(
+            path, expected=catalog.Dir, raise_if_not_exists=_if_not_exists == catalog.IfNotExistsParam.ERROR
         )
+        if dir is None:
+            _logger.info(f'Directory {path!r} does not exist, skipped drop_dir().')
+            return
+        _drop_dir(dir._id, path, force=force)
 
-    children = cat.paths.get_children(path, child_type=None, recursive=True)
 
-    if len(children) > 0 and not force:
-        raise excs.Error(f'Directory `{path_str}` is not empty.')
+def _drop_dir(dir_id: UUID, path: str, force: bool = False) -> None:
+    cat = Catalog.get()
+    dir_entries = cat.get_dir_contents(dir_id, recursive=False)
+    if len(dir_entries) > 0 and not force:
+        raise excs.Error(f'Directory {path!r} is not empty.')
 
-    for child in children:
-        assert isinstance(child, catalog.Path)
-        # We need to check that the child is still in `cat.paths`, since it is possible it was
-        # already deleted as a dependent of a preceding child in the iteration.
-        try:
-            obj = cat.paths[child]
-        except excs.Error:
-            continue
-        if isinstance(obj, catalog.Dir):
-            drop_dir(str(child), force=True)
+    for entry in dir_entries.values():
+        if entry.table is not None:
+            tbl_path = _join_path(path, entry.table.md['name'])
+            drop_table(tbl_path, force=True)
         else:
-            assert isinstance(obj, catalog.Table)
-            assert not obj._is_dropped  # else it should have been removed from `cat.paths` already
-            drop_table(str(child), force=True)
-
-    with Env.get().engine.begin() as conn:
-        dir = Catalog.get().paths[path]
-        conn.execute(sql.delete(schema.Dir.__table__).where(schema.Dir.id == dir._id))
-    del Catalog.get().paths[path]
-    _logger.info(f'Removed directory `{path_str}`.')
+            assert entry.dir is not None
+            dir_path = _join_path(path, entry.dir.md['name'])
+            drop_dir(dir_path, force=True)
+    cat.drop_dir(dir._id)
+    _logger.info(f'Removed directory {path!r}.')
 
 
 def _join_path(path: str, name: str) -> str:

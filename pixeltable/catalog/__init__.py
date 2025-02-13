@@ -11,3 +11,4 @@ from .table import Table
 from .table_version import TableVersion
 from .table_version_path import TableVersionPath
 from .view import View
+from .table_version_handle import TableVersionHandle

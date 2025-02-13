@@ -57,10 +57,10 @@ class SchemaObject:
         """
         pass
 
-    @property
-    @abstractmethod
-    def _has_dependents(self) -> bool:
-        """Returns True if this object has dependents (e.g., children, views)"""
+    # @property
+    # @abstractmethod
+    # def _has_dependents(self) -> bool:
+    #     """Returns True if this object has dependents (e.g., children, views)"""
 
     def _move(self, new_name: str, new_dir_id: UUID) -> None:
         """Subclasses need to override this to make the change persistent"""

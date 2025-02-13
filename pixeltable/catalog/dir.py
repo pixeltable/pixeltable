@@ -35,12 +35,12 @@ class Dir(SchemaObject):
     def _display_name(cls) -> str:
         return 'directory'
 
-    @property
-    def _has_dependents(self) -> bool:
-        """Returns True if this directory has any children."""
-        from pixeltable.catalog import Catalog, Path
-
-        return len(Catalog.get().get_dir_contents(self._id, recursive=False)) > 0
+    # @property
+    # def _has_dependents(self) -> bool:
+    #     """Returns True if this directory has any children."""
+    #     from pixeltable.catalog import Catalog, Path
+    #
+    #     return len(Catalog.get().get_dir_contents(self._id, recursive=False)) > 0
 
     def _move(self, new_name: str, new_dir_id: UUID) -> None:
         super()._move(new_name, new_dir_id)

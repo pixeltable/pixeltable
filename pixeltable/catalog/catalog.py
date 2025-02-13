@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
-from typing import Collection, Optional
+from typing import Collection, Optional, TypeVar, overload
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -23,6 +23,8 @@ from .table_version_path import TableVersionPath
 # from .. import InsertableTable
 
 _logger = logging.getLogger('pixeltable')
+
+SchemaObjectT = TypeVar('SchemaObjectT', bound=SchemaObject)
 
 
 class Catalog:
@@ -71,6 +73,13 @@ class Catalog:
             assert dir_id is not None
         return '.'.join(names)
 
+    def get_tbl_path(self, tbl_id: UUID) -> str:
+        """Return path for table with given id"""
+        session = env.Env.get().session
+        tbl = session.query(schema.Table).filter(schema.Table.id == tbl_id).one()
+        dir_path = self.get_dir_path(tbl.dir_id)
+        return f'{dir_path}.{tbl.md["name"]}'
+
     @dataclasses.dataclass
     class DirEntry:
         dir: Optional[schema.Dir]
@@ -95,13 +104,28 @@ class Catalog:
 
         return result
 
+    def drop_dir(self, dir_id: UUID) -> None:
+        """Delete the directory with the given id"""
+        session = env.Env.get().session
+        session.query(schema.Dir).filter(schema.Dir.id == dir_id).delete()
+
+    @overload
+    def get_schema_object(
+        self, path: str, expected: None = None, raise_if_exists: bool = False, raise_if_not_exists: bool = False
+    ) -> Optional[SchemaObject]: ...
+
+    @overload
+    def get_schema_object(
+        self, path: str, expected: type[SchemaObjectT], raise_if_exists: bool = False, raise_if_not_exists: bool = False
+    ) -> Optional[SchemaObjectT]: ...
+
     def get_schema_object(
         self,
         path: str,
-        expected: Optional[type[SchemaObject]] = None,
+        expected: Optional[type[SchemaObjectT]] = None,
         raise_if_exists: bool = False,
         raise_if_not_exists: bool = False,
-    ) -> Optional[SchemaObject]:
+    ) -> Optional[SchemaObjectT]:
         """Return the schema object at the given path, or None if it doesn't exist.
 
         Raises Error if
@@ -111,13 +135,12 @@ class Catalog:
         - expected is not None and the existing object has a different type
         """
         session = env.Env.get().session
-        assert session is not None
         if path == '':
             # the root dir
             if expected is not None and expected is not Dir:
                 raise excs.Error(f'{path!r} needs to be a {expected._display_name()} but is a {Dir._display_name()}')
             dir = self._get_dir(path)
-            return Dir(dir.id, dir.parent_id, dir.md['name'])
+            return Dir(dir.id, dir.parent_id, dir.md['name'])  # type: ignore
 
         components = path.split('.')
         parent_path = '.'.join(components[:-1])
@@ -154,7 +177,22 @@ class Catalog:
             raise excs.Error(f'Path {path!r} is an existing {type(obj)._display_name()}')
         elif obj is not None and expected is not None and not isinstance(obj, expected):
             raise excs.Error(f'{path!r} needs to be a {expected._display_name()} but is a {type(obj)._display_name()}')
-        return obj
+        return obj  # type: ignore
+
+    def get_tbl(self, tbl_id: UUID) -> Optional[Table]:
+        if not tbl_id in self._tbls:
+            tbl = self._load_tbl(tbl_id)
+            if tbl is None:
+                return None
+            self._tbls[tbl_id] = tbl
+        return self._tbls[tbl_id]
+
+    def get_views(self, tbl_id: UUID) -> list[UUID]:
+        """Return the ids of views that directly reference the given table"""
+        session = env.Env.get().session
+        q = session.query(schema.Table.id).filter(sql.text(f"md->'view_md'->'base_versions'->0->>0 = {tbl_id.hex!r}"))
+        result = [r[0] for r in q.all()]
+        return result
 
     def clear_tbl(self, tbl_id: UUID) -> None:
         assert tbl_id in self._tbls
@@ -226,13 +264,14 @@ class Catalog:
         # this is a view; determine the sequence of TableVersions to load
         tbl_version_path: list[tuple[UUID, Optional[int]]] = []
         schema_version_md = schema.md_from_dict(schema.TableSchemaVersionMd, schema_version_record.md)
-        if view_md.is_snapshot and view_md.predicate is None and len(schema_version_md.columns) == 0:
+        pure_snapshot = view_md.is_snapshot and view_md.predicate is None and len(schema_version_md.columns) == 0
+        if pure_snapshot:
             # this is a pure snapshot, without a physical table backing it; we only need the bases
             pass
         else:
             effective_version = 0 if view_md.is_snapshot else None  # snapshots only have version 0
             tbl_version_path.append((tbl_id, effective_version))
-        tbl_version_path.append((UUID(tbl_id), version) for tbl_id, version in view_md.base_versions)
+        tbl_version_path.extend((UUID(tbl_id), version) for tbl_id, version in view_md.base_versions)
 
         # load TableVersions, starting at the root
         base_path: Optional[TableVersionPath] = None
@@ -242,7 +281,7 @@ class Catalog:
                 self._tbl_versions[(id, effective_version)] = self._load_tbl_version(id, effective_version)
             view_path = TableVersionPath(TableVersionHandle(id, effective_version), base=base_path)
             base_path = view_path
-        view = View(tbl_id, tbl_record.dir_id, tbl_md.name, view_path)
+        view = View(tbl_id, tbl_record.dir_id, tbl_md.name, view_path, snapshot_only=pure_snapshot)
         return view
 
     def _load_tbl_version(self, tbl_id: UUID, effective_version: Optional[int]) -> Optional[TableVersion]:
@@ -295,9 +334,22 @@ class Catalog:
         schema_version_md = schema.md_from_dict(schema.TableSchemaVersionMd, schema_version_record.md)
         view_md = tbl_md.view_md
 
+        # load mutable view ids
+        q = (
+            session.query(schema.Table.id)
+            .filter(
+                sql.text(
+                    f"md->'view_md'->'base_versions'->0->>0 = {tbl_id.hex!r} "
+                    "AND md->'view_md'->'base_versions'->0->1 IS NULL"
+                )
+            )
+        )
+        mutable_view_ids = [r[0] for r in q.all()]
+        mutable_views = [TableVersionHandle(id, None) for id in mutable_view_ids]
+
         if view_md is None:
             # this is a base table
-            tbl_version = TableVersion(tbl_record.id, tbl_md, effective_version, schema_version_md, [])
+            tbl_version = TableVersion(tbl_record.id, tbl_md, effective_version, schema_version_md, mutable_views=mutable_views)
             return tbl_version
 
         assert len(view_md.base_versions) > 0  # a view needs to have a base
@@ -312,7 +364,7 @@ class Catalog:
                 base_path = TableVersionPath(TableVersionHandle(base_id, base_effective_version), base=base_path)
             assert base_path is not None
 
-        tbl_version = TableVersion(tbl_record.id, tbl_md, effective_version, schema_version_md, base_path=base_path)
+        tbl_version = TableVersion(tbl_record.id, tbl_md, effective_version, schema_version_md, base_path=base_path, mutable_views=mutable_views)
         return tbl_version
 
     def _init_store(self) -> None:
@@ -329,110 +381,110 @@ class Catalog:
             session.commit()
             _logger.info(f'Initialized catalog')
 
-    def _load_snapshot_version(
-        self, tbl_id: UUID, version: int, base: Optional[TableVersion], session: orm.Session
-    ) -> TableVersion:
-        q = (
-            session.query(schema.Table, schema.TableSchemaVersion)
-            .select_from(schema.Table)
-            .join(schema.TableVersion)
-            .join(schema.TableSchemaVersion)
-            .where(schema.Table.id == tbl_id)
-            .where(sql.text(f"({schema.TableVersion.__table__}.md->>'version')::int = {version}"))
-            .where(
-                sql.text(
-                    (
-                        f"({schema.TableVersion.__table__}.md->>'schema_version')::int = "
-                        f'{schema.TableSchemaVersion.__table__}.{schema.TableSchemaVersion.schema_version.name}'
-                    )
-                )
-            )
-        )
-        tbl_record, schema_version_record = q.one()
-        tbl_md = schema.md_from_dict(schema.TableMd, tbl_record.md)
-        schema_version_md = schema.md_from_dict(schema.TableSchemaVersionMd, schema_version_record.md)
-        # we ignore tbl_record.base_tbl_id/base_snapshot_id and use 'base' instead: if the base is a snapshot
-        # we'd have to look that up first
-        return TableVersion(tbl_record.id, tbl_md, version, schema_version_md, is_snapshot=True, base=base)
-
-    def _load_table_versions(self, session: orm.Session) -> None:
-        from .insertable_table import InsertableTable
-        from .view import View
-
-        # load tables/views;
-        # do this in ascending order of creation ts so that we can resolve base references in one pass
-        q = (
-            session.query(schema.Table, schema.TableSchemaVersion)
-            .select_from(schema.Table)
-            .join(schema.TableVersion)
-            .join(schema.TableSchemaVersion)
-            .where(sql.text(f"({schema.TableVersion.__table__}.md->>'version')::int = 0"))
-            .where(
-                sql.text(
-                    (
-                        f"({schema.Table.__table__}.md->>'current_schema_version')::int = "
-                        f'{schema.TableSchemaVersion.__table__}.{schema.TableSchemaVersion.schema_version.name}'
-                    )
-                )
-            )
-            .order_by(sql.text(f"({schema.TableVersion.__table__}.md->>'created_at')::float"))
-        )
-
-        for tbl_record, schema_version_record in q.all():
-            tbl_md = schema.md_from_dict(schema.TableMd, tbl_record.md)
-            schema_version_md = schema.md_from_dict(schema.TableSchemaVersionMd, schema_version_record.md)
-            view_md = tbl_md.view_md
-
-            if view_md is not None:
-                assert len(view_md.base_versions) > 0
-                # construct a TableVersionPath for the view
-                refd_versions = [(UUID(tbl_id), version) for tbl_id, version in view_md.base_versions]
-                base_path: Optional[TableVersionPath] = None
-                base: Optional[TableVersion] = None
-                # go through the versions in reverse order, so we can construct TableVersionPaths
-                for base_id, version in refd_versions[::-1]:
-                    base_version = self.tbl_versions.get((base_id, version), None)
-                    if base_version is None:
-                        if version is None:
-                            # debugging
-                            pass
-                        # if this is a reference to a mutable table, we should have loaded it already
-                        assert version is not None
-                        base_version = self._load_snapshot_version(base_id, version, base, session)
-                    base_path = TableVersionPath(base_version, base=base_path)
-                    base = base_version
-                assert base_path is not None
-
-                base_tbl_id = base_path.tbl_id()
-                is_snapshot = view_md is not None and view_md.is_snapshot
-                snapshot_only = is_snapshot and view_md.predicate is None and len(schema_version_md.columns) == 0
-                if snapshot_only:
-                    # this is a pure snapshot, without a physical table backing it
-                    view_path = base_path
-                else:
-                    tbl_version = TableVersion(
-                        tbl_record.id,
-                        tbl_md,
-                        tbl_md.current_version,
-                        schema_version_md,
-                        is_snapshot=is_snapshot,
-                        base=base_path.tbl_version if is_snapshot else None,
-                        base_path=base_path if not is_snapshot else None,
-                    )
-                    view_path = TableVersionPath(tbl_version, base=base_path)
-
-                tbl: Table = View(
-                    tbl_record.id, tbl_record.dir_id, tbl_md.name, view_path, base_tbl_id, snapshot_only=snapshot_only
-                )
-                self.tbl_dependents[base_tbl_id].append(tbl)
-
-            else:
-                tbl_version = TableVersion(tbl_record.id, tbl_md, tbl_md.current_version, schema_version_md)
-                tbl = InsertableTable(tbl_record.dir_id, tbl_version)
-
-            self.tbls[tbl._id] = tbl
-            self.tbl_dependents[tbl._id] = []
-            self.paths.add_schema_obj(tbl._dir_id, tbl_md.name, tbl)
+    # def _load_snapshot_version(
+    #     self, tbl_id: UUID, version: int, base: Optional[TableVersion], session: orm.Session
+    # ) -> TableVersion:
+    #     q = (
+    #         session.query(schema.Table, schema.TableSchemaVersion)
+    #         .select_from(schema.Table)
+    #         .join(schema.TableVersion)
+    #         .join(schema.TableSchemaVersion)
+    #         .where(schema.Table.id == tbl_id)
+    #         .where(sql.text(f"({schema.TableVersion.__table__}.md->>'version')::int = {version}"))
+    #         .where(
+    #             sql.text(
+    #                 (
+    #                     f"({schema.TableVersion.__table__}.md->>'schema_version')::int = "
+    #                     f'{schema.TableSchemaVersion.__table__}.{schema.TableSchemaVersion.schema_version.name}'
+    #                 )
+    #             )
+    #         )
+    #     )
+    #     tbl_record, schema_version_record = q.one()
+    #     tbl_md = schema.md_from_dict(schema.TableMd, tbl_record.md)
+    #     schema_version_md = schema.md_from_dict(schema.TableSchemaVersionMd, schema_version_record.md)
+    #     # we ignore tbl_record.base_tbl_id/base_snapshot_id and use 'base' instead: if the base is a snapshot
+    #     # we'd have to look that up first
+    #     return TableVersion(tbl_record.id, tbl_md, version, schema_version_md, is_snapshot=True, base=base)
+    #
+    # def _load_table_versions(self, session: orm.Session) -> None:
+    #     from .insertable_table import InsertableTable
+    #     from .view import View
+    #
+    #     # load tables/views;
+    #     # do this in ascending order of creation ts so that we can resolve base references in one pass
+    #     q = (
+    #         session.query(schema.Table, schema.TableSchemaVersion)
+    #         .select_from(schema.Table)
+    #         .join(schema.TableVersion)
+    #         .join(schema.TableSchemaVersion)
+    #         .where(sql.text(f"({schema.TableVersion.__table__}.md->>'version')::int = 0"))
+    #         .where(
+    #             sql.text(
+    #                 (
+    #                     f"({schema.Table.__table__}.md->>'current_schema_version')::int = "
+    #                     f'{schema.TableSchemaVersion.__table__}.{schema.TableSchemaVersion.schema_version.name}'
+    #                 )
+    #             )
+    #         )
+    #         .order_by(sql.text(f"({schema.TableVersion.__table__}.md->>'created_at')::float"))
+    #     )
+    #
+    #     for tbl_record, schema_version_record in q.all():
+    #         tbl_md = schema.md_from_dict(schema.TableMd, tbl_record.md)
+    #         schema_version_md = schema.md_from_dict(schema.TableSchemaVersionMd, schema_version_record.md)
+    #         view_md = tbl_md.view_md
+    #
+    #         if view_md is not None:
+    #             assert len(view_md.base_versions) > 0
+    #             # construct a TableVersionPath for the view
+    #             refd_versions = [(UUID(tbl_id), version) for tbl_id, version in view_md.base_versions]
+    #             base_path: Optional[TableVersionPath] = None
+    #             base: Optional[TableVersion] = None
+    #             # go through the versions in reverse order, so we can construct TableVersionPaths
+    #             for base_id, version in refd_versions[::-1]:
+    #                 base_version = self.tbl_versions.get((base_id, version), None)
+    #                 if base_version is None:
+    #                     if version is None:
+    #                         # debugging
+    #                         pass
+    #                     # if this is a reference to a mutable table, we should have loaded it already
+    #                     assert version is not None
+    #                     base_version = self._load_snapshot_version(base_id, version, base, session)
+    #                 base_path = TableVersionPath(base_version, base=base_path)
+    #                 base = base_version
+    #             assert base_path is not None
+    #
+    #             base_tbl_id = base_path.tbl_id()
+    #             is_snapshot = view_md is not None and view_md.is_snapshot
+    #             snapshot_only = is_snapshot and view_md.predicate is None and len(schema_version_md.columns) == 0
+    #             if snapshot_only:
+    #                 # this is a pure snapshot, without a physical table backing it
+    #                 view_path = base_path
+    #             else:
+    #                 tbl_version = TableVersion(
+    #                     tbl_record.id,
+    #                     tbl_md,
+    #                     tbl_md.current_version,
+    #                     schema_version_md,
+    #                     is_snapshot=is_snapshot,
+    #                     base=base_path.tbl_version if is_snapshot else None,
+    #                     base_path=base_path if not is_snapshot else None,
+    #                 )
+    #                 view_path = TableVersionPath(tbl_version, base=base_path)
+    #
+    #             tbl: Table = View(
+    #                 tbl_record.id, tbl_record.dir_id, tbl_md.name, view_path, base_tbl_id, snapshot_only=snapshot_only
+    #             )
+    #             self.tbl_dependents[base_tbl_id].append(tbl)
+    #
+    #         else:
+    #             tbl_version = TableVersion(tbl_record.id, tbl_md, tbl_md.current_version, schema_version_md)
+    #             tbl = InsertableTable(tbl_record.dir_id, tbl_version)
+    #
+    #         self.tbls[tbl._id] = tbl
+    #         self.tbl_dependents[tbl._id] = []
+    #         self.paths.add_schema_obj(tbl._dir_id, tbl_md.name, tbl)
 
     # def _load_functions(self, session: orm.Session) -> None:
     #     # load Function metadata; doesn't load the actual callable, which can be large and is only done on-demand by the

@@ -22,10 +22,15 @@ class RowidRef(Expr):
     _from_dict()/init() is called, which is why this class effectively has two separate paths for construction
     (with and without a TableVersion).
     """
+    tbl: catalog.TableVersionHandle
+    normalized_base: catalog.TableVersionHandle
+    tbl_id: UUID
+    normalized_base_id: UUID
+    rowid_component_idx: int
 
     def __init__(
         self,
-        tbl: catalog.TableVersion,
+        tbl: catalog.TableVersionHandle,
         idx: int,
         tbl_id: Optional[UUID] = None,
         normalized_base_id: Optional[UUID] = None,

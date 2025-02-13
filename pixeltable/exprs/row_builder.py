@@ -236,13 +236,6 @@ class RowBuilder:
         """Return ColumnSlotIdx for output columns"""
         return self.table_columns
 
-    def set_conn(self, conn: sql.engine.Connection) -> None:
-        from .function_call import FunctionCall
-
-        for expr in self.unique_exprs:
-            if isinstance(expr, FunctionCall) and isinstance(expr.fn, func.QueryTemplateFunction):
-                expr.fn.set_conn(conn)
-
     @property
     def num_materialized(self) -> int:
         return self.next_slot_idx

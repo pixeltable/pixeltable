@@ -16,7 +16,7 @@ class DataRowBatch:
     Contains the metadata needed to initialize DataRows.
     """
 
-    tbl: Optional[catalog.TableVersion]
+    tbl: Optional[catalog.TableVersionHandle]
     row_builder: exprs.RowBuilder
     img_slot_idxs: list[int]
     media_slot_idxs: list[int]  # non-image media slots
@@ -25,7 +25,7 @@ class DataRowBatch:
 
     def __init__(
         self,
-        tbl: Optional[catalog.TableVersion],
+        tbl: Optional[catalog.TableVersionHandle],
         row_builder: exprs.RowBuilder,
         num_rows: Optional[int] = None,
         rows: Optional[list[exprs.DataRow]] = None,
@@ -91,7 +91,7 @@ class DataRowBatch:
             idx_range = slice(0, len(self.rows))
         for row in self.rows[idx_range]:
             for info in stored_img_info:
-                filepath = str(MediaStore.prepare_media_path(self.tbl.id, info.col.id, self.tbl.version))
+                filepath = str(MediaStore.prepare_media_path(self.tbl.id, info.col.id, self.tbl.get().version))
                 row.flush_img(info.slot_idx, filepath)
             for slot_idx in flushed_slot_idxs:
                 row.flush_img(slot_idx)

@@ -22,6 +22,7 @@ import pixeltable.index as index
 import pixeltable.metadata.schema as schema
 import pixeltable.type_system as ts
 from pixeltable.env import Env
+from .table_version_handle import TableVersionHandle
 
 from ..exprs import ColumnRef
 from ..utils.description_helper import DescriptionHelper
@@ -57,15 +58,18 @@ class Table(SchemaObject):
     # Every user-invoked operation that runs an ExecNode tree (directly or indirectly) needs to call
     # FileCache.emit_eviction_warnings() at the end of the operation.
 
+    _is_dropped: bool
+    _tbl_version_path: TableVersionPath
+
     def __init__(self, id: UUID, dir_id: UUID, name: str, tbl_version_path: TableVersionPath):
         super().__init__(id, name, dir_id)
         self._is_dropped = False
-        self.__tbl_version_path = tbl_version_path
+        self._tbl_version_path = tbl_version_path
 
-    @property
-    def _has_dependents(self) -> bool:
-        """Returns True if this table has any dependent views, or snapshots."""
-        return len(self._get_views(recursive=False)) > 0
+    # @property
+    # def _has_dependents(self) -> bool:
+    #     """Returns True if this table has any dependent views, or snapshots."""
+    #     return len(self._get_views(recursive=False)) > 0
 
     def _move(self, new_name: str, new_dir_id: UUID) -> None:
         self._check_is_dropped()
@@ -110,7 +114,7 @@ class Table(SchemaObject):
         md['base'] = self._base._path if self._base is not None else None
         md['schema'] = self._schema
         md['version'] = self._version
-        md['schema_version'] = self._tbl_version.schema_version
+        md['schema_version'] = self._tbl_version.get().schema_version
         md['comment'] = self._comment
         md['num_retained_versions'] = self._num_retained_versions
         md['media_validation'] = self._media_validation.name.lower()
@@ -119,18 +123,12 @@ class Table(SchemaObject):
     @property
     def _version(self) -> int:
         """Return the version of this table. Used by tests to ascertain version changes."""
-        return self._tbl_version.version
+        return self._tbl_version.effective_version
 
     @property
-    def _tbl_version(self) -> TableVersion:
+    def _tbl_version(self) -> TableVersionHandle:
         """Return TableVersion for just this table."""
         return self._tbl_version_path.tbl_version
-
-    @property
-    def _tbl_version_path(self) -> TableVersionPath:
-        """Return TableVersionPath for just this table."""
-        self._check_is_dropped()
-        return self.__tbl_version_path
 
     def __hash__(self) -> int:
         return hash(self._tbl_version.id)
@@ -162,14 +160,15 @@ class Table(SchemaObject):
             A list of view paths.
         """
         self._check_is_dropped()
-        return [t._path for t in self._get_views(recursive=recursive)]
+        return [t._path() for t in self._get_views(recursive=recursive)]
 
     def _get_views(self, *, recursive: bool = True) -> list['Table']:
-        dependents = catalog.Catalog.get().tbl_dependents[self._id]
+        cat = catalog.Catalog.get()
+        view_ids = cat.get_views(self._id)
+        views = [cat.get_tbl(id) for id in view_ids]
         if recursive:
-            return dependents + [t for view in dependents for t in view._get_views(recursive=True)]
-        else:
-            return dependents
+            views.extend([t for view in views for t in view._get_views(recursive=True)])
+        return views
 
     def _df(self) -> 'pxt.dataframe.DataFrame':
         """Return a DataFrame for this table."""
@@ -259,7 +258,7 @@ class Table(SchemaObject):
         if self._tbl_version_path.base is None:
             return None
         base_id = self._tbl_version_path.base.tbl_version.id
-        return catalog.Catalog.get().tbls[base_id]
+        return catalog.Catalog.get().get_tbl(base_id)
 
     @property
     def _bases(self) -> list['Table']:
@@ -275,15 +274,15 @@ class Table(SchemaObject):
 
     @property
     def _comment(self) -> str:
-        return self._tbl_version.comment
+        return self._tbl_version.get().comment
 
     @property
     def _num_retained_versions(self):
-        return self._tbl_version.num_retained_versions
+        return self._tbl_version.get().num_retained_versions
 
     @property
     def _media_validation(self) -> MediaValidation:
-        return self._tbl_version.media_validation
+        return self._tbl_version.get().media_validation
 
     def __repr__(self) -> str:
         return self._descriptors().to_string()
@@ -324,7 +323,7 @@ class Table(SchemaObject):
                 'Type': col.col_type._to_str(as_schema=True),
                 'Computed With': col.value_expr.display_str(inline=False) if col.value_expr is not None else '',
             }
-            for col in self.__tbl_version_path.columns()
+            for col in self._tbl_version_path.columns()
             if columns is None or col.name in columns
         )
 
@@ -340,7 +339,7 @@ class Table(SchemaObject):
         from pixeltable import index
 
         pd_rows = []
-        for name, info in self._tbl_version.idxs_by_name.items():
+        for name, info in self._tbl_version.get().idxs_by_name.items():
             if isinstance(info.idx, index.EmbeddingIndex) and (columns is None or info.col.name in columns):
                 display_embed = info.idx.string_embed if info.col.col_type.is_string_type() else info.idx.image_embed
                 if info.idx.string_embed is not None and info.idx.image_embed is not None:
@@ -358,7 +357,7 @@ class Table(SchemaObject):
 
     def _external_store_descriptor(self) -> pd.DataFrame:
         pd_rows = []
-        for name, store in self._tbl_version.external_stores.items():
+        for name, store in self._tbl_version.get().external_stores.items():
             row = {'External Store': name, 'Type': type(store).__name__}
             pd_rows.append(row)
         return pd.DataFrame(pd_rows)
@@ -377,15 +376,12 @@ class Table(SchemaObject):
 
     def _drop(self) -> None:
         cat = catalog.Catalog.get()
-        # verify all dependents are deleted by now
-        for dep in cat.tbl_dependents[self._id]:
-            assert dep._is_dropped
         self._check_is_dropped()
-        self._tbl_version.drop()
+        self._tbl_version.get().drop()
         self._is_dropped = True
         # update catalog
         cat = catalog.Catalog.get()
-        del cat.tbls[self._id]
+        cat.clear_tbl(self._id)
 
     # TODO Factor this out into a separate module.
     # The return type is unresolvable, but torch can't be imported since it's an optional dependency.
@@ -410,7 +406,7 @@ class Table(SchemaObject):
         return any(
             col in store.get_local_columns()
             for view in [self] + self._get_views(recursive=True)
-            for store in view._tbl_version.external_stores.values()
+            for store in view._tbl_version.get().external_stores.values()
         )
 
     def _ignore_or_drop_existing_columns(self, new_col_names: list[str], if_exists: IfExistsParam) -> list[str]:
@@ -428,12 +424,12 @@ class Table(SchemaObject):
                 elif if_exists == IfExistsParam.IGNORE:
                     cols_to_ignore.append(new_col_name)
                 elif if_exists == IfExistsParam.REPLACE or if_exists == IfExistsParam.REPLACE_FORCE:
-                    if new_col_name not in self._tbl_version.cols_by_name:
+                    if new_col_name not in self._tbl_version.get().cols_by_name:
                         # for views, it is possible that the existing column
                         # is a base table column; in that case, we should not
                         # drop/replace that column. Continue to raise error.
                         raise excs.Error(f'Column {new_col_name!r} is a base table column. Cannot replace it.')
-                    col = self._tbl_version.cols_by_name[new_col_name]
+                    col = self._tbl_version.get().cols_by_name[new_col_name]
                     # cannot drop a column with dependents; so reject
                     # replace directive if column has dependents.
                     if self._column_has_dependents(col):
@@ -441,7 +437,7 @@ class Table(SchemaObject):
                             f'Column {new_col_name!r} already exists and has dependents. Cannot {if_exists.name.lower()} it.'
                         )
                     self.drop_column(new_col_name)
-                    assert new_col_name not in self._tbl_version.cols_by_name
+                    assert new_col_name not in self._tbl_version.get().cols_by_name
         return cols_to_ignore
 
     def add_columns(
@@ -507,7 +503,7 @@ class Table(SchemaObject):
             new_cols = self._create_columns(col_schema)
             for new_col in new_cols:
                 self._verify_column(new_col)
-            status = self._tbl_version.add_columns(new_cols, print_stats=False, on_error='abort')
+            status = self._tbl_version.get().add_columns(new_cols, print_stats=False, on_error='abort')
             FileCache.get().emit_eviction_warnings()
             return status
 
@@ -546,7 +542,7 @@ class Table(SchemaObject):
         """
         self._check_is_dropped()
         # verify kwargs
-        if self._tbl_version.is_snapshot:
+        if self._tbl_version.get().is_snapshot:
             raise excs.Error('Cannot add column to a snapshot.')
         # verify kwargs and construct column schema dict
         if len(kwargs) != 1:
@@ -635,7 +631,7 @@ class Table(SchemaObject):
 
         new_col = self._create_columns({col_name: col_schema})[0]
         self._verify_column(new_col)
-        status = self._tbl_version.add_columns([new_col], print_stats=print_stats, on_error=on_error)
+        status = self._tbl_version.get().add_columns([new_col], print_stats=print_stats, on_error=on_error)
         FileCache.get().emit_eviction_warnings()
         return status
 
@@ -795,7 +791,7 @@ class Table(SchemaObject):
                     raise excs.Error(f'Column {column!r} unknown')
                 assert _if_not_exists == IfNotExistsParam.IGNORE
                 return
-            col = self._tbl_version.cols_by_name[column]
+            col = self._tbl_version.get().cols_by_name[column]
         else:
             exists = self._tbl_version_path.has_column(column.col, include_bases=False)
             if not exists:
@@ -817,7 +813,7 @@ class Table(SchemaObject):
         dependent_stores = [
             (view, store)
             for view in [self] + self._get_views(recursive=True)
-            for store in view._tbl_version.external_stores.values()
+            for store in view._tbl_version.get().external_stores.values()
             if col in store.get_local_columns()
         ]
         if len(dependent_stores) > 0:
@@ -830,7 +826,7 @@ class Table(SchemaObject):
                 f'{", ".join(dependent_store_names)}'
             )
 
-        self._tbl_version.drop_column(col)
+        self._tbl_version.get().drop_column(col)
 
     def rename_column(self, old_name: str, new_name: str) -> None:
         """Rename a column.
@@ -848,7 +844,7 @@ class Table(SchemaObject):
             >>> tbl = pxt.get_table('my_table')
             ... tbl.rename_column('col1', 'col2')
         """
-        self._tbl_version.rename_column(old_name, new_name)
+        self._tbl_version.get().rename_column(old_name, new_name)
 
     def _list_index_info_for_test(self) -> list[dict[str, Any]]:
         """
@@ -860,7 +856,7 @@ class Table(SchemaObject):
         """
         assert not self._is_dropped
         index_info = []
-        for idx_name, idx in self._tbl_version.idxs_by_name.items():
+        for idx_name, idx in self._tbl_version.get().idxs_by_name.items():
             index_info.append({'_id': idx.id, '_name': idx_name, '_column': idx.col.name})
         return index_info
 
@@ -964,24 +960,25 @@ class Table(SchemaObject):
             self.__check_column_ref_exists(column, include_bases=True)
             col = column.col
 
-        if idx_name is not None and idx_name in self._tbl_version.idxs_by_name:
+        if idx_name is not None and idx_name in self._tbl_version.get().idxs_by_name:
             _if_exists = IfExistsParam.validated(if_exists, 'if_exists')
             # An index with the same name already exists.
             # Handle it according to if_exists.
             if _if_exists == IfExistsParam.ERROR:
                 raise excs.Error(f'Duplicate index name: {idx_name}')
-            if not isinstance(self._tbl_version.idxs_by_name[idx_name].idx, index.EmbeddingIndex):
+            if not isinstance(self._tbl_version.get().idxs_by_name[idx_name].idx, index.EmbeddingIndex):
                 raise excs.Error(f'Index `{idx_name}` is not an embedding index. Cannot {_if_exists.name.lower()} it.')
             if _if_exists == IfExistsParam.IGNORE:
                 return
             assert _if_exists == IfExistsParam.REPLACE or _if_exists == IfExistsParam.REPLACE_FORCE
             self.drop_index(idx_name=idx_name)
-            assert idx_name not in self._tbl_version.idxs_by_name
+            assert idx_name not in self._tbl_version.get().idxs_by_name
         from pixeltable.index import EmbeddingIndex
 
         # create the EmbeddingIndex instance to verify args
         idx = EmbeddingIndex(col, metric=metric, embed=embedding, string_embed=string_embed, image_embed=image_embed)
-        status = self._tbl_version.add_index(col, idx_name=idx_name, idx=idx)
+        with env.Env.get().begin():
+            status = self._tbl_version.get().add_index(col, idx_name=idx_name, idx=idx)
         # TODO: how to deal with exceptions here? drop the index and raise?
         FileCache.get().emit_eviction_warnings()
 
@@ -1127,18 +1124,18 @@ class Table(SchemaObject):
 
         if idx_name is not None:
             _if_not_exists = IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
-            if idx_name not in self._tbl_version.idxs_by_name:
+            if idx_name not in self._tbl_version.get().idxs_by_name:
                 if _if_not_exists == IfNotExistsParam.ERROR:
                     raise excs.Error(f'Index {idx_name!r} does not exist')
                 assert _if_not_exists == IfNotExistsParam.IGNORE
                 return
-            idx_id = self._tbl_version.idxs_by_name[idx_name].id
+            idx_id = self._tbl_version.get().idxs_by_name[idx_name].id
         else:
-            if col.tbl.id != self._tbl_version.id:
+            if col.tbl.get().id != self._tbl_version.id:
                 raise excs.Error(
                     f'Column {col.name!r}: cannot drop index from column that belongs to base ({col.tbl.name}!r)'
                 )
-            idx_info = [info for info in self._tbl_version.idxs_by_name.values() if info.col.id == col.id]
+            idx_info = [info for info in self._tbl_version.get().idxs_by_name.values() if info.col.id == col.id]
             if _idx_class is not None:
                 idx_info = [info for info in idx_info if isinstance(info.idx, _idx_class)]
             if len(idx_info) == 0:
@@ -1150,7 +1147,7 @@ class Table(SchemaObject):
             if len(idx_info) > 1:
                 raise excs.Error(f"Column {col.name!r} has multiple indices; specify 'idx_name' instead")
             idx_id = idx_info[0].id
-        self._tbl_version.drop_index(idx_id)
+        self._tbl_version.get().drop_index(idx_id)
 
     @overload
     def insert(
@@ -1264,7 +1261,7 @@ class Table(SchemaObject):
 
             >>> tbl.update({'int_col': tbl.int_col + 1}, where=tbl.int_col == 0)
         """
-        status = self._tbl_version.update(value_spec, where, cascade)
+        status = self._tbl_version.get().update(value_spec, where, cascade)
         FileCache.get().emit_eviction_warnings()
         return status
 
@@ -1304,7 +1301,7 @@ class Table(SchemaObject):
         rows = list(rows)
 
         row_updates: list[dict[Column, exprs.Expr]] = []
-        pk_col_names = set(c.name for c in self._tbl_version.primary_key_columns())
+        pk_col_names = set(c.name for c in self._tbl_version.get().primary_key_columns())
 
         # pseudo-column _rowid: contains the rowid of the row to update and can be used instead of the primary key
         has_rowid = _ROWID_COLUMN_NAME in rows[0]
@@ -1313,7 +1310,7 @@ class Table(SchemaObject):
             raise excs.Error('Table must have primary key for batch update')
 
         for row_spec in rows:
-            col_vals = self._tbl_version._validate_update_spec(row_spec, allow_pk=not has_rowid, allow_exprs=False)
+            col_vals = self._tbl_version.get()._validate_update_spec(row_spec, allow_pk=not has_rowid, allow_exprs=False)
             if has_rowid:
                 # we expect the _rowid column to be present for each row
                 assert _ROWID_COLUMN_NAME in row_spec
@@ -1324,7 +1321,7 @@ class Table(SchemaObject):
                     missing_cols = pk_col_names - set(col.name for col in col_vals.keys())
                     raise excs.Error(f'Primary key columns ({", ".join(missing_cols)}) missing in {row_spec}')
             row_updates.append(col_vals)
-        status = self._tbl_version.batch_update(
+        status = self._tbl_version.get().batch_update(
             row_updates,
             rowids,
             error_if_not_exists=if_not_exists == 'error',
@@ -1359,22 +1356,22 @@ class Table(SchemaObject):
         """
         if self._tbl_version_path.is_snapshot():
             raise excs.Error('Cannot revert a snapshot')
-        self._tbl_version.revert()
+        self._tbl_version.get().revert()
 
     @property
     def external_stores(self) -> list[str]:
-        return list(self._tbl_version.external_stores.keys())
+        return list(self._tbl_version.get().external_stores.keys())
 
     def _link_external_store(self, store: 'pxt.io.ExternalStore') -> None:
         """
         Links the specified `ExternalStore` to this table.
         """
-        if self._tbl_version.is_snapshot:
+        if self._tbl_version.get().is_snapshot:
             raise excs.Error(f'Table `{self._name}` is a snapshot, so it cannot be linked to an external store.')
         if store.name in self.external_stores:
             raise excs.Error(f'Table `{self._name}` already has an external store with that name: {store.name}')
         _logger.info(f'Linking external store `{store.name}` to table `{self._name}`')
-        self._tbl_version.link_external_store(store)
+        self._tbl_version.get().link_external_store(store)
         env.Env.get().console_logger.info(f'Linked external store `{store.name}` to table `{self._name}`.')
 
     def unlink_external_stores(
@@ -1410,7 +1407,7 @@ class Table(SchemaObject):
                     raise excs.Error(f'Table `{self._name}` has no external store with that name: {store}')
 
         for store in stores:
-            self._tbl_version.unlink_external_store(store, delete_external_data=delete_external_data)
+            self._tbl_version.get().unlink_external_store(store, delete_external_data=delete_external_data)
             env.Env.get().console_logger.info(f'Unlinked external store from table `{self._name}`: {store}')
 
     def sync(
@@ -1439,7 +1436,7 @@ class Table(SchemaObject):
 
         sync_status = pxt.io.SyncStatus.empty()
         for store in stores:
-            store_obj = self._tbl_version.external_stores[store]
+            store_obj = self._tbl_version.get().external_stores[store]
             store_sync_status = store_obj.sync(self, export_data=export_data, import_data=import_data)
             sync_status = sync_status.combine(store_sync_status)
 

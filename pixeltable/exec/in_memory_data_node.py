@@ -20,7 +20,8 @@ class InMemoryDataNode(ExecNode):
     - if an input row doesn't provide a value, sets the slot to the column default
     """
 
-    tbl: catalog.TableVersion
+    tbl: catalog.TableVersionHandle
+
     input_rows: list[dict[str, Any]]
     start_row_id: int
     output_rows: Optional[DataRowBatch]
@@ -29,12 +30,12 @@ class InMemoryDataNode(ExecNode):
     output_exprs: list[exprs.ColumnRef]
 
     def __init__(
-        self, tbl: catalog.TableVersion, rows: list[dict[str, Any]], row_builder: exprs.RowBuilder, start_row_id: int
+        self, tbl: catalog.TableVersionHandle, rows: list[dict[str, Any]], row_builder: exprs.RowBuilder, start_row_id: int
     ):
         # we materialize the input slots
         output_exprs = list(row_builder.input_exprs)
         super().__init__(row_builder, output_exprs, [], None)
-        assert tbl.is_insertable()
+        assert tbl.get().is_insertable()
         self.tbl = tbl
         self.input_rows = rows
         self.start_row_id = start_row_id
@@ -62,7 +63,7 @@ class InMemoryDataNode(ExecNode):
 
                 if col_info.col.col_type.is_image_type() and isinstance(val, bytes):
                     # this is a literal image, ie, a sequence of bytes; we save this as a media file and store the path
-                    path = str(MediaStore.prepare_media_path(self.tbl.id, col_info.col.id, self.tbl.version))
+                    path = str(MediaStore.prepare_media_path(self.tbl.id, col_info.col.id, self.tbl.get().version))
                     open(path, 'wb').write(val)
                     val = path
                 self.output_rows[row_idx][col_info.slot_idx] = val

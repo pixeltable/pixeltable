@@ -5,20 +5,17 @@ import logging
 from typing import TYPE_CHECKING, Any, Iterable, Literal, Optional
 from uuid import UUID
 
-import sqlalchemy.orm as orm
-
 import pixeltable.exceptions as excs
 import pixeltable.metadata.schema as md_schema
 import pixeltable.type_system as ts
 from pixeltable import catalog, exprs, func
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
-
-from .catalog import Catalog
 from .column import Column
 from .globals import _POS_COLUMN_NAME, MediaValidation, UpdateStatus
 from .table import Table
 from .table_version import TableVersion
+from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
 
 if TYPE_CHECKING:
@@ -36,12 +33,8 @@ class View(Table):
     is simply a reference to a specific set of base versions.
     """
 
-    def __init__(
-        self, id: UUID, dir_id: UUID, name: str, tbl_version_path: TableVersionPath, base_id: UUID, snapshot_only: bool
-    ):
+    def __init__(self, id: UUID, dir_id: UUID, name: str, tbl_version_path: TableVersionPath, snapshot_only: bool):
         super().__init__(id, dir_id, name, tbl_version_path)
-        assert base_id in catalog.Catalog.get().tbl_dependents
-        self._base_id = base_id  # keep a reference to the base Table ID, so that we can keep track of its dependents
         self._snapshot_only = snapshot_only
 
     @classmethod
@@ -165,32 +158,19 @@ class View(Table):
         )
         if tbl_version is None:
             # this is purely a snapshot: we use the base's tbl version path
-            view = cls(id, dir_id, name, base_version_path, base.tbl_id(), snapshot_only=True)
+            view = cls(id, dir_id, name, base_version_path, snapshot_only=True)
             _logger.info(f'created snapshot {name}')
         else:
-            view = cls(
-                id,
-                dir_id,
-                name,
-                TableVersionPath(tbl_version, base=base_version_path),
-                base.tbl_id(),
-                snapshot_only=False,
-            )
+            view = cls(id, dir_id, name, TableVersionPath(TableVersionHandle(tbl_version.id, tbl_version.effective_version), base=base_version_path), snapshot_only=False)
             _logger.info(f'Created view `{name}`, id={tbl_version.id}')
 
             from pixeltable.plan import Planner
 
             plan, num_values_per_row = Planner.create_view_load_plan(view._tbl_version_path)
-            num_rows, num_excs, cols_with_excs = tbl_version.store_tbl.insert_rows(
-                plan, session.connection(), v_min=tbl_version.version
-            )
+            num_rows, num_excs, cols_with_excs = tbl_version.store_tbl.insert_rows(plan, v_min=tbl_version.version)
             Env.get().console_logger.info(f'Created view `{name}` with {num_rows} rows, {num_excs} exceptions.')
 
         session.commit()
-        cat = Catalog.get()
-        cat.tbl_dependents[view._id] = []
-        cat.tbl_dependents[base.tbl_id()].append(view)
-        cat.tbls[view._id] = view
         return view
 
     @classmethod
@@ -208,35 +188,29 @@ class View(Table):
         """
         if tbl_version_path.is_snapshot():
             return tbl_version_path
-        tbl_version = tbl_version_path.tbl_version
+        tbl_version = tbl_version_path.tbl_version.get()
         if not tbl_version.is_snapshot:
             # create and register snapshot version
-            tbl_version = tbl_version.get().create_snapshot_copy()
+            tbl_version = tbl_version.create_snapshot_copy()
             assert tbl_version.is_snapshot
 
         return TableVersionPath(
-            tbl_version,
+            TableVersionHandle(tbl_version.id, tbl_version.effective_version),
             base=cls._get_snapshot_path(tbl_version_path.base) if tbl_version_path.base is not None else None,
         )
 
     def _drop(self) -> None:
         cat = catalog.Catalog.get()
-        # verify all dependents are deleted by now
-        for dep in cat.tbl_dependents[self._id]:
-            assert dep._is_dropped
         if self._snapshot_only:
             # there is not TableVersion to drop
             self._check_is_dropped()
             self.is_dropped = True
-            with Env.get().engine.begin() as conn:
-                TableVersion.delete_md(self._id, conn)
+            TableVersion.delete_md(self._id)
             # update catalog
             cat = catalog.Catalog.get()
-            del cat.tbls[self._id]
+            cat.clear_tbl(self._id)
         else:
             super()._drop()
-        cat.tbl_dependents[self._base_id].remove(self)
-        del cat.tbl_dependents[self._id]
 
     def get_metadata(self) -> dict[str, Any]:
         md = super().get_metadata()

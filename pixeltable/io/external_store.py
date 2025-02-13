@@ -14,6 +14,7 @@ import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable import Column, Table
 from pixeltable.catalog import TableVersion
+from pixeltable.env import Env
 
 _logger = logging.getLogger('pixeltable')
 
@@ -33,13 +34,13 @@ class ExternalStore(abc.ABC):
         return self.__name
 
     @abc.abstractmethod
-    def link(self, tbl_version: TableVersion, conn: sql.Connection) -> None:
+    def link(self, tbl_version: TableVersion) -> None:
         """
         Called by `TableVersion.link()` to implement store-specific logic.
         """
 
     @abc.abstractmethod
-    def unlink(self, tbl_version: TableVersion, conn: sql.Connection) -> None:
+    def unlink(self, tbl_version: TableVersion) -> None:
         """
         Called by `TableVersion.unlink()` to implement store-specific logic.
         """
@@ -94,7 +95,7 @@ class Project(ExternalStore, abc.ABC):
     def get_local_columns(self) -> list[Column]:
         return list(self.col_mapping.keys())
 
-    def link(self, tbl_version: TableVersion, conn: sql.Connection) -> None:
+    def link(self, tbl_version: TableVersion) -> None:
         # All of the media columns being linked need to either be stored computed columns, or else have stored proxies.
         # This ensures that the media in those columns resides in the media store.
         # First determine which columns (if any) need stored proxies, but don't have one yet.
@@ -110,6 +111,7 @@ class Project(ExternalStore, abc.ABC):
                 if col not in self.stored_proxies:
                     # We didn't find it in an existing Project
                     stored_proxies_needed.append(col)
+
         if len(stored_proxies_needed) > 0:
             _logger.info(f'Creating stored proxies for columns: {[col.name for col in stored_proxies_needed]}')
             # Create stored proxies for columns that need one. Increment the schema version
@@ -119,12 +121,12 @@ class Project(ExternalStore, abc.ABC):
             tbl_version.schema_version = tbl_version.version
             proxy_cols = [self.create_stored_proxy(tbl_version, col) for col in stored_proxies_needed]
             # Add the columns; this will also update table metadata.
-            tbl_version._add_columns(proxy_cols, conn, print_stats=False, on_error='ignore')
+            tbl_version._add_columns(proxy_cols, print_stats=False, on_error='ignore')
             # We don't need to retain `UpdateStatus` since the stored proxies are intended to be
             # invisible to the user.
-            tbl_version._update_md(time.time(), conn, preceding_schema_version=preceding_schema_version)
+            tbl_version._update_md(time.time(), preceding_schema_version=preceding_schema_version)
 
-    def unlink(self, tbl_version: TableVersion, conn: sql.Connection) -> None:
+    def unlink(self, tbl_version: TableVersion) -> None:
         # Determine which stored proxies can be deleted. (A stored proxy can be deleted if it is not referenced by
         # any *other* external store for this table.)
         deletions_needed: set[Column] = set(self.stored_proxies.values())
@@ -139,7 +141,7 @@ class Project(ExternalStore, abc.ABC):
             tbl_version.schema_version = tbl_version.version
             tbl_version._drop_columns(deletions_needed)
             self.stored_proxies.clear()
-            tbl_version._update_md(time.time(), conn, preceding_schema_version=preceding_schema_version)
+            tbl_version._update_md(time.time(), preceding_schema_version=preceding_schema_version)
 
     def create_stored_proxy(self, tbl_version: TableVersion, col: Column) -> Column:
         """

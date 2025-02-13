@@ -24,7 +24,7 @@ class InsertableTable(Table):
 
     def __init__(self, dir_id: UUID, tbl_version: TableVersionHandle):
         tbl_version_path = TableVersionPath(tbl_version)
-        super().__init__(tbl_version.id, dir_id, tbl_version.name, tbl_version_path)
+        super().__init__(tbl_version.id, dir_id, tbl_version.get().name, tbl_version_path)
 
     @classmethod
     def _display_name(cls) -> str:
@@ -70,7 +70,7 @@ class InsertableTable(Table):
         if df is not None:
             # A DataFrame was provided, so insert its contents into the table
             # (using the same DB session as the table creation)
-            tbl_version.insert(None, df, conn=session.connection(), fail_on_exception=True)
+            tbl_version.insert(None, df, fail_on_exception=True)
         session.commit()
 
         _logger.info(f'Created table `{name}`, id={tbl_version.id}')
@@ -124,7 +124,7 @@ class InsertableTable(Table):
             if not isinstance(row, dict):
                 raise excs.Error('rows must be a list of dictionaries')
         self._validate_input_rows(rows)
-        status = self._tbl_version.insert(rows, None, print_stats=print_stats, fail_on_exception=fail_on_exception)
+        status = self._tbl_version.get().insert(rows, None, print_stats=print_stats, fail_on_exception=fail_on_exception)
 
         if status.num_excs == 0:
             cols_with_excs_str = ''
@@ -145,8 +145,8 @@ class InsertableTable(Table):
     def _validate_input_rows(self, rows: list[dict[str, Any]]) -> None:
         """Verify that the input rows match the table schema"""
         valid_col_names = set(self._schema.keys())
-        reqd_col_names = set(self._tbl_version_path.tbl_version.get_required_col_names())
-        computed_col_names = set(self._tbl_version_path.tbl_version.get_computed_col_names())
+        reqd_col_names = set(self._tbl_version_path.tbl_version.get().get_required_col_names())
+        computed_col_names = set(self._tbl_version_path.tbl_version.get().get_computed_col_names())
         for row in rows:
             assert isinstance(row, dict)
             col_names = set(row.keys())
@@ -184,4 +184,4 @@ class InsertableTable(Table):
 
             >>> tbl.delete(tbl.a > 5)
         """
-        return self._tbl_version.delete(where=where)
+        return self._tbl_version.get().delete(where=where)

@@ -3,8 +3,6 @@ from typing import Any, AsyncIterator
 
 import pixeltable.catalog as catalog
 import pixeltable.exprs as exprs
-from pixeltable.utils.media_store import MediaStore
-
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
 
@@ -40,7 +38,7 @@ class RowUpdateNode(ExecNode):
             if isinstance(col_ref, exprs.ColumnRef)
         }
         self.col_slot_idxs = {col: all_col_slot_idxs[col] for col in col_vals_batch[0].keys()}
-        self.key_slot_idxs = {col: all_col_slot_idxs[col] for col in tbl.tbl_version.primary_key_columns()}
+        self.key_slot_idxs = {col: all_col_slot_idxs[col] for col in tbl.tbl_version.get().primary_key_columns()}
         self.matched_key_vals: set[tuple] = set()
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:

@@ -27,9 +27,9 @@ class NamedFunction(SchemaObject):
     def _display_name(cls) -> str:
         return 'function'
 
-    @property
-    def _has_dependents(self) -> bool:
-        return False
+    # @property
+    # def _has_dependents(self) -> bool:
+    #     return False
 
     def _move(self, new_name: str, new_dir_id: UUID) -> None:
         super()._move(new_name, new_dir_id)
