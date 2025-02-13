@@ -1,184 +1,569 @@
-# Knowledge Agents
+---
+title: Knowledge
+description: Knowledge is a crucial component of building reliable and scalable AI agents.
+mode: "wide"
+---
+<Icon icon="Github"/> [View Examples on GitHub](https://github.com/pixeltable/pixeltable/tree/release/docs/examples/knowledge)
 
-In this example, we'll build an AI agent that can intelligently search and retrieve information from a self-scaling multimodal database.
+Pixeltable AI infrastructure allows you to quickly build self-querying agents that can search and retrieve information from multimodal data indices.
 
+In this example, we will create a Pixeltable Agent that can self-query different types of content from Pixeltable Indices:
+- Audio
+- Images
+- PDF
+- Website
+- Video
 
-## Steps
+## Dependencies
 
-1. Create index
-2. Add search tool to agent
-3. Initialize agent
-4. Ask questions
+pip install the following packages:
 
+<CodeGroup>
 
-## Prerequisites
+```python Audio
+# Access to sample .mp3 file
+boto3
 
-```bash
-pip install pixeltable openai 
+# Storage, Orchestration, and Compute
+pixeltable 
+
+# Models
+openai
+tiktoken
+sentence-transformers
+openai-whisper
+spacy
 ```
 
-## Agent Implementation
+```python PDF
+# Storage, Orchestration, and Compute
+pixeltable
 
-The agent implementation consists of several components that work together to create a RAG-powered conversational agent:
+# Models
+tiktoken 
+openai 
+sentence-transformers
+```
 
-```python
-import config
-import pixeltable as pxt
-from pixeltable.functions import openai
+```python Website
+# Storage, Orchestration, and Compute
+pixeltable 
 
-def create_search_tool(index):
-    """Create a search tool that can be used by the agent."""
-    @pxt.query
-    def search(query_text: str) -> str:
-        """Search tool to find relevant passages."""
-        similarity = index.text.similarity(query_text)
-        return (
-            index.order_by(similarity, asc=False)
-            .select(index.text, sim=similarity)
-            .limit(10)
-        )
-    
-    return pxt.tools(search)
+# Models
+tiktoken 
+openai 
+sentence-transformers
+``` 
 
-def setup_agent_table(agent_table, agent_tools, system_prompt: str):
-    """Set up the agent table with necessary computed columns."""
-    # Define message structure for tool response
-    tool_messages = [
-        {'role': 'system', 'content': system_prompt},
-        {'role': 'user', 'content': agent_table.prompt},
-    ]
+```python Video
+# Storage, Orchestration, and Compute
+pixeltable 
 
-    # Add tool response column
-    agent_table.add_computed_column(
-        tool_response=openai.chat_completions(
-            model=config.AGENT_MODEL,
-            messages=tool_messages,
-            tools=agent_tools,
-            tool_choice=agent_tools.choice(required=True),
-        )
-    )
-    
-    # Add tool result column
-    agent_table.add_computed_column(
-        tool_result=openai.invoke_tools(agent_tools, agent_table.tool_response)
-    )
-    
-    # Add interpretation column
-    agent_table.add_computed_column(
-        interpret_tool_result=create_prompt(agent_table.prompt, agent_table.tool_result)
-    )
+# Models
+tiktoken 
+openai
+openai-whisper
+sentence-transformers
+```
 
-    # Set up final response columns
-    result_messages = [
-        {'role': 'system', 'content': "Answer the user's question from the tool result."},
-        {'role': 'user', 'content': agent_table.interpret_tool_result},
-    ]
+</CodeGroup>
 
-    agent_table.add_computed_column(
-        final_response=openai.chat_completions(
-            model=config.AGENT_MODEL, 
-            messages=result_messages
-        )
-    )
-    
-    agent_table.add_computed_column(
-        answer=agent_table.final_response.choices[0].message.content
-    )
+## Pixeltable Agent with Multimodal Search
 
-@pxt.udf
-def create_prompt(question: str, tool_result: list[dict]) -> str:
-    """Create a prompt combining the question and search results."""
-    return f"""
-    QUESTION:
-    {question}
-    
-    SEARCH TOOL RESULT:
-    {tool_result}
-    """
+Agent observability is crucial for building reliable and scalable AI products.
 
-def create_agent(agent_name: str, index: pxt.Table, system_prompt: str, purge: bool = False) -> pxt.Table:
-    """Create or get a persistent agent with index search capabilities."""
-    # Delete agent table if requested
-    if purge:
-        pxt.drop_table(agent_name, force=True)
+Pixeltable Agents are built on persistent tables allowing you to query the agent's history for maximum observability and control.
 
-    # Get existing or create new agent table
-    if agent_name not in pxt.list_tables():
-        # Create new table
+<Note>While persistent, this example does not include a memory component. Please see the [memory example](./memory.mdx), to add memory to an agent.</Note>
+
+<Steps>
+  <Step title="Create Agent">
+    ```python
+    import pixeltable as pxt
+    from pixeltable.functions import openai
+
+    def create_agent(
+        agent_name: str, 
+        model_name: str, 
+        system_prompt: str,
+        multimodal_index: pxt.Table, 
+        reset_history: bool = False):
+
+        if reset_history:
+            pxt.drop_table(agent_name, force=True)
+
         agent = pxt.create_table(
             path_str=agent_name, 
             schema_or_df={'prompt': pxt.String}, 
-            if_exists='ignore'
+            if_exists='replace'
+        )
+        agent_tools = create_search_tool(multimodal_index)
+        add_tool_calling(agent, model_name, agent_tools, system_prompt)
+
+    ```
+    This creates a persistent table for the agent and initializes tool calling.
+  </Step>
+
+  <Step title="Implement Search Tool">
+    ```python
+    def create_search_tool(index: pxt.Table) -> pxt.tools:
+        @pxt.query
+        def search(query_text: str) -> str:
+            similarity = index.text.similarity(query_text)
+            return (
+                index.order_by(similarity, asc=False)
+                .select(index.text, sim=similarity)
+                .limit(10)
+            )
+        return pxt.tools(search)
+    ```
+    Search tool agnostic to the index type.
+  </Step>
+
+  <Step title="Add Tool Pipeline">
+    ```python
+    @pxt.udf
+    def create_tool_prompt(question: str, tool_result: list[dict]) -> str:
+        return f"QUESTION:{question} \n\n TOOL RESULT:{tool_result}"
+
+    def add_tool_calling(
+        agent_table: pxt.Table, 
+        model_name: str, 
+        agent_tools: pxt.tools, 
+        system_prompt: str
+    ):
+        
+        tool_messages = [
+            {'role': 'system', 'content': system_prompt},
+            {'role': 'user', 'content': agent_table.prompt},
+        ]
+
+        agent_table.add_computed_column(
+            tool_response=openai.chat_completions(
+                model=model_name,
+                messages=tool_messages,
+                tools=agent_tools,
+                tool_choice=agent_tools.choice(required=True),
+            )
         )
         
-        # Create and set up tools
-        agent_tools = create_search_tool(index)
+        agent_table.add_computed_column(
+            tool_result=openai.invoke_tools(agent_tools, agent_table.tool_response)
+        )
         
-        # Build table
-        setup_agent_table(agent, agent_tools, system_prompt)
-    else:
-        agent = pxt.get_table(agent_name)
+        agent_table.add_computed_column(
+            interpret_tool_result=create_tool_prompt(
+                agent_table.prompt, 
+                agent_table.tool_result
+            )
+        )
 
-    return agent
-```
+        result_messages = [
+            {'role': 'system', 'content': system_prompt},
+            {'role': 'user', 'content': agent_table.interpret_tool_result},
+        ]
 
-## Basic Usage
+        agent_table.add_computed_column(
+            final_response=openai.chat_completions(
+                model=model_name, 
+                messages=result_messages
+            )
+        )
+        
+        agent_table.add_computed_column(
+            answer=agent_table.final_response.choices[0].message.content
+        )
 
-Here's how to use the agent creation framework:
 
-```python
-import config
-import pixeltable as pxt
+    ```
+    Sets up the complete pipeline for tool execution and response generation.
+  </Step>
 
-from create_agent import create_agent
-from create_index import create_index
+  <Step title="Create Multimodal Index">
+  
+    <CodeGroup>
+    ```python Audio
+    import pixeltable as pxt
+    from pixeltable.functions import whisper
+    from pixeltable.functions.huggingface import sentence_transformer
+    from pixeltable.iterators.string import StringSplitter
 
-# Create project
-pxt.create_dir(config.PROJECT_NAME, if_exists='ignore')
+    def create_audio_index(
+        index_name: str, 
+        chunks_name: str, 
+        reset_history: bool = False):
+        if reset_history:
+            pxt.drop_table(index_name, force=True)
 
-# Create content index (implementation varies by content type)
-content_table, content_index = create_index(
-    index_name=config.INDEX_NAME,
-    chunks_name=config.CHUNKS_NAME,
-    purge=config.DELETE_ALL
-)
+        audio_table = pxt.create_table(
+            index_name, 
+            {'audio_file': pxt.Audio}, 
+            if_exists='replace'
+        )
 
-# Insert content
-content_table.insert([{'content_file': config.CONTENT_FILE}])
+        audio_table.add_computed_column(
+            transcription=whisper.transcribe(
+                audio=audio_table.audio_file, 
+                model='base.en'
+            )
+        )
 
-# Create agent
-rag_agent = create_agent(
-    agent_name=config.AGENT_NAME,
-    index=content_index,
-    system_prompt=config.SYSTEM_PROMPT,
-    purge=config.DELETE_ALL
-)
+        chunks_view = pxt.create_view(
+            chunks_name,
+            audio_table,
+            iterator=StringSplitter.create(
+                text=audio_table.transcription.text, 
+                separators='sentence'
+            ),
+            if_exists='replace'
+        )
 
-# Ask question
-question = 'What is this content about?'
-rag_agent.insert([{'prompt': question}])
+        embed_model = sentence_transformer.using(model_id='intfloat/e5-large-v2')
+        chunks_view.add_embedding_index(column='text', string_embed=embed_model)
+    ```
 
-# Show results
-print('\nAnswer:', rag_agent.answer.show())
-```
+    ```python PDF
+    import pixeltable as pxt
+    from pixeltable.functions.huggingface import sentence_transformer
+    from pixeltable.iterators import DocumentSplitter
 
-## Configuration
+    def create_pdf_index(
+            index_name: str, 
+            chunks_name: str, 
+            reset_history: bool = False
+        ):
+        if reset_history:
+            pxt.drop_table(index_name, force=True)
 
-Create a `config.py` file to manage your settings:
+        document_table = pxt.create_table(
+            index_name, 
+            {'pdf': pxt.Document}, 
+            if_exists='replace')
 
-```python
-# Project settings
-PROJECT_NAME = "knowledge-agents"
-DELETE_ALL = True  # Set to False in production
+        chunks_view = pxt.create_view(
+            chunks_name,
+            document_table,
+            iterator=DocumentSplitter.create(
+                document=document_table.pdf, 
+                separators='token_limit', 
+                limit=300),
+            if_exists='replace')
 
-# Agent settings
-AGENT_MODEL = "gpt-4"  # or another OpenAI model
-SYSTEM_PROMPT = """You are a helpful AI assistant that answers questions based on the provided content.
-Always provide accurate, relevant information from the source material."""
-```
+        embed_model = sentence_transformer.using(model_id='intfloat/e5-large-v2')
 
-## Content-Specific Implementation
+        chunks_view.add_embedding_index(column='text', string_embed=embed_model)
 
-The implementation varies based on the content type (audio, PDF, video, website). Each type requires its own specific indexing strategy, which will be detailed in the following sections once you provide the `create_index` implementations.
+    ```
 
-Would you like to share the `create_index` implementation for audio content now?
+    ```python Website
+    import pixeltable as pxt
+    from pixeltable.functions.huggingface import sentence_transformer
+    from pixeltable.iterators import DocumentSplitter
+
+    def create_website_index(
+            index_name: str, 
+            chunks_name: str, 
+            reset_history: bool = False
+        ):
+
+        if reset_history:
+            pxt.drop_table(index_name, force=True)
+
+        document_table = pxt.create_table(
+            path_str=index_name, 
+            schema_or_df={'website': pxt.Document}, 
+            if_exists='ignore'
+        )
+
+        chunks_view = pxt.create_view(
+            chunks_name,
+            document_table,
+            iterator=DocumentSplitter.create(
+                document=document_table.website, 
+                separators='token_limit', 
+                limit=300
+            ),
+            if_exists='ignore',
+        )
+
+        embed_model = sentence_transformer.using(model_id='intfloat/e5-large-v2')
+
+        chunks_view.add_embedding_index(column='text', string_embed=embed_model)    
+    ```
+
+    ```python Video
+    import pixeltable as pxt
+    from pixeltable.functions import openai
+    from pixeltable.functions.video import extract_audio
+    from pixeltable.functions.huggingface import sentence_transformer
+    from pixeltable.iterators.string import StringSplitter
+
+    def create_video_index(index_name: str, view_name: str, reset_history: bool = False):
+        if reset_history:
+            pxt.drop_table(index_name, force=True)
+
+        video_index = pxt.create_table(
+            index_name, 
+            {'video_file': pxt.Video, 'uploaded_at': pxt.Timestamp},
+            if_exists='replace'
+        )
+
+        video_index.add_computed_column(
+            audio_extract=extract_audio(video_index.video_file, format='mp3')
+        )
+
+        video_index.add_computed_column(
+            transcription=openai.transcriptions(audio=video_index.audio_extract, model='whisper-1')
+        )
+        video_index.add_computed_column(transcription_text=video_index.transcription.text)
+
+        view = pxt.create_view(
+            view_name,
+            video_index,
+            iterator=StringSplitter.create(
+                text=video_index.transcription_text, 
+                separators='sentence'
+            ),
+            if_exists='replace'
+        )
+
+        embed_model = sentence_transformer.using(model_id='intfloat/e5-large-v2')
+        view.add_embedding_index('text', string_embed=embed_model)    
+    ```
+
+
+    </CodeGroup>
+  </Step>
+
+  <Step title="Putting it all together">
+    <CodeGroup>
+    ```python Audio
+    import pixeltable as pxt
+
+    # Project setup
+    PROJECT_NAME = 'audio_agent'
+    AUDIO_INDEX_NAME = f'{PROJECT_NAME}.audio_index'
+    AUDIO_CHUNKS_NAME = f'{PROJECT_NAME}.audio_chunks'
+    AGENT_NAME = f'{PROJECT_NAME}.openai_gpt_4o_mini'
+    
+    # Create project directory
+    pxt.create_dir(PROJECT_NAME, if_exists='ignore')
+
+    # Create audio index
+    create_audio_index(
+        index_name=AUDIO_INDEX_NAME,
+        chunks_name=AUDIO_CHUNKS_NAME,
+        reset_history=False
+    )
+
+    # Add audio file
+    audio_table = pxt.get_table(AUDIO_INDEX_NAME)
+    audio_table.insert([{
+        'audio_file': 's3://pixeltable-public/audio/10-minute tour of Pixeltable.mp3'
+    }])
+
+    # Create agent
+    create_agent(
+        agent_name=AGENT_NAME,
+        index=audio_table,
+        model_name='gpt-4o-mini',
+        system_prompt="""
+        You are a helpful assistant that can answer questions about the audio file.
+        Use your search tool to find the most relevant information in the audio file.
+        """,
+        reset_history=False
+    )
+
+    # Query the agent
+    agent = pxt.get_table(AGENT_NAME)
+    agent.insert([{'prompt': 'What is Pixeltable?'}])
+    print('Answer:', agent.answer.collect())
+    ```
+
+    ```python PDF
+    import pixeltable as pxt
+
+    # Project params
+    PROJECT_NAME = 'financial_research_agent'
+
+    # Index params
+    PDF_INDEX_NAME = f'{PROJECT_NAME}.financial_research_reports'
+    PDF_CHUNKS_NAME = f'{PROJECT_NAME}.financial_research_report_chunks'
+    EMBEDDING_MODEL = 'intfloat/e5-large-v2'
+    DOCUMENT_URL = 'https://github.com/pixeltable/pixeltable/raw/release/docs/resources/rag-demo/'
+
+    # Agent params
+    AGENT_MODEL = 'gpt-4o-mini'
+    AGENT_NAME = f'{PROJECT_NAME}.openai_gpt_4o_mini'
+    SYSTEM_PROMPT = """
+    You are a financial research assistant.
+
+    You are given a question and a list of financial research reports.
+
+    Your job is to answer the question based on the information provided in the reports.
+
+    You should use the search tool to find the most relevant information in the reports.
+
+    """
+
+    # Create project
+    pxt.create_dir(PROJECT_NAME, if_exists='ignore')
+
+    # Create pdf index
+    create_index(
+        index_name=PDF_INDEX_NAME,
+        chunks_name=PDF_CHUNKS_NAME,
+        reset_history=False
+    )
+
+    # The base table holds metadata about the pdfs
+    pdf_source_table = pxt.get_table(PDF_INDEX_NAME)
+
+    # Insert sample pdfs
+    document_urls = [DOCUMENT_URL + doc for doc in ['Mclean-Equity-Alphabet.pdf', 'Zacks-Nvidia-Repeport.pdf']]
+    pdf_source_table.insert({'pdf': url} for url in document_urls)
+
+    # The index holds the embeddings of the pdfs and the chunked text to retrieve
+    pdf_index = pxt.get_table(PDF_INDEX_NAME)
+
+    # Create agent
+    create_agent(
+        agent_name=AGENT_NAME,
+        index=pdf_index,
+        llm_model_name=AGENT_MODEL,
+        system_prompt=SYSTEM_PROMPT,
+        reset_history=False
+    )
+
+    # Ask question
+    financial_research_agent = pxt.get_table(AGENT_NAME)
+    question = 'Explain the Nvidia report'
+    financial_research_agent.insert([{'prompt': question}])
+
+    # Show results
+    print('\nAnswer:', financial_research_agent.answer.collect())       
+    ```
+
+    ```python Website
+
+    import pixeltable as pxt
+
+    from agent import create_agent
+    from index import create_index
+
+    # Project params
+    PROJECT_NAME = 'web_research_agent'
+
+    # Index params
+    WEBSITE_INDEX_NAME = f'{PROJECT_NAME}.web_research'
+    WEBSITE_CHUNKS_NAME = f'{PROJECT_NAME}.web_research_chunks'
+    EMBEDDING_MODEL = 'intfloat/e5-large-v2'
+
+    # Index and agents are persistent. You can delete them with DELETE_ALL=True
+    DELETE_ALL = True
+
+    # Agent params
+    AGENT_MODEL = 'gpt-4o-mini'
+    AGENT_NAME = f'{PROJECT_NAME}.openai_gpt_4o_mini'
+    SYSTEM_PROMPT = """
+    You are a research assistant.
+
+    Answer the user's question based on the information provided in the website.
+    """
+
+    # Create project
+    pxt.create_dir(PROJECT_NAME, if_exists='ignore')
+
+    # Create website index
+    website_source_table, website_index = create_index(
+        index_name=WEBSITE_INDEX_NAME,
+        chunks_name=WEBSITE_CHUNKS_NAME,
+        reset_history=DELETE_ALL
+    )
+
+    # Insert sample pdfs
+    website_urls = ['https://quotes.toscrape.com/']
+    website_source_table.insert({'website': url} for url in website_urls)
+
+    # Create agent
+    create_agent(
+        agent_name=AGENT_NAME,
+        index=website_index,
+        system_prompt=SYSTEM_PROMPT,
+        reset_history=DELETE_ALL
+    )
+
+    # Ask question
+    web_research_agent = pxt.get_table(AGENT_NAME)
+    question = 'Tell me about the albert einstein quote'
+    web_research_agent.insert([{'prompt': question}])
+
+    # Show results
+    print('\nAnswer:', web_research_agent.answer.collect())
+
+    ```
+
+    ```python Video
+    import pixeltable as pxt
+
+    from index import create_index
+    from agent import create_agent
+
+    # Project params
+    PROJECT_NAME = 'video_agent'
+
+    # Index params
+    VIDEO_INDEX_NAME = f'{PROJECT_NAME}.video_index'
+    VIDEO_CHUNKS_NAME = f'{PROJECT_NAME}.video_chunks'
+    EMBEDDING_MODEL = 'intfloat/e5-large-v2'
+    VIDEO_FILE = 'https://github.com/pixeltable/pixeltable/raw/release/docs/resources/audio-transcription-demo/'
+
+    # Agent params
+    AGENT_MODEL = 'gpt-4o-mini'
+    AGENT_NAME = f'{PROJECT_NAME}.openai_gpt_4o_mini'
+    SYSTEM_PROMPT = "You are a helpful assistant that can answer questions about the video file."
+
+    # Create project
+    pxt.create_dir(PROJECT_NAME, if_exists='ignore')
+
+    # Create video base table and index
+    create_index(
+        index_name=VIDEO_INDEX_NAME,
+        view_name=VIDEO_CHUNKS_NAME,
+        reset_history=False
+    )
+
+    # The base table holds metadata about the video file
+    video_table = pxt.get_table(VIDEO_INDEX_NAME)
+
+    # Insert sample video
+    videos = [
+        VIDEO_FILE +
+        f'Lex-Fridman-Podcast-430-Excerpt-{n}.mp4'
+        for n in range(3)
+    ]
+    video_table.insert({'video_file': video} for video in videos)
+
+    # The index holds the embeddings and the chunked text to retrieve
+    video_index = pxt.get_table(VIDEO_INDEX_NAME)
+
+    # Create agent
+    create_agent(
+        agent_name=AGENT_NAME,
+        index=video_index,
+        llm_model_name=AGENT_MODEL,
+        system_prompt=SYSTEM_PROMPT,
+        reset_history=False
+    )
+
+    # Ask question
+    video_agent = pxt.get_table(AGENT_NAME)
+    question = 'What is happiness?'
+    video_agent.insert([{'prompt': question}])
+
+    # Show results
+    print('\nAnswer:', video_agent.answer.collect())
+    ```
+    </CodeGroup>
+  </Step>
+</Steps>
