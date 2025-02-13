@@ -25,7 +25,7 @@
 [LLM](https://docs.pixeltable.com/docs/document-indexing-and-rag)
 </div>
 
-Pixeltable is a Python framework that makes it easy to build multimodal AI applications through a declarative data infrastructure, enabling incremental storage, transformation, indexing, and orchestration of your data.
+Pixeltable is a declarative data infrastructure for building multimodal AI applications, enabling incremental storage, transformation, indexing, and orchestration of your data.
 
 Consider it your unified foundation for computer vision, LLMs, and multimodal AI development - where complex data operations become simple tables and computed columns, including but not limited to:
 
