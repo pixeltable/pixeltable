@@ -230,9 +230,27 @@ def expr_udf(*args: Any, **kwargs: Any) -> Any:
 
 
 def from_table(tbl: catalog.Table, return_value: Optional['exprs.Expr']) -> ExprTemplateFunction:
-    """ """
+    """
+    Constructs an `ExprTemplateFunction` from a `Table`.
+
+    The constructed function will have one parameter for each data column in the table, which is optional (with
+    default None) if and only if its column type is nullable. The output of the function is a dict of the form
+    {
+        'data_col_1': Variable('data_col_1', col_type_1),
+        'data_col_2': Variable('data_col_2', col_type_2),
+        ...,
+        'computed_col_1': computed_expr_1,
+        'computed_col_2': computed_expr_2,
+        ...
+    }
+    where the computed expressions correspond to fully substituted expressions for the computed columns of the
+    table. In the substitution, ColumnRefs of data columns are replaced by Variable expressions, and ColumnRefs of
+    computed columns are replaced by the (previously constructed) expressions for those columns.
+
+    If an optional `return_value` is specified, then it is used as the return value of the function in place of
+    the default dict. The same substitutions will be applied to the `return_value` expression.
+    """
     from pixeltable import exprs
-    from pixeltable.exprs.expr_dict import ExprDict
 
     ancestors = [tbl] + tbl._bases
     ancestors.reverse()  # We must traverse the ancestors in order from base to derived
@@ -242,26 +260,18 @@ def from_table(tbl: catalog.Table, return_value: Optional['exprs.Expr']) -> Expr
     params: list[Parameter] = []
 
     for t in ancestors:
-        for col in t._tbl_version.cols_by_name.values():
-            # Determine a canonical unused name for this column. This step is necessary because a view may have column
-            # names that "shadow" columns in its base table, but those shadowed columns may still be needed as inputs
-            # in the UDF signature.
-            n = 0
-            name = col.name
-            while name in result_dict:
-                n += 1
-                name = f'{col.name}_{n}'
-
+        for name, col in t._tbl_version.cols_by_name.items():
+            assert name not in result_dict, f'Column name is not unique: {name}'
             if col.is_computed:
                 # Computed column. Apply any existing substitutions and add the new expression to the subst dict.
                 new_expr = col.value_expr.copy()
                 new_expr.substitute(subst)
-                subst[t[col.name]] = new_expr  # Substitute new_expr for ColumnRefs to this column
+                subst[t[name]] = new_expr  # Substitute new_expr for ColumnRefs to this column
                 result_dict[name] = new_expr
             else:
                 # Data column. Include it as a parameter and add a variable expression as the subst dict.
                 var = exprs.Variable(name, col.col_type)
-                subst[t[col.name]] = var  # Substitute var for ColumnRefs to this column
+                subst[t[name]] = var  # Substitute var for ColumnRefs to this column
                 result_dict[name] = var
                 # Since this is a data column, it becomes a UDF parameter.
                 # If the column is nullable, then the parameter will have a default value of None.
