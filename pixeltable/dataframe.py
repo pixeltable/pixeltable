@@ -425,7 +425,7 @@ class DataFrame:
             nl = '\n'
             # [-1:0:-1]: leave out entry 0 and reverse order, so that the most recent frame is at the top
             msg += f'\nStack:\n{nl.join(stack_trace[-1:1:-1])}'
-        raise excs.Error(msg)
+        raise excs.Error(msg) from e
 
     def _output_row_iterator(self, conn: Optional[sql.engine.Connection] = None) -> Iterator[list]:
         try:

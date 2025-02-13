@@ -6,11 +6,11 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
-import pixeltable.func as func
-from pixeltable import catalog
+import pixeltable.functions as pxtf
+from pixeltable import catalog, func
 from pixeltable.func import Batch, Function, FunctionRegistry
 
-from .utils import ReloadTester, assert_resultset_eq, reload_catalog, validate_update_status
+from .utils import SAMPLE_IMAGE_URL, ReloadTester, assert_resultset_eq, reload_catalog, validate_update_status
 
 
 def dummy_fn(i: int) -> int:
@@ -654,6 +654,94 @@ class TestFunction:
         with pytest.raises(excs.Error) as exc_info:
             pxt.tools(pxt.functions.sum)  # type: ignore[arg-type]
         assert 'Aggregator UDFs cannot be used as tools' in str(exc_info.value)
+
+    def test_from_table(self, reset_db):
+        schema = {'in1': pxt.Required[pxt.Int], 'in2': pxt.Required[pxt.String], 'in3': pxt.Float, 'in4': pxt.Image}
+        t = pxt.create_table('test', schema)
+        t.add_computed_column(out1=(t.in1 + 5))
+        t.add_computed_column(out2=(t.in3 + t.out1))
+        t.add_computed_column(out3=pxtf.string.format('xyz {0}', t.in2))
+        t.add_computed_column(out4=pxtf.string.format('{0} {1}', t.in1, t.out3))
+
+        fn = pxt.udf(t)
+        assert fn.arity == 4
+        assert len(fn.signature.required_parameters) == 2
+        assert list(fn.signature.parameters.keys()) == ['in1', 'in2', 'in3', 'in4']
+
+        u = pxt.create_table('udf_test', {'a': pxt.String, 'b': pxt.Image})
+        u.insert(a='grapefruit')
+        u.insert(a='canteloupe')
+        u.add_computed_column(result=fn(19, u.a, in3=11.0))
+        res = u.select(u.result).collect()['result']
+        assert res == [
+            {
+                'in1': 19,
+                'in2': 'grapefruit',
+                'in3': 11.0,
+                'in4': None,
+                'out1': 24,
+                'out2': 35.0,
+                'out3': 'xyz grapefruit',
+                'out4': '19 xyz grapefruit',
+            },
+            {
+                'in1': 19,
+                'in2': 'canteloupe',
+                'in3': 11.0,
+                'in4': None,
+                'out1': 24,
+                'out2': 35.0,
+                'out3': 'xyz canteloupe',
+                'out4': '19 xyz canteloupe',
+            },
+        ]
+
+        # table_as_udf on a view
+        v = pxt.create_view('test_view', t)
+        v.add_column(in5=pxt.Json)
+        v.add_computed_column(out5=(v.out1 + v.in3 + v.in5.number))
+
+        vv = pxt.create_view('test_subview', v)
+        vv.add_column(in6=pxt.Json)
+        vv.add_computed_column(out6=(vv.out5 + v.out1 + t.in3 + vv.in6.number))
+
+        fn2 = pxt.udf(vv)
+        res = u.select(result=fn2(22, 'jackfruit', in3=28.0, in5={'number': 33})).collect()['result']
+        assert res == [
+            {
+                'in1': 22,
+                'in2': 'jackfruit',
+                'in3': 28.0,
+                'in4': None,
+                'out1': 27,
+                'out2': 55.0,
+                'out3': 'xyz jackfruit',
+                'out4': '22 xyz jackfruit',
+                'in5': {'number': 33},
+                'out5': 88.0,
+                'in6': None,
+                'out6': None,
+            },
+            {
+                'in1': 22,
+                'in2': 'jackfruit',
+                'in3': 28.0,
+                'in4': None,
+                'out1': 27,
+                'out2': 55.0,
+                'out3': 'xyz jackfruit',
+                'out4': '22 xyz jackfruit',
+                'in5': {'number': 33},
+                'out5': 88.0,
+                'in6': None,
+                'out6': None,
+            },
+        ]
+
+        # Specified return_value
+        fn3 = pxt.udf(t, return_value=t.in4.rotate(t.in1))
+        u.insert(b=SAMPLE_IMAGE_URL)
+        u.select(fn3(22, 'starfruit', in4=u.b)).collect()
 
 
 @pxt.udf

@@ -16,6 +16,7 @@ from .signature import Parameter, Signature
 if TYPE_CHECKING:
     from pixeltable import exprs
 
+
 # Decorator invoked without parentheses: @pxt.udf
 @overload
 def udf(decorated_fn: Callable) -> CallableFunction: ...
@@ -37,12 +38,7 @@ def udf(
 
 # pxt.udf() called explicitly on a Table:
 @overload
-def udf(
-    table: catalog.Table,
-    /,
-    *,
-    return_value: Optional['exprs.Expr'],
-) -> ExprTemplateFunction: ...
+def udf(table: catalog.Table, /, *, return_value: Optional['exprs.Expr'] = None) -> ExprTemplateFunction: ...
 
 
 def udf(*args, **kwargs):
@@ -232,16 +228,16 @@ def expr_udf(*args: Any, **kwargs: Any) -> Any:
         assert len(args) == 0 and len(kwargs) == 1 and 'param_types' in kwargs
         return lambda py_fn: make_expr_template(py_fn, kwargs['param_types'])
 
+
 def from_table(tbl: catalog.Table, return_value: Optional['exprs.Expr']) -> ExprTemplateFunction:
-    """
-    """
+    """ """
     from pixeltable import exprs
     from pixeltable.exprs.expr_dict import ExprDict
 
     ancestors = [tbl] + tbl._bases
     ancestors.reverse()  # We must traverse the ancestors in order from base to derived
 
-    subst: ExprDict[exprs.Expr] = ExprDict()
+    subst: dict[exprs.Expr, exprs.Expr] = {}
     result_dict: dict[str, exprs.Expr] = {}
     params: list[Parameter] = []
 
