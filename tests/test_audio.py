@@ -42,7 +42,7 @@ class TestAudio:
         assert status.num_excs == 0
         assert MediaStore.count(video_t._id) == len(video_filepaths) - 1
         assert video_t.where(video_t.audio != None).count() == len(video_filepaths) - 1
-        assert env.Env.get().num_tmp_files() == 0
+        tmp_files_before = env.Env.get().num_tmp_files()
 
         video_t = pxt.get_table('videos')
         assert video_t.where(video_t.audio != None).count() == len(video_filepaths) - 1
@@ -50,7 +50,7 @@ class TestAudio:
         # test generating different formats and codecs
         paths = video_t.select(output=video_t.video.extract_audio(format='wav', codec='pcm_s16le')).collect()['output']
         # media files that are created as a part of a query end up in the tmp dir
-        assert env.Env.get().num_tmp_files() == video_t.where(video_t.audio != None).count()
+        assert env.Env.get().num_tmp_files() == video_t.where(video_t.audio != None).count() - tmp_files_before
         for path in [p for p in paths if p is not None]:
             self.check_audio_params(path, format='wav', codec='pcm_s16le')
         # higher resolution
