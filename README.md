@@ -3,7 +3,7 @@
      alt="Pixeltable" width="50%" />
 <br></br>
 
-<h2>AI Data Infrastructure — Declarative, Multimodal, and Incremental</h2>
+<h2>Build Multimodal AI Apps with Declarative Data Infrastructure</h2>
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-0530AD.svg)](https://opensource.org/licenses/Apache-2.0)
 ![PyPI - Python Version](https://img.shields.io/pypi/pyversions/pixeltable?logo=python&logoColor=white&)
@@ -25,17 +25,15 @@
 [LLM](https://docs.pixeltable.com/docs/document-indexing-and-rag)
 </div>
 
-Pixeltable is a Python library providing a declarative interface for multimodal data (text, images, audio, video).
-It features built-in versioning, lineage tracking, and incremental updates, enabling users to **store**, **transform**,
-**index**, and **iterate** on data for their ML workflows.
+Pixeltable is a declarative data infrastructure for building multimodal AI applications, enabling incremental storage, transformation, indexing, and orchestration of your data.
 
-Data transformations, model inference, and custom logic are embedded as **computed columns**.
+Consider it your unified foundation for computer vision, LLMs, and multimodal AI development - where complex data operations become simple tables and computed columns, including but not limited to:
 
-- **Load/Query all data types**: Interact with
+- **Work with all your data**: Interact with
     [video data](https://github.com/pixeltable/pixeltable?tab=readme-ov-file#import-media-data-into-pixeltable-videos-images-audio)
     at the [frame level](https://github.com/pixeltable/pixeltable?tab=readme-ov-file#text-and-image-similarity-search-on-video-frames-with-embedding-indexes)
     and documents at the [chunk level](https://github.com/pixeltable/pixeltable?tab=readme-ov-file#automate-data-operations-with-views-eg-split-documents-into-chunks)
-- **Incremental updates for data transformation**: Maintain an
+- **Incremental updates**: Maintain an
     [embedding index](https://docs.pixeltable.com/docs/embedding-vector-indexes) colocated with your data
 - **Lazy evaluation and cache management**: Eliminates the need for
     [manual frame extraction](https://docs.pixeltable.com/docs/object-detection-in-videos)
