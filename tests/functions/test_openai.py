@@ -9,6 +9,7 @@ from ..utils import SAMPLE_IMAGE_URL, skip_test_if_not_installed, stock_price, v
 
 
 @pytest.mark.remote_api
+@pytest.mark.flaky(reruns=3, reruns_delay=8)
 class TestOpenai:
     @pytest.mark.expensive
     def test_audio(self, reset_db) -> None:
@@ -116,7 +117,7 @@ class TestOpenai:
         # adding a second column re-uses the existing client, with an existing connection pool
         t.add_computed_column(output2=openai.chat_completions(model='gpt-4o-mini', messages=messages))
 
-    @pytest.mark.flaky(reruns=3)
+    @pytest.mark.flaky(reruns=6, reruns_delay=8)
     def test_tool_invocations(self, reset_db) -> None:
         skip_test_if_not_installed('openai')
         TestOpenai.skip_test_if_no_openai_client()

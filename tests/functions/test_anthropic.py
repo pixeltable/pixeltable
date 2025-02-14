@@ -8,6 +8,7 @@ from ..utils import skip_test_if_no_client, skip_test_if_not_installed, stock_pr
 
 
 @pytest.mark.remote_api
+@pytest.mark.flaky(reruns=3, reruns_delay=8)
 class TestAnthropic:
     def test_anthropic(self, reset_db) -> None:
         from pixeltable.functions.anthropic import messages
@@ -36,7 +37,7 @@ class TestAnthropic:
         assert len(results['output'][0]['content'][0]['text']) > 0
         assert len(results['output2'][0]['content'][0]['text']) > 0
 
-    @pytest.mark.flaky(reruns=4)
+    @pytest.mark.flaky(reruns=6, reruns_delay=8)
     def test_tool_invocations(self, reset_db) -> None:
         skip_test_if_not_installed('anthropic')
         skip_test_if_no_client('anthropic')
