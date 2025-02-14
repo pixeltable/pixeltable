@@ -333,11 +333,6 @@ class TestView:
     def test_from_dataframe(self, reset_db) -> None:
         t = self.create_tbl()
 
-        # TODO(aaron-siegel): We actually do want to support this one
-        with pytest.raises(excs.Error) as exc_info:
-            pxt.create_view('test_view', t.select(t.c2))
-        assert 'Cannot use `create_view` after `select`' in str(exc_info.value)
-
         with pytest.raises(excs.Error) as exc_info:
             pxt.create_view('test_view', t.group_by(t.c2))
         assert 'Cannot use `create_view` after `group_by`' in str(exc_info.value)
@@ -637,6 +632,38 @@ class TestView:
         t.update({'int2': t.int2 + 1})
         logger.debug('******************* POST UPDATE INT2')
         check_views()
+
+    def test_selected_cols(self, reset_db) -> None:
+        t = self.create_tbl()
+
+        schema = {'v1': {'value': t.c2, 'stored': True}}
+
+        v1 = pxt.create_view('test_view1', t.select(t.c2, foo=t.c2), additional_columns=schema)
+        res = v1.select().head(5)
+        print(res._col_names)
+        assert res._col_names == ['c2', 'foo', 'v1']
+        print(res)
+
+        v1.add_computed_column(bar=t.c3, stored=False)
+        res = v1.select(t.c4).head(5)
+        print(res._col_names)
+        assert res._col_names == ['c4']
+        print(res)
+
+        v2 = pxt.create_view('test_view2', v1.select(v1.foo, c2=v1.c2, foo2=t.c2))
+        res = v2.select().head(5)
+        print(res._col_names)
+        assert res._col_names == ['foo', 'c2', 'foo2']
+        print(res)
+
+        v3 = pxt.create_view('test_view3', v2.where(v2.c2 % 2 == 0))
+        res = v3.select(v3.foo2).head(5)
+        print(res._col_names)
+        assert res._col_names == ['foo2']
+        print(res)
+
+        with pytest.raises(AttributeError, match='Column c1 unknown'):
+            _ = v1.select(v1.c1).head(5)
 
     def test_computed_cols(self, reset_db) -> None:
         t = self.create_tbl()

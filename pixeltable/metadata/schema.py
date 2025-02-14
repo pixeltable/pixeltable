@@ -132,6 +132,7 @@ class IndexMd:
 @dataclasses.dataclass
 class ViewMd:
     is_snapshot: bool
+    is_opaque: bool
 
     # (table id, version); for mutable views, all versions are None
     base_versions: list[tuple[str, Optional[int]]]
