@@ -516,30 +516,38 @@ class TestExprs:
     def test_inline_constants(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         result = t.select([1, 2, 3])
-        print(result.show())
+        print(result.show(5))
         assert isinstance(result.select_list[0][0], Literal)
+
+        result = t.select(
+            1,
+            (100, 100),
+            [200, 200],
+            # This will produce a Json type literal object
+            ['a', 'b', 'c'],
+            # This is an np.array, dtype='<U1' : col_type = StringType
+            pxt.array(['a', 'b', 'c']),
+            # This is an np.array, dtype='<U7' : col_type = StringType
+            pxt.array(['abc', 'd', 'efghijk']),
+            {'b': [4, 5]},
+            {'c': {}},
+            {'d': {'d': 6, 'e': [7, 8], 'f': {}, 'g': {'h': 9}}},
+        )
+        print(result.show(5))
+        exprs = [expr[0] for expr in result.select_list]
+        for e in exprs:
+            assert isinstance(e, Literal)
 
         result = t.select(
             1, (100, 100), {'a': [t.c1, 3]}, {'b': [4, 5]}, {'c': {'d': 6, 'e': [7, 8], 'f': {}, 'g': {'h': t.c2}}}
         )
-        print(result.show())
+        print(result.show(5))
         exprs = [expr[0] for expr in result.select_list]
         assert isinstance(exprs[0], Literal)
         assert isinstance(exprs[1], Literal)
         assert not isinstance(exprs[2], Literal)
         assert isinstance(exprs[3], Literal)
         assert not isinstance(exprs[4], Literal)
-
-        result = t.select(
-            1, (100, 100), {'a': [t.c1, 3]}, {'b': [4, 5]}, {'c': {'d': 6, 'e': [7, 8], 'f': {}, 'g': {'h': 9}}}
-        )
-        print(result.show())
-        exprs = [expr[0] for expr in result.select_list]
-        assert isinstance(exprs[0], Literal)
-        assert isinstance(exprs[1], Literal)
-        assert not isinstance(exprs[2], Literal)
-        assert isinstance(exprs[3], Literal)
-        assert isinstance(exprs[4], Literal)
 
         result = t.select(
             1,
@@ -547,17 +555,19 @@ class TestExprs:
             {'a': [t.c1, 3]},
             {'b': [4, 5]},
             {'c': {'d': 6, 'e': [7, 8], 'f': (t.c1, t.c3), 'g': {'h': 9}}},
+            {'d': t.c1},
         )
-        print(result.show())
+        print(result.show(5))
         exprs = [expr[0] for expr in result.select_list]
         assert isinstance(exprs[0], Literal)
         assert isinstance(exprs[1], Literal)
         assert not isinstance(exprs[2], Literal)
         assert isinstance(exprs[3], Literal)
         assert not isinstance(exprs[4], Literal)
+        assert not isinstance(exprs[5], Literal)
 
         result = t.select(pxt.array([[1, 2, 3], [4, 5, 6]]))
-        print(result.show())
+        print(result.show(5))
         exprs = [expr[0] for expr in result.select_list]
         assert isinstance(exprs[0], Literal)
         col_type = next(iter(result.schema.values()))
