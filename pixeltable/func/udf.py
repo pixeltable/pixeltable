@@ -38,7 +38,9 @@ def udf(
 
 # pxt.udf() called explicitly on a Table:
 @overload
-def udf(table: catalog.Table, /, *, return_value: Optional['exprs.Expr'] = None) -> ExprTemplateFunction: ...
+def udf(
+    table: catalog.Table, /, *, return_value: Optional['exprs.Expr'] = None, description: Optional[str] = None
+) -> ExprTemplateFunction: ...
 
 
 def udf(*args, **kwargs):
@@ -56,7 +58,11 @@ def udf(*args, **kwargs):
 
     elif len(args) == 1 and isinstance(args[0], catalog.Table):
         # pxt.udf() called explicitly on a Table
-        return from_table(args[0], kwargs.pop('return_value', None))
+        return_value = kwargs.pop('return_value', None)
+        description = kwargs.pop('description', None)
+        if len(kwargs) > 0:
+            raise excs.Error(f'Invalid udf kwargs: {", ".join(kwargs.keys())}')
+        return from_table(args[0], return_value, description)
 
     else:
         # Decorator schema invoked with parentheses: @pxt.udf(**kwargs)
@@ -229,7 +235,9 @@ def expr_udf(*args: Any, **kwargs: Any) -> Any:
         return lambda py_fn: make_expr_template(py_fn, kwargs['param_types'])
 
 
-def from_table(tbl: catalog.Table, return_value: Optional['exprs.Expr']) -> ExprTemplateFunction:
+def from_table(
+    tbl: catalog.Table, return_value: Optional['exprs.Expr'], description: Optional[str]
+) -> ExprTemplateFunction:
     """
     Constructs an `ExprTemplateFunction` from a `Table`.
 
@@ -285,5 +293,17 @@ def from_table(tbl: catalog.Table, return_value: Optional['exprs.Expr']) -> Expr
         return_value = return_value.copy()
         return_value.substitute(subst)
 
+    if description is None:
+        # Default description is the table comment
+        description = tbl._comment
+        if len(description) == 0:
+            description = f"UDF for table '{tbl._name}'"
+
+    # TODO: Use column comments as parameter descriptions, when we have them
+    argstring = '\n'.join(f'    {param.name}: of type `{param.col_type}`' for param in params)
+    docstring = f'{description}\n\nArgs:\n{argstring}'
+
     template = ExprTemplate(return_value, Signature(return_value.col_type, params))
-    return ExprTemplateFunction([template], name=f'{tbl._name}_as_udf')
+    fn = ExprTemplateFunction([template], name=tbl._name)
+    fn.__doc__ = docstring
+    return fn

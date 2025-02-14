@@ -1,4 +1,5 @@
 import typing
+from textwrap import dedent
 from typing import Optional
 
 import numpy as np
@@ -667,6 +668,17 @@ class TestFunction:
         assert fn.arity == 4
         assert len(fn.signature.required_parameters) == 2
         assert list(fn.signature.parameters.keys()) == ['in1', 'in2', 'in3', 'in4']
+        assert fn.__doc__ == dedent(
+            """
+            UDF for table 'test'
+
+            Args:
+                in1: of type `Int`
+                in2: of type `String`
+                in3: of type `Optional[Float]`
+                in4: of type `Optional[Image]`
+            """
+        ).strip()  # fmt: skip
 
         u = pxt.create_table('udf_test', {'a': pxt.String, 'b': pxt.Image})
         u.insert(a='grapefruit')
@@ -704,6 +716,7 @@ class TestFunction:
         vv = pxt.create_view('test_subview', v)
         vv.add_column(in6=pxt.Json)
         vv.add_computed_column(out6=(vv.out5 + v.out1 + t.in3 + vv.in6.number))
+        vv._tbl_version.set_comment('This is an example table comment.')
 
         fn2 = pxt.udf(vv)
         res = u.select(result=fn2(22, 'jackfruit', in3=28.0, in5={'number': 33})).collect()['result']
@@ -737,11 +750,35 @@ class TestFunction:
                 'out6': None,
             },
         ]
+        assert fn2.__doc__ == dedent(
+            """
+            This is an example table comment.
 
-        # Specified return_value
-        fn3 = pxt.udf(t, return_value=t.in4.rotate(t.in1))
+            Args:
+                in1: of type `Int`
+                in2: of type `String`
+                in3: of type `Optional[Float]`
+                in4: of type `Optional[Image]`
+                in5: of type `Optional[Json]`
+                in6: of type `Optional[Json]`
+            """
+        ).strip()  # fmt: skip
+
+        # Explicit return_value and description
+        fn3 = pxt.udf(t, return_value=t.in4.rotate(t.in1), description='An overriden UDF description.')
         u.insert(b=SAMPLE_IMAGE_URL)
         u.select(fn3(22, 'starfruit', in4=u.b)).collect()
+        assert fn3.__doc__ == dedent(
+            """
+            An overriden UDF description.
+
+            Args:
+                in1: of type `Int`
+                in2: of type `String`
+                in3: of type `Optional[Float]`
+                in4: of type `Optional[Image]`
+            """
+        ).strip()  # fmt: skip
 
 
 @pxt.udf
