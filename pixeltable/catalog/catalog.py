@@ -2,17 +2,15 @@ from __future__ import annotations
 
 import dataclasses
 import logging
-from typing import Collection, Optional, TypeVar, overload
+from typing import Optional, Type
 from uuid import UUID
 
 import sqlalchemy as sql
-import sqlalchemy.orm as orm
 
 # This import must go last to avoid circular imports.
 import pixeltable.env as env  # isort: skip
 import pixeltable.exceptions as excs
 import pixeltable.metadata.schema as schema
-
 from .dir import Dir
 from .schema_object import SchemaObject
 from .table import Table
@@ -23,8 +21,6 @@ from .table_version_path import TableVersionPath
 # from .. import InsertableTable
 
 _logger = logging.getLogger('pixeltable')
-
-SchemaObjectT = TypeVar('SchemaObjectT', bound=SchemaObject)
 
 
 class Catalog:
@@ -109,23 +105,13 @@ class Catalog:
         session = env.Env.get().session
         session.query(schema.Dir).filter(schema.Dir.id == dir_id).delete()
 
-    @overload
-    def get_schema_object(
-        self, path: str, expected: None = None, raise_if_exists: bool = False, raise_if_not_exists: bool = False
-    ) -> Optional[SchemaObject]: ...
-
-    @overload
-    def get_schema_object(
-        self, path: str, expected: type[SchemaObjectT], raise_if_exists: bool = False, raise_if_not_exists: bool = False
-    ) -> Optional[SchemaObjectT]: ...
-
     def get_schema_object(
         self,
         path: str,
-        expected: Optional[type[SchemaObjectT]] = None,
+        expected: Optional[Type[SchemaObject]] = None,
         raise_if_exists: bool = False,
         raise_if_not_exists: bool = False,
-    ) -> Optional[SchemaObjectT]:
+    ) -> Optional[SchemaObject]:
         """Return the schema object at the given path, or None if it doesn't exist.
 
         Raises Error if
@@ -140,7 +126,7 @@ class Catalog:
             if expected is not None and expected is not Dir:
                 raise excs.Error(f'{path!r} needs to be a {expected._display_name()} but is a {Dir._display_name()}')
             dir = self._get_dir(path)
-            return Dir(dir.id, dir.parent_id, dir.md['name'])  # type: ignore
+            return Dir(dir.id, dir.parent_id, dir.md['name'])
 
         components = path.split('.')
         parent_path = '.'.join(components[:-1])
@@ -177,7 +163,7 @@ class Catalog:
             raise excs.Error(f'Path {path!r} is an existing {type(obj)._display_name()}')
         elif obj is not None and expected is not None and not isinstance(obj, expected):
             raise excs.Error(f'{path!r} needs to be a {expected._display_name()} but is a {type(obj)._display_name()}')
-        return obj  # type: ignore
+        return obj
 
     def get_tbl(self, tbl_id: UUID) -> Optional[Table]:
         if not tbl_id in self._tbls:
@@ -335,13 +321,10 @@ class Catalog:
         view_md = tbl_md.view_md
 
         # load mutable view ids
-        q = (
-            session.query(schema.Table.id)
-            .filter(
-                sql.text(
-                    f"md->'view_md'->'base_versions'->0->>0 = {tbl_id.hex!r} "
-                    "AND md->'view_md'->'base_versions'->0->1 IS NULL"
-                )
+        q = session.query(schema.Table.id).filter(
+            sql.text(
+                f"md->'view_md'->'base_versions'->0->>0 = {tbl_id.hex!r} "
+                "AND md->'view_md'->'base_versions'->0->1 IS NULL"
             )
         )
         mutable_view_ids = [r[0] for r in q.all()]
@@ -349,7 +332,9 @@ class Catalog:
 
         if view_md is None:
             # this is a base table
-            tbl_version = TableVersion(tbl_record.id, tbl_md, effective_version, schema_version_md, mutable_views=mutable_views)
+            tbl_version = TableVersion(
+                tbl_record.id, tbl_md, effective_version, schema_version_md, mutable_views=mutable_views
+            )
             return tbl_version
 
         assert len(view_md.base_versions) > 0  # a view needs to have a base
@@ -364,7 +349,14 @@ class Catalog:
                 base_path = TableVersionPath(TableVersionHandle(base_id, base_effective_version), base=base_path)
             assert base_path is not None
 
-        tbl_version = TableVersion(tbl_record.id, tbl_md, effective_version, schema_version_md, base_path=base_path, mutable_views=mutable_views)
+        tbl_version = TableVersion(
+            tbl_record.id,
+            tbl_md,
+            effective_version,
+            schema_version_md,
+            base_path=base_path,
+            mutable_views=mutable_views,
+        )
         return tbl_version
 
     def _init_store(self) -> None:

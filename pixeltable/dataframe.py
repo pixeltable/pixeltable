@@ -279,7 +279,7 @@ class DataFrame:
             assert self.group_by_clause is None
             num_rowid_cols = len(self.grouping_tbl.store_tbl.rowid_columns())
             # the grouping table must be a base of self.tbl
-            assert num_rowid_cols <= len(self._first_tbl.tbl_version.store_tbl.rowid_columns())
+            assert num_rowid_cols <= len(self._first_tbl.tbl_version.get().store_tbl.rowid_columns())
             group_by_clause = [exprs.RowidRef(self._first_tbl.tbl_version, idx) for idx in range(num_rowid_cols)]
         elif self.group_by_clause is not None:
             group_by_clause = self.group_by_clause
@@ -322,7 +322,7 @@ class DataFrame:
             raise excs.Error(f'head() cannot be used with order_by()')
         if self._has_joins():
             raise excs.Error(f'head() not supported for joins')
-        num_rowid_cols = len(self._first_tbl.tbl_version.store_tbl.rowid_columns())
+        num_rowid_cols = len(self._first_tbl.tbl_version.get().store_tbl.rowid_columns())
         order_by_clause = [exprs.RowidRef(self._first_tbl.tbl_version, idx) for idx in range(num_rowid_cols)]
         return self.order_by(*order_by_clause, asc=True).limit(n).collect()
 
@@ -345,7 +345,7 @@ class DataFrame:
             raise excs.Error(f'tail() cannot be used with order_by()')
         if self._has_joins():
             raise excs.Error(f'tail() not supported for joins')
-        num_rowid_cols = len(self._first_tbl.tbl_version.store_tbl.rowid_columns())
+        num_rowid_cols = len(self._first_tbl.tbl_version.get().store_tbl.rowid_columns())
         order_by_clause = [exprs.RowidRef(self._first_tbl.tbl_version, idx) for idx in range(num_rowid_cols)]
         result = self.order_by(*order_by_clause, asc=False).limit(n).collect()
         result._reverse()
@@ -452,7 +452,7 @@ class DataFrame:
         from pixeltable.plan import Planner
 
         stmt = Planner.create_count_stmt(self._first_tbl, self.where_clause)
-        with Env.get().connect() as conn:
+        with Env.get().begin() as conn:
             result: int = conn.execute(stmt).scalar_one()
             assert isinstance(result, int)
             return result
@@ -831,7 +831,7 @@ class DataFrame:
                 base = self._first_tbl.find_tbl_version(item._tbl_version_path.tbl_id())
                 if base is None or base.id == self._first_tbl.tbl_id():
                     raise excs.Error(f'group_by(): {item._name} is not a base table of {self._first_tbl.tbl_name()}')
-                grouping_tbl = item._tbl_version_path.tbl_version
+                grouping_tbl = item._tbl_version_path.tbl_version.get()
                 break
             if not isinstance(item, exprs.Expr):
                 raise excs.Error(f'Invalid expression in group_by(): {item}')
@@ -940,7 +940,7 @@ class DataFrame:
             >>> df = person.where(t.year == 2014).update({'age': 30})
         """
         self._validate_mutable('update')
-        return self._first_tbl.tbl_version.update(value_spec, where=self.where_clause, cascade=cascade)
+        return self._first_tbl.tbl_version.get().update(value_spec, where=self.where_clause, cascade=cascade)
 
     def delete(self) -> UpdateStatus:
         """Delete rows form the underlying table of the DataFrame.
@@ -962,7 +962,7 @@ class DataFrame:
         self._validate_mutable('delete')
         if not self._first_tbl.is_insertable():
             raise excs.Error(f'Cannot delete from view')
-        return self._first_tbl.tbl_version.delete(where=self.where_clause)
+        return self._first_tbl.tbl_version.get().delete(where=self.where_clause)
 
     def _validate_mutable(self, op_name: str) -> None:
         """Tests whether this DataFrame can be mutated (such as by an update operation)."""
@@ -1039,7 +1039,7 @@ class DataFrame:
         # add list of referenced table versions (the actual versions, not the effective ones) in order to force cache
         # invalidation when any of the referenced tables changes
         d['tbl_versions'] = [
-            tbl_version.version for tbl in self._from_clause.tbls for tbl_version in tbl.get_tbl_versions()
+            tbl_version.get().version for tbl in self._from_clause.tbls for tbl_version in tbl.get_tbl_versions()
         ]
         summary_string = json.dumps(d)
         return hashlib.sha256(summary_string.encode()).hexdigest()

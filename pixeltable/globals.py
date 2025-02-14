@@ -341,7 +341,8 @@ def create_view(
             for col_name in additional_columns.keys():
                 if col_name in [c.name for c in tbl_version_path.columns()]:
                     raise excs.Error(
-                        f'Column {col_name!r} already exists in the base table {tbl_version_path.get_column(col_name).tbl.name}.'
+                        f'Column {col_name!r} already exists in the base table '
+                        f'{tbl_version_path.get_column(col_name).tbl.get().name}.'
                     )
         if iterator is None:
             iterator_class, iterator_args = None, None
@@ -545,8 +546,8 @@ def drop_table(
     with Env.get().begin():
         if isinstance(table, str):
             if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
-            tbl = (
-                catalog.Table,
+            tbl = cast(
+                Optional[catalog.Table],
                 cat.get_schema_object(
                     table, expected=catalog.Table, raise_if_not_exists=if_not_exists_ == IfNotExistsParam.ERROR or force
                 ),
@@ -726,7 +727,7 @@ def _drop_dir(dir_id: UUID, path: str, force: bool = False) -> None:
             assert entry.dir is not None
             dir_path = _join_path(path, entry.dir.md['name'])
             drop_dir(dir_path, force=True)
-    cat.drop_dir(dir._id)
+    cat.drop_dir(dir_id)
     _logger.info(f'Removed directory {path!r}.')
 
 

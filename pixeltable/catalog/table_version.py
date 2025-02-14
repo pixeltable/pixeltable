@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import dataclasses
 import importlib
-import inspect
 import logging
 import time
 import uuid
@@ -16,7 +15,6 @@ import sqlalchemy.orm as orm
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.exprs as exprs
-import pixeltable.func as func
 import pixeltable.index as index
 import pixeltable.type_system as ts
 from pixeltable.env import Env
@@ -24,10 +22,9 @@ from pixeltable.iterators import ComponentIterator
 from pixeltable.metadata import schema
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.media_store import MediaStore
-
-from ..func.globals import resolve_symbol
 from .column import Column
 from .globals import _POS_COLUMN_NAME, _ROWID_COLUMN_NAME, MediaValidation, UpdateStatus, is_valid_identifier
+from ..func.globals import resolve_symbol
 
 if TYPE_CHECKING:
     from pixeltable import exec, store
@@ -61,9 +58,7 @@ class TableVersion:
     num_retained_versions: int
     schema_version: int
     view_md: Optional[schema.ViewMd]
-    # is_snapshot: bool
     path: Optional[pxt.catalog.TableVersionPath]  # only set for live tables; needed to resolve computed cols
-    # base: Optional[TableVersion]
     next_col_id: int
     next_idx_id: int
     next_rowid: int
@@ -86,6 +81,7 @@ class TableVersion:
 
     external_stores: dict[str, pxt.io.ExternalStore]
     store_tbl: 'store.StoreBase'
+    base_store_tbl: Optional['store.StoreBase']  # always set for views
 
     @dataclasses.dataclass
     class IndexInfo:
@@ -103,12 +99,9 @@ class TableVersion:
         effective_version: Optional[int],
         schema_version_md: schema.TableSchemaVersionMd,
         mutable_views: list['TableVersionHandle'],
-        # base: Optional[TableVersion] = None,
         base_path: Optional[pxt.catalog.TableVersionPath] = None,
-        # is_snapshot: Optional[bool] = None,
+        base_store_tbl: Optional['store.StoreBase'] = None,
     ):
-        # only one of base and base_path can be non-None
-        # assert base is None or base_path is None
         self.id = id
         self.name = tbl_md.name
         self.effective_version = effective_version
@@ -117,15 +110,15 @@ class TableVersion:
         self.num_retained_versions = schema_version_md.num_retained_versions
         self.schema_version = schema_version_md.schema_version
         self.view_md = tbl_md.view_md  # save this as-is, it's needed for _create_md()
-        # self.is_snapshot = (is_view and tbl_md.view_md.is_snapshot) #or bool(is_snapshot)
         self.media_validation = MediaValidation[schema_version_md.media_validation.upper()]
-        # a mutable TableVersion doesn't have a static version
+        assert not(self.is_view() and base_store_tbl is None)
+        self.base_store_tbl = base_store_tbl
 
         # mutable tables need their TableVersionPath for expr eval during updates
         from .table_version_handle import TableVersionHandle
         from .table_version_path import TableVersionPath
 
-        if self.is_snapshot:
+        if self.is_snapshot():
             self.path = None
         else:
             self_handle = TableVersionHandle(id, self.effective_version)
@@ -133,8 +126,7 @@ class TableVersion:
                 assert base_path is not None
             self.path = TableVersionPath(self_handle, base=base_path)
 
-        # self.base = base_path.tbl_version if base_path is not None else base
-        if self.is_snapshot:
+        if self.is_snapshot():
             self.next_col_id = -1
             self.next_idx_id = -1  # TODO: can snapshots have separate indices?
             self.next_rowid = -1
@@ -184,23 +176,15 @@ class TableVersion:
     def __hash__(self) -> int:
         return hash(self.id)
 
-    # def _get_column(self, tbl_id: UUID, col_id: int) -> Column:
-    #     if self.id == tbl_id:
-    #         return self.cols_by_id[col_id]
-    #     else:
-    #         if self.base is None:
-    #             raise excs.Error(f'Unknown table id: {tbl_id}')
-    #         return self.base._get_column(tbl_id, col_id)
-
     def create_snapshot_copy(self) -> TableVersion:
         """Create a snapshot copy of this TableVersion"""
-        assert not self.is_snapshot
+        assert not self.is_snapshot()
         return TableVersion(
             self.id,
             self._create_tbl_md(),
             self.version,
             self._create_schema_version_md(preceding_schema_version=0),  # preceding_schema_version: dummy value
-            mutable_views=[]
+            mutable_views=[],
         )
 
     @classmethod
@@ -354,7 +338,7 @@ class TableVersion:
                 schema_version_drop=col_md.schema_version_drop,
                 value_expr_dict=col_md.value_expr,
             )
-            col.tbl = self
+            col.tbl = TableVersionHandle(self.id, self.effective_version, tbl_version=self)
             self.cols.append(col)
 
             # populate the lookup structures before Expr.from_dict()
@@ -481,7 +465,7 @@ class TableVersion:
         return status
 
     def _add_index(self, col: Column, idx_name: Optional[str], idx: index.IndexBase) -> UpdateStatus:
-        assert not self.is_snapshot
+        assert not self.is_snapshot()
         idx_id = self.next_idx_id
         self.next_idx_id += 1
         if idx_name is None:
@@ -501,7 +485,7 @@ class TableVersion:
             schema_version_drop=None,
             records_errors=idx.records_value_errors(),
         )
-        val_col.tbl = self
+        val_col.tbl = TableVersionHandle(self.id, self.effective_version, tbl_version=self)
         val_col.col_type = val_col.col_type.copy(nullable=True)
         self.next_col_id += 1
 
@@ -515,7 +499,7 @@ class TableVersion:
             schema_version_drop=None,
             records_errors=False,
         )
-        undo_col.tbl = self
+        undo_col.tbl = TableVersionHandle(self.id, self.effective_version, tbl_version=self)
         undo_col.col_type = undo_col.col_type.copy(nullable=True)
         self.next_col_id += 1
 
@@ -547,7 +531,7 @@ class TableVersion:
         return status
 
     def drop_index(self, idx_id: int) -> None:
-        assert not self.is_snapshot
+        assert not self.is_snapshot()
         assert idx_id in self.idx_md
 
         # we're creating a new schema version
@@ -571,12 +555,12 @@ class TableVersion:
         self, cols: Iterable[Column], print_stats: bool, on_error: Literal['abort', 'ignore']
     ) -> UpdateStatus:
         """Adds a column to the table."""
-        assert not self.is_snapshot
+        assert not self.is_snapshot()
         assert all(is_valid_identifier(col.name) for col in cols)
         assert all(col.stored is not None for col in cols)
         assert all(col.name not in self.cols_by_name for col in cols)
         for col in cols:
-            col.tbl = self
+            col.tbl = TableVersionHandle(self.id, self.effective_version, tbl_version=self)
             col.id = self.next_col_id
             self.next_col_id += 1
 
@@ -668,14 +652,13 @@ class TableVersion:
             num_rows=row_count,
             num_computed_values=row_count,
             num_excs=num_excs,
-            cols_with_excs=[f'{col.tbl.name}.{col.name}' for col in cols_with_excs if col.name is not None],
+            cols_with_excs=[f'{col.tbl.get().name}.{col.name}' for col in cols_with_excs if col.name is not None],
         )
 
     def drop_column(self, col: Column) -> None:
         """Drop a column from the table."""
-        from pixeltable.catalog import Catalog
 
-        assert not self.is_snapshot
+        assert not self.is_snapshot()
 
         # we're creating a new schema version
         self.version += 1
@@ -702,7 +685,7 @@ class TableVersion:
 
     def _drop_columns(self, cols: Iterable[Column]) -> None:
         """Mark columns as dropped"""
-        assert not self.is_snapshot
+        assert not self.is_snapshot()
 
         for col in cols:
             if col.value_expr is not None:
@@ -723,7 +706,7 @@ class TableVersion:
 
     def rename_column(self, old_name: str, new_name: str) -> None:
         """Rename a column."""
-        assert not self.is_snapshot
+        assert not self.is_snapshot()
         if old_name not in self.cols_by_name:
             raise excs.Error(f'Unknown column: {old_name}')
         if not is_valid_identifier(new_name):
@@ -840,7 +823,7 @@ class TableVersion:
             cascade: if True, also update all computed columns that transitively depend on the updated columns,
                 including within views.
         """
-        if self.is_snapshot:
+        if self.is_snapshot():
             raise excs.Error('Cannot update a snapshot')
 
         from pixeltable.plan import Planner
@@ -888,16 +871,11 @@ class TableVersion:
 
         from pixeltable.plan import Planner
 
-        plan, row_update_node, delete_where_clause, updated_cols, recomputed_cols = (
-            Planner.create_batch_update_plan(self.path, batch, rowids, cascade=cascade)
+        plan, row_update_node, delete_where_clause, updated_cols, recomputed_cols = Planner.create_batch_update_plan(
+            self.path, batch, rowids, cascade=cascade
         )
         result = self.propagate_update(
-            plan,
-            delete_where_clause,
-            recomputed_cols,
-            base_versions=[],
-            timestamp=time.time(),
-            cascade=cascade,
+            plan, delete_where_clause, recomputed_cols, base_versions=[], timestamp=time.time(), cascade=cascade
         )
         result.updated_cols = [c.qualified_name for c in updated_cols]
 
@@ -1050,7 +1028,7 @@ class TableVersion:
 
     def revert(self) -> None:
         """Reverts the table to the previous version."""
-        assert not self.is_snapshot
+        assert not self.is_snapshot()
         if self.version == 0:
             raise excs.Error('Cannot revert version 0')
         with orm.Session(Env.get().engine, future=True) as session:
@@ -1199,7 +1177,6 @@ class TableVersion:
         if delete_external_data and isinstance(store, pxt.io.external_store.Project):
             store.delete()
 
-    @property
     def is_snapshot(self) -> bool:
         return self.effective_version is not None
 
@@ -1211,7 +1188,7 @@ class TableVersion:
 
     def is_insertable(self) -> bool:
         """Returns True if this corresponds to an InsertableTable"""
-        return not self.is_snapshot and not self.is_view()
+        return not self.is_snapshot() and not self.is_view()
 
     def is_iterator_column(self, col: Column) -> bool:
         """Returns True if col is produced by an iterator"""

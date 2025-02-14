@@ -8,13 +8,10 @@ from dataclasses import dataclass
 from typing import Any, Optional
 from uuid import UUID
 
-import sqlalchemy as sql
-
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable import Column, Table
-from pixeltable.catalog import TableVersion
-from pixeltable.env import Env
+from pixeltable.catalog import TableVersion, TableVersionHandle
 
 _logger = logging.getLogger('pixeltable')
 
@@ -165,7 +162,7 @@ class Project(ExternalStore, abc.ABC):
             sa_col_type=col.col_type.to_sa_type(),
             schema_version_add=tbl_version.schema_version,
         )
-        proxy_col.tbl = tbl_version
+        proxy_col.tbl = TableVersionHandle(tbl_version.id, tbl_version.effective_version, tbl_version=tbl_version)
         tbl_version.next_col_id += 1
         self.stored_proxies[col] = proxy_col
         return proxy_col
@@ -281,7 +278,7 @@ class Project(ExternalStore, abc.ABC):
 
         tbl_id = UUID(d['tbl_id'])
         col_id = d['col_id']
-        return Catalog.get().tbl_versions[(tbl_id, None)].cols_by_id[col_id]
+        return Catalog.get().get_tbl_version(tbl_id, None).cols_by_id[col_id]
 
 
 @dataclass(frozen=True)

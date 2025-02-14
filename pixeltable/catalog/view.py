@@ -11,6 +11,7 @@ import pixeltable.type_system as ts
 from pixeltable import catalog, exprs, func
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
+
 from .column import Column
 from .globals import _POS_COLUMN_NAME, MediaValidation, UpdateStatus
 from .table import Table
@@ -161,7 +162,15 @@ class View(Table):
             view = cls(id, dir_id, name, base_version_path, snapshot_only=True)
             _logger.info(f'created snapshot {name}')
         else:
-            view = cls(id, dir_id, name, TableVersionPath(TableVersionHandle(tbl_version.id, tbl_version.effective_version), base=base_version_path), snapshot_only=False)
+            view = cls(
+                id,
+                dir_id,
+                name,
+                TableVersionPath(
+                    TableVersionHandle(tbl_version.id, tbl_version.effective_version), base=base_version_path
+                ),
+                snapshot_only=False,
+            )
             _logger.info(f'Created view `{name}`, id={tbl_version.id}')
 
             from pixeltable.plan import Planner

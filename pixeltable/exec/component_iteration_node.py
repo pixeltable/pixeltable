@@ -14,6 +14,7 @@ class ComponentIterationNode(ExecNode):
 
     Returns row batches of OUTPUT_BATCH_SIZE size.
     """
+
     view: catalog.TableVersionHandle
 
     __OUTPUT_BATCH_SIZE = 1024
@@ -82,7 +83,9 @@ class ComponentIterationNode(ExecNode):
         # verify and copy component_dict fields to their respective slots in output_row
         for field_name, field_val in component_dict.items():
             if field_name not in self.iterator_output_fields:
-                raise excs.Error(f'Invalid field name {field_name} in output of {self.view.get().iterator_cls.__name__}')
+                raise excs.Error(
+                    f'Invalid field name {field_name} in output of {self.view.get().iterator_cls.__name__}'
+                )
             if field_name not in self.refd_output_slot_idxs:
                 # we can ignore this
                 continue

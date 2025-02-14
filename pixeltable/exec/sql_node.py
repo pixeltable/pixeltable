@@ -9,6 +9,7 @@ import sqlalchemy as sql
 import pixeltable.catalog as catalog
 import pixeltable.exprs as exprs
 from pixeltable.env import Env
+
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
 
@@ -237,7 +238,9 @@ class SqlNode(ExecNode):
             if tbl.id in exact_version_only:
                 stmt = stmt.where(tbl.get().store_tbl.v_min_col == tbl.get().version)
             else:
-                stmt = stmt.where(tbl.get().store_tbl.v_min_col <= tbl.get().version).where(tbl.get().store_tbl.v_max_col > tbl.get().version)
+                stmt = stmt.where(tbl.get().store_tbl.v_min_col <= tbl.get().version).where(
+                    tbl.get().store_tbl.v_max_col > tbl.get().version
+                )
             prev_tbl = tbl
         return stmt
 
@@ -352,7 +355,7 @@ class SqlScanNode(SqlNode):
     Supports filtering and ordering.
     """
 
-    exact_version_only: list[catalog.TableVersion]
+    exact_version_only: list[catalog.TableVersionHandle]
 
     def __init__(
         self,
@@ -360,7 +363,7 @@ class SqlScanNode(SqlNode):
         row_builder: exprs.RowBuilder,
         select_list: Iterable[exprs.Expr],
         set_pk: bool = False,
-        exact_version_only: Optional[list[catalog.TableVersion]] = None,
+        exact_version_only: Optional[list[catalog.TableVersionHandle]] = None,
     ):
         """
         Args:

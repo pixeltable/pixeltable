@@ -3,6 +3,7 @@ from typing import Any, AsyncIterator
 
 import pixeltable.catalog as catalog
 import pixeltable.exprs as exprs
+
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
 

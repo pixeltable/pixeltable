@@ -22,7 +22,6 @@ import pixeltable.index as index
 import pixeltable.metadata.schema as schema
 import pixeltable.type_system as ts
 from pixeltable.env import Env
-from .table_version_handle import TableVersionHandle
 
 from ..exprs import ColumnRef
 from ..utils.description_helper import DescriptionHelper
@@ -39,6 +38,7 @@ from .globals import (
 )
 from .schema_object import SchemaObject
 from .table_version import TableVersion
+from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
 
 if TYPE_CHECKING:
@@ -1131,9 +1131,9 @@ class Table(SchemaObject):
                 return
             idx_id = self._tbl_version.get().idxs_by_name[idx_name].id
         else:
-            if col.tbl.get().id != self._tbl_version.id:
+            if col.tbl.id != self._tbl_version.id:
                 raise excs.Error(
-                    f'Column {col.name!r}: cannot drop index from column that belongs to base ({col.tbl.name}!r)'
+                    f'Column {col.name!r}: cannot drop index from column that belongs to base ({col.tbl.get().name}!r)'
                 )
             idx_info = [info for info in self._tbl_version.get().idxs_by_name.values() if info.col.id == col.id]
             if _idx_class is not None:
@@ -1310,7 +1310,9 @@ class Table(SchemaObject):
             raise excs.Error('Table must have primary key for batch update')
 
         for row_spec in rows:
-            col_vals = self._tbl_version.get()._validate_update_spec(row_spec, allow_pk=not has_rowid, allow_exprs=False)
+            col_vals = self._tbl_version.get()._validate_update_spec(
+                row_spec, allow_pk=not has_rowid, allow_exprs=False
+            )
             if has_rowid:
                 # we expect the _rowid column to be present for each row
                 assert _ROWID_COLUMN_NAME in row_spec

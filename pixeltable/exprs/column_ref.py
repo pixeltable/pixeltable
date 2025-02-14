@@ -52,15 +52,15 @@ class ColumnRef(Expr):
         assert col.tbl is not None
         self.col = col
         self.is_unstored_iter_col = (
-            col.tbl.is_component_view() and col.tbl.is_iterator_column(col) and not col.is_stored
+            col.tbl.get().is_component_view() and col.tbl.get().is_iterator_column(col) and not col.is_stored
         )
         self.iter_arg_ctx = None
         # number of rowid columns in the base table
-        self.base_rowid_len = col.tbl.base.num_rowid_columns() if self.is_unstored_iter_col else 0
+        self.base_rowid_len = col.tbl.get().base.num_rowid_columns() if self.is_unstored_iter_col else 0
         self.base_rowid = [None] * self.base_rowid_len
         self.iterator = None
         # index of the position column in the view's primary key; don't try to reference tbl.store_tbl here
-        self.pos_idx = col.tbl.num_rowid_columns() - 1 if self.is_unstored_iter_col else None
+        self.pos_idx = col.tbl.get().num_rowid_columns() - 1 if self.is_unstored_iter_col else None
 
         self.perform_validation = False
         if col.col_type.is_media_type():
@@ -138,7 +138,7 @@ class ColumnRef(Expr):
         return self.col == other.col and self.perform_validation == other.perform_validation
 
     def _df(self) -> 'pxt.dataframe.DataFrame':
-        tbl = catalog.Catalog.get().tbls[self.col.tbl.id]
+        tbl = catalog.Catalog.get().get_tbl(self.col.tbl.id)
         return tbl.select(self)
 
     def show(self, *args, **kwargs) -> 'pxt.dataframe.DataFrameResultSet':
@@ -166,7 +166,7 @@ class ColumnRef(Expr):
         return self._descriptors().to_html()
 
     def _descriptors(self) -> DescriptionHelper:
-        tbl = catalog.Catalog.get().tbls[self.col.tbl.id]
+        tbl = catalog.Catalog.get().get_tbl(self.col.tbl.id)
         helper = DescriptionHelper()
         helper.append(f'Column\n{self.col.name!r}\n(of table {tbl._path!r})')
         helper.append(tbl._col_descriptor([self.col.name]))
@@ -217,7 +217,7 @@ class ColumnRef(Expr):
         if self.base_rowid != data_row.pk[: self.base_rowid_len]:
             row_builder.eval(data_row, self.iter_arg_ctx)
             iterator_args = data_row[self.iter_arg_ctx.target_slot_idxs[0]]
-            self.iterator = self.col.tbl.iterator_cls(**iterator_args)
+            self.iterator = self.col.tbl.get().iterator_cls(**iterator_args)
             self.base_rowid = data_row.pk[: self.base_rowid_len]
         self.iterator.set_pos(data_row.pk[self.pos_idx])
         res = next(self.iterator)
@@ -225,7 +225,7 @@ class ColumnRef(Expr):
 
     def _as_dict(self) -> dict:
         tbl = self.col.tbl
-        version = tbl.version if tbl.is_snapshot else None
+        version = tbl.get().version if tbl.get().is_snapshot else None
         # we omit self.components, even if this is a validating ColumnRef, because init() will recreate the
         # non-validating component ColumnRef
         return {

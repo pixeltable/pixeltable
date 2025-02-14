@@ -5,6 +5,7 @@ from typing import Optional
 from uuid import UUID
 
 from pixeltable.metadata import schema
+
 from .column import Column
 from .table_version_handle import TableVersionHandle
 

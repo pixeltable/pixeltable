@@ -30,7 +30,11 @@ class InMemoryDataNode(ExecNode):
     output_exprs: list[exprs.ColumnRef]
 
     def __init__(
-        self, tbl: catalog.TableVersionHandle, rows: list[dict[str, Any]], row_builder: exprs.RowBuilder, start_row_id: int
+        self,
+        tbl: catalog.TableVersionHandle,
+        rows: list[dict[str, Any]],
+        row_builder: exprs.RowBuilder,
+        start_row_id: int,
     ):
         # we materialize the input slots
         output_exprs = list(row_builder.input_exprs)

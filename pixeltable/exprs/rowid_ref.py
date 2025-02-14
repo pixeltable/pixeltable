@@ -1,18 +1,19 @@
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Optional, cast, TYPE_CHECKING
 from uuid import UUID
 
 import sqlalchemy as sql
 
 import pixeltable.catalog as catalog
 import pixeltable.type_system as ts
-
 from .data_row import DataRow
 from .expr import Expr
 from .row_builder import RowBuilder
 from .sql_element_cache import SqlElementCache
 
+if TYPE_CHECKING:
+    from pixeltable import store
 
 class RowidRef(Expr):
     """A reference to a part of a table rowid
@@ -22,6 +23,7 @@ class RowidRef(Expr):
     _from_dict()/init() is called, which is why this class effectively has two separate paths for construction
     (with and without a TableVersion).
     """
+
     tbl: catalog.TableVersionHandle
     normalized_base: catalog.TableVersionHandle
     tbl_id: UUID
@@ -71,8 +73,8 @@ class RowidRef(Expr):
 
     def __repr__(self) -> str:
         # check if this is the pos column of a component view
-        tbl = self.tbl if self.tbl is not None else catalog.Catalog.get().tbl_versions[(self.tbl_id, None)]
-        if tbl.is_component_view() and self.rowid_component_idx == tbl.store_tbl.pos_col_idx:  # type: ignore[attr-defined]
+        tbl = self.tbl.get() if self.tbl is not None else catalog.Catalog.get().get_tbl_version(self.tbl_id, None)
+        if tbl.is_component_view() and self.rowid_component_idx == cast(store.StoreComponentView, tbl.store_tbl).pos_col_idx:
             return catalog.globals._POS_COLUMN_NAME
         return ''
 
@@ -90,7 +92,7 @@ class RowidRef(Expr):
         self.tbl_id = self.tbl.id
 
     def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
-        tbl = self.tbl if self.tbl is not None else catalog.Catalog.get().tbl_versions[(self.tbl_id, None)]
+        tbl = self.tbl.get() if self.tbl is not None else catalog.Catalog.get().get_tbl_version(self.tbl_id, None)
         rowid_cols = tbl.store_tbl.rowid_columns()
         return rowid_cols[self.rowid_component_idx]
 

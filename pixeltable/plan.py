@@ -283,7 +283,9 @@ class Planner:
         row_builder = exprs.RowBuilder([], stored_cols, [])
 
         # create InMemoryDataNode for 'rows'
-        plan: exec.ExecNode = exec.InMemoryDataNode(TableVersionHandle(tbl.id, tbl.effective_version), rows, row_builder, tbl.next_rowid)
+        plan: exec.ExecNode = exec.InMemoryDataNode(
+            TableVersionHandle(tbl.id, tbl.effective_version), rows, row_builder, tbl.next_rowid
+        )
 
         media_input_col_info = [
             exprs.ColumnSlotIdx(col_ref.col, col_ref.slot_idx)
@@ -399,7 +401,7 @@ class Planner:
         for i, col in enumerate(all_base_cols):
             plan.row_builder.add_table_column(col, select_list[i].slot_idx)
         recomputed_user_cols = [c for c in recomputed_cols if c.name is not None]
-        return plan, [f'{c.tbl.name}.{c.name}' for c in updated_cols + recomputed_user_cols], recomputed_user_cols
+        return plan, [f'{c.tbl.get().name}.{c.name}' for c in updated_cols + recomputed_user_cols], recomputed_user_cols
 
     @classmethod
     def create_batch_update_plan(
