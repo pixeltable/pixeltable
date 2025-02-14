@@ -46,8 +46,7 @@ class TypeCast(Expr):
         if op1_lit is None:
             return None
         if not (
-            self.col_type.is_numeric_type()
-            and (op1_lit.col_type.is_numeric_type() or op1_lit.col_type.is_bool_type())
+            self.col_type.is_numeric_type() and (op1_lit.col_type.is_numeric_type() or op1_lit.col_type.is_bool_type())
         ):
             return None
 

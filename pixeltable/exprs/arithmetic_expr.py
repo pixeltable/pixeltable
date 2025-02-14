@@ -153,7 +153,7 @@ class ArithmeticExpr(Expr):
         op2_val = op2_lit.val
         assert op2_lit.col_type.is_numeric_type() or op2_val is None
 
-        return Literal(self.eval_nullable(op1_val, op2_val), self.col_type) # type: ignore[arg-type]
+        return Literal(self.eval_nullable(op1_val, op2_val), self.col_type)  # type: ignore[arg-type]
 
     def _as_dict(self) -> dict:
         return {'operator': self.operator.value, **super()._as_dict()}
