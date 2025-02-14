@@ -16,6 +16,7 @@ import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable import catalog, exceptions as excs
 from pixeltable.exprs import ColumnRef
+from pixeltable.func import Batch
 from pixeltable.io.external_store import MockProject
 from pixeltable.iterators import FrameIterator
 from pixeltable.utils.filecache import FileCache
@@ -37,6 +38,16 @@ from .utils import (
     strip_lines,
     validate_update_status,
 )
+
+test_unstored_table_base_val: int = 0
+
+
+@pxt.udf(batch_size=20)
+def add_unstored_table_base_val(vals: Batch[int]) -> Batch[int]:
+    results = []
+    for val in vals:
+        results.append(val + test_unstored_table_base_val)
+    return results
 
 
 class TestTable:
@@ -1413,6 +1424,27 @@ class TestTable:
         t.drop_column('c5')
         # now it works
         t.drop_column('c4')
+
+    def test_unstored_computed_cols(self, reset_db: None) -> None:
+        schema = {'c1': pxt.Int, 'c2': pxt.Float}
+        t = pxt.create_table('test', schema)
+
+        status = t.add_computed_column(c3=add_unstored_table_base_val(t.c1), stored=True)
+        assert status.num_excs == 0
+        status = t.add_computed_column(c4=add_unstored_table_base_val(t.c1), stored=False)
+        assert status.num_excs == 0
+
+        rows = create_table_data(t, ['c1', 'c2'], num_rows=10)
+        global test_unstored_table_base_val
+        test_unstored_table_base_val = 1000
+        t.insert(rows)
+        _ = t.show()
+
+        test_unstored_table_base_val = 2000
+        t_res = t.select(t.c3, t.c4).collect()
+        print(t_res)
+        for row in t_res:
+            assert row['c3'] + 1000 == row['c4']
 
     def test_expr_udf_computed_cols(self, reset_db: None) -> None:
         t = pxt.create_table('test', {'c1': pxt.Int})

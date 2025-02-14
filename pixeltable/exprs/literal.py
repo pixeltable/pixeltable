@@ -17,6 +17,7 @@ from .sql_element_cache import SqlElementCache
 
 class Literal(Expr):
     def __init__(self, val: Any, col_type: Optional[ts.ColumnType] = None):
+        assert val is not None
         if col_type is not None:
             val = col_type.create_literal(val)
         else:
@@ -65,9 +66,8 @@ class Literal(Expr):
         return super()._id_attrs() + [('val', self.val)]
 
     def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
-        # we need to return something here so that we can generate a Where clause for predicates
-        # that involve literals (like Where c > 0)
-        return sql.sql.expression.literal(self.val)
+        # Return a sql object so that constants can participate in SQL expressions
+        return sql.sql.expression.literal(self.val, type_=self.col_type.to_sa_type())
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         # this will be called, even though sql_expr() does not return None
@@ -89,11 +89,8 @@ class Literal(Expr):
         else:
             return {'val': self.val, **super()._as_dict()}
 
-    def _as_constant(self) -> Any:
-        return self.val
-
-    def is_constant(self) -> bool:
-        return True
+    def as_literal(self) -> Optional[Literal]:
+        return self
 
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr]) -> Literal:
