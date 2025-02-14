@@ -50,7 +50,7 @@ class TestAudio:
         # test generating different formats and codecs
         paths = video_t.select(output=video_t.video.extract_audio(format='wav', codec='pcm_s16le')).collect()['output']
         # media files that are created as a part of a query end up in the tmp dir
-        assert env.Env.get().num_tmp_files() == video_t.where(video_t.audio != None).count() - tmp_files_before
+        assert env.Env.get().num_tmp_files() == tmp_files_before + video_t.where(video_t.audio != None).count()
         for path in [p for p in paths if p is not None]:
             self.check_audio_params(path, format='wav', codec='pcm_s16le')
         # higher resolution
