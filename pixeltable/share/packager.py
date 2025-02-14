@@ -16,7 +16,7 @@ import pyiceberg.catalog
 import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable.env import Env
-from pixeltable.utils.arrow import _pt_to_pa
+from pixeltable.utils.arrow import PXT_TO_PA_TYPES
 from pixeltable.utils.iceberg import sqlite_catalog
 
 _logger = logging.getLogger('pixeltable')
@@ -100,6 +100,8 @@ class TablePackager:
         actual_col_types.extend(col_ref.col_type for col_ref in media_col_refs.values())
 
         # Populate the Iceberg table with data.
+        # The data is first loaded from the DataFrame into a sequence of pyarrow tables, batched in order to avoid
+        # excessive memory usage. The pyarrow tables are then amalgamated into the (single) Iceberg table on disk.
         for pa_table in self.__to_pa_tables(df, actual_col_types, iceberg_schema):
             iceberg_tbl.append(pa_table)
 
@@ -134,7 +136,7 @@ class TablePackager:
             return pa.binary()
         if col_type.is_media_type():
             return pa.string()
-        return _pt_to_pa.get(col_type.__class__)
+        return PXT_TO_PA_TYPES.get(col_type.__class__)
 
     def __to_pa_tables(
         self,
@@ -144,7 +146,8 @@ class TablePackager:
         batch_size: int = 1_000,
     ) -> Iterator[pa.Table]:
         """
-        Export a DataFrame to a sequence of pyarrow tables.
+        Load a DataFrame as a sequence of pyarrow tables. The pyarrow tables are batched into smaller chunks
+        to avoid excessive memory usage.
         """
         for rows in more_itertools.batched(self.__to_pa_rows(df, actual_col_types), batch_size):
             cols = {col_name: [row[idx] for row in rows] for idx, col_name in enumerate(df._schema.keys())}
