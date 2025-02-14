@@ -40,7 +40,7 @@ class TestOpenai:
         )
         # The audio generation -> transcription loop on these examples should be simple and clear enough
         # that the unit test can reliably expect the output closely enough to pass these checks.
-        results = t.collect()
+        results = t.head()
         assert results[0]['transcription']['text'] in ['I am a banana.', "I'm a banana."]
         assert results[0]['transcription_2']['text'] in ['I am a banana.', "I'm a banana."]
         assert len(results[1]['translation']['text']) > 0
