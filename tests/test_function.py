@@ -765,9 +765,9 @@ class TestFunction:
         ).strip()  # fmt: skip
 
         # Explicit return_value and description
-        fn3 = pxt.udf(t, return_value=t.in4.rotate(t.in1), description='An overriden UDF description.')
-        u.insert(b=SAMPLE_IMAGE_URL)
-        u.select(fn3(22, 'starfruit', in4=u.b)).collect()
+        fn3 = pxt.udf(t, return_value=t.out3.upper(), description='An overriden UDF description.')
+        res = u.select(result=fn3(22, u.a)).collect()['result']
+        assert res == ['XYZ GRAPEFRUIT', 'XYZ CANTELOUPE']
         assert fn3.__doc__ == dedent(
             """
             An overriden UDF description.
@@ -779,6 +779,24 @@ class TestFunction:
                 in4: of type `Optional[Image]`
             """
         ).strip()  # fmt: skip
+
+        # return_value is a direct ColumnRef
+        fn4 = pxt.udf(t, return_value=t.out3)
+        res = u.select(result=fn4(22, u.a)).collect()['result']
+        assert res == ['xyz grapefruit', 'xyz canteloupe']
+
+        # return value is a custom dict
+        fn5 = pxt.udf(
+            t, return_value={'plus_five': t.out1, 'xyz': t.out3, 'abcxyz': pxtf.string.format('abc {0}', t.out3)}
+        )
+        res = u.select(result=fn5(22, u.a)).collect()['result']
+        assert res == [
+            {'plus_five': 27, 'xyz': 'xyz grapefruit', 'abcxyz': 'abc xyz grapefruit'},
+            {'plus_five': 27, 'xyz': 'xyz canteloupe', 'abcxyz': 'abc xyz canteloupe'},
+        ]
+
+        fn6 = pxt.udf(t, return_value=t.in4.rotate(t.in1))
+        u.select(fn4(22, 'starfruit', in4=u.b)).collect()
 
 
 @pxt.udf

@@ -39,7 +39,7 @@ def udf(
 # pxt.udf() called explicitly on a Table:
 @overload
 def udf(
-    table: catalog.Table, /, *, return_value: Optional['exprs.Expr'] = None, description: Optional[str] = None
+    table: catalog.Table, /, *, return_value: Any = None, description: Optional[str] = None
 ) -> ExprTemplateFunction: ...
 
 
@@ -290,8 +290,8 @@ def from_table(
     if return_value is None:
         return_value = exprs.InlineDict(result_dict)
     else:
-        return_value = return_value.copy()
-        return_value.substitute(subst)
+        return_value = exprs.Expr.from_object(return_value)
+        return_value = return_value.copy().substitute(subst)
 
     if description is None:
         # Default description is the table comment
