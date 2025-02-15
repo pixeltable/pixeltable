@@ -17,7 +17,7 @@ class ExprTemplate:
 
     expr: 'pixeltable.exprs.Expr'
     signature: Signature
-    param_exprs: list['pixeltable.exprs.Variable']
+    param_exprs: dict[str, 'pixeltable.exprs.Variable']
 
     def __init__(self, expr: 'pixeltable.exprs.Expr', signature: Signature):
         from pixeltable import exprs
@@ -25,17 +25,18 @@ class ExprTemplate:
         self.expr = expr
         self.signature = signature
 
-        self.param_exprs = list(set(expr.subexprs(expr_class=exprs.Variable)))
-        # make sure there are no duplicate names
-        assert len(self.param_exprs) == len(set(p.name for p in self.param_exprs))
-        self.param_exprs_by_name = {p.name: p for p in self.param_exprs}
+        self.param_exprs = {name: exprs.Variable(name, param.col_type) for name, param in signature.parameters.items()}
+
+        # validate that all variables in the expression are parameters
+        for var in expr.subexprs(expr_class=exprs.Variable):
+            assert var.name in self.param_exprs, f"Variable '{var.name}' in expression is not a parameter"
 
         # verify default values
         self.defaults: dict[str, exprs.Literal] = {}  # key: param name, value: default value converted to a Literal
         for param in self.signature.parameters.values():
             if param.default is inspect.Parameter.empty:
                 continue
-            param_expr = self.param_exprs_by_name[param.name]
+            param_expr = self.param_exprs[param.name]
             try:
                 literal_default = exprs.Literal(param.default, col_type=param_expr.col_type)
                 self.defaults[param.name] = literal_default
@@ -77,7 +78,7 @@ class ExprTemplateFunction(Function):
         result = template.expr.copy()
         arg_exprs: dict[exprs.Expr, exprs.Expr] = {}
         for param_name, arg in bound_args.items():
-            param_expr = template.param_exprs_by_name[param_name]
+            param_expr = template.param_exprs[param_name]
             if not isinstance(arg, exprs.Expr):
                 # TODO: use the available param_expr.col_type
                 arg_expr = exprs.Expr.from_object(arg)
