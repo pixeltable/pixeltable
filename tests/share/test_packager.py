@@ -71,7 +71,7 @@ class TestPackager:
         dest = self.__extract_bundle(bundle_path)
         catalog = sqlite_catalog(dest / 'warehouse')
 
-        expected_cols = 2 + 2 + 1 * 3  # rowid, v_min, two data columns, one stored computed column with error columns
+        expected_cols = 2 + 3 * 3  # rowid, v_min, plus three stored media/computed columns with error columns
         self.__check_iceberg_tbl(
             t, catalog.load_table('pxt.media_tbl'), media_dir=(dest / 'media'), expected_cols=expected_cols
         )
@@ -106,7 +106,7 @@ class TestPackager:
             else:
                 select_exprs[col_name] = t[col_name]
             actual_col_types.append(col.col_type)
-            if col.is_computed:
+            if col.is_computed or col.col_type.is_media_type():
                 select_exprs[f'{col_name}_errortype'] = t[col_name].errortype
                 actual_col_types.append(pxt.StringType())
                 select_exprs[f'{col_name}_errormsg'] = t[col_name].errormsg

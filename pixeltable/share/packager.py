@@ -95,7 +95,7 @@ class TablePackager:
             else:
                 select_exprs[col_name] = t[col_name]
             actual_col_types.append(col.col_type)
-            if col.is_computed:
+            if col.is_computed or col.col_type.is_media_type():
                 select_exprs[f'{col_name}_errortype'] = t[col_name].errortype
                 actual_col_types.append(ts.StringType())
                 select_exprs[f'{col_name}_errormsg'] = t[col_name].errormsg
