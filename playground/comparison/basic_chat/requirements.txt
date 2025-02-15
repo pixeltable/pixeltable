@@ -1,0 +1,15 @@
+
+# model providers
+anthropic
+
+# orchestration packages
+langgraph 
+langchain_anthropic
+
+phidata
+pixeltable
+
+pydantic-ai-slim[anthropic]
+
+# tools
+yfinance
