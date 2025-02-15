@@ -9,6 +9,7 @@ from ..utils import SAMPLE_IMAGE_URL, skip_test_if_not_installed, stock_price, v
 
 
 @pytest.mark.remote_api
+@pytest.mark.flaky(reruns=3, reruns_delay=8)
 class TestOpenai:
     @pytest.mark.expensive
     def test_audio(self, reset_db) -> None:
@@ -40,7 +41,7 @@ class TestOpenai:
         )
         # The audio generation -> transcription loop on these examples should be simple and clear enough
         # that the unit test can reliably expect the output closely enough to pass these checks.
-        results = t.collect()
+        results = t.head()
         assert results[0]['transcription']['text'] in ['I am a banana.', "I'm a banana."]
         assert results[0]['transcription_2']['text'] in ['I am a banana.', "I'm a banana."]
         assert len(results[1]['translation']['text']) > 0
@@ -116,7 +117,7 @@ class TestOpenai:
         # adding a second column re-uses the existing client, with an existing connection pool
         t.add_computed_column(output2=openai.chat_completions(model='gpt-4o-mini', messages=messages))
 
-    @pytest.mark.flaky(reruns=3)
+    @pytest.mark.flaky(reruns=6, reruns_delay=8)
     def test_tool_invocations(self, reset_db) -> None:
         skip_test_if_not_installed('openai')
         TestOpenai.skip_test_if_no_openai_client()
