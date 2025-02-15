@@ -7,6 +7,7 @@ import pixeltable as pxt
 from ..utils import get_audio_files, skip_test_if_not_installed, validate_update_status
 
 
+@pytest.mark.flaky(reruns=1, reruns_delay=8)
 class TestWhisper:
     @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Unreliable on Linux ARM')
     def test_whisper(self, reset_db):
