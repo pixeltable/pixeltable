@@ -138,7 +138,7 @@ class DataFrame:
     group_by_clause: Optional[list[exprs.Expr]]
     grouping_tbl: Optional[catalog.TableVersion]
     order_by_clause: Optional[list[tuple[exprs.Expr, bool]]]
-    limit_val: Optional[int]
+    limit_val: Optional[exprs.Expr]
 
     def __init__(
         self,
@@ -148,7 +148,7 @@ class DataFrame:
         group_by_clause: Optional[list[exprs.Expr]] = None,
         grouping_tbl: Optional[catalog.TableVersion] = None,
         order_by_clause: Optional[list[tuple[exprs.Expr, bool]]] = None,  # list[(expr, asc)]
-        limit: Optional[int] = None,
+        limit: Optional[exprs.Expr] = None,
     ):
         self._from_clause = from_clause
 
@@ -225,6 +225,8 @@ class DataFrame:
             all_exprs.extend(self.group_by_clause)
         if self.order_by_clause is not None:
             all_exprs.extend([expr for expr, _ in self.order_by_clause])
+        if self.limit_val is not None:
+            all_exprs.append(self.limit_val)
         vars = exprs.Expr.list_subexprs(all_exprs, expr_class=exprs.Variable)
         unique_vars: dict[str, exprs.Variable] = {}
         for var in vars:
@@ -372,6 +374,7 @@ class DataFrame:
             if self.order_by_clause is not None
             else None
         )
+        limit_val = copy.deepcopy(self.limit_val)
 
         var_exprs: dict[exprs.Expr, exprs.Expr] = {}
         vars = self._vars()
@@ -387,7 +390,7 @@ class DataFrame:
 
         exprs.Expr.list_substitute(select_list_exprs, var_exprs)
         if where_clause is not None:
-            where_clause.substitute(var_exprs)
+            where_clause = where_clause.substitute(var_exprs)
         if group_by_clause is not None:
             exprs.Expr.list_substitute(group_by_clause, var_exprs)
         if order_by_exprs is not None:
@@ -399,6 +402,10 @@ class DataFrame:
             order_by_clause = [
                 (expr, asc) for expr, asc in zip(order_by_exprs, [asc for _, asc in self.order_by_clause])
             ]
+        if limit_val is not None:
+            limit_val = limit_val.substitute(var_exprs)
+            if limit_val is not None and not isinstance(limit_val, exprs.Literal):
+                raise excs.Error(f'limit(): parameter must be a constant, but got {limit_val}')
 
         return DataFrame(
             from_clause=self._from_clause,
@@ -407,7 +414,7 @@ class DataFrame:
             group_by_clause=group_by_clause,
             grouping_tbl=self.grouping_tbl,
             order_by_clause=order_by_clause,
-            limit=self.limit_val,
+            limit=limit_val,
         )
 
     def _raise_expr_eval_err(self, e: excs.ExprEvalError) -> NoReturn:
@@ -425,7 +432,7 @@ class DataFrame:
             nl = '\n'
             # [-1:0:-1]: leave out entry 0 and reverse order, so that the most recent frame is at the top
             msg += f'\nStack:\n{nl.join(stack_trace[-1:1:-1])}'
-        raise excs.Error(msg)
+        raise excs.Error(msg) from e
 
     def _output_row_iterator(self, conn: Optional[sql.engine.Connection] = None) -> Iterator[list]:
         try:
@@ -505,7 +512,7 @@ class DataFrame:
             )
         if self.limit_val is not None:
             heading_vals.append('Limit')
-            info_vals.append(str(self.limit_val))
+            info_vals.append(self.limit_val.display_str(inline=False))
         assert len(heading_vals) == len(info_vals)
         return pd.DataFrame(info_vals, index=heading_vals)
 
@@ -909,8 +916,10 @@ class DataFrame:
         Returns:
             A new DataFrame with the specified limited rows.
         """
-        # TODO: allow n to be a Variable that can be substituted in bind()
-        assert n is not None and isinstance(n, int)
+        assert n is not None
+        n = exprs.Expr.from_object(n)
+        if not n.col_type.is_int_type():
+            raise excs.Error(f'limit(): parameter must be of type int, instead of {n.col_type}')
         return DataFrame(
             from_clause=self._from_clause,
             select_list=self.select_list,
@@ -1005,7 +1014,7 @@ class DataFrame:
             'order_by_clause': [(e.as_dict(), asc) for (e, asc) in self.order_by_clause]
             if self.order_by_clause is not None
             else None,
-            'limit_val': self.limit_val,
+            'limit_val': self.limit_val.as_dict() if self.limit_val is not None else None,
         }
         return d
 
@@ -1027,7 +1036,7 @@ class DataFrame:
             if d['order_by_clause'] is not None
             else None
         )
-        limit_val = d['limit_val']
+        limit_val = exprs.Expr.from_dict(d['limit_val']) if d['limit_val'] is not None else None
         return DataFrame(
             from_clause=from_clause,
             select_list=select_list,

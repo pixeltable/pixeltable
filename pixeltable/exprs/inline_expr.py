@@ -81,9 +81,13 @@ class InlineArray(Expr):
             # loaded and their types are known.
             return InlineList(components)  # type: ignore[return-value]
 
-    def _as_constant(self) -> Optional[np.ndarray]:
+    def as_literal(self) -> Optional[Literal]:
         assert isinstance(self.col_type, ts.ArrayType)
-        return np.array([c.as_constant() for c in self.components], dtype=self.col_type.numpy_dtype())
+        if not all(isinstance(comp, Literal) for comp in self.components):
+            return None
+        return Literal(
+            np.array([c.as_literal().val for c in self.components], dtype=self.col_type.numpy_dtype()), self.col_type
+        )
 
 
 class InlineList(Expr):
@@ -124,8 +128,10 @@ class InlineList(Expr):
     def _from_dict(cls, _: dict, components: list[Expr]) -> InlineList:
         return cls(components)
 
-    def _as_constant(self) -> Optional[list[Any]]:
-        return list(c.as_constant() for c in self.components)
+    def as_literal(self) -> Optional[Literal]:
+        if not all(isinstance(comp, Literal) for comp in self.components):
+            return None
+        return Literal(list(c.as_literal().val for c in self.components), self.col_type)
 
 
 class InlineDict(Expr):
@@ -202,5 +208,7 @@ class InlineDict(Expr):
         arg = dict(zip(d['keys'], components))
         return InlineDict(arg)
 
-    def _as_constant(self) -> Optional[dict[str, Any]]:
-        return dict(zip(self.keys, (c.as_constant() for c in self.components)))
+    def as_literal(self) -> Optional[Literal]:
+        if not all(isinstance(comp, Literal) for comp in self.components):
+            return None
+        return Literal(dict(zip(self.keys, (c.as_literal().val for c in self.components))), self.col_type)

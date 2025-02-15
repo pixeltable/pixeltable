@@ -1,3 +1,4 @@
+from .audio import AudioSplitter
 from .base import ComponentIterator
 from .document import DocumentSplitter
 from .image import TileIterator
