@@ -6,14 +6,14 @@ from pixeltable.iterators.string import StringSplitter
 DIRECTORY = 'audio_index'
 TABLE_NAME = f'{DIRECTORY}.audio'
 VIEW_NAME = f'{DIRECTORY}.audio_sentence_chunks'
-DELETE_INDEX = False
+DELETE_INDEX = True
 
 if DELETE_INDEX:
     pxt.drop_table(TABLE_NAME, force=True)
 
 if TABLE_NAME not in pxt.list_tables():
     # Create audio table
-    pxt.create_dir(DIRECTORY)
+    pxt.create_dir(DIRECTORY, if_exists='ignore')
     audio_index = pxt.create_table(TABLE_NAME, {'audio_file': pxt.Audio})
 
     # Create audio-to-text column

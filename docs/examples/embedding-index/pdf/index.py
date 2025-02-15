@@ -12,7 +12,7 @@ if DELETE_INDEX:
 
 if TABLE_NAME not in pxt.list_tables():
     # Create documents table
-    pxt.create_dir(DIRECTORY)
+    pxt.create_dir(DIRECTORY, if_exists='ignore')
     pdf_index = pxt.create_table(TABLE_NAME, {'pdf': pxt.Document})
 
     # Create view that chunks PDFs into sections
