@@ -139,6 +139,9 @@ class Expr(abc.ABC):
         for attr, value in self._id_attrs():
             hasher.update(attr.encode('utf-8'))
             hasher.update(str(value).encode('utf-8'))
+        # Include the col_type of the expression to avoid expressions with identical str() representations
+        # but different types being considered the same expression, e.g. str(int(4)) == "4"
+        hasher.update(repr(self.col_type).encode('utf-8'))
         for expr in self.components:
             hasher.update(str(expr.id).encode('utf-8'))
         # truncate to machine's word size
@@ -185,13 +188,19 @@ class Expr(abc.ABC):
 
     def substitute(self, spec: dict[Expr, Expr]) -> Expr:
         """
-        Replace 'old' with 'new' recursively.
+        Replace 'old' with 'new' recursively, and return a new version of the expression
+        This method must be used in the form: expr = expr.substitute(spec)
         """
+        from .literal import Literal
+
+        if isinstance(self, Literal):
+            return self
         for old, new in spec.items():
             if self.equals(old):
                 return new.copy()
         for i in range(len(self.components)):
             self.components[i] = self.components[i].substitute(spec)
+        self = self.maybe_literal()
         self.id = self._create_id()
         return self
 
@@ -361,19 +370,10 @@ class Expr(abc.ABC):
                 result.extend(cls.get_refd_columns(component_dict))
         return result
 
-    def is_constant(self) -> bool:
-        """Returns True if this expr is a constant."""
-        return all(comp.is_constant() for comp in self.components)
-
-    def _as_constant(self) -> Any:
-        return None
-
-    def as_constant(self) -> Any:
+    def as_literal(self) -> Optional[Expr]:
         """
-        If expression is a constant then return the associated value which will be converted to a Literal.
+        Return a Literal expression if this expression can be evaluated to a constant value, otherwise return None.
         """
-        if self.is_constant():
-            return self._as_constant()
         return None
 
     @classmethod
@@ -381,53 +381,46 @@ class Expr(abc.ABC):
         from .inline_expr import InlineArray
 
         inline_array = InlineArray(elements)
-        constant_array = inline_array.as_constant()
-        if constant_array is not None:
-            from .literal import Literal
+        return inline_array.maybe_literal()
 
-            return Literal(constant_array, inline_array.col_type)
+    def maybe_literal(self: Expr) -> Expr:
+        """
+        Return a Literal if this expression can be evaluated to a constant value, otherwise return the expression.
+        """
+        lit_expr = self.as_literal()
+        if lit_expr is not None:
+            return lit_expr
         else:
-            return inline_array
+            return self
 
     @classmethod
     def from_object(cls, o: object) -> Optional[Expr]:
         """
         Try to turn a literal object into an Expr.
         """
+        from .inline_expr import InlineDict, InlineList
+        from .literal import Literal
+
         # Try to create a literal. We need to check for InlineList/InlineDict
         # first, to prevent them from inappropriately being interpreted as JsonType
         # literals.
-        if isinstance(o, (list, tuple, dict, Expr)):
-            expr: Optional[Expr] = None
-            if isinstance(o, (list, tuple)):
-                from .inline_expr import InlineList
+        if isinstance(o, Literal):
+            return o
 
+        if isinstance(o, (list, tuple, dict, Expr)):
+            expr: Expr
+            if isinstance(o, (list, tuple)):
                 expr = InlineList(o)
             elif isinstance(o, dict):
-                from .inline_expr import InlineDict
-
                 expr = InlineDict(o)
-            elif isinstance(o, Expr):
+            else:
                 expr = o
-                from .literal import Literal
 
-                if isinstance(expr, Literal):
-                    return expr
-            # Check if the expression is constant
-            if expr is not None:
-                expr_value = expr.as_constant()
-                if expr_value is not None:
-                    from .literal import Literal
-
-                    return Literal(expr_value)
-                else:
-                    return expr
+            return expr.maybe_literal()
         else:
             # convert scalar to a literal
             obj_type = ts.ColumnType.infer_literal_type(o)
             if obj_type is not None:
-                from .literal import Literal
-
                 return Literal(o, col_type=obj_type)
         return None
 

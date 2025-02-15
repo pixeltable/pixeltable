@@ -4,7 +4,7 @@
 A Discord bot that remembers and learns from conversations using [Pixeltable](https://github.com/pixeltable/pixeltable) for semantic search and context awareness.
 
 ## Command Flow
-This architecture provides a way to solve a fundamental challenge in building LLM-based chatbots: maintaining context. Traditional chatbots are limited by fixed context windows and struggle with maintaining long-term memory between conversations. 
+This architecture provides a way to solve a fundamental challenge in building LLM-based chatbots: maintaining context. Traditional chatbots are limited by fixed context windows and struggle with maintaining long-term memory between conversations.
 
 ```mermaid
 sequenceDiagram
@@ -145,7 +145,7 @@ def get_context(question_text: str):
     ).limit(5)
 
 # 4. Generate AI responses with context
-chat_table['response'] = openai.chat_completions(
+chat_table.add_computed_column(response=openai.chat_completions(
     messages=[
         {
             "role": "system",
@@ -157,7 +157,7 @@ chat_table['response'] = openai.chat_completions(
         }
     ],
     model='gpt-4o-mini'
-)
+))
 ```
 
 ## Discord Setup Guide
