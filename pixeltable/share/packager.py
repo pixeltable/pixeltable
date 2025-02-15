@@ -76,7 +76,7 @@ class TablePackager:
         """
         # First generate a select list for the data we want to extract from `t`. This includes:
         # - all stored columns, including computed columns;
-        # - errortype and errormsg fields for stored computed columns.
+        # - errortype and errormsg fields whenever they're defined.
         # We select only those columns that are defined in this table (columns inherited from ancestor tables will be
         # handled separately).
         # For media columns, we substitute `col.fileurl` so that we always get the URL (which may be a file:// URL;
@@ -95,7 +95,7 @@ class TablePackager:
             else:
                 select_exprs[col_name] = t[col_name]
             actual_col_types.append(col.col_type)
-            if col.is_computed or col.col_type.is_media_type():
+            if col.records_errors:
                 select_exprs[f'{col_name}_errortype'] = t[col_name].errortype
                 actual_col_types.append(ts.StringType())
                 select_exprs[f'{col_name}_errormsg'] = t[col_name].errormsg

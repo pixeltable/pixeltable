@@ -106,7 +106,7 @@ class TestPackager:
             else:
                 select_exprs[col_name] = t[col_name]
             actual_col_types.append(col.col_type)
-            if col.is_computed or col.col_type.is_media_type():
+            if col.records_errors:
                 select_exprs[f'{col_name}_errortype'] = t[col_name].errortype
                 actual_col_types.append(pxt.StringType())
                 select_exprs[f'{col_name}_errormsg'] = t[col_name].errormsg
