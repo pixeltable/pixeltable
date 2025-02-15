@@ -1,4 +1,5 @@
 import typing
+from textwrap import dedent
 from typing import Optional
 
 import numpy as np
@@ -6,11 +7,11 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
-import pixeltable.func as func
-from pixeltable import catalog
+import pixeltable.functions as pxtf
+from pixeltable import catalog, func
 from pixeltable.func import Batch, Function, FunctionRegistry
 
-from .utils import ReloadTester, assert_resultset_eq, reload_catalog, validate_update_status
+from .utils import SAMPLE_IMAGE_URL, ReloadTester, assert_resultset_eq, reload_catalog, validate_update_status
 
 
 def dummy_fn(i: int) -> int:
@@ -267,12 +268,6 @@ class TestFunction:
                 {'text': 'gas car companies are in danger of being left behind by electric car companies'},
             ]
         )
-
-        # # TODO: make this work
-        # @pxt.query
-        # def retrieval(n: int):
-        #     """ simply returns 2 passages from the table"""
-        #     return chunks.select(chunks.text).limit(n)
 
         @pxt.query
         def retrieval(s: str, n: int):
@@ -654,6 +649,148 @@ class TestFunction:
         with pytest.raises(excs.Error) as exc_info:
             pxt.tools(pxt.functions.sum)  # type: ignore[arg-type]
         assert 'Aggregator UDFs cannot be used as tools' in str(exc_info.value)
+
+    def test_from_table(self, reset_db):
+        schema = {'in1': pxt.Required[pxt.Int], 'in2': pxt.Required[pxt.String], 'in3': pxt.Float, 'in4': pxt.Image}
+        t = pxt.create_table('test', schema)
+        t.add_computed_column(out1=(t.in1 + 5))
+        t.add_computed_column(out2=(t.in3 + t.out1))
+        t.add_computed_column(out3=pxtf.string.format('xyz {0}', t.in2))
+        t.add_computed_column(out4=pxtf.string.format('{0} {1}', t.in1, t.out3))
+
+        fn = pxt.udf(t)
+        assert fn.arity == 4
+        assert len(fn.signature.required_parameters) == 2
+        assert list(fn.signature.parameters.keys()) == ['in1', 'in2', 'in3', 'in4']
+        assert fn.__doc__ == dedent(
+            """
+            UDF for table 'test'
+
+            Args:
+                in1: of type `Int`
+                in2: of type `String`
+                in3: of type `Optional[Float]`
+                in4: of type `Optional[Image]`
+            """
+        ).strip()  # fmt: skip
+
+        u = pxt.create_table('udf_test', {'a': pxt.String, 'b': pxt.Image})
+        u.insert(a='grapefruit')
+        u.insert(a='canteloupe')
+        u.add_computed_column(result=fn(19, u.a, in3=11.0))
+        res = u.select(u.result).collect()['result']
+        assert res == [
+            {
+                'in1': 19,
+                'in2': 'grapefruit',
+                'in3': 11.0,
+                'in4': None,
+                'out1': 24,
+                'out2': 35.0,
+                'out3': 'xyz grapefruit',
+                'out4': '19 xyz grapefruit',
+            },
+            {
+                'in1': 19,
+                'in2': 'canteloupe',
+                'in3': 11.0,
+                'in4': None,
+                'out1': 24,
+                'out2': 35.0,
+                'out3': 'xyz canteloupe',
+                'out4': '19 xyz canteloupe',
+            },
+        ]
+
+        # table_as_udf on a view
+        v = pxt.create_view('test_view', t)
+        v.add_column(in5=pxt.Json)
+        v.add_computed_column(out5=(v.out1 + v.in3 + v.in5.number))
+
+        vv = pxt.create_view('test_subview', v)
+        vv.add_column(in6=pxt.Json)
+        vv.add_computed_column(out6=(vv.out5 + v.out1 + t.in3 + vv.in6.number))
+        vv._tbl_version.set_comment('This is an example table comment.')
+
+        fn2 = pxt.udf(vv)
+        res = u.select(result=fn2(22, 'jackfruit', in3=28.0, in5={'number': 33})).collect()['result']
+        assert res == [
+            {
+                'in1': 22,
+                'in2': 'jackfruit',
+                'in3': 28.0,
+                'in4': None,
+                'out1': 27,
+                'out2': 55.0,
+                'out3': 'xyz jackfruit',
+                'out4': '22 xyz jackfruit',
+                'in5': {'number': 33},
+                'out5': 88.0,
+                'in6': None,
+                'out6': None,
+            },
+            {
+                'in1': 22,
+                'in2': 'jackfruit',
+                'in3': 28.0,
+                'in4': None,
+                'out1': 27,
+                'out2': 55.0,
+                'out3': 'xyz jackfruit',
+                'out4': '22 xyz jackfruit',
+                'in5': {'number': 33},
+                'out5': 88.0,
+                'in6': None,
+                'out6': None,
+            },
+        ]
+        assert fn2.__doc__ == dedent(
+            """
+            This is an example table comment.
+
+            Args:
+                in1: of type `Int`
+                in2: of type `String`
+                in3: of type `Optional[Float]`
+                in4: of type `Optional[Image]`
+                in5: of type `Optional[Json]`
+                in6: of type `Optional[Json]`
+            """
+        ).strip()  # fmt: skip
+
+        # Explicit return_value and description
+        fn3 = pxt.udf(t, return_value=t.out3.upper(), description='An overriden UDF description.')
+        res = u.select(result=fn3(22, u.a)).collect()['result']
+        assert res == ['XYZ GRAPEFRUIT', 'XYZ CANTELOUPE']
+        assert fn3.__doc__ == dedent(
+            """
+            An overriden UDF description.
+
+            Args:
+                in1: of type `Int`
+                in2: of type `String`
+                in3: of type `Optional[Float]`
+                in4: of type `Optional[Image]`
+            """
+        ).strip()  # fmt: skip
+
+        # return_value is a direct ColumnRef
+        fn4 = pxt.udf(t, return_value=t.out3)
+        res = u.select(result=fn4(22, u.a)).collect()['result']
+        assert res == ['xyz grapefruit', 'xyz canteloupe']
+
+        # return value is a custom dict
+        fn5 = pxt.udf(
+            t, return_value={'plus_five': t.out1, 'xyz': t.out3, 'abcxyz': pxtf.string.format('abc {0}', t.out3)}
+        )
+        res = u.select(result=fn5(22, u.a)).collect()['result']
+        assert res == [
+            {'plus_five': 27, 'xyz': 'xyz grapefruit', 'abcxyz': 'abc xyz grapefruit'},
+            {'plus_five': 27, 'xyz': 'xyz canteloupe', 'abcxyz': 'abc xyz canteloupe'},
+        ]
+
+        fn6 = pxt.udf(t, return_value=t.in4.rotate(t.in1))
+        u.select(fn4(22, 'starfruit', in4=u.b)).collect()
 
 
 @pxt.udf

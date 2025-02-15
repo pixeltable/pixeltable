@@ -536,7 +536,7 @@ class Table(SchemaObject):
 
             Alternatively, this can also be expressed as:
 
-            >>> tbl['new_col'] = pxt.Int
+            >>> tbl.add_columns({'new_col': pxt.Int})
         """
         self._check_is_dropped()
         # verify kwargs
@@ -719,8 +719,8 @@ class Table(SchemaObject):
             raise excs.Error(f'{col.name!r} is a reserved name in Pixeltable; please choose a different column name.')
         if not is_valid_identifier(col.name):
             raise excs.Error(f'Invalid column name: {col.name!r}')
-        if col.stored is False and not (col.is_computed and col.col_type.is_image_type()):
-            raise excs.Error(f'Column {col.name!r}: stored={col.stored} only applies to computed image columns')
+        if col.stored is False and not col.is_computed:
+            raise excs.Error(f'Column {col.name!r}: stored={col.stored} only applies to computed columns')
         if col.stored is False and col.has_window_fn_call():
             raise excs.Error(
                 (
