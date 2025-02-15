@@ -10,6 +10,7 @@ import numpy as np
 from pyiceberg.table import Table as IcebergTable
 
 import pixeltable as pxt
+from pixeltable import exprs
 from pixeltable.env import Env
 from pixeltable.share.packager import TablePackager
 from pixeltable.utils.iceberg import sqlite_catalog
@@ -57,7 +58,10 @@ class TestPackager:
         t.insert({'image': image} for image in images)
         t.insert({'video': video} for video in videos)
         t.insert(image=SAMPLE_IMAGE_URL)  # Test an image from a remote URL
+        # Test a bad image that generates an errormsg
+        t.insert(image=get_image_files(include_bad_image=True)[0], on_error='ignore')
         t.add_computed_column(rot=t.image.rotate(90))  # Add a stored computed column to test from media store
+        t.add_computed_column(rot2=t.image.rotate(-90), stored=False)  # Add an unstored column
         print(repr(t.select(t.image.fileurl, t.rot.fileurl).collect()))
         print(repr(t.select(t.video.fileurl).collect()))
 
@@ -66,7 +70,11 @@ class TestPackager:
 
         dest = self.__extract_bundle(bundle_path)
         catalog = sqlite_catalog(dest / 'warehouse')
-        self.__check_iceberg_tbl(t, catalog.load_table('pxt.media_tbl'), media_dir=(dest / 'media'))
+
+        expected_cols = 2 + 2 + 1 * 3  # rowid, v_min, two data columns, one stored computed column with error columns
+        self.__check_iceberg_tbl(
+            t, catalog.load_table('pxt.media_tbl'), media_dir=(dest / 'media'), expected_cols=expected_cols
+        )
 
     def __extract_bundle(self, bundle_path: Path) -> Path:
         tmp_dir = Path(Env.get().create_tmp_path())
@@ -76,35 +84,48 @@ class TestPackager:
 
     def __check_iceberg_tbl(
         self,
-        tbl: pxt.Table,
+        t: pxt.Table,
         iceberg_tbl: IcebergTable,
         media_dir: Optional[Path] = None,
         scope_tbl: Optional[pxt.Table] = None,  # If specified, use instead of `tbl` to select rows
+        expected_cols: Optional[int] = None,
     ) -> None:
         iceberg_data = iceberg_tbl.scan().to_pandas()
+
+        if expected_cols is not None:
+            assert len(iceberg_data.columns) == expected_cols
+
         # Only check columns defined in the table (not ancestors)
-        col_refs = [
-            tbl[col_name] for col_name, col in tbl._tbl_version.cols_by_name.items() if not col.col_type.is_media_type()
-        ]
-        media_col_refs = {
-            col_name: tbl[col_name].fileurl
-            for col_name, col in tbl._tbl_version.cols_by_name.items()
-            if col.col_type.is_media_type()
-        }
-        scope_tbl = scope_tbl or tbl
-        pxt_data = scope_tbl.select(*col_refs, **media_col_refs).collect()
-        for col in tbl._tbl_version.cols_by_name:
+        select_exprs: dict[str, exprs.Expr] = {}
+        actual_col_types: list[pxt.ColumnType] = []
+        for col_name, col in t._tbl_version.cols_by_name.items():
+            if not col.is_stored:
+                continue
+            if col.col_type.is_media_type():
+                select_exprs[col_name] = t[col_name].fileurl
+            else:
+                select_exprs[col_name] = t[col_name]
+            actual_col_types.append(col.col_type)
+            if col.is_computed:
+                select_exprs[f'{col_name}_errortype'] = t[col_name].errortype
+                actual_col_types.append(pxt.StringType())
+                select_exprs[f'{col_name}_errormsg'] = t[col_name].errormsg
+                actual_col_types.append(pxt.StringType())
+
+        scope_tbl = scope_tbl or t
+        pxt_data = scope_tbl.select(**select_exprs).collect()
+        for col, col_type in zip(select_exprs.keys(), actual_col_types):
             print(f'Checking column: {col}')
             pxt_values: list = pxt_data[col]
             iceberg_values = list(iceberg_data[col])
-            if tbl._schema[col].is_array_type():
+            if col_type.is_array_type():
                 iceberg_values = [np.load(io.BytesIO(val)) for val in iceberg_values]
                 for pxt_val, iceberg_val in zip(pxt_values, iceberg_values):
                     assert np.array_equal(pxt_val, iceberg_val)
-            elif tbl._schema[col].is_json_type():
+            elif col_type.is_json_type():
                 # JSON columns were exported as strings; check that they parse properly
                 assert pxt_values == [json.loads(val) for val in iceberg_values]
-            elif tbl._schema[col].is_media_type():
+            elif col_type.is_media_type():
                 assert media_dir is not None
                 self.__check_media(pxt_values, iceberg_values, media_dir)
             else:

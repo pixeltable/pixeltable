@@ -15,6 +15,7 @@ import pyiceberg.catalog
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
+from pixeltable import exprs
 from pixeltable.env import Env
 from pixeltable.utils.arrow import PXT_TO_PA_TYPES
 from pixeltable.utils.iceberg import sqlite_catalog
@@ -70,34 +71,43 @@ class TablePackager:
         return bundle_path
 
     def __export_table(self, t: pxt.Table) -> None:
-        # Select only those columns that are stored columns and are defined in this table (columns inherited from
-        # ancestor tables will be handled separately)
-        # TODO: This is selecting only named columns; do we also want to preserve system columns such as errortype?
-        col_refs = [
-            t[col_name]
-            for col_name, col in t._tbl_version.cols_by_name.items()
-            if col.is_stored and not col.col_type.is_media_type()
-        ]
-        media_col_refs = {
-            col_name: t[col_name]
-            for col_name, col in t._tbl_version.cols_by_name.items()
-            if col.is_stored and col.col_type.is_media_type()
-        }
+        """
+        Exports the data from `t` into an Iceberg table.
+        """
+        # First generate a select list for the data we want to extract from `t`. This includes:
+        # - all stored columns, including computed columns;
+        # - errortype and errormsg fields for stored computed columns.
+        # We select only those columns that are defined in this table (columns inherited from ancestor tables will be
+        # handled separately).
         # For media columns, we substitute `col.fileurl` so that we always get the URL (which may be a file:// URL;
         # these will be specially handled later)
-        media_fileurl_refs = {col_name: col_ref.fileurl for col_name, col_ref in media_col_refs.items()}
+        select_exprs: dict[str, exprs.Expr] = {}
+
+        # As we generate the select list, we construct a separate list of column types. We can't rely on df._schema
+        # to get the column types, since we'll be substituting `fileurl`s for media columns.
+        actual_col_types: list[ts.ColumnType] = []
+
+        for col_name, col in t._tbl_version.cols_by_name.items():
+            if not col.is_stored:
+                continue
+            if col.col_type.is_media_type():
+                select_exprs[col_name] = t[col_name].fileurl
+            else:
+                select_exprs[col_name] = t[col_name]
+            actual_col_types.append(col.col_type)
+            if col.is_computed:
+                select_exprs[f'{col_name}_errortype'] = t[col_name].errortype
+                actual_col_types.append(ts.StringType())
+                select_exprs[f'{col_name}_errormsg'] = t[col_name].errormsg
+                actual_col_types.append(ts.StringType())
+
         # Run the select() on `self.table`, not `t`, so that we export only those rows that are actually present in
         # `self.table`.
-        df = self.table.select(*col_refs, **media_fileurl_refs)
+        df = self.table.select(**select_exprs)
         namespace = self.__iceberg_namespace(t)
         self.iceberg_catalog.create_namespace_if_not_exists(namespace)
         iceberg_schema = self.__to_iceberg_schema(df._schema)
         iceberg_tbl = self.iceberg_catalog.create_table(f'{namespace}.{t._name}', schema=iceberg_schema)
-
-        # We can't rely on df._schema for the column types, since we substituted `fileurl`s for media columns.
-        # Separately construct a list of actual column types in the same order of appearance as in the data frame.
-        actual_col_types = [col_ref.col_type for col_ref in col_refs]
-        actual_col_types.extend(col_ref.col_type for col_ref in media_col_refs.values())
 
         # Populate the Iceberg table with data.
         # The data is first loaded from the DataFrame into a sequence of pyarrow tables, batched in order to avoid
