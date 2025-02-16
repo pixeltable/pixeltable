@@ -141,6 +141,8 @@ class Table(SchemaObject):
     def __getattr__(self, name: str) -> 'pxt.exprs.ColumnRef':
         """Return a ColumnRef for the given name."""
         col = self._tbl_version_path.get_column(name, include_bases=True)
+        if col is None:
+            raise AttributeError(f'Column {name!r} unknown')
         from pixeltable.exprs import ColumnRef
 
         return ColumnRef(col)

@@ -48,6 +48,9 @@ class TableVersion:
       * TODO: create a separate hierarchy of objects that records the version-independent tree of tables/views, and
         have TableVersions reference those
     - mutable TableVersions record their TableVersionPath, which is needed for expr evaluation in updates
+
+    Instances of TableVersion should not be stored as member variables (ie, used across transaction boundaries).
+    Use a TableVersionHandle instead.
     """
 
     id: UUID
@@ -184,12 +187,14 @@ class TableVersion:
     def create_snapshot_copy(self) -> TableVersion:
         """Create a snapshot copy of this TableVersion"""
         assert not self.is_snapshot()
+        base = self.path.base.tbl_version if self.is_view() else None
         return TableVersion(
             self.id,
             self._create_tbl_md(),
             self.version,
             self._create_schema_version_md(preceding_schema_version=0),  # preceding_schema_version: dummy value
             mutable_views=[],
+            base=base
         )
 
     @classmethod
@@ -318,7 +323,8 @@ class TableVersion:
     def _init_schema(self, tbl_md: schema.TableMd, schema_version_md: schema.TableSchemaVersionMd) -> None:
         # create columns first, so the indices can reference them
         self._init_cols(tbl_md, schema_version_md)
-        self._init_idxs(tbl_md)
+        if not self.is_snapshot():
+            self._init_idxs(tbl_md)
         # create the sa schema only after creating the columns and indices
         self._init_sa_schema()
 
@@ -1048,9 +1054,7 @@ class TableVersion:
         assert not self.is_snapshot()
         if self.version == 0:
             raise excs.Error('Cannot revert version 0')
-        with orm.Session(Env.get().engine, future=True) as session:
-            self._revert(session)
-            session.commit()
+        self._revert()
 
     def _delete_column(self, col: Column) -> None:
         """Physically remove the column from the schema and the store table"""
@@ -1061,9 +1065,9 @@ class TableVersion:
             del self.cols_by_name[col.name]
         del self.cols_by_id[col.id]
 
-    def _revert(self, session: orm.Session) -> None:
+    def _revert(self) -> None:
         """Reverts this table version and propagates to views"""
-        conn = session.connection()
+        conn = Env.get().conn
         # make sure we don't have a snapshot referencing this version
         # (unclear how to express this with sqlalchemy)
         query = (
@@ -1082,7 +1086,6 @@ class TableVersion:
                 )
             )
 
-        conn = session.connection()
         # delete newly-added data
         MediaStore.delete(self.id, version=self.version)
         conn.execute(sql.delete(self.store_tbl.sa_tbl).where(self.store_tbl.sa_tbl.c.v_min == self.version))
@@ -1126,6 +1129,7 @@ class TableVersion:
             for md in dropped_idx_md:
                 md.schema_version_drop = None
 
+            session = Env.get().session
             # we need to determine the preceding schema version and reload the schema
             schema_version_md_dict = (
                 session.query(schema.TableSchemaVersion.md)
@@ -1169,7 +1173,7 @@ class TableVersion:
 
         # propagate to views
         for view in self.mutable_views:
-            view.get()._revert(session)
+            view.get()._revert()
         _logger.info(f'TableVersion {self.name}: reverted to version {self.version}')
 
     def _init_external_stores(self, tbl_md: schema.TableMd) -> None:

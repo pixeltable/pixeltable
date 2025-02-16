@@ -949,7 +949,8 @@ class DataFrame:
             >>> df = person.where(t.year == 2014).update({'age': 30})
         """
         self._validate_mutable('update')
-        return self._first_tbl.tbl_version.get().update(value_spec, where=self.where_clause, cascade=cascade)
+        with Env.get().begin():
+            return self._first_tbl.tbl_version.get().update(value_spec, where=self.where_clause, cascade=cascade)
 
     def delete(self) -> UpdateStatus:
         """Delete rows form the underlying table of the DataFrame.
@@ -971,7 +972,8 @@ class DataFrame:
         self._validate_mutable('delete')
         if not self._first_tbl.is_insertable():
             raise excs.Error(f'Cannot delete from view')
-        return self._first_tbl.tbl_version.get().delete(where=self.where_clause)
+        with Env.get().begin():
+            return self._first_tbl.tbl_version.get().delete(where=self.where_clause)
 
     def _validate_mutable(self, op_name: str) -> None:
         """Tests whether this DataFrame can be mutated (such as by an update operation)."""
@@ -1012,26 +1014,26 @@ class DataFrame:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> 'DataFrame':
-        tbls = [catalog.TableVersionPath.from_dict(tbl_dict) for tbl_dict in d['from_clause']['tbls']]
-        join_clauses = [plan.JoinClause(**clause_dict) for clause_dict in d['from_clause']['join_clauses']]
-        from_clause = plan.FromClause(tbls=tbls, join_clauses=join_clauses)
-        select_list = (
-            [(exprs.Expr.from_dict(e), name) for e, name in d['select_list']] if d['select_list'] is not None else None
-        )
-        where_clause = exprs.Expr.from_dict(d['where_clause']) if d['where_clause'] is not None else None
-        group_by_clause = (
-            [exprs.Expr.from_dict(e) for e in d['group_by_clause']] if d['group_by_clause'] is not None else None
-        )
-        grouping_tbl = catalog.TableVersion.from_dict(d['grouping_tbl']) if d['grouping_tbl'] is not None else None
-        order_by_clause = (
-            [(exprs.Expr.from_dict(e), asc) for e, asc in d['order_by_clause']]
-            if d['order_by_clause'] is not None
-            else None
-        )
-        limit_val = exprs.Expr.from_dict(d['limit_val']) if d['limit_val'] is not None else None
-
         # we need to wrap the construction with a transaction, because it might need to load metadata
         with Env.get().begin():
+            tbls = [catalog.TableVersionPath.from_dict(tbl_dict) for tbl_dict in d['from_clause']['tbls']]
+            join_clauses = [plan.JoinClause(**clause_dict) for clause_dict in d['from_clause']['join_clauses']]
+            from_clause = plan.FromClause(tbls=tbls, join_clauses=join_clauses)
+            select_list = (
+                [(exprs.Expr.from_dict(e), name) for e, name in d['select_list']] if d['select_list'] is not None else None
+            )
+            where_clause = exprs.Expr.from_dict(d['where_clause']) if d['where_clause'] is not None else None
+            group_by_clause = (
+                [exprs.Expr.from_dict(e) for e in d['group_by_clause']] if d['group_by_clause'] is not None else None
+            )
+            grouping_tbl = catalog.TableVersion.from_dict(d['grouping_tbl']) if d['grouping_tbl'] is not None else None
+            order_by_clause = (
+                [(exprs.Expr.from_dict(e), asc) for e, asc in d['order_by_clause']]
+                if d['order_by_clause'] is not None
+                else None
+            )
+            limit_val = exprs.Expr.from_dict(d['limit_val']) if d['limit_val'] is not None else None
+
             return DataFrame(
                 from_clause=from_clause,
                 select_list=select_list,

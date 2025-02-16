@@ -1771,11 +1771,11 @@ class TestTable:
 
         # invalid if_exists is rejected
         expected_err_str = "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']"
-        with pytest.raises(excs.Error, match=e.escape(expected_err_str)):
+        with pytest.raises(excs.Error, match=re.escape(expected_err_str)):
             t.add_column(non_existing_col1=pxt.Int, if_exists='invalid')
-        with pytest.raises(excs.Error, match=e.escape(expected_err_str)):
+        with pytest.raises(excs.Error, match=re.escape(expected_err_str)):
             t.add_computed_column(non_existing_col1=t.c2 + t.c3, if_exists='invalid')
-        with pytest.raises(excs.Error, match=e.escape(expected_err_str)):
+        with pytest.raises(excs.Error, match=re.escape(expected_err_str)):
             t.add_columns({'non_existing_col1': pxt.Int, 'non_existing_col2': pxt.String}, if_exists='invalid')  # type: ignore[arg-type]
         assert orig_cnames == t.columns
 

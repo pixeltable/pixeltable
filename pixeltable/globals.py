@@ -239,7 +239,7 @@ def create_table(
             comment=comment,
             media_validation=catalog.MediaValidation.validated(media_validation, 'media_validation'),
         )
-
+        cat.add_tbl(tbl)
         return tbl
 
 
@@ -369,6 +369,7 @@ def create_view(
             media_validation=catalog.MediaValidation.validated(media_validation, 'media_validation'),
         )
         FileCache.get().emit_eviction_warnings()
+        cat.add_tbl(view)
         return view
 
 

@@ -111,7 +111,7 @@ class TestVideo:
         view_t.add_computed_column(c3=view_t.c2.rotate(20))
         view_t.add_computed_column(c4=view_t.c1.rotate(30))
         for name in ['c1', 'c2', 'c3', 'c4']:
-            assert view_t._tbl_version_path.tbl_version.cols_by_name[name].is_stored
+            assert view_t._tbl_version_path.tbl_version.get().cols_by_name[name].is_stored
         base_t.insert({'video': p} for p in video_filepaths)
         _ = view_t.select(view_t.c1, view_t.c2, view_t.c3, view_t.c4).collect()
 

@@ -174,6 +174,10 @@ class Catalog:
             self._tbls[tbl_id] = tbl
         return self._tbls[tbl_id]
 
+    def add_tbl(self, tbl: Table) -> None:
+        """Explicitly add a Table"""
+        self._tbls[tbl._id] = tbl
+
     def get_views(self, tbl_id: UUID) -> list[UUID]:
         """Return the ids of views that directly reference the given table"""
         session = env.Env.get().session

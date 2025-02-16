@@ -7,11 +7,6 @@ from .utils import make_tbl, reload_catalog
 
 
 class TestDirs:
-    def test_a(self, reset_db) -> None:
-        dir1 = pxt.create_dir('dir1')
-        dir2 = pxt.create_dir('dir1.sub1')
-        with pytest.raises(excs.Error):
-            _ = pxt.create_dir('dir2.sub1')
 
     def test_create(self, reset_db) -> None:
         dirs = ['dir1', 'dir1.sub1', 'dir1.sub1.subsub1']

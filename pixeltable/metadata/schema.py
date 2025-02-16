@@ -274,6 +274,6 @@ class Function(Base):
     id: orm.Mapped[uuid.UUID] = orm.mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, nullable=False
     )
-    dir_id: orm.Mapped[uuid.UUID] = orm.mapped_column(UUID(as_uuid=True), ForeignKey('dirs.id'), nullable=False)
+    dir_id: orm.Mapped[uuid.UUID] = orm.mapped_column(UUID(as_uuid=True), ForeignKey('dirs.id'), nullable=True)
     md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # FunctionMd
     binary_obj: orm.Mapped[Optional[bytes]] = orm.mapped_column(LargeBinary, nullable=True)
