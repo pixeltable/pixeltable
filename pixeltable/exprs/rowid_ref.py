@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from typing import Any, Optional, cast, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Optional, cast
 from uuid import UUID
 
 import sqlalchemy as sql
 
 import pixeltable.catalog as catalog
 import pixeltable.type_system as ts
+
 from .data_row import DataRow
 from .expr import Expr
 from .row_builder import RowBuilder
@@ -14,6 +15,7 @@ from .sql_element_cache import SqlElementCache
 
 if TYPE_CHECKING:
     from pixeltable import store
+
 
 class RowidRef(Expr):
     """A reference to a part of a table rowid
@@ -24,8 +26,8 @@ class RowidRef(Expr):
     (with and without a TableVersion).
     """
 
-    tbl: catalog.TableVersionHandle
-    normalized_base: catalog.TableVersionHandle
+    tbl: Optional[catalog.TableVersionHandle]
+    normalized_base: Optional[catalog.TableVersionHandle]
     tbl_id: UUID
     normalized_base_id: UUID
     rowid_component_idx: int
@@ -44,8 +46,8 @@ class RowidRef(Expr):
             # (which has the same values as all its descendent views)
             normalized_base = tbl
             # don't try to reference tbl.store_tbl here
-            while normalized_base.base is not None and normalized_base.base.num_rowid_columns() > idx:
-                normalized_base = normalized_base.base
+            while normalized_base.get().base is not None and normalized_base.get().base.get().num_rowid_columns() > idx:
+                normalized_base = normalized_base.get().base
             self.normalized_base = normalized_base
         else:
             self.normalized_base = None
@@ -74,7 +76,10 @@ class RowidRef(Expr):
     def __repr__(self) -> str:
         # check if this is the pos column of a component view
         tbl = self.tbl.get() if self.tbl is not None else catalog.Catalog.get().get_tbl_version(self.tbl_id, None)
-        if tbl.is_component_view() and self.rowid_component_idx == cast(store.StoreComponentView, tbl.store_tbl).pos_col_idx:
+        if (
+            tbl.is_component_view()
+            and self.rowid_component_idx == cast(store.StoreComponentView, tbl.store_tbl).pos_col_idx
+        ):
             return catalog.globals._POS_COLUMN_NAME
         return ''
 

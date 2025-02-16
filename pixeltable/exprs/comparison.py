@@ -80,11 +80,11 @@ class Comparison(Expr):
         if self.is_search_arg_comparison:
             # reference the index value column if there is an index and this is not a snapshot
             # (indices don't apply to snapshots)
-            tbl = self._op1.col.tbl
+            tbl = self._op1.col.tbl.get()
             idx_info = [
                 info for info in self._op1.col.get_idx_info().values() if isinstance(info.idx, index.BtreeIndex)
             ]
-            if len(idx_info) > 0 and not tbl.is_snapshot:
+            if len(idx_info) > 0 and not tbl.is_snapshot():
                 # there shouldn't be multiple B-tree indices on a column
                 assert len(idx_info) == 1
                 left = idx_info[0].val_col.sa_col

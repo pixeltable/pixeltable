@@ -65,7 +65,7 @@ class TableVersionPath:
 
     def is_snapshot(self) -> bool:
         """Return True if this is a path of snapshot versions"""
-        if not self.tbl_version.get().is_snapshot:
+        if not self.tbl_version.get().is_snapshot():
             return False
         return self.base.is_snapshot() if self.base is not None else True
 

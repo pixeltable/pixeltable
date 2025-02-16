@@ -22,9 +22,10 @@ from pixeltable.iterators import ComponentIterator
 from pixeltable.metadata import schema
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.media_store import MediaStore
+
+from ..func.globals import resolve_symbol
 from .column import Column
 from .globals import _POS_COLUMN_NAME, _ROWID_COLUMN_NAME, MediaValidation, UpdateStatus, is_valid_identifier
-from ..func.globals import resolve_symbol
 
 if TYPE_CHECKING:
     from pixeltable import exec, store
@@ -59,11 +60,12 @@ class TableVersion:
     schema_version: int
     view_md: Optional[schema.ViewMd]
     path: Optional[pxt.catalog.TableVersionPath]  # only set for live tables; needed to resolve computed cols
+    base: Optional[TableVersionHandle]  # only set for views
     next_col_id: int
     next_idx_id: int
     next_rowid: int
     predicate: Optional[exprs.Expr]
-    mutable_views: list['TableVersionHandle']  # target for data operation propagation (only set for live tables)
+    mutable_views: list[TableVersionHandle]  # target for data operation propagation (only set for live tables)
     iterator_cls: Optional[type[ComponentIterator]]
     iterator_args: Optional[exprs.InlineDict]
     num_iterator_cols: int
@@ -81,7 +83,7 @@ class TableVersion:
 
     external_stores: dict[str, pxt.io.ExternalStore]
     store_tbl: 'store.StoreBase'
-    base_store_tbl: Optional['store.StoreBase']  # always set for views
+    # base_store_tbl: Optional['store.StoreBase']  # always set for views
 
     @dataclasses.dataclass
     class IndexInfo:
@@ -98,9 +100,10 @@ class TableVersion:
         tbl_md: schema.TableMd,
         effective_version: Optional[int],
         schema_version_md: schema.TableSchemaVersionMd,
-        mutable_views: list['TableVersionHandle'],
+        mutable_views: list[TableVersionHandle],
         base_path: Optional[pxt.catalog.TableVersionPath] = None,
-        base_store_tbl: Optional['store.StoreBase'] = None,
+        base: Optional[TableVersionHandle] = None,
+        # base_store_tbl: Optional['store.StoreBase'] = None,
     ):
         self.id = id
         self.name = tbl_md.name
@@ -111,8 +114,10 @@ class TableVersion:
         self.schema_version = schema_version_md.schema_version
         self.view_md = tbl_md.view_md  # save this as-is, it's needed for _create_md()
         self.media_validation = MediaValidation[schema_version_md.media_validation.upper()]
-        assert not(self.is_view() and base_store_tbl is None)
-        self.base_store_tbl = base_store_tbl
+        assert not (self.is_view() and base is None)
+        self.base = base
+        # assert not(self.is_view() and base_store_tbl is None)
+        # self.base_store_tbl = base_store_tbl
 
         # mutable tables need their TableVersionPath for expr eval during updates
         from .table_version_handle import TableVersionHandle
@@ -271,7 +276,10 @@ class TableVersion:
         is_snapshot = view_md is not None and view_md.is_snapshot
         effective_version = 0 if is_snapshot else None
         base_path = pxt.catalog.TableVersionPath.from_md(view_md.base_versions) if view_md is not None else None
-        tbl_version = cls(tbl_record.id, table_md, effective_version, schema_version_md, [], base_path=base_path)
+        base = base_path.tbl_version if base_path is not None else None
+        tbl_version = cls(
+            tbl_record.id, table_md, effective_version, schema_version_md, [], base_path=base_path, base=base
+        )
 
         tbl_version.store_tbl.create()
         if view_md is None or not view_md.is_snapshot:
@@ -316,6 +324,8 @@ class TableVersion:
 
     def _init_cols(self, tbl_md: schema.TableMd, schema_version_md: schema.TableSchemaVersionMd) -> None:
         """Initialize self.cols with the columns visible in our effective version"""
+        from .table_version_handle import TableVersionHandle
+
         self.cols = []
         self.cols_by_name = {}
         self.cols_by_id = {}
@@ -468,6 +478,8 @@ class TableVersion:
         return status
 
     def _add_index(self, col: Column, idx_name: Optional[str], idx: index.IndexBase) -> UpdateStatus:
+        from .table_version_handle import TableVersionHandle
+
         assert not self.is_snapshot()
         idx_id = self.next_idx_id
         self.next_idx_id += 1
@@ -558,6 +570,8 @@ class TableVersion:
         self, cols: Iterable[Column], print_stats: bool, on_error: Literal['abort', 'ignore']
     ) -> UpdateStatus:
         """Adds a column to the table."""
+        from .table_version_handle import TableVersionHandle
+
         assert not self.is_snapshot()
         assert all(is_valid_identifier(col.name) for col in cols)
         assert all(col.stored is not None for col in cols)
@@ -1251,7 +1265,7 @@ class TableVersion:
     def num_rowid_columns(self) -> int:
         """Return the number of columns of the rowids, without accessing store_tbl"""
         if self.is_component_view():
-            return 1 + self.base.num_rowid_columns()
+            return 1 + self.base.get().num_rowid_columns()
         return 1
 
     @classmethod

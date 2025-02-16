@@ -56,7 +56,7 @@ class ColumnRef(Expr):
         )
         self.iter_arg_ctx = None
         # number of rowid columns in the base table
-        self.base_rowid_len = col.tbl.get().base.num_rowid_columns() if self.is_unstored_iter_col else 0
+        self.base_rowid_len = col.tbl.get().base.get().num_rowid_columns() if self.is_unstored_iter_col else 0
         self.base_rowid = [None] * self.base_rowid_len
         self.iterator = None
         # index of the position column in the view's primary key; don't try to reference tbl.store_tbl here
@@ -168,7 +168,7 @@ class ColumnRef(Expr):
     def _descriptors(self) -> DescriptionHelper:
         tbl = catalog.Catalog.get().get_tbl(self.col.tbl.id)
         helper = DescriptionHelper()
-        helper.append(f'Column\n{self.col.name!r}\n(of table {tbl._path!r})')
+        helper.append(f'Column\n{self.col.name!r}\n(of table {tbl._path()!r})')
         helper.append(tbl._col_descriptor([self.col.name]))
         idxs = tbl._index_descriptor([self.col.name])
         if len(idxs) > 0:
@@ -225,7 +225,7 @@ class ColumnRef(Expr):
 
     def _as_dict(self) -> dict:
         tbl = self.col.tbl
-        version = tbl.get().version if tbl.get().is_snapshot else None
+        version = tbl.get().version if tbl.get().is_snapshot() else None
         # we omit self.components, even if this is a validating ColumnRef, because init() will recreate the
         # non-validating component ColumnRef
         return {

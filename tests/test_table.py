@@ -117,9 +117,9 @@ class TestTable:
         pxt.drop_table('test2')
         pxt.drop_table('dir1.test')
 
-        with pytest.raises(excs.Error, match='Table `test` does not exist'):
+        with pytest.raises(excs.Error, match="Path 'test' does not exist"):
             pxt.drop_table('test')
-        with pytest.raises(excs.Error, match='Table `dir1.test2` does not exist'):
+        with pytest.raises(excs.Error, match="Path 'dir1.test2' does not exist"):
             pxt.drop_table('dir1.test2')
         with pytest.raises(excs.Error, match='Invalid path format'):
             pxt.drop_table('.test2')
@@ -150,11 +150,11 @@ class TestTable:
         )
 
         # scenario 1: a table exists at the path already
-        with pytest.raises(excs.Error, match='already exists'):
+        with pytest.raises(excs.Error, match='is an existing'):
             pxt.create_table('test', schema)
         with pytest.raises(excs.Error) as exc_info:
             _ = pxt.create_table('test', schema)
-        assert 'already exists' in str(exc_info.value)
+        assert 'is an existing' in str(exc_info.value)
         assert len(tbl.select().collect()) == 5
         # if_exists='ignore' should return the existing table
         tbl2 = pxt.create_table('test', schema, if_exists='ignore')
@@ -183,7 +183,7 @@ class TestTable:
         assert len(view.select().collect()) == 3
 
         # scenario 2: a table exists at the path, but has dependency
-        with pytest.raises(excs.Error, match='already exists'):
+        with pytest.raises(excs.Error, match='is an existing'):
             pxt.create_table('test', schema)
         assert len(tbl.select().collect()) == 3
         # if_exists='ignore' should return the existing table
@@ -212,7 +212,7 @@ class TestTable:
         # scenario 3: path exists but is not a table
         with pytest.raises(excs.Error) as exc_info:
             _ = pxt.create_table('dir1', schema)
-        assert 'already exists' in str(exc_info.value)
+        assert 'is an existing' in str(exc_info.value)
         assert len(tbl.select().collect()) == 1
         for _ie in ['ignore', 'replace', 'replace_force']:
             with pytest.raises(excs.Error) as exc_info:
@@ -241,22 +241,22 @@ class TestTable:
             tbl = pxt.create_table(tbl_path, {'col': pxt.String}, media_validation=media_val)  # type: ignore[arg-type]
             view = pxt.create_view(f'{tbl_path}_view', tbl, media_validation=media_val)  # type: ignore[arg-type]
             snap = pxt.create_snapshot(f'{tbl_path}_snap', tbl, media_validation=media_val)  # type: ignore[arg-type]
-            assert tbl._path == tbl_path
+            assert tbl._path() == tbl_path
             assert tbl._name == tbl_path.split('.')[-1]
-            assert tbl._parent._path == '.'.join(tbl_path.split('.')[:-1])
+            assert tbl._parent._path() == '.'.join(tbl_path.split('.')[:-1])
             for t in (tbl, view, snap):
                 assert t.get_metadata() == {
-                    'base': None if t._base is None else t._base._path,
+                    'base': None if t._base is None else t._base._path(),
                     'comment': t._comment,
                     'is_view': isinstance(t, catalog.View),
-                    'is_snapshot': t._tbl_version.is_snapshot,
+                    'is_snapshot': t._tbl_version.get().is_snapshot(),
                     'name': t._name,
                     'num_retained_versions': t._num_retained_versions,
                     'media_validation': media_val,
-                    'parent': t._parent._path,
-                    'path': t._path,
+                    'parent': t._parent._path(),
+                    'path': t._path(),
                     'schema': t._schema,
-                    'schema_version': t._tbl_version.schema_version,
+                    'schema_version': t._tbl_version.get().schema_version,
                     'version': t._version,
                 }
 

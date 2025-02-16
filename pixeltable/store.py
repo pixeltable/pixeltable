@@ -44,12 +44,14 @@ class StoreBase:
     __INSERT_BATCH_SIZE = 1000
 
     def __init__(self, tbl_version: catalog.TableVersion):
-        self.tbl_version = catalog.TableVersionHandle(tbl_version.id, tbl_version.effective_version, tbl_version=tbl_version)
+        self.tbl_version = catalog.TableVersionHandle(
+            tbl_version.id, tbl_version.effective_version, tbl_version=tbl_version
+        )
         self.sa_md = sql.MetaData()
         self.sa_tbl = None
         # We need to declare a `base` variable here, even though it's only defined for instances of `StoreView`,
         # since it's referenced by various methods of `StoreBase`
-        self.base = tbl_version.base_store_tbl
+        self.base = tbl_version.base.get().store_tbl if tbl_version.base is not None else None
         self.create_sa_tbl()
 
     def pk_columns(self) -> list[sql.Column]:
@@ -375,7 +377,9 @@ class StoreBase:
         v = versions[0]
         if v is None:
             # we're looking at live rows
-            clause = sql.and_(self.v_min_col <= self.tbl_version.get().version, self.v_max_col == schema.Table.MAX_VERSION)
+            clause = sql.and_(
+                self.v_min_col <= self.tbl_version.get().version, self.v_max_col == schema.Table.MAX_VERSION
+            )
         else:
             # we're looking at a specific version
             clause = self.v_min_col == v if match_on_vmin else self.v_max_col == v
