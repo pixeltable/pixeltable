@@ -10,7 +10,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
+from typing import _GenericAlias, Literal  # type: ignore[attr-defined]  # isort: skip
 from typing import Any, Iterable, Mapping, Optional, Sequence, Union
 
 import av  # type: ignore
@@ -323,7 +323,7 @@ class ColumnType:
             if isinstance(t, type) and issubclass(t, _PxtType):
                 return t.as_col_type(nullable=nullable_default)
             elif allow_builtin_types:
-                if t is str:
+                if t is str or t is Literal:
                     return StringType(nullable=nullable_default)
                 if t is int:
                     return IntType(nullable=nullable_default)
@@ -335,7 +335,7 @@ class ColumnType:
                     return TimestampType(nullable=nullable_default)
                 if t is PIL.Image.Image:
                     return ImageType(nullable=nullable_default)
-                if issubclass(t, Sequence) or issubclass(t, Mapping) or issubclass(t, pydantic.BaseModel):
+                if isinstance(t, type) and issubclass(t, (Sequence, Mapping, pydantic.BaseModel)):
                     return JsonType(nullable=nullable_default)
         return None
 

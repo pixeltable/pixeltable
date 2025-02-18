@@ -95,6 +95,28 @@ class TestOpenai:
             t.insert(input='Say something interesting.')
         assert "\\'messages\\' must contain the word \\'json\\'" in str(exc_info.value)
 
+    @pytest.mark.expensive
+    def test_reasoning_models(self, reset_db) -> None:
+        skip_test_if_not_installed('openai')
+        TestOpenai.skip_test_if_no_openai_client()
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        from pixeltable.functions.openai import chat_completions
+
+        msgs = [{'role': 'user', 'content': t.input}]
+        t.add_computed_column(input_msgs=msgs)
+        t.add_computed_column(
+            chat_output=chat_completions(model='o3-mini', messages=t.input_msgs, reasoning_effort='low')
+        )
+        validate_update_status(
+            t.insert(
+                input='Write a bash script that takes a matrix represented as a string with'
+                "format '[1,2],[3,4],[5,6]' and prints the transpose in the same format."
+            ),
+            1,
+        )
+        result = t.collect()
+        assert '#!/bin/bash' in result['chat_output'][0]['choices'][0]['message']['content']
+
     def test_reuse_client(self, reset_db) -> None:
         skip_test_if_not_installed('openai')
         TestOpenai.skip_test_if_no_openai_client()
