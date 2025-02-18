@@ -519,8 +519,8 @@ class TestExprs:
         print(result.show(5))
         assert isinstance(result.select_list[0][0], Literal)
 
-        arr1 = np.array([1, 2, 3, 4, 5])
-        arr2 = np.array([[1, 2, 3], [4, 5, 6]])
+        arr1 = np.array([1, 2, 3, 4, 5], dtype=np.int64)
+        arr2 = np.array([[1, 2, 3], [4, 5, 6]], dtype=np.int64)
 
         # r0 = t.select(None)
         # print(r0.show(5))
@@ -532,7 +532,7 @@ class TestExprs:
         r2 = t.select(arr3)
         print(r2.show(5))
 
-        arr4 = pxt.array(np.array([1, 2, 3, 4, 5]))
+        arr4 = pxt.array(np.array([1, 2, 3, 4, 5], dtype=np.int64))
         r3 = t.select(arr4)
         print(r3.show(5))
 
