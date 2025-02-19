@@ -85,7 +85,7 @@ pytest-rerunfailures = "^14.0.0"
 coverage = "^7.4"
 # type checking
 mypy = "^1.13.0"
-boto3-stubs = "==1.35.5"
+boto3-stubs = "==1.36.23"
 pandas-stubs = ">=2.0"
 pyarrow-stubs = "^10.0.1.7"
 types-beautifulsoup4 = ">=4.2"
@@ -124,7 +124,7 @@ fireworks-ai = "^0.13.0"
 mistralai = "^1.2.1"
 replicate = "^1.0.2"
 google-generativeai = "^0.8.4"
-boto3 = "==1.35.5"  # Locking a specific version of boto3 dramatically improves `poetry lock` runtimes
+boto3 = "==1.36.23"  # Locking a specific version of boto3 dramatically improves `poetry lock` runtimes
 spacy = ">=3.7"
 sentencepiece = ">=0.2.0"
 tiktoken = ">=0.7"

@@ -11,6 +11,7 @@ from tqdm import tqdm
 import pixeltable as pxt
 from pixeltable import exceptions as excs, metadata
 from pixeltable.env import Env
+from pixeltable.utils import sha256sum
 
 from .packager import TablePackager
 
@@ -68,6 +69,8 @@ def _upload_bundle_to_s3(bundle: Path, parsed_location: urllib.parse.ParseResult
     }
     s3_client = get_client(**boto_config)
 
+    upload_args = {'ChecksumAlgorithm': 'SHA256'}
+
     progress_bar = tqdm(
         desc=f'Uploading',
         total=bundle.stat().st_size,
@@ -78,4 +81,12 @@ def _upload_bundle_to_s3(bundle: Path, parsed_location: urllib.parse.ParseResult
         ncols=100,
         file=sys.stdout,
     )
-    s3_client.upload_file(str(bundle), bucket, str(remote_path), Callback=progress_bar.update)
+    s3_client.upload_file(
+        Filename=str(bundle),
+        Bucket=bucket,
+        Key=str(remote_path),
+        ExtraArgs=upload_args,
+        Callback=progress_bar.update
+    )
+
+    # response = s3_client.get_object(Bucket=bucket, Key=str(remote_path))
