@@ -578,11 +578,9 @@ class DataFrame:
         # analyze select list; wrap literals with the corresponding expressions
         select_list: list[tuple[exprs.Expr, Optional[str]]] = []
         for raw_expr, name in base_list:
-            if isinstance(raw_expr, (np.ndarray, dict, list, tuple, exprs.Expr)):
-                select_list.append((exprs.Expr.from_object(raw_expr), name))
-            else:
-                select_list.append((exprs.Literal(raw_expr), name))
-            expr = select_list[-1][0]
+            expr = exprs.Expr.from_object(raw_expr)
+            if expr is None:
+                raise excs.Error(f'Invalid expression: {raw_expr}')
             if expr.col_type.is_invalid_type():
                 raise excs.Error(f'Invalid type: {raw_expr}')
             if not expr.is_bound_by(self._from_clause.tbls):
@@ -590,6 +588,7 @@ class DataFrame:
                     f"Expression '{expr}' cannot be evaluated in the context of this query's tables "
                     f'({",".join(tbl.tbl_name() for tbl in self._from_clause.tbls)})'
                 )
+            select_list.append((expr, name))
 
         # check user provided names do not conflict among themselves or with auto-generated ones
         seen: set[str] = set()
