@@ -83,9 +83,9 @@ class TestDataFrame:
         assert 'already specified' in str(exc_info.value)
 
         # invalid expr in select list: Callable is not a valid literal
-        with pytest.raises(TypeError) as exc_info:
+        with pytest.raises(excs.Error) as exc_info:
             _ = t.select(datetime.datetime.now).collect()
-        assert 'Not a valid literal' in str(exc_info.value)
+        assert 'Invalid expression' in str(exc_info.value)
 
         # catch invalid name in select list from user input
         # only check stuff that's not caught by python kwargs checker

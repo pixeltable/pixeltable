@@ -852,22 +852,38 @@ class ArrayType(ColumnType):
         return cls(shape, dtype, nullable=d['nullable'])
 
     @classmethod
+    def from_np_dtype(cls, dtype: np.dtype, nullable: bool) -> Optional[ColumnType]:
+        """
+        Return pixeltable type corresponding to a given simple numpy dtype
+        """
+        if np.issubdtype(dtype, np.integer):
+            return IntType(nullable=nullable)
+
+        if np.issubdtype(dtype, np.floating):
+            return FloatType(nullable=nullable)
+
+        if dtype == np.bool_:
+            return BoolType(nullable=nullable)
+
+        if np.issubdtype(dtype, np.str_):
+            return StringType(nullable=nullable)
+
+        if np.issubdtype(dtype, np.character):
+            return StringType(nullable=nullable)
+
+        if np.issubdtype(dtype, np.datetime64):
+            return TimestampType(nullable=nullable)
+
+        return None
+
+    @classmethod
     def from_literal(cls, val: np.ndarray, nullable: bool = False) -> Optional[ArrayType]:
         # determine our dtype
         assert isinstance(val, np.ndarray)
-        dtype: ColumnType
-        if np.issubdtype(val.dtype, np.integer):
-            dtype = IntType()
-        elif np.issubdtype(val.dtype, np.floating):
-            dtype = FloatType()
-        elif val.dtype == np.bool_:
-            dtype = BoolType()
-        elif np.issubdtype(val.dtype, np.str_):
-            # Note that this includes NumPy types like '<U1' -- arrays of single Unicode characters
-            dtype = StringType()
-        else:
+        pxttype: Optional[ColumnType] = cls.from_np_dtype(val.dtype, nullable)
+        if pxttype == None:
             return None
-        return cls(val.shape, dtype=dtype, nullable=nullable)
+        return cls(val.shape, dtype=pxttype, nullable=nullable)
 
     def is_valid_literal(self, val: np.ndarray) -> bool:
         if not isinstance(val, np.ndarray):
