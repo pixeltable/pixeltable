@@ -106,7 +106,7 @@
           ]
         },
         {
-          "group": "Chat",
+          "group": "Chatbot",
           "pages": [
             "docs/examples/chat/multimodal",
             "docs/examples/chat/memory",

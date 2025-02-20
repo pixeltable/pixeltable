@@ -138,6 +138,119 @@ table.add_computed_column(
   </Accordion>
 </AccordionGroup>
 
+## Tables as UDFs
+
+<Info>
+**Tables as UDFs:** Turn entire tables into reusable functions that can be used in other tables
+</Info>
+
+Pixeltable lets you convert an entire table into a UDF, making complex workflows more modular and reusable.
+
+### How It Works (In 3 Simple Steps)
+
+1. **Create a specialized table** with computed columns for your workflow
+2. **Convert the table to a UDF** by specifying which column to return as output
+3. **Use this table UDF** in other tables like any regular function
+
+### Simple Example
+
+```python
+import time
+from typing import Optional
+
+import yfinance as yf
+
+import pixeltable as pxt
+from pixeltable.functions.openai import chat_completions, invoke_tools
+
+DIRECTORY = 'agent'
+OPENAI_MODEL = 'gpt-4o-mini'
+
+# Start timing
+start_time = time.time()
+
+# Create Fresh Directory
+pxt.drop_dir(DIRECTORY, force=True)
+pxt.create_dir(DIRECTORY, if_exists='ignore')
+
+
+# yfinance tool
+@pxt.udf
+def stock_info(ticker: str) -> Optional[dict]:
+    """Get stock info for a given ticker symbol."""
+    stock = yf.Ticker(ticker)
+    return stock.info
+
+# Create prompt with tool outputs
+@pxt.udf
+def create_prompt(question: str, tool_outputs: list[dict]) -> str:
+    return f"""
+    QUESTION:
+
+    {question}
+
+    RESULTS:
+
+    {tool_outputs}
+    """
+
+
+######### 1. Create Finance Analyst Table #########
+finance_agent = pxt.create_table(f'{DIRECTORY}.financial_analyst', {'prompt': pxt.String}, if_exists='ignore')
+messages = [{'role': 'user', 'content': finance_agent.prompt}]
+
+tools = pxt.tools(stock_info)
+
+# Add initial response from OpenAI
+finance_agent.add_computed_column(
+    initial_response=chat_completions(
+        model=OPENAI_MODEL, messages=messages, tools=tools, tool_choice=tools.choice(required=True)
+    )
+)
+
+# Invoke tools
+finance_agent.add_computed_column(tool_output=invoke_tools(tools, finance_agent.initial_response))
+
+# Create prompt with invoked response
+finance_agent.add_computed_column(stock_response_prompt=create_prompt(finance_agent.prompt, finance_agent.tool_output))
+
+# Send back to OpenAI for final response
+messages = [
+    {'role': 'system', 'content': "Answer the user's question based on the results."},
+    {'role': 'user', 'content': finance_agent.stock_response_prompt},
+]
+finance_agent.add_computed_column(final_response=chat_completions(model=OPENAI_MODEL, messages=messages))
+finance_agent.add_computed_column(answer=finance_agent.final_response.choices[0].message.content)
+finance_agent_udf = pxt.udf(finance_agent, return_value=finance_agent.answer)
+
+
+######### 2. Create Portfolio Manager Table #########
+portfolio_manager = pxt.create_table(f'{DIRECTORY}.portfolio_manager', {'prompt': pxt.String}, if_exists='ignore')
+messages = [{'role': 'user', 'content': portfolio_manager.prompt}]
+portfolio_manager.add_computed_column(result=finance_agent_udf(portfolio_manager.prompt))
+
+
+##### 3. Test agents #####
+finance_agent = pxt.get_table(f'{DIRECTORY}.financial_analyst')
+portfolio_manager = pxt.get_table(f'{DIRECTORY}.portfolio_manager')
+portfolio_manager.insert([{'prompt': 'What is the price of NVDIA?'}])
+print(portfolio_manager.select(portfolio_manager.result).collect())
+
+
+
+# End timing and print execution time
+end_time = time.time()
+execution_time = end_time - start_time
+print(f'\nTotal execution time: {execution_time:.2f} seconds')
+```
+
+### Key Benefits
+
+- **Modularity**: Build complex systems from smaller, reusable parts
+- **Encapsulation**: Hide implementation details behind a simple interface
+- **Reusability**: Use specialized tables across multiple projects
+- **Maintainability**: Update internal logic without changing dependent tables
+
 ## Performance Optimization
 
 <CardGroup cols={1}>
@@ -211,6 +324,14 @@ table.add_computed_column(
             text = text.translate(str.maketrans("", "", string.punctuation))
         return text
     ```
+  </Accordion>
+  
+  <Accordion title="Table UDFs" icon="table">
+    - Define clear input and output columns for your table UDFs
+    - Implement cleanup routines for tables that grow large
+    - Balance between too many small tables and monolithic tables
+    - Use clear naming conventions for tables and their UDFs
+    - Document the purpose and expected inputs for each table UDF
   </Accordion>
 </AccordionGroup>
 
