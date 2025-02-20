@@ -1,8 +1,12 @@
 ---
-title: 'Introduction'
+title: 'Pixelagent'
 description: 'Understanding and implementing AI agents with Pixeltable'
 mode: 'wide'
 ---
+
+## What is Pixelagent?
+
+Pixelagent is a tool-calling agent framework built on Pixeltable. It allows you to create and use agents to automate tasks and workflows.
 
 ## What is an Agent?
 
@@ -10,7 +14,7 @@ mode: 'wide'
 As defined by [Anthropic](https://www.anthropic.com/research/building-effective-agents), agents are AI systems where large language models (LLMs) dynamically direct their own processes and tool usage, maintaining control over how they accomplish tasks.
 </Note>
 
-This differs from workflows, which are systems where LLMs and tools are orchestrated through predefined code paths. See [Workflows](/examples/agents/workflows) for more details.
+This differs from workflows, which are systems where LLMs and tools are orchestrated through predefined code paths.
 
 <Warning>
 An agent is not simply a zero-shot call to a large language model. Proper agents require multiple components working together.
@@ -90,27 +94,18 @@ Slightly more verbose, but gives you the ability to modify the agent's tables an
 <Accordion title="Complete Low-Level Implementation with Pixeltable SDK">
 ```python
 from typing import Dict, List, Optional
-
+from datetime import datetime
 import pixeltable as pxt
 from pixeltable.functions import openai
 
 @pxt.udf
-def _create_messages(past_context: List[Dict], system_prompt: str) -> List[Dict]:
+def _create_messages(past_context: List[Dict], system_prompt: str, tool_output: Optional[str] = None) -> List[Dict]:
     """Create messages list with system prompt, memory context and new message"""
     messages = [{'role': 'system', 'content': system_prompt}]
     messages.extend([{'role': msg['role'], 'content': msg['content']} for msg in past_context])
+    if tool_output:
+        messages.append({'role': 'user', 'content': str(tool_output)})
     return messages
-
-@pxt.udf
-def _create_tool_prompt(question: str, tool_outputs: list[dict]) -> str:
-    """Create a prompt that includes tool outputs"""
-    return f"""
-    QUESTION:
-    {question}
-
-    TOOL RESULTS:
-    {tool_outputs}
-    """
     
 def create_chat(name: str, openai_model: str, tools: Optional[pxt.tools] = None):
     """Create a chat table with optional tool support.
@@ -146,33 +141,27 @@ def create_chat(name: str, openai_model: str, tools: Optional[pxt.tools] = None)
     if tools:
         # Add tool-enabled response sequence
         chat.add_computed_column(
-            tool_response=openai.chat_completions(
+            initial_tool_response=openai.chat_completions(
                 messages=chat.messages,
                 model=openai_model,
                 tools=tools,
-                tool_choice=tools.choice(required=True)
             )
         )
         
         chat.add_computed_column(
-            tool_result=openai.invoke_tools(tools, chat.tool_response)
+            invoke_tools=openai.invoke_tools(tools, chat.initial_tool_response)
         )
         
         chat.add_computed_column(
-            tool_prompt=_create_tool_prompt(chat.get_messages[-1].content, chat.tool_result)
+            tool_messages=_create_messages(chat.get_messages, chat.system_prompt, chat.invoke_tools)
         )
-        
-        # Final response incorporating tool results
-        final_messages = [
-            {'role': 'system', 'content': "Answer the user's question based on the tool results."},
-            {'role': 'user', 'content': chat.tool_prompt}
-        ]
+    
         
         chat.add_computed_column(
-            final_response=openai.chat_completions(model=openai_model, messages=final_messages)
+            tool_response=openai.chat_completions(model=openai_model, messages=chat.tool_messages)
         )
         
-        chat.add_computed_column(response=chat.final_response.choices[0].message.content)
+        chat.add_computed_column(response=chat.tool_response.choices[0].message.content)
     else:
         # Standard response sequence without tools
         chat.add_computed_column(
@@ -197,14 +186,12 @@ def run(name: str, instructions: str, content: str) -> str:
 
 class Agent:
     """Base agent class that can be composed into workflows"""
-    def __init__(self, name: str, system_prompt: str, model: str = "gpt-4o-mini", 
-                 tools: Optional[pxt.tools] = None, reset: bool = False):
+    def __init__(self, name: str, system_prompt: str, model: str = "gpt-4o-mini", tools: Optional[pxt.tools] = None):
         self.name = name
         self.system_prompt = system_prompt
         self.model = model
         self.tools = tools
-        if reset:
-            create_chat(name, model, tools)
+        create_chat(name, model, tools)
         
     def run(self, content: str) -> str:
         return run(self.name, self.system_prompt, content)
