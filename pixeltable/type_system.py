@@ -492,7 +492,7 @@ class InvalidType(ColumnType):
         super().__init__(self.Type.INVALID, nullable=nullable)
 
     def to_sa_type(self) -> sql.types.TypeEngine:
-        assert False
+        return sql.types.NullType()
 
     def print_value(self, val: Any) -> str:
         return str(val)

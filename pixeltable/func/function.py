@@ -194,8 +194,8 @@ class Function(ABC):
         bound_args = signature.py_signature.bind(*args, **kwargs).arguments
         normalized_args = {k: exprs.Expr.from_object(v) for k, v in bound_args.items()}
         self._resolved_fns[signature_idx].validate_call(normalized_args)
-        unwrapped_args = {k: v.val if isinstance(v, exprs.Literal) else v for k, v in normalized_args.items()}
-        return unwrapped_args
+        # unwrapped_args = {k: v.val if isinstance(v, exprs.Literal) else v for k, v in normalized_args.items()}
+        return normalized_args
 
     def validate_call(self, bound_args: dict[str, Optional['exprs.Expr']]) -> None:
         """Override this to do custom validation of the arguments"""
@@ -227,16 +227,36 @@ class Function(ABC):
 
     def call_return_type(self, args: Sequence[Any], kwargs: dict[str, Any]) -> ts.ColumnType:
         """Return the type of the value returned by calling this function with the given arguments"""
+        from pixeltable import exprs
+
         assert not self.is_polymorphic
         if self._conditional_return_type is None:
             return self.signature.return_type
+
+        # args and kwargs will contain Variables for parameters that are not represented in the conditional_return_type
+        # signature. This ensures that we can bind successfully even if there are required parameters that are not
+        # part of the conditional_return_type signature.
         bound_args = self.signature.py_signature.bind(*args, **kwargs).arguments
-        kw_args: dict[str, Any] = {}
-        sig = inspect.signature(self._conditional_return_type)
-        for param in sig.parameters.values():
-            if param.name in bound_args:
-                kw_args[param.name] = bound_args[param.name]
-        return self._conditional_return_type(**kw_args)
+
+        crt_signature = inspect.signature(self._conditional_return_type)
+        crt_kwargs: dict[str, Any] = {}
+
+        # Filter back down to the parameters that are present in the conditional_return_type signature. If they are not
+        # all constants, then fall back on the default return type. Unpack any literals.
+        for param in crt_signature.parameters.values():
+            assert param.name in bound_args
+            arg = bound_args[param.name]
+            if isinstance(arg, exprs.Literal):
+                crt_kwargs[param.name] = arg.val
+            elif isinstance(arg, exprs.Expr):
+                return self.signature.return_type
+            else:
+                crt_kwargs[param.name] = arg
+            # if not isinstance(arg, exprs.Literal):
+            #     return self.signature.return_type
+            # crt_kwargs[param.name] = arg.val
+
+        return self._conditional_return_type(**crt_kwargs)
 
     def conditional_return_type(self, fn: Callable[..., ts.ColumnType]) -> Callable[..., ts.ColumnType]:
         """Instance decorator for specifying a conditional return type for this function"""
