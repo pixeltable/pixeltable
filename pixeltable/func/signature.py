@@ -149,8 +149,8 @@ class Signature:
 
         return True
 
-    def validate_args(self, bound_args: dict[str, Optional['exprs.Expr']], context: Optional[str] = None) -> None:
-        if context is not None:
+    def validate_args(self, bound_args: dict[str, Optional['exprs.Expr']], context: str = '') -> None:
+        if context != '':
             context = f' ({context})'
 
         for param_name, arg in bound_args.items():

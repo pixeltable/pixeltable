@@ -648,6 +648,10 @@ class JsonType(ColumnType):
         return val_type.print_value(val)
 
     def _validate_literal(self, val: Any) -> None:
+        if isinstance(val, tuple):
+            val = list(val)
+        if isinstance(val, pydantic.BaseModel):
+            val = val.model_dump()
         if not self.__is_valid_json(val):
             raise TypeError(f'That literal is not a valid Pixeltable JSON object: {val}')
         if self.__validator is not None:
