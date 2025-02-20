@@ -645,6 +645,35 @@ class TestFunction:
         assert len(res) == 1
         assert res[0] == {'c1': max(res_direct['c1']), 'c2': max(res_direct['c2']), 'c3': max(res_direct['c3'])}
 
+    def test_udf_evolution(self, reset_db) -> None:
+        import tests.test_function
+
+        t = pxt.create_table('test', {'c1': pxt.String})
+
+        def mimic(fn: func.CallableFunction) -> None:
+            tests.test_function.evolving_udf = func.CallableFunction(
+                fn.signatures, fn.py_fns, 'tests.test_function.evolving_udf'
+            )
+
+        def reload_table() -> None:
+            reload_catalog()
+            t = pxt.get_table('test')
+            repr(t)  # Force table metadata to load
+
+        @pxt.udf(_force_stored=True)
+        def udf_base_version(a: str, b: int = 3) -> str:
+            return 'hello'
+
+        mimic(udf_base_version)
+        t.add_computed_column(result=tests.test_function.evolving_udf(t.c1))
+
+        @pxt.udf(_force_stored=True)
+        def udf_version_2(a: str, b: str = 'x') -> str:
+            return 'hello'
+
+        mimic(udf_version_2)
+        reload_table()
+
     def test_tool_errors(self):
         with pytest.raises(excs.Error) as exc_info:
             pxt.tools(pxt.functions.sum)  # type: ignore[arg-type]
@@ -790,7 +819,7 @@ class TestFunction:
         ]
 
         fn6 = pxt.udf(t, return_value=t.in4.rotate(t.in1))
-        u.select(fn4(22, 'starfruit', in4=u.b)).collect()
+        u.select(fn6(22, 'starfruit', in4=u.b)).collect()
 
 
 @pxt.udf
