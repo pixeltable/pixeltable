@@ -214,11 +214,11 @@ class EmbeddingIndex(IndexBase):
         # validate return type
         param_name = sig.parameters_by_pos[0].name
         if expected_type == ts.ColumnType.Type.STRING:
-            return_type = embed_fn.call_return_type([], {param_name: 'dummy'})
+            return_type = embed_fn.call_return_type({param_name: 'dummy'})
         else:
             assert expected_type == ts.ColumnType.Type.IMAGE
             img = PIL.Image.new('RGB', (512, 512))
-            return_type = embed_fn.call_return_type([], {param_name: img})
+            return_type = embed_fn.call_return_type({param_name: img})
 
         assert return_type is not None
         if not isinstance(return_type, ts.ArrayType):

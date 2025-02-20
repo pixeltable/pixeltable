@@ -159,7 +159,7 @@ class Function(ABC):
         # kwargs = {k: exprs.Expr.from_object(v) for k, v in kwargs.items()}
 
         resolved_fn, bound_args = self._bind_to_matching_signature(args, kwargs)
-        return_type = resolved_fn.call_return_type(args, kwargs)
+        return_type = resolved_fn.call_return_type(bound_args)
 
         return exprs.FunctionCall(resolved_fn, bound_args, return_type)
 
@@ -201,7 +201,26 @@ class Function(ABC):
         assert not self.is_polymorphic
         self.signature.validate_args(bound_args, context=f'in function {self.name!r}')
 
-    def _get_callable_args(self, callable: Callable, bound_args: dict[str, Any]) -> Optional[dict[str, Any]]:
+    def call_resource_pool(self, bound_args: dict[str, 'exprs.Expr']) -> str:
+        """Return the resource pool to use for calling this function with the given arguments"""
+        rp_kwargs = self._assemble_callable_args(self._resource_pool, bound_args)
+        if rp_kwargs is None:
+            # TODO: What to do in this case? An example where this can happen is if model_id is not a constant
+            #   in a call to one of the OpenAI endpoints.
+            raise excs.Error('Could not determine resource pool')
+        return self._resource_pool(**rp_kwargs)
+
+    def call_return_type(self, bound_args: dict[str, 'exprs.Expr']) -> ts.ColumnType:
+        """Return the type of the value returned by calling this function with the given arguments"""
+        if self._conditional_return_type is None:
+            return self.signature.return_type
+
+        crt_kwargs = self._assemble_callable_args(self._conditional_return_type, bound_args)
+        if crt_kwargs is None:
+            return self.signature.return_type
+        return self._conditional_return_type(**crt_kwargs)
+
+    def _assemble_callable_args(self, callable: Callable, bound_args: dict[str, 'exprs.Expr']) -> Optional[dict[str, Any]]:
         """
         Return the kwargs to pass to callable, given bound_args passed to this function.
         """
@@ -229,48 +248,6 @@ class Function(ABC):
                 callable_args[param.name] = arg
 
         return callable_args
-
-    def call_resource_pool(self, bound_args: dict[str, Any]) -> str:
-        """Return the resource pool to use for calling this function with the given arguments"""
-        rp_kwargs = self._get_callable_args(self._resource_pool, bound_args)
-        if rp_kwargs is None:
-            # TODO: What to do in this case? An example where this can happen is if model_id is not a constant
-            #   in a call to one of the OpenAI endpoints.
-            raise excs.Error('Could not determine resource pool')
-        return self._resource_pool(**rp_kwargs)
-
-    def call_return_type(self, args: Sequence[Any], kwargs: dict[str, Any]) -> ts.ColumnType:
-        """Return the type of the value returned by calling this function with the given arguments"""
-        from pixeltable import exprs
-
-        assert not self.is_polymorphic
-        if self._conditional_return_type is None:
-            return self.signature.return_type
-
-        # args and kwargs will contain Variables for parameters that are not represented in the conditional_return_type
-        # signature. This ensures that we can bind successfully even if there are required parameters that are not
-        # part of the conditional_return_type signature.
-        bound_args = self.signature.py_signature.bind(*args, **kwargs).arguments
-
-        crt_signature = inspect.signature(self._conditional_return_type)
-        crt_kwargs: dict[str, Any] = {}
-
-        # Filter back down to the parameters that are present in the conditional_return_type signature. If they are not
-        # all constants, then fall back on the default return type. Unpack any literals.
-        for param in crt_signature.parameters.values():
-            assert param.name in bound_args
-            arg = bound_args[param.name]
-            if isinstance(arg, exprs.Literal):
-                crt_kwargs[param.name] = arg.val
-            elif isinstance(arg, exprs.Expr):
-                return self.signature.return_type
-            else:
-                crt_kwargs[param.name] = arg
-            # if not isinstance(arg, exprs.Literal):
-            #     return self.signature.return_type
-            # crt_kwargs[param.name] = arg.val
-
-        return self._conditional_return_type(**crt_kwargs)
 
     def conditional_return_type(self, fn: Callable[..., ts.ColumnType]) -> Callable[..., ts.ColumnType]:
         """Instance decorator for specifying a conditional return type for this function"""
@@ -325,7 +302,7 @@ class Function(ABC):
             expr = exprs.Expr.from_object(v)
             if not param.col_type.is_supertype_of(expr.col_type):
                 raise excs.Error(f'Expected type `{param.col_type}` for parameter `{k}`; got `{expr.col_type}`')
-            bindings[k] = v  # Use the original value, not the Expr (The Expr is only for validation)
+            bindings[k] = expr
 
         residual_params = [p for p in self.signature.parameters.values() if p.name not in bindings]
 
@@ -333,7 +310,7 @@ class Function(ABC):
         for param in residual_params:
             bindings[param.name] = exprs.Variable(param.name, param.col_type)
 
-        return_type = self.call_return_type([], bindings)
+        return_type = self.call_return_type(bindings)
         call = exprs.FunctionCall(self, bindings, return_type)
 
         # Construct the (n-k)-ary signature of the new function. We use `call.col_type` for this, rather than

@@ -157,7 +157,7 @@ class AggregateFunction(Function):
         res += '\n\n' + inspect.getdoc(self.agg_classes[0].update)
         return res
 
-    def __call__(self, *args: object, **kwargs: object) -> 'exprs.FunctionCall':
+    def __call__(self, *args: Any, **kwargs: Any) -> 'exprs.FunctionCall':
         from pixeltable import exprs
 
         # perform semantic analysis of special parameters 'order_by' and 'group_by'
@@ -195,7 +195,7 @@ class AggregateFunction(Function):
             group_by_clause = kwargs.pop(self.GROUP_BY_PARAM)
 
         resolved_fn, bound_args = self._bind_to_matching_signature(args, kwargs)
-        return_type = resolved_fn.call_return_type(args, kwargs)
+        return_type = resolved_fn.call_return_type(bound_args)
         return exprs.FunctionCall(
             resolved_fn,
             bound_args,

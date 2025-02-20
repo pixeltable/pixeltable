@@ -59,6 +59,8 @@ class FunctionCall(Expr):
         group_by_clause: Optional[list[Any]] = None,
         is_method_call: bool = False,
     ):
+        from pixeltable import exprs
+
         if order_by_clause is None:
             order_by_clause = []
         if group_by_clause is None:
@@ -91,11 +93,12 @@ class FunctionCall(Expr):
 
         self.agg_init_args = {}
         if self.is_agg_fn_call:
-            # we separate out the init args for the aggregator
+            # We separate out the init args for the aggregator. Unpack Literals in init args.
             assert isinstance(fn, func.AggregateFunction)
-            self.agg_init_args = {
-                arg_name: arg for arg_name, arg in bound_args.items() if arg_name in fn.init_param_names[0]
-            }
+            for arg_name, arg in bound_args.items():
+                if arg_name in fn.init_param_names[0]:
+                    assert isinstance(arg, exprs.Literal)  # This was checked during validate_call
+                    self.agg_init_args[arg_name] = arg.val
             bound_args = {
                 arg_name: arg for arg_name, arg in bound_args.items() if arg_name not in fn.init_param_names[0]
             }
@@ -476,7 +479,7 @@ class FunctionCall(Expr):
         unpacked_bound_args = {param_name: cls.__unpack_bound_arg(arg) for param_name, arg in bound_args.items()}
 
         # Evaluate the call_return_type as defined in the current codebase.
-        call_return_type = fn.call_return_type([], unpacked_bound_args)
+        call_return_type = fn.call_return_type(unpacked_bound_args)
 
         if return_type is None:
             # Schema versions prior to 25 did not store the return_type in metadata, and there is no obvious way to
