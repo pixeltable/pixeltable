@@ -777,7 +777,7 @@ class Expr(abc.ABC):
             if (
                 len(params) >= 2
                 and second_param.kind not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
-                and second_param.default == inspect.Parameter.empty
+                and second_param.default is inspect.Parameter.empty
             ):
                 raise excs.Error(f'Function `{fn.__name__}` has multiple required parameters.')
         except ValueError:

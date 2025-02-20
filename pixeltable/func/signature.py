@@ -48,7 +48,6 @@ class Parameter:
             'col_type': self.col_type.as_dict() if self.col_type is not None else None,
             'kind': self.kind.name,
             'is_batched': self.is_batched,
-            'has_default': self.has_default(),
             'default': None if self.default is None else self.default.as_dict(),
         }
 
