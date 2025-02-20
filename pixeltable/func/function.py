@@ -17,6 +17,8 @@ from .globals import resolve_symbol
 from .signature import Signature
 
 if TYPE_CHECKING:
+    from pixeltable import exprs
+
     from .expr_template_function import ExprTemplate, ExprTemplateFunction
 
 
@@ -152,8 +154,13 @@ class Function(ABC):
     def __call__(self, *args: Any, **kwargs: Any) -> 'pxt.exprs.FunctionCall':
         from pixeltable import exprs
 
+        # Normalize arguments
+        # args = [exprs.Expr.from_object(arg) for arg in args]
+        # kwargs = {k: exprs.Expr.from_object(v) for k, v in kwargs.items()}
+
         resolved_fn, bound_args = self._bind_to_matching_signature(args, kwargs)
         return_type = resolved_fn.call_return_type(args, kwargs)
+
         return exprs.FunctionCall(resolved_fn, bound_args, return_type)
 
     def _bind_to_matching_signature(self, args: Sequence[Any], kwargs: dict[str, Any]) -> tuple[Self, dict[str, Any]]:
@@ -185,13 +192,40 @@ class Function(ABC):
 
         signature = self.signatures[signature_idx]
         bound_args = signature.py_signature.bind(*args, **kwargs).arguments
-        self._resolved_fns[signature_idx].validate_call(bound_args)
-        exprs.FunctionCall.normalize_args(self.name, signature, bound_args)
-        return bound_args
+        normalized_args = {k: exprs.Expr.from_object(v) for k, v in bound_args.items()}
+        self._resolved_fns[signature_idx].validate_call(normalized_args)
+        unwrapped_args = {k: v.val if isinstance(v, exprs.Literal) else v for k, v in normalized_args.items()}
+        return unwrapped_args
 
-    def validate_call(self, bound_args: dict[str, Any]) -> None:
+    def validate_call(self, bound_args: dict[str, Optional['exprs.Expr']]) -> None:
         """Override this to do custom validation of the arguments"""
         assert not self.is_polymorphic
+
+        for param_name, arg in bound_args.items():
+            param = self.signature.parameters[param_name]
+            is_var_param = param.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
+            if is_var_param:
+                continue
+            assert param.col_type is not None
+
+            if arg is None:
+                raise excs.Error(f'Parameter {param_name} (in function {self.name}): invalid argument')
+
+            # Check that the argument is consistent with the expected parameter type, with the allowance that
+            # non-nullable parameters can still accept nullable arguments (since function calls with Nones
+            # assigned to non-nullable parameters will always return None)
+            if not (
+                param.col_type.is_supertype_of(arg.col_type, ignore_nullable=True)
+                # TODO: this is a hack to allow JSON columns to be passed to functions that accept scalar
+                # types. It's necessary to avoid littering notebooks with `apply(str)` calls or equivalent.
+                # (Previously, this wasn't necessary because `is_supertype_of()` was improperly implemented.)
+                # We need to think through the right way to handle this scenario.
+                or (arg.col_type.is_json_type() and param.col_type.is_scalar_type())
+            ):
+                raise excs.Error(
+                    f'Parameter {param_name} (in function {self.name}): argument type {arg.col_type} does not'
+                    f' match parameter type {param.col_type}'
+                )
 
     def _get_callable_args(self, callable: Callable, kwargs: dict[str, Any]) -> dict[str, Any]:
         """Return the kwargs to pass to callable, given kwargs passed to this function"""

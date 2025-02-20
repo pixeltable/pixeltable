@@ -195,14 +195,13 @@ class CallableFunction(Function):
     def validate_call(self, bound_args: dict[str, Any]) -> None:
         from pixeltable import exprs
 
-        assert not self.is_polymorphic
+        super().validate_call(bound_args)
         if self.is_batched:
             signature = self.signatures[0]
             for param in signature.constant_parameters:
-                if param.name in bound_args and isinstance(bound_args[param.name], exprs.Expr):
+                if param.name in bound_args and not isinstance(bound_args[param.name], exprs.Literal):
                     raise ValueError(
-                        f'{self.display_name}(): '
-                        f'parameter {param.name} must be a constant value, not a Pixeltable expression'
+                        f'{self.display_name}(): parameter {param.name} must be a constant value'
                     )
 
     def __repr__(self) -> str:

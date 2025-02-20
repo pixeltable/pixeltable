@@ -205,17 +205,16 @@ class AggregateFunction(Function):
         )
 
     def validate_call(self, bound_args: dict[str, Any]) -> None:
-        # check that init parameters are not Exprs
-        # TODO: do this in the planner (check that init parameters are either constants or only refer to grouping exprs)
         from pixeltable import exprs
 
-        assert not self.is_polymorphic
+        super().validate_call(bound_args)
 
+        # check that init parameters are not Exprs
+        # TODO: do this in the planner (check that init parameters are either constants or only refer to grouping exprs)
         for param_name in self.init_param_names[0]:
-            if param_name in bound_args and isinstance(bound_args[param_name], exprs.Expr):
+            if param_name in bound_args and not isinstance(bound_args[param_name], exprs.Literal):
                 raise excs.Error(
-                    f'{self.display_name}(): init() parameter {param_name} needs to be a constant, not a Pixeltable '
-                    f'expression'
+                    f'{self.display_name}(): init() parameter {param_name} must be a constant value'
                 )
 
     def __repr__(self) -> str:

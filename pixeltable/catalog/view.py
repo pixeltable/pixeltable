@@ -100,10 +100,9 @@ class View(Table):
                     func.Parameter(param_name, param_type, kind=inspect.Parameter.POSITIONAL_OR_KEYWORD)
                     for param_name, param_type in iterator_cls.input_schema().items()
                 ]
-                sig = func.Signature(ts.InvalidType(), params)
-                from pixeltable.exprs import FunctionCall
 
-                FunctionCall.normalize_args(iterator_cls.__name__, sig, bound_args)
+                bound_args = {k: exprs.Expr.from_object(v) for k, v in bound_args.items()}
+                bound_args = {k: v.val if isinstance(v, exprs.Literal) else v for k, v in bound_args.items()}
             except TypeError as e:
                 raise excs.Error(f'Cannot instantiate iterator with given arguments: {e}')
 
