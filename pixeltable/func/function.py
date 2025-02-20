@@ -194,7 +194,6 @@ class Function(ABC):
         bound_args = signature.py_signature.bind(*args, **kwargs).arguments
         normalized_args = {k: exprs.Expr.from_object(v) for k, v in bound_args.items()}
         self._resolved_fns[signature_idx].validate_call(normalized_args)
-        # unwrapped_args = {k: v.val if isinstance(v, exprs.Literal) else v for k, v in normalized_args.items()}
         return normalized_args
 
     def validate_call(self, bound_args: dict[str, Optional['exprs.Expr']]) -> None:
@@ -202,28 +201,43 @@ class Function(ABC):
         assert not self.is_polymorphic
         self.signature.validate_args(bound_args, context=f'in function {self.name!r}')
 
-    def _get_callable_args(self, callable: Callable, kwargs: dict[str, Any]) -> dict[str, Any]:
-        """Return the kwargs to pass to callable, given kwargs passed to this function"""
-        bound_args = self.signature.py_signature.bind(**kwargs).arguments
-        # add defaults to bound_args, if not already present
-        bound_args.update(
-            {
-                name: param.default
-                for name, param in self.signature.parameters.items()
-                if name not in bound_args and param.has_default()
-            }
-        )
-        result: dict[str, Any] = {}
-        sig = inspect.signature(callable)
-        for param in sig.parameters.values():
-            if param.name in bound_args:
-                result[param.name] = bound_args[param.name]
-        return result
+    def _get_callable_args(self, callable: Callable, bound_args: dict[str, Any]) -> Optional[dict[str, Any]]:
+        """
+        Return the kwargs to pass to callable, given bound_args passed to this function.
+        """
+        from pixeltable import exprs
 
-    def call_resource_pool(self, kwargs: dict[str, Any]) -> str:
+        assert not self.is_polymorphic
+
+        callable_signature = inspect.signature(callable)
+        callable_args: dict[str, Any] = {}
+
+        for param in callable_signature.parameters.values():
+            arg: Any
+            if param.name in bound_args:
+                arg = bound_args[param.name]
+            elif self.signature.parameters[param.name].has_default():
+                arg = self.signature.parameters[param.name].default
+            else:
+                return None
+
+            if isinstance(arg, exprs.Literal):
+                callable_args[param.name] = arg.val
+            elif isinstance(arg, exprs.Expr):
+                return None
+            else:
+                callable_args[param.name] = arg
+
+        return callable_args
+
+    def call_resource_pool(self, bound_args: dict[str, Any]) -> str:
         """Return the resource pool to use for calling this function with the given arguments"""
-        kw_args = self._get_callable_args(self._resource_pool, kwargs)
-        return self._resource_pool(**kw_args)
+        rp_kwargs = self._get_callable_args(self._resource_pool, bound_args)
+        if rp_kwargs is None:
+            # TODO: What to do in this case? An example where this can happen is if model_id is not a constant
+            #   in a call to one of the OpenAI endpoints.
+            raise excs.Error('Could not determine resource pool')
+        return self._resource_pool(**rp_kwargs)
 
     def call_return_type(self, args: Sequence[Any], kwargs: dict[str, Any]) -> ts.ColumnType:
         """Return the type of the value returned by calling this function with the given arguments"""

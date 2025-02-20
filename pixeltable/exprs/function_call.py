@@ -68,7 +68,6 @@ class FunctionCall(Expr):
 
         self.fn = fn
         self.is_method_call = is_method_call
-        # self.normalize_args(fn.name, signature, bound_args)
         self.resource_pool = fn.call_resource_pool(bound_args)
         signature = fn.signature
 
