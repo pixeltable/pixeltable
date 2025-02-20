@@ -265,14 +265,12 @@ class Signature:
                 if param_type is None:
                     raise excs.Error(f'Cannot infer pixeltable type for parameter {param.name!r}')
 
+            default = None if param.default is inspect.Parameter.empty else exprs.Expr.from_object(param.default)
+            if not (default is None or isinstance(default, exprs.Literal)):
+                raise excs.Error(f'Default value for parameter {param.name!r} must be a constant')
+
             parameters.append(
-                Parameter(
-                    param.name,
-                    col_type=param_type,
-                    kind=param.kind,
-                    is_batched=is_batched,
-                    default=exprs.Expr.from_object(param.default),
-                )
+                Parameter(param.name, col_type=param_type, kind=param.kind, is_batched=is_batched, default=default)
             )
 
         return parameters

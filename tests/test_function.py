@@ -665,7 +665,7 @@ class TestFunction:
         ) -> pxt.Array[pxt.Float, (6,)]:
             return a + b
 
-        t = pxt.create_table('test2', {'a': pxt.Array[pxt.Float, (6,)]})
+        t = pxt.create_table('test2', {'a': pxt.Array[pxt.Float, (6,)]})  # type: ignore[misc]
         t.add_computed_column(add_one=udf_with_array_constants(t.a))
         t.add_computed_column(add_zeros=udf_with_array_constants(t.a, b=np.zeros(6, dtype=np.float32)))
 

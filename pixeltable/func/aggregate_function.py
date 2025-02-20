@@ -104,7 +104,12 @@ class AggregateFunction(Function):
         py_update_params = list(inspect.signature(cls.update).parameters.values())[1:]  # leave out self
         assert len(py_update_params) == len(update_types)
         update_params = [
-            Parameter(p.name, col_type=update_types[i], kind=p.kind, default=exprs.Expr.from_object(p.default))
+            Parameter(
+                p.name,
+                col_type=update_types[i],
+                kind=p.kind,
+                default=exprs.Expr.from_object(p.default),  # type: ignore[arg-type]
+            )
             for i, p in enumerate(py_update_params)
         ]
         # starting at 1: leave out self
@@ -115,7 +120,7 @@ class AggregateFunction(Function):
                 p.name,
                 col_type=init_types[i],
                 kind=inspect.Parameter.KEYWORD_ONLY,
-                default=exprs.Expr.from_object(p.default),
+                default=exprs.Expr.from_object(p.default),  # type: ignore[arg-type]
             )
             for i, p in enumerate(py_init_params)
         ]
