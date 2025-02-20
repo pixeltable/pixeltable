@@ -4,10 +4,10 @@ description: "Build a web content search system using smart chunking and vector 
 icon: "globe"
 ---
 
-# Building a Website Search Pipeline
+# Building a Website Search Workflow
 
 Pixeltable website search works in two phases:
-1. Define your pipeline structure (once)
+1. Define your workflow structure (once)
 2. Query your content database (anytime)
 
 <Steps>
@@ -17,8 +17,8 @@ Pixeltable website search works in two phases:
     ```
   </Step>
 
-  <Step title="Define Your Pipeline" icon="diagram-project">
-    Create `schema.py`:
+  <Step title="Define Your Workflow" icon="diagram-project">
+    Create `table.py`:
     ```python
     import pixeltable as pxt
     from pixeltable.iterators import DocumentSplitter
@@ -72,7 +72,7 @@ Pixeltable website search works in two phases:
     ```
   </Step>
 
-  <Step title="Use Your Pipeline" icon="play">
+  <Step title="Use Your Workflow" icon="play">
     Create `app.py`:
     ```python
     import pixeltable as pxt
@@ -157,7 +157,7 @@ Pixeltable website search works in two phases:
   </Card>
 </CardGroup>
 
-## Pipeline Components
+## Workflow Components
 
 <AccordionGroup>
   <Accordion title="Web Processing" icon="globe">

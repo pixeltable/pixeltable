@@ -1,13 +1,13 @@
 ---
 title: "Voxel51"
-description: "Build image analysis pipelines with Pixeltable and Voxel51 in two phases"
+description: "Build image analysis workflows with Pixeltable and Voxel51 in two phases"
 icon: "camera"
 ---
 
 # Building Voxel51 Analysis Apps
 
 Pixeltable's Voxel51 integration works in two phases:
-1. Define your processing pipeline (once)
+1. Define your processing workflow (once)
 2. Use and visualize your data (anytime)
 
 <Steps>
@@ -17,8 +17,8 @@ Pixeltable's Voxel51 integration works in two phases:
     ```
   </Step>
 
-  <Step title="Define Your Pipeline" icon="diagram-project">
-    Create `schema.py`:
+  <Step title="Define Your Workflow" icon="diagram-project">
+    Create `table.py`:
     ```python
     import pixeltable as pxt
     from pixeltable.functions.huggingface import (

@@ -1,13 +1,13 @@
 ---
 title: "Video"
-description: "Build a video search pipeline with Pixeltable"
+description: "Build a video search workflow with Pixeltable"
 icon: "video"
 ---
 
-# Building a Video Search Pipeline
+# Building a Video Search Workflow
 
-Pixeltable lets you build video search pipelines in two phases:
-1. Define your processing pipeline (once)
+Pixeltable lets you build video search workflows in two phases:
+1. Define your processing workflow (once)
 2. Query your knowledge base (anytime)
 
 <Steps>
@@ -18,8 +18,8 @@ Pixeltable lets you build video search pipelines in two phases:
     ```
   </Step>
 
-  <Step title="Define Your Pipeline" icon="diagram-project">
-    Create `schema.py`:
+  <Step title="Define Your Workflow" icon="diagram-project">
+    Create `table.py`:
     ```python
     import pixeltable as pxt
     from pixeltable.functions import whisper
@@ -40,7 +40,7 @@ Pixeltable lets you build video search pipelines in two phases:
         {"audio_file": pxt.Audio}
     )
 
-    # Add transcription pipeline
+    # Add transcription workflow
     audio_t.add_computed_column(
         transcription=whisper.transcribe(
             audio=audio_t.audio_file, 
@@ -81,7 +81,7 @@ Pixeltable lets you build video search pipelines in two phases:
     ```
   </Step>
 
-  <Step title="Use Your Pipeline" icon="play">
+  <Step title="Use Your Workflow" icon="play">
     Create `app.py`:
     ```python
     import pixeltable as pxt
@@ -120,7 +120,7 @@ Pixeltable lets you build video search pipelines in two phases:
 
 <CardGroup cols={1}>
   <Card title="Automatic Processing" icon="gears">
-    Pipeline handles transcription and embedding automatically:
+    Workflow handles transcription and embedding automatically:
     ```python
     audio_t.add_computed_column(
         transcription=whisper.transcribe(
@@ -151,7 +151,7 @@ Pixeltable lets you build video search pipelines in two phases:
   </Card>
 </CardGroup>
 
-## Pipeline Components
+## Workflow Components
 
 <AccordionGroup>
   <Accordion title="Audio Transcription" icon="waveform">
@@ -232,6 +232,6 @@ embed_model = sentence_transformer.using(
     Learn how to implement custom text chunking strategies
   </Card>
   <Card title="Performance Tuning" icon="gauge-high" href="/docs/audio/performance">
-    Optimize your audio search pipeline for speed and accuracy
+    Optimize your audio search workflow for speed and accuracy
   </Card>
 </CardGroup>

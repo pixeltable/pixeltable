@@ -242,21 +242,21 @@ Always use a `where()` clause with `delete()`. Without it, all rows in the table
 
 <AccordionGroup>
   <Accordion title="Development Workflow" icon="code-branch">
-    1. Create `schema.py` for structure
-    2. Test schema and pipeline
+    1. Create `table.py` for structure
+    2. Test schema and workflow
     3. Create `app.py` for usage
     4. Deploy both files
   </Accordion>
 
   <Accordion title="Production Setup" icon="rocket">
     ```python
-    # schema.py - Run once to set up
+    # table.py - Run once to set up
     pxt.create_table(..., if_exists="ignore")
     
     # app.py - Production code
     table = pxt.get_table("myapp.mytable")
     if table is None:
-        raise RuntimeError("Run schema.py first!")
+        raise RuntimeError("Run table.py first!")
     ```
   </Accordion>
 </AccordionGroup>

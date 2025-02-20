@@ -10,10 +10,10 @@ User-Defined Functions (UDFs) in Pixeltable allow you to:
 - Write custom Python functions for data processing
 - Integrate them into computed columns and queries
 - Optimize performance through batching
-- Create reusable components for your data pipeline
+- Create reusable components for your data workflow
 
 <Note>
-All UDFs require type hints for parameters and return values. This enables Pixeltable to validate and optimize your data pipeline before execution.
+All UDFs require type hints for parameters and return values. This enables Pixeltable to validate and optimize your data workflow before execution.
 </Note>
 
 ## Basic UDF Creation
@@ -217,7 +217,7 @@ table.add_computed_column(
 ## Error Handling
 
 <Warning>
-Always handle potential errors in UDFs to prevent pipeline failures. Pixeltable tracks exceptions but cannot recover automatically.
+Always handle potential errors in UDFs to prevent workflow failures. Pixeltable tracks exceptions but cannot recover automatically.
 </Warning>
 
 ```python

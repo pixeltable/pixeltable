@@ -1,13 +1,13 @@
 ---
 title: "Label Studio"
-description: "Build annotation pipelines with Pixeltable and Label Studio in two phases"
+description: "Build annotation workflows with Pixeltable and Label Studio in two phases"
 icon: "circle-play"
 ---
 
 # Building Label Studio Annotation Apps
 
 Pixeltable's Label Studio integration works in two phases:
-1. Define your annotation pipeline (once)
+1. Define your annotation workflow (once)
 2. Use and annotate your data (anytime)
 
 <Note>
@@ -21,8 +21,8 @@ This integration requires a local Pixeltable installation and cannot be run in C
     ```
   </Step>
 
-  <Step title="Define Your Pipeline" icon="diagram-project">
-    Create `schema.py`:
+  <Step title="Define Your Workflow" icon="diagram-project">
+    Create `table.py`:
     ```python
     import pixeltable as pxt
     from pixeltable.iterators import FrameIterator
@@ -176,7 +176,7 @@ This integration requires a local Pixeltable installation and cannot be run in C
   </Card>
 
   <Card title="Incremental Updates" icon="arrows-rotate">
-    New data automatically flows through pipeline:
+    New data automatically flows through workflow:
     ```python
     videos.insert(new_video)
     videos.sync()  # Syncs only new data

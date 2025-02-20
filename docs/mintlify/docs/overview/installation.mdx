@@ -221,7 +221,7 @@ def create_messages(past_context: List[Dict], current_message: str) -> List[Dict
     messages.append({"role": "user", "content": current_message})
     return messages
 
-# Configure processing pipeline
+# Configure processing workflow
 chat_session.add_computed_column(memory_context=get_recent_memory())
 chat_session.add_computed_column(
     prompt=create_messages(chat_session.memory_context, chat_session.user_message)

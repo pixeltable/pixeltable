@@ -77,7 +77,7 @@ Pixeltable tool-calling apps work in two phases:
         if_exists="ignore"
     )
 
-    # Add tool selection and execution pipeline
+    # Add tool selection and execution workflow
     tool_agent.add_computed_column(
         initial_response=chat_completions(
             model="gpt-4o-mini",

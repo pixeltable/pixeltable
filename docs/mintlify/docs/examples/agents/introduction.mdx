@@ -1,0 +1,229 @@
+---
+title: 'Introduction'
+description: 'Understanding and implementing AI agents with Pixeltable'
+mode: 'wide'
+---
+
+## What is an Agent?
+
+<Note>
+As defined by [Anthropic](https://www.anthropic.com/research/building-effective-agents), agents are AI systems where large language models (LLMs) dynamically direct their own processes and tool usage, maintaining control over how they accomplish tasks.
+</Note>
+
+This differs from workflows, which are systems where LLMs and tools are orchestrated through predefined code paths. See [Workflows](/examples/agents/workflows) for more details.
+
+<Warning>
+An agent is not simply a zero-shot call to a large language model. Proper agents require multiple components working together.
+</Warning>
+
+## Core Components
+
+<CardGroup cols={2}>
+  <Card title="Model" icon="brain">
+    The foundation of an agent is a large language model capable of understanding and generating human-like text.
+  </Card>
+  <Card title="Tools" icon="screwdriver-wrench">
+    External functions and APIs that the model can use to interact with the world and gather information.
+  </Card>
+  <Card title="Memory" icon="database">
+    The agent's ability to maintain and track state across multiple interactions.
+  </Card>
+  <Card title="Loop" icon="rotate">
+    The capability to execute multiple steps and iterations to complete a task.
+  </Card>
+</CardGroup>
+
+## Getting Started
+
+<Steps>
+  <Step title="Installation">
+    Install the required packages:
+    ```bash
+    pip install pixeltable pixelagent openai yfinance
+    ```
+  </Step>
+
+  <Step title="High-Level Implementation">
+    Using Pixelagent for quick agent creation:
+    ```python
+    import pixeltable as pxt
+    from pixelagent.openai import Agent
+    import yfinance as yf
+
+    @pxt.udf
+    def get_stock_data(ticker: str) -> dict:
+        """Get up-to-date stock data for a given ticker"""
+        return yf.Ticker(ticker).info
+
+    yfinance_tools = pxt.tools(get_stock_data)
+
+    agent = Agent(
+        name="Financial Research Agent",
+        model="gpt-4o-mini",
+        system_prompt="You are a financial research assistant.",
+        tools=yfinance_tools,
+        # reset=True  # Uncomment to reset the agent's memory
+    )
+    ```
+  </Step>
+
+  <Step title="Using the Agent">
+    Example of agent interaction:
+    ```python
+    # Create a financial research template
+    template = agent.run("Create a template for a detailed financial research report")
+    print(template)
+
+    # Use the template (maintains context from previous interaction)
+    analysis = agent.run("Using the template you created, perform a detailed analysis of Apple.")
+    print(analysis)
+    ```
+  </Step>
+</Steps>
+
+## Low-Level Implementation
+
+If you want to build your own tool-calling agent, you can directly use the Pixeltable SDK.
+
+Slightly more verbose, but gives you the ability to modify the agent's tables and orchestration.
+
+<Accordion title="Complete Low-Level Implementation with Pixeltable SDK">
+```python
+from typing import Dict, List, Optional
+
+import pixeltable as pxt
+from pixeltable.functions import openai
+
+@pxt.udf
+def _create_messages(past_context: List[Dict], system_prompt: str) -> List[Dict]:
+    """Create messages list with system prompt, memory context and new message"""
+    messages = [{'role': 'system', 'content': system_prompt}]
+    messages.extend([{'role': msg['role'], 'content': msg['content']} for msg in past_context])
+    return messages
+
+@pxt.udf
+def _create_tool_prompt(question: str, tool_outputs: list[dict]) -> str:
+    """Create a prompt that includes tool outputs"""
+    return f"""
+    QUESTION:
+    {question}
+
+    TOOL RESULTS:
+    {tool_outputs}
+    """
+    
+def create_chat(name: str, openai_model: str, tools: Optional[pxt.tools] = None):
+    """Create a chat table with optional tool support.
+    
+    Args:
+        name: Name of the chat
+        openai_model: OpenAI model to use
+        tools: Optional tools to make available to the agent
+    """
+    # Create directory for chat
+    pxt.drop_dir(name, force=True)
+    pxt.create_dir(name)
+
+    # Table to store conversation history between AI and User.
+    message_table = pxt.create_table(
+        path_str=f'{name}.messages',
+        schema_or_df={'role': pxt.String, 'content': pxt.String}
+    )
+
+    # Chat interaction table
+    chat = pxt.create_table(path_str=f'{name}.chat', schema_or_df={'system_prompt': pxt.String})
+
+    @pxt.query
+    def _get_messages():
+        return message_table.select(role=message_table.role, content=message_table.content)
+
+    # Response sequence
+    chat.add_computed_column(get_messages=_get_messages())
+    chat.add_computed_column(
+        messages=_create_messages(chat.get_messages, chat.system_prompt)
+    )
+    
+    if tools:
+        # Add tool-enabled response sequence
+        chat.add_computed_column(
+            tool_response=openai.chat_completions(
+                messages=chat.messages,
+                model=openai_model,
+                tools=tools,
+                tool_choice=tools.choice(required=True)
+            )
+        )
+        
+        chat.add_computed_column(
+            tool_result=openai.invoke_tools(tools, chat.tool_response)
+        )
+        
+        chat.add_computed_column(
+            tool_prompt=_create_tool_prompt(chat.get_messages[-1].content, chat.tool_result)
+        )
+        
+        # Final response incorporating tool results
+        final_messages = [
+            {'role': 'system', 'content': "Answer the user's question based on the tool results."},
+            {'role': 'user', 'content': chat.tool_prompt}
+        ]
+        
+        chat.add_computed_column(
+            final_response=openai.chat_completions(model=openai_model, messages=final_messages)
+        )
+        
+        chat.add_computed_column(response=chat.final_response.choices[0].message.content)
+    else:
+        # Standard response sequence without tools
+        chat.add_computed_column(
+            invoke_llm=openai.chat_completions(messages=chat.messages, model=openai_model)
+        )
+        chat.add_computed_column(response=chat.invoke_llm.choices[0].message.content)
+
+def run(name: str, instructions: str, content: str) -> str:
+    # Log the user message
+    message_table = pxt.get_table(f'{name}.messages')
+    message_table.insert([{'role': 'user', 'content': content}])
+
+    # Invoke the LLM
+    chat = pxt.get_table(f'{name}.chat')
+    chat.insert([{'system_prompt': instructions}])
+
+    # Log the agent response
+    response = chat.select(chat.response).tail(1)['response'][0]
+    message_table.insert([{'role': 'assistant', 'content': response}])
+    
+    return response
+
+class Agent:
+    """Base agent class that can be composed into workflows"""
+    def __init__(self, name: str, system_prompt: str, model: str = "gpt-4o-mini", 
+                 tools: Optional[pxt.tools] = None, reset: bool = False):
+        self.name = name
+        self.system_prompt = system_prompt
+        self.model = model
+        self.tools = tools
+        if reset:
+            create_chat(name, model, tools)
+        
+    def run(self, content: str) -> str:
+        return run(self.name, self.system_prompt, content)
+```
+</Accordion>
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Persistence" icon="database">
+    Agents maintain state and conversation history across sessions using Pixeltable's storage capabilities.
+  </Card>
+  <Card title="Tool Integration" icon="plug">
+    Seamlessly incorporate external tools and APIs into agent workflows with the tools parameter.
+  </Card>
+  <Card title="Flexible Architecture" icon="shuffle">
+    Choose between high-level Pixelagent API or low-level Pixeltable SDK implementation.
+  </Card>
+  <Card title="State Management" icon="layer-group">
+    Built-in conversation history and state tracking through message tables.
+  </Card>
+</CardGroup>

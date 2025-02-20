@@ -11,7 +11,7 @@ Views in Pixeltable are best used when you need to:
 1. **Transform Data**: When you need to process or reshape data from a base table (e.g., splitting documents into chunks, extracting features from images)
 2. **Filter Data**: When you frequently need to work with a specific subset of your data
 3. **Create Virtual Tables**: When you want to avoid storing redundant data and automatically keep derived data in sync
-4. **Build Data Pipelines**: When you need to chain multiple data transformations together
+4. **Build Data Workflows**: When you need to chain multiple data transformations together
 5. **Save Storage**: When you want to compute data on demand rather than storing it permanently
 
 <Note>
@@ -20,7 +20,7 @@ Choose views over tables when your data is derived from other tables and needs t
 
 ## Phase 1: Definition
 
-Create `schema.py` to define your view structure:
+Create `table.py` to define your view structure:
 
 ```python
 import pixeltable as pxt
@@ -147,8 +147,8 @@ print(chunks.collect())
   <Card title="Virtual Storage" icon="cloud">
     Views compute data on demand, saving storage
   </Card>
-  <Card title="Pipeline Integration" icon="diagram-project">
-    Views can be part of larger data pipelines
+  <Card title="Workflow Integration" icon="diagram-project">
+    Views can be part of larger data workflows
   </Card>
 </CardGroup>
 

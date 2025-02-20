@@ -5,7 +5,7 @@ icon: 'calculator'
 ---
 
 <Note>
-Computed columns are one of Pixeltable's most powerful features, combining automatic calculations with smart incremental updates. Think of them as your data pipeline automated.
+Computed columns are one of Pixeltable's most powerful features, combining automatic calculations with smart incremental updates. Think of them as your data workflow automated.
 </Note>
 
 ## Getting Started
@@ -49,7 +49,7 @@ Computed columns are one of Pixeltable's most powerful features, combining autom
     4. Only affected rows are recomputed
   </Accordion>
 
-  <Accordion title="Example Pipeline" icon="diagram-project">
+  <Accordion title="Example Workflow" icon="diagram-project">
     ```python
     # Create initial computed column
     pop_t.add_computed_column(
@@ -71,11 +71,11 @@ Computed columns are one of Pixeltable's most powerful features, combining autom
   </Accordion>
 </AccordionGroup>
 
-## Building Data Pipelines
+## Building Data Workflows
 
 <Tabs>
-  <Tab title="Basic Pipeline">
-    Create a simple calculation pipeline:
+  <Tab title="Basic Workflow">
+    Create a simple calculation workflow:
     ```python
     # First transformation
     pop_t.add_computed_column(
@@ -89,7 +89,7 @@ Computed columns are one of Pixeltable's most powerful features, combining autom
     ```
   </Tab>
   
-  <Tab title="Complex Pipeline">
+  <Tab title="Complex Workflow">
     Chain multiple computations together:
     ```python
     # Calculate year-over-year change
@@ -124,7 +124,7 @@ Computed columns are one of Pixeltable's most powerful features, combining autom
     Only affected rows are recomputed when data changes
   </Card>
   <Card title="Type Safety" icon="shield-check">
-    Computed columns maintain type safety throughout the pipeline
+    Computed columns maintain type safety throughout the workflow
   </Card>
   <Card title="Persistent Storage" icon="database">
     Results are automatically stored and versioned
@@ -134,8 +134,8 @@ Computed columns are one of Pixeltable's most powerful features, combining autom
 ## Real-World Applications
 
 <AccordionGroup>
-  <Accordion title="AI Pipelines" icon="robot">
-    Similar to our [chatbot example](/docs/documentation/chat/basic), you can create AI pipelines:
+  <Accordion title="AI Workflows" icon="robot">
+    Similar to our [chatbot example](/docs/documentation/chat/basic), you can create AI workflows:
     ```python
     conversations.add_computed_column(
         messages=[{"role": "user", "content": conversations.prompt}]
@@ -167,5 +167,5 @@ Computed columns are one of Pixeltable's most powerful features, combining autom
 </AccordionGroup>
 
 <Tip>
-Think of computed columns as building blocks for your data pipeline. Each column can depend on others, creating a powerful and maintainable data transformation workflow.
+Think of computed columns as building blocks for your data workflow. Each column can depend on others, creating a powerful and maintainable data transformation workflow.
 </Tip>

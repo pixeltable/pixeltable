@@ -7,17 +7,17 @@
   },
   "favicon": "/favicon.svg",
   "colors": {
-  "primary": "#19191B",       
-  "light": "#71717A",        
-  "dark": "#09080B",          
-  "anchors": {
-    "from": "#0A2F5C",        
-    "to": "#404040"          
+    "primary": "#19191B",
+    "light": "#71717A",
+    "dark": "#09080B",
+    "anchors": {
+      "from": "#0A2F5C",
+      "to": "#404040"
+    },
+    "background": {
+      "dark": "#08080B"
+    }
   },
-  "background": {
-    "dark": "#08080B"       
-  }
-},
   "font": {
     "headings": {
       "family": "Inter"
@@ -72,7 +72,7 @@
       "name": "Changelog",
       "url": "/docs/changelog"
     }
-  ],  
+  ],
   "navigation": [
     {
       "group": "Welcome to Pixeltable",
@@ -84,30 +84,34 @@
       ]
     },
     {
-      "group": "Multimodal AI Infrastructure",
+      "group": "Multimodal AI Datastore",
       "pages": [
         "docs/datastore/tables-and-operations",
         "docs/datastore/views",
         "docs/datastore/bringing-data",
         "docs/datastore/filtering-and-selecting",
-        "docs/datastore/computed-columns",          
+        "docs/datastore/computed-columns",
         "docs/datastore/embedding-index",
         "docs/datastore/custom-functions"
       ]
     },
     {
-      "group": "Example Applications",
+      "group": "Cookbook",
       "pages": [
         "docs/examples/overview",
         {
-          "group": "Agentic workflows",
+          "group": "Agent Framework",
           "pages": [
-            "docs/examples/agentic-workflows/knowledge",
-            "docs/examples/agentic-workflows/memory",
-            "docs/examples/agentic-workflows/object-detection",
-            "docs/examples/agentic-workflows/tools",
-            "docs/examples/agentic-workflows/teams",
-            "docs/examples/agentic-workflows/evaluation"
+            "docs/examples/agents/introduction"                     
+          ]
+        },
+        {
+          "group": "Chat",
+          "pages": [
+            "docs/examples/chat/multimodal",
+            "docs/examples/chat/memory",
+            "docs/examples/chat/tools",
+            "docs/examples/evaluations/llm-as-a-judge"
           ]
         },
         {
@@ -117,56 +121,24 @@
             "docs/examples/vision/voxel51",
             "docs/examples/vision/yolox"
           ]
-        },        
+        },
         {
-              "group": "Persistent Chatbot",
-              "pages": [
-                "docs/examples/chatbot/multimodal",
-                "docs/examples/chatbot/memory",
-                "docs/examples/chatbot/tools",
-                "docs/examples/evaluations/llm-as-a-judge"
-
-              ]
-            },
-            {
-              "group": "Machine Learning",
-              "pages": [
-                "docs/examples/predictive-modeling/forecasting",
-                "docs/examples/predictive-modeling/classification",
-                "docs/examples/predictive-modeling/regression",
-                "docs/examples/predictive-modeling/clustering"
-              ]
-            },
-            {
-              "group": "Multimodal Search",
-              "pages": [
-                "docs/examples/search/audio",
-                "docs/examples/search/images",
-                "docs/examples/search/PDF",
-                "docs/examples/search/website",
-                "docs/examples/search/hybrid-recall",
-                "docs/examples/search/metadata-filtering"
-              ]
-            },            
-            {
-              "group": "Sample Deployments",
-              "pages": [
-                "docs/examples/sample-apps/ai-trading-chrome-extension",
-                "docs/examples/sample-apps/multimodal-search-nextjs-fastapi",
-                "docs/examples/sample-apps/prompt-optimization-studio-gradio-application",
-                "docs/examples/sample-apps/multimodal-chat-nextjs-fastapi",
-                "docs/examples/sample-apps/context-aware-discord-bot"
-
-              ]
-            }                                    
+          "group": "Multimodal Vector Database",
+          "pages": [
+            "docs/examples/search/audio",
+            "docs/examples/search/images",
+            "docs/examples/search/PDF",
+            "docs/examples/search/website"        
+          ]
+        }
       ]
-
     },
     {
       "group": "Support",
       "pages": [
         "docs/support/getting-help",
-        "docs/support/faq"
+        "docs/support/faq",
+        "docs/fundamentals/sample-apps"
       ]
     },
     {
@@ -192,16 +164,16 @@
         "docs/integrations/models"
       ]
     },
-      {
-        "group": "Bring Your Own",
-        "pages": [
-          "docs/integrations/embedding-model"
-        ]
-      }
-  ],
-    "footerSocials": {
-      "twitter": "https://twitter.com/pixeltablehq",
-      "github": "https://github.com/pixeltable/pixeltable",
-      "discord": "https://discord.com/invite/QPyqFYx2UN"
+    {
+      "group": "Bring Your Own",
+      "pages": [
+        "docs/integrations/embedding-model"
+      ]
     }
+  ],
+  "footerSocials": {
+    "twitter": "https://twitter.com/pixeltablehq",
+    "github": "https://github.com/pixeltable/pixeltable",
+    "discord": "https://discord.com/invite/QPyqFYx2UN"
+  }
 }

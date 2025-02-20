@@ -7,7 +7,7 @@ icon: "camera-movie"
 # Building YOLOX Detection Apps
 
 Pixeltable YOLOX apps work in two phases:
-1. Define your detection pipeline (once)
+1. Define your detection workflow (once)
 2. Use your app (anytime)
 
 <Steps>
@@ -17,8 +17,8 @@ Pixeltable YOLOX apps work in two phases:
     ```
   </Step>
 
-  <Step title="Define Your Detection Pipeline" icon="wand-magic-sparkles">
-    Create `schema.py`:
+  <Step title="Define Your Detection Workflow" icon="wand-magic-sparkles">
+    Create `table.py`:
     ```python
     import pixeltable as pxt
     from pixeltable.ext.functions.yolox import yolox
@@ -52,7 +52,7 @@ Pixeltable YOLOX apps work in two phases:
         )
     )
 
-    # Add detection pipeline to images
+    # Add detection workflow to images
     images.add_computed_column(
         detections=yolox(
             images.image,
@@ -61,7 +61,7 @@ Pixeltable YOLOX apps work in two phases:
         )
     )
 
-    # Add detection pipeline to video frames
+    # Add detection workflow to video frames
     frames.add_computed_column(
         detections=yolox(
             frames.frame,
@@ -149,7 +149,7 @@ Pixeltable YOLOX apps work in two phases:
 
 <CardGroup cols={1}>
   <Card title="Automatic Processing" icon="gears">
-    Pipeline handles model loading, inference, and result storage:
+    Workflow handles model loading, inference, and result storage:
     ```python
     detections=yolox(images.image, model_id='yolox_s')
     ```

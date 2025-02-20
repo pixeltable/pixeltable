@@ -4,10 +4,10 @@ description: "Build an image search system using GPT-4 Vision and vector embeddi
 icon: "image"
 ---
 
-# Building a Visual Search Pipeline
+# Building a Visual Search Workflow
 
 Pixeltable image search works in two phases:
-1. Define your pipeline structure (once)
+1. Define your workflow structure (once)
 2. Query your image database (anytime)
 
 <Steps>
@@ -17,8 +17,8 @@ Pixeltable image search works in two phases:
     ```
   </Step>
 
-  <Step title="Define Your Pipeline" icon="wand-magic-sparkles">
-    Create `schema.py`:
+  <Step title="Define Your Workflow" icon="wand-magic-sparkles">
+    Create `table.py`:
     ```python
     import pixeltable as pxt
     from pixeltable.functions.openai import vision
@@ -70,7 +70,7 @@ Pixeltable image search works in two phases:
     ```
   </Step>
 
-  <Step title="Use Your Pipeline" icon="play">
+  <Step title="Use Your Workflow" icon="play">
     Create `app.py`:
     ```python
     import pixeltable as pxt
@@ -152,7 +152,7 @@ Pixeltable image search works in two phases:
   </Card>
 </CardGroup>
 
-## Pipeline Components
+## Workflow Components
 
 <AccordionGroup>
   <Accordion title="GPT-4 Vision" icon="robot">

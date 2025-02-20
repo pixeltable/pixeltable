@@ -17,8 +17,8 @@ Learn how to build a chatbot that remembers conversation history using Pixeltabl
     ```
   </Step>
 
-  <Step title="Define Your App Structure" icon="table">
-    Create `schema.py`:
+  <Step title="Define Your Backend Tables" icon="table">
+    Create `tables.py`:
     ```python
     import pixeltable as pxt
     from datetime import datetime
@@ -70,7 +70,7 @@ Learn how to build a chatbot that remembers conversation history using Pixeltabl
         messages.append({"role": "user", "content": current_message})
         return messages
 
-    # Configure processing pipeline
+    # Configure processing workflow
     chat_session.add_computed_column(memory_context=get_recent_memory())
     chat_session.add_computed_column(
         prompt=create_messages(chat_session.memory_context, chat_session.user_message)

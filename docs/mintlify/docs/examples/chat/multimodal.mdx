@@ -1,5 +1,5 @@
 ---
-title: 'Multimodal'
+title: 'Multimodal Chatbot'
 description: 'Build a chat application that processes documents, videos, and audio'
 icon: 'film'
 ---
@@ -212,10 +212,10 @@ def get_relevant_audio_chunks(query_text: str):
 
 ## Computed Columns
 
-Define your processing pipeline with computed columns:
+Define your processing workflow with computed columns:
 
 ```python
-# Video processing pipeline
+# Video processing workflow
 docs_table.add_computed_column(
     audio_extract=extract_audio(docs_table.video, format="mp3")
 )
@@ -229,7 +229,7 @@ docs_table.add_computed_column(
     transcription_text=docs_table.transcription.text
 )
 
-# Audio processing pipeline
+# Audio processing workflow
 docs_table.add_computed_column(
     audio_transcription=openai.transcriptions(
         audio=docs_table.audio,
@@ -240,7 +240,7 @@ docs_table.add_computed_column(
     audio_transcription_text=docs_table.audio_transcription.text
 )
 
-# Chat processing pipeline
+# Chat processing workflow
 docs_table.add_computed_column(
     context_doc=chunks_view.queries.get_relevant_chunks(docs_table.question)
 )
@@ -339,7 +339,7 @@ print(history)
   <Card title="Computed Columns" icon="calculator">
     - Group related computations
     - Consider computation cost
-    - Monitor pipeline performance
+    - Monitor workflow performance
   </Card>
   
   <Card title="UDFs" icon="code">

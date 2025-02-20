@@ -18,7 +18,7 @@ Learn how to add automated quality assessment to your AI applications using LLM-
   </Step>
 
   <Step title="Define Your Evaluation Structure" icon="scale-balanced">
-    Create `schema.py`:
+    Create `table.py`:
     ```python
     import pixeltable as pxt
     from pixeltable.functions import openai
@@ -37,7 +37,7 @@ Learn how to add automated quality assessment to your AI applications using LLM-
         if_exists="ignore"
     )
 
-    # Configure processing pipeline
+    # Configure processing workflow
     conversations.add_computed_column(
         messages=[{"role": "user", "content": conversations.prompt}]
     )
@@ -53,7 +53,7 @@ Learn how to add automated quality assessment to your AI applications using LLM-
         answer=conversations.response.choices[0].message.content
     )
 
-    # Add judge evaluation pipeline
+    # Add judge evaluation workflow
     judge_prompt_template = """
     You are an expert judge evaluating AI responses. Your task is to evaluate the following response based on the given criteria.
 
