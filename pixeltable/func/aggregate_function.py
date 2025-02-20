@@ -80,6 +80,8 @@ class AggregateFunction(Function):
         """Inspects the Aggregator class to infer the corresponding function signature. Returns the
         inferred signature along with the list of init_param_names (for downstream error handling).
         """
+        from pixeltable import exprs
+
         # infer type parameters; set return_type=InvalidType() because it has no meaning here
         init_sig = Signature.create(
             py_fn=cls.__init__, return_type=ts.InvalidType(), is_cls_method=True, type_substitutions=type_substitutions
@@ -102,14 +104,14 @@ class AggregateFunction(Function):
         py_update_params = list(inspect.signature(cls.update).parameters.values())[1:]  # leave out self
         assert len(py_update_params) == len(update_types)
         update_params = [
-            Parameter(p.name, col_type=update_types[i], kind=p.kind, default=p.default)
+            Parameter(p.name, col_type=update_types[i], kind=p.kind, default=exprs.Expr.from_object(p.default))
             for i, p in enumerate(py_update_params)
         ]
         # starting at 1: leave out self
         py_init_params = list(inspect.signature(cls.__init__).parameters.values())[1:]
         assert len(py_init_params) == len(init_types)
         init_params = [
-            Parameter(p.name, col_type=init_types[i], kind=inspect.Parameter.KEYWORD_ONLY, default=p.default)
+            Parameter(p.name, col_type=init_types[i], kind=inspect.Parameter.KEYWORD_ONLY, default=exprs.Expr.from_object(p.default))
             for i, p in enumerate(py_init_params)
         ]
         duplicate_params = set(p.name for p in init_params) & set(p.name for p in update_params)

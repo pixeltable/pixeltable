@@ -32,17 +32,11 @@ class ExprTemplate:
             assert var.name in self.param_exprs, f"Variable '{var.name}' in expression is not a parameter"
 
         # verify default values
-        self.defaults: dict[str, exprs.Literal] = {}  # key: param name, value: default value converted to a Literal
+        self.defaults: dict[str, exprs.Literal] = {}
         for param in self.signature.parameters.values():
-            if param.default is inspect.Parameter.empty:
+            if param.default is None:
                 continue
-            param_expr = self.param_exprs[param.name]
-            try:
-                literal_default = exprs.Literal(param.default, col_type=param_expr.col_type)
-                self.defaults[param.name] = literal_default
-            except TypeError as e:
-                msg = str(e)
-                raise excs.Error(f"Default value for parameter '{param.name}': {msg[0].lower() + msg[1:]}")
+            self.defaults[param.name] = param.default
 
 
 class ExprTemplateFunction(Function):

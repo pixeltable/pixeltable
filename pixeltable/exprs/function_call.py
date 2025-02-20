@@ -3,7 +3,7 @@ from __future__ import annotations
 import inspect
 import json
 import sys
-from typing import Any, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Optional, Sequence
 
 import sqlalchemy as sql
 
@@ -14,7 +14,7 @@ import pixeltable.type_system as ts
 
 from .data_row import DataRow
 from .expr import Expr
-from .inline_expr import InlineDict, InlineList
+from .inline_expr import InlineList
 from .literal import Literal
 from .row_builder import RowBuilder
 from .rowid_ref import RowidRef
@@ -53,13 +53,13 @@ class FunctionCall(Expr):
     def __init__(
         self,
         fn: func.Function,
-        bound_args: dict[str, Any],
+        bound_args: dict[str, Expr],
         return_type: ts.ColumnType,
         order_by_clause: Optional[list[Any]] = None,
         group_by_clause: Optional[list[Any]] = None,
         is_method_call: bool = False,
     ):
-        from pixeltable import exprs
+        assert all(isinstance(arg, Expr) for arg in bound_args.values())
 
         if order_by_clause is None:
             order_by_clause = []
@@ -81,7 +81,6 @@ class FunctionCall(Expr):
             if (
                 param.col_type is not None
                 and not param.col_type.nullable
-                and isinstance(arg, Expr)
                 and arg.col_type.nullable
             ):
                 return_type = return_type.copy(nullable=True)
@@ -97,7 +96,7 @@ class FunctionCall(Expr):
             assert isinstance(fn, func.AggregateFunction)
             for arg_name, arg in bound_args.items():
                 if arg_name in fn.init_param_names[0]:
-                    assert isinstance(arg, exprs.Literal)  # This was checked during validate_call
+                    assert isinstance(arg, Literal)  # This was checked during validate_call
                     self.agg_init_args[arg_name] = arg.val
             bound_args = {
                 arg_name: arg for arg_name, arg in bound_args.items() if arg_name not in fn.init_param_names[0]
@@ -118,13 +117,9 @@ class FunctionCall(Expr):
             if py_param.name not in bound_args or py_param.kind == inspect.Parameter.KEYWORD_ONLY:
                 break
             arg = bound_args[py_param.name]
-            if isinstance(arg, Expr):
-                self.args.append((len(self.components), None))
-                self._param_values[py_param.name] = (len(self.components), None)
-                self.components.append(arg.copy())
-            else:
-                self.args.append((None, arg))
-                self._param_values[py_param.name] = (None, arg)
+            self.args.append((len(self.components), None))
+            self._param_values[py_param.name] = (len(self.components), None)
+            self.components.append(arg.copy())
             if py_param.kind != inspect.Parameter.VAR_POSITIONAL and py_param.kind != inspect.Parameter.VAR_KEYWORD:
                 self.arg_types.append(signature.parameters[py_param.name].col_type)
             processed_args.add(py_param.name)
@@ -133,22 +128,16 @@ class FunctionCall(Expr):
         for param_name in bound_args.keys():
             if param_name not in processed_args:
                 arg = bound_args[param_name]
-                if isinstance(arg, Expr):
-                    self.kwargs[param_name] = (len(self.components), None)
-                    self._param_values[param_name] = (len(self.components), None)
-                    self.components.append(arg.copy())
-                else:
-                    self.kwargs[param_name] = (None, arg)
-                    self._param_values[param_name] = (None, arg)
+                self.kwargs[param_name] = (len(self.components), None)
+                self._param_values[param_name] = (len(self.components), None)
+                self.components.append(arg.copy())
                 if signature.py_signature.parameters[param_name].kind != inspect.Parameter.VAR_KEYWORD:
                     self.kwarg_types[param_name] = signature.parameters[param_name].col_type
 
         # fill in default values for parameters that don't have explicit arguments
         for param in fn.signature.parameters.values():
             if param.name not in self._param_values:
-                self._param_values[param.name] = (
-                    (None, None) if param.default is inspect.Parameter.empty else (None, param.default)
-                )
+                self._param_values[param.name] = (None, None if param.default is None else param.default.val)
 
         # window function state:
         # self.components[self.group_by_start_idx:self.group_by_stop_idx] contains group_by exprs

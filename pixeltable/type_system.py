@@ -819,8 +819,14 @@ class ArrayType(ColumnType):
         return hash((self._type, self.nullable, self.shape, self.dtype))
 
     def supertype(self, other: ColumnType) -> Optional[ArrayType]:
+        basic_supertype = super().supertype(other)
+        if basic_supertype is not None:
+            assert isinstance(basic_supertype, ArrayType)
+            return basic_supertype
+
         if not isinstance(other, ArrayType):
             return None
+
         super_dtype = self.Type.supertype(self.dtype, other.dtype, self.common_supertypes)
         if super_dtype is None:
             # if the dtypes are incompatible, then the supertype is a fully general array
@@ -994,8 +1000,14 @@ class ImageType(ColumnType):
         return hash((self._type, self.nullable, self.size, self.mode))
 
     def supertype(self, other: ColumnType) -> Optional[ImageType]:
+        basic_supertype = super().supertype(other)
+        if basic_supertype is not None:
+            assert isinstance(basic_supertype, ImageType)
+            return basic_supertype
+
         if not isinstance(other, ImageType):
             return None
+
         width = self.width if self.width == other.width else None
         height = self.height if self.height == other.height else None
         mode = self.mode if self.mode == other.mode else None

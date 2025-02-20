@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import sqlalchemy as sql
 
 import pixeltable.exceptions as excs
-import pixeltable.index as index
 import pixeltable.type_system as ts
 
 from .column_ref import ColumnRef
@@ -16,12 +15,16 @@ from .literal import Literal
 from .row_builder import RowBuilder
 from .sql_element_cache import SqlElementCache
 
+if TYPE_CHECKING:
+    from pixeltable import index
 
 class Comparison(Expr):
     is_search_arg_comparison: bool
     operator: ComparisonOperator
 
     def __init__(self, operator: ComparisonOperator, op1: Expr, op2: Expr):
+        from pixeltable import index
+
         super().__init__(ts.BoolType())
         self.operator = operator
 
@@ -37,8 +40,6 @@ class Comparison(Expr):
         else:
             self.is_search_arg_comparison = False
             self.components = [op1, op2]
-
-        import pixeltable.index as index
 
         if (
             self.is_search_arg_comparison
@@ -71,6 +72,8 @@ class Comparison(Expr):
         return self.components[1]
 
     def sql_expr(self, sql_elements: SqlElementCache) -> Optional[sql.ColumnElement]:
+        from pixeltable import index
+
         if str(self._op1.col_type.to_sa_type()) != str(self._op2.col_type.to_sa_type()):
             # Comparing columns of different SQL types (e.g., string vs. json); this can only be done in Python
             # TODO(aaron-siegel): We may be able to handle some cases in SQL by casting one side to the other's type

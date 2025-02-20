@@ -23,25 +23,22 @@ class Parameter:
     kind: inspect._ParameterKind
     # for some reason, this needs to precede is_batched in the dataclass definition,
     # otherwise Python complains that an argument with a default is followed by an argument without a default
-    default: Any = inspect.Parameter.empty  # default value for the parameter
+    default: Optional['exprs.Literal'] = None  # default value for the parameter
     is_batched: bool = False  # True if the parameter is a batched parameter (eg, Batch[dict])
 
     def __post_init__(self) -> None:
-        # make sure that default is json-serializable and of the correct type
-        if self.default is inspect.Parameter.empty or self.default is None:
-            return
-        try:
-            _ = json.dumps(self.default)
-        except TypeError:
-            raise excs.Error(f'Default value for parameter {self.name} is not JSON-serializable: {str(self.default)}')
-        if self.col_type is not None:
-            try:
-                self.col_type.validate_literal(self.default)
-            except TypeError as e:
-                raise excs.Error(f'Default value for parameter {self.name}: {str(e)}')
+        from pixeltable import exprs
+
+        if self.default is not None:
+            if self.col_type is None:
+                raise excs.Error(f'Cannot have a default value for variable parameter {self.name!r}')
+            if not isinstance(self.default, exprs.Literal):
+                raise excs.Error(f'Default value for parameter {self.name!r} is not a constant')
+            if not self.col_type.is_supertype_of(self.default.col_type):
+                raise excs.Error(f'Default value for parameter {self.name!r} is not of type {self.col_type!r}: {self.default}')
 
     def has_default(self) -> bool:
-        return self.default is not inspect.Parameter.empty
+        return self.default is not None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -50,16 +47,14 @@ class Parameter:
             'kind': self.kind.name,
             'is_batched': self.is_batched,
             'has_default': self.has_default(),
-            'default': self.default if self.has_default() else None,
+            'default': None if self.default is None else self.default.as_dict(),
         }
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> Parameter:
-        has_default = d['has_default']
-        if has_default:
-            default = d['default']
-        else:
-            default = inspect.Parameter.empty
+        from pixeltable import exprs
+        
+        default = None if d['default'] is None else exprs.Literal.from_dict(d['default'])
         return cls(
             name=d['name'],
             col_type=ts.ColumnType.from_dict(d['col_type']) if d['col_type'] is not None else None,
@@ -69,7 +64,8 @@ class Parameter:
         )
 
     def to_py_param(self) -> inspect.Parameter:
-        return inspect.Parameter(self.name, self.kind, default=self.default)
+        py_default = self.default.val if self.default is not None else inspect.Parameter.empty
+        return inspect.Parameter(self.name, self.kind, default=py_default)
 
 
 T = typing.TypeVar('T')
@@ -231,6 +227,8 @@ class Signature:
         type_substitutions: Optional[dict] = None,
         is_cls_method: bool = False,
     ) -> list[Parameter]:
+        from pixeltable import exprs
+
         assert (py_fn is None) != (py_params is None)
         if py_fn is not None:
             sig = inspect.signature(py_fn)
@@ -244,7 +242,7 @@ class Signature:
             if is_cls_method and idx == 0:
                 continue  # skip 'self' or 'cls' parameter
             if param.name in cls.SPECIAL_PARAM_NAMES:
-                raise excs.Error(f"'{param.name}' is a reserved parameter name")
+                raise excs.Error(f"{param.name!r} is a reserved parameter name")
             if param.kind == inspect.Parameter.VAR_POSITIONAL or param.kind == inspect.Parameter.VAR_KEYWORD:
                 parameters.append(Parameter(param.name, col_type=None, kind=param.kind))
                 continue
@@ -252,7 +250,7 @@ class Signature:
             # check non-var parameters for name collisions and default value compatibility
             if param_types is not None:
                 if idx >= len(param_types):
-                    raise excs.Error(f'Missing type for parameter {param.name}')
+                    raise excs.Error(f'Missing type for parameter {param.name!r}')
                 param_type = param_types[idx]
                 is_batched = False
             else:
@@ -263,11 +261,11 @@ class Signature:
                     py_type = param.annotation
                 param_type, is_batched = cls._infer_type(py_type)
                 if param_type is None:
-                    raise excs.Error(f'Cannot infer pixeltable type for parameter {param.name}')
+                    raise excs.Error(f'Cannot infer pixeltable type for parameter {param.name!r}')
 
             parameters.append(
                 Parameter(
-                    param.name, col_type=param_type, kind=param.kind, is_batched=is_batched, default=param.default
+                    param.name, col_type=param_type, kind=param.kind, is_batched=is_batched, default=exprs.Expr.from_object(param.default)
                 )
             )
 

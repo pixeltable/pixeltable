@@ -576,7 +576,7 @@ class Expr(abc.ABC):
 
     def __bool__(self) -> bool:
         raise TypeError(
-            'Pixeltable expressions cannot be used in conjunction with Python boolean operators (and/or/not)'
+            f'Pixeltable expressions cannot be used in conjunction with Python boolean operators (and/or/not)\n{self!r}'
         )
 
     def __lt__(self, other: object) -> 'exprs.Comparison':

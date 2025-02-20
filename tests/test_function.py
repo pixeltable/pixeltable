@@ -1,3 +1,4 @@
+from datetime import datetime
 import typing
 from textwrap import dedent
 from typing import Optional
@@ -151,7 +152,7 @@ class TestFunction:
             def f1(a: int, b: float, c='') -> float:
                 return a + b + c
 
-        assert 'cannot infer pixeltable type for parameter c' in str(exc_info.value).lower()
+        assert "cannot infer pixeltable type for parameter 'c'" in str(exc_info.value).lower()
         # bad parameter name
         with pytest.raises(excs.Error) as exc_info:
 
@@ -386,7 +387,7 @@ class TestFunction:
             def add1(x, y) -> int:
                 return x + y
 
-        assert 'missing type for parameter y' in str(exc_info.value).lower()
+        assert "missing type for parameter 'y'" in str(exc_info.value).lower()
 
         with pytest.raises(TypeError) as t_exc_info:
             # signature has correct parameter kind
@@ -434,7 +435,7 @@ class TestFunction:
             def udf4(array: np.ndarray) -> str:
                 return ''
 
-        assert 'cannot infer pixeltable type for parameter array' in str(exc_info.value).lower()
+        assert "cannot infer pixeltable type for parameter 'array'" in str(exc_info.value).lower()
 
         with pytest.raises(excs.Error) as exc_info:
 
@@ -442,7 +443,7 @@ class TestFunction:
             def udf5(name: str, untyped) -> str:
                 return ''
 
-        assert 'cannot infer pixeltable type for parameter untyped' in str(exc_info.value).lower()
+        assert "cannot infer pixeltable type for parameter 'untyped'" in str(exc_info.value).lower()
 
         with pytest.raises(ValueError) as v_exc_info:
 
@@ -644,6 +645,28 @@ class TestFunction:
         res_direct = t.order_by(t.c2).select(t.c1, t.c2, t.c3).collect()
         assert len(res) == 1
         assert res[0] == {'c1': max(res_direct['c1']), 'c2': max(res_direct['c2']), 'c3': max(res_direct['c3'])}
+
+    def test_constants(self, reset_db) -> None:
+        """
+        Test UDFs with default values and/or constant arguments that are not JSON serializable.
+        """
+        @pxt.udf(_force_stored=True)
+        def udf_with_timestamp_constants(ts1: datetime, ts2: datetime = datetime.fromtimestamp(0)) -> float:
+            return (ts1 - ts2).seconds
+
+        t = pxt.create_table('test1', {'ts1': pxt.Timestamp})
+        t.add_computed_column(seconds_since_epoch=udf_with_timestamp_constants(t.ts1))
+        t.add_computed_column(seconds_since_2000=udf_with_timestamp_constants(t.ts1, ts2=datetime(2000, 1, 1)))
+
+        @pxt.udf(_force_stored=True)
+        def udf_with_array_constants(a: pxt.Array[pxt.Float, (6,)], b: pxt.Array[pxt.Float, (6,)] = np.ones(6, dtype=np.float32)) -> pxt.Array[pxt.Float, (6,)]:
+            return a + b
+
+        t = pxt.create_table('test2', {'a': pxt.Array[pxt.Float, (6,)]})
+        t.add_computed_column(add_one=udf_with_array_constants(t.a))
+        t.add_computed_column(add_zeros=udf_with_array_constants(t.a, b=np.zeros(6, dtype=np.float32)))
+
+        reload_catalog()
 
     def test_udf_evolution(self, reset_db) -> None:
         import tests.test_function
