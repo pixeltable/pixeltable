@@ -111,7 +111,12 @@ class AggregateFunction(Function):
         py_init_params = list(inspect.signature(cls.__init__).parameters.values())[1:]
         assert len(py_init_params) == len(init_types)
         init_params = [
-            Parameter(p.name, col_type=init_types[i], kind=inspect.Parameter.KEYWORD_ONLY, default=exprs.Expr.from_object(p.default))
+            Parameter(
+                p.name,
+                col_type=init_types[i],
+                kind=inspect.Parameter.KEYWORD_ONLY,
+                default=exprs.Expr.from_object(p.default),
+            )
             for i, p in enumerate(py_init_params)
         ]
         duplicate_params = set(p.name for p in init_params) & set(p.name for p in update_params)
@@ -215,9 +220,7 @@ class AggregateFunction(Function):
         # TODO: do this in the planner (check that init parameters are either constants or only refer to grouping exprs)
         for param_name in self.init_param_names[0]:
             if param_name in bound_args and not isinstance(bound_args[param_name], exprs.Literal):
-                raise excs.Error(
-                    f'{self.display_name}(): init() parameter {param_name!r} must be a constant value'
-                )
+                raise excs.Error(f'{self.display_name}(): init() parameter {param_name!r} must be a constant value')
 
     def __repr__(self) -> str:
         return f'<Pixeltable Aggregator {self.name}>'

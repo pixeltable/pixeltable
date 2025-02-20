@@ -203,9 +203,7 @@ class CallableFunction(Function):
             signature = self.signatures[0]
             for param in signature.constant_parameters:
                 if param.name in bound_args and not isinstance(bound_args[param.name], exprs.Literal):
-                    raise ValueError(
-                        f'{self.display_name}(): parameter {param.name} must be a constant value'
-                    )
+                    raise ValueError(f'{self.display_name}(): parameter {param.name} must be a constant value')
 
     def __repr__(self) -> str:
         return f'<Pixeltable UDF {self.name}>'

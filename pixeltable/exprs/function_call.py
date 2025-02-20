@@ -78,11 +78,7 @@ class FunctionCall(Expr):
         # `None` when any of its non-nullable inputs are `None`.
         for arg_name, arg in bound_args.items():
             param = signature.parameters[arg_name]
-            if (
-                param.col_type is not None
-                and not param.col_type.nullable
-                and arg.col_type.nullable
-            ):
+            if param.col_type is not None and not param.col_type.nullable and arg.col_type.nullable:
                 return_type = return_type.copy(nullable=True)
                 break
 

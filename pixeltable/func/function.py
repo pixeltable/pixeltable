@@ -220,7 +220,9 @@ class Function(ABC):
             return self.signature.return_type
         return self._conditional_return_type(**crt_kwargs)
 
-    def _assemble_callable_args(self, callable: Callable, bound_args: dict[str, 'exprs.Expr']) -> Optional[dict[str, Any]]:
+    def _assemble_callable_args(
+        self, callable: Callable, bound_args: dict[str, 'exprs.Expr']
+    ) -> Optional[dict[str, Any]]:
         """
         Return the kwargs to pass to callable, given bound_args passed to this function.
         """

@@ -35,7 +35,9 @@ class Parameter:
             if not isinstance(self.default, exprs.Literal):
                 raise excs.Error(f'Default value for parameter {self.name!r} is not a constant')
             if not self.col_type.is_supertype_of(self.default.col_type):
-                raise excs.Error(f'Default value for parameter {self.name!r} is not of type {self.col_type!r}: {self.default}')
+                raise excs.Error(
+                    f'Default value for parameter {self.name!r} is not of type {self.col_type!r}: {self.default}'
+                )
 
     def has_default(self) -> bool:
         return self.default is not None
@@ -53,7 +55,7 @@ class Parameter:
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> Parameter:
         from pixeltable import exprs
-        
+
         default = None if d['default'] is None else exprs.Literal.from_dict(d['default'])
         return cls(
             name=d['name'],
@@ -242,7 +244,7 @@ class Signature:
             if is_cls_method and idx == 0:
                 continue  # skip 'self' or 'cls' parameter
             if param.name in cls.SPECIAL_PARAM_NAMES:
-                raise excs.Error(f"{param.name!r} is a reserved parameter name")
+                raise excs.Error(f'{param.name!r} is a reserved parameter name')
             if param.kind == inspect.Parameter.VAR_POSITIONAL or param.kind == inspect.Parameter.VAR_KEYWORD:
                 parameters.append(Parameter(param.name, col_type=None, kind=param.kind))
                 continue
@@ -265,7 +267,11 @@ class Signature:
 
             parameters.append(
                 Parameter(
-                    param.name, col_type=param_type, kind=param.kind, is_batched=is_batched, default=exprs.Expr.from_object(param.default)
+                    param.name,
+                    col_type=param_type,
+                    kind=param.kind,
+                    is_batched=is_batched,
+                    default=exprs.Expr.from_object(param.default),
                 )
             )
 

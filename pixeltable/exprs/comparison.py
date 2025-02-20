@@ -18,6 +18,7 @@ from .sql_element_cache import SqlElementCache
 if TYPE_CHECKING:
     from pixeltable import index
 
+
 class Comparison(Expr):
     is_search_arg_comparison: bool
     operator: ComparisonOperator

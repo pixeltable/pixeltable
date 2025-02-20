@@ -1,5 +1,5 @@
-from datetime import datetime
 import typing
+from datetime import datetime
 from textwrap import dedent
 from typing import Optional
 
@@ -650,6 +650,7 @@ class TestFunction:
         """
         Test UDFs with default values and/or constant arguments that are not JSON serializable.
         """
+
         @pxt.udf(_force_stored=True)
         def udf_with_timestamp_constants(ts1: datetime, ts2: datetime = datetime.fromtimestamp(0)) -> float:
             return (ts1 - ts2).seconds
@@ -659,7 +660,9 @@ class TestFunction:
         t.add_computed_column(seconds_since_2000=udf_with_timestamp_constants(t.ts1, ts2=datetime(2000, 1, 1)))
 
         @pxt.udf(_force_stored=True)
-        def udf_with_array_constants(a: pxt.Array[pxt.Float, (6,)], b: pxt.Array[pxt.Float, (6,)] = np.ones(6, dtype=np.float32)) -> pxt.Array[pxt.Float, (6,)]:
+        def udf_with_array_constants(
+            a: pxt.Array[pxt.Float, (6,)], b: pxt.Array[pxt.Float, (6,)] = np.ones(6, dtype=np.float32)
+        ) -> pxt.Array[pxt.Float, (6,)]:
             return a + b
 
         t = pxt.create_table('test2', {'a': pxt.Array[pxt.Float, (6,)]})
