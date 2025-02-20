@@ -1073,7 +1073,7 @@ class TestExprs:
         assert len(subexprs) == 1
         e = t.img.rotate(90).resize((224, 224))
         subexprs = [s for s in e.subexprs()]
-        assert len(subexprs) == 6
+        assert len(subexprs) == 3
         subexprs = [s for s in e.subexprs(expr_class=ColumnRef)]
         assert len(subexprs) == 1
         assert t.img.equals(subexprs[0])
@@ -1247,7 +1247,7 @@ class TestExprs:
 
         with pytest.raises(excs.Error) as exc_info:
             _ = t.select(self.window_agg(t.c2, val=t.c2, order_by=t.c2)).collect()
-        assert 'needs to be a constant' in str(exc_info.value)
+        assert 'must be a constant value' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
             # ordering expression not a pixeltable expr

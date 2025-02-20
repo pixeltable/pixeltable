@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-from typing import Any, Callable, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Optional, Sequence
 from uuid import UUID
 
 import cloudpickle  # type: ignore[import-untyped]
@@ -11,6 +11,9 @@ import pixeltable.exceptions as excs
 
 from .function import Function
 from .signature import Signature
+
+if TYPE_CHECKING:
+    from pixeltable import exprs
 
 
 class CallableFunction(Function):
@@ -192,7 +195,7 @@ class CallableFunction(Function):
         batch_size = md['batch_size']
         return CallableFunction([sig], [py_fn], self_name=name, batch_size=batch_size)
 
-    def validate_call(self, bound_args: dict[str, Any]) -> None:
+    def validate_call(self, bound_args: dict[str, 'exprs.Expr']) -> None:
         from pixeltable import exprs
 
         super().validate_call(bound_args)

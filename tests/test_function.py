@@ -825,3 +825,6 @@ class TestFunction:
 @pxt.udf
 def udf6(name: str) -> str:
     return ''
+
+
+evolving_udf: Optional[func.CallableFunction] = None

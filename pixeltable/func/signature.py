@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import dataclasses
-import enum
 import inspect
 import json
 import logging
 import typing
-from typing import Any, Callable, Optional, Union
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
+
+if TYPE_CHECKING:
+    from pixeltable import exprs
 
 _logger = logging.getLogger('pixeltable')
 
@@ -146,6 +148,36 @@ class Signature:
                 return False
 
         return True
+
+    def validate_args(self, bound_args: dict[str, Optional['exprs.Expr']], context: Optional[str] = None) -> None:
+        if context is not None:
+            context = f' ({context})'
+
+        for param_name, arg in bound_args.items():
+            param = self.parameters[param_name]
+            is_var_param = param.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
+            if is_var_param:
+                continue
+            assert param.col_type is not None
+
+            if arg is None:
+                raise excs.Error(f'Parameter {param_name!r}{context}: invalid argument')
+
+            # Check that the argument is consistent with the expected parameter type, with the allowance that
+            # non-nullable parameters can still accept nullable arguments (since function calls with Nones
+            # assigned to non-nullable parameters will always return None)
+            if not (
+                param.col_type.is_supertype_of(arg.col_type, ignore_nullable=True)
+                # TODO: this is a hack to allow JSON columns to be passed to functions that accept scalar
+                # types. It's necessary to avoid littering notebooks with `apply(str)` calls or equivalent.
+                # (Previously, this wasn't necessary because `is_supertype_of()` was improperly implemented.)
+                # We need to think through the right way to handle this scenario.
+                or (arg.col_type.is_json_type() and param.col_type.is_scalar_type())
+            ):
+                raise excs.Error(
+                    f'Parameter {param_name!r}{context}: argument type {arg.col_type} does not'
+                    f' match parameter type {param.col_type}'
+                )
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Signature):

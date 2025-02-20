@@ -12,7 +12,7 @@ from .globals import validate_symbol_path
 from .signature import Parameter, Signature
 
 if TYPE_CHECKING:
-    import pixeltable
+    from pixeltable import exprs
 
 
 class Aggregator(abc.ABC):
@@ -157,7 +157,7 @@ class AggregateFunction(Function):
         res += '\n\n' + inspect.getdoc(self.agg_classes[0].update)
         return res
 
-    def __call__(self, *args: object, **kwargs: object) -> 'pixeltable.exprs.FunctionCall':
+    def __call__(self, *args: object, **kwargs: object) -> 'exprs.FunctionCall':
         from pixeltable import exprs
 
         # perform semantic analysis of special parameters 'order_by' and 'group_by'
@@ -204,7 +204,7 @@ class AggregateFunction(Function):
             group_by_clause=[group_by_clause] if group_by_clause is not None else [],
         )
 
-    def validate_call(self, bound_args: dict[str, Any]) -> None:
+    def validate_call(self, bound_args: dict[str, 'exprs.Expr']) -> None:
         from pixeltable import exprs
 
         super().validate_call(bound_args)
@@ -214,7 +214,7 @@ class AggregateFunction(Function):
         for param_name in self.init_param_names[0]:
             if param_name in bound_args and not isinstance(bound_args[param_name], exprs.Literal):
                 raise excs.Error(
-                    f'{self.display_name}(): init() parameter {param_name} must be a constant value'
+                    f'{self.display_name}(): init() parameter {param_name!r} must be a constant value'
                 )
 
     def __repr__(self) -> str:

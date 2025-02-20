@@ -200,32 +200,7 @@ class Function(ABC):
     def validate_call(self, bound_args: dict[str, Optional['exprs.Expr']]) -> None:
         """Override this to do custom validation of the arguments"""
         assert not self.is_polymorphic
-
-        for param_name, arg in bound_args.items():
-            param = self.signature.parameters[param_name]
-            is_var_param = param.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
-            if is_var_param:
-                continue
-            assert param.col_type is not None
-
-            if arg is None:
-                raise excs.Error(f'Parameter {param_name} (in function {self.name}): invalid argument')
-
-            # Check that the argument is consistent with the expected parameter type, with the allowance that
-            # non-nullable parameters can still accept nullable arguments (since function calls with Nones
-            # assigned to non-nullable parameters will always return None)
-            if not (
-                param.col_type.is_supertype_of(arg.col_type, ignore_nullable=True)
-                # TODO: this is a hack to allow JSON columns to be passed to functions that accept scalar
-                # types. It's necessary to avoid littering notebooks with `apply(str)` calls or equivalent.
-                # (Previously, this wasn't necessary because `is_supertype_of()` was improperly implemented.)
-                # We need to think through the right way to handle this scenario.
-                or (arg.col_type.is_json_type() and param.col_type.is_scalar_type())
-            ):
-                raise excs.Error(
-                    f'Parameter {param_name} (in function {self.name}): argument type {arg.col_type} does not'
-                    f' match parameter type {param.col_type}'
-                )
+        self.signature.validate_args(bound_args, context=f'in function {self.name!r}')
 
     def _get_callable_args(self, callable: Callable, kwargs: dict[str, Any]) -> dict[str, Any]:
         """Return the kwargs to pass to callable, given kwargs passed to this function"""

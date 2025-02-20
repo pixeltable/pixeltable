@@ -78,12 +78,12 @@ class TestComponentView:
         # bad parameter type
         with pytest.raises(excs.Error) as excinfo:
             _ = pxt.create_view('test_view', video_t, iterator=FrameIterator.create(video=video_t.video, fps='1'))
-        assert 'expected float' in str(excinfo.value)
+        assert 'argument type String does not match parameter type Optional[Float]' in str(excinfo.value)
 
         # bad parameter type
         with pytest.raises(excs.Error) as excinfo:
             _ = pxt.create_view('test_view', video_t, iterator=FrameIterator.create(video=1, fps=1))
-        assert 'expected file path' in str(excinfo.value)
+        assert 'argument type Int does not match parameter type Video' in str(excinfo.value)
 
         # create frame view
         view_t = pxt.create_view('test_view', video_t, iterator=FrameIterator.create(video=video_t.video, fps=1))
