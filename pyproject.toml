@@ -209,8 +209,13 @@ line-length = 120
 select = ["F", "E", "W", "C", "I", "N", "B", "A", "ICN", "PYI", "SIM", "TD002", "PL", "RUF"]
 ignore = [
     "PLC0415",
-    "PLR0904", "PLR0911", "PLR0912", "PLR0913", "PLR0914", "PLR0915", "PLR0916", 
-    "PLR2004"
+    "PLC2701",  # Allow private name imports
+    # Ignore a bunch of rules that are just plain fussy about code complexity:
+    "C901", "PLR0904", "PLR0911", "PLR0912", "PLR0913", "PLR0914", "PLR0915", "PLR0916", "PLR0917", "PLR1702",
+    "PLR2004",
+    "PLR6301",  # Class method (not sure what to do yet)
+    "SIM108",  # Don't prefer use of ternary if/else operator
+    "TD002"  # Don't require author for TODOs
 ]
 preview = true
 

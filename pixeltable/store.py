@@ -12,10 +12,8 @@ from typing import Any, Iterator, Literal, Optional, Union
 import sqlalchemy as sql
 from tqdm import TqdmWarning, tqdm
 
-import pixeltable.catalog as catalog
-import pixeltable.env as env
 import pixeltable.exceptions as excs
-from pixeltable import exprs
+from pixeltable import catalog, env, exprs
 from pixeltable.exec import ExecNode
 from pixeltable.metadata import schema
 from pixeltable.utils.media_store import MediaStore
@@ -348,7 +346,7 @@ class StoreBase:
                             raise exc
 
                         rowid = (next(rowids),) if rowids is not None else row.pk[:-1]
-                        pk = rowid + (v_min,)
+                        pk = (*rowid, v_min)
                         table_row, num_row_exc = self._create_table_row(row, row_builder, cols_with_excs, pk=pk)
                         num_excs += num_row_exc
                         table_rows.append(table_row)

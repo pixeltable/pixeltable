@@ -10,7 +10,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
+from typing import _GenericAlias, ClassVar  # type: ignore[attr-defined]  # isort: skip
 from typing import Any, Iterable, Mapping, Optional, Sequence, Union
 
 import av  # type: ignore
@@ -81,9 +81,9 @@ class ColumnType:
         FLOAT32 = (10,)
         FLOAT64 = 11
 
-    scalar_types = {Type.STRING, Type.INT, Type.FLOAT, Type.BOOL, Type.TIMESTAMP}
-    numeric_types = {Type.INT, Type.FLOAT}
-    common_supertypes: dict[tuple[Type, Type], Type] = {
+    scalar_types: ClassVar[set[Type]] = {Type.STRING, Type.INT, Type.FLOAT, Type.BOOL, Type.TIMESTAMP}
+    numeric_types: ClassVar[set[Type]] = {Type.INT, Type.FLOAT}
+    common_supertypes: ClassVar[dict[tuple[Type, Type], Type]] = {
         (Type.BOOL, Type.INT): Type.INT,
         (Type.BOOL, Type.FLOAT): Type.FLOAT,
         (Type.INT, Type.FLOAT): Type.FLOAT,
@@ -147,7 +147,7 @@ class ColumnType:
 
     @classmethod
     def make_type(cls, t: Type) -> ColumnType:
-        assert t != cls.Type.INVALID and t != cls.Type.ARRAY
+        assert t != cls.Type.INVALID
         if t == cls.Type.STRING:
             return StringType()
         if t == cls.Type.INT:
@@ -158,6 +158,8 @@ class ColumnType:
             return BoolType()
         if t == cls.Type.TIMESTAMP:
             return TimestampType()
+        if t == cls.Type.ARRAY:
+            return ArrayType()
         if t == cls.Type.JSON:
             return JsonType()
         if t == cls.Type.IMAGE:
@@ -356,7 +358,7 @@ class ColumnType:
             cls.__raise_exc_for_invalid_type(t)
         return col_type
 
-    __TYPE_SUGGESTIONS: list[tuple[type, str]] = [
+    __TYPE_SUGGESTIONS: ClassVar[list[tuple[type, str]]] = [
         (str, 'pxt.String'),
         (bool, 'pxt.Bool'),
         (int, 'pxt.Int'),
@@ -395,14 +397,13 @@ class ColumnType:
         """Raises TypeError if not a valid local file path or not a path/byte sequence"""
         if isinstance(val, str):
             parsed = urllib.parse.urlparse(val)
-            if parsed.scheme != '' and parsed.scheme != 'file':
+            if parsed.scheme not in {'', 'file'}:
                 return
             path = Path(urllib.parse.unquote(urllib.request.url2pathname(parsed.path)))
             if not path.is_file():
-                raise TypeError(f'File not found: {str(path)}')
-        else:
-            if not isinstance(val, bytes):
-                raise TypeError(f'expected file path or bytes, got {type(val)}')
+                raise TypeError(f'File not found: {path}')
+        elif not isinstance(val, bytes):
+            raise TypeError(f'expected file path or bytes, got {type(val)}')
 
     @abc.abstractmethod
     def _validate_literal(self, val: Any) -> None:
@@ -470,12 +471,12 @@ class ColumnType:
         # types that refer to external media files
         return self.is_image_type() or self.is_video_type() or self.is_audio_type() or self.is_document_type()
 
+    @classmethod
     @abc.abstractmethod
-    def to_sa_type(self) -> sql.types.TypeEngine:
+    def to_sa_type(cls) -> sql.types.TypeEngine:
         """
         Return corresponding SQLAlchemy type.
         """
-        pass
 
     def to_json_schema(self) -> dict[str, Any]:
         if self.nullable:
@@ -491,21 +492,23 @@ class InvalidType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.INVALID, nullable=nullable)
 
-    def to_sa_type(self) -> sql.types.TypeEngine:
-        assert False
+    @classmethod
+    def to_sa_type(cls) -> sql.types.TypeEngine:
+        raise AssertionError()
 
     def print_value(self, val: Any) -> str:
         return str(val)
 
     def _validate_literal(self, val: Any) -> None:
-        assert False
+        raise AssertionError()
 
 
 class StringType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.STRING, nullable=nullable)
 
-    def to_sa_type(self) -> sql.types.TypeEngine:
+    @classmethod
+    def to_sa_type(cls) -> sql.types.TypeEngine:
         return sql.String()
 
     def _to_json_schema(self) -> dict[str, Any]:
@@ -531,7 +534,8 @@ class IntType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.INT, nullable=nullable)
 
-    def to_sa_type(self) -> sql.types.TypeEngine:
+    @classmethod
+    def to_sa_type(cls) -> sql.types.TypeEngine:
         return sql.BigInteger()
 
     def _to_json_schema(self) -> dict[str, Any]:
@@ -548,7 +552,8 @@ class FloatType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.FLOAT, nullable=nullable)
 
-    def to_sa_type(self) -> sql.types.TypeEngine:
+    @classmethod
+    def to_sa_type(cls) -> sql.types.TypeEngine:
         return sql.Float()
 
     def _to_json_schema(self) -> dict[str, Any]:
@@ -568,7 +573,8 @@ class BoolType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.BOOL, nullable=nullable)
 
-    def to_sa_type(self) -> sql.types.TypeEngine:
+    @classmethod
+    def to_sa_type(cls) -> sql.types.TypeEngine:
         return sql.Boolean()
 
     def _to_json_schema(self) -> dict[str, Any]:
@@ -588,7 +594,8 @@ class TimestampType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.TIMESTAMP, nullable=nullable)
 
-    def to_sa_type(self) -> sql.types.TypeEngine:
+    @classmethod
+    def to_sa_type(cls) -> sql.types.TypeEngine:
         return sql.TIMESTAMP(timezone=True)
 
     def _validate_literal(self, val: Any) -> None:
@@ -631,7 +638,8 @@ class JsonType(ColumnType):
     def _from_dict(cls, d: dict) -> ColumnType:
         return cls(json_schema=d.get('json_schema'), nullable=d['nullable'])
 
-    def to_sa_type(self) -> sql.types.TypeEngine:
+    @classmethod
+    def to_sa_type(cls) -> sql.types.TypeEngine:
         return sql.dialects.postgresql.JSONB()
 
     def _to_json_schema(self) -> dict[str, Any]:
@@ -743,7 +751,7 @@ class JsonType(ColumnType):
         a_type = a.get('type')
         b_type = b.get('type')
 
-        if a_type in ('string', 'integer', 'number', 'boolean', 'object', 'array') and a_type == b_type:
+        if a_type in {'string', 'integer', 'number', 'boolean', 'object', 'array'} and a_type == b_type:
             # a and b both have the same type designation, but are not identical. This can happen if
             # (for example) they have validators or other attributes that differ. In this case, we
             # generalize to {'type': t}, where t is their shared type, with no other qualifications.
@@ -923,7 +931,8 @@ class ArrayType(ColumnType):
             return np.array(val, dtype=self.numpy_dtype())
         return val
 
-    def to_sa_type(self) -> sql.types.TypeEngine:
+    @classmethod
+    def to_sa_type(cls) -> sql.types.TypeEngine:
         return sql.LargeBinary()
 
     def numpy_dtype(self) -> Optional[np.dtype]:
@@ -937,7 +946,7 @@ class ArrayType(ColumnType):
             return np.dtype(np.bool_)
         if self.dtype == self.Type.STRING:
             return np.dtype(np.str_)
-        assert False, self.dtype
+        raise AssertionError(self.dtype)
 
 
 class ImageType(ColumnType):
@@ -1015,7 +1024,8 @@ class ImageType(ColumnType):
         assert 'mode' in d
         return cls(width=d['width'], height=d['height'], mode=d['mode'], nullable=d['nullable'])
 
-    def to_sa_type(self) -> sql.types.TypeEngine:
+    @classmethod
+    def to_sa_type(cls) -> sql.types.TypeEngine:
         return sql.String()
 
     def _create_literal(self, val: Any) -> Any:
@@ -1049,7 +1059,8 @@ class VideoType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.VIDEO, nullable=nullable)
 
-    def to_sa_type(self) -> sql.types.TypeEngine:
+    @classmethod
+    def to_sa_type(cls) -> sql.types.TypeEngine:
         # stored as a file path
         return sql.String()
 
@@ -1081,7 +1092,8 @@ class AudioType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.AUDIO, nullable=nullable)
 
-    def to_sa_type(self) -> sql.types.TypeEngine:
+    @classmethod
+    def to_sa_type(cls) -> sql.types.TypeEngine:
         # stored as a file path
         return sql.String()
 
@@ -1123,7 +1135,7 @@ class DocumentType(ColumnType):
                     raise ValueError(f'Invalid document type: {type_str}')
             self._doc_formats = [self.DocumentFormat[type_str.upper()] for type_str in type_strs]
         else:
-            self._doc_formats = [t for t in self.DocumentFormat]
+            self._doc_formats = list(self.DocumentFormat)
 
     def copy(self, nullable: bool) -> ColumnType:
         return DocumentType(doc_formats=self.doc_formats, nullable=nullable)
@@ -1134,7 +1146,8 @@ class DocumentType(ColumnType):
     def __hash__(self) -> int:
         return hash((self._type, self.nullable, self._doc_formats))
 
-    def to_sa_type(self) -> sql.types.TypeEngine:
+    @classmethod
+    def to_sa_type(cls) -> sql.types.TypeEngine:
         # stored as a file path
         return sql.String()
 
