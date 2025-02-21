@@ -9,9 +9,7 @@ import typing
 import urllib.parse
 import urllib.request
 from pathlib import Path
-
-from typing import _GenericAlias, Literal  # type: ignore[attr-defined]  # isort: skip
-from typing import Any, Iterable, Mapping, Optional, Sequence, Union
+from typing import Any, Iterable, Literal, Mapping, Optional, Sequence, Union
 
 import av  # type: ignore
 import jsonschema
@@ -24,6 +22,8 @@ import sqlalchemy as sql
 from typing_extensions import _AnnotatedAlias
 
 import pixeltable.exceptions as excs
+
+from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
 
 
 class ColumnType:
