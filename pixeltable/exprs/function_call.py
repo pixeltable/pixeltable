@@ -3,8 +3,10 @@ from __future__ import annotations
 import inspect
 import sys
 from typing import Any, Optional, Sequence
+from uuid import UUID
 
 import sqlalchemy as sql
+from typing_extensions import Self
 
 import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
@@ -404,6 +406,14 @@ class FunctionCall(Expr):
             data_row[self.slot_idx] = self.aggregator.value()
         else:
             data_row[self.slot_idx] = self.fn.exec(args, kwargs)
+
+    def _retarget(self, tbl_versions: dict[UUID, catalog.TableVersion]) -> Self:
+        super()._retarget(tbl_versions)
+        for i in range(len(self.original_args)):
+            self.original_args[i] = self.original_args[i]._retarget(tbl_versions)
+        for k in self.original_kwargs:
+            self.original_kwargs[k] = self.original_kwargs[k]._retarget(tbl_versions)
+        return self
 
     def _as_dict(self) -> dict:
         group_by_exprs = self.components[self.group_by_start_idx : self.group_by_stop_idx]
