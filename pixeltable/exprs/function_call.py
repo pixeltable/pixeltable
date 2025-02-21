@@ -26,8 +26,8 @@ class FunctionCall(Expr):
     agg_init_args: dict[str, Any]
     resource_pool: Optional[str]
 
-    args: list[int]
-    kwargs: dict[str, int]
+    normalized_args: list[int]
+    normalized_kwargs: dict[str, int]
 
     # maps each parameter name to tuple representing the value it has in the call:
     # - argument's index in components, if an argument is given in the call
@@ -35,14 +35,11 @@ class FunctionCall(Expr):
     # (in essence, this combines init()'s bound_args and default values)
     _param_values: dict[str, tuple[Optional[int], Optional[Any]]]
 
-    arg_types: list[ts.ColumnType]
-    kwarg_types: dict[str, ts.ColumnType]
     return_type: ts.ColumnType
     group_by_start_idx: int
     group_by_stop_idx: int
     fn_expr_idx: int
     order_by_start_idx: int
-    constant_args: set[str]
     aggregator: Optional[Any]
     current_partition_vals: Optional[list[Any]]
 
@@ -54,8 +51,12 @@ class FunctionCall(Expr):
         order_by_clause: Optional[list[Any]] = None,
         group_by_clause: Optional[list[Any]] = None,
         is_method_call: bool = False,
+        original_args: Optional[list[Expr]] = None,
+        original_kwargs: Optional[dict[str, Expr]] = None,
     ):
         assert all(isinstance(arg, Expr) for arg in bound_args.values())
+        assert original_args is None or all(isinstance(arg, Expr) for arg in original_args)
+        assert original_kwargs is None or all(isinstance(arg, Expr) for arg in original_kwargs.values())
 
         if order_by_clause is None:
             order_by_clause = []
@@ -95,13 +96,9 @@ class FunctionCall(Expr):
             }
 
         # construct components, args, kwargs
-        self.args = []
-        self.kwargs = {}
+        self.normalized_args = []
+        self.normalized_kwargs = {}
         self._param_values = {}
-
-        # we record the types of non-variable parameters for runtime type checks
-        self.arg_types = []
-        self.kwarg_types = {}
 
         # the prefix of parameters that are bound can be passed by position
         processed_args: set[str] = set()
@@ -109,22 +106,18 @@ class FunctionCall(Expr):
             if py_param.name not in bound_args or py_param.kind == inspect.Parameter.KEYWORD_ONLY:
                 break
             arg = bound_args[py_param.name]
-            self.args.append(len(self.components))
+            self.normalized_args.append(len(self.components))
             self._param_values[py_param.name] = (len(self.components), None)
             self.components.append(arg.copy())
-            if py_param.kind != inspect.Parameter.VAR_POSITIONAL and py_param.kind != inspect.Parameter.VAR_KEYWORD:
-                self.arg_types.append(signature.parameters[py_param.name].col_type)
             processed_args.add(py_param.name)
 
         # the remaining args are passed as keywords
         for param_name in bound_args.keys():
             if param_name not in processed_args:
                 arg = bound_args[param_name]
-                self.kwargs[param_name] = len(self.components)
+                self.normalized_kwargs[param_name] = len(self.components)
                 self._param_values[param_name] = (len(self.components), None)
                 self.components.append(arg.copy())
-                if signature.py_signature.parameters[param_name].kind != inspect.Parameter.VAR_KEYWORD:
-                    self.kwarg_types[param_name] = signature.parameters[param_name].col_type
 
         # fill in default values for parameters that don't have explicit arguments
         for param in fn.signature.parameters.values():
@@ -163,7 +156,6 @@ class FunctionCall(Expr):
         self.order_by_start_idx = len(self.components)
         self.components.extend(order_by_clause)
 
-        self.constant_args = {param_name for param_name, arg in bound_args.items() if not isinstance(arg, Expr)}
         # execution state for aggregate functions
         self.aggregator = None
         self.current_partition_vals = None
@@ -180,10 +172,10 @@ class FunctionCall(Expr):
     def _equals(self, other: FunctionCall) -> bool:
         if self.fn != other.fn:
             return False
-        if len(self.args) != len(other.args):
+        if len(self.normalized_args) != len(other.normalized_args):
             return False
-        for i in range(len(self.args)):
-            if self.args[i] != other.args[i]:
+        for i in range(len(self.normalized_args)):
+            if self.normalized_args[i] != other.normalized_args[i]:
                 return False
         if self.group_by_start_idx != other.group_by_start_idx:
             return False
@@ -196,8 +188,8 @@ class FunctionCall(Expr):
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return super()._id_attrs() + [
             ('fn', id(self.fn)),  # use the function pointer, not the fqn, which isn't set for lambdas
-            ('args', self.args),
-            ('kwargs', self.kwargs),
+            ('args', self.normalized_args),
+            ('kwargs', self.normalized_kwargs),
             ('group_by_start_idx', self.group_by_start_idx),
             ('group_by_stop_idx', self.group_by_stop_idx),
             ('order_by_start_idx', self.order_by_start_idx),
@@ -217,11 +209,11 @@ class FunctionCall(Expr):
         def print_arg(arg: Any) -> str:
             return repr(arg) if isinstance(arg, str) else str(arg)
 
-        arg_strs = [str(self.components[idx]) for idx in self.args[start_idx:]]
+        arg_strs = [str(self.components[idx]) for idx in self.normalized_args[start_idx:]]
         arg_strs.extend(
             [
                 f'{param_name}={str(self.components[idx])}'
-                for param_name, idx in self.kwargs.items()
+                for param_name, idx in self.normalized_kwargs.items()
             ]
         )
         if len(self.order_by) > 0:
@@ -281,7 +273,7 @@ class FunctionCall(Expr):
 
         # try to construct args and kwargs to call self.fn._to_sql()
         kwargs: dict[str, sql.ColumnElement] = {}
-        for param_name, component_idx in self.kwargs.items():
+        for param_name, component_idx in self.normalized_kwargs.items():
             param = self.fn.signature.parameters[param_name]
             assert param.kind != inspect.Parameter.VAR_POSITIONAL and param.kind != inspect.Parameter.VAR_KEYWORD
             arg_element = sql_elements.get(self.components[component_idx])
@@ -290,7 +282,7 @@ class FunctionCall(Expr):
             kwargs[param_name] = arg_element
 
         args: list[sql.ColumnElement] = []
-        for component_idx in self.args:
+        for component_idx in self.normalized_args:
             arg_element = sql_elements.get(self.components[component_idx])
             if arg_element is None:
                 return None
@@ -318,7 +310,7 @@ class FunctionCall(Expr):
     def make_args(self, data_row: DataRow) -> Optional[tuple[list[Any], dict[str, Any]]]:
         """Return args and kwargs, constructed for data_row; returns None if any non-nullable arg is None."""
         kwargs: dict[str, Any] = {}
-        for param_name, component_idx in self.kwargs.items():
+        for param_name, component_idx in self.normalized_kwargs.items():
             val = data_row[self.components[component_idx].slot_idx]
             param = self.fn.signature.parameters[param_name]
             if param.kind == inspect.Parameter.VAR_KEYWORD:
@@ -331,7 +323,7 @@ class FunctionCall(Expr):
                 kwargs[param_name] = val
 
         args: list[Any] = []
-        for param_idx, component_idx in enumerate(self.args):
+        for param_idx, component_idx in enumerate(self.normalized_args):
             val = data_row[self.components[component_idx].slot_idx]
             param = self.fn.signature.parameters_by_pos[param_idx]
             if param.kind == inspect.Parameter.VAR_POSITIONAL:
@@ -412,8 +404,8 @@ class FunctionCall(Expr):
     def _as_dict(self) -> dict:
         result = {
             'fn': self.fn.as_dict(),
-            'args': self.args,
-            'kwargs': self.kwargs,
+            'args': self.normalized_args,
+            'kwargs': self.normalized_kwargs,
             'return_type': self.return_type.as_dict(),
             'group_by_start_idx': self.group_by_start_idx,
             'group_by_stop_idx': self.group_by_stop_idx,
