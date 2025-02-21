@@ -15,12 +15,10 @@ Views in Pixeltable are best used when you need to:
 5. **Save Storage**: When you want to compute data on demand rather than storing it permanently
 
 <Note>
-Choose views over tables when your data is derived from other tables and needs to stay synchronized with its source. Use regular tables when you need to store original data or when the computation cost of deriving data on demand is too high.
+Choose views over tables when your data is derived from other base tables and needs to stay synchronized with its source. Use regular tables when you need to store original data or when the computation cost of deriving data on demand is too high.
 </Note>
 
-## Phase 1: Definition
-
-Create `table.py` to define your view structure:
+## Phase 1: Define your base table and view structure
 
 ```python
 import pixeltable as pxt
@@ -48,9 +46,7 @@ chunks = pxt.create_view(
 )
 ```
 
-## Phase 2: Usage
-
-Create `app.py` to use your defined structure:
+## Phase 2: Use your application
 
 ```python
 import pixeltable as pxt

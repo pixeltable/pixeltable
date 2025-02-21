@@ -1,5 +1,5 @@
 ---
-title: '10-min tour of Pixeltable'
+title: 'Quick Start'
 description: 'Welcome to Pixeltable! In this tutorial, we will survey how to create tables, populate them with data, and enhance them with built-in and user-defined transformations and AI operations.'
 icon: 'wand-magic-sparkles'
 ---
@@ -8,7 +8,7 @@ icon: 'wand-magic-sparkles'
 This guide will get you from zero to a working AI application in under 5 minutes. Learn more by looking at this tutorial on [Github](https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/pixeltable-basics.ipynb).
 </Note>
 
-## Create Your First AI Product
+## Create Your First Multimidal AI Application
 
 Let's build an image analysis application that combines object detection and GPT-4 Vision.
 
@@ -133,18 +133,6 @@ def top_detection(detect: dict) -> str:
 # Use it in a computed column
 t.add_computed_column(top=top_detection(t.detections))
 ```
-
-## See It In Action
-
-<iframe
-  width="560"
-  height="315"
-  src="https://www.youtube.com/embed/4KzFe50RQkQ"
-  title="YouTube video player"
-  frameborder="0"
-  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-  allowfullscreen
-></iframe>
 
 ## Next Steps
 
