@@ -393,6 +393,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../../iterators/audio-splitter/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    AudioSplitter
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../iterators/component-iterator/" class="md-nav__link">
         
   
@@ -1302,6 +1323,10 @@ the <a href="https://pixeltable.readme.io/docs/working-with-fireworks">Working w
 <code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">chat_completions</span>
 
 
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-async"><code>async</code></small>
+  </span>
+
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">chat_completions</span><span class="p">(</span>
     <span class="n">messages</span><span class="p">:</span> <span class="n">Json</span><span class="p">,</span>
@@ -1310,7 +1335,8 @@ the <a href="https://pixeltable.readme.io/docs/working-with-fireworks">Working w
     <span class="n">max_tokens</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">top_k</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">top_p</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">temperature</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">temperature</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">request_timeout</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
 </code></pre></div>
 
@@ -1319,6 +1345,9 @@ the <a href="https://pixeltable.readme.io/docs/working-with-fireworks">Working w
       <p>Creates a model response for the given chat conversation.</p>
 <p>Equivalent to the Fireworks AI <code>chat/completions</code> API endpoint.
 For additional details, see: <a href="https://docs.fireworks.ai/api-reference/post-chatcompletions">https://docs.fireworks.ai/api-reference/post-chatcompletions</a></p>
+<p>Request throttling:
+Applies the rate limit set in the config (section <code>fireworks</code>, key <code>rate_limit</code>). If no rate
+limit is configured, uses a default of 600 RPM.</p>
 <p><strong>Requirements:</strong></p>
 <ul>
 <li><code>pip install fireworks-ai</code></li>
@@ -1363,7 +1392,7 @@ For additional details, see: <a href="https://docs.fireworks.ai/api-reference/po
     <p>Add a computed column that applies the model <code>accounts/fireworks/models/mixtral-8x22b-instruct</code>
 to an existing Pixeltable column <code>tbl.prompt</code> of the table <code>tbl</code>:</p>
     <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">messages</span> <span class="o">=</span> <span class="p">[{</span><span class="s1">&#39;role&#39;</span><span class="p">:</span> <span class="s1">&#39;user&#39;</span><span class="p">,</span> <span class="s1">&#39;content&#39;</span><span class="p">:</span> <span class="n">tbl</span><span class="o">.</span><span class="n">prompt</span><span class="p">}]</span>
-<span class="gp">... </span><span class="n">tbl</span><span class="p">[</span><span class="s1">&#39;response&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">chat_completions</span><span class="p">(</span><span class="n">messages</span><span class="p">,</span> <span class="n">model</span><span class="o">=</span><span class="s1">&#39;accounts/fireworks/models/mixtral-8x22b-instruct&#39;</span><span class="p">)</span>
+<span class="gp">... </span><span class="n">tbl</span><span class="o">.</span><span class="n">add_computed_column</span><span class="p">(</span><span class="n">response</span><span class="o">=</span><span class="n">chat_completions</span><span class="p">(</span><span class="n">messages</span><span class="p">,</span> <span class="n">model</span><span class="o">=</span><span class="s1">&#39;accounts/fireworks/models/mixtral-8x22b-instruct&#39;</span><span class="p">))</span>
 </code></pre></div>
 
     </div>

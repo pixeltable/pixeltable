@@ -393,6 +393,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../../iterators/audio-splitter/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    AudioSplitter
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../iterators/component-iterator/" class="md-nav__link">
         
   
@@ -1356,6 +1377,10 @@ the <a href="https://pixeltable.readme.io/docs/together-ai">Working with Togethe
 <code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">chat_completions</span>
 
 
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-async"><code>async</code></small>
+  </span>
+
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">chat_completions</span><span class="p">(</span>
     <span class="n">messages</span><span class="p">:</span> <span class="n">Json</span><span class="p">,</span>
@@ -1382,6 +1407,9 @@ the <a href="https://pixeltable.readme.io/docs/together-ai">Working with Togethe
       <p>Generate chat completions based on a given prompt using a specified model.</p>
 <p>Equivalent to the Together AI <code>chat/completions</code> API endpoint.
 For additional details, see: <a href="https://docs.together.ai/reference/chat-completions-1">https://docs.together.ai/reference/chat-completions-1</a></p>
+<p>Request throttling:
+Applies the rate limit set in the config (section <code>together.rate_limits</code>, key <code>chat</code>). If no rate
+limit is configured, uses a default of 600 RPM.</p>
 <p><strong>Requirements:</strong></p>
 <ul>
 <li><code>pip install together</code></li>
@@ -1426,7 +1454,7 @@ For additional details, see: <a href="https://docs.together.ai/reference/chat-co
     <p>Add a computed column that applies the model <code>mistralai/Mixtral-8x7B-v0.1</code> to an existing Pixeltable column <code>tbl.prompt</code>
 of the table <code>tbl</code>:</p>
     <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">messages</span> <span class="o">=</span> <span class="p">[{</span><span class="s1">&#39;role&#39;</span><span class="p">:</span> <span class="s1">&#39;user&#39;</span><span class="p">,</span> <span class="s1">&#39;content&#39;</span><span class="p">:</span> <span class="n">tbl</span><span class="o">.</span><span class="n">prompt</span><span class="p">}]</span>
-<span class="gp">... </span><span class="n">tbl</span><span class="p">[</span><span class="s1">&#39;response&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">chat_completions</span><span class="p">(</span><span class="n">messages</span><span class="p">,</span> <span class="n">model</span><span class="o">=</span><span class="s1">&#39;mistralai/Mixtral-8x7B-v0.1&#39;</span><span class="p">)</span>
+<span class="gp">... </span><span class="n">tbl</span><span class="o">.</span><span class="n">add_computed_column</span><span class="p">(</span><span class="n">response</span><span class="o">=</span><span class="n">chat_completions</span><span class="p">(</span><span class="n">messages</span><span class="p">,</span> <span class="n">model</span><span class="o">=</span><span class="s1">&#39;mistralai/Mixtral-8x7B-v0.1&#39;</span><span class="p">))</span>
 </code></pre></div>
 
     </div>
@@ -1439,6 +1467,10 @@ of the table <code>tbl</code>:</p>
 <h3 id="pixeltable.functions.together.completions" class="doc doc-heading">
 <code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">completions</span>
 
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-async"><code>async</code></small>
+  </span>
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">completions</span><span class="p">(</span>
@@ -1463,6 +1495,9 @@ of the table <code>tbl</code>:</p>
       <p>Generate completions based on a given prompt using a specified model.</p>
 <p>Equivalent to the Together AI <code>completions</code> API endpoint.
 For additional details, see: <a href="https://docs.together.ai/reference/completions-1">https://docs.together.ai/reference/completions-1</a></p>
+<p>Request throttling:
+Applies the rate limit set in the config (section <code>together.rate_limits</code>, key <code>chat</code>). If no rate
+limit is configured, uses a default of 600 RPM.</p>
 <p><strong>Requirements:</strong></p>
 <ul>
 <li><code>pip install together</code></li>
@@ -1506,7 +1541,7 @@ For additional details, see: <a href="https://docs.together.ai/reference/complet
 <p><span class="doc-section-title">Examples:</span></p>
     <p>Add a computed column that applies the model <code>mistralai/Mixtral-8x7B-v0.1</code> to an existing Pixeltable column <code>tbl.prompt</code>
 of the table <code>tbl</code>:</p>
-    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="p">[</span><span class="s1">&#39;response&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">completions</span><span class="p">(</span><span class="n">tbl</span><span class="o">.</span><span class="n">prompt</span><span class="p">,</span> <span class="n">model</span><span class="o">=</span><span class="s1">&#39;mistralai/Mixtral-8x7B-v0.1&#39;</span><span class="p">)</span>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">add_computed_column</span><span class="p">(</span><span class="n">response</span><span class="o">=</span><span class="n">completions</span><span class="p">(</span><span class="n">tbl</span><span class="o">.</span><span class="n">prompt</span><span class="p">,</span> <span class="n">model</span><span class="o">=</span><span class="s1">&#39;mistralai/Mixtral-8x7B-v0.1&#39;</span><span class="p">))</span>
 </code></pre></div>
 
     </div>
@@ -1520,6 +1555,10 @@ of the table <code>tbl</code>:</p>
 <code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">embeddings</span>
 
 
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-async"><code>async</code></small>
+  </span>
+
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">embeddings</span><span class="p">(</span><span class="nb">input</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="n">String</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Array</span><span class="p">[(</span><span class="kc">None</span><span class="p">,),</span> <span class="n">Float</span><span class="p">]</span>
 </code></pre></div>
@@ -1529,6 +1568,9 @@ of the table <code>tbl</code>:</p>
       <p>Query an embedding model for a given string of text.</p>
 <p>Equivalent to the Together AI <code>embeddings</code> API endpoint.
 For additional details, see: <a href="https://docs.together.ai/reference/embeddings-2">https://docs.together.ai/reference/embeddings-2</a></p>
+<p>Request throttling:
+Applies the rate limit set in the config (section <code>together.rate_limits</code>, key <code>embeddings</code>). If no rate
+limit is configured, uses a default of 600 RPM.</p>
 <p><strong>Requirements:</strong></p>
 <ul>
 <li><code>pip install together</code></li>
@@ -1571,7 +1613,7 @@ For additional details, see: <a href="https://docs.together.ai/reference/embeddi
 <p><span class="doc-section-title">Examples:</span></p>
     <p>Add a computed column that applies the model <code>togethercomputer/m2-bert-80M-8k-retrieval</code>
 to an existing Pixeltable column <code>tbl.text</code> of the table <code>tbl</code>:</p>
-    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="p">[</span><span class="s1">&#39;response&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">embeddings</span><span class="p">(</span><span class="n">tbl</span><span class="o">.</span><span class="n">text</span><span class="p">,</span> <span class="n">model</span><span class="o">=</span><span class="s1">&#39;togethercomputer/m2-bert-80M-8k-retrieval&#39;</span><span class="p">)</span>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">add_computed_column</span><span class="p">(</span><span class="n">response</span><span class="o">=</span><span class="n">embeddings</span><span class="p">(</span><span class="n">tbl</span><span class="o">.</span><span class="n">text</span><span class="p">,</span> <span class="n">model</span><span class="o">=</span><span class="s1">&#39;togethercomputer/m2-bert-80M-8k-retrieval&#39;</span><span class="p">))</span>
 </code></pre></div>
 
     </div>
@@ -1584,6 +1626,10 @@ to an existing Pixeltable column <code>tbl.text</code> of the table <code>tbl</c
 <h3 id="pixeltable.functions.together.image_generations" class="doc doc-heading">
 <code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">image_generations</span>
 
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-async"><code>async</code></small>
+  </span>
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">image_generations</span><span class="p">(</span>
@@ -1603,6 +1649,9 @@ to an existing Pixeltable column <code>tbl.text</code> of the table <code>tbl</c
       <p>Generate images based on a given prompt using a specified model.</p>
 <p>Equivalent to the Together AI <code>images/generations</code> API endpoint.
 For additional details, see: <a href="https://docs.together.ai/reference/post_images-generations">https://docs.together.ai/reference/post_images-generations</a></p>
+<p>Request throttling:
+Applies the rate limit set in the config (section <code>together.rate_limits</code>, key <code>images</code>). If no rate
+limit is configured, uses a default of 600 RPM.</p>
 <p><strong>Requirements:</strong></p>
 <ul>
 <li><code>pip install together</code></li>
@@ -1646,7 +1695,7 @@ For additional details, see: <a href="https://docs.together.ai/reference/post_im
 <p><span class="doc-section-title">Examples:</span></p>
     <p>Add a computed column that applies the model <code>stabilityai/stable-diffusion-xl-base-1.0</code>
 to an existing Pixeltable column <code>tbl.prompt</code> of the table <code>tbl</code>:</p>
-    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="p">[</span><span class="s1">&#39;response&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">image_generations</span><span class="p">(</span><span class="n">tbl</span><span class="o">.</span><span class="n">prompt</span><span class="p">,</span> <span class="n">model</span><span class="o">=</span><span class="s1">&#39;stabilityai/stable-diffusion-xl-base-1.0&#39;</span><span class="p">)</span>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">add_computed_column</span><span class="p">(</span><span class="n">response</span><span class="o">=</span><span class="n">image_generations</span><span class="p">(</span><span class="n">tbl</span><span class="o">.</span><span class="n">prompt</span><span class="p">,</span> <span class="n">model</span><span class="o">=</span><span class="s1">&#39;stabilityai/stable-diffusion-xl-base-1.0&#39;</span><span class="p">))</span>
 </code></pre></div>
 
     </div>

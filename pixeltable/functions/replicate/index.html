@@ -393,6 +393,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../../iterators/audio-splitter/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    AudioSplitter
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../iterators/component-iterator/" class="md-nav__link">
         
   
@@ -1302,6 +1323,10 @@ the <a href="https://pixeltable.readme.io/docs/working-with-replicate">Working w
 <code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">run</span>
 
 
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-async"><code>async</code></small>
+  </span>
+
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">run</span><span class="p">(</span><span class="nb">input</span><span class="p">:</span> <span class="n">Json</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">ref</span><span class="p">:</span> <span class="n">String</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
 </code></pre></div>
@@ -1310,6 +1335,9 @@ the <a href="https://pixeltable.readme.io/docs/working-with-replicate">Working w
 
       <p>Run a model on Replicate.</p>
 <p>For additional details, see: <a href="https://replicate.com/docs/topics/models/run-a-model">https://replicate.com/docs/topics/models/run-a-model</a></p>
+<p>Request throttling:
+Applies the rate limit set in the config (section <code>replicate</code>, key <code>rate_limit</code>). If no rate
+limit is configured, uses a default of 600 RPM.</p>
 <p><strong>Requirements:</strong></p>
 <ul>
 <li><code>pip install replicate</code></li>
@@ -1353,13 +1381,13 @@ the <a href="https://pixeltable.readme.io/docs/working-with-replicate">Working w
     <p>Add a computed column that applies the model <code>meta/meta-llama-3-8b-instruct</code>
 to an existing Pixeltable column <code>tbl.prompt</code> of the table <code>tbl</code>:</p>
     <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="nb">input</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;system_prompt&#39;</span><span class="p">:</span> <span class="s1">&#39;You are a helpful assistant.&#39;</span><span class="p">,</span> <span class="s1">&#39;prompt&#39;</span><span class="p">:</span> <span class="n">tbl</span><span class="o">.</span><span class="n">prompt</span><span class="p">}</span>
-<span class="gp">... </span><span class="n">tbl</span><span class="p">[</span><span class="s1">&#39;response&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">run</span><span class="p">(</span><span class="nb">input</span><span class="p">,</span> <span class="n">ref</span><span class="o">=</span><span class="s1">&#39;meta/meta-llama-3-8b-instruct&#39;</span><span class="p">)</span>
+<span class="gp">... </span><span class="n">tbl</span><span class="o">.</span><span class="n">add_computed_column</span><span class="p">(</span><span class="n">response</span><span class="o">=</span><span class="n">run</span><span class="p">(</span><span class="nb">input</span><span class="p">,</span> <span class="n">ref</span><span class="o">=</span><span class="s1">&#39;meta/meta-llama-3-8b-instruct&#39;</span><span class="p">))</span>
 </code></pre></div>
     <p>Add a computed column that uses the model <code>black-forest-labs/flux-schnell</code>
 to generate images from an existing Pixeltable column <code>tbl.prompt</code>:</p>
     <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="nb">input</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;prompt&#39;</span><span class="p">:</span> <span class="n">tbl</span><span class="o">.</span><span class="n">prompt</span><span class="p">,</span> <span class="s1">&#39;go_fast&#39;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span> <span class="s1">&#39;megapixels&#39;</span><span class="p">:</span> <span class="s1">&#39;1&#39;</span><span class="p">}</span>
-<span class="gp">... </span><span class="n">tbl</span><span class="p">[</span><span class="s1">&#39;response&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">run</span><span class="p">(</span><span class="nb">input</span><span class="p">,</span> <span class="n">ref</span><span class="o">=</span><span class="s1">&#39;black-forest-labs/flux-schnell&#39;</span><span class="p">)</span>
-<span class="gp">... </span><span class="n">tbl</span><span class="p">[</span><span class="s1">&#39;image&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">tbl</span><span class="o">.</span><span class="n">response</span><span class="o">.</span><span class="n">output</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">pxt</span><span class="o">.</span><span class="n">Image</span><span class="p">)</span>
+<span class="gp">... </span><span class="n">tbl</span><span class="o">.</span><span class="n">add_computed_column</span><span class="p">(</span><span class="n">response</span><span class="o">=</span><span class="n">run</span><span class="p">(</span><span class="nb">input</span><span class="p">,</span> <span class="n">ref</span><span class="o">=</span><span class="s1">&#39;black-forest-labs/flux-schnell&#39;</span><span class="p">))</span>
+<span class="gp">... </span><span class="n">tbl</span><span class="o">.</span><span class="n">add_computed_column</span><span class="p">(</span><span class="n">image</span><span class="o">=</span><span class="n">tbl</span><span class="o">.</span><span class="n">response</span><span class="o">.</span><span class="n">output</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">pxt</span><span class="o">.</span><span class="n">Image</span><span class="p">))</span>
 </code></pre></div>
 
     </div>

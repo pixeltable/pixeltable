@@ -395,6 +395,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../iterators/audio-splitter/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    AudioSplitter
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../iterators/component-iterator/" class="md-nav__link">
         
   
@@ -2052,7 +2073,7 @@ or <code>if_exists='replace*'</code> but the column has dependents or is a baset
     <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">add_column</span><span class="p">(</span><span class="n">new_col</span><span class="o">=</span><span class="n">pxt</span><span class="o">.</span><span class="n">Int</span><span class="p">)</span>
 </code></pre></div>
     <p>Alternatively, this can also be expressed as:</p>
-    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="p">[</span><span class="s1">&#39;new_col&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">pxt</span><span class="o">.</span><span class="n">Int</span>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">add_columns</span><span class="p">({</span><span class="s1">&#39;new_col&#39;</span><span class="p">:</span> <span class="n">pxt</span><span class="o">.</span><span class="n">Int</span><span class="p">})</span>
 </code></pre></div>
 
     </div>

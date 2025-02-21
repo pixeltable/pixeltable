@@ -14,7 +14,7 @@
         <link rel="prev" href="../pixeltable/">
       
       
-        <link rel="next" href="../iterators/component-iterator/">
+        <link rel="next" href="../iterators/audio-splitter/">
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
@@ -400,6 +400,15 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#pixeltable.io.export_parquet" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;export_parquet
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#pixeltable.io.import_csv" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;import_csv
@@ -510,6 +519,27 @@
             pixeltable.iterators
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../iterators/audio-splitter/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    AudioSplitter
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
             
               
                 
@@ -1305,6 +1335,15 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#pixeltable.io.export_parquet" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;export_parquet
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#pixeltable.io.import_csv" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-function"></code>&nbsp;import_csv
@@ -1623,6 +1662,69 @@ whose media are stored in an S3 bucket:</p>
 <span class="go">        s3_configuration={&#39;bucket&#39;: &#39;my-bucket&#39;, &#39;region_name&#39;: &#39;us-east-2&#39;}</span>
 <span class="go">    )</span>
 </code></pre></div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.io.export_parquet" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-function"></code>            <span class="doc doc-object-name doc-function-name">export_parquet</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">export_parquet</span><span class="p">(</span>
+    <span class="n">table_or_df</span><span class="p">:</span> <span class="n"><span title="typing.Union">Union</span></span><span class="p">[</span><span class="n"><a class="autorefs autorefs-internal" title="pixeltable.Table" href="../table/#pixeltable.Table">Table</a></span><span class="p">,</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.DataFrame" href="../data-frame/#pixeltable.DataFrame">DataFrame</a></span><span class="p">],</span>
+    <span class="n">parquet_path</span><span class="p">:</span> <span class="n"><span title="pathlib.Path">Path</span></span><span class="p">,</span>
+    <span class="n">partition_size_bytes</span><span class="p">:</span> <span class="n">int</span> <span class="o">=</span> <span class="mi">100000000</span><span class="p">,</span>
+    <span class="n">inline_images</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Exports a dataframe's data to one or more Parquet files. Requires pyarrow to be installed.</p>
+<p>It additionally writes the pixeltable metadata in a json file, which would otherwise
+not be available in the parquet format.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>table_or_df</code></b>
+          –
+          <div class="doc-md-description">
+            <p>Table or Dataframe to export.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>parquet_path</code></b>
+          –
+          <div class="doc-md-description">
+            <p>Path to directory to write the parquet files to.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>partition_size_bytes</code></b>
+          –
+          <div class="doc-md-description">
+            <p>The maximum target size for each chunk. Default 100_000_000 bytes.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>inline_images</code></b>
+          –
+          <div class="doc-md-description">
+            <p>If True, images are stored inline in the parquet file. This is useful
+            for small images, to be imported as pytorch dataset. But can be inefficient
+            for large images, and cannot be imported into pixeltable.
+            If False, will raise an error if the Dataframe has any image column.
+            Default False.</p>
+          </div>
+        </li>
+    </ul>
 
     </div>
 

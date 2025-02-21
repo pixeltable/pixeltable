@@ -393,6 +393,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../../iterators/audio-splitter/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    AudioSplitter
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../iterators/component-iterator/" class="md-nav__link">
         
   
@@ -1302,6 +1323,10 @@ the <a href="https://pixeltable.readme.io/docs/working-with-gemini">Working with
 <code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">generate_content</span>
 
 
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-async"><code>async</code></small>
+  </span>
+
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">generate_content</span><span class="p">(</span>
     <span class="n">contents</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
@@ -1324,6 +1349,9 @@ the <a href="https://pixeltable.readme.io/docs/working-with-gemini">Working with
 
       <p>Generate content from the specified model. For additional details, see:
 <a href="https://ai.google.dev/gemini-api/docs">https://ai.google.dev/gemini-api/docs</a></p>
+<p>Request throttling:
+Applies the rate limit set in the config (section <code>gemini</code>, key <code>rate_limit</code>). If no rate
+limit is configured, uses a default of 600 RPM.</p>
 <p><strong>Requirements:</strong></p>
 <ul>
 <li><code>pip install google-generativeai</code></li>

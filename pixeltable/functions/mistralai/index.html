@@ -393,6 +393,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../../iterators/audio-splitter/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    AudioSplitter
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../iterators/component-iterator/" class="md-nav__link">
         
   
@@ -1338,6 +1359,10 @@ the <a href="https://pixeltable.readme.io/docs/working-with-mistralai">Working w
 <code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">chat_completions</span>
 
 
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-async"><code>async</code></small>
+  </span>
+
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">chat_completions</span><span class="p">(</span>
     <span class="n">messages</span><span class="p">:</span> <span class="n">Json</span><span class="p">,</span>
@@ -1358,6 +1383,9 @@ the <a href="https://pixeltable.readme.io/docs/working-with-mistralai">Working w
       <p>Chat Completion API.</p>
 <p>Equivalent to the Mistral AI <code>chat/completions</code> API endpoint.
 For additional details, see: <a href="https://docs.mistral.ai/api/#tag/chat">https://docs.mistral.ai/api/#tag/chat</a></p>
+<p>Request throttling:
+Applies the rate limit set in the config (section <code>mistral</code>, key <code>rate_limit</code>). If no rate
+limit is configured, uses a default of 600 RPM.</p>
 <p><strong>Requirements:</strong></p>
 <ul>
 <li><code>pip install mistralai</code></li>
@@ -1402,7 +1430,7 @@ For additional details, see: <a href="https://docs.mistral.ai/api/#tag/chat">htt
     <p>Add a computed column that applies the model <code>mistral-latest-small</code>
 to an existing Pixeltable column <code>tbl.prompt</code> of the table <code>tbl</code>:</p>
     <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">messages</span> <span class="o">=</span> <span class="p">[{</span><span class="s1">&#39;role&#39;</span><span class="p">:</span> <span class="s1">&#39;user&#39;</span><span class="p">,</span> <span class="s1">&#39;content&#39;</span><span class="p">:</span> <span class="n">tbl</span><span class="o">.</span><span class="n">prompt</span><span class="p">}]</span>
-<span class="gp">... </span><span class="n">tbl</span><span class="p">[</span><span class="s1">&#39;response&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">completions</span><span class="p">(</span><span class="n">messages</span><span class="p">,</span> <span class="n">model</span><span class="o">=</span><span class="s1">&#39;mistral-latest-small&#39;</span><span class="p">)</span>
+<span class="gp">... </span><span class="n">tbl</span><span class="o">.</span><span class="n">add_computed_column</span><span class="p">(</span><span class="n">response</span><span class="o">=</span><span class="n">completions</span><span class="p">(</span><span class="n">messages</span><span class="p">,</span> <span class="n">model</span><span class="o">=</span><span class="s1">&#39;mistral-latest-small&#39;</span><span class="p">))</span>
 </code></pre></div>
 
     </div>
@@ -1416,6 +1444,10 @@ to an existing Pixeltable column <code>tbl.prompt</code> of the table <code>tbl<
 <code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">embeddings</span>
 
 
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-async"><code>async</code></small>
+  </span>
+
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">embeddings</span><span class="p">(</span><span class="nb">input</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="n">String</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Array</span><span class="p">[(</span><span class="kc">None</span><span class="p">,),</span> <span class="n">Float</span><span class="p">]</span>
 </code></pre></div>
@@ -1425,6 +1457,9 @@ to an existing Pixeltable column <code>tbl.prompt</code> of the table <code>tbl<
       <p>Embeddings API.</p>
 <p>Equivalent to the Mistral AI <code>embeddings</code> API endpoint.
 For additional details, see: <a href="https://docs.mistral.ai/api/#tag/embeddings">https://docs.mistral.ai/api/#tag/embeddings</a></p>
+<p>Request throttling:
+Applies the rate limit set in the config (section <code>mistral</code>, key <code>rate_limit</code>). If no rate
+limit is configured, uses a default of 600 RPM.</p>
 <p><strong>Requirements:</strong></p>
 <ul>
 <li><code>pip install mistralai</code></li>
@@ -1474,6 +1509,10 @@ For additional details, see: <a href="https://docs.mistral.ai/api/#tag/embedding
 <code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">fim_completions</span>
 
 
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-async"><code>async</code></small>
+  </span>
+
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">fim_completions</span><span class="p">(</span>
     <span class="n">prompt</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
@@ -1494,6 +1533,9 @@ For additional details, see: <a href="https://docs.mistral.ai/api/#tag/embedding
       <p>Fill-in-the-middle Completion API.</p>
 <p>Equivalent to the Mistral AI <code>fim/completions</code> API endpoint.
 For additional details, see: <a href="https://docs.mistral.ai/api/#tag/fim">https://docs.mistral.ai/api/#tag/fim</a></p>
+<p>Request throttling:
+Applies the rate limit set in the config (section <code>mistral</code>, key <code>rate_limit</code>). If no rate
+limit is configured, uses a default of 600 RPM.</p>
 <p><strong>Requirements:</strong></p>
 <ul>
 <li><code>pip install mistralai</code></li>
@@ -1537,7 +1579,7 @@ For additional details, see: <a href="https://docs.mistral.ai/api/#tag/fim">http
 <p><span class="doc-section-title">Examples:</span></p>
     <p>Add a computed column that applies the model <code>codestral-latest</code>
 to an existing Pixeltable column <code>tbl.prompt</code> of the table <code>tbl</code>:</p>
-    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="p">[</span><span class="s1">&#39;response&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">completions</span><span class="p">(</span><span class="n">tbl</span><span class="o">.</span><span class="n">prompt</span><span class="p">,</span> <span class="n">model</span><span class="o">=</span><span class="s1">&#39;codestral-latest&#39;</span><span class="p">)</span>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">add_computed_column</span><span class="p">(</span><span class="n">response</span><span class="o">=</span><span class="n">completions</span><span class="p">(</span><span class="n">tbl</span><span class="o">.</span><span class="n">prompt</span><span class="p">,</span> <span class="n">model</span><span class="o">=</span><span class="s1">&#39;codestral-latest&#39;</span><span class="p">))</span>
 </code></pre></div>
 
     </div>

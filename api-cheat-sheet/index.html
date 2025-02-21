@@ -320,6 +320,15 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#audio-extraction-from-video-data-and-audio-chunking" class="md-nav__link">
+    <span class="md-ellipsis">
+      Audio extraction from video data and audio chunking
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#pixeltable-types" class="md-nav__link">
     <span class="md-ellipsis">
       Pixeltable types
@@ -521,6 +530,27 @@
             pixeltable.iterators
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pixeltable/iterators/audio-splitter/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    AudioSplitter
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
             
               
                 
@@ -1332,6 +1362,15 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#audio-extraction-from-video-data-and-audio-chunking" class="md-nav__link">
+    <span class="md-ellipsis">
+      Audio extraction from video data and audio chunking
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#pixeltable-types" class="md-nav__link">
     <span class="md-ellipsis">
       Pixeltable types
@@ -1518,6 +1557,15 @@ t = pxt.create_table('tbl_name', {'video': pxt.Video})
 f = pxt.create_view('frame_view_name', t, iterator=FrameIterator.create(video=t.video, fps=0))
 </code></pre>
 <p><code>fps=0</code> extracts frames at the original frame rate.</p>
+<h2 id="audio-extraction-from-video-data-and-audio-chunking">Audio extraction from video data and audio chunking</h2>
+<p>Extract audio from video data</p>
+<pre><code class="language-python">import pixeltable as pxt
+from pixeltable.iterators import AudioSplitter
+video_t = pxt.create_table('tbl_name', {'video': pxt.Video})
+video_t.add_computed_column(audio=video_t.video.extract_audio(format='mp3'))
+audio_chunk_view = pxt.create_view(&quot;audio_chunks&quot;, video_t, iterator=AudioSplitter.create(audio=video_t.audio, chunk_duration_sec=5.0))
+</code></pre>
+<p><code>chunk_duration_sec</code> is the time duration of an audio chunk in seconds</p>
 <h2 id="pixeltable-types">Pixeltable types</h2>
 <table>
 <thead>
