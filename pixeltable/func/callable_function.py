@@ -202,7 +202,10 @@ class CallableFunction(Function):
         if self.is_batched:
             signature = self.signatures[0]
             for param in signature.constant_parameters:
-                if param.name in bound_args and not isinstance(bound_args[param.name], exprs.Literal):
+                # Check that constant parameters map to constant arguments. It's ok for the argument to be a Variable,
+                # since in that case the FunctionCall is part of an unresolved template; the check will be done again
+                # when the template is fully resolved.
+                if param.name in bound_args and not isinstance(bound_args[param.name], (exprs.Literal, exprs.Variable)):
                     raise ValueError(f'{self.display_name}(): parameter {param.name} must be a constant value')
 
     def __repr__(self) -> str:

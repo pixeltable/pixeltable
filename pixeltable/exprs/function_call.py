@@ -218,10 +218,7 @@ class FunctionCall(Expr):
 
         arg_strs = [str(self.components[idx]) for idx in self.normalized_args[start_idx:]]
         arg_strs.extend(
-            [
-                f'{param_name}={str(self.components[idx])}'
-                for param_name, idx in self.normalized_kwargs.items()
-            ]
+            [f'{param_name}={str(self.components[idx])}' for param_name, idx in self.normalized_kwargs.items()]
         )
         if len(self.order_by) > 0:
             assert isinstance(self.fn, func.AggregateFunction)
@@ -413,11 +410,12 @@ class FunctionCall(Expr):
         order_by_exprs = self.components[self.order_by_idx :]
         return {
             'fn': self.fn.as_dict(),
-            'args': [expr.as_dict() for expr in self.original_args],
-            'kwargs': {name: expr.as_dict() for name, expr in self.original_kwargs.items()},
             'return_type': self.return_type.as_dict(),
             'group_by_exprs': [expr.as_dict() for expr in group_by_exprs],
             'order_by_exprs': [expr.as_dict() for expr in order_by_exprs],
+            'is_method_call': self.is_method_call,
+            'args': [expr.as_dict() for expr in self.original_args],
+            'kwargs': {name: expr.as_dict() for name, expr in self.original_kwargs.items()},
         }
 
     @classmethod
@@ -426,27 +424,35 @@ class FunctionCall(Expr):
         return_type = ts.ColumnType.from_dict(d['return_type']) if 'return_type' in d else None
         group_by_exprs = [Expr.from_dict(expr_d) for expr_d in d['group_by_exprs']]
         order_by_exprs = [Expr.from_dict(expr_d) for expr_d in d['order_by_exprs']]
-        args = [components[idx] for idx in d['args']]
+        is_method_call = d['is_method_call']
+        args = [Expr.from_dict(expr_d) for expr_d in d['args']]
         kwargs = {name: Expr.from_dict(expr_d) for name, expr_d in d['kwargs'].items()}
 
-        # `Function.from_dict()` does signature matching, so it is safe to assume that `args` and `kwargs` are
-        # consistent with its signature.
+        # Now re-bind args and kwargs using the version of `fn` that is currently represented in code. This ensures
+        # that we get a valid binding even if the signatures of `fn` have changed since the FunctionCall was
+        # serialized.
 
-        # Reassemble bound_args. Note that args and kwargs represent "already bound arguments": they are not bindable
-        # in the Python sense, because variable args (such as *args and **kwargs) have already been condensed.
-        param_names = list(fn.signature.parameters.keys())
-        bound_args = {param_names[i]: arg for i, arg in enumerate(args)}
-        bound_args.update(kwargs.items())
+        resolved_fn: func.Function
+        bound_args: dict[str, Expr]
 
-        # TODO: In order to properly invoke call_return_type, we need to ensure that any InlineLists or InlineDicts
-        # in bound_args are unpacked into Python lists/dicts. There is an open task to ensure this is true in general;
-        # for now, as a hack, we do the unpacking here for the specific case of an InlineList of Literals (the only
-        # case where this is necessary to support existing conditional_return_type implementations). Once the general
-        # pattern is implemented, we can remove this hack.
-        unpacked_bound_args = {param_name: cls.__unpack_bound_arg(arg) for param_name, arg in bound_args.items()}
+        try:
+            resolved_fn, bound_args = fn._bind_to_matching_signature(args, kwargs)
+        except excs.Error as e:
+            # TODO: Handle this more gracefully (instead of failing the DB load, allow the DB load to succeed, but
+            #       mark any enclosing FunctionCall as unusable). It's the same issue as dealing with a renamed UDF or
+            #       FunctionCall return type mismatch.
+            signature_note_str = 'any of its signatures' if fn.is_polymorphic else 'its signature'
+            instance_signature_str = f'{len(fn.signatures)} signatures' if fn.is_polymorphic else str(fn.signature)
+            raise excs.Error(
+                f'The signature stored in the database for the UDF `{fn.self_path}` no longer matches '
+                f'{signature_note_str} as currently defined in the code.\nThis probably means that the code for '
+                f'`{fn.self_path}` has changed in a backward-incompatible way.\n'
+                f'Signature in database: {fn}\n'
+                f'Signature as currently defined in code: {instance_signature_str}'
+            )
 
         # Evaluate the call_return_type as defined in the current codebase.
-        call_return_type = fn.call_return_type(unpacked_bound_args)
+        call_return_type = resolved_fn.call_return_type(bound_args)
 
         if return_type is None:
             # Schema versions prior to 25 did not store the return_type in metadata, and there is no obvious way to
@@ -458,19 +464,26 @@ class FunctionCall(Expr):
             # There is a return_type stored in metadata (schema version >= 25).
             # Check that the stored return_type of the UDF call matches the column type of the FunctionCall, and
             # fail-fast if it doesn't (otherwise we risk getting downstream database errors).
-            # TODO: Handle this more gracefully (instead of failing the DB load, allow the DB load to succeed, but
-            #       mark this FunctionCall as unusable). It's the same issue as dealing with a renamed UDF or Function
-            #       signature mismatch.
+            # TODO: Handle this more gracefully (as noted above).
             if not return_type.is_supertype_of(call_return_type, ignore_nullable=True):
                 raise excs.Error(
                     f'The return type stored in the database for a UDF call to `{fn.self_path}` no longer matches the '
                     f'return type of the UDF as currently defined in the code.\nThis probably means that the code for '
                     f'`{fn.self_path}` has changed in a backward-incompatible way.\n'
                     f'Return type in database: `{return_type}`\n'
-                    f'Return type as currently defined: `{call_return_type}`'
+                    f'Return type as currently defined in code: `{call_return_type}`'
                 )
 
-        fn_call = cls(fn, bound_args, return_type, group_by_clause=group_by_exprs, order_by_clause=order_by_exprs)
+        fn_call = cls(
+            resolved_fn,
+            bound_args,
+            return_type,
+            group_by_clause=group_by_exprs,
+            order_by_clause=order_by_exprs,
+            is_method_call=is_method_call,
+            original_args=args,
+            original_kwargs=kwargs,
+        )
         return fn_call
 
     @classmethod

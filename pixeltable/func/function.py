@@ -154,14 +154,13 @@ class Function(ABC):
     def __call__(self, *args: Any, **kwargs: Any) -> 'pxt.exprs.FunctionCall':
         from pixeltable import exprs
 
-        # Normalize arguments
-        # args = [exprs.Expr.from_object(arg) for arg in args]
-        # kwargs = {k: exprs.Expr.from_object(v) for k, v in kwargs.items()}
+        args = [exprs.Expr.from_object(arg) for arg in args]
+        kwargs = {k: exprs.Expr.from_object(v) for k, v in kwargs.items()}
 
         resolved_fn, bound_args = self._bind_to_matching_signature(args, kwargs)
         return_type = resolved_fn.call_return_type(bound_args)
 
-        return exprs.FunctionCall(resolved_fn, bound_args, return_type)
+        return exprs.FunctionCall(resolved_fn, bound_args, return_type, original_args=args, original_kwargs=kwargs)
 
     def _bind_to_matching_signature(self, args: Sequence[Any], kwargs: dict[str, Any]) -> tuple[Self, dict[str, Any]]:
         result: int = -1
@@ -313,7 +312,7 @@ class Function(ABC):
             bindings[param.name] = exprs.Variable(param.name, param.col_type)
 
         return_type = self.call_return_type(bindings)
-        call = exprs.FunctionCall(self, bindings, return_type)
+        call = exprs.FunctionCall(self, bindings, return_type, original_args=[], original_kwargs=bindings)
 
         # Construct the (n-k)-ary signature of the new function. We use `call.col_type` for this, rather than
         # `self.signature.return_type`, because the return type of the new function may be specialized via a
@@ -392,6 +391,8 @@ class Function(ABC):
         assert 'signature' in d and d['signature'] is not None
         instance = resolve_symbol(d['path'])
         assert isinstance(instance, Function)
+
+        return instance
 
         # Load the signature from the DB and check that it is still valid (i.e., is still consistent with a signature
         # in the code).
