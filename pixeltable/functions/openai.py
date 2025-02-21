@@ -14,7 +14,7 @@ import math
 import pathlib
 import re
 import uuid
-from typing import TYPE_CHECKING, Any, Callable, Optional, Type, TypeVar, Union, cast
+from typing import TYPE_CHECKING, Any, Callable, Literal, Optional, Type, TypeVar, Union, cast
 
 import httpx
 import numpy as np
@@ -324,10 +324,17 @@ async def translations(
 # Chat Endpoints
 
 
+def _default_max_tokens(model: str) -> int:
+    if model in ('o1', 'o3-mini'):
+        return 65536
+    else:
+        return 1024
+
+
 def _chat_completions_get_request_resources(
-    messages: list, max_tokens: Optional[int], n: Optional[int]
+    messages: list, model: str, max_completion_tokens: Optional[int], max_tokens: Optional[int], n: Optional[int]
 ) -> dict[str, int]:
-    completion_tokens = n * max_tokens
+    completion_tokens = (n or 1) * (max_completion_tokens or max_tokens or _default_max_tokens(model))
 
     num_tokens = 0.0
     for message in messages:
@@ -349,16 +356,18 @@ async def chat_completions(
     logit_bias: Optional[dict[str, int]] = None,
     logprobs: Optional[bool] = None,
     top_logprobs: Optional[int] = None,
-    max_tokens: Optional[int] = 1024,
-    n: Optional[int] = 1,
+    max_completion_tokens: Optional[int] = None,
+    max_tokens: Optional[int] = None,
+    n: Optional[int] = None,
     presence_penalty: Optional[float] = None,
+    reasoning_effort: Optional[Literal['low', 'medium', 'high']] = None,
     response_format: Optional[dict] = None,
     seed: Optional[int] = None,
     stop: Optional[list[str]] = None,
     temperature: Optional[float] = None,
-    top_p: Optional[float] = None,
     tools: Optional[list[dict]] = None,
     tool_choice: Optional[dict] = None,
+    top_p: Optional[float] = None,
     user: Optional[str] = None,
     timeout: Optional[float] = None,
 ) -> dict:
@@ -418,6 +427,9 @@ async def chat_completions(
         resource_pool, lambda: OpenAIRateLimitsInfo(_chat_completions_get_request_resources)
     )
 
+    if max_completion_tokens is None and max_tokens is None:
+        max_completion_tokens = _default_max_tokens(model)
+
     # cast(Any, ...): avoid mypy errors
     result = await _openai_client().chat.completions.with_raw_response.create(
         messages=messages,
@@ -426,16 +438,18 @@ async def chat_completions(
         logit_bias=_opt(logit_bias),
         logprobs=_opt(logprobs),
         top_logprobs=_opt(top_logprobs),
+        max_completion_tokens=_opt(max_completion_tokens),
         max_tokens=_opt(max_tokens),
         n=_opt(n),
         presence_penalty=_opt(presence_penalty),
+        reasoning_effort=_opt(reasoning_effort),
         response_format=_opt(cast(Any, response_format)),
         seed=_opt(seed),
         stop=_opt(stop),
         temperature=_opt(temperature),
-        top_p=_opt(top_p),
         tools=_opt(cast(Any, tools)),
         tool_choice=_opt(cast(Any, tool_choice_)),
+        top_p=_opt(top_p),
         user=_opt(user),
         timeout=_opt(timeout),
         extra_body=extra_body,
@@ -448,9 +462,14 @@ async def chat_completions(
 
 
 def _vision_get_request_resources(
-    prompt: str, image: PIL.Image.Image, max_tokens: Optional[int], n: Optional[int]
+    prompt: str,
+    image: PIL.Image.Image,
+    model: str,
+    max_completion_tokens: Optional[int],
+    max_tokens: Optional[int],
+    n: Optional[int],
 ) -> dict[str, int]:
-    completion_tokens = n * max_tokens
+    completion_tokens = (n or 1) * (max_completion_tokens or max_tokens or _default_max_tokens(model))
     prompt_tokens = len(prompt) / 4
 
     # calculate image tokens based on
@@ -482,7 +501,8 @@ async def vision(
     image: PIL.Image.Image,
     *,
     model: str,
-    max_tokens: Optional[int] = 1024,
+    max_completion_tokens: Optional[int] = None,
+    max_tokens: Optional[int] = None,
     n: Optional[int] = 1,
     timeout: Optional[float] = None,
 ) -> str:
@@ -534,9 +554,14 @@ async def vision(
     rate_limits_info = env.Env.get().get_resource_pool_info(
         resource_pool, lambda: OpenAIRateLimitsInfo(_vision_get_request_resources)
     )
+
+    if max_completion_tokens is None and max_tokens is None:
+        max_completion_tokens = _default_max_tokens(model)
+
     result = await _openai_client().chat.completions.with_raw_response.create(
         messages=messages,  # type: ignore
         model=model,
+        max_completion_tokens=_opt(max_completion_tokens),
         max_tokens=_opt(max_tokens),
         n=_opt(n),
         timeout=_opt(timeout),
