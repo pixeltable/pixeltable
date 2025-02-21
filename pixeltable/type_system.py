@@ -9,9 +9,7 @@ import typing
 import urllib.parse
 import urllib.request
 from pathlib import Path
-
-from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
-from typing import Any, Iterable, Mapping, Optional, Sequence, Union
+from typing import Any, Iterable, Literal, Mapping, Optional, Sequence, Union
 
 import av  # type: ignore
 import jsonschema
@@ -24,6 +22,8 @@ import sqlalchemy as sql
 from typing_extensions import _AnnotatedAlias
 
 import pixeltable.exceptions as excs
+
+from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
 
 
 class ColumnType:
@@ -213,9 +213,9 @@ class ColumnType:
             return self.copy(nullable=(self.nullable or other.nullable))
 
         if self.is_invalid_type():
-            return other
+            return other.copy(nullable=(self.nullable or other.nullable))
         if other.is_invalid_type():
-            return self
+            return self.copy(nullable=(self.nullable or other.nullable))
 
         if self.is_scalar_type() and other.is_scalar_type():
             t = self.Type.supertype(self._type, other._type, self.common_supertypes)
@@ -292,26 +292,24 @@ class ColumnType:
                 designations will be allowed regardless.
         """
         origin = typing.get_origin(t)
+        type_args = typing.get_args(t)
         if origin is typing.Union:
             # Check if `t` has the form Optional[T].
-            union_args = typing.get_args(t)
-            if len(union_args) == 2 and type(None) in union_args:
+            if len(type_args) == 2 and type(None) in type_args:
                 # `t` is a type of the form Optional[T] (equivalently, Union[T, None] or Union[None, T]).
                 # We treat it as the underlying type but with nullable=True.
-                underlying_py_type = union_args[0] if union_args[1] is type(None) else union_args[1]
+                underlying_py_type = type_args[0] if type_args[1] is type(None) else type_args[1]
                 underlying = cls.from_python_type(underlying_py_type, allow_builtin_types=allow_builtin_types)
                 if underlying is not None:
                     return underlying.copy(nullable=True)
         elif origin is Required:
-            required_args = typing.get_args(t)
-            assert len(required_args) == 1
+            assert len(type_args) == 1
             return cls.from_python_type(
-                required_args[0], nullable_default=False, allow_builtin_types=allow_builtin_types
-            )
+                type_args[0], nullable_default=False, allow_builtin_types=allow_builtin_types
+            ).copy(nullable=False)
         elif origin is typing.Annotated:
-            annotated_args = typing.get_args(t)
-            origin = annotated_args[0]
-            parameters = annotated_args[1]
+            origin = type_args[0]
+            parameters = type_args[1]
             if isinstance(parameters, ColumnType):
                 return parameters.copy(nullable=nullable_default)
         else:
@@ -323,6 +321,11 @@ class ColumnType:
             if isinstance(t, type) and issubclass(t, _PxtType):
                 return t.as_col_type(nullable=nullable_default)
             elif allow_builtin_types:
+                if t is Literal and len(type_args) > 0:
+                    literal_type = cls.infer_common_literal_type(type_args)
+                    if literal_type is None:
+                        return None
+                    return literal_type.copy(nullable=(literal_type.nullable or nullable_default))
                 if t is str:
                     return StringType(nullable=nullable_default)
                 if t is int:
@@ -335,7 +338,7 @@ class ColumnType:
                     return TimestampType(nullable=nullable_default)
                 if t is PIL.Image.Image:
                     return ImageType(nullable=nullable_default)
-                if issubclass(t, Sequence) or issubclass(t, Mapping) or issubclass(t, pydantic.BaseModel):
+                if isinstance(t, type) and issubclass(t, (Sequence, Mapping, pydantic.BaseModel)):
                     return JsonType(nullable=nullable_default)
         return None
 
@@ -862,22 +865,38 @@ class ArrayType(ColumnType):
         return cls(shape, dtype, nullable=d['nullable'])
 
     @classmethod
+    def from_np_dtype(cls, dtype: np.dtype, nullable: bool) -> Optional[ColumnType]:
+        """
+        Return pixeltable type corresponding to a given simple numpy dtype
+        """
+        if np.issubdtype(dtype, np.integer):
+            return IntType(nullable=nullable)
+
+        if np.issubdtype(dtype, np.floating):
+            return FloatType(nullable=nullable)
+
+        if dtype == np.bool_:
+            return BoolType(nullable=nullable)
+
+        if np.issubdtype(dtype, np.str_):
+            return StringType(nullable=nullable)
+
+        if np.issubdtype(dtype, np.character):
+            return StringType(nullable=nullable)
+
+        if np.issubdtype(dtype, np.datetime64):
+            return TimestampType(nullable=nullable)
+
+        return None
+
+    @classmethod
     def from_literal(cls, val: np.ndarray, nullable: bool = False) -> Optional[ArrayType]:
         # determine our dtype
         assert isinstance(val, np.ndarray)
-        dtype: ColumnType
-        if np.issubdtype(val.dtype, np.integer):
-            dtype = IntType()
-        elif np.issubdtype(val.dtype, np.floating):
-            dtype = FloatType()
-        elif val.dtype == np.bool_:
-            dtype = BoolType()
-        elif np.issubdtype(val.dtype, np.str_):
-            # Note that this includes NumPy types like '<U1' -- arrays of single Unicode characters
-            dtype = StringType()
-        else:
+        pxttype: Optional[ColumnType] = cls.from_np_dtype(val.dtype, nullable)
+        if pxttype == None:
             return None
-        return cls(val.shape, dtype=dtype, nullable=nullable)
+        return cls(val.shape, dtype=pxttype, nullable=nullable)
 
     def is_valid_literal(self, val: np.ndarray) -> bool:
         if not isinstance(val, np.ndarray):
