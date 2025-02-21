@@ -39,9 +39,11 @@ class FunctionCall(Expr):
     group_by_start_idx: int
     group_by_stop_idx: int
     fn_expr_idx: int
-    order_by_start_idx: int
+    order_by_idx: int
     aggregator: Optional[Any]
     current_partition_vals: Optional[list[Any]]
+    original_args: Optional[list[Expr]]
+    original_kwargs: Optional[dict[str, Expr]]
 
     def __init__(
         self,
@@ -57,6 +59,9 @@ class FunctionCall(Expr):
         assert all(isinstance(arg, Expr) for arg in bound_args.values())
         assert original_args is None or all(isinstance(arg, Expr) for arg in original_args)
         assert original_kwargs is None or all(isinstance(arg, Expr) for arg in original_kwargs.values())
+
+        self.original_args = original_args
+        self.original_kwargs = original_kwargs
 
         if order_by_clause is None:
             order_by_clause = []
@@ -129,9 +134,10 @@ class FunctionCall(Expr):
         self.group_by_start_idx, self.group_by_stop_idx = 0, 0
         if len(group_by_clause) > 0:
             if isinstance(group_by_clause[0], catalog.Table):
+                assert len(group_by_clause) == 1
                 group_by_exprs = self._create_rowid_refs(group_by_clause[0])
             else:
-                assert isinstance(group_by_clause[0], Expr)
+                assert all(isinstance(expr, Expr) for expr in group_by_clause)
                 group_by_exprs = group_by_clause
             # record grouping exprs in self.components, we need to evaluate them to get partition vals
             self.group_by_start_idx = len(self.components)
@@ -141,8 +147,8 @@ class FunctionCall(Expr):
         if isinstance(self.fn, func.ExprTemplateFunction):
             # we instantiate the template to create an Expr that can be evaluated and record that as a component
             fn_expr = self.fn.instantiate([], bound_args)
+            self.fn_expr_idx = len(self.components)
             self.components.append(fn_expr)
-            self.fn_expr_idx = len(self.components) - 1
         else:
             self.fn_expr_idx = sys.maxsize
 
@@ -153,7 +159,7 @@ class FunctionCall(Expr):
                 f'order_by argument needs to be a Pixeltable expression, but instead is a {type(order_by_clause[0])}'
             )
         # don't add components after this, everthing after order_by_start_idx is part of the order_by clause
-        self.order_by_start_idx = len(self.components)
+        self.order_by_idx = len(self.components)
         self.components.extend(order_by_clause)
 
         # execution state for aggregate functions
@@ -181,7 +187,7 @@ class FunctionCall(Expr):
             return False
         if self.group_by_stop_idx != other.group_by_stop_idx:
             return False
-        if self.order_by_start_idx != other.order_by_start_idx:
+        if self.order_by_idx != other.order_by_idx:
             return False
         return True
 
@@ -192,7 +198,8 @@ class FunctionCall(Expr):
             ('kwargs', self.normalized_kwargs),
             ('group_by_start_idx', self.group_by_start_idx),
             ('group_by_stop_idx', self.group_by_stop_idx),
-            ('order_by_start_idx', self.order_by_start_idx),
+            ('fn_expr_idx', self.fn_expr_idx),
+            ('order_by_idx', self.order_by_idx),
         ]
 
     def __repr__(self) -> str:
@@ -237,7 +244,7 @@ class FunctionCall(Expr):
 
     @property
     def order_by(self) -> list[Expr]:
-        return self.components[self.order_by_start_idx :]
+        return self.components[self.order_by_idx :]
 
     @property
     def is_window_fn_call(self) -> bool:
@@ -402,34 +409,25 @@ class FunctionCall(Expr):
             data_row[self.slot_idx] = self.fn.exec(args, kwargs)
 
     def _as_dict(self) -> dict:
-        result = {
+        group_by_exprs = self.components[self.group_by_start_idx : self.group_by_stop_idx]
+        order_by_exprs = self.components[self.order_by_idx :]
+        return {
             'fn': self.fn.as_dict(),
-            'args': self.normalized_args,
-            'kwargs': self.normalized_kwargs,
+            'args': [expr.as_dict() for expr in self.original_args],
+            'kwargs': {name: expr.as_dict() for name, expr in self.original_kwargs.items()},
             'return_type': self.return_type.as_dict(),
-            'group_by_start_idx': self.group_by_start_idx,
-            'group_by_stop_idx': self.group_by_stop_idx,
-            'order_by_start_idx': self.order_by_start_idx,
-            **super()._as_dict(),
+            'group_by_exprs': [expr.as_dict() for expr in group_by_exprs],
+            'order_by_exprs': [expr.as_dict() for expr in order_by_exprs],
         }
-        return result
 
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr]) -> FunctionCall:
-        assert 'fn' in d
-        assert 'args' in d
-        assert 'kwargs' in d
-
         fn = func.Function.from_dict(d['fn'])
-        assert not fn.is_polymorphic
         return_type = ts.ColumnType.from_dict(d['return_type']) if 'return_type' in d else None
-        group_by_exprs = components[d['group_by_start_idx'] : d['group_by_stop_idx']]
-        order_by_exprs = components[d['order_by_start_idx'] :]
-
+        group_by_exprs = [Expr.from_dict(expr_d) for expr_d in d['group_by_exprs']]
+        order_by_exprs = [Expr.from_dict(expr_d) for expr_d in d['order_by_exprs']]
         args = [components[idx] for idx in d['args']]
-        kwargs = {
-            param_name: components[idx] for param_name, idx in d['kwargs'].items()
-        }
+        kwargs = {name: Expr.from_dict(expr_d) for name, expr_d in d['kwargs'].items()}
 
         # `Function.from_dict()` does signature matching, so it is safe to assume that `args` and `kwargs` are
         # consistent with its signature.
