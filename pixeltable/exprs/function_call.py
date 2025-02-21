@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import inspect
-import json
 import sys
-from typing import TYPE_CHECKING, Any, Optional, Sequence
+from typing import Any, Optional, Sequence
 
 import sqlalchemy as sql
 
@@ -27,11 +26,8 @@ class FunctionCall(Expr):
     agg_init_args: dict[str, Any]
     resource_pool: Optional[str]
 
-    # tuple[Optional[int], Optional[Any]]:
-    # - for Exprs: (index into components, None)
-    # - otherwise: (None, val)
-    args: list[tuple[Optional[int], Optional[Any]]]
-    kwargs: dict[str, tuple[Optional[int], Optional[Any]]]
+    args: list[int]
+    kwargs: dict[str, int]
 
     # maps each parameter name to tuple representing the value it has in the call:
     # - argument's index in components, if an argument is given in the call
@@ -113,7 +109,7 @@ class FunctionCall(Expr):
             if py_param.name not in bound_args or py_param.kind == inspect.Parameter.KEYWORD_ONLY:
                 break
             arg = bound_args[py_param.name]
-            self.args.append((len(self.components), None))
+            self.args.append(len(self.components))
             self._param_values[py_param.name] = (len(self.components), None)
             self.components.append(arg.copy())
             if py_param.kind != inspect.Parameter.VAR_POSITIONAL and py_param.kind != inspect.Parameter.VAR_KEYWORD:
@@ -124,7 +120,7 @@ class FunctionCall(Expr):
         for param_name in bound_args.keys():
             if param_name not in processed_args:
                 arg = bound_args[param_name]
-                self.kwargs[param_name] = (len(self.components), None)
+                self.kwargs[param_name] = len(self.components)
                 self._param_values[param_name] = (len(self.components), None)
                 self.components.append(arg.copy())
                 if signature.py_signature.parameters[param_name].kind != inspect.Parameter.VAR_KEYWORD:
@@ -221,11 +217,11 @@ class FunctionCall(Expr):
         def print_arg(arg: Any) -> str:
             return repr(arg) if isinstance(arg, str) else str(arg)
 
-        arg_strs = [print_arg(arg) if idx is None else str(self.components[idx]) for idx, arg in self.args[start_idx:]]
+        arg_strs = [str(self.components[idx]) for idx in self.args[start_idx:]]
         arg_strs.extend(
             [
-                f'{param_name}={print_arg(arg) if idx is None else str(self.components[idx])}'
-                for param_name, (idx, arg) in self.kwargs.items()
+                f'{param_name}={str(self.components[idx])}'
+                for param_name, idx in self.kwargs.items()
             ]
         )
         if len(self.order_by) > 0:
@@ -285,27 +281,22 @@ class FunctionCall(Expr):
 
         # try to construct args and kwargs to call self.fn._to_sql()
         kwargs: dict[str, sql.ColumnElement] = {}
-        for param_name, (component_idx, arg) in self.kwargs.items():
+        for param_name, component_idx in self.kwargs.items():
             param = self.fn.signature.parameters[param_name]
             assert param.kind != inspect.Parameter.VAR_POSITIONAL and param.kind != inspect.Parameter.VAR_KEYWORD
-            if component_idx is None:
-                kwargs[param_name] = sql.literal(arg)
-            else:
-                arg_element = sql_elements.get(self.components[component_idx])
-                if arg_element is None:
-                    return None
-                kwargs[param_name] = arg_element
+            arg_element = sql_elements.get(self.components[component_idx])
+            if arg_element is None:
+                return None
+            kwargs[param_name] = arg_element
 
         args: list[sql.ColumnElement] = []
-        for _, (component_idx, arg) in enumerate(self.args):
-            if component_idx is None:
-                args.append(sql.literal(arg))
-            else:
-                arg_element = sql_elements.get(self.components[component_idx])
-                if arg_element is None:
-                    return None
-                args.append(arg_element)
+        for component_idx in self.args:
+            arg_element = sql_elements.get(self.components[component_idx])
+            if arg_element is None:
+                return None
+            args.append(arg_element)
         result = self.fn._to_sql(*args, **kwargs)
+
         return result
 
     def reset_agg(self) -> None:
@@ -327,8 +318,8 @@ class FunctionCall(Expr):
     def make_args(self, data_row: DataRow) -> Optional[tuple[list[Any], dict[str, Any]]]:
         """Return args and kwargs, constructed for data_row; returns None if any non-nullable arg is None."""
         kwargs: dict[str, Any] = {}
-        for param_name, (component_idx, arg) in self.kwargs.items():
-            val = arg if component_idx is None else data_row[self.components[component_idx].slot_idx]
+        for param_name, component_idx in self.kwargs.items():
+            val = data_row[self.components[component_idx].slot_idx]
             param = self.fn.signature.parameters[param_name]
             if param.kind == inspect.Parameter.VAR_KEYWORD:
                 # expand **kwargs parameter
@@ -340,8 +331,8 @@ class FunctionCall(Expr):
                 kwargs[param_name] = val
 
         args: list[Any] = []
-        for param_idx, (component_idx, arg) in enumerate(self.args):
-            val = arg if component_idx is None else data_row[self.components[component_idx].slot_idx]
+        for param_idx, component_idx in enumerate(self.args):
+            val = data_row[self.components[component_idx].slot_idx]
             param = self.fn.signature.parameters_by_pos[param_idx]
             if param.kind == inspect.Parameter.VAR_POSITIONAL:
                 # expand *args parameter
@@ -355,6 +346,7 @@ class FunctionCall(Expr):
                 if not param.col_type.nullable and val is None:
                     return None
                 args.append(val)
+
         return args, kwargs
 
     def get_param_values(self, param_names: Sequence[str], data_rows: list[DataRow]) -> list[dict[str, Any]]:
@@ -442,9 +434,9 @@ class FunctionCall(Expr):
         group_by_exprs = components[d['group_by_start_idx'] : d['group_by_stop_idx']]
         order_by_exprs = components[d['order_by_start_idx'] :]
 
-        args = [expr if idx is None else components[idx] for idx, expr in d['args']]
+        args = [components[idx] for idx in d['args']]
         kwargs = {
-            param_name: (expr if idx is None else components[idx]) for param_name, (idx, expr) in d['kwargs'].items()
+            param_name: components[idx] for param_name, idx in d['kwargs'].items()
         }
 
         # `Function.from_dict()` does signature matching, so it is safe to assume that `args` and `kwargs` are
