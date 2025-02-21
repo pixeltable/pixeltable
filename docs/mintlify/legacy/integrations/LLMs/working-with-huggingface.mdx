@@ -1,0 +1,142 @@
+---
+title: "Hugging Face"
+
+---
+
+[![Kaggle](\images\docs\static\images\open-in-kaggle.svg)](https://kaggle.com/kernels/welcome?src=https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-huggingface.ipynb) [![Colab](\images\docs\assets\colab-badge.svg)](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-huggingface.ipynb)
+
+# Working with Hugging Face
+
+Pixeltable unifies data and computation into a table interface. In this tutorial, we'll go into more depth on the Hugging Face integration between datasets and how Hugging Face models can be incorporated into Pixeltable workflows to run models locally.
+
+<CodeGroup>
+  ```python python
+  %pip install pixeltable datasets -qU
+  ```
+</CodeGroup>
+
+<CodeGroup>
+  ```python python
+  import pixeltable as pxt
+  import datasets
+  ```
+</CodeGroup>
+
+Now let's load the Hugging Face dataset. You can learn more about the different load methods [here](https://huggingface.co/docs/datasets/en/package_reference/loading_methods)
+
+<CodeGroup>
+  ```python python
+  Padoru = datasets.load_dataset("not-lain/padoru", split='train').select_columns(['Image', 'ImageSize', 'Name', 'ImageSource'])
+  ```
+</CodeGroup>
+
+```
+README.md:   0%|          | 0.00/803 [00:00<?, ?B/s]
+train-00000-of-00001.parquet:   0%|          | 0.00/152M [00:00<?, ?B/s]
+Generating train split:   0%|          | 0/382 [00:00<?, ? examples/s]
+```
+
+It preserves the Hugging Face information about whether the data is part of the *test*, *train* or *validation* split.
+
+<CodeGroup>
+  ```python python
+  Padoru
+  ```
+</CodeGroup>
+
+```
+Dataset({
+    features: ['Image', 'ImageSize', 'Name', 'ImageSource'],
+    num_rows: 382
+})
+```
+
+## Create a Pixeltable Table from a Hugging Face Dataset
+
+Now we create a table and Pixeltable will map column types as needed. Check out other ways to bring data into Pixeltable with [pixeltable.io](https://pixeltable.github.io/pixeltable/api/io/) such as csv, parquet, pandas, json and others.
+
+<CodeGroup>
+  ```python python
+  t = pxt.io.import_huggingface_dataset('padoru', Padoru)
+  ```
+</CodeGroup>
+
+```
+Creating a Pixeltable instance at: /root/.pixeltable
+Connected to Pixeltable database at:
+postgresql+psycopg://postgres:@/pixeltable?host=/root/.pixeltable/pgdata
+Created table `padoru_tmp_48836957`.
+Inserting rows into `padoru_tmp_48836957`: 126 rows [00:00, 4905.16 rows/s]
+Inserted 126 rows with 0 errors.
+Inserting rows into `padoru_tmp_48836957`: 126 rows [00:00, 5605.04 rows/s]
+Inserted 126 rows with 0 errors.
+Inserting rows into `padoru_tmp_48836957`: 126 rows [00:00, 5182.47 rows/s]
+Inserted 126 rows with 0 errors.
+Inserting rows into `padoru_tmp_48836957`: 4 rows [00:00, 735.65 rows/s]
+Inserted 4 rows with 0 errors.
+```
+
+<CodeGroup>
+  ```python python
+  t.show(3)
+  ```
+</CodeGroup>
+
+![](\images\docs\bb09e5d282c6566b811786ab282809d1e21ac8a2c85fc129508cd2fe8f04eeed-image.png)
+
+## Leveraging Hugging Face Models with Pixeltable's Embedding Functionality
+
+Pixeltable contains a built-in adapter for certain model families, so all we have to do is call the [Pixeltable function for Hugging Face](https://pixeltable.github.io/pixeltable/api/functions/huggingface/). A nice thing about the Huggingface models is that they run locally, so you don't need an account with a service provider in order to use them.
+
+Pixeltable can also create and populate an index with `table.add_embedding_index()` for string and image embeddings. That definition is persisted as part of the table's metadata, which allows Pixeltable to maintain the index in response to updates to the table.
+
+In this example we are using `CLIP`. You can use any embedding function you like, via Pixeltable's UDF mechanism (which is described in detail our [guide to user-defined functions](/docs/user-defined-functions-udfs).
+
+<CodeGroup>
+  ```python python
+  from pixeltable.functions.huggingface import clip_image, clip_text
+  import PIL.Image
+
+  # create a udf that takes a single string, to use as an embedding function
+  @pxt.expr_udf
+  def str_embed(s: str):
+      return clip_text(s, model_id='openai/clip-vit-base-patch32')
+
+  # create a udf that takes a single image, to use as an embedding function
+  @pxt.expr_udf
+  def img_embed(Image: PIL.Image.Image):
+      return clip_image(Image, model_id='openai/clip-vit-base-patch32')
+
+  # create embedding index on the 'Image' column
+  t.add_embedding_index('Image', string_embed=str_embed, image_embed=img_embed)
+  ```
+</CodeGroup>
+
+```
+Computing cells: 100%|████████████████████████████████████████| 382/382 [00:36<00:00, 10.40 cells/s]
+```
+
+<CodeGroup>
+  ```python python
+  sample_img = t.select(t.Image).collect()[6]['Image']
+
+  sim = t.Image.similarity(sample_img)
+
+  # use 'similarity()' in the order_by() clause and apply a limit in order to utilize the index
+  res = t.order_by(sim, asc=False).limit(2).select(t.Image, sim=sim).collect()
+  res
+  ```
+</CodeGroup>
+
+![](\images\docs\6dcc05b169b39f86cc8f2687d99aaa95cffd054c140fc2e8361493c9af87132c-image.png)
+
+You can learn more about how to leverage indexes in detail with our tutorial: [Working with Embedding and Vector Indexes](/docs/embedding-vector-indexes)
+
+***
+
+* [Table of Contents](#)
+
+* * [Working with Hugging Face](#working-with-hugging-face)
+
+    * [Create a Pixeltable Table from a Hugging Face Dataset](#create-a-pixeltable-table-from-a-hugging-face-dataset)
+    * [Leveraging Hugging Face Models with Pixeltable's Embedding Functionality](#leveraging-hugging-face-models-with-pixeltables-embedding-functionality)

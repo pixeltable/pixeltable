@@ -1,0 +1,246 @@
+---
+title: "YOLOX"
+description: "Using YOLOX Object Detection in Pixeltable"
+---
+
+[](/edit/working-with-yolox)
+
+Pixeltable provides built-in integration with YOLOX, a family of high-performance object detection models. This integration enables efficient frame-by-frame object detection in images and videos, with automatic handling of model inference and result storage.
+
+## Overview
+
+YOLOX models in Pixeltable:
+
+* Support real-time object detection
+* Provide multiple model sizes for different performance needs
+* Integrate seamlessly with Pixeltable's computed columns
+* Handle batch processing automatically
+
+## Available Models
+
+YOLOX comes in several variants, offering different trade-offs between speed and accuracy:
+
+| Model       | Description    | Speed     | Accuracy  | Use Case                          |
+| ----------- | -------------- | --------- | --------- | --------------------------------- |
+| yolox\_nano | Smallest model | Fastest   | Base      | Mobile/Edge devices               |
+| yolox\_tiny | Compact model  | Very Fast | Good      | Resource-constrained environments |
+| yolox\_s    | Small model    | Fast      | Better    | Balanced performance              |
+| yolox\_m    | Medium model   | Moderate  | High      | General purpose                   |
+| yolox\_l    | Large model    | Slower    | Very High | High accuracy needs               |
+| yolox\_x    | Extra large    | Slowest   | Highest   | Maximum accuracy                  |
+
+## Basic Usage
+
+Here's a simple example of applying YOLOX to images:
+
+<CodeGroup>
+  ```python python
+  import pixeltable as pxt
+  from pixeltable.ext.functions.yolox import yolox
+
+  # Create a table for images
+  images = pxt.create_table('detection_demo.images', {
+      'image': pxt.ImageType()
+  })
+
+  # Add object detection as a computed column
+  images['detections'] = yolox(
+      images.image,
+      model_id='yolox_s',  # Choose model size
+      threshold=0.5        # Detection confidence threshold
+  )
+
+  # Insert some images
+  images.insert([
+      {'image': 'path/to/image1.jpg'},
+      {'image': 'path/to/image2.jpg'}
+  ]) 
+  ```
+</CodeGroup>
+
+## Video Processing
+
+YOLOX is particularly useful for video analysis. Here's how to process videos frame by frame:
+
+<CodeGroup>
+  ```python python
+  from pixeltable.iterators import FrameIterator
+
+  # Create a table for videos
+  videos = pxt.create_table('detection_demo.videos', {
+      'video': pxt.VideoType()
+  })
+
+  # Create a view for frame extraction
+  frames = pxt.create_view(
+      'detection_demo.frames',
+      videos,
+      iterator=FrameIterator.create(
+          video=videos.video,
+          fps=1  # Extract 1 frame per second
+      )
+  )
+
+  # Add object detection
+  frames['detections'] = yolox(
+      frames.frame,
+      model_id='yolox_m',
+      threshold=0.25
+  )
+  ```
+</CodeGroup>
+
+## Understanding Detection Results
+
+The YOLOX function returns a JSON structure containing:
+
+<CodeGroup>
+  ```python python
+  {
+      "boxes": [[x1, y1, x2, y2], ...],  # Bounding box coordinates
+      "scores": [0.98, ...],              # Confidence scores
+      "labels": [1, ...],                 # Class IDs
+      "label_text": ["person", ...]       # Class names
+  }
+  ```
+</CodeGroup>
+
+You can access specific parts of the detection results:
+
+<CodeGroup>
+  ```python python
+  # Get just the bounding boxes
+  frames.select(frames.detections.boxes).show()
+
+  # Filter high-confidence detections
+  frames.where(frames.detections.scores[0] > 0.9).show()
+
+  # Count detected objects
+  frames.select(len(frames.detections.boxes)).show()
+  ```
+</CodeGroup>
+
+## Visualization
+
+To visualize detection results, you can create a UDF to draw bounding boxes:
+
+<CodeGroup>
+  ```python python
+  import PIL.Image
+  import PIL.ImageDraw
+
+  @pxt.udf
+  def draw_boxes(
+      img: PIL.Image.Image, boxes: list[list[float]]
+  ) -> PIL.Image.Image:
+      result = img.copy()  # Create a copy of `img`
+      d = PIL.ImageDraw.Draw(result)
+      for box in boxes:
+          # Draw bounding box rectangles on the copied image
+          d.rectangle(box, width=3)
+      return result
+  )
+  ```
+</CodeGroup>
+
+## Model Evaluation
+
+Pixeltable provides tools to evaluate YOLOX model performance:
+
+<CodeGroup>
+  ```python python
+  from pixeltable.functions.vision import eval_detections, mean_ap
+
+  # Evaluate against ground truth
+  frames['evaluation'] = eval_detections(
+      pred_bboxes=frames.detections.boxes,
+      pred_labels=frames.detections.labels,
+      pred_scores=frames.detections.scores,
+      gt_bboxes=frames.ground_truth.boxes,
+      gt_labels=frames.ground_truth.labels
+  )
+
+  # Calculate mean Average Precision
+  mAP = frames.select(
+      mean_ap(frames.evaluation)
+  ).collect()
+  ```
+</CodeGroup>
+
+## Best Practices
+
+1. Model Selection
+
+2. Start with smaller models (nano/tiny) for quick prototyping
+
+3. Use larger models when accuracy is critical
+
+4. Consider hardware constraints when choosing model size
+
+5. Performance Optimization
+
+   1. Use appropriate FPS settings for video processing
+   2. Adjust confidence threshold based on your needs
+   3. Leverage batch processing for better throughput
+
+6. Resource Management
+
+   1. Monitor memory usage with large videos
+   2. Use frame sampling for initial testing
+   3. Consider using smaller models for real-time applications
+
+## Error Handling
+
+<CodeGroup>
+  ```python python
+  # Check for detection errors
+  frames.where(
+      frames.detections.errortype != None
+  ).select(
+      frames.detections.errortype,
+      frames.detections.errormsg
+  ).show()
+  ```
+</CodeGroup>
+
+## Advanced Usage
+
+### Combining Multiple Models
+
+<CodeGroup>
+  ```python python
+  # Compare different YOLOX variants
+  frames['tiny_detect'] = yolox(frames.frame, model_id='yolox_tiny')
+  frames['medium_detect'] = yolox(frames.frame, model_id='yolox_m')
+
+  # Compare results
+  frames.select(
+      frames.frame,
+      tiny_boxes=frames.tiny_detect.boxes,
+      medium_boxes=frames.medium_detect.boxes
+  ).show()
+  ```
+</CodeGroup>
+
+## Limitations
+
+* GPU memory usage increases with model size
+* Processing time varies significantly between models
+* Some object classes may require fine-tuning for best results
+
+***
+
+* [Table of Contents](#)
+
+* * [Overview](#overview)
+  * [Available Models](#available-models)
+  * [Basic Usage](#basic-usage)
+  * [Video Processing](#video-processing)
+  * [Understanding Detection Results](#understanding-detection-results)
+  * [Visualization](#visualization)
+  * [Model Evaluation](#model-evaluation)
+  * [Best Practices](#best-practices)
+  * [Error Handling](#error-handling)
+  * [Advanced Usage](#advanced-usage)
+    * [Combining Multiple Models](#combining-multiple-models)
+  * [Limitations](#limitations)
