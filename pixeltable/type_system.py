@@ -213,9 +213,9 @@ class ColumnType:
             return self.copy(nullable=(self.nullable or other.nullable))
 
         if self.is_invalid_type():
-            return other
+            return other.copy(nullable=(self.nullable or other.nullable))
         if other.is_invalid_type():
-            return self
+            return self.copy(nullable=(self.nullable or other.nullable))
 
         if self.is_scalar_type() and other.is_scalar_type():
             t = self.Type.supertype(self._type, other._type, self.common_supertypes)
@@ -292,26 +292,24 @@ class ColumnType:
                 designations will be allowed regardless.
         """
         origin = typing.get_origin(t)
+        type_args = typing.get_args(t)
         if origin is typing.Union:
             # Check if `t` has the form Optional[T].
-            union_args = typing.get_args(t)
-            if len(union_args) == 2 and type(None) in union_args:
+            if len(type_args) == 2 and type(None) in type_args:
                 # `t` is a type of the form Optional[T] (equivalently, Union[T, None] or Union[None, T]).
                 # We treat it as the underlying type but with nullable=True.
-                underlying_py_type = union_args[0] if union_args[1] is type(None) else union_args[1]
+                underlying_py_type = type_args[0] if type_args[1] is type(None) else type_args[1]
                 underlying = cls.from_python_type(underlying_py_type, allow_builtin_types=allow_builtin_types)
                 if underlying is not None:
                     return underlying.copy(nullable=True)
         elif origin is Required:
-            required_args = typing.get_args(t)
-            assert len(required_args) == 1
+            assert len(type_args) == 1
             return cls.from_python_type(
-                required_args[0], nullable_default=False, allow_builtin_types=allow_builtin_types
-            )
+                type_args[0], nullable_default=False, allow_builtin_types=allow_builtin_types
+            ).copy(nullable=False)
         elif origin is typing.Annotated:
-            annotated_args = typing.get_args(t)
-            origin = annotated_args[0]
-            parameters = annotated_args[1]
+            origin = type_args[0]
+            parameters = type_args[1]
             if isinstance(parameters, ColumnType):
                 return parameters.copy(nullable=nullable_default)
         else:
@@ -323,7 +321,12 @@ class ColumnType:
             if isinstance(t, type) and issubclass(t, _PxtType):
                 return t.as_col_type(nullable=nullable_default)
             elif allow_builtin_types:
-                if t is str or t is Literal:
+                if t is Literal and len(type_args) > 0:
+                    literal_type = cls.infer_common_literal_type(type_args)
+                    if literal_type is None:
+                        return None
+                    return literal_type.copy(nullable=(literal_type.nullable or nullable_default))
+                if t is str:
                     return StringType(nullable=nullable_default)
                 if t is int:
                     return IntType(nullable=nullable_default)

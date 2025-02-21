@@ -120,24 +120,29 @@ class TestTypes:
                 "Image[(100, 200), 'RGB']",
             ),
             Image['RGB']: (ImageType(height=None, width=None, mode='RGB', nullable=False), "Image['RGB']"),  # type: ignore[misc]
+            Literal['a', 'b', 'c']: (StringType(nullable=False), "String"),
+            Literal[1, 2, 3]: (IntType(nullable=False), "Int"),
+            Literal[1, 2.0, 3]: (FloatType(nullable=False), "Float"),
+            Literal['a', 'b', None]: (StringType(nullable=True), "String"),
         }
         for py_type, (pxt_type, string) in test_cases.items():
-            assert not pxt_type.nullable
+            print(py_type)
+            non_nullable_pxt_type = pxt_type.copy(nullable=False)
             nullable_pxt_type = pxt_type.copy(nullable=True)
 
             assert ColumnType.from_python_type(py_type) == pxt_type
-            assert ColumnType.from_python_type(Required[py_type]) == pxt_type  # type: ignore[valid-type]
+            assert ColumnType.from_python_type(Required[py_type]) == non_nullable_pxt_type  # type: ignore[valid-type]
             assert ColumnType.from_python_type(Optional[py_type]) == nullable_pxt_type
             assert ColumnType.from_python_type(Union[None, py_type]) == nullable_pxt_type
 
             assert ColumnType.from_python_type(py_type, nullable_default=True) == nullable_pxt_type
-            assert ColumnType.from_python_type(Required[py_type], nullable_default=True) == pxt_type  # type: ignore[valid-type]
+            assert ColumnType.from_python_type(Required[py_type], nullable_default=True) == non_nullable_pxt_type  # type: ignore[valid-type]
             assert ColumnType.from_python_type(Optional[py_type], nullable_default=True) == nullable_pxt_type
             assert ColumnType.from_python_type(Union[None, py_type], nullable_default=True) == nullable_pxt_type
 
-            assert str(pxt_type) == string
+            assert str(non_nullable_pxt_type) == string
             assert str(nullable_pxt_type) == f'Optional[{string}]'
-            assert pxt_type._to_str(as_schema=True) == f'Required[{string}]'
+            assert non_nullable_pxt_type._to_str(as_schema=True) == f'Required[{string}]'
             assert nullable_pxt_type._to_str(as_schema=True) == string
 
     def test_supertype(self, init_env) -> None:
