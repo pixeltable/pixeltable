@@ -116,7 +116,7 @@ class TableVersionPath:
         col = self.tbl_version.cols_by_name.get(name)
         if col is not None:
             return col
-        elif self.base is not None and include_bases:  # and not self.is_opaque():
+        elif self.base is not None and include_bases:
             return self.base.get_column(name)
         else:
             return None
@@ -131,7 +131,7 @@ class TableVersionPath:
         ):
             # the column is visible in this table version
             return True
-        elif self.base is not None and include_bases:  # and not self.is_opaque():
+        elif self.base is not None and include_bases:
             return self.base.has_column(col)
         else:
             return False

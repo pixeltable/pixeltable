@@ -56,18 +56,14 @@ class View(Table):
         return 'view'
 
     @classmethod
-    def convert_select_to_additional(
-        cls, select_list: Optional[list[tuple[exprs.Expr, Optional[str]]]]
-    ) -> dict[str, Any]:
+    def select_list_to_column_spec(cls, select_list: list[tuple[exprs.Expr, Optional[str]]]) -> dict[str, dict]:
+        from pixeltable.dataframe import DataFrame
+
         r = {}
-        for expr, name in select_list:
-            print(expr, name)
-            if isinstance(expr, exprs.ColumnRef):
-                stored = not isinstance(expr, exprs.ColumnRef)
-                if name is None:
-                    name = expr.default_column_name()
+        exps, names = DataFrame._normalize_select_list([], select_list)
+        for expr, name in zip(exps, names):
+            stored = not isinstance(expr, exprs.ColumnRef)
             r[name] = {'value': expr, 'stored': stored}
-            print(name, r[name])
         return r
 
     @classmethod
@@ -90,8 +86,7 @@ class View(Table):
         is_opaque: bool = select_list is not None
         col1 = []
         if is_opaque:
-            r = cls.convert_select_to_additional(select_list)
-            print(r)  # DEBUGGING
+            r = cls.select_list_to_column_spec(select_list)
             col1 = cls._create_columns(r)
 
         col2 = cls._create_columns(additional_columns)

@@ -977,7 +977,12 @@ class DataFrame:
         return self._first_tbl.tbl_version.delete(where=self.where_clause)
 
     def _validate_mutable(self, op_name: str, allow_select: bool) -> None:
-        """Tests whether this DataFrame can be mutated (such as by an update operation)."""
+        """Tests whether this DataFrame can be mutated (such as by an update operation).
+
+        Args:
+            op_name: The name of the operation for which the test is being performed.
+            allow_select: Whether to allow a select criteria in the Dataframe.
+        """
         if self.group_by_clause is not None or self.grouping_tbl is not None:
             raise excs.Error(f'Cannot use `{op_name}` after `group_by`')
         if self.order_by_clause is not None:
