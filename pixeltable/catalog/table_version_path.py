@@ -86,7 +86,7 @@ class TableVersionPath:
         from pixeltable.exprs import ColumnRef
 
         if col_name not in self.tbl_version.cols_by_name:
-            if self.base is None:
+            if self.base is None or self.tbl_version.is_opaque:
                 raise AttributeError(f'Column {col_name} unknown')
             return self.base.get_column_ref(col_name)
         col = self.tbl_version.cols_by_name[col_name]
@@ -95,7 +95,7 @@ class TableVersionPath:
     def columns(self) -> list[Column]:
         """Return all user columns visible in this tbl version path, including columns from bases"""
         result = list(self.tbl_version.cols_by_name.values())
-        if self.base is not None:
+        if self.base is not None and not self.tbl_version.is_opaque:
             base_cols = self.base.columns()
             # we only include base columns that don't conflict with one of our column names
             result.extend(c for c in base_cols if c.name not in self.tbl_version.cols_by_name)
@@ -116,7 +116,7 @@ class TableVersionPath:
         col = self.tbl_version.cols_by_name.get(name)
         if col is not None:
             return col
-        elif self.base is not None and include_bases:
+        elif self.base is not None and include_bases:  # and not self.is_opaque():
             return self.base.get_column(name)
         else:
             return None
@@ -131,7 +131,7 @@ class TableVersionPath:
         ):
             # the column is visible in this table version
             return True
-        elif self.base is not None and include_bases:
+        elif self.base is not None and include_bases:  # and not self.is_opaque():
             return self.base.has_column(col)
         else:
             return False

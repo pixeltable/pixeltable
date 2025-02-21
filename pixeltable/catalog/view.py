@@ -37,7 +37,14 @@ class View(Table):
     """
 
     def __init__(
-        self, id: UUID, dir_id: UUID, name: str, tbl_version_path: TableVersionPath, base_id: UUID, snapshot_only: bool
+        self,
+        id: UUID,
+        dir_id: UUID,
+        name: str,
+        tbl_version_path: TableVersionPath,
+        base_id: UUID,
+        snapshot_only: bool,
+        is_opaque: bool,
     ):
         super().__init__(id, dir_id, name, tbl_version_path)
         assert base_id in catalog.Catalog.get().tbl_dependents
@@ -49,11 +56,27 @@ class View(Table):
         return 'view'
 
     @classmethod
+    def convert_select_to_additional(
+        cls, select_list: Optional[list[tuple[exprs.Expr, Optional[str]]]]
+    ) -> dict[str, Any]:
+        r = {}
+        for expr, name in select_list:
+            print(expr, name)
+            if isinstance(expr, exprs.ColumnRef):
+                stored = not isinstance(expr, exprs.ColumnRef)
+                if name is None:
+                    name = expr.default_column_name()
+            r[name] = {'value': expr, 'stored': stored}
+            print(name, r[name])
+        return r
+
+    @classmethod
     def _create(
         cls,
         dir_id: UUID,
         name: str,
         base: TableVersionPath,
+        select_list: Optional[list[tuple[exprs.Expr, Optional[str]]]],
         additional_columns: dict[str, Any],
         predicate: Optional['pxt.exprs.Expr'],
         is_snapshot: bool,
@@ -63,7 +86,16 @@ class View(Table):
         iterator_cls: Optional[type[ComponentIterator]],
         iterator_args: Optional[dict],
     ) -> View:
-        columns = cls._create_columns(additional_columns)
+        # Convert select_list to more additional_columns if present
+        is_opaque: bool = select_list is not None
+        col1 = []
+        if is_opaque:
+            r = cls.convert_select_to_additional(select_list)
+            print(r)  # DEBUGGING
+            col1 = cls._create_columns(r)
+
+        col2 = cls._create_columns(additional_columns)
+        columns = col1 + col2
         cls._verify_schema(columns)
 
         # verify that filter can be evaluated in the context of the base
@@ -153,6 +185,7 @@ class View(Table):
 
             view_md = md_schema.ViewMd(
                 is_snapshot=is_snapshot,
+                is_opaque=is_opaque,
                 predicate=predicate.as_dict() if predicate is not None else None,
                 base_versions=base_versions,
                 iterator_class_fqn=iterator_class_fqn,
@@ -172,7 +205,7 @@ class View(Table):
             )
             if tbl_version is None:
                 # this is purely a snapshot: we use the base's tbl version path
-                view = cls(id, dir_id, name, base_version_path, base.tbl_id(), snapshot_only=True)
+                view = cls(id, dir_id, name, base_version_path, base.tbl_id(), snapshot_only=True, is_opaque=is_opaque)
                 _logger.info(f'created snapshot {name}')
             else:
                 view = cls(
@@ -182,6 +215,7 @@ class View(Table):
                     TableVersionPath(tbl_version, base=base_version_path),
                     base.tbl_id(),
                     snapshot_only=False,
+                    is_opaque=is_opaque,
                 )
                 _logger.info(f'Created view `{name}`, id={tbl_version.id}')
 
