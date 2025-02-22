@@ -391,37 +391,7 @@ class Function(ABC):
         assert 'signature' in d and d['signature'] is not None
         instance = resolve_symbol(d['path'])
         assert isinstance(instance, Function)
-
         return instance
-
-        # Load the signature from the DB and check that it is still valid (i.e., is still consistent with a signature
-        # in the code).
-        signature = Signature.from_dict(d['signature'])
-        idx = instance.__find_matching_overload(signature)
-        if idx is None:
-            # No match; generate an informative error message.
-            signature_note_str = 'any of its signatures' if instance.is_polymorphic else 'its signature as'
-            instance_signature_str = (
-                f'{len(instance.signatures)} signatures' if instance.is_polymorphic else str(instance.signature)
-            )
-            # TODO: Handle this more gracefully (instead of failing the DB load, allow the DB load to succeed, but
-            #       mark any enclosing FunctionCall as unusable). It's the same issue as dealing with a renamed UDF or
-            #       FunctionCall return type mismatch.
-            raise excs.Error(
-                f'The signature stored in the database for the UDF `{instance.self_path}` no longer matches '
-                f'{signature_note_str} as currently defined in the code.\nThis probably means that the code for '
-                f'`{instance.self_path}` has changed in a backward-incompatible way.\n'
-                f'Signature in database: {signature}\n'
-                f'Signature in code: {instance_signature_str}'
-            )
-        # We found a match; specialize to the appropriate overload resolution (non-polymorphic form) and return that.
-        return instance._resolved_fns[idx]
-
-    def __find_matching_overload(self, sig: Signature) -> Optional[int]:
-        for idx, overload_sig in enumerate(self.signatures):
-            if sig.is_consistent_with(overload_sig):
-                return idx
-        return None
 
     def to_store(self) -> tuple[dict, bytes]:
         """

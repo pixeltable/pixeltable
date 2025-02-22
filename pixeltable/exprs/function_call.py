@@ -15,7 +15,6 @@ import pixeltable.type_system as ts
 
 from .data_row import DataRow
 from .expr import Expr
-from .inline_expr import InlineList
 from .literal import Literal
 from .row_builder import RowBuilder
 from .rowid_ref import RowidRef
@@ -44,8 +43,8 @@ class FunctionCall(Expr):
     order_by_idx: int
     aggregator: Optional[Any]
     current_partition_vals: Optional[list[Any]]
-    original_args: Optional[list[Expr]]
-    original_kwargs: Optional[dict[str, Expr]]
+    original_args: list[Expr]
+    original_kwargs: dict[str, Expr]
 
     def __init__(
         self,
@@ -55,12 +54,12 @@ class FunctionCall(Expr):
         order_by_clause: Optional[list[Any]] = None,
         group_by_clause: Optional[list[Any]] = None,
         is_method_call: bool = False,
-        original_args: Optional[list[Expr]] = None,
-        original_kwargs: Optional[dict[str, Expr]] = None,
+        original_args: list[Expr] = None,
+        original_kwargs: dict[str, Expr] = None,
     ):
         assert all(isinstance(arg, Expr) for arg in bound_args.values())
-        assert original_args is None or all(isinstance(arg, Expr) for arg in original_args)
-        assert original_kwargs is None or all(isinstance(arg, Expr) for arg in original_kwargs.values())
+        assert all(isinstance(arg, Expr) for arg in original_args)
+        assert all(isinstance(arg, Expr) for arg in original_kwargs.values())
 
         self.original_args = original_args
         self.original_kwargs = original_kwargs
@@ -494,42 +493,5 @@ class FunctionCall(Expr):
             original_args=args,
             original_kwargs=kwargs,
         )
+
         return fn_call
-
-    @classmethod
-    def __find_matching_signature(cls, fn: func.Function, args: list[Any], kwargs: dict[str, Any]) -> Optional[int]:
-        for idx, sig in enumerate(fn.signatures):
-            if cls.__signature_matches(sig, args, kwargs):
-                return idx
-        return None
-
-    @classmethod
-    def __signature_matches(cls, sig: func.Signature, args: list[Any], kwargs: dict[str, Any]) -> bool:
-        unbound_parameters = set(sig.parameters.keys())
-        for i, arg in enumerate(args):
-            if i >= len(sig.parameters_by_pos):
-                return False
-            param = sig.parameters_by_pos[i]
-            arg_type = arg.col_type if isinstance(arg, Expr) else ts.ColumnType.infer_literal_type(arg)
-            if param.col_type is not None and not param.col_type.is_supertype_of(arg_type, ignore_nullable=True):
-                return False
-            unbound_parameters.remove(param.name)
-        for param_name, arg in kwargs.items():
-            if param_name not in unbound_parameters:
-                return False
-            param = sig.parameters[param_name]
-            arg_type = arg.col_type if isinstance(arg, Expr) else ts.ColumnType.infer_literal_type(arg)
-            if param.col_type is not None and not param.col_type.is_supertype_of(arg_type, ignore_nullable=True):
-                return False
-            unbound_parameters.remove(param_name)
-        for param_name in unbound_parameters:
-            param = sig.parameters[param_name]
-            if not param.has_default:
-                return False
-        return True
-
-    @classmethod
-    def __unpack_bound_arg(cls, arg: Any) -> Any:
-        if isinstance(arg, InlineList) and all(isinstance(el, Literal) for el in arg.components):
-            return [el.val for el in arg.components]
-        return arg
