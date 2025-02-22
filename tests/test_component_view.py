@@ -182,31 +182,8 @@ class TestComponentView:
             )
         assert 'must be nullable' in str(excinfo.value)
 
-    # break up the snapshot tests for better (future) parallelization
-    def test_snapshot1(self, reset_db) -> None:
-        has_column = False
-        has_filter = False
-        for reload_md in [False, True]:
-            reload_catalog()
-            self.run_snapshot_test(has_column=has_column, has_filter=has_filter, reload_md=reload_md)
-
-    def test_snapshot2(self, reset_db) -> None:
-        has_column = True
-        has_filter = False
-        for reload_md in [False, True]:
-            reload_catalog()
-            self.run_snapshot_test(has_column=has_column, has_filter=has_filter, reload_md=reload_md)
-
-    def test_snapshot3(self, reset_db) -> None:
-        has_column = False
-        has_filter = True
-        for reload_md in [False, True]:
-            reload_catalog()
-            self.run_snapshot_test(has_column=has_column, has_filter=has_filter, reload_md=reload_md)
-
-    def test_snapshot4(self, reset_db) -> None:
-        has_column = True
-        has_filter = True
+    @pytest.mark.parametrize('has_column,has_filter', [(False, False), (True, False), (False, True), (True, True)])
+    def test_snapshot(self, has_column: bool, has_filter: bool, reset_db) -> None:
         for reload_md in [False, True]:
             reload_catalog()
             self.run_snapshot_test(has_column=has_column, has_filter=has_filter, reload_md=reload_md)
