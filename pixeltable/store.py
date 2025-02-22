@@ -165,8 +165,8 @@ class StoreBase:
             .where(self.v_max_col > self.tbl_version.version)
         )
         if conn is None:
-            with env.Env.get().engine.connect() as conn:
-                result = conn.execute(stmt).scalar_one()
+            with env.Env.get().engine.connect() as conn_:
+                result = conn_.execute(stmt).scalar_one()
         else:
             result = conn.execute(stmt).scalar_one()
         assert isinstance(result, int)
