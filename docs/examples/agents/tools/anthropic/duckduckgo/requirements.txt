@@ -1,0 +1,4 @@
+pixeltable
+anthropic
+duckduckgo-search
+tiktoken
