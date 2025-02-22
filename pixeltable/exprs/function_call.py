@@ -447,7 +447,7 @@ class FunctionCall(Expr):
 
         try:
             resolved_fn, bound_args = fn._bind_to_matching_signature(args, kwargs)
-        except excs.Error as e:
+        except (TypeError, excs.Error):
             # TODO: Handle this more gracefully (instead of failing the DB load, allow the DB load to succeed, but
             #       mark any enclosing FunctionCall as unusable). It's the same issue as dealing with a renamed UDF or
             #       FunctionCall return type mismatch.

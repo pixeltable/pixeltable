@@ -47,8 +47,8 @@ class ColumnType:
         @classmethod
         def supertype(
             cls,
-            type1: 'ColumnType.Type',
-            type2: 'ColumnType.Type',
+            type1: Optional['ColumnType.Type'],
+            type2: Optional['ColumnType.Type'],
             # we need to pass this in because we can't easily append it as a class member
             common_supertypes: dict[tuple['ColumnType.Type', 'ColumnType.Type'], 'ColumnType.Type'],
         ) -> Optional['ColumnType.Type']:
@@ -835,7 +835,7 @@ class ArrayType(ColumnType):
             # if the dtypes are incompatible, then the supertype is a fully general array
             return ArrayType(nullable=(self.nullable or other.nullable))
         super_shape: Optional[tuple[Optional[int], ...]]
-        if len(self.shape) != len(other.shape):
+        if self.shape is None or other.shape is None or len(self.shape) != len(other.shape):
             super_shape = None
         else:
             super_shape = tuple(n1 if n1 == n2 else None for n1, n2 in zip(self.shape, other.shape))

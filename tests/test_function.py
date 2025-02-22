@@ -671,7 +671,8 @@ class TestFunction:
 
         reload_catalog()
 
-    def test_udf_evolution(self, reset_db) -> None:
+    @pytest.mark.parametrize('as_kwarg', [False, True])
+    def test_udf_evolution(self, as_kwarg: bool, reset_db) -> None:
         import tests.test_function
 
         t = pxt.create_table('test', {'c1': pxt.String})
@@ -687,18 +688,85 @@ class TestFunction:
             repr(t)  # Force table metadata to load
 
         @pxt.udf(_force_stored=True)
-        def udf_base_version(a: str, b: int = 3) -> str:
-            return 'hello'
+        def udf_base_version(a: str, b: int = 3) -> Optional[pxt.Array[pxt.Float]]:
+            return None
 
         mimic(udf_base_version)
-        t.add_computed_column(result=tests.test_function.evolving_udf(t.c1))
+        if as_kwarg:
+            t.add_computed_column(result=tests.test_function.evolving_udf(a=t.c1))
+        else:
+            t.add_computed_column(result=tests.test_function.evolving_udf(t.c1))
 
+        # Change type of an unused optional parameter; this works in all cases
         @pxt.udf(_force_stored=True)
-        def udf_version_2(a: str, b: str = 'x') -> str:
-            return 'hello'
+        def udf_version_2(a: str, b: str = 'x') -> Optional[pxt.Array[pxt.Float]]:
+            return None
 
         mimic(udf_version_2)
         reload_table()
+
+        # Rename the parameter; this works only if the UDF was invoked with a positional argument
+        @pxt.udf(_force_stored=True)
+        def udf_version_3(c: str, b: str = 'x') -> Optional[pxt.Array[pxt.Float]]:
+            return None
+
+        mimic(udf_version_3)
+        if as_kwarg:
+            with pytest.raises(excs.Error, match='signature stored in the database.*no longer matches'):
+                reload_table()
+        else:
+            reload_table()
+
+        # Change the parameter from fixed to variable; this works only if the UDF was invoked with a positional
+        # argument
+        @pxt.udf(_force_stored=True)
+        def udf_version_4(*a: str) -> Optional[pxt.Array[pxt.Float]]:
+            return None
+
+        mimic(udf_version_4)
+        if as_kwarg:
+            with pytest.raises(excs.Error, match='signature stored in the database.*no longer matches'):
+                reload_table()
+        else:
+            reload_table()
+
+        # Narrow the return type; this works in all cases
+        @pxt.udf(_force_stored=True)
+        def udf_version_5(a: str, b: int = 3) -> Optional[pxt.Array[pxt.Float, (512,)]]:
+            return None
+
+        mimic(udf_version_5)
+        reload_table()
+
+        # Change the type of the parameter to something incompatible; this fails in all cases
+        @pxt.udf(_force_stored=True)
+        def udf_version_6(a: float, b: int = 3) -> Optional[pxt.Array[pxt.Float]]:
+            return None
+
+        mimic(udf_version_6)
+        with pytest.raises(excs.Error, match='signature stored in the database.*no longer matches'):
+            reload_table()
+
+        # Widen the return type; this fails in all cases
+        @pxt.udf(_force_stored=True)
+        def udf_version_7(a: str, b: int = 3) -> Optional[pxt.Array]:
+            return None
+
+        mimic(udf_version_7)
+        with pytest.raises(excs.Error, match='return type stored in the database.*no longer matches'):
+            reload_table()
+
+        # Add a poison parameter; this works only if the UDF was invoked with a keyword argument
+        @pxt.udf(_force_stored=True)
+        def udf_version_8(c: float = 5.0, a: str = '', b: int = 3) -> Optional[pxt.Array[pxt.Float]]:
+            return None
+
+        mimic(udf_version_8)
+        if as_kwarg:
+            reload_table()
+        else:
+            with pytest.raises(excs.Error, match='signature stored in the database.*no longer matches'):
+                reload_table()
 
     def test_tool_errors(self):
         with pytest.raises(excs.Error) as exc_info:
