@@ -17,7 +17,7 @@ _logger = logging.getLogger('pixeltable')
 def _(engine: sql.engine.Engine) -> None:
     with engine.begin() as conn:
         for row in conn.execute(sql.select(Function)):
-            id, dir_id, md, binary_obj = row
+            id, _, md, binary_obj = row
             md['md'] = __update_md(md['md'], binary_obj)
             _logger.info(f'Updating function: {id}')
             conn.execute(sql.update(Function).where(Function.id == id).values(md=md))

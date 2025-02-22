@@ -420,22 +420,22 @@ class FunctionCall(Expr):
         return {
             'fn': self.fn.as_dict(),
             'return_type': self.return_type.as_dict(),
+            'args': [expr.as_dict() for expr in self.original_args],
+            'kwargs': {name: expr.as_dict() for name, expr in self.original_kwargs.items()},
             'group_by_exprs': [expr.as_dict() for expr in group_by_exprs],
             'order_by_exprs': [expr.as_dict() for expr in order_by_exprs],
             'is_method_call': self.is_method_call,
-            'args': [expr.as_dict() for expr in self.original_args],
-            'kwargs': {name: expr.as_dict() for name, expr in self.original_kwargs.items()},
         }
 
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr]) -> FunctionCall:
         fn = func.Function.from_dict(d['fn'])
         return_type = ts.ColumnType.from_dict(d['return_type']) if 'return_type' in d else None
+        args = [Expr.from_dict(expr_d) for expr_d in d['args']]
+        kwargs = {name: Expr.from_dict(expr_d) for name, expr_d in d['kwargs'].items()}
         group_by_exprs = [Expr.from_dict(expr_d) for expr_d in d['group_by_exprs']]
         order_by_exprs = [Expr.from_dict(expr_d) for expr_d in d['order_by_exprs']]
         is_method_call = d['is_method_call']
-        args = [Expr.from_dict(expr_d) for expr_d in d['args']]
-        kwargs = {name: Expr.from_dict(expr_d) for name, expr_d in d['kwargs'].items()}
 
         # Now re-bind args and kwargs using the version of `fn` that is currently represented in code. This ensures
         # that we get a valid binding even if the signatures of `fn` have changed since the FunctionCall was

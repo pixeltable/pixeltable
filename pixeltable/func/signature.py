@@ -55,6 +55,7 @@ class Parameter:
     def from_dict(cls, d: dict[str, Any]) -> Parameter:
         from pixeltable import exprs
 
+        assert d['default'] is None or isinstance(d['default'], dict), d
         default = None if d['default'] is None else exprs.Literal.from_dict(d['default'])
         return cls(
             name=d['name'],
