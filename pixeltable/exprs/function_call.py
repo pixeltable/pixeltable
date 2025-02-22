@@ -2,11 +2,9 @@ from __future__ import annotations
 
 import inspect
 import sys
-from typing import Any, Optional, Sequence
-from uuid import UUID
+from typing import Any, Optional, Sequence, Union
 
 import sqlalchemy as sql
-from typing_extensions import Self
 
 import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
@@ -29,6 +27,7 @@ class FunctionCall(Expr):
 
     normalized_args: list[int]
     normalized_kwargs: dict[str, int]
+    bound_args: dict[str, Union[int, list[int], dict[str, int]]]
 
     # maps each parameter name to tuple representing the value it has in the call:
     # - argument's index in components, if an argument is given in the call
@@ -101,34 +100,13 @@ class FunctionCall(Expr):
                 arg_name: arg for arg_name, arg in bound_args.items() if arg_name not in fn.init_param_names[0]
             }
 
-        # construct components, args, kwargs
-        self.normalized_args = []
-        self.normalized_kwargs = {}
-        self._param_values = {}
+        self.components.extend(arg.copy() for arg in original_args)
+        self.normalized_args = list(range(len(self.components)))
+        self.components.extend(arg.copy() for arg in original_kwargs.values())
+        self.normalized_kwargs = {name: i + len(original_args) for i, name in enumerate(original_kwargs.keys())}
 
-        # the prefix of parameters that are bound can be passed by position
-        processed_args: set[str] = set()
-        for py_param in signature.py_signature.parameters.values():
-            if py_param.name not in bound_args or py_param.kind == inspect.Parameter.KEYWORD_ONLY:
-                break
-            arg = bound_args[py_param.name]
-            self.normalized_args.append(len(self.components))
-            self._param_values[py_param.name] = (len(self.components), None)
-            self.components.append(arg.copy())
-            processed_args.add(py_param.name)
-
-        # the remaining args are passed as keywords
-        for param_name in bound_args.keys():
-            if param_name not in processed_args:
-                arg = bound_args[param_name]
-                self.normalized_kwargs[param_name] = len(self.components)
-                self._param_values[param_name] = (len(self.components), None)
-                self.components.append(arg.copy())
-
-        # fill in default values for parameters that don't have explicit arguments
-        for param in fn.signature.parameters.values():
-            if param.name not in self._param_values:
-                self._param_values[param.name] = (None, None if param.default is None else param.default.val)
+        bindings = fn.signature.py_signature.bind(*self.normalized_args, **self.normalized_kwargs)
+        self.bound_args = bindings.arguments
 
         # window function state:
         # self.components[self.group_by_start_idx:self.group_by_stop_idx] contains group_by exprs
@@ -276,6 +254,13 @@ class FunctionCall(Expr):
         if self.has_group_by() or len(self.order_by) > 0:
             return None
 
+        args: list[sql.ColumnElement] = []
+        for component_idx in self.normalized_args:
+            arg_element = sql_elements.get(self.components[component_idx])
+            if arg_element is None:
+                return None
+            args.append(arg_element)
+
         # try to construct args and kwargs to call self.fn._to_sql()
         kwargs: dict[str, sql.ColumnElement] = {}
         for param_name, component_idx in self.normalized_kwargs.items():
@@ -286,15 +271,7 @@ class FunctionCall(Expr):
                 return None
             kwargs[param_name] = arg_element
 
-        args: list[sql.ColumnElement] = []
-        for component_idx in self.normalized_args:
-            arg_element = sql_elements.get(self.components[component_idx])
-            if arg_element is None:
-                return None
-            args.append(arg_element)
-        result = self.fn._to_sql(*args, **kwargs)
-
-        return result
+        return self.fn._to_sql(*args, **kwargs)
 
     def reset_agg(self) -> None:
         """
@@ -314,35 +291,25 @@ class FunctionCall(Expr):
 
     def make_args(self, data_row: DataRow) -> Optional[tuple[list[Any], dict[str, Any]]]:
         """Return args and kwargs, constructed for data_row; returns None if any non-nullable arg is None."""
-        kwargs: dict[str, Any] = {}
-        for param_name, component_idx in self.normalized_kwargs.items():
-            val = data_row[self.components[component_idx].slot_idx]
-            param = self.fn.signature.parameters[param_name]
-            if param.kind == inspect.Parameter.VAR_KEYWORD:
-                # expand **kwargs parameter
-                kwargs.update(val)
-            else:
-                assert param.kind != inspect.Parameter.VAR_POSITIONAL
-                if not param.col_type.nullable and val is None:
-                    return None
-                kwargs[param_name] = val
-
         args: list[Any] = []
-        for param_idx, component_idx in enumerate(self.normalized_args):
-            val = data_row[self.components[component_idx].slot_idx]
-            param = self.fn.signature.parameters_by_pos[param_idx]
-            if param.kind == inspect.Parameter.VAR_POSITIONAL:
-                # expand *args parameter
-                assert isinstance(val, list)
-                args.extend(val)
-            elif param.kind == inspect.Parameter.VAR_KEYWORD:
-                # expand **kwargs parameter
-                assert isinstance(val, dict)
-                kwargs.update(val)
-            else:
-                if not param.col_type.nullable and val is None:
-                    return None
-                args.append(val)
+        parameters_by_pos = self.fn.signature.parameters_by_pos
+        for idx in self.normalized_args:
+            val = data_row[self.components[idx].slot_idx]
+            if val is None and idx < len(parameters_by_pos) and parameters_by_pos[idx].kind in (
+                inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD
+            ) and not parameters_by_pos[idx].col_type.nullable:
+                return None
+            args.append(val)
+
+        kwargs: dict[str, Any] = {}
+        parameters = self.fn.signature.parameters
+        for param_name, idx in self.normalized_kwargs.items():
+            val = data_row[self.components[idx].slot_idx]
+            if val is None and param_name in parameters and parameters[param_name].kind in (
+                inspect.Parameter.KEYWORD_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD
+            ) and not parameters[param_name].col_type.nullable:
+                return None
+            kwargs[param_name] = val
 
         return args, kwargs
 
@@ -351,17 +318,25 @@ class FunctionCall(Expr):
         Returns a list of dicts mapping each param name to its value when this FunctionCall is evaluated against
         data_rows
         """
-        assert all(name in self._param_values for name in param_names), f'{param_names}, {self._param_values.keys()}'
+        assert all(name in self.fn.signature.parameters for name in param_names), f'{param_names}, {self._param_values.keys()}'
         result: list[dict[str, Any]] = []
         for row in data_rows:
             d: dict[str, Any] = {}
             for param_name in param_names:
-                component_idx, default_val = self._param_values[param_name]
-                if component_idx is None:
-                    d[param_name] = default_val
+                val = self.bound_args.get(param_name)
+                if isinstance(val, int):
+                    d[param_name] = row[self.components[val].slot_idx]
+                elif isinstance(val, list):
+                    # var_positional
+                    d[param_name] = [row[self.components[idx].slot_idx] for idx in val]
+                elif isinstance(val, dict):
+                    # var_keyword
+                    d[param_name] = {k: row[self.components[idx].slot_idx] for k, idx in val.items()}
                 else:
-                    slot_idx = self.components[component_idx].slot_idx
-                    d[param_name] = row[slot_idx]
+                    assert val is None
+                    default = self.fn.signature.parameters[param_name].default
+                    assert default is not None
+                    d[param_name] = default.val
             result.append(d)
         return result
 
@@ -406,22 +381,16 @@ class FunctionCall(Expr):
         else:
             data_row[self.slot_idx] = self.fn.exec(args, kwargs)
 
-    def _retarget(self, tbl_versions: dict[UUID, catalog.TableVersion]) -> Self:
-        super()._retarget(tbl_versions)
-        for i in range(len(self.original_args)):
-            self.original_args[i] = self.original_args[i]._retarget(tbl_versions)
-        for k in self.original_kwargs:
-            self.original_kwargs[k] = self.original_kwargs[k]._retarget(tbl_versions)
-        return self
-
     def _as_dict(self) -> dict:
+        args = [self.components[idx] for idx in self.normalized_args]
+        kwargs = {name: self.components[idx] for name, idx in self.normalized_kwargs.items()}
         group_by_exprs = self.components[self.group_by_start_idx : self.group_by_stop_idx]
         order_by_exprs = self.components[self.order_by_idx :]
         return {
             'fn': self.fn.as_dict(),
             'return_type': self.return_type.as_dict(),
-            'args': [expr.as_dict() for expr in self.original_args],
-            'kwargs': {name: expr.as_dict() for name, expr in self.original_kwargs.items()},
+            'args': [expr.as_dict() for expr in args],
+            'kwargs': {name: expr.as_dict() for name, expr in kwargs},
             'group_by_exprs': [expr.as_dict() for expr in group_by_exprs],
             'order_by_exprs': [expr.as_dict() for expr in order_by_exprs],
             'is_method_call': self.is_method_call,
