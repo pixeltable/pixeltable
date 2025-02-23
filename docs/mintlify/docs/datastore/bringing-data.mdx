@@ -80,16 +80,18 @@ Pixeltable provides a unified interface for working with diverse data types - fr
     array_table = pxt.create_table('myproject.arrays', {
         'fixed_vector': pxt.Array[(768,), pxt.Float],      # Fixed-size vector
         'variable_tensor': pxt.Array[(None, 512), pxt.Float], # Variable first dimension
-        'integer_array': pxt.Array[(10,), pxt.Int],        # Integer array
-        'boolean_mask': pxt.Array[(100,), pxt.Bool]        # Boolean array
+        'any_int_array': pxt.Array[pxt.Int],               # Any-shaped integer array
+        'any_float_array': pxt.Array[pxt.Float],           # Any-shaped float array
+        'completely_flexible': pxt.Array                    # Any array (shape and dtype)
     })
 
     # Insert array data
     array_table.insert({
         'fixed_vector': np.random.randn(768),
         'variable_tensor': np.random.randn(5, 512),
-        'integer_array': np.arange(10),
-        'boolean_mask': np.random.choice([True, False], 100)
+        'any_int_array': np.array([1, 2, 3, 4]),          # 1D array
+        'any_float_array': np.random.randn(3, 3),         # 2D array
+        'completely_flexible': np.array([[1, 2], [3, 4]])  # Any numpy array
     })
     ```
   </Accordion>
