@@ -148,7 +148,7 @@ _embedding_dimensions_cache: dict[str, int] = {'mistral-embed': 1024}
 
 
 @pxt.udf(batch_size=16, resource_pool='request-rate:mistral')
-async def embeddings(input: Batch[str], *, model: str) -> Batch[pxt.Array[(None,), pxt.Float]]:
+async def embeddings(input: Batch[str], *, model: str) -> Batch[pxt.Array[(None,), pxt.Float]]:  # noqa: RUF029
     """
     Embeddings API.
 
@@ -171,7 +171,7 @@ async def embeddings(input: Batch[str], *, model: str) -> Batch[pxt.Array[(None,
         An array representing the application of the given embedding to `input`.
     """
     Env.get().require_package('mistralai')
-    result = await _mistralai_client().embeddings.create(inputs=input, model=model)
+    result = _mistralai_client().embeddings.create(inputs=input, model=model)
     return [np.array(data.embedding, dtype=np.float64) for data in result.data]
 
 

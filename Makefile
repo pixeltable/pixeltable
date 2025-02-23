@@ -116,7 +116,7 @@ test: pytest typecheck docstest lint formattest
 	@echo "All tests passed!"
 
 .PHONY: fulltest
-fulltest: fullpytest nbtest typecheck docstest formattest
+fulltest: fullpytest nbtest typecheck docstest lint formattest
 	@echo "All tests passed!"
 
 .PHONY: pytest
@@ -149,7 +149,7 @@ docstest: install
 .PHONY: lint
 lint: install
 	@echo "Running ruff check ..."
-	@ruff check pixeltable/*.py
+	@ruff check pixeltable/*.py pixeltable/functions
 
 .PHONY: formattest
 formattest: install

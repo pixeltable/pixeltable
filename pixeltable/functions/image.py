@@ -403,7 +403,7 @@ def reduce(self: PIL.Image.Image, factor: int, box: Optional[tuple[int, int, int
     Args:
         factor: The reduction factor.
         box: An optional 4-tuple of ints providing the source image region to be reduced. The values must be within
-        (0, 0, width, height) rectangle. If omitted or None, the entire source is used.
+            (0, 0, width, height) rectangle. If omitted or None, the entire source is used.
     """
     pass
 

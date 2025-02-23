@@ -265,7 +265,7 @@ class DataFrame:
             with Env.get().engine.begin() as conn_:
                 yield from exec_plan(conn_)
         else:
-            yield from exec_plan(conn_)
+            yield from exec_plan(conn)
 
     async def _aexec(self, conn: sql.engine.Connection) -> AsyncIterator[exprs.DataRow]:
         """Run the query and return rows as a generator.

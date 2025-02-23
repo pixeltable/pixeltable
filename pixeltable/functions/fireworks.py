@@ -41,7 +41,7 @@ async def chat_completions(
     Creates a model response for the given chat conversation.
 
     Equivalent to the Fireworks AI `chat/completions` API endpoint.
-    For additional details, see: [https://docs.fireworks.ai/api-reference/post-chatcompletions](https://docs.fireworks.ai/api-reference/post-chatcompletions)
+    For additional details, see: <https://docs.fireworks.ai/api-reference/post-chatcompletions>
 
     Request throttling:
     Applies the rate limit set in the config (section `fireworks`, key `rate_limit`). If no rate

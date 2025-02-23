@@ -209,7 +209,7 @@ def strftime(self: datetime, format: str) -> str:
 
     Args:
         format: The format string to control the output. For a complete list of formatting directives, see
-        [`strftime()` and `strptime()` Behavior](https://docs.python.org/3/library/datetime.html#strftime-and-strptime-behavior).
+            [`strftime()` and `strptime()` Behavior](https://docs.python.org/3/library/datetime.html#strftime-and-strptime-behavior).
     """
     return self.strftime(format)
 
