@@ -90,12 +90,7 @@ def __substitute_md(k: Optional[str], v: Any) -> Optional[tuple[Optional[str], A
         group_by_exprs = [components[i] for i in range(group_by_start_idx, group_by_stop_idx)]
         order_by_exprs = [components[i] for i in range(order_by_start_idx, len(components))]
 
-        new_components = [
-            *new_args,
-            *new_kwargs.values(),
-            *group_by_exprs,
-            *order_by_exprs
-        ]
+        new_components = [*new_args, *new_kwargs.values(), *group_by_exprs, *order_by_exprs]
 
         newv = {
             'fn': v['fn'],

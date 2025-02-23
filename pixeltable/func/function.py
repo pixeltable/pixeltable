@@ -332,8 +332,8 @@ class Function(ABC):
         # Bind each remaining parameter to a like-named variable.
         # Also construct the call arguments for the template function call. Variables become args when possible;
         # otherwise, they are passed as kwargs.
-        template_args = []
-        template_kwargs = {}
+        template_args: list[exprs.Expr] = []
+        template_kwargs: dict[str, exprs.Expr] = {}
         args_ok = True
         for name, param in self.signature.parameters.items():
             if name in bindings:
@@ -342,7 +342,10 @@ class Function(ABC):
             else:
                 var = exprs.Variable(name, param.col_type)
                 bindings[name] = var
-                if args_ok and param.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD):
+                if args_ok and param.kind in (
+                    inspect.Parameter.POSITIONAL_ONLY,
+                    inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                ):
                     template_args.append(var)
                 else:
                     template_kwargs[name] = var

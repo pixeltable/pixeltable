@@ -174,9 +174,7 @@ class FunctionCall(Expr):
 
     def _print_args(self, start_idx: int = 0, inline: bool = True) -> str:
         arg_strs = [str(self.components[idx]) for idx in self.arg_idxs[start_idx:]]
-        arg_strs.extend(
-            [f'{param_name}={str(self.components[idx])}' for param_name, idx in self.kwarg_idxs.items()]
-        )
+        arg_strs.extend([f'{param_name}={str(self.components[idx])}' for param_name, idx in self.kwarg_idxs.items()])
         if len(self.order_by) > 0:
             assert isinstance(self.fn, func.AggregateFunction)
             if self.fn.requires_order_by:
@@ -271,9 +269,13 @@ class FunctionCall(Expr):
         parameters_by_pos = self.fn.signature.parameters_by_pos
         for idx in self.arg_idxs:
             val = data_row[self.components[idx].slot_idx]
-            if val is None and idx < len(parameters_by_pos) and parameters_by_pos[idx].kind in (
-                inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD
-            ) and not parameters_by_pos[idx].col_type.nullable:
+            if (
+                val is None
+                and idx < len(parameters_by_pos)
+                and parameters_by_pos[idx].kind
+                in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+                and not parameters_by_pos[idx].col_type.nullable
+            ):
                 return None
             args.append(val)
 
@@ -281,9 +283,13 @@ class FunctionCall(Expr):
         parameters = self.fn.signature.parameters
         for param_name, idx in self.kwarg_idxs.items():
             val = data_row[self.components[idx].slot_idx]
-            if val is None and param_name in parameters and parameters[param_name].kind in (
-                inspect.Parameter.KEYWORD_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD
-            ) and not parameters[param_name].col_type.nullable:
+            if (
+                val is None
+                and param_name in parameters
+                and parameters[param_name].kind
+                in (inspect.Parameter.KEYWORD_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+                and not parameters[param_name].col_type.nullable
+            ):
                 return None
             kwargs[param_name] = val
 
@@ -294,8 +300,7 @@ class FunctionCall(Expr):
         Returns a list of dicts mapping each param name to its value when this FunctionCall is evaluated against
         data_rows
         """
-        assert all(name in self.fn.signature.parameters for name in param_names), \
-            f'{param_names}, {self.fn.signature}'
+        assert all(name in self.fn.signature.parameters for name in param_names), f'{param_names}, {self.fn.signature}'
         result: list[dict[str, Any]] = []
         for row in data_rows:
             d: dict[str, Any] = {}
