@@ -1,3 +1,5 @@
+# noqa: A005
+
 """
 Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs) for `StringType`.
 It closely follows the Pandas `pandas.Series.str` API.
@@ -12,10 +14,10 @@ t.select(pxt_str.capitalize(t.str_col)).collect()
 ```
 """
 
+import builtins
 from typing import Any, Optional
 
 import pixeltable as pxt
-import pixeltable.exceptions as excs
 from pixeltable.utils.code import local_public_names
 
 
@@ -70,11 +72,10 @@ def contains(self: str, pattern: str, case: bool = True, flags: int = 0, regex: 
         if not case:
             flags |= re.IGNORECASE
         return bool(re.search(pattern, self, flags))
+    elif case:
+        return pattern in self
     else:
-        if case:
-            return pattern in self
-        else:
-            return pattern.lower() in self.lower()
+        return pattern.lower() in self.lower()
 
 
 @pxt.udf(is_method=True)
@@ -87,9 +88,8 @@ def count(self: str, pattern: str, flags: int = 0) -> int:
         flags: [flags](https://docs.python.org/3/library/re.html#flags) for the `re` module
     """
     import re
-    from builtins import len
 
-    return len(re.findall(pattern, self, flags))
+    return builtins.len(re.findall(pattern, self, flags))
 
 
 @pxt.udf(is_method=True)
@@ -263,7 +263,8 @@ def isidentifier(self: str) -> bool:
 @pxt.udf(is_method=True)
 def islower(self: str) -> bool:
     """
-    Return `True` if all cased characters in the string are lowercase and there is at least one cased character, `False` otherwise.
+    Return `True` if all cased characters in the string are lowercase and there is at least one cased character,
+    `False` otherwise.
 
     Equivalent to [`str.islower()`](https://docs.python.org/3/library/stdtypes.html#str.islower)
     """
@@ -283,7 +284,8 @@ def isnumeric(self: str) -> bool:
 @pxt.udf(is_method=True)
 def isupper(self: str) -> bool:
     """
-    Return `True` if all cased characters in the string are uppercase and there is at least one cased character, `False` otherwise.
+    Return `True` if all cased characters in the string are uppercase and there is at least one cased character,
+    `False` otherwise.
 
     Equivalent to [`str.isupper()`](https://docs.python.org/3/library/stdtypes.html#str.isupper)
     """
@@ -303,7 +305,8 @@ def istitle(self: str) -> bool:
 @pxt.udf(is_method=True)
 def isspace(self: str) -> bool:
     """
-    Return `True` if there are only whitespace characters in the string and there is at least one character, `False` otherwise.
+    Return `True` if there are only whitespace characters in the string and there is at least one character,
+    `False` otherwise.
 
     Equivalent to [`str.isspace()`](https://docs.python.org/3/library/stdtypes.html#str.isspace)
     """
@@ -321,13 +324,13 @@ def join(sep: str, elements: list) -> str:
 
 
 @pxt.udf(is_method=True)
-def len(self: str) -> int:
+def len(self: str) -> int:  # noqa: A001
     """
     Return the number of characters in the string.
 
     Equivalent to [`len(str)`](https://docs.python.org/3/library/functions.html#len)
     """
-    return self.__len__()
+    return builtins.len(self)
 
 
 @pxt.udf(is_method=True)
@@ -338,7 +341,8 @@ def ljust(self: str, width: int, fillchar: str = ' ') -> str:
     Equivalent to [`str.ljust()`](https://docs.python.org/3/library/stdtypes.html#str.ljust)
 
     Args:
-        width: Minimum width of resulting string; additional characters will be filled with character defined in `fillchar`.
+        width: Minimum width of resulting string; additional characters will be filled with character defined in
+            `fillchar`.
         fillchar: Additional character for filling.
     """
     return self.ljust(width, fillchar)
@@ -393,7 +397,7 @@ def normalize(self: str, form: str) -> str:
     Equivalent to [`unicodedata.normalize()`](https://docs.python.org/3/library/unicodedata.html#unicodedata.normalize)
 
     Args:
-        form: Unicode normal form (`‘NFC’`, `‘NFKC’`, `‘NFD’`, `‘NFKD’`)
+        form: Unicode normal form (`'NFC'`, `'NFKC'`, `'NFD'`, `'NFKD'`)
     """
     import unicodedata
 
@@ -406,8 +410,9 @@ def pad(self: str, width: int, side: str = 'left', fillchar: str = ' ') -> str:
     Pad string up to width
 
     Args:
-        width: Minimum width of resulting string; additional characters will be filled with character defined in `fillchar`.
-        side: Side from which to fill resulting string (`‘left’`, `‘right’`, `‘both’`)
+        width: Minimum width of resulting string; additional characters will be filled with character defined in
+            `fillchar`.
+        side: Side from which to fill resulting string (`'left'`, `'right'`, `'both'`)
         fillchar: Additional character for filling
     """
     if side == 'left':
@@ -430,9 +435,7 @@ def partition(self: str, sep: str = ' ') -> list:
     idx = self.find(sep)
     if idx == -1:
         return [self, '', '']
-    from builtins import len
-
-    return [self[:idx], sep, self[idx + len(sep) :]]
+    return [self[:idx], sep, self[idx + builtins.len(sep) :]]
 
 
 @pxt.udf(is_method=True)
@@ -441,10 +444,7 @@ def removeprefix(self: str, prefix: str) -> str:
     Remove prefix. If the prefix is not present, returns string.
     """
     if self.startswith(prefix):
-        # we need to avoid referring to our symbol 'len'
-        from builtins import len
-
-        return self[len(prefix) :]
+        return self[builtins.len(prefix) :]
     return self
 
 
@@ -454,10 +454,7 @@ def removesuffix(self: str, suffix: str) -> str:
     Remove suffix. If the suffix is not present, returns string.
     """
     if self.endswith(suffix):
-        # we need to avoid referring to our symbol 'len'
-        from builtins import len
-
-        return self[: -len(suffix)]
+        return self[: -builtins.len(suffix)]
     return self
 
 
@@ -492,7 +489,7 @@ def replace(
 
         if not case:
             flags |= re.IGNORECASE
-        return re.sub(pattern, repl, self, 0 if n == -1 else n, flags)
+        return re.sub(pattern, repl, self, count=(0 if n == -1 else n), flags=flags)
     else:
         return self.replace(pattern, repl, n)
 
@@ -546,9 +543,7 @@ def rpartition(self: str, sep: str = ' ') -> list:
     idx = self.rfind(sep)
     if idx == -1:
         return [self, '', '']
-    from builtins import len
-
-    return [self[:idx], sep, self[idx + len(sep) :]]
+    return [self[:idx], sep, self[idx + builtins.len(sep) :]]
 
 
 @pxt.udf(is_method=True)
@@ -565,7 +560,7 @@ def rstrip(self: str, chars: Optional[str] = None) -> str:
 
 
 @pxt.udf(is_method=True)
-def slice(self: str, start: Optional[int] = None, stop: Optional[int] = None, step: Optional[int] = None) -> str:
+def slice(self: str, start: Optional[int] = None, stop: Optional[int] = None, step: Optional[int] = None) -> str:  # noqa: A001
     """
     Return a slice.
 

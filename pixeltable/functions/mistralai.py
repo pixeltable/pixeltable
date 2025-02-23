@@ -171,7 +171,7 @@ async def embeddings(input: Batch[str], *, model: str) -> Batch[pxt.Array[(None,
         An array representing the application of the given embedding to `input`.
     """
     Env.get().require_package('mistralai')
-    result = _mistralai_client().embeddings.create(inputs=input, model=model)
+    result = await _mistralai_client().embeddings.create(inputs=input, model=model)
     return [np.array(data.embedding, dtype=np.float64) for data in result.data]
 
 

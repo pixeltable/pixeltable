@@ -6,7 +6,7 @@ This UDF will cause Pixeltable to invoke the relevant model locally. In order to
 first `pip install openai-whisper`.
 """
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, Sequence
 
 import pixeltable as pxt
 from pixeltable.env import Env
@@ -20,7 +20,7 @@ def transcribe(
     audio: pxt.Audio,
     *,
     model: str,
-    temperature: Optional[list[float]] = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
+    temperature: Optional[Sequence[float]] = (0.0, 0.2, 0.4, 0.6, 0.8, 1.0),
     compression_ratio_threshold: Optional[float] = 2.4,
     logprob_threshold: Optional[float] = -1.0,
     no_speech_threshold: Optional[float] = 0.6,
@@ -28,7 +28,7 @@ def transcribe(
     initial_prompt: Optional[str] = None,
     word_timestamps: bool = False,
     prepend_punctuations: str = '"\'“¿([{-',
-    append_punctuations: str = '"\'.。,，!！?？:：”)]}、',
+    append_punctuations: str = '"\'.。,，!！?？:：”)]}、',  # noqa: RUF001
     decode_options: Optional[dict] = None,
 ) -> dict:
     """

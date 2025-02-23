@@ -19,6 +19,8 @@ import pixeltable as pxt
 from pixeltable.env import Env
 from pixeltable.utils.code import local_public_names
 
+_SQL_ZERO = sql.literal(0)
+
 
 @pxt.udf(is_property=True)
 def year(self: datetime) -> int:
@@ -191,7 +193,9 @@ def isoformat(self: datetime, sep: str = 'T', timespec: str = 'auto') -> str:
 
     Args:
         sep: Separator between date and time.
-        timespec: The number of additional terms in the output. See the [`datetime.isoformat()`](https://docs.python.org/3/library/datetime.html#datetime.datetime.isoformat) documentation for more details.
+        timespec: The number of additional terms in the output. See the
+            [`datetime.isoformat()`](https://docs.python.org/3/library/datetime.html#datetime.datetime.isoformat)
+            documentation for more details.
     """
     return self.isoformat(sep=sep, timespec=timespec)
 
@@ -204,7 +208,8 @@ def strftime(self: datetime, format: str) -> str:
     Equivalent to [`datetime.strftime()`](https://docs.python.org/3/library/datetime.html#datetime.datetime.strftime).
 
     Args:
-        format: The format string to control the output. For a complete list of formatting directives, see [`strftime()` and `strptime()` Behavior](https://docs.python.org/3/library/datetime.html#strftime-and-strptime-behavior).
+        format: The format string to control the output. For a complete list of formatting directives, see
+        [`strftime()` and `strptime()` Behavior](https://docs.python.org/3/library/datetime.html#strftime-and-strptime-behavior).
     """
     return self.strftime(format)
 
@@ -226,10 +231,10 @@ def _(
     year: sql.ColumnElement,
     month: sql.ColumnElement,
     day: sql.ColumnElement,
-    hour: sql.ColumnElement = sql.literal(0),
-    minute: sql.ColumnElement = sql.literal(0),
-    second: sql.ColumnElement = sql.literal(0),
-    microsecond: sql.ColumnElement = sql.literal(0),
+    hour: sql.ColumnElement = _SQL_ZERO,
+    minute: sql.ColumnElement = _SQL_ZERO,
+    second: sql.ColumnElement = _SQL_ZERO,
+    microsecond: sql.ColumnElement = _SQL_ZERO,
 ) -> sql.ColumnElement:
     return sql.func.make_timestamptz(
         sql.cast(year, sql.Integer),

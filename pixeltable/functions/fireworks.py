@@ -55,7 +55,7 @@ async def chat_completions(
         messages: A list of messages comprising the conversation so far.
         model: The name of the model to use.
 
-    For details on the other parameters, see: [https://docs.fireworks.ai/api-reference/post-chatcompletions](https://docs.fireworks.ai/api-reference/post-chatcompletions)
+    For details on the other parameters, see: <https://docs.fireworks.ai/api-reference/post-chatcompletions>
 
     Returns:
         A dictionary containing the response and other metadata.
@@ -65,7 +65,9 @@ async def chat_completions(
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
         >>> messages = [{'role': 'user', 'content': tbl.prompt}]
-        ... tbl.add_computed_column(response=chat_completions(messages, model='accounts/fireworks/models/mixtral-8x22b-instruct'))
+        ... tbl.add_computed_column(
+        ...     response=chat_completions(messages, model='accounts/fireworks/models/mixtral-8x22b-instruct')
+        ... )
     """
     kwargs = {'max_tokens': max_tokens, 'top_k': top_k, 'top_p': top_p, 'temperature': temperature}
     kwargs_not_none = {k: v for k, v in kwargs.items() if v is not None}

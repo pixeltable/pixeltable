@@ -462,9 +462,9 @@ def _vision_get_request_resources(
     crops_height = math.ceil(image.height / 512)
     total_crops = crops_width * crops_height
 
-    BASE_TOKENS = 85  # base cost for the initial 512x512 overview
-    CROP_TOKENS = 170  # cost per additional 512x512 crop
-    img_tokens = BASE_TOKENS + (CROP_TOKENS * total_crops)
+    base_tokens = 85  # base cost for the initial 512x512 overview
+    crop_tokens = 170  # cost per additional 512x512 crop
+    img_tokens = base_tokens + (crop_tokens * total_crops)
 
     total_tokens = (
         prompt_tokens
@@ -632,7 +632,7 @@ def _(model: str, dimensions: Optional[int] = None) -> pxt.ArrayType:
         if model not in _embedding_dimensions_cache:
             # TODO: find some other way to retrieve a sample
             return pxt.ArrayType((None,), dtype=pxt.FloatType(), nullable=False)
-        dimensions = _embedding_dimensions_cache.get(model, None)
+        dimensions = _embedding_dimensions_cache.get(model)
     return pxt.ArrayType((dimensions,), dtype=pxt.FloatType(), nullable=False)
 
 

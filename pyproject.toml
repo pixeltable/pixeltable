@@ -211,6 +211,7 @@ ignore = [
     "B023",  # Function definition does not bind to loop variable (appears to generate false positives)
     # A bunch of rules that are just plain fussy about code complexity:
     "C901", "PLR0904", "PLR0911", "PLR0912", "PLR0913", "PLR0914", "PLR0915", "PLR0916", "PLR0917", "PLR1702",
+    "N801",  # Class name should use CapWords convention (we intentionally violate this for aggregate functions)
     "PLC0415",
     "PLC2701",  # Allow private name imports
     "PLE0605",  # Invalid format for __all__ (appears to generate false positives)
@@ -221,6 +222,9 @@ ignore = [
     "TD002"  # Don't require author for TODOs
 ]
 preview = true
+
+[tool.ruff.lint.flake8-builtins]
+builtins-ignorelist = ["format", "input"]
 
 [tool.ruff.lint.isort]
 combine-as-imports = true
