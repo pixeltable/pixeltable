@@ -317,14 +317,14 @@ Pixeltable provides a unified interface for working with diverse data types - fr
     ```python
     # Basic Parquet import
     table1 = pxt.io.import_parquet(
-        'myproject.parquet_data',
-        'data.parquet'
+        table='myproject.parquet_data',
+        parquet_path='data.parquet'
     )
 
     # Parquet import with schema overrides
     table2 = pxt.io.import_parquet(
-        'myproject.parquet_typed',
-        'data.parquet',
+        table='myproject.parquet_typed',
+        parquet_path='data.parquet',
         schema_overrides={
             'features': pxt.Array[(100,), pxt.Float],
             'labels': pxt.Array[(10,), pxt.Int]
@@ -333,8 +333,8 @@ Pixeltable provides a unified interface for working with diverse data types - fr
 
     # Import from directory of Parquet files
     table3 = pxt.io.import_parquet(
-        'myproject.parquet_dir',
-        'data/*.parquet'  # Glob pattern
+        table='myproject.parquet_dir',
+        parquet_path='data/*.parquet'  # Glob pattern
     )
     ```
   </Accordion>
