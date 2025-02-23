@@ -673,6 +673,18 @@ class TestFunction:
 
     @pytest.mark.parametrize('as_kwarg', [False, True])
     def test_udf_evolution(self, as_kwarg: bool, reset_db) -> None:
+        """
+        Tests that code changes to UDFs that are backward-compatible with the code pattern in a stored computed
+        column are accepted by Pixeltable.
+
+        The test operates by instantiating a computed column with the UDF `evolving_udf`, then repeatedly
+        monkey-patching `evolving_udf` with different signatures and checking that they new signatures are
+        accepted by Pixeltable (or, in some cases, that they generate appropriate error messages).
+
+        The test runs two ways:
+        - with the UDF invoked using a positional argument: `evolving_udf(t.c1)`
+        - with the UDF invoked using a keyword argument: `evolving_udf(a=t.c1)`
+        """
         import tests.test_function
 
         t = pxt.create_table('test', {'c1': pxt.String})
