@@ -10,6 +10,7 @@ import typing
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Optional, TypeVar, Union, overload
 from uuid import UUID
 
+import numpy as np
 import sqlalchemy as sql
 from typing_extensions import Self, _AnnotatedAlias
 
@@ -379,6 +380,12 @@ class Expr(abc.ABC):
     @classmethod
     def from_array(cls, elements: Iterable) -> Optional[Expr]:
         from .inline_expr import InlineArray
+        from .literal import Literal
+
+        if isinstance(elements, np.ndarray):
+            pxttype = ts.ArrayType.from_literal(elements)
+            if pxttype is not None:
+                return Literal(elements, col_type=pxttype)
 
         inline_array = InlineArray(elements)
         return inline_array.maybe_literal()
