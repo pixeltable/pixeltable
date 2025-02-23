@@ -161,10 +161,10 @@ class FnCallEvaluator(Evaluator):
     def _create_batch_call_args(self, call_args: list[FnCallArgs]) -> FnCallArgs:
         """Roll call_args into a single batched FnCallArgs"""
         batch_args: list[list[Optional[Any]]] = [
-            [None] * len(call_args) for _ in range(len(self.fn_call.normalized_args))
+            [None] * len(call_args) for _ in range(len(self.fn_call.arg_idxs))
         ]
         batch_kwargs: dict[str, list[Optional[Any]]] = {
-            k: [None] * len(call_args) for k in self.fn_call.normalized_kwargs.keys()
+            k: [None] * len(call_args) for k in self.fn_call.kwarg_idxs.keys()
         }
         assert isinstance(self.fn, func.CallableFunction)
         for i, item in enumerate(call_args):

@@ -214,12 +214,11 @@ class AggregateFunction(Function):
 
         return exprs.FunctionCall(
             resolved_fn,
-            bound_args,
+            args,
+            kwargs,
             return_type,
             order_by_clause=[order_by_clause] if order_by_clause is not None else [],
             group_by_clause=[group_by_clause] if group_by_clause is not None else [],
-            original_args=args,
-            original_kwargs=kwargs,
         )
 
     def validate_call(self, bound_args: dict[str, 'exprs.Expr']) -> None:

@@ -160,7 +160,7 @@ class Function(ABC):
         resolved_fn, bound_args = self._bind_to_matching_signature(args, kwargs)
         return_type = resolved_fn.call_return_type(bound_args)
 
-        return exprs.FunctionCall(resolved_fn, bound_args, return_type, original_args=args, original_kwargs=kwargs)
+        return exprs.FunctionCall(resolved_fn, args, kwargs, return_type)
 
     def _bind_to_matching_signature(self, args: Sequence[Any], kwargs: dict[str, Any]) -> tuple[Self, dict[str, Any]]:
         result: int = -1
@@ -307,12 +307,27 @@ class Function(ABC):
 
         residual_params = [p for p in self.signature.parameters.values() if p.name not in bindings]
 
-        # Bind each remaining parameter to a like-named variable
-        for param in residual_params:
-            bindings[param.name] = exprs.Variable(param.name, param.col_type)
+        # Bind each remaining parameter to a like-named variable.
+        # Also construct the call arguments for the template function call. Variables become args when possible;
+        # otherwise, they are passed as kwargs.
+        template_args = []
+        template_kwargs = {}
+        args_ok = True
+        for name, param in self.signature.parameters.items():
+            if name in bindings:
+                template_kwargs[name] = bindings[name]
+                args_ok = False
+            else:
+                var = exprs.Variable(name, param.col_type)
+                bindings[name] = var
+                if args_ok and param.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD):
+                    template_args.append(var)
+                else:
+                    template_kwargs[name] = var
+                    args_ok = False
 
         return_type = self.call_return_type(bindings)
-        call = exprs.FunctionCall(self, bindings, return_type, original_args=[], original_kwargs=bindings)
+        call = exprs.FunctionCall(self, template_args, template_kwargs, return_type)
 
         # Construct the (n-k)-ary signature of the new function. We use `call.col_type` for this, rather than
         # `self.signature.return_type`, because the return type of the new function may be specialized via a
