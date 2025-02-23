@@ -360,22 +360,15 @@ class Expr(abc.ABC):
     @classmethod
     def get_refd_columns(cls, expr_dict: dict[str, Any]) -> list[catalog.Column]:
         """Return Columns referenced by expr_dict."""
-        from .column_ref import ColumnRef
-
         result: list[catalog.Column] = []
         assert '_classname' in expr_dict
+        from .column_ref import ColumnRef
+
         if expr_dict['_classname'] == 'ColumnRef':
             result.append(ColumnRef.get_column(expr_dict))
-
-        components = expr_dict.get('components', [])
-        components.extend(expr_dict.get('args', []))
-        components.extend(v for _, v in expr_dict.get('kwargs', {}).items())
-        components.extend(expr_dict.get('group_by_exprs', []))
-        components.extend(expr_dict.get('order_by_exprs', []))
-
-        for component_dict in components:
-            result.extend(cls.get_refd_columns(component_dict))
-
+        if 'components' in expr_dict:
+            for component_dict in expr_dict['components']:
+                result.extend(cls.get_refd_columns(component_dict))
         return result
 
     def as_literal(self) -> Optional[Expr]:

@@ -34,7 +34,7 @@ class FunctionCall(Expr):
     group_by_start_idx: int
     group_by_stop_idx: int
     fn_expr_idx: int
-    order_by_idx: int
+    order_by_start_idx: int
     aggregator: Optional[Any]
     current_partition_vals: Optional[list[Any]]
 
@@ -119,7 +119,7 @@ class FunctionCall(Expr):
                 f'order_by argument needs to be a Pixeltable expression, but instead is a {type(order_by_clause[0])}'
             )
         # don't add components after this, everthing after order_by_start_idx is part of the order_by clause
-        self.order_by_idx = len(self.components)
+        self.order_by_start_idx = len(self.components)
         self.components.extend(order_by_clause)
 
         # execution state for aggregate functions
@@ -147,7 +147,7 @@ class FunctionCall(Expr):
             return False
         if self.group_by_stop_idx != other.group_by_stop_idx:
             return False
-        if self.order_by_idx != other.order_by_idx:
+        if self.order_by_start_idx != other.order_by_start_idx:
             return False
         return True
 
@@ -159,7 +159,7 @@ class FunctionCall(Expr):
             ('group_by_start_idx', self.group_by_start_idx),
             ('group_by_stop_idx', self.group_by_stop_idx),
             ('fn_expr_idx', self.fn_expr_idx),
-            ('order_by_idx', self.order_by_idx),
+            ('order_by_idx', self.order_by_start_idx),
         ]
 
     def __repr__(self) -> str:
@@ -198,7 +198,7 @@ class FunctionCall(Expr):
 
     @property
     def order_by(self) -> list[Expr]:
-        return self.components[self.order_by_idx :]
+        return self.components[self.order_by_start_idx :]
 
     @property
     def is_window_fn_call(self) -> bool:
@@ -362,26 +362,34 @@ class FunctionCall(Expr):
         args = [self.components[idx] for idx in self.arg_idxs]
         kwargs = {name: self.components[idx] for name, idx in self.kwarg_idxs.items()}
         group_by_exprs = self.components[self.group_by_start_idx : self.group_by_stop_idx]
-        order_by_exprs = self.components[self.order_by_idx :]
+        order_by_exprs = self.components[self.order_by_start_idx :]
         return {
             'fn': self.fn.as_dict(),
             'return_type': self.return_type.as_dict(),
-            'args': [expr.as_dict() for expr in args],
-            'kwargs': {name: expr.as_dict() for name, expr in kwargs.items()},
-            'group_by_exprs': [expr.as_dict() for expr in group_by_exprs],
-            'order_by_exprs': [expr.as_dict() for expr in order_by_exprs],
+            'arg_idxs': self.arg_idxs,
+            'kwarg_idxs': self.kwarg_idxs,
+            'group_by_start_idx': self.group_by_start_idx,
+            'group_by_stop_idx': self.group_by_stop_idx,
+            'order_by_start_idx': self.order_by_start_idx,
             'is_method_call': self.is_method_call,
+            **super()._as_dict(),
         }
 
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr]) -> FunctionCall:
         fn = func.Function.from_dict(d['fn'])
         return_type = ts.ColumnType.from_dict(d['return_type']) if 'return_type' in d else None
-        args = [Expr.from_dict(expr_d) for expr_d in d['args']]
-        kwargs = {name: Expr.from_dict(expr_d) for name, expr_d in d['kwargs'].items()}
-        group_by_exprs = [Expr.from_dict(expr_d) for expr_d in d['group_by_exprs']]
-        order_by_exprs = [Expr.from_dict(expr_d) for expr_d in d['order_by_exprs']]
-        is_method_call = d['is_method_call']
+        arg_idxs: list[int] = d['arg_idxs']
+        kwarg_idxs: dict[str, int] = d['kwarg_idxs']
+        group_by_start_idx: int = d['group_by_start_idx']
+        group_by_stop_idx: int = d['group_by_stop_idx']
+        order_by_start_idx: int = d['order_by_start_idx']
+        is_method_call: bool = d['is_method_call']
+
+        args = [components[idx] for idx in arg_idxs]
+        kwargs = {name: components[idx] for name, idx in kwarg_idxs.items()}
+        group_by_exprs = components[group_by_start_idx:group_by_stop_idx]
+        order_by_exprs = components[order_by_start_idx:]
 
         # Now re-bind args and kwargs using the version of `fn` that is currently represented in code. This ensures
         # that we get a valid binding even if the signatures of `fn` have changed since the FunctionCall was

@@ -90,14 +90,23 @@ def __substitute_md(k: Optional[str], v: Any) -> Optional[tuple[Optional[str], A
         group_by_exprs = [components[i] for i in range(group_by_start_idx, group_by_stop_idx)]
         order_by_exprs = [components[i] for i in range(order_by_start_idx, len(components))]
 
+        new_components = [
+            *new_args,
+            *new_kwargs.values(),
+            *group_by_exprs,
+            *order_by_exprs
+        ]
+
         newv = {
             'fn': v['fn'],
-            'args': new_args,
-            'kwargs': new_kwargs,
-            'group_by_exprs': group_by_exprs,
-            'order_by_exprs': order_by_exprs,
+            'arg_idxs': list(range(len(new_args))),
+            'kwarg_idxs': {name: i + len(new_args) for i, name in enumerate(new_kwargs.keys())},
+            'group_by_start_idx': len(new_args) + len(new_kwargs),
+            'group_by_stop_idx': len(new_args) + len(new_kwargs) + len(group_by_exprs),
+            'order_by_start_idx': len(new_args) + len(new_kwargs) + len(group_by_exprs),
             'is_method_call': False,
             '_classname': 'FunctionCall',
+            'components': new_components,
         }
         if 'return_type' in v:
             newv['return_type'] = v['return_type']
