@@ -212,12 +212,34 @@ class Function(ABC):
     def call_return_type(self, bound_args: dict[str, 'exprs.Expr']) -> ts.ColumnType:
         """Return the type of the value returned by calling this function with the given arguments"""
         if self._conditional_return_type is None:
-            return self.signature.return_type
+            # No conditional return type specified; use the default return type
+            return_type = self.signature.return_type
+        else:
+            crt_kwargs = self._assemble_callable_args(self._conditional_return_type, bound_args)
+            if crt_kwargs is None:
+                # A conditional return type is specified, but one of its arguments is not a constant.
+                # Use the default return type
+                return_type = self.signature.return_type
+            else:
+                # A conditional return type is specified and all its arguments are constants; use the specific
+                # call return type
+                return_type = self._conditional_return_type(**crt_kwargs)
 
-        crt_kwargs = self._assemble_callable_args(self._conditional_return_type, bound_args)
-        if crt_kwargs is None:
-            return self.signature.return_type
-        return self._conditional_return_type(**crt_kwargs)
+        if return_type.nullable:
+            return return_type
+
+        # If `return_type` is non-nullable, but the function call has a nullable input to any of its non-nullable
+        # parameters, then we need to make it nullable. This is because Pixeltable defaults a function output to
+        # `None` when any of its non-nullable inputs are `None`.
+        for arg_name, arg in bound_args.items():
+            param = self.signature.parameters[arg_name]
+            if param.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD):
+                continue
+            if arg.col_type.nullable and not param.col_type.nullable:
+                return_type = return_type.copy(nullable=True)
+                break
+
+        return return_type
 
     def _assemble_callable_args(
         self, callable: Callable, bound_args: dict[str, 'exprs.Expr']
