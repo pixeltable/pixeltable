@@ -101,12 +101,6 @@
       "pages": [
         "docs/examples/overview",
         {
-          "group": "Agent Framework",
-          "pages": [
-            "docs/examples/agents/pixelagent"                     
-          ]
-        },
-        {
           "group": "Chatbot",
           "pages": [
             "docs/examples/chat/multimodal",
