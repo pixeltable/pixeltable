@@ -5,7 +5,7 @@ import os
 import random
 import urllib.parse
 from pathlib import Path
-from typing import Any, Hashable, Optional
+from typing import Any, Optional
 
 import more_itertools
 import numpy as np
@@ -14,9 +14,8 @@ import PIL.Image
 import pytest
 
 import pixeltable as pxt
-import pixeltable.exceptions as excs
 import pixeltable.utils.s3 as s3_util
-from pixeltable import catalog, exprs, func
+from pixeltable import catalog, exceptions as excs
 from pixeltable.catalog.globals import UpdateStatus
 from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
