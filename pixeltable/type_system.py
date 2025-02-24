@@ -892,7 +892,7 @@ class ArrayType(ColumnType):
         # determine our dtype
         assert isinstance(val, np.ndarray)
         pxttype: Optional[ColumnType] = cls.from_np_dtype(val.dtype, nullable)
-        if pxttype == None:
+        if pxttype is None:
             return None
         return cls(val.shape, dtype=pxttype, nullable=nullable)
 

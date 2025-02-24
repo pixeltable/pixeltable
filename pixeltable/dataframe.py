@@ -10,7 +10,6 @@ import traceback
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Hashable, Iterator, NoReturn, Optional, Sequence, Union
 
-import numpy as np
 import pandas as pd
 import sqlalchemy as sql
 

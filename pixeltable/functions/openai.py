@@ -325,7 +325,7 @@ async def translations(
 
 
 def _default_max_tokens(model: str) -> int:
-    if model in ('o1', 'o3-mini'):
+    if model in {'o1', 'o3-mini'}:
         return 65536
     else:
         return 1024
