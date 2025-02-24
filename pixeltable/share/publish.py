@@ -16,6 +16,7 @@ from pixeltable.utils import sha256sum
 from .packager import TablePackager
 
 _PUBLISH_URL = 'https://cf4ggxh3bgocx65j5wwbdbk2iu0bawoi.lambda-url.us-east-1.on.aws/?debug=false'
+_FINALIZE_URL = 'https://k3ic4signgvwu5l6j6dajyyjgq0vdkst.lambda-url.us-east-1.on.aws/?debug=false'
 
 
 def publish_snapshot(dest_tbl_uri: str, src_tbl: pxt.Table) -> None:
@@ -37,6 +38,7 @@ def publish_snapshot(dest_tbl_uri: str, src_tbl: pxt.Table) -> None:
     response_json = response.json()
     if not isinstance(response_json, dict) or response_json.get('destination') != 's3':
         raise excs.Error(f'Error publishing snapshot: unexpected response from server.\n{response_json}')
+    upload_id = response_json['upload_id']
     destination_uri = response_json['destination_uri']
 
     Env.get().console_logger.info(f"Creating a snapshot of '{src_tbl._path}' at: {dest_tbl_uri}")
@@ -51,6 +53,18 @@ def publish_snapshot(dest_tbl_uri: str, src_tbl: pxt.Table) -> None:
         raise excs.Error(f'Unsupported destination: {destination_uri}')
 
     Env.get().console_logger.info(f'Finalizing snapshot ...')
+
+    finalize_request_json = {
+        'upload_id': upload_id,
+        'datafile': bundle.name,
+        'size': bundle.stat().st_size,
+        #'sha256': sha256sum(bundle),  # Generate our own SHA for independent verification
+    }
+
+    finalize_response = requests.post(_FINALIZE_URL, json=finalize_request_json, headers=headers_json)
+
+    print(finalize_response)
+    print(finalize_response.json())
 
 
 def _upload_bundle_to_s3(bundle: Path, parsed_location: urllib.parse.ParseResult) -> None:
@@ -77,16 +91,12 @@ def _upload_bundle_to_s3(bundle: Path, parsed_location: urllib.parse.ParseResult
         unit='B',
         unit_scale=True,
         unit_divisor=1024,
-        miniters=1,
+        miniters=1,  # Update every iteration (should be fine for an upload)
         ncols=100,
         file=sys.stdout,
     )
     s3_client.upload_file(
-        Filename=str(bundle),
-        Bucket=bucket,
-        Key=str(remote_path),
-        ExtraArgs=upload_args,
-        Callback=progress_bar.update
+        Filename=str(bundle), Bucket=bucket, Key=str(remote_path), ExtraArgs=upload_args, Callback=progress_bar.update
     )
 
     # response = s3_client.get_object(Bucket=bucket, Key=str(remote_path))
