@@ -333,9 +333,7 @@ class Env:
         http_logger.addHandler(http_fh)
         http_logger.propagate = False
 
-        # empty tmp dir
-        for path in glob.glob(f'{self._tmp_dir}/*'):
-            os.remove(path)
+        self.clear_tmp_dir()
 
         self._db_name = os.environ.get('PIXELTABLE_DB', 'pixeltable')
         self._pgdata_dir = Path(os.environ.get('PIXELTABLE_PGDATA', str(self._home / 'pgdata')))
@@ -627,6 +625,13 @@ class Env:
                 excs.PixeltableWarning,
             )
             self.__optional_packages['spacy'].is_installed = False
+
+    def clear_tmp_dir(self) -> None:
+        for path in glob.glob(f'{self._tmp_dir}/*'):
+            if os.path.isdir(path):
+                shutil.rmtree(path)
+            else:
+                os.remove(path)
 
     def num_tmp_files(self) -> int:
         return len(glob.glob(f'{self._tmp_dir}/*'))
