@@ -18,11 +18,11 @@ from .packager import TablePackager
 _PUBLISH_URL = 'https://cf4ggxh3bgocx65j5wwbdbk2iu0bawoi.lambda-url.us-east-1.on.aws/?debug=false'
 
 
-def publish_snapshot(dest_uri: str, src_tbl: pxt.Table) -> None:
+def publish_snapshot(dest_tbl_uri: str, src_tbl: pxt.Table) -> None:
     request_json = {
         'pxt_version': pxt.__version__,
         'pxt_schema_version': metadata.VERSION,
-        'table_uri': dest_uri,
+        'table_uri': dest_tbl_uri,
         'md': {
             'table_md': dataclasses.asdict(src_tbl._tbl_version._create_tbl_md()),
             'table_version_md': dataclasses.asdict(src_tbl._tbl_version._create_version_md(datetime.now().timestamp())),
@@ -35,20 +35,20 @@ def publish_snapshot(dest_uri: str, src_tbl: pxt.Table) -> None:
     if response.status_code != 200:
         raise excs.Error(f'Error publishing snapshot: {response.text}')
     response_json = response.json()
-    if not isinstance(response_json, dict) or 's3location' not in response_json:
-        raise excs.Error(f'Error publishing snapshot: invalid response.\n{response_json}')
-    location = response_json['s3location']
+    if not isinstance(response_json, dict) or response_json.get('destination') != 's3':
+        raise excs.Error(f'Error publishing snapshot: unexpected response from server.\n{response_json}')
+    destination_uri = response_json['destination_uri']
 
-    Env.get().console_logger.info(f"Creating a snapshot of '{src_tbl._path}' at: {dest_uri}")
+    Env.get().console_logger.info(f"Creating a snapshot of '{src_tbl._path}' at: {dest_tbl_uri}")
 
     packager = TablePackager(src_tbl)
     bundle = packager.package()
 
-    parsed_location = urllib.parse.urlparse(location)
+    parsed_location = urllib.parse.urlparse(destination_uri)
     if parsed_location.scheme == 's3':
         _upload_bundle_to_s3(bundle, parsed_location)
     else:
-        raise excs.Error(f'Unsupported destination: {location}')
+        raise excs.Error(f'Unsupported destination: {destination_uri}')
 
     Env.get().console_logger.info(f'Finalizing snapshot ...')
 
