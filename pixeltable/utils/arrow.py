@@ -6,7 +6,7 @@ import pyarrow as pa
 
 import pixeltable.type_system as ts
 
-_pa_to_pt: dict[pa.DataType, ts.ColumnType] = {
+PA_TO_PXT_TYPES: dict[pa.DataType, ts.ColumnType] = {
     pa.string(): ts.StringType(nullable=True),
     pa.bool_(): ts.BoolType(nullable=True),
     pa.uint8(): ts.IntType(nullable=True),
@@ -18,7 +18,7 @@ _pa_to_pt: dict[pa.DataType, ts.ColumnType] = {
     pa.float32(): ts.FloatType(nullable=True),
 }
 
-_pt_to_pa: dict[type[ts.ColumnType], pa.DataType] = {
+PXT_TO_PA_TYPES: dict[type[ts.ColumnType], pa.DataType] = {
     ts.StringType: pa.string(),
     ts.TimestampType: pa.timestamp('us', tz=datetime.timezone.utc),  # postgres timestamp is microseconds
     ts.BoolType: pa.bool_(),
@@ -38,8 +38,8 @@ def to_pixeltable_type(arrow_type: pa.DataType) -> Optional[ts.ColumnType]:
     """
     if isinstance(arrow_type, pa.TimestampType):
         return ts.TimestampType(nullable=True)
-    elif arrow_type in _pa_to_pt:
-        return _pa_to_pt[arrow_type]
+    elif arrow_type in PA_TO_PXT_TYPES:
+        return PA_TO_PXT_TYPES[arrow_type]
     elif isinstance(arrow_type, pa.FixedShapeTensorType):
         dtype = to_pixeltable_type(arrow_type.value_type)
         if dtype is None:
@@ -53,8 +53,8 @@ def to_arrow_type(pixeltable_type: ts.ColumnType) -> Optional[pa.DataType]:
     """Convert a pixeltable DataType to a pyarrow datatype if one is defined.
     Returns None if no conversion is currently implemented.
     """
-    if pixeltable_type.__class__ in _pt_to_pa:
-        return _pt_to_pa[pixeltable_type.__class__]
+    if pixeltable_type.__class__ in PXT_TO_PA_TYPES:
+        return PXT_TO_PA_TYPES[pixeltable_type.__class__]
     elif isinstance(pixeltable_type, ts.ArrayType):
         return pa.fixed_shape_tensor(pa.from_numpy_dtype(pixeltable_type.numpy_dtype()), pixeltable_type.shape)
     else:

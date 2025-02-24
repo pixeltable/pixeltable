@@ -3,8 +3,6 @@ name: tests
 on:
   pull_request:
     branches: [main]
-  push:
-    branches: [main]
   merge_group:
     types: [checks_requested]
   schedule:
@@ -118,7 +116,7 @@ jobs:
       - name: Install ffmpeg
         # Needed for WhisperX
         if: ${{ matrix.poetry-options != '' }}
-        run: conda install -c conda-forge libiconv ffmpeg
+        run: ./scripts/retry.sh 3 30 conda install -c conda-forge libiconv ffmpeg
       - name: Install ollama
         if: ${{ matrix.poetry-options != '' && matrix.os == 'ubuntu-22.04' }}
         run: |
