@@ -80,7 +80,9 @@ def convert(self: PIL.Image.Image, mode: str) -> PIL.Image.Image:
     [`PIL.Image.Image.convert()`](https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.convert).
 
     Args:
-        mode: The mode to convert to. See the [Pillow documentation](https://pillow.readthedocs.io/en/stable/handbook/concepts.html#concept-modes) for a list of supported modes.
+        mode: The mode to convert to. See the
+            [Pillow documentation](https://pillow.readthedocs.io/en/stable/handbook/concepts.html#concept-modes)
+            for a list of supported modes.
     """
     return self.convert(mode)
 
@@ -109,7 +111,7 @@ def crop(self: PIL.Image.Image, box: tuple[int, int, int, int]) -> PIL.Image.Ima
 def _(self: Expr, box: tuple[int, int, int, int]) -> pxt.ColumnType:
     input_type = self.col_type
     assert isinstance(input_type, pxt.ImageType)
-    if (isinstance(box, list) or isinstance(box, tuple)) and len(box) == 4 and all(isinstance(x, int) for x in box):
+    if (isinstance(box, (list, tuple))) and len(box) == 4 and all(isinstance(x, int) for x in box):
         return pxt.ImageType(
             size=(box[2] - box[0], box[3] - box[1]), mode=input_type.mode, nullable=input_type.nullable
         )
@@ -225,7 +227,9 @@ def transpose(self: PIL.Image.Image, method: int) -> PIL.Image.Image:
     [`PIL.Image.Image.transpose()`](https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.transpose)
 
     Args:
-        method: The transpose method. See the [Pillow documentation](https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.transpose) for a list of supported methods.
+        method: The transpose method. See the
+            [Pillow documentation](https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.transpose)
+            for a list of supported methods.
     """
     pass
 
@@ -271,7 +275,8 @@ def getbbox(self: PIL.Image.Image, *, alpha_only: bool = True) -> tuple[int, int
     Equivalent to [`PIL.Image.Image.getbbox()`](https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.getbbox)
 
     Args:
-        alpha_only: If `True`, and the image has an alpha channel, trim transparent pixels. Otherwise, trim pixels when all channels are zero.
+        alpha_only: If `True`, and the image has an alpha channel, trim transparent pixels. Otherwise,
+            trim pixels when all channels are zero.
     """
     pass
 
@@ -375,10 +380,14 @@ def quantize(
 
     Args:
         colors: The number of colors to quantize to.
-        method: The quantization method. See the [Pillow documentation](https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.quantize) for a list of supported methods.
+        method: The quantization method. See the
+            [Pillow documentation](https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.quantize)
+            for a list of supported methods.
         kmeans: The number of k-means clusters to use.
         palette: The palette to use.
-        dither: The dithering method. See the [Pillow documentation](https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.quantize) for a list of supported methods.
+        dither: The dithering method. See the
+            [Pillow documentation](https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.quantize)
+            for a list of supported methods.
     """
     pass
 
@@ -393,7 +402,8 @@ def reduce(self: PIL.Image.Image, factor: int, box: Optional[tuple[int, int, int
 
     Args:
         factor: The reduction factor.
-        box: An optional 4-tuple of ints providing the source image region to be reduced. The values must be within (0, 0, width, height) rectangle. If omitted or None, the entire source is used.
+        box: An optional 4-tuple of ints providing the source image region to be reduced. The values must be within
+            (0, 0, width, height) rectangle. If omitted or None, the entire source is used.
     """
     pass
 

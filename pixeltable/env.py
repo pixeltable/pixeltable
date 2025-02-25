@@ -231,10 +231,7 @@ class Env:
             for module_name in path_parts[:max_idx]:
                 if module_name in self._module_log_level and record.levelno >= self._module_log_level[module_name]:
                     return True
-        if record.levelno >= self._default_log_level:
-            return True
-        else:
-            return False
+        return record.levelno >= self._default_log_level
 
     @property
     def console_logger(self) -> ConsoleLogger:
@@ -350,7 +347,7 @@ class Env:
         if tz_name is not None:
             # Validate tzname
             if not isinstance(tz_name, str):
-                self._logger.error(f'Invalid time zone specified in configuration.')
+                self._logger.error('Invalid time zone specified in configuration.')
             else:
                 try:
                     _ = ZoneInfo(tz_name)
@@ -480,8 +477,8 @@ class Env:
             else:
                 raise excs.Error(
                     f'`{name}` client not initialized: parameter `{param}` is not configured.\n'
-                    f'To fix this, specify the `{name.upper()}_{param.upper()}` environment variable, or put `{param.lower()}` in '
-                    f'the `{name.lower()}` section of $PIXELTABLE_HOME/config.toml.'
+                    f'To fix this, specify the `{name.upper()}_{param.upper()}` environment variable, '
+                    f'or put `{param.lower()}` in the `{name.lower()}` section of $PIXELTABLE_HOME/config.toml.'
                 )
 
         cl.client_obj = cl.init_fn(**init_kwargs)
@@ -578,7 +575,8 @@ class Env:
             if not package_info.is_installed:
                 # Still not found.
                 raise excs.Error(
-                    f'This feature requires the `{package_name}` package. To install it, run: `pip install -U {package_info.library_name}`'
+                    f'This feature requires the `{package_name}` package. To install it, run: '
+                    f'`pip install -U {package_info.library_name}`'
                 )
 
         if min_version is None:
@@ -591,7 +589,8 @@ class Env:
 
         if min_version > package_info.version:
             raise excs.Error(
-                f'The installed version of package `{package_name}` is {".".join(str(v) for v in package_info.version)}, '
+                f'The installed version of package `{package_name}` is '
+                f'{".".join(str(v) for v in package_info.version)}, '
                 f'but version >={".".join(str(v) for v in min_version)} is required. '
                 f'To fix this, run: `pip install -U {package_info.library_name}`'
             )
@@ -623,6 +622,7 @@ class Env:
             warnings.warn(
                 f"Failed to load spaCy model '{spacy_model}'. spaCy features will not be available.",
                 excs.PixeltableWarning,
+                stacklevel=1,
             )
             self.__optional_packages['spacy'].is_installed = False
 
@@ -711,7 +711,6 @@ def register_client(name: str) -> Callable:
     """
 
     def decorator(fn: Callable) -> None:
-        global _registered_clients
         sig = inspect.signature(fn)
         param_names = list(sig.parameters.keys())
         _registered_clients[name] = ApiClient(init_fn=fn, param_names=param_names)
@@ -734,19 +733,19 @@ class Config:
         created and populated with the default configuration.
         """
         if os.path.isfile(path):
-            with open(path, 'r') as stream:
+            with open(path, 'r', encoding='utf-8') as stream:
                 try:
                     config_dict = toml.load(stream)
                 except Exception as exc:
-                    raise excs.Error(f'Could not read config file: {str(path)}') from exc
+                    raise excs.Error(f'Could not read config file: {path}') from exc
         else:
             config_dict = cls.__create_default_config(path)
-            with open(path, 'w') as stream:
+            with open(path, 'w', encoding='utf-8') as stream:
                 try:
                     toml.dump(config_dict, stream)
                 except Exception as exc:
-                    raise excs.Error(f'Could not write config file: {str(path)}') from exc
-            logging.getLogger('pixeltable').info(f'Created default config file at: {str(path)}')
+                    raise excs.Error(f'Could not write config file: {path}') from exc
+            _logger.info(f'Created default config file at: {path}')
         return cls(config_dict)
 
     @classmethod
@@ -770,8 +769,8 @@ class Config:
 
         try:
             return expected_type(value)  # type: ignore[call-arg]
-        except ValueError:
-            raise excs.Error(f'Invalid value for configuration parameter {section}.{key}: {value}')
+        except ValueError as exc:
+            raise excs.Error(f'Invalid value for configuration parameter {section}.{key}: {value}') from exc
 
     def get_string_value(self, key: str, section: str = 'pixeltable') -> Optional[str]:
         return self.get_value(key, str, section)
@@ -840,7 +839,8 @@ class RateLimitsInfo:
             # TODO: remove
             for info in self.resource_limits.values():
                 _logger.debug(
-                    f'Init {info.resource} rate limit: rem={info.remaining} reset={info.reset_at.strftime(TIME_FORMAT)} delta={(info.reset_at - now).total_seconds()}'
+                    f'Init {info.resource} rate limit: rem={info.remaining} '
+                    f'reset={info.reset_at.strftime(TIME_FORMAT)} delta={(info.reset_at - now).total_seconds()}'
                 )
         else:
             for k, v in kwargs.items():
@@ -874,5 +874,6 @@ class RateLimitInfo:
         self.reset_at = reset_at
         # TODO: remove
         _logger.debug(
-            f'Update {self.resource} rate limit: rem={self.remaining} reset={self.reset_at.strftime(TIME_FORMAT)} reset_delta={reset_delta.total_seconds()} recorded_delta={(self.reset_at - recorded_at).total_seconds()}'
+            f'Update {self.resource} rate limit: rem={self.remaining} reset={self.reset_at.strftime(TIME_FORMAT)} '
+            f'reset_delta={reset_delta.total_seconds()} recorded_delta={(self.reset_at - recorded_at).total_seconds()}'
         )

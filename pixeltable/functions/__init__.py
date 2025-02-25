@@ -1,3 +1,5 @@
+# ruff: noqa: F401
+
 from pixeltable.utils.code import local_public_names
 
 from . import (
@@ -21,7 +23,7 @@ from . import (
     vision,
     whisper,
 )
-from .globals import count, max, mean, min, sum
+from .globals import count, max, mean, min, sum  # noqa: A004
 
 __all__ = local_public_names(__name__, exclude=['globals']) + local_public_names(globals.__name__)
 

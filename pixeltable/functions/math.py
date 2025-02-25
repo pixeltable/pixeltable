@@ -1,3 +1,5 @@
+# noqa: A005
+
 import builtins
 import math
 from typing import Optional
@@ -9,7 +11,7 @@ from pixeltable.utils.code import local_public_names
 
 
 @pxt.udf(is_method=True)
-def abs(self: float) -> float:
+def abs(self: float) -> float:  # noqa: A001
     return builtins.abs(self)
 
 
@@ -47,7 +49,7 @@ def _(self: sql.ColumnElement) -> sql.ColumnElement:
 
 
 @pxt.udf(is_method=True)
-def round(self: float, digits: Optional[int] = None) -> float:
+def round(self: float, digits: Optional[int] = None) -> float:  # noqa: A001
     # Set digits explicitly to 0 to guarantee a return type of float; this ensures the same behavior as SQL
     return builtins.round(self, digits or 0)
 
