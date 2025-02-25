@@ -1,0 +1,280 @@
+---
+title: 'Tables'
+description: 'Learn the fundamentals of Pixeltable tables, types, and how to build in Pixeltable'
+icon: 'table'
+---
+
+## Core Concepts
+
+<CardGroup cols={3}>
+  <Card title="Tables" icon="table">
+    Central data structure for organizing multimodal data and computations
+  </Card>
+  <Card title="Computed Columns" icon="calculator">
+    Data transformations and model inferences
+  </Card>
+  <Card title="Versioning" icon="code-branch">
+    Built-in tracking of data and schema changes
+  </Card>
+</CardGroup>
+
+<Info>
+Learn more about Pixeltable tables and the data operations with our [in-depth guide](https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/fundamentals/tables-and-data-operations.ipynb).
+</Info>
+
+## Type System
+
+<Tabs>
+  <Tab title="Basic Types">
+    ```python    
+    # Schema definition
+    table = pxt.create_table('example', {
+        'text': pxt.String,     # Text data
+        'count': pxt.Int,       # Integer numbers
+        'score': pxt.Float,     # Decimal numbers
+        'active': pxt.Bool,     # Boolean values
+        'created': pxt.Timestamp # Date/time values
+    })
+    ```
+  </Tab>
+  
+  <Tab title="Media Types">
+    ```python
+    # Media handling
+    media = pxt.create_table('media', {
+        'image': pxt.Image[(224, 224), 'RGB'],  # With size & mode
+        'video': pxt.Video,                     # Video reference
+        'audio': pxt.Audio,                     # Audio file
+        'document': pxt.Document                # PDF/text doc
+    })
+    ```
+  </Tab>
+  
+  <Tab title="ML Types">
+    ```python
+    # ML-specific types
+    ml_data = pxt.create_table('ml_features', {
+        'embedding': pxt.Array[(768,), pxt.Float], # Fixed-size array
+        'features': pxt.Array[(None, 512)],        # Variable first dim
+        'metadata': pxt.Json                       # Flexible JSON data
+    })
+    ```
+  </Tab>
+</Tabs>
+
+## Data Operations
+
+<CardGroup cols={1}>
+  <Card title="Query Operations" icon="magnifying-glass">
+    Filter and retrieve data:
+    ```python
+    # Basic row count
+    movies.count()  # Returns total number of rows
+    
+    # Basic filtering
+    movies.where(movies.budget >= 200.0).collect()
+    
+    # Select specific columns
+    movies.select(movies.title, movies.year).collect()
+    
+    # Limit results
+    movies.limit(5).collect()  # First 5 rows (no specific order)
+    movies.head(5)  # First 5 rows by insertion order
+    movies.tail(5)  # Last 5 rows by insertion order
+    
+    # Order results
+    movies.order_by(movies.budget, asc=False).limit(5).collect()
+    ```
+  </Card>
+
+  <Card title="String Operations" icon="font">
+    Manipulate text data:
+    ```python
+    # String contains
+    movies.where(movies.title.contains('Inception')).collect()
+    
+    # String replacement
+    movies.update({
+        'plot': movies.plot.replace('corporate secrets', 'subconscious secrets')
+    })
+    
+    # String functions
+    movies.update({
+        'title': movies.title.upper(),        # Convert to uppercase
+        'length': movies.title.len()          # Get string length
+    })
+    ```
+  </Card>
+
+  <Card title="Insert Operations" icon="plus">
+    Add new data:
+    ```python
+    # Insert single row
+    movies.insert(
+        title='Inside Out 2',
+        year=2024,
+        plot='Emotions navigate puberty',
+        budget=200.0
+    )
+    
+    # Insert multiple rows
+    movies.insert([
+        {
+            'title': 'Jurassic Park', 
+            'year': 1993, 
+            'plot': 'Dinosaur theme park disaster',
+            'budget': 63.0
+        },
+        {
+            'title': 'Titanic', 
+            'year': 1997, 
+            'plot': 'Ill-fated ocean liner romance',
+            'budget': 200.0
+        }
+    ])
+    ```
+  </Card>
+
+  <Card title="Update Operations" icon="pen-to-square">
+    Modify existing data:
+    ```python
+    # Update all rows
+    movies.update({
+        'budget': movies.budget * 1.1  # Increase all budgets by 10%
+    })
+    
+    # Conditional updates
+    movies.where(
+        movies.year < 2000
+    ).update({
+        'plot': movies.plot + ' (Classic Film)'
+    })
+    
+    # Batch updates for multiple rows
+    updates = [
+        {'id': 1, 'budget': 175.0},
+        {'id': 2, 'budget': 185.0}
+    ]
+    movies.batch_update(updates)
+    ```
+  </Card>
+
+  <Card title="Delete Operations" icon="trash">
+    Remove data with conditions:
+    ```python
+    # Delete specific rows
+    movies.where(
+        movies.year < 1995
+    ).delete()
+    
+    # Delete with complex conditions
+    movies.where(
+        (movies.budget < 100.0) & 
+        (movies.year < 2000)
+    ).delete()
+    
+    # WARNING: Delete all rows (use with caution!)
+    # movies.delete()  # Without where clause deletes all rows
+    ```
+  </Card>
+
+  <Card title="Column Operations" icon="table-columns">
+    Manage table structure:
+    ```python
+    # Add new column
+    movies.add_column(rating=pxt.String)
+    
+    # Drop column
+    movies.drop_column('rating')
+    
+    # View schema
+    movies.describe()
+    ```
+  </Card>
+
+  <Card title="Versioning" icon="clock-rotate-left">
+    Manage table versions:
+    ```python
+    # Revert the last operation
+    movies.revert()  # Cannot be undone!
+    
+    # Revert multiple times to go back further
+    movies.revert()
+    movies.revert()  # Goes back two operations
+    ```
+  </Card>
+
+  <Card title="Export Operations" icon="file-export">
+    Extract data for analysis:
+    ```python
+    # Get results as Python objects
+    result = movies.limit(5).collect()
+    first_row = result[0]  # Get first row as dict
+    timestamps = result['timestamp']  # Get list of values for one column
+    
+    # Convert to Pandas
+    df = result.to_pandas()
+    df['revenue'].describe()  # Get statistics for revenue column
+    ```
+  </Card>
+</CardGroup>
+
+<Warning>
+Always use a `where()` clause with `delete()`. Without it, all rows in the table will be deleted! While you can use `revert()` to undo operations, it's better to be careful with destructive operations.
+</Warning>
+
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Schema Definition" icon="file-code">
+    - Use clear naming for directories and tables
+    - Document computed column dependencies
+  </Card>
+  
+  <Card title="Application Code" icon="code">
+    - Use `get_table()` to fetch existing tables
+    - Use batch operations for multiple rows
+  </Card>
+</CardGroup>
+
+## Common Patterns
+
+<AccordionGroup>
+  <Accordion title="Development Workflow" icon="code-branch">
+    1. Create `table.py` for structure
+    2. Test schema and workflow
+    3. Create `app.py` for usage
+    4. Deploy both files
+  </Accordion>
+
+  <Accordion title="Production Setup" icon="rocket">
+    ```python
+    # table.py - Run once to set up
+    pxt.create_table(..., if_exists="ignore")
+    
+    # app.py - Production code
+    table = pxt.get_table("myapp.mytable")
+    if table is None:
+        raise RuntimeError("Run table.py first!")
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Additional Resources
+
+<CardGroup cols={3}>
+  <Card title="API Documentation" icon="book" href="https://pixeltable.github.io/pixeltable/">
+    Complete API reference
+  </Card>
+  <Card title="Examples" icon="lightbulb" href="/docs/examples">
+    Sample workflows
+  </Card>
+  <Card title="Cheat Sheet" icon="file" href="https://pixeltable.github.io/pixeltable/api-cheat-sheet/">
+    Quick reference
+  </Card>
+</CardGroup>
+
+<Note>
+Remember that Pixeltable automatically handles versioning and lineage tracking. Every operation is recorded and can be reverted if needed.
+</Note>

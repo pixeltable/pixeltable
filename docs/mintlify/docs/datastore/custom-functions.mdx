@@ -1,0 +1,344 @@
+---
+title: 'Custom Functions (UDFs)'
+description: 'Create and use custom functions (UDFs) in Pixeltable'
+icon: 'function'
+---
+
+# User-Defined Functions in Pixeltable
+
+<Info>
+Learn more about UDFs and UDAs with our [in-depth guide](https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/feature-guides/udfs-in-pixeltable.ipynb).
+</Info>
+
+This guide covers three types of custom functions in Pixeltable:
+1. Basic User-Defined Functions (UDFs)
+2. Tables as UDFs
+3. User-Defined Aggregates (UDAs)
+
+## 1. Basic User-Defined Functions (UDFs)
+
+### Overview
+UDFs allow you to:
+- Write custom Python functions for data processing
+- Integrate them into computed columns and queries
+- Optimize performance through batching
+- Create reusable components for your data workflow
+
+<Note>
+All UDFs require type hints for parameters and return values. This enables Pixeltable to validate and optimize your data workflow before execution.
+</Note>
+
+### Creating Basic UDFs
+
+<CodeGroup>
+```python Basic
+@pxt.udf
+def add_tax(price: float, rate: float = 0.1) -> float:
+    return price * (1 + rate)
+
+# Use in computed column
+table.add_computed_column(
+    price_with_tax=add_tax(table.price)
+)
+```
+
+```python With Type Checking
+from typing import List
+
+@pxt.udf
+def process_tags(tags: List[str]) -> str:
+    return ", ".join(sorted(tags))
+
+# Use in computed column
+table.add_computed_column(
+    formatted_tags=process_tags(table.tags)
+)
+```
+</CodeGroup>
+
+### UDF Types
+
+<Tabs>
+  <Tab title="Local UDFs">
+    ```python
+    # Defined directly in your code
+    @pxt.udf
+    def extract_year(date_str: str) -> int:
+        return int(date_str.split('-')[0])
+        
+    # Used immediately
+    table.add_computed_column(
+        year=extract_year(table.date)
+    )
+    ```
+    <Note>
+    Local UDFs are serialized with their columns. Changes to the UDF only affect new columns.
+    </Note>
+  </Tab>
+
+  <Tab title="Module UDFs">
+    ```python
+    # In my_functions.py
+    @pxt.udf
+    def clean_text(text: str) -> str:
+        return text.strip().lower()
+        
+    # In your application
+    from my_functions import clean_text
+    table.add_computed_column(
+        clean_content=clean_text(table.content)
+    )
+    ```
+    <Note>
+    Module UDFs are referenced by path. Changes to the UDF affect all uses after reload.
+    </Note>
+  </Tab>
+
+  <Tab title="Batched UDFs">
+    ```python
+    from pixeltable.func import Batch
+    
+    @pxt.udf(batch_size=32)
+    def process_batch(items: Batch[str]) -> Batch[str]:
+        results = []
+        for item in items:
+            results.append(item.upper())
+        return results
+        
+    # Used like a regular UDF
+    table.add_computed_column(
+        processed=process_batch(table.text)
+    )
+    ```
+    <Note>
+    Batched UDFs process multiple rows at once for better performance.
+    </Note>
+  </Tab>
+</Tabs>
+
+### Supported Types
+
+<AccordionGroup>
+  <Accordion title="Basic Types" icon="code">
+    Native Python types supported in UDFs:
+    ```python
+    @pxt.udf
+    def process_data(
+        text: str,           # String data
+        count: int,          # Integer numbers
+        score: float,        # Floating point
+        active: bool,        # Boolean
+        items: list[str],    # Generic lists
+        meta: dict[str,any]  # Dictionaries
+    ) -> str:
+        return "Processed"
+    ```
+  </Accordion>
+
+  <Accordion title="Complex Types" icon="layer-group">
+    Pixeltable-specific types:
+    ```python
+    @pxt.udf
+    def process_media(
+        img: PIL.Image.Image,    # Images
+        embeddings: pxt.Array,   # Numerical arrays
+        config: pxt.Json,        # JSON data
+        doc: pxt.Document        # Documents
+    ) -> str:
+        return "Processed"
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Performance Optimization
+
+<CardGroup cols={1}>
+  <Card title="Batching" icon="layer-group">
+    ```python
+    @pxt.udf(batch_size=16)
+    def embed_texts(
+        texts: Batch[str]
+    ) -> Batch[pxt.Array]:
+        # Process multiple texts at once
+        return model.encode(texts)
+    ```
+  </Card>
+  
+  <Card title="Caching" icon="database">
+    ```python
+    @pxt.udf
+    def expensive_operation(text: str) -> str:
+        # Cache model instance
+        if not hasattr(expensive_operation, 'model'):
+            expensive_operation.model = load_model()
+        return expensive_operation.model(text)
+    ```
+  </Card>
+</CardGroup>
+
+### Best Practices for Basic UDFs
+
+<AccordionGroup>
+  <Accordion title="Type Safety" icon="shield-check">
+    - Always provide complete type hints
+    - Use specific types over generic ones
+    - Validate input ranges where appropriate
+    ```python
+    @pxt.udf
+    def validate_score(score: float) -> float:
+        if not 0 <= score <= 100:
+            raise ValueError("Score must be between 0 and 100")
+        return score
+    ```
+  </Accordion>
+
+  <Accordion title="Performance" icon="gauge-high">
+    - Use batching for GPU operations
+    - Cache expensive resources
+    - Process data in chunks when possible
+    ```python
+    @pxt.udf(batch_size=32)
+    def process_chunk(items: Batch[str]) -> Batch[str]:
+        if not hasattr(process_chunk, 'model'):
+            process_chunk.model = load_expensive_model()
+        return process_chunk.model.process_batch(items)
+    ```
+  </Accordion>
+
+  <Accordion title="Organization" icon="folder-tree">
+    - Keep related UDFs in modules
+    - Use clear, descriptive names
+    - Document complex operations
+    ```python
+    @pxt.udf
+    def normalize_text(
+        text: str,
+        lowercase: bool = True,
+        remove_punctuation: bool = True
+    ) -> str:
+        """Normalize text by optionally lowercasing and removing punctuation."""
+        if lowercase:
+            text = text.lower()
+        if remove_punctuation:
+            text = text.translate(str.maketrans("", "", string.punctuation))
+        return text
+    ```
+  </Accordion>
+  
+  <Accordion title="Table UDFs" icon="table">
+    - Define clear input and output columns for your table UDFs
+    - Implement cleanup routines for tables that grow large
+    - Balance between too many small tables and monolithic tables
+    - Use clear naming conventions for tables and their UDFs
+    - Document the purpose and expected inputs for each table UDF
+  </Accordion>
+</AccordionGroup>
+
+## 2. Tables as UDFs
+
+### Overview
+Tables as UDFs allow you to:
+- Convert entire tables into reusable functions
+- Create modular and complex data processing workflows
+- Encapsulate multi-step operations
+- Share workflows between different tables
+
+### Creating Table UDFs
+
+#### Step 1: Create a Specialized Table
+```python
+# Create a table with your workflow
+finance_agent = pxt.create_table('directory.financial_analyst', 
+                                {'prompt': pxt.String})
+# Add computed columns for processing
+finance_agent.add_computed_column(/* ... */)
+```
+
+#### Step 2: Convert to UDF
+```python
+# Convert table to UDF by specifying return column
+finance_agent_udf = pxt.udf(finance_agent, 
+                           return_value=finance_agent.answer)
+```
+
+#### Step 3: Use the Table UDF
+```python
+# Use like any other UDF
+result_table.add_computed_column(
+    result=finance_agent_udf(result_table.prompt)
+)
+```
+
+### Best Practices for Table UDFs
+- Define clear input and output columns
+- Implement cleanup routines for large tables
+- Use clear naming conventions
+- Document table UDF purpose and inputs
+- Balance between modularity and complexity
+
+## 3. User-Defined Aggregates (UDAs)
+
+### Overview
+UDAs enable you to:
+- Create custom aggregation functions
+- Process multiple rows into a single result
+- Use them in group_by operations
+- Build reusable aggregation logic
+
+### Creating UDAs
+
+```python
+@pxt.uda
+class sum_of_squares(pxt.Aggregator):
+    def __init__(self):
+        self.cur_sum = 0
+        
+    def update(self, val: int) -> None:
+        self.cur_sum += val * val
+        
+    def value(self) -> int:
+        return self.cur_sum
+```
+
+### UDA Components
+
+1. **Initialization** (`__init__`)
+   - Sets up initial state
+   - Defines parameters
+   - Called once at start
+
+2. **Update Method** (`update`)
+   - Processes each input row
+   - Updates internal state
+   - Must handle all value types
+
+3. **Value Method** (`value`)
+   - Returns final result
+   - Called after all updates
+   - Performs final calculations
+
+### Using UDAs
+
+```python
+# Basic usage
+table.select(sum_of_squares(table.value)).collect()
+
+# With grouping
+table.group_by(table.category).select(
+    table.category,
+    sum_of_squares(table.value)
+).collect()
+```
+
+### Best Practices for UDAs
+- Manage state carefully
+- Handle edge cases and errors
+- Optimize for performance
+- Use appropriate type hints
+- Document expected behavior
+
+## Additional Resources
+
+<Card title="API Documentation" icon="book" href="https://pixeltable.github.io/pixeltable/">
+  Complete API reference
+</Card>
