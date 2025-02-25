@@ -19,7 +19,7 @@ _PUBLISH_URL = 'https://cf4ggxh3bgocx65j5wwbdbk2iu0bawoi.lambda-url.us-east-1.on
 _FINALIZE_URL = 'https://k3ic4signgvwu5l6j6dajyyjgq0vdkst.lambda-url.us-east-1.on.aws/?debug=false'
 
 
-def publish_snapshot(dest_tbl_uri: str, src_tbl: pxt.Table) -> None:
+def publish_snapshot(dest_tbl_uri: str, src_tbl: pxt.Table) -> str:
     request_json = {
         'pxt_version': pxt.__version__,
         'pxt_schema_version': metadata.VERSION,
@@ -58,13 +58,19 @@ def publish_snapshot(dest_tbl_uri: str, src_tbl: pxt.Table) -> None:
         'upload_id': upload_id,
         'datafile': bundle.name,
         'size': bundle.stat().st_size,
-        #'sha256': sha256sum(bundle),  # Generate our own SHA for independent verification
+        'sha256': sha256sum(bundle),  # Generate our own SHA for independent verification
     }
 
     finalize_response = requests.post(_FINALIZE_URL, json=finalize_request_json, headers=headers_json)
+    if finalize_response.status_code != 200:
+        raise excs.Error(f'Error finalizing snapshot: {finalize_response.text}')
+    finalize_response_json = finalize_response.json()
+    if not isinstance(finalize_response_json, dict) or 'confirmed_table_uri' not in finalize_response_json:
+        raise excs.Error(f'Error finalizing snapshot: unexpected response from server.\n{finalize_response_json}')
 
-    print(finalize_response)
-    print(finalize_response.json())
+    confirmed_tbl_uri = finalize_response_json['confirmed_table_uri']
+    Env.get().console_logger.info(f'The published snapshot is now available at: {confirmed_tbl_uri}')
+    return confirmed_tbl_uri
 
 
 def _upload_bundle_to_s3(bundle: Path, parsed_location: urllib.parse.ParseResult) -> None:
@@ -98,5 +104,3 @@ def _upload_bundle_to_s3(bundle: Path, parsed_location: urllib.parse.ParseResult
     s3_client.upload_file(
         Filename=str(bundle), Bucket=bucket, Key=str(remote_path), ExtraArgs=upload_args, Callback=progress_bar.update
     )
-
-    # response = s3_client.get_object(Bucket=bucket, Key=str(remote_path))
