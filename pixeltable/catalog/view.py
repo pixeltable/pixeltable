@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import inspect
 import logging
-from typing import TYPE_CHECKING, Any, Iterable, Literal, Optional
+from typing import TYPE_CHECKING, Any, Iterable, Literal, Optional, List
 from uuid import UUID
 
 import sqlalchemy.orm as orm
@@ -85,7 +85,7 @@ class View(Table):
     ) -> View:
         # Convert select_list to more additional_columns if present
         include_base_columns: bool = select_list is None
-        select_list_columns: dict[str, dict] = []
+        select_list_columns: List[Column] = []
         if not include_base_columns:
             r = cls.select_list_to_additional_columns(select_list)
             select_list_columns = cls._create_columns(r)
