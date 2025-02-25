@@ -13,9 +13,9 @@ import numpy as np
 import pyarrow as pa
 import pyiceberg.catalog
 
-import pixeltable as pxt
 import pixeltable.type_system as ts
-from pixeltable import exprs
+from pixeltable import catalog, exprs
+from pixeltable.dataframe import DataFrame
 from pixeltable.env import Env
 from pixeltable.utils.arrow import PXT_TO_PA_TYPES
 from pixeltable.utils.iceberg import sqlite_catalog
@@ -43,12 +43,12 @@ class TablePackager:
       'media/{uuid}{extension}', and the Iceberg table will contain the ephemeral URI 'pxtmedia://{uuid}{extension}'.
     """
 
-    table: pxt.Table  # The table to be packaged
+    table: catalog.Table  # The table to be packaged
     tmp_dir: Path  # Temporary directory where the package will reside
     iceberg_catalog: pyiceberg.catalog.Catalog
     media_files: dict[Path, str]  # Mapping from local media file paths to their tarball names
 
-    def __init__(self, table: pxt.Table) -> None:
+    def __init__(self, table: catalog.Table) -> None:
         self.table = table
         self.tmp_dir = Path(Env.get().create_tmp_path())
         self.media_files = {}
@@ -70,7 +70,7 @@ class TablePackager:
         _logger.info(f'Packaging complete: {bundle_path}')
         return bundle_path
 
-    def __export_table(self, t: pxt.Table) -> None:
+    def __export_table(self, t: catalog.Table) -> None:
         """
         Exports the data from `t` into an Iceberg table.
         """
@@ -116,7 +116,7 @@ class TablePackager:
             iceberg_tbl.append(pa_table)
 
     @classmethod
-    def __iceberg_namespace(cls, table: pxt.Table) -> str:
+    def __iceberg_namespace(cls, table: catalog.Table) -> str:
         """
         Iceberg tables must have a namespace, which cannot be the empty string, so we prepend `pxt` to the table path.
         """
@@ -149,11 +149,7 @@ class TablePackager:
         return PXT_TO_PA_TYPES.get(col_type.__class__)
 
     def __to_pa_tables(
-        self,
-        df: pxt.DataFrame,
-        actual_col_types: list[pxt.ColumnType],
-        arrow_schema: pa.Schema,
-        batch_size: int = 1_000,
+        self, df: DataFrame, actual_col_types: list[ts.ColumnType], arrow_schema: pa.Schema, batch_size: int = 1_000
     ) -> Iterator[pa.Table]:
         """
         Load a DataFrame as a sequence of pyarrow tables. The pyarrow tables are batched into smaller chunks
@@ -165,7 +161,7 @@ class TablePackager:
             cols['_v_min'] = [row[-1] for row in rows]
             yield pa.Table.from_pydict(cols, schema=arrow_schema)
 
-    def __to_pa_rows(self, df: pxt.DataFrame, actual_col_types: list[pxt.ColumnType]) -> Iterator[list]:
+    def __to_pa_rows(self, df: DataFrame, actual_col_types: list[ts.ColumnType]) -> Iterator[list]:
         for row in df._exec():
             vals = [row[e.slot_idx] for e in df._select_list_exprs]
             result = [self.__to_pa_value(val, col_type) for val, col_type in zip(vals, actual_col_types)]
