@@ -4,6 +4,42 @@ description: 'Keep track of changes'
 icon: 'newspaper'
 ---
 
+<Update label="2025-02-25" description="v0.3.1-v0.3.4">
+### Highlights
+* Added support for OpenAI reasoning models
+* Introduced tables as UDFs for more modular workflows
+* Implemented AudioSplitter support for audio processing
+* Enabled all types of computed columns to be unstored for flexibility
+* Added support for variable parameters in query limit() clause
+* Enhanced data management with a packager for table data
+* Updated PostgreSQL to version 16.8 and pgvector to 0.8.0
+
+### Enhancements
+* Improved parallel execution capabilities
+* Added support for generalized arrays (unparameterized/with only a dtype)
+* Allowed numpy.ndarray arrays to be used as Literal constants
+* Enhanced type checking for tests package
+* Improved handling of collections with all constants as Literals
+* Converted more UDFs to async for better performance
+* Added verbose system config option for improved debugging
+
+### Fixes
+* Fixed FastAPI integration bug
+* Resolved issues with AsyncConnectionPool behavior
+* Improved test resiliency and reliability
+* Fixed tiktoken dependency issue
+* Corrected validity of column error properties
+* Upgraded httpcore for better compatibility
+* Fixed notebook test failures
+
+### Development & Infrastructure
+* Added archive functionality for Pixeltable logs from every test run
+* Improved CI/CD workflow with tmate in detached mode
+* Enhanced documentation with updates to numerous guides
+* Streamlined API syntax for better developer experience
+* Updated example applications to use new query syntax
+</Update>
+
 <Update label="2024-12-26" description="v0.2.28-29">
 ### Highlights
 * Enhanced Function Support with multiple signatures capability for Functions, UDFs, and UDAs
