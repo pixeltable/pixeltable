@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import inspect
 import logging
-from typing import TYPE_CHECKING, Any, Iterable, Literal, Optional, List
+from typing import TYPE_CHECKING, Any, Iterable, List, Literal, Optional
 from uuid import UUID
 
 import sqlalchemy.orm as orm
@@ -201,7 +201,15 @@ class View(Table):
             )
             if tbl_version is None:
                 # this is purely a snapshot: we use the base's tbl version path
-                view = cls(id, dir_id, name, base_version_path, base.tbl_id(), snapshot_only=True, include_base_columns=include_base_columns)
+                view = cls(
+                    id,
+                    dir_id,
+                    name,
+                    base_version_path,
+                    base.tbl_id(),
+                    snapshot_only=True,
+                    include_base_columns=include_base_columns,
+                )
                 _logger.info(f'created snapshot {name}')
             else:
                 view = cls(
