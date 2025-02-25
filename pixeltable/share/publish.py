@@ -1,4 +1,5 @@
 import dataclasses
+import os
 import sys
 import urllib.parse
 import urllib.request
@@ -15,8 +16,10 @@ from pixeltable.utils import sha256sum
 
 from .packager import TablePackager
 
-_PUBLISH_URL = 'https://cf4ggxh3bgocx65j5wwbdbk2iu0bawoi.lambda-url.us-east-1.on.aws/?debug=false'
-_FINALIZE_URL = 'https://k3ic4signgvwu5l6j6dajyyjgq0vdkst.lambda-url.us-east-1.on.aws/?debug=false'
+# These URLs are abstracted out for now, but will be replaced with actual (hard-coded) URLs once the
+# pixeltable.com URLs are available.
+_PUBLISH_URL = os.environ.get('PIXELTABLE_PUBLISH_URL')
+_FINALIZE_URL = os.environ.get('PIXELTABLE_FINALIZE_URL')
 
 
 def publish_snapshot(dest_tbl_uri: str, src_tbl: pxt.Table) -> str:
@@ -25,6 +28,8 @@ def publish_snapshot(dest_tbl_uri: str, src_tbl: pxt.Table) -> str:
         'pxt_schema_version': metadata.VERSION,
         'table_uri': dest_tbl_uri,
         'md': {
+            # These are temporary; will replace with a better solution once the concurrency changes to catalog have
+            # been merged
             'table_md': dataclasses.asdict(src_tbl._tbl_version._create_tbl_md()),
             'table_version_md': dataclasses.asdict(src_tbl._tbl_version._create_version_md(datetime.now().timestamp())),
             'table_schema_version_md': dataclasses.asdict(src_tbl._tbl_version._create_schema_version_md(0)),
