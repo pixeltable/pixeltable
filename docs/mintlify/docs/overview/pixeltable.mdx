@@ -5,21 +5,18 @@ icon: "rocket"
 ---
 
 <CardGroup cols={2}>
-<Card 
-  title="Open Source Data Infrastructure" 
-  icon="database"
-  href="/docs/datastore/tables-and-operations"
->
-  - All AI data & models in one table interface
-</Card>
-
-<Card 
-  title="Storage meets Orchestration" 
-  icon="brain-circuit"
-  href="/docs/datastore/computed-columns"
->
-  - A declarative interface for AI workloads
-</Card>
+  <Card title="Persistent Storage" icon="database">
+    All data and computed results are automatically stored and versioned.
+  </Card>
+  <Card title="Computed Columns" icon="calculator">
+    Define transformations once, they run automatically on new data.
+  </Card>
+  <Card title="Multimodal Support" icon="photo-film">
+    Handle images, video, audio, and text seamlessly in one unified interface.
+  </Card>
+  <Card title="AI Integration" icon="brain">
+    Built-in support for AI services like OpenAI, YOLOX, Together, Label Studio, Replicate...
+  </Card>
 </CardGroup>
 
 <Note>
@@ -129,7 +126,7 @@ The below steps will get you started in 1 minute. Learn more by looking at this 
     ``` 
     </CodeGroup>
   <Info>
-  Define transformations once, they run on new data. Perfect for AI orchestration.
+  Pixeltable orchestrates model execution, ensuring results are stored, indexed, and accessible through the same query interface.
   </Info>
   </Step>
   
@@ -284,24 +281,24 @@ Handle images, video, audio, numbers, array and text seamlessly in one interface
 
 <CardGroup cols={3}>
   <Card 
-    title="Explore Examples" 
-    icon="rocket" 
-    href="http://localhost:3000/docs/fundamentals/sample-apps"
+    title="Code Examples" 
+    icon="code" 
+    href="/docs/fundamentals/sample-apps"
   >
-    Check out our apps
+    Working implementations and reference architecture
   </Card>
   <Card 
-    title="Join Discord" 
+    title="Developer Community" 
     icon="discord" 
     href="https://discord.gg/QPyqFYx2UN"
   >
-    Get help and mingle
+    Technical discussions and implementation support
   </Card>
   <Card 
-    title="GitHub" 
+    title="Source Repository" 
     icon="github" 
     href="https://github.com/pixeltable/pixeltable"
   >
-    Star us on GitHub
+    Explore the codebase and contribute
   </Card>
 </CardGroup>
