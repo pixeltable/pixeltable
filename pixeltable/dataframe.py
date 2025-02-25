@@ -981,7 +981,7 @@ class DataFrame:
 
         Args:
             op_name: The name of the operation for which the test is being performed.
-            allow_select: If True, allow a column select specification in the Dataframe.
+            allow_select: If True, allow a select() specification in the Dataframe.
         """
         if self.group_by_clause is not None or self.grouping_tbl is not None:
             raise excs.Error(f'Cannot use `{op_name}` after `group_by`')

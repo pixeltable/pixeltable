@@ -44,7 +44,7 @@ class View(Table):
         tbl_version_path: TableVersionPath,
         base_id: UUID,
         snapshot_only: bool,
-        is_opaque: bool,
+        include_base_columns: bool,
     ):
         super().__init__(id, dir_id, name, tbl_version_path)
         assert base_id in catalog.Catalog.get().tbl_dependents
@@ -56,10 +56,11 @@ class View(Table):
         return 'view'
 
     @classmethod
-    def select_list_to_column_spec(cls, select_list: list[tuple[exprs.Expr, Optional[str]]]) -> dict[str, dict]:
+    def select_list_to_additional_columns(cls, select_list: list[tuple[exprs.Expr, Optional[str]]]) -> dict[str, dict]:
+        # WTF should this be a local function? or something else?
         from pixeltable.dataframe import DataFrame
 
-        r = {}
+        r: dict[str, dict] = {}
         exps, names = DataFrame._normalize_select_list([], select_list)
         for expr, name in zip(exps, names):
             stored = not isinstance(expr, exprs.ColumnRef)
@@ -83,14 +84,14 @@ class View(Table):
         iterator_args: Optional[dict],
     ) -> View:
         # Convert select_list to more additional_columns if present
-        is_opaque: bool = select_list is not None
-        col1 = []
-        if is_opaque:
-            r = cls.select_list_to_column_spec(select_list)
-            col1 = cls._create_columns(r)
+        include_base_columns: bool = select_list is None
+        select_list_columns: dict[str, dict] = []
+        if not include_base_columns:
+            r = cls.select_list_to_additional_columns(select_list)
+            select_list_columns = cls._create_columns(r)
 
-        col2 = cls._create_columns(additional_columns)
-        columns = col1 + col2
+        columns_from_additional_columns = cls._create_columns(additional_columns)
+        columns = select_list_columns + columns_from_additional_columns
         cls._verify_schema(columns)
 
         # verify that filter can be evaluated in the context of the base
@@ -180,7 +181,7 @@ class View(Table):
 
             view_md = md_schema.ViewMd(
                 is_snapshot=is_snapshot,
-                is_opaque=is_opaque,
+                include_base_columns=include_base_columns,
                 predicate=predicate.as_dict() if predicate is not None else None,
                 base_versions=base_versions,
                 iterator_class_fqn=iterator_class_fqn,
@@ -200,7 +201,7 @@ class View(Table):
             )
             if tbl_version is None:
                 # this is purely a snapshot: we use the base's tbl version path
-                view = cls(id, dir_id, name, base_version_path, base.tbl_id(), snapshot_only=True, is_opaque=is_opaque)
+                view = cls(id, dir_id, name, base_version_path, base.tbl_id(), snapshot_only=True, include_base_columns=include_base_columns)
                 _logger.info(f'created snapshot {name}')
             else:
                 view = cls(
@@ -210,7 +211,7 @@ class View(Table):
                     TableVersionPath(tbl_version, base=base_version_path),
                     base.tbl_id(),
                     snapshot_only=False,
-                    is_opaque=is_opaque,
+                    include_base_columns=include_base_columns,
                 )
                 _logger.info(f'Created view `{name}`, id={tbl_version.id}')
 

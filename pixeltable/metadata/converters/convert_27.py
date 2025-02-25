@@ -17,7 +17,7 @@ def _(engine: sql.engine.Engine) -> None:
 
 
 def __update_table_md(table_md: dict, table_id: UUID) -> None:
-    """Update the view metadata to add the is_opaque boolean if it is missing
+    """Update the view metadata to add the include_base_columns boolean if it is missing
 
     Args:
         table_md (dict): copy of the original table metadata. this gets updated in place.
@@ -26,6 +26,6 @@ def __update_table_md(table_md: dict, table_id: UUID) -> None:
     """
     if table_md['view_md'] is None:
         return
-    if 'is_opaque' not in table_md['view_md']:
-        table_md['view_md']['is_opaque'] = False
+    if 'include_base_columns' not in table_md['view_md']:
+        table_md['view_md']['include_base_columns'] = True
         _logger.info(f'Updating view metadata for table: {table_id}')

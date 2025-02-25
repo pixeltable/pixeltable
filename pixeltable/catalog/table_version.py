@@ -59,7 +59,7 @@ class TableVersion:
     schema_version: int
     view_md: Optional[schema.ViewMd]
     is_snapshot: bool
-    is_opaque: bool
+    include_base_columns: bool
     effective_version: Optional[int]
     path: Optional[pxt.catalog.TableVersionPath]
     base: Optional[TableVersion]
@@ -116,7 +116,7 @@ class TableVersion:
         self.view_md = tbl_md.view_md  # save this as-is, it's needed for _create_md()
         is_view = tbl_md.view_md is not None
         self.is_snapshot = (is_view and tbl_md.view_md.is_snapshot) or bool(is_snapshot)
-        self.is_opaque = is_view and tbl_md.view_md.is_opaque
+        self.include_base_columns = not is_view or tbl_md.view_md.include_base_columns
         self.media_validation = MediaValidation[schema_version_md.media_validation.upper()]
         # a mutable TableVersion doesn't have a static version
         self.effective_version = self.version if self.is_snapshot else None

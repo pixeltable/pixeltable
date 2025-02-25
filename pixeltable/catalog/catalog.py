@@ -142,7 +142,7 @@ class Catalog:
                 base_tbl_id = base_path.tbl_id()
                 is_snapshot = view_md is not None and view_md.is_snapshot
                 snapshot_only = is_snapshot and view_md.predicate is None and len(schema_version_md.columns) == 0
-                is_opaque = view_md is not None and view_md.is_opaque
+                include_base_columns = view_md is None or view_md.include_base_columns
                 if snapshot_only:
                     # this is a pure snapshot, without a physical table backing it
                     view_path = base_path
@@ -165,7 +165,7 @@ class Catalog:
                     view_path,
                     base_tbl_id,
                     snapshot_only=snapshot_only,
-                    is_opaque=is_opaque,
+                    include_base_columns=include_base_columns,
                 )
                 self.tbl_dependents[base_tbl_id].append(tbl)
 
