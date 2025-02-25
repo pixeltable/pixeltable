@@ -53,12 +53,12 @@
     "placeholder": "Try 'getting started' or 'computed columns'"
   },
   "versions": [
-    "v0.3.2"
+    "v0.3.4"
   ],
   "tabs": [
     {
-      "name": "Fundamentals",
-      "url": "/docs/fundamentals"
+      "name": "Resources",
+      "url": "/docs/resources"
     },
     {
       "name": "API Reference",
@@ -142,13 +142,13 @@
       ]
     },
     {
-      "group": "Core Concepts",
+      "group": "Resources",
       "pages": [
-        "docs/fundamentals/core-concepts",
-        "docs/fundamentals/feature-guide",
-        "docs/fundamentals/use-cases",
-        "docs/fundamentals/interactive-demos",
-        "docs/fundamentals/sample-apps"
+        "docs/resources/fundamentals",
+        "docs/resources/feature-guide",
+        "docs/resources/use-cases",
+        "docs/resources/interactive-demos",
+        "docs/resources/sample-apps"
       ]
     },
     {
