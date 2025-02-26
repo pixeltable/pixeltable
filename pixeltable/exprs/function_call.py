@@ -28,7 +28,6 @@ class FunctionCall(Expr):
     arg_idxs: list[int]
     kwarg_idxs: dict[str, int]
     bound_idxs: dict[str, Union[int, list[int], dict[str, int]]]
-    bound_args: dict[str, Union[Expr, list[Expr], dict[str, Expr]]]
 
     return_type: ts.ColumnType
     group_by_start_idx: int
@@ -364,10 +363,6 @@ class FunctionCall(Expr):
             data_row[self.slot_idx] = self.fn.exec(args, kwargs)
 
     def _as_dict(self) -> dict:
-        args = [self.components[idx] for idx in self.arg_idxs]
-        kwargs = {name: self.components[idx] for name, idx in self.kwarg_idxs.items()}
-        group_by_exprs = self.components[self.group_by_start_idx : self.group_by_stop_idx]
-        order_by_exprs = self.components[self.order_by_start_idx :]
         return {
             'fn': self.fn.as_dict(),
             'return_type': self.return_type.as_dict(),
