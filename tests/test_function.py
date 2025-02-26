@@ -688,16 +688,19 @@ class TestFunction:
         import tests.test_function
 
         t = pxt.create_table('test', {'c1': pxt.String})
+        t.insert(c1="xyz")
 
         def mimic(fn: func.CallableFunction) -> None:
             tests.test_function.evolving_udf = func.CallableFunction(
                 fn.signatures, fn.py_fns, 'tests.test_function.evolving_udf'
             )
 
-        def reload_table() -> None:
+        def reload_table() -> pxt.Table:
             reload_catalog()
             t = pxt.get_table('test')
-            repr(t)  # Force table metadata to load
+            _ = repr(t)  # Force all metadata to load
+            assert list(t.head()) == [{'c1': 'xyz', 'result': None}]  # Ensure table can be queried
+            return t
 
         @pxt.udf(_force_stored=True)
         def udf_base_version(a: str, b: int = 3) -> Optional[pxt.Array[pxt.Float]]:
@@ -779,6 +782,13 @@ class TestFunction:
         else:
             with pytest.raises(excs.Error, match='signature stored in the database.*no longer matches'):
                 reload_table()
+
+        # Remove the function entirely
+        del tests.test_function.evolving_udf
+        with pytest.warns(pxt.PixeltableWarning, match="the symbol 'tests.test_function.evolving_udf' no longer exists"):
+            reload_table()
+        t.insert()
+
 
     def test_tool_errors(self):
         with pytest.raises(excs.Error) as exc_info:

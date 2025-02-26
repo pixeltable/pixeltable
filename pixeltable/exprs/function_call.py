@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import inspect
+import logging
 import sys
+import warnings
+from textwrap import dedent
 from typing import Any, Optional, Sequence, Union
 
 import sqlalchemy as sql
@@ -18,6 +21,7 @@ from .row_builder import RowBuilder
 from .rowid_ref import RowidRef
 from .sql_element_cache import SqlElementCache
 
+_logger = logging.getLogger('pixeltable')
 
 class FunctionCall(Expr):
     fn: func.Function
@@ -28,15 +32,17 @@ class FunctionCall(Expr):
     arg_idxs: list[int]
     kwarg_idxs: dict[str, int]
     bound_idxs: dict[str, Union[int, list[int], dict[str, int]]]
-    bound_args: dict[str, Union[Expr, list[Expr], dict[str, Expr]]]
 
     return_type: ts.ColumnType
     group_by_start_idx: int
     group_by_stop_idx: int
-    fn_expr_idx: int
     order_by_start_idx: int
+    order_by_stop_idx: int
+    fn_expr_idx: int
     aggregator: Optional[Any]
     current_partition_vals: Optional[list[Any]]
+
+    _is_valid: bool
 
     def __init__(
         self,
@@ -47,6 +53,7 @@ class FunctionCall(Expr):
         order_by_clause: Optional[list[Any]] = None,
         group_by_clause: Optional[list[Any]] = None,
         is_method_call: bool = False,
+        is_valid: bool = True,
     ):
         assert not fn.is_polymorphic
         assert all(isinstance(arg, Expr) for arg in args)
@@ -68,17 +75,6 @@ class FunctionCall(Expr):
         self.arg_idxs = list(range(len(self.components)))
         self.components.extend(arg.copy() for arg in kwargs.values())
         self.kwarg_idxs = {name: i + len(args) for i, name in enumerate(kwargs.keys())}
-
-        # Now generate bound_idxs for the args and kwargs indices.
-        # This is guaranteed to work, because at this point the call has already been validated.
-        # These will be used later to dereference specific parameter values.
-        bindings = fn.signature.py_signature.bind(*self.arg_idxs, **self.kwarg_idxs)
-        self.bound_idxs = bindings.arguments
-
-        # Sepearately generate bound_args for purposes of determining the resource pool.
-        bindings = fn.signature.py_signature.bind(*args, **kwargs)
-        bound_args = bindings.arguments
-        self.resource_pool = fn.call_resource_pool(bound_args)
 
         self.agg_init_args = {}
         if self.is_agg_fn_call:
@@ -104,6 +100,32 @@ class FunctionCall(Expr):
             self.group_by_stop_idx = len(self.components) + len(group_by_exprs)
             self.components.extend(group_by_exprs)
 
+        # we want to make sure that order_by_clause get assigned slot_idxs, even though we won't need to evaluate them
+        # (that's done in SQL)
+        if len(order_by_clause) > 0 and not isinstance(order_by_clause[0], Expr):
+            raise excs.Error(
+                f'order_by argument needs to be a Pixeltable expression, but instead is a {type(order_by_clause[0])}'
+            )
+        self.order_by_start_idx = len(self.components)
+        self.order_by_stop_idx = len(self.components) + len(order_by_clause)
+        self.components.extend(order_by_clause)
+
+        self._is_valid = is_valid
+
+        if not is_valid:
+            return
+
+        # Now generate bound_idxs for the args and kwargs indices.
+        # This is guaranteed to work, because at this point the call has already been validated.
+        # These will be used later to dereference specific parameter values.
+        bindings = fn.signature.py_signature.bind(*self.arg_idxs, **self.kwarg_idxs)
+        self.bound_idxs = bindings.arguments
+
+        # Separately generate bound_args for purposes of determining the resource pool.
+        bindings = fn.signature.py_signature.bind(*args, **kwargs)
+        bound_args = bindings.arguments
+        self.resource_pool = fn.call_resource_pool(bound_args)
+
         if isinstance(self.fn, func.ExprTemplateFunction):
             # we instantiate the template to create an Expr that can be evaluated and record that as a component
             fn_expr = self.fn.instantiate(args, kwargs)
@@ -111,16 +133,6 @@ class FunctionCall(Expr):
             self.components.append(fn_expr)
         else:
             self.fn_expr_idx = sys.maxsize
-
-        # we want to make sure that order_by_clause get assigned slot_idxs, even though we won't need to evaluate them
-        # (that's done in SQL)
-        if len(order_by_clause) > 0 and not isinstance(order_by_clause[0], Expr):
-            raise excs.Error(
-                f'order_by argument needs to be a Pixeltable expression, but instead is a {type(order_by_clause[0])}'
-            )
-        # don't add components after this, everthing after order_by_start_idx is part of the order_by clause
-        self.order_by_start_idx = len(self.components)
-        self.components.extend(order_by_clause)
 
         # execution state for aggregate functions
         self.aggregator = None
@@ -149,6 +161,8 @@ class FunctionCall(Expr):
             return False
         if self.order_by_start_idx != other.order_by_start_idx:
             return False
+        if self.order_by_stop_idx != other.order_by_stop_idx:
+            return False
         return True
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
@@ -158,12 +172,17 @@ class FunctionCall(Expr):
             ('kwargs', self.kwarg_idxs),
             ('group_by_start_idx', self.group_by_start_idx),
             ('group_by_stop_idx', self.group_by_stop_idx),
+            ('order_by_start_idx', self.order_by_start_idx),
+            ('order_by_stop_idx', self.order_by_stop_idx),
             ('fn_expr_idx', self.fn_expr_idx),
-            ('order_by_idx', self.order_by_start_idx),
         ]
 
     def __repr__(self) -> str:
         return self.display_str()
+
+    @property
+    def is_valid(self) -> bool:
+        return self._is_valid and super().is_valid
 
     def display_str(self, inline: bool = True) -> str:
         if self.is_method_call:
@@ -196,7 +215,7 @@ class FunctionCall(Expr):
 
     @property
     def order_by(self) -> list[Expr]:
-        return self.components[self.order_by_start_idx :]
+        return self.components[self.order_by_start_idx : self.order_by_stop_idx]
 
     @property
     def is_window_fn_call(self) -> bool:
@@ -226,6 +245,9 @@ class FunctionCall(Expr):
         return self.order_by
 
     def sql_expr(self, sql_elements: SqlElementCache) -> Optional[sql.ColumnElement]:
+        if not self.is_valid:
+            raise excs.Error(f'Function call {self.display_str()} is not valid')
+
         # we currently can't translate aggregate functions with grouping and/or ordering to SQL
         if self.has_group_by() or len(self.order_by) > 0:
             return None
@@ -300,6 +322,7 @@ class FunctionCall(Expr):
         Returns a list of dicts mapping each param name to its value when this FunctionCall is evaluated against
         data_rows
         """
+        assert self.is_valid
         assert all(name in self.fn.signature.parameters for name in param_names), f'{param_names}, {self.fn.signature}'
         result: list[dict[str, Any]] = []
         for row in data_rows:
@@ -323,6 +346,9 @@ class FunctionCall(Expr):
         return result
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
+        if not self.is_valid:
+            raise excs.Error(f'Function call {self.display_str()} is not valid')
+
         if isinstance(self.fn, func.ExprTemplateFunction):
             # we need to evaluate the template
             # TODO: can we get rid of this extra copy?
@@ -364,10 +390,6 @@ class FunctionCall(Expr):
             data_row[self.slot_idx] = self.fn.exec(args, kwargs)
 
     def _as_dict(self) -> dict:
-        args = [self.components[idx] for idx in self.arg_idxs]
-        kwargs = {name: self.components[idx] for name, idx in self.kwarg_idxs.items()}
-        group_by_exprs = self.components[self.group_by_start_idx : self.group_by_stop_idx]
-        order_by_exprs = self.components[self.order_by_start_idx :]
         return {
             'fn': self.fn.as_dict(),
             'return_type': self.return_type.as_dict(),
@@ -376,6 +398,7 @@ class FunctionCall(Expr):
             'group_by_start_idx': self.group_by_start_idx,
             'group_by_stop_idx': self.group_by_stop_idx,
             'order_by_start_idx': self.order_by_start_idx,
+            'order_by_stop_idx': self.order_by_stop_idx,
             'is_method_call': self.is_method_call,
             **super()._as_dict(),
         }
@@ -389,12 +412,30 @@ class FunctionCall(Expr):
         group_by_start_idx: int = d['group_by_start_idx']
         group_by_stop_idx: int = d['group_by_stop_idx']
         order_by_start_idx: int = d['order_by_start_idx']
+        order_by_stop_idx: int = d['order_by_stop_idx']
         is_method_call: bool = d['is_method_call']
 
         args = [components[idx] for idx in arg_idxs]
         kwargs = {name: components[idx] for name, idx in kwarg_idxs.items()}
         group_by_exprs = components[group_by_start_idx:group_by_stop_idx]
-        order_by_exprs = components[order_by_start_idx:]
+        order_by_exprs = components[order_by_start_idx:order_by_stop_idx]
+
+        if isinstance(fn, func.InvalidFunction):
+            fn_call = cls(fn, args, kwargs, return_type, is_method_call=is_method_call, is_valid=False)
+            warnings.warn(
+                dedent(
+                    f"""
+                    The UDF '{fn.self_path}' is no longer valid, because
+                    {fn.errormsg}
+                    UDF call: {fn_call.display_str()}
+                        (referenced in column ... of table ...)
+                    You can continue to query existing data from this column, but evaluating it on new data will raise an error.
+                    """
+                ).strip(),
+                category=excs.PixeltableWarning,
+            )
+            _logger.warning(f'Invalid UDF call: {fn.errormsg} (in column ... of table ...)')
+            return fn_call
 
         # Now re-bind args and kwargs using the version of `fn` that is currently represented in code. This ensures
         # that we get a valid binding even if the signatures of `fn` have changed since the FunctionCall was
