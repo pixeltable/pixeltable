@@ -230,6 +230,7 @@ class TableVersion:
         column_md = cls._create_column_md(cols)
         table_md = schema.TableMd(
             name=name,
+            user=None,
             current_version=0,
             current_schema_version=0,
             next_col_id=len(cols),
@@ -239,6 +240,7 @@ class TableVersion:
             index_md={},
             external_stores=[],
             view_md=view_md,
+            additional_md={},
         )
         # create a schema.Table here, we need it to call our c'tor;
         # don't add it to the session yet, we might add index metadata
@@ -246,7 +248,7 @@ class TableVersion:
         tbl_record = schema.Table(id=tbl_id, dir_id=dir_id, md=dataclasses.asdict(table_md))
 
         # create schema.TableVersion
-        table_version_md = schema.TableVersionMd(created_at=timestamp, version=0, schema_version=0)
+        table_version_md = schema.TableVersionMd(created_at=timestamp, version=0, schema_version=0, additional_md={})
         tbl_version_record = schema.TableVersion(
             tbl_id=tbl_record.id, version=0, md=dataclasses.asdict(table_version_md)
         )
@@ -268,6 +270,7 @@ class TableVersion:
             num_retained_versions=num_retained_versions,
             comment=comment,
             media_validation=media_validation.name.lower(),
+            additional_md={},
         )
         schema_version_record = schema.TableSchemaVersion(
             tbl_id=tbl_record.id, schema_version=0, md=dataclasses.asdict(schema_version_md)
@@ -1344,6 +1347,7 @@ class TableVersion:
     def _create_tbl_md(self) -> schema.TableMd:
         return schema.TableMd(
             name=self.name,
+            user=None,
             current_version=self.version,
             current_schema_version=self.schema_version,
             next_col_id=self.next_col_id,
@@ -1353,10 +1357,11 @@ class TableVersion:
             index_md=self.idx_md,
             external_stores=self._create_stores_md(self.external_stores.values()),
             view_md=self.view_md,
+            additional_md={},
         )
 
     def _create_version_md(self, timestamp: float) -> schema.TableVersionMd:
-        return schema.TableVersionMd(created_at=timestamp, version=self.version, schema_version=self.schema_version)
+        return schema.TableVersionMd(created_at=timestamp, version=self.version, schema_version=self.schema_version, additional_md={})
 
     def _create_schema_version_md(self, preceding_schema_version: int) -> schema.TableSchemaVersionMd:
         column_md: dict[int, schema.SchemaColumn] = {}
@@ -1374,6 +1379,7 @@ class TableVersion:
             num_retained_versions=self.num_retained_versions,
             comment=self.comment,
             media_validation=self.media_validation.name.lower(),
+            additional_md={},
         )
 
     def as_dict(self) -> dict:
