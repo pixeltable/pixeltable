@@ -17,6 +17,8 @@ from .globals import resolve_symbol
 from .signature import Signature
 
 if TYPE_CHECKING:
+    from pixeltable import exprs
+
     from .expr_template_function import ExprTemplate, ExprTemplateFunction
 
 
@@ -152,9 +154,13 @@ class Function(ABC):
     def __call__(self, *args: Any, **kwargs: Any) -> 'pxt.exprs.FunctionCall':
         from pixeltable import exprs
 
+        args = [exprs.Expr.from_object(arg) for arg in args]
+        kwargs = {k: exprs.Expr.from_object(v) for k, v in kwargs.items()}
+
         resolved_fn, bound_args = self._bind_to_matching_signature(args, kwargs)
-        return_type = resolved_fn.call_return_type(args, kwargs)
-        return exprs.FunctionCall(resolved_fn, bound_args, return_type)
+        return_type = resolved_fn.call_return_type(bound_args)
+
+        return exprs.FunctionCall(resolved_fn, args, kwargs, return_type)
 
     def _bind_to_matching_signature(self, args: Sequence[Any], kwargs: dict[str, Any]) -> tuple[Self, dict[str, Any]]:
         result: int = -1
@@ -185,49 +191,86 @@ class Function(ABC):
 
         signature = self.signatures[signature_idx]
         bound_args = signature.py_signature.bind(*args, **kwargs).arguments
-        self._resolved_fns[signature_idx].validate_call(bound_args)
-        exprs.FunctionCall.normalize_args(self.name, signature, bound_args)
-        return bound_args
+        normalized_args = {k: exprs.Expr.from_object(v) for k, v in bound_args.items()}
+        self._resolved_fns[signature_idx].validate_call(normalized_args)
+        return normalized_args
 
-    def validate_call(self, bound_args: dict[str, Any]) -> None:
+    def validate_call(self, bound_args: dict[str, Optional['exprs.Expr']]) -> None:
         """Override this to do custom validation of the arguments"""
         assert not self.is_polymorphic
+        self.signature.validate_args(bound_args, context=f'in function {self.name!r}')
 
-    def _get_callable_args(self, callable: Callable, kwargs: dict[str, Any]) -> dict[str, Any]:
-        """Return the kwargs to pass to callable, given kwargs passed to this function"""
-        bound_args = self.signature.py_signature.bind(**kwargs).arguments
-        # add defaults to bound_args, if not already present
-        bound_args.update(
-            {
-                name: param.default
-                for name, param in self.signature.parameters.items()
-                if name not in bound_args and param.has_default()
-            }
-        )
-        result: dict[str, Any] = {}
-        sig = inspect.signature(callable)
-        for param in sig.parameters.values():
-            if param.name in bound_args:
-                result[param.name] = bound_args[param.name]
-        return result
-
-    def call_resource_pool(self, kwargs: dict[str, Any]) -> str:
+    def call_resource_pool(self, bound_args: dict[str, 'exprs.Expr']) -> str:
         """Return the resource pool to use for calling this function with the given arguments"""
-        kw_args = self._get_callable_args(self._resource_pool, kwargs)
-        return self._resource_pool(**kw_args)
+        rp_kwargs = self._assemble_callable_args(self._resource_pool, bound_args)
+        if rp_kwargs is None:
+            # TODO: What to do in this case? An example where this can happen is if model_id is not a constant
+            #   in a call to one of the OpenAI endpoints.
+            raise excs.Error('Could not determine resource pool')
+        return self._resource_pool(**rp_kwargs)
 
-    def call_return_type(self, args: Sequence[Any], kwargs: dict[str, Any]) -> ts.ColumnType:
+    def call_return_type(self, bound_args: dict[str, 'exprs.Expr']) -> ts.ColumnType:
         """Return the type of the value returned by calling this function with the given arguments"""
-        assert not self.is_polymorphic
         if self._conditional_return_type is None:
-            return self.signature.return_type
-        bound_args = self.signature.py_signature.bind(*args, **kwargs).arguments
-        kw_args: dict[str, Any] = {}
-        sig = inspect.signature(self._conditional_return_type)
-        for param in sig.parameters.values():
+            # No conditional return type specified; use the default return type
+            return_type = self.signature.return_type
+        else:
+            crt_kwargs = self._assemble_callable_args(self._conditional_return_type, bound_args)
+            if crt_kwargs is None:
+                # A conditional return type is specified, but one of its arguments is not a constant.
+                # Use the default return type
+                return_type = self.signature.return_type
+            else:
+                # A conditional return type is specified and all its arguments are constants; use the specific
+                # call return type
+                return_type = self._conditional_return_type(**crt_kwargs)
+
+        if return_type.nullable:
+            return return_type
+
+        # If `return_type` is non-nullable, but the function call has a nullable input to any of its non-nullable
+        # parameters, then we need to make it nullable. This is because Pixeltable defaults a function output to
+        # `None` when any of its non-nullable inputs are `None`.
+        for arg_name, arg in bound_args.items():
+            param = self.signature.parameters[arg_name]
+            if param.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD):
+                continue
+            if arg.col_type.nullable and not param.col_type.nullable:
+                return_type = return_type.copy(nullable=True)
+                break
+
+        return return_type
+
+    def _assemble_callable_args(
+        self, callable: Callable, bound_args: dict[str, 'exprs.Expr']
+    ) -> Optional[dict[str, Any]]:
+        """
+        Return the kwargs to pass to callable, given bound_args passed to this function.
+        """
+        from pixeltable import exprs
+
+        assert not self.is_polymorphic
+
+        callable_signature = inspect.signature(callable)
+        callable_args: dict[str, Any] = {}
+
+        for param in callable_signature.parameters.values():
+            arg: Any
             if param.name in bound_args:
-                kw_args[param.name] = bound_args[param.name]
-        return self._conditional_return_type(**kw_args)
+                arg = bound_args[param.name]
+            elif self.signature.parameters[param.name].has_default():
+                arg = self.signature.parameters[param.name].default
+            else:
+                return None
+
+            if isinstance(arg, exprs.Literal):
+                callable_args[param.name] = arg.val
+            elif isinstance(arg, exprs.Expr):
+                return None
+            else:
+                callable_args[param.name] = arg
+
+        return callable_args
 
     def conditional_return_type(self, fn: Callable[..., ts.ColumnType]) -> Callable[..., ts.ColumnType]:
         """Instance decorator for specifying a conditional return type for this function"""
@@ -282,16 +325,34 @@ class Function(ABC):
             expr = exprs.Expr.from_object(v)
             if not param.col_type.is_supertype_of(expr.col_type):
                 raise excs.Error(f'Expected type `{param.col_type}` for parameter `{k}`; got `{expr.col_type}`')
-            bindings[k] = v  # Use the original value, not the Expr (The Expr is only for validation)
+            bindings[k] = expr
 
         residual_params = [p for p in self.signature.parameters.values() if p.name not in bindings]
 
-        # Bind each remaining parameter to a like-named variable
-        for param in residual_params:
-            bindings[param.name] = exprs.Variable(param.name, param.col_type)
+        # Bind each remaining parameter to a like-named variable.
+        # Also construct the call arguments for the template function call. Variables become args when possible;
+        # otherwise, they are passed as kwargs.
+        template_args: list[exprs.Expr] = []
+        template_kwargs: dict[str, exprs.Expr] = {}
+        args_ok = True
+        for name, param in self.signature.parameters.items():
+            if name in bindings:
+                template_kwargs[name] = bindings[name]
+                args_ok = False
+            else:
+                var = exprs.Variable(name, param.col_type)
+                bindings[name] = var
+                if args_ok and param.kind in (
+                    inspect.Parameter.POSITIONAL_ONLY,
+                    inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                ):
+                    template_args.append(var)
+                else:
+                    template_kwargs[name] = var
+                    args_ok = False
 
-        return_type = self.call_return_type([], bindings)
-        call = exprs.FunctionCall(self, bindings, return_type)
+        return_type = self.call_return_type(bindings)
+        call = exprs.FunctionCall(self, template_args, template_kwargs, return_type)
 
         # Construct the (n-k)-ary signature of the new function. We use `call.col_type` for this, rather than
         # `self.signature.return_type`, because the return type of the new function may be specialized via a
@@ -370,35 +431,7 @@ class Function(ABC):
         assert 'signature' in d and d['signature'] is not None
         instance = resolve_symbol(d['path'])
         assert isinstance(instance, Function)
-
-        # Load the signature from the DB and check that it is still valid (i.e., is still consistent with a signature
-        # in the code).
-        signature = Signature.from_dict(d['signature'])
-        idx = instance.__find_matching_overload(signature)
-        if idx is None:
-            # No match; generate an informative error message.
-            signature_note_str = 'any of its signatures' if instance.is_polymorphic else 'its signature as'
-            instance_signature_str = (
-                f'{len(instance.signatures)} signatures' if instance.is_polymorphic else str(instance.signature)
-            )
-            # TODO: Handle this more gracefully (instead of failing the DB load, allow the DB load to succeed, but
-            #       mark any enclosing FunctionCall as unusable). It's the same issue as dealing with a renamed UDF or
-            #       FunctionCall return type mismatch.
-            raise excs.Error(
-                f'The signature stored in the database for the UDF `{instance.self_path}` no longer matches '
-                f'{signature_note_str} as currently defined in the code.\nThis probably means that the code for '
-                f'`{instance.self_path}` has changed in a backward-incompatible way.\n'
-                f'Signature in database: {signature}\n'
-                f'Signature in code: {instance_signature_str}'
-            )
-        # We found a match; specialize to the appropriate overload resolution (non-polymorphic form) and return that.
-        return instance._resolved_fns[idx]
-
-    def __find_matching_overload(self, sig: Signature) -> Optional[int]:
-        for idx, overload_sig in enumerate(self.signatures):
-            if sig.is_consistent_with(overload_sig):
-                return idx
-        return None
+        return instance
 
     def to_store(self) -> tuple[dict, bytes]:
         """

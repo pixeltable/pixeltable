@@ -932,11 +932,9 @@ class TestTable:
         tbl.revert()
         assert MediaStore.count(view._id) == 0
 
-        with pytest.raises(excs.Error):
-            # can't drop frame col
+        with pytest.raises(excs.Error, match=r'because the following columns depend on it:\nc1'):
             view.drop_column('frame')
-        with pytest.raises(excs.Error):
-            # can't drop frame_idx col
+        with pytest.raises(excs.Error, match=r'because the following columns depend on it:\nc5'):
             view.drop_column('frame_idx')
 
         # drop() clears stored images and the cache

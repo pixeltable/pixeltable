@@ -83,8 +83,8 @@ class PxtGriffeExtension(Extension):
             prec = '**'
         else:
             prec = ''
-        if param.default is inspect.Parameter.empty:
+        if param.default is None:
             default = ''
         else:
-            default = f' = {param.default}'
+            default = f' = {param.default.val}'
         return f'{prec}{param.name}: {param.col_type}{default}'

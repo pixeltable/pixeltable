@@ -166,6 +166,9 @@ class TestTypes:
             ),
             (ArrayType((1, 2, 3), dtype=IntType()), ArrayType((3, 2, 1), dtype=StringType()), ArrayType()),
             (ArrayType((1, 2, 3), dtype=IntType()), ArrayType((1, 2), dtype=StringType()), ArrayType()),
+            (ArrayType((1, 2, 3), dtype=IntType()), ArrayType(dtype=IntType()), ArrayType(dtype=IntType())),
+            (ArrayType((1, 2, 3), dtype=IntType()), ArrayType(dtype=StringType()), ArrayType()),
+            (ArrayType((1, 2, 3), dtype=IntType()), ArrayType(), ArrayType()),
             (ArrayType(), IntType(), None),
             (
                 ImageType(height=100, width=200, mode='RGB'),

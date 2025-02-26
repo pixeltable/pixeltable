@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-from typing import Any, Callable, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Optional, Sequence
 from uuid import UUID
 
 import cloudpickle  # type: ignore[import-untyped]
@@ -11,6 +11,9 @@ import pixeltable.exceptions as excs
 
 from .function import Function
 from .signature import Signature
+
+if TYPE_CHECKING:
+    from pixeltable import exprs
 
 
 class CallableFunction(Function):
@@ -192,18 +195,18 @@ class CallableFunction(Function):
         batch_size = md['batch_size']
         return CallableFunction([sig], [py_fn], self_name=name, batch_size=batch_size)
 
-    def validate_call(self, bound_args: dict[str, Any]) -> None:
+    def validate_call(self, bound_args: dict[str, 'exprs.Expr']) -> None:
         from pixeltable import exprs
 
-        assert not self.is_polymorphic
+        super().validate_call(bound_args)
         if self.is_batched:
             signature = self.signatures[0]
             for param in signature.constant_parameters:
-                if param.name in bound_args and isinstance(bound_args[param.name], exprs.Expr):
-                    raise ValueError(
-                        f'{self.display_name}(): '
-                        f'parameter {param.name} must be a constant value, not a Pixeltable expression'
-                    )
+                # Check that constant parameters map to constant arguments. It's ok for the argument to be a Variable,
+                # since in that case the FunctionCall is part of an unresolved template; the check will be done again
+                # when the template is fully resolved.
+                if param.name in bound_args and not isinstance(bound_args[param.name], (exprs.Literal, exprs.Variable)):
+                    raise ValueError(f'{self.display_name}(): parameter {param.name} must be a constant value')
 
     def __repr__(self) -> str:
         return f'<Pixeltable UDF {self.name}>'
