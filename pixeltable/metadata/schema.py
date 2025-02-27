@@ -74,6 +74,8 @@ class SystemInfo(Base):
 @dataclasses.dataclass
 class DirMd:
     name: str
+    user: Optional[str]
+    additional_md: dict[str, Any]
 
 
 class Dir(Base):
@@ -151,6 +153,8 @@ class ViewMd:
 class TableMd:
     name: str
 
+    user: Optional[str]
+
     # monotonically increasing w/in Table for both data and schema changes, starting at 0
     current_version: int
     # each version has a corresponding schema version (current_version >= current_schema_version)
@@ -170,6 +174,7 @@ class TableMd:
     column_md: dict[int, ColumnMd]  # col_id -> ColumnMd
     index_md: dict[int, IndexMd]  # index_id -> IndexMd
     view_md: Optional[ViewMd]
+    additional_md: dict[str, Any]
 
 
 class Table(Base):
@@ -195,6 +200,7 @@ class TableVersionMd:
     created_at: float  # time.time()
     version: int
     schema_version: int
+    additional_md: dict[str, Any]
 
 
 class TableVersion(Base):
@@ -233,6 +239,7 @@ class TableSchemaVersionMd:
     # default validation strategy for any media column of this table
     # stores column.MediaValiation.name.lower()
     media_validation: str
+    additional_md: dict[str, Any]
 
 
 # versioning: each table schema change results in a new record

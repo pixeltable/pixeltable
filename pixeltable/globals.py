@@ -633,7 +633,7 @@ def create_dir(
     parent = cat.paths[path.parent]
     assert parent is not None
     with orm.Session(Env.get().engine, future=True) as session:
-        dir_md = schema.DirMd(name=path.name)
+        dir_md = schema.DirMd(name=path.name, user=None, additional_md={})
         dir_record = schema.Dir(parent_id=parent._id, md=dataclasses.asdict(dir_md))
         session.add(dir_record)
         session.flush()
