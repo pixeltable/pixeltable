@@ -58,7 +58,7 @@ class Catalog:
             if session.query(sql.func.count(schema.Dir.id)).scalar() > 0:
                 return
             # create a top-level directory, so that every schema object has a directory
-            dir_md = schema.DirMd(name='')
+            dir_md = schema.DirMd(name='', user=None, additional_md={})
             dir_record = schema.Dir(parent_id=None, md=dataclasses.asdict(dir_md))
             session.add(dir_record)
             session.flush()
