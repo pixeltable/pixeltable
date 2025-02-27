@@ -24,7 +24,6 @@ Let's build an image analysis application that combines object detection and GPT
   <Step title="Create Table Structure">
     ```python
     import pixeltable as pxt
-    from pixeltable.functions import huggingface, openai
     
     # Create directory for our tables
     pxt.drop_dir('demo', force=True)  
@@ -41,6 +40,8 @@ Let's build an image analysis application that combines object detection and GPT
 
   <Step title="Add Object Detection">
     ```python
+    from pixeltable.functions import huggingface
+
     # Add ResNet-50 object detection
     t.add_computed_column(
         detections=huggingface.detr_for_object_detection(
@@ -62,6 +63,7 @@ Let's build an image analysis application that combines object detection and GPT
   ```python
   import os
   import getpass
+
   if 'OPENAI_API_KEY' not in os.environ:
     os.environ['OPENAI_API_KEY'] = getpass.getpass('Enter your OpenAI API key:')
   ```
@@ -69,6 +71,8 @@ Let's build an image analysis application that combines object detection and GPT
 
   <Step title="Add GPT-4 Vision Analysis">
     ```python
+    from pixeltable.functions import openai
+        
     t.add_computed_column(
         vision=openai.vision(
             prompt="Describe what's in this image.",
