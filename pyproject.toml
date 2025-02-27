@@ -137,7 +137,7 @@ openai-whisper = ">=20240930"
 label-studio-sdk = "^0.0.32"
 fiftyone = "^1.0.0"
 ollama = ">=0.4.0"
-llama-cpp-python = ">=0.3.7"
+llama-cpp-python = { version = ">=0.3.7", platform = "!=win32" }  # Windows build of llama_cpp has issues in CI
 psycopg = [  # Lock psycopg versions in dev to ensure proper behavior with all Python versions
     { extras = ["binary"], version = "==3.1.18", python = "<3.13" },
     { extras = ["binary"], version = "==3.2.3", python = ">=3.13" }
