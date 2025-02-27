@@ -32,7 +32,7 @@ class Dir(SchemaObject):
     def _move(self, new_name: str, new_dir_id: UUID) -> None:
         super()._move(new_name, new_dir_id)
         with Env.get().engine.begin() as conn:
-            dir_md = schema.DirMd(name=new_name)
+            dir_md = schema.DirMd(name=new_name, user=None, additional_md={})
             conn.execute(
                 sql.update(schema.Dir.__table__)
                 .values({schema.Dir.parent_id: self._dir_id, schema.Dir.md: dataclasses.asdict(dir_md)})
