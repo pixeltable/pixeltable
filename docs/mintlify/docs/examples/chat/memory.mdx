@@ -31,7 +31,7 @@ Learn how to build a chatbot that remembers conversation history using Pixeltabl
     # Create memory table
     memory = pxt.create_table(
         path_str="chatbot.memory",
-        schema_or_df={
+        {
             "role": pxt.String,
             "content": pxt.String,
             "timestamp": pxt.Timestamp,
@@ -42,7 +42,7 @@ Learn how to build a chatbot that remembers conversation history using Pixeltabl
     # Create chat session table
     chat_session = pxt.create_table(
         path_str="chatbot.chat_session",
-        schema_or_df={"user_message": pxt.String, "timestamp": pxt.Timestamp},
+        {"user_message": pxt.String, "timestamp": pxt.Timestamp},
         if_exists="ignore",
     )
 
