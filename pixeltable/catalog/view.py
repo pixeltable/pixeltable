@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import inspect
 import logging
-from typing import TYPE_CHECKING, Any, Iterable, Literal, Optional
+from typing import TYPE_CHECKING, Any, Iterable, List, Literal, Optional
 from uuid import UUID
 
 import sqlalchemy.orm as orm
@@ -37,7 +37,14 @@ class View(Table):
     """
 
     def __init__(
-        self, id: UUID, dir_id: UUID, name: str, tbl_version_path: TableVersionPath, base_id: UUID, snapshot_only: bool
+        self,
+        id: UUID,
+        dir_id: UUID,
+        name: str,
+        tbl_version_path: TableVersionPath,
+        base_id: UUID,
+        snapshot_only: bool,
+        include_base_columns: bool,
     ):
         super().__init__(id, dir_id, name, tbl_version_path)
         assert base_id in catalog.Catalog.get().tbl_dependents
@@ -49,11 +56,27 @@ class View(Table):
         return 'view'
 
     @classmethod
+    def select_list_to_additional_columns(cls, select_list: list[tuple[exprs.Expr, Optional[str]]]) -> dict[str, dict]:
+        """Returns a list of columns in the same format as the additional_columns parameter of View.create.
+        The source is the list of expressions from a select() statement on a DataFrame.
+        If the column is a ColumnRef, to a base table column, it is marked to not be stored.sy
+        """
+        from pixeltable.dataframe import DataFrame
+
+        r: dict[str, dict] = {}
+        exps, names = DataFrame._normalize_select_list([], select_list)
+        for expr, name in zip(exps, names):
+            stored = not isinstance(expr, exprs.ColumnRef)
+            r[name] = {'value': expr, 'stored': stored}
+        return r
+
+    @classmethod
     def _create(
         cls,
         dir_id: UUID,
         name: str,
         base: TableVersionPath,
+        select_list: Optional[list[tuple[exprs.Expr, Optional[str]]]],
         additional_columns: dict[str, Any],
         predicate: Optional['pxt.exprs.Expr'],
         is_snapshot: bool,
@@ -63,7 +86,15 @@ class View(Table):
         iterator_cls: Optional[type[ComponentIterator]],
         iterator_args: Optional[dict],
     ) -> View:
-        columns = cls._create_columns(additional_columns)
+        # Convert select_list to more additional_columns if present
+        include_base_columns: bool = select_list is None
+        select_list_columns: List[Column] = []
+        if not include_base_columns:
+            r = cls.select_list_to_additional_columns(select_list)
+            select_list_columns = cls._create_columns(r)
+
+        columns_from_additional_columns = cls._create_columns(additional_columns)
+        columns = select_list_columns + columns_from_additional_columns
         cls._verify_schema(columns)
 
         # verify that filter can be evaluated in the context of the base
@@ -153,6 +184,7 @@ class View(Table):
 
             view_md = md_schema.ViewMd(
                 is_snapshot=is_snapshot,
+                include_base_columns=include_base_columns,
                 predicate=predicate.as_dict() if predicate is not None else None,
                 base_versions=base_versions,
                 iterator_class_fqn=iterator_class_fqn,
@@ -172,7 +204,15 @@ class View(Table):
             )
             if tbl_version is None:
                 # this is purely a snapshot: we use the base's tbl version path
-                view = cls(id, dir_id, name, base_version_path, base.tbl_id(), snapshot_only=True)
+                view = cls(
+                    id,
+                    dir_id,
+                    name,
+                    base_version_path,
+                    base.tbl_id(),
+                    snapshot_only=True,
+                    include_base_columns=include_base_columns,
+                )
                 _logger.info(f'created snapshot {name}')
             else:
                 view = cls(
@@ -182,6 +222,7 @@ class View(Table):
                     TableVersionPath(tbl_version, base=base_version_path),
                     base.tbl_id(),
                     snapshot_only=False,
+                    include_base_columns=include_base_columns,
                 )
                 _logger.info(f'Created view `{name}`, id={tbl_version.id}')
 

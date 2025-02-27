@@ -2,17 +2,19 @@ import json
 import logging
 import os
 import pathlib
-from typing import Iterator
+from typing import Callable, Iterator
 
 import pytest
+import requests
+import tenacity
 from filelock import FileLock
 
 import pixeltable as pxt
-import pixeltable.catalog as catalog
 import pixeltable.functions as pxtf
-from pixeltable import exprs
+from pixeltable import catalog, exprs, func
 from pixeltable.env import Env
 from pixeltable.exprs import RELATIVE_PATH_ROOT as R
+from pixeltable.functions.huggingface import clip, sentence_transformer
 from pixeltable.metadata import SystemInfo, create_system_info
 from pixeltable.metadata.schema import Dir, Function, Table, TableSchemaVersion, TableVersion
 from pixeltable.utils.filecache import FileCache
@@ -183,21 +185,47 @@ def small_img_tbl(reset_db) -> catalog.Table:
 
 
 @pytest.fixture(scope='function')
-def indexed_img_tbl(reset_db) -> pxt.Table:
+def indexed_img_tbl(reset_db, clip_embed: func.Function) -> pxt.Table:
     skip_test_if_not_installed('transformers')
     t = create_img_tbl('indexed_img_tbl', num_rows=40)
-    from .utils import clip_embed
-
     t.add_embedding_index('img', idx_name='img_idx0', metric='cosine', image_embed=clip_embed, string_embed=clip_embed)
     return t
 
 
 @pytest.fixture(scope='function')
-def multi_idx_img_tbl(reset_db) -> pxt.Table:
+def multi_idx_img_tbl(reset_db, clip_embed: func.Function) -> pxt.Table:
     skip_test_if_not_installed('transformers')
     t = create_img_tbl('multi_idx_img_tbl', num_rows=4)
-    from .utils import clip_embed
-
     t.add_embedding_index('img', idx_name='img_idx1', metric='cosine', image_embed=clip_embed, string_embed=clip_embed)
     t.add_embedding_index('img', idx_name='img_idx2', metric='cosine', image_embed=clip_embed, string_embed=clip_embed)
     return t
+
+
+# Fixtures for various reusable Huggingface models. We build in retries to guard against network issues.
+
+
+def _retry_hf(fn: Callable) -> Callable:
+    return tenacity.retry(
+        stop=tenacity.stop_after_attempt(3),
+        wait=tenacity.wait_exponential(multiplier=2, min=5, max=60),
+        retry=tenacity.retry_if_exception_type(requests.ReadTimeout),
+        reraise=True,
+    )(fn)
+
+
+@pytest.fixture(scope='session')
+@_retry_hf
+def clip_embed() -> func.Function:
+    return clip.using(model_id='openai/clip-vit-base-patch32')
+
+
+@pytest.fixture(scope='session')
+@_retry_hf
+def e5_embed() -> func.Function:
+    return sentence_transformer.using(model_id='intfloat/e5-large-v2')
+
+
+@pytest.fixture(scope='session')
+@_retry_hf
+def all_mpnet_embed() -> func.Function:
+    return sentence_transformer.using(model_id='all-mpnet-base-v2')
