@@ -1361,7 +1361,9 @@ class TableVersion:
         )
 
     def _create_version_md(self, timestamp: float) -> schema.TableVersionMd:
-        return schema.TableVersionMd(created_at=timestamp, version=self.version, schema_version=self.schema_version, additional_md={})
+        return schema.TableVersionMd(
+            created_at=timestamp, version=self.version, schema_version=self.schema_version, additional_md={}
+        )
 
     def _create_schema_version_md(self, preceding_schema_version: int) -> schema.TableSchemaVersionMd:
         column_md: dict[int, schema.SchemaColumn] = {}
