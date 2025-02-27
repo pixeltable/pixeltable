@@ -21,7 +21,7 @@ on:
         default: false
 
 env:
-  PIXELTABLE_IN_CI: 1
+  PXTTEST_IN_CI: 1
   POETRY_VERSION: 1.8.2
   # The llama-cpp-python build fails in CI with LLaVA support enabled. If we ever want to test specific LLaVA
   # functionality in CI, we'll need to investigate further (it's likely due to a missing compiler dependency).
