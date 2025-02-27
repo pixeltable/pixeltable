@@ -57,50 +57,133 @@ api_key = 'my-label-studio-api-key'
 </ResponseField>
 
 <ResponseField name="PIXELTABLE_VERBOSITY" type="integer" default={1}>
-  Verbosity for Pixeltable console logging (0 = warnings only, 1 = normal, 2 = verbose)
+  Verbosity for Pixeltable console logging (0: minimum, 1: normal, 2: maximum)
 </ResponseField>
 
 ### API Configuration
 
-<CardGroup cols={1}>
-  <Card title="OpenAI">
-    ```bash
-    OPENAI_API_KEY=sk-...
-    ```
-    Or in config.toml:
-    ```toml
-    [openai]
-    api_key = 'sk-...'
-    ```
-  </Card>
-  <Card title="Anthropic">
-    ```bash
-    ANTHROPIC_API_KEY=sk-ant-...
-    ```
-    Or in config.toml:
-    ```toml
-    [anthropic]
-    api_key = 'sk-ant-...'
-    ```
-  </Card>
-  <Card title="Mistral">
-    ```bash
-    MISTRAL_API_KEY=...
-    ```
-    Or in config.toml:
-    ```toml
-    [mistral]
-    api_key = '...'
-    ```
-  </Card>
-  <Card title="Replicate">
-    ```bash
-    REPLICATE_API_TOKEN=...
-    ```
-    Or in config.toml:
-    ```toml
-    [replicate]
-    api_token = '...'
-    ```
-  </Card>
-</CardGroup>
+<ResponseField name="OPENAI_API_KEY" type="string">
+  API key to use for OpenAI services.
+  
+  ```bash
+  OPENAI_API_KEY=sk-...
+  ```
+  
+  config.toml:
+  ```toml
+  [openai]
+  api_key = 'sk-...'
+  ```
+</ResponseField>
+
+<ResponseField name="ANTHROPIC_API_KEY" type="string">
+  API key to use for Anthropic services.
+  
+  ```bash
+  ANTHROPIC_API_KEY=sk-ant-...
+  ```
+  
+  config.toml:
+  ```toml
+  [anthropic]
+  api_key = 'sk-ant-...'
+  ```
+</ResponseField>
+
+<ResponseField name="MISTRAL_API_KEY" type="string">
+  API key to use for Mistral AI services.
+  
+  ```bash
+  MISTRAL_API_KEY=...
+  ```
+  
+  config.toml:
+  ```toml
+  [mistral]
+  api_key = '...'
+  ```
+</ResponseField>
+
+<ResponseField name="REPLICATE_API_TOKEN" type="string">
+  API token to use for Replicate services.
+  
+  ```bash
+  REPLICATE_API_TOKEN=...
+  ```
+  
+  config.toml:
+  ```toml
+  [replicate]
+  api_token = '...'
+  ```
+</ResponseField>
+
+<ResponseField name="FIREWORKS_API_KEY" type="string">
+  API key to use for Fireworks AI services.
+  
+  ```bash
+  FIREWORKS_API_KEY=...
+  ```
+  
+  config.toml:
+  ```toml
+  [fireworks]
+  api_key = '...'
+  ```
+</ResponseField>
+
+<ResponseField name="TOGETHER_API_KEY" type="string">
+  API key to use for Together AI services.
+  
+  ```bash
+  TOGETHER_API_KEY=...
+  ```
+  
+  config.toml:
+  ```toml
+  [together]
+  api_key = '...'
+  ```
+</ResponseField>
+
+<ResponseField name="GEMINI_API_KEY" type="string">
+  API key to use for Google Gemini services.
+  
+  ```bash
+  GEMINI_API_KEY=...
+  ```
+  
+  config.toml:
+  ```toml
+  [gemini]
+  api_key = '...'
+  ```
+</ResponseField>
+
+<ResponseField name="LABEL_STUDIO_API_KEY" type="string">
+  API key to use for Label Studio.
+  
+  ```bash
+  LABEL_STUDIO_API_KEY=...
+  ```
+  
+  config.toml:
+  ```toml
+  [label_studio]
+  api_key = '...'
+  ```
+</ResponseField>
+
+<ResponseField name="LABEL_STUDIO_URL" type="string">
+  URL of the Label Studio server to use.
+  
+  ```bash
+  LABEL_STUDIO_URL=http://localhost:8080/
+  ```
+  
+  config.toml:
+  ```toml
+  [label_studio]
+  url = 'http://localhost:8080/'
+  ```
+</ResponseField>
