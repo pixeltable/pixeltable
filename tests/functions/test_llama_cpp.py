@@ -1,8 +1,14 @@
+from sys import platform
+
+import pytest
+
 import pixeltable as pxt
 
-from ..utils import skip_test_if_not_installed, validate_update_status
+from ..utils import IN_CI, skip_test_if_not_installed, validate_update_status
 
 
+# llama_cpp can be quite fussy, so we only run on Linux in CI environments.
+@pytest.mark.skipif(IN_CI and platform.system() != 'Linux')
 class TestLlamaCpp:
     def test_create_chat_completions(self, reset_db):
         skip_test_if_not_installed('llama_cpp')

@@ -22,6 +22,10 @@ from pixeltable.env import Env
 from pixeltable.io import SyncStatus
 
 
+# This will be set to True if the tests are running in a CI environment.
+IN_CI = bool(os.environ.get('PIXELTABLE_IN_CI'))
+
+
 def make_default_type(t: pxt.ColumnType.Type) -> pxt.ColumnType:
     if t == pxt.ColumnType.Type.STRING:
         return pxt.StringType()
