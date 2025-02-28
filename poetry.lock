@@ -3819,12 +3819,12 @@ test = ["pytest (>=7.4)", "pytest-cov (>=4.1)"]
 
 [[package]]
 name = "llama-cpp-python"
-version = "0.3.1"
+version = "0.3.7"
 description = "Python bindings for the llama.cpp library"
 optional = false
 python-versions = ">=3.8"
 files = [
-    {file = "llama_cpp_python-0.3.1.tar.gz", hash = "sha256:75ec8374960b6353c254e55a48e7c7783abf6bcb9178ba0f655490738e5a9004"},
+    {file = "llama_cpp_python-0.3.7.tar.gz", hash = "sha256:0566a0dcc0f38005c4093309a87f67c2452449522e3e17e15cd735a62957894c"},
 ]
 
 [package.dependencies]
@@ -10102,4 +10102,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.9,<4.0"
-content-hash = "c7f924f05d997ba09d6c396d6e56ea21507b613ffb674846267d5664a9334a68"
+content-hash = "2b522b7307abf3801b97579c9781dbc3f6b32e7f31815f474bfde38d85bb1767"
