@@ -3838,12 +3838,12 @@ test = ["pytest (>=7.4)", "pytest-cov (>=4.1)"]
 
 [[package]]
 name = "llama-cpp-python"
-version = "0.3.1"
+version = "0.3.7"
 description = "Python bindings for the llama.cpp library"
 optional = false
 python-versions = ">=3.8"
 files = [
-    {file = "llama_cpp_python-0.3.1.tar.gz", hash = "sha256:75ec8374960b6353c254e55a48e7c7783abf6bcb9178ba0f655490738e5a9004"},
+    {file = "llama_cpp_python-0.3.7.tar.gz", hash = "sha256:0566a0dcc0f38005c4093309a87f67c2452449522e3e17e15cd735a62957894c"},
 ]
 
 [package.dependencies]
@@ -7673,13 +7673,13 @@ files = [
 
 [[package]]
 name = "s3transfer"
-version = "0.11.2"
+version = "0.11.3"
 description = "An Amazon S3 Transfer Manager"
 optional = false
 python-versions = ">=3.8"
 files = [
-    {file = "s3transfer-0.11.2-py3-none-any.whl", hash = "sha256:be6ecb39fadd986ef1701097771f87e4d2f821f27f6071c872143884d2950fbc"},
-    {file = "s3transfer-0.11.2.tar.gz", hash = "sha256:3b39185cb72f5acc77db1a58b6e25b977f28d20496b6e58d6813d75f464d632f"},
+    {file = "s3transfer-0.11.3-py3-none-any.whl", hash = "sha256:ca855bdeb885174b5ffa95b9913622459d4ad8e331fc98eb01e6d5eb6a30655d"},
+    {file = "s3transfer-0.11.3.tar.gz", hash = "sha256:edae4977e3a122445660c7c114bba949f9d191bae3b34a096f18a1c8c354527a"},
 ]
 
 [package.dependencies]
@@ -10121,4 +10121,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.9,<4.0"
-content-hash = "f56a845057cb23347c3bcf4f52f8e2655c07239cfcd113910956256af9826532"
+content-hash = "c634d139317531daa3e2f26ffacfee4b9335dd16f324c1d6b5abff72ff3b7eb9"
