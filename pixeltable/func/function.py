@@ -438,9 +438,7 @@ class Function(ABC):
                 return instance
             else:
                 return InvalidFunction(
-                    path,
-                    d,
-                    f'the symbol {path!r} is no longer a UDF. (Was the `@pxt.udf` decorator removed?)'
+                    path, d, f'the symbol {path!r} is no longer a UDF. (Was the `@pxt.udf` decorator removed?)'
                 )
         except (AttributeError, ImportError):
             return InvalidFunction(path, d, f'the symbol {path!r} no longer exists. (Was the UDF moved or renamed?)')

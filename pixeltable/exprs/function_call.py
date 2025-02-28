@@ -23,6 +23,7 @@ from .sql_element_cache import SqlElementCache
 
 _logger = logging.getLogger('pixeltable')
 
+
 class FunctionCall(Expr):
     fn: func.Function
     is_method_call: bool
@@ -419,60 +420,65 @@ class FunctionCall(Expr):
         order_by_exprs = components[order_by_start_idx:order_by_stop_idx]
 
         if isinstance(fn, func.InvalidFunction):
-            validation_error = dedent(
-                f"""
-                The UDF '{fn.self_path}' cannot be located, because
-                {fn.errormsg}
-                UDF call: ....
-                """
+            validation_error = (
+                dedent(
+                    f"""
+                    The UDF '{fn.self_path}' cannot be located, because
+                    {fn.errormsg}
+                    UDF call: ....
+                    """
                 ).strip(),
+            )
             return cls(fn, args, kwargs, return_type, is_method_call=is_method_call, validation_error=validation_error)
 
         # Now re-bind args and kwargs using the version of `fn` that is currently represented in code. This ensures
         # that we get a valid binding even if the signatures of `fn` have changed since the FunctionCall was
         # serialized.
 
-        resolved_fn: func.Function
-        bound_args: dict[str, Expr]
+        resolved_fn: func.Function = fn
+        validation_error: Optional[str] = None
 
         try:
+            # Bind args and kwargs to the function signature in the current codebase.
             resolved_fn, bound_args = fn._bind_to_matching_signature(args, kwargs)
         except (TypeError, excs.Error):
-            # TODO: Handle this more gracefully (instead of failing the DB load, allow the DB load to succeed, but
-            #       mark any enclosing FunctionCall as unusable). It's the same issue as dealing with a renamed UDF or
-            #       FunctionCall return type mismatch.
             signature_note_str = 'any of its signatures' if fn.is_polymorphic else 'its signature'
-            instance_signature_str = f'{len(fn.signatures)} signatures' if fn.is_polymorphic else str(fn.signature)
-            raise excs.Error(
-                f'The signature stored in the database for the UDF `{fn.self_path}` no longer matches '
-                f'{signature_note_str} as currently defined in the code.\nThis probably means that the code for '
-                f'`{fn.self_path}` has changed in a backward-incompatible way.\n'
-                f'Signature in database: {fn}\n'
-                f'Signature as currently defined in code: {instance_signature_str}'
-            )
-
-        # Evaluate the call_return_type as defined in the current codebase.
-        call_return_type = resolved_fn.call_return_type(bound_args)
-
-        if return_type is None:
-            # Schema versions prior to 25 did not store the return_type in metadata, and there is no obvious way to
-            # infer it during DB migration, so we might encounter a stored return_type of None. In that case, we use
-            # the call_return_type that we just inferred (which matches the deserialization behavior prior to
-            # version 25).
-            return_type = call_return_type
+            args_str = [str(arg.col_type) for arg in args]
+            args_str.extend(f'{name}: {arg.col_type}' for name, arg in kwargs.items())
+            call_signature_str = f'({", ".join(args_str)}) -> {return_type}'
+            fn_signature_str = f'{len(fn.signatures)} signatures' if fn.is_polymorphic else str(fn.signature)
+            validation_error = dedent(
+                f"""
+                The signature stored in the database for a UDF call to {fn.self_path!r} no longer
+                matches {signature_note_str} as currently defined in the code. This probably means that the
+                code for {fn.self_path!r} has changed in a backward-incompatible way.
+                Signature of UDF call in the database: {call_signature_str}
+                Signature of UDF as currently defined in code: {fn_signature_str}
+                """
+            ).strip()
         else:
-            # There is a return_type stored in metadata (schema version >= 25).
-            # Check that the stored return_type of the UDF call matches the column type of the FunctionCall, and
-            # fail-fast if it doesn't (otherwise we risk getting downstream database errors).
-            # TODO: Handle this more gracefully (as noted above).
-            if not return_type.is_supertype_of(call_return_type, ignore_nullable=True):
-                raise excs.Error(
-                    f'The return type stored in the database for a UDF call to `{fn.self_path}` no longer matches the '
-                    f'return type of the UDF as currently defined in the code.\nThis probably means that the code for '
-                    f'`{fn.self_path}` has changed in a backward-incompatible way.\n'
-                    f'Return type in database: `{return_type}`\n'
-                    f'Return type as currently defined in code: `{call_return_type}`'
-                )
+            # Evaluate the call_return_type as defined in the current codebase.
+            call_return_type = resolved_fn.call_return_type(bound_args)
+            if return_type is None:
+                # Schema versions prior to 25 did not store the return_type in metadata, and there is no obvious way to
+                # infer it during DB migration, so we might encounter a stored return_type of None. In that case, we use
+                # the call_return_type that we just inferred (which matches the deserialization behavior prior to
+                # version 25).
+                return_type = call_return_type
+            else:
+                # There is a return_type stored in metadata (schema version >= 25).
+                # Check that the stored return_type of the UDF call matches the column type of the FunctionCall, and
+                # fail-fast if it doesn't (otherwise we risk getting downstream database errors).
+                if not return_type.is_supertype_of(call_return_type, ignore_nullable=True):
+                    validation_error = dedent(
+                        f"""
+                        The return type stored in the database for a UDF call to {fn.self_path!r} no longer
+                        matches its return type as currently defined in the code. This probably means that the
+                        code for {fn.self_path!r} has changed in a backward-incompatible way.
+                        Return type of UDF call in the database: {return_type}
+                        Return type of UDF as currently defined in code: {call_return_type}
+                        """
+                    ).strip()
 
         fn_call = cls(
             resolved_fn,
@@ -482,6 +488,7 @@ class FunctionCall(Expr):
             group_by_clause=group_by_exprs,
             order_by_clause=order_by_exprs,
             is_method_call=is_method_call,
+            validation_error=validation_error,
         )
 
         return fn_call

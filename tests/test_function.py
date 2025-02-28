@@ -1,3 +1,4 @@
+import re
 import typing
 from datetime import datetime
 from textwrap import dedent
@@ -679,16 +680,20 @@ class TestFunction:
 
         The test operates by instantiating a computed column with the UDF `evolving_udf`, then repeatedly
         monkey-patching `evolving_udf` with different signatures and checking that they new signatures are
-        accepted by Pixeltable (or, in some cases, that they generate appropriate error messages).
+        accepted by Pixeltable.
 
         The test runs two ways:
         - with the UDF invoked using a positional argument: `evolving_udf(t.c1)`
         - with the UDF invoked using a keyword argument: `evolving_udf(a=t.c1)`
+
+        We also test that backward-incompatible changes raise appropriate warnings and errors. Because the
+        error messages are lengthy and complex, we match against the entire fully-baked error string, to ensure
+        that they remain comprehensible after future refactorings.
         """
         import tests.test_function
 
         t = pxt.create_table('test', {'c1': pxt.String})
-        t.insert(c1="xyz")
+        t.insert(c1='xyz')
 
         def mimic(fn: func.CallableFunction) -> None:
             tests.test_function.evolving_udf = func.CallableFunction(
@@ -702,11 +707,39 @@ class TestFunction:
             assert list(t.head()) == [{'c1': 'xyz', 'result': None}]  # Ensure table can be queried
             return t
 
-        def warning_regex(snippet: str) -> str:
-            return (
-                "(?s)The computed column 'result' in table 'test' is no longer valid.*"
-                f'{snippet}.*You can continue to query'
+        def warning_regex(msg: str) -> str:
+            warning = (
+                dedent(
+                    """
+                    The computed column 'result' in table 'test' is no longer valid.
+                    {msg}
+                    You can continue to query existing data from this column, but evaluating it on new data will raise an error.
+                    """
+                    )
+                .strip()
+                .format(msg=msg)
             )
+            return re.escape(warning)
+
+        db_params = '(a: Optional[String])' if as_kwarg else '(Optional[String])'
+        signature_error = dedent(
+            f"""
+            The signature stored in the database for a UDF call to 'tests.test_function.evolving_udf' no longer
+            matches its signature as currently defined in the code. This probably means that the
+            code for 'tests.test_function.evolving_udf' has changed in a backward-incompatible way.
+            Signature of UDF call in the database: {db_params} -> Optional[Array[Float]]
+            Signature of UDF as currently defined in code: {{params}} -> Optional[Array[Float]]
+            """
+        ).strip()
+        return_type_error = dedent(
+            """
+            The return type stored in the database for a UDF call to 'tests.test_function.evolving_udf' no longer
+            matches its return type as currently defined in the code. This probably means that the
+            code for 'tests.test_function.evolving_udf' has changed in a backward-incompatible way.
+            Return type of UDF call in the database: Optional[Array[Float]]
+            Return type of UDF as currently defined in code: {return_type}
+            """
+        ).strip()
 
         @pxt.udf(_force_stored=True)
         def udf_base_version(a: str, b: int = 3) -> Optional[pxt.Array[pxt.Float]]:
@@ -733,7 +766,9 @@ class TestFunction:
 
         mimic(udf_version_3)
         if as_kwarg:
-            with pytest.raises(excs.Error, match='signature stored in the database.*no longer matches'):
+            with pytest.warns(
+                pxt.PixeltableWarning, match=warning_regex(signature_error.format(params='(c: String, b: String)'))
+            ):
                 reload_table()
         else:
             reload_table()
@@ -746,7 +781,7 @@ class TestFunction:
 
         mimic(udf_version_4)
         if as_kwarg:
-            with pytest.raises(excs.Error, match='signature stored in the database.*no longer matches'):
+            with pytest.warns(pxt.PixeltableWarning, match=warning_regex(signature_error.format(params='(*a)'))):
                 reload_table()
         else:
             reload_table()
@@ -765,7 +800,9 @@ class TestFunction:
             return None
 
         mimic(udf_version_6)
-        with pytest.raises(excs.Error, match='signature stored in the database.*no longer matches'):
+        with pytest.warns(
+            pxt.PixeltableWarning, match=warning_regex(signature_error.format(params='(a: Float, b: Int)'))
+        ):
             reload_table()
 
         # Widen the return type; this fails in all cases
@@ -774,7 +811,9 @@ class TestFunction:
             return None
 
         mimic(udf_version_7)
-        with pytest.raises(excs.Error, match='return type stored in the database.*no longer matches'):
+        with pytest.warns(
+            pxt.PixeltableWarning, match=warning_regex(return_type_error.format(return_type='Optional[Array]'))
+        ):
             reload_table()
 
         # Add a poison parameter; this works only if the UDF was invoked with a keyword argument
@@ -786,15 +825,19 @@ class TestFunction:
         if as_kwarg:
             reload_table()
         else:
-            with pytest.raises(excs.Error, match='signature stored in the database.*no longer matches'):
+            with pytest.warns(
+                pxt.PixeltableWarning,
+                match=warning_regex(signature_error.format(params='(c: Float, a: String, b: Int)')),
+            ):
                 reload_table()
 
         # Remove the function entirely
         del tests.test_function.evolving_udf
-        with pytest.warns(pxt.PixeltableWarning, match=warning_regex("the symbol 'tests.test_function.evolving_udf' no longer exists")):
+        with pytest.warns(
+            pxt.PixeltableWarning, match="the symbol 'tests.test_function.evolving_udf' no longer exists"
+        ):
             reload_table()
         t.insert()
-
 
     def test_tool_errors(self):
         with pytest.raises(excs.Error) as exc_info:
