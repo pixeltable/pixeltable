@@ -108,8 +108,16 @@ class Expr(abc.ABC):
         return None
 
     @property
+    def validation_error(self) -> Optional[str]:
+        for c in self.components:
+            error = c.validation_error
+            if error is not None:
+                return error
+        return None
+
+    @property
     def is_valid(self) -> bool:
-        return all(c.is_valid for c in self.components)
+        return self.validation_error is None
 
     def equals(self, other: Expr) -> bool:
         """

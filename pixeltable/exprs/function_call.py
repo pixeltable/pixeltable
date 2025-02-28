@@ -42,7 +42,7 @@ class FunctionCall(Expr):
     aggregator: Optional[Any]
     current_partition_vals: Optional[list[Any]]
 
-    _is_valid: bool
+    _validation_error: Optional[str]
 
     def __init__(
         self,
@@ -53,7 +53,7 @@ class FunctionCall(Expr):
         order_by_clause: Optional[list[Any]] = None,
         group_by_clause: Optional[list[Any]] = None,
         is_method_call: bool = False,
-        is_valid: bool = True,
+        validation_error: Optional[str] = None,
     ):
         assert not fn.is_polymorphic
         assert all(isinstance(arg, Expr) for arg in args)
@@ -75,15 +75,6 @@ class FunctionCall(Expr):
         self.arg_idxs = list(range(len(self.components)))
         self.components.extend(arg.copy() for arg in kwargs.values())
         self.kwarg_idxs = {name: i + len(args) for i, name in enumerate(kwargs.keys())}
-
-        self.agg_init_args = {}
-        if self.is_agg_fn_call:
-            # We separate out the init args for the aggregator. Unpack Literals in init args.
-            assert isinstance(fn, func.AggregateFunction)
-            for arg_name, arg in bound_args.items():
-                if arg_name in fn.init_param_names[0]:
-                    assert isinstance(arg, Literal)  # This was checked during validate_call
-                    self.agg_init_args[arg_name] = arg.val
 
         # window function state:
         # self.components[self.group_by_start_idx:self.group_by_stop_idx] contains group_by exprs
@@ -110,9 +101,9 @@ class FunctionCall(Expr):
         self.order_by_stop_idx = len(self.components) + len(order_by_clause)
         self.components.extend(order_by_clause)
 
-        self._is_valid = is_valid
+        self._validation_error = validation_error
 
-        if not is_valid:
+        if validation_error is not None:
             return
 
         # Now generate bound_idxs for the args and kwargs indices.
@@ -125,6 +116,15 @@ class FunctionCall(Expr):
         bindings = fn.signature.py_signature.bind(*args, **kwargs)
         bound_args = bindings.arguments
         self.resource_pool = fn.call_resource_pool(bound_args)
+
+        self.agg_init_args = {}
+        if self.is_agg_fn_call:
+            # We separate out the init args for the aggregator. Unpack Literals in init args.
+            assert isinstance(fn, func.AggregateFunction)
+            for arg_name, arg in bound_args.items():
+                if arg_name in fn.init_param_names[0]:
+                    assert isinstance(arg, Literal)  # This was checked during validate_call
+                    self.agg_init_args[arg_name] = arg.val
 
         if isinstance(self.fn, func.ExprTemplateFunction):
             # we instantiate the template to create an Expr that can be evaluated and record that as a component
@@ -181,8 +181,8 @@ class FunctionCall(Expr):
         return self.display_str()
 
     @property
-    def is_valid(self) -> bool:
-        return self._is_valid and super().is_valid
+    def validation_error(self) -> Optional[str]:
+        return self._validation_error or super().validation_error
 
     def display_str(self, inline: bool = True) -> str:
         if self.is_method_call:
@@ -245,8 +245,7 @@ class FunctionCall(Expr):
         return self.order_by
 
     def sql_expr(self, sql_elements: SqlElementCache) -> Optional[sql.ColumnElement]:
-        if not self.is_valid:
-            raise excs.Error(f'Function call {self.display_str()} is not valid')
+        assert self.is_valid
 
         # we currently can't translate aggregate functions with grouping and/or ordering to SQL
         if self.has_group_by() or len(self.order_by) > 0:
@@ -346,8 +345,7 @@ class FunctionCall(Expr):
         return result
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
-        if not self.is_valid:
-            raise excs.Error(f'Function call {self.display_str()} is not valid')
+        assert self.is_valid
 
         if isinstance(self.fn, func.ExprTemplateFunction):
             # we need to evaluate the template
@@ -421,21 +419,14 @@ class FunctionCall(Expr):
         order_by_exprs = components[order_by_start_idx:order_by_stop_idx]
 
         if isinstance(fn, func.InvalidFunction):
-            fn_call = cls(fn, args, kwargs, return_type, is_method_call=is_method_call, is_valid=False)
-            warnings.warn(
-                dedent(
-                    f"""
-                    The UDF '{fn.self_path}' is no longer valid, because
-                    {fn.errormsg}
-                    UDF call: {fn_call.display_str()}
-                        (referenced in column ... of table ...)
-                    You can continue to query existing data from this column, but evaluating it on new data will raise an error.
-                    """
+            validation_error = dedent(
+                f"""
+                The UDF '{fn.self_path}' cannot be located, because
+                {fn.errormsg}
+                UDF call: ....
+                """
                 ).strip(),
-                category=excs.PixeltableWarning,
-            )
-            _logger.warning(f'Invalid UDF call: {fn.errormsg} (in column ... of table ...)')
-            return fn_call
+            return cls(fn, args, kwargs, return_type, is_method_call=is_method_call, validation_error=validation_error)
 
         # Now re-bind args and kwargs using the version of `fn` that is currently represented in code. This ensures
         # that we get a valid binding even if the signatures of `fn` have changed since the FunctionCall was

@@ -702,6 +702,12 @@ class TestFunction:
             assert list(t.head()) == [{'c1': 'xyz', 'result': None}]  # Ensure table can be queried
             return t
 
+        def warning_regex(snippet: str) -> str:
+            return (
+                "(?s)The computed column 'result' in table 'test' is no longer valid.*"
+                f'{snippet}.*You can continue to query'
+            )
+
         @pxt.udf(_force_stored=True)
         def udf_base_version(a: str, b: int = 3) -> Optional[pxt.Array[pxt.Float]]:
             return None
@@ -785,7 +791,7 @@ class TestFunction:
 
         # Remove the function entirely
         del tests.test_function.evolving_udf
-        with pytest.warns(pxt.PixeltableWarning, match="the symbol 'tests.test_function.evolving_udf' no longer exists"):
+        with pytest.warns(pxt.PixeltableWarning, match=warning_regex("the symbol 'tests.test_function.evolving_udf' no longer exists")):
             reload_table()
         t.insert()
 
