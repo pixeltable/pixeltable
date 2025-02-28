@@ -57,7 +57,7 @@
   ],
   "tabs": [
     {
-      "name": "Resources",
+      "name": "Examples",
       "url": "/docs/resources"
     },
     {
@@ -97,6 +97,13 @@
       ]
     },
     {
+      "group": "Tutorials",
+      "pages": [
+        "docs/tutorials/fundamentals",
+        "docs/tutorials/feature-guide"
+      ]
+    },       
+    {
       "group": "Cookbook",
       "pages": [
         "docs/examples/overview",
@@ -127,7 +134,7 @@
           ]
         }
       ]
-    },
+    }, 
     {
       "group": "Support",
       "pages": [

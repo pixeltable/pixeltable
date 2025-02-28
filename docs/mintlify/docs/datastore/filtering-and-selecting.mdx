@@ -8,6 +8,31 @@ icon: 'filter'
 Learn more about queries and expressions with this [in-depth guide](https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/fundamentals/queries-and-expressions.ipynb).
 </Info>
 
+## What are Queries?
+
+Queries in Pixeltable allow you to filter, transform, and extract data from tables and views. Using Pixeltable's expressive query interface, you can build powerful data pipelines without writing complex SQL or using external transformation tools.
+
+Pixeltable queries use a fluent API design where operations can be chained together to:
+- Filter rows based on specific conditions using `where()`
+- Select and transform columns using `select()`
+- Sort results with `order_by()`
+- Limit result sets with `limit()`
+- Perform aggregations and calculations
+
+Queries don't execute until you call `collect()`, making them efficient for complex operations. You can build queries incrementally, adding conditions and transformations as needed.
+
+```python
+# A basic query that filters, transforms, and sorts data
+result = movies.where(
+    (movies.year >= 2000) & (movies.budget > 100.0)
+).select(
+    movies.title,
+    roi=movies.revenue / movies.budget
+).order_by(
+    'roi', asc=False
+).limit(5).collect()
+```
+
 ## Basic Filtering
 
 <Note>

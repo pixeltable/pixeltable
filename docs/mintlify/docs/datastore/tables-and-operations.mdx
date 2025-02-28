@@ -4,23 +4,36 @@ description: 'Learn the fundamentals of Pixeltable tables, types, and how to bui
 icon: 'table'
 ---
 
-## Core Concepts
-
-<CardGroup cols={3}>
-  <Card title="Tables" icon="table">
-    Central data structure for organizing multimodal data and computations
-  </Card>
-  <Card title="Computed Columns" icon="calculator">
-    Data transformations and model inferences
-  </Card>
-  <Card title="Versioning" icon="code-branch">
-    Built-in tracking of data and schema changes
-  </Card>
-</CardGroup>
-
 <Info>
 Learn more about Pixeltable tables and the data operations with our [in-depth guide](https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/fundamentals/tables-and-data-operations.ipynb).
 </Info>
+
+## What are Tables?
+
+Tables are the fundamental data storage units in Pixeltable. They function similarly to SQL database tables but with enhanced capabilities designed specifically for AI and ML workflows. Each table consists of columns with defined data types and can store both structured data and unstructured media assets.
+
+In Pixeltable, tables:
+- Persist across sessions, meaning your data remains available even after restarting your environment
+- Maintain strong typing for data consistency
+- Support operations like filtering, querying, and transformation
+- Can handle specialized data types for machine learning and media processing
+- Group logically into directories (namespaces) for organization
+
+Creating a table requires defining a name and schema that describes its structure:
+
+```python
+import pixeltable as pxt
+
+# Create a directory to organize tables
+pxt.create_dir('example')
+
+# Create a table with a defined schema
+films = pxt.create_table('example.films', {
+    'title': pxt.String,
+    'year': pxt.Int,
+    'revenue': pxt.Float
+})
+```
 
 ## Type System
 
@@ -69,21 +82,21 @@ Learn more about Pixeltable tables and the data operations with our [in-depth gu
     Filter and retrieve data:
     ```python
     # Basic row count
-    movies.count()  # Returns total number of rows
+    films.count()  # Returns total number of rows
     
     # Basic filtering
-    movies.where(movies.budget >= 200.0).collect()
+    films.where(films.budget >= 200.0).collect()
     
     # Select specific columns
-    movies.select(movies.title, movies.year).collect()
+    films.select(films.title, films.year).collect()
     
     # Limit results
-    movies.limit(5).collect()  # First 5 rows (no specific order)
-    movies.head(5)  # First 5 rows by insertion order
-    movies.tail(5)  # Last 5 rows by insertion order
+    films.limit(5).collect()  # First 5 rows (no specific order)
+    films.head(5)  # First 5 rows by insertion order
+    films.tail(5)  # Last 5 rows by insertion order
     
     # Order results
-    movies.order_by(movies.budget, asc=False).limit(5).collect()
+    films.order_by(films.budget, asc=False).limit(5).collect()
     ```
   </Card>
 
@@ -91,17 +104,17 @@ Learn more about Pixeltable tables and the data operations with our [in-depth gu
     Manipulate text data:
     ```python
     # String contains
-    movies.where(movies.title.contains('Inception')).collect()
+    films.where(films.title.contains('Inception')).collect()
     
     # String replacement
-    movies.update({
-        'plot': movies.plot.replace('corporate secrets', 'subconscious secrets')
+    films.update({
+        'plot': films.plot.replace('corporate secrets', 'subconscious secrets')
     })
     
     # String functions
-    movies.update({
-        'title': movies.title.upper(),        # Convert to uppercase
-        'length': movies.title.len()          # Get string length
+    films.update({
+        'title': films.title.upper(),        # Convert to uppercase
+        'length': films.title.len()          # Get string length
     })
     ```
   </Card>
@@ -110,7 +123,7 @@ Learn more about Pixeltable tables and the data operations with our [in-depth gu
     Add new data:
     ```python
     # Insert single row
-    movies.insert(
+    films.insert(
         title='Inside Out 2',
         year=2024,
         plot='Emotions navigate puberty',
@@ -118,7 +131,7 @@ Learn more about Pixeltable tables and the data operations with our [in-depth gu
     )
     
     # Insert multiple rows
-    movies.insert([
+    films.insert([
         {
             'title': 'Jurassic Park', 
             'year': 1993, 
@@ -139,15 +152,15 @@ Learn more about Pixeltable tables and the data operations with our [in-depth gu
     Modify existing data:
     ```python
     # Update all rows
-    movies.update({
-        'budget': movies.budget * 1.1  # Increase all budgets by 10%
+    films.update({
+        'budget': films.budget * 1.1  # Increase all budgets by 10%
     })
     
     # Conditional updates
-    movies.where(
-        movies.year < 2000
+    films.where(
+        films.year < 2000
     ).update({
-        'plot': movies.plot + ' (Classic Film)'
+        'plot': films.plot + ' (Classic Film)'
     })
     
     # Batch updates for multiple rows
@@ -155,7 +168,7 @@ Learn more about Pixeltable tables and the data operations with our [in-depth gu
         {'id': 1, 'budget': 175.0},
         {'id': 2, 'budget': 185.0}
     ]
-    movies.batch_update(updates)
+    films.batch_update(updates)
     ```
   </Card>
 
@@ -163,18 +176,18 @@ Learn more about Pixeltable tables and the data operations with our [in-depth gu
     Remove data with conditions:
     ```python
     # Delete specific rows
-    movies.where(
-        movies.year < 1995
+    films.where(
+        films.year < 1995
     ).delete()
     
     # Delete with complex conditions
-    movies.where(
-        (movies.budget < 100.0) & 
-        (movies.year < 2000)
+    films.where(
+        (films.budget < 100.0) & 
+        (films.year < 2000)
     ).delete()
     
     # WARNING: Delete all rows (use with caution!)
-    # movies.delete()  # Without where clause deletes all rows
+    # films.delete()  # Without where clause deletes all rows
     ```
   </Card>
 
@@ -182,13 +195,13 @@ Learn more about Pixeltable tables and the data operations with our [in-depth gu
     Manage table structure:
     ```python
     # Add new column
-    movies.add_column(rating=pxt.String)
+    films.add_column(rating=pxt.String)
     
     # Drop column
-    movies.drop_column('rating')
+    films.drop_column('rating')
     
     # View schema
-    movies.describe()
+    films.describe()
     ```
   </Card>
 
@@ -196,11 +209,11 @@ Learn more about Pixeltable tables and the data operations with our [in-depth gu
     Manage table versions:
     ```python
     # Revert the last operation
-    movies.revert()  # Cannot be undone!
+    films.revert()  # Cannot be undone!
     
     # Revert multiple times to go back further
-    movies.revert()
-    movies.revert()  # Goes back two operations
+    films.revert()
+    films.revert()  # Goes back two operations
     ```
   </Card>
 
@@ -208,7 +221,7 @@ Learn more about Pixeltable tables and the data operations with our [in-depth gu
     Extract data for analysis:
     ```python
     # Get results as Python objects
-    result = movies.limit(5).collect()
+    result = films.limit(5).collect()
     first_row = result[0]  # Get first row as dict
     timestamps = result['timestamp']  # Get list of values for one column
     

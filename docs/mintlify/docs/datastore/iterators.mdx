@@ -4,6 +4,38 @@ description: 'Learn about iterators for processing documents, videos, audio, and
 icon: 'rotate'
 ---
 
+## What are Iterators?
+
+Iterators in Pixeltable are specialized tools for processing and transforming media content. They efficiently break down large files into manageable chunks, enabling analysis at different granularities. Iterators work seamlessly with views to create virtual derived tables without duplicating storage.
+
+In Pixeltable, iterators:
+- Process media files incrementally to manage memory efficiently
+- Transform single records into multiple output records
+- Support various media types including documents, videos, images, and audio
+- Integrate with the view system for automated processing pipelines
+- Provide configurable parameters for fine-tuning output
+
+Iterators are particularly useful when:
+- Working with large media files that can't be processed at once
+- Building retrieval systems that require chunked content
+- Creating analysis pipelines for multimedia data
+- Implementing feature extraction workflows
+
+```python
+import pixeltable as pxt
+from pixeltable.iterators import DocumentSplitter
+
+# Create a view using an iterator
+chunks = pxt.create_view(
+    'docs.chunks',
+    documents_table,
+    iterator=DocumentSplitter.create(
+        document=documents_table.document,
+        separators='paragraph'
+    )
+)
+```
+
 ## Core Concepts
 
 <CardGroup cols={2}>
