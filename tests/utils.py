@@ -560,3 +560,7 @@ class ReloadTester:
                 raise RuntimeError(s) from e
         if clear:
             self.clear()
+
+
+# This will be set to True if the tests are running in a CI environment.
+IN_CI = bool(os.environ.get('PXTTEST_IN_CI'))
