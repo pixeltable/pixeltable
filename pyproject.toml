@@ -80,9 +80,6 @@ exclude = [
 requires-poetry = ">=2.0"
 version = "0.0.0"
 
-[tool.poetry.requires-plugins]
-poetry-dynamic-versioning = ">=1.7.0,<2.0.0"
-
 [tool.poetry.group.dev]
 optional = true
 
