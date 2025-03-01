@@ -1,0 +1,202 @@
+---
+title: "YOLOX Object Detection"
+description: "Use YOLOX object detection in Pixeltable by defining your schema, then using it"
+icon: "camera-movie"
+---
+
+# Building YOLOX Detection Apps
+
+Pixeltable YOLOX apps work in two phases:
+1. Define your detection workflow (once)
+2. Use your app (anytime)
+
+<Steps>
+  <Step title="Install Dependencies">
+    ```bash
+    pip install pixeltable
+    ```
+  </Step>
+
+  <Step title="Define Your Detection Workflow" icon="wand-magic-sparkles">
+    Create `table.py`:
+    ```python
+    import pixeltable as pxt
+    from pixeltable.ext.functions.yolox import yolox
+    import PIL.Image
+    import PIL.ImageDraw
+
+    # Initialize app structure
+    pxt.drop_dir("detection", force=True)
+    pxt.create_dir("detection")
+
+    # Create tables for different media types
+    images = pxt.create_table(
+        'detection.images', 
+        {'image': pxt.ImageType()},
+        if_exists="ignore"
+    )
+
+    videos = pxt.create_table(
+        'detection.videos',
+        {'video': pxt.VideoType()},
+        if_exists="ignore"
+    )
+
+    # Create frame extraction view
+    frames = pxt.create_view(
+        'detection.frames',
+        videos,
+        iterator=pxt.iterators.FrameIterator.create(
+            video=videos.video,
+            fps=1  # Extract 1 frame per second
+        )
+    )
+
+    # Add detection workflow to images
+    images.add_computed_column(
+        detections=yolox(
+            images.image,
+            model_id='yolox_s',  # Choose model size
+            threshold=0.5        # Detection confidence threshold
+        )
+    )
+
+    # Add detection workflow to video frames
+    frames.add_computed_column(
+        detections=yolox(
+            frames.frame,
+            model_id='yolox_m',
+            threshold=0.25
+        )
+    )
+
+    # Add visualization function
+    @pxt.udf
+    def draw_boxes(img: PIL.Image.Image, boxes: list[list[float]]) -> PIL.Image.Image:
+        result = img.copy()
+        d = PIL.ImageDraw.Draw(result)
+        for box in boxes:
+            d.rectangle(box, width=3)
+        return result
+
+    # Add visualization column to both tables
+    images.add_computed_column(
+        visualization=draw_boxes(images.image, images.detections.boxes)
+    )
+
+    frames.add_computed_column(
+        visualization=draw_boxes(frames.frame, frames.detections.boxes)
+    )
+    ```
+  </Step>
+
+  <Step title="Use Your App" icon="play">
+    Create `app.py`:
+    ```python
+    import pixeltable as pxt
+
+    # Connect to your tables
+    images = pxt.get_table("detection.images")
+    videos = pxt.get_table("detection.videos")
+    frames = pxt.get_view("detection.frames")
+
+    # Process images
+    images.insert([
+        {'image': 'path/to/image1.jpg'},
+        {'image': 'path/to/image2.jpg'}
+    ])
+
+    # Process videos
+    videos.insert([
+        {'video': 'path/to/video1.mp4'}
+    ])
+
+    # Get detection results
+    image_results = images.select(
+        images.image,
+        images.detections,
+        images.visualization
+    ).collect()
+
+    frame_results = frames.select(
+        frames.frame,
+        frames.detections,
+        frames.visualization
+    ).collect()
+
+    # Access specific detection information
+    high_confidence = frames.where(
+        frames.detections.scores[0] > 0.9
+    ).collect()
+    ```
+  </Step>
+</Steps>
+
+## Available Models
+
+<Card title="Model Variants" icon="layer-group">
+| Model       | Speed     | Accuracy  | Use Case                          |
+| ----------- | --------- | --------- | --------------------------------- |
+| yolox_nano  | Fastest   | Base      | Mobile/Edge devices               |
+| yolox_tiny  | Very Fast | Good      | Resource-constrained environments |
+| yolox_s     | Fast      | Better    | Balanced performance              |
+| yolox_m     | Moderate  | High      | General purpose                   |
+| yolox_l     | Slower    | Very High | High accuracy needs               |
+| yolox_x     | Slowest   | Highest   | Maximum accuracy                  |
+</Card>
+
+## Key Features
+
+<CardGroup cols={1}>
+  <Card title="Automatic Processing" icon="gears">
+    Workflow handles model loading, inference, and result storage:
+    ```python
+    detections=yolox(images.image, model_id='yolox_s')
+    ```
+  </Card>
+
+  <Card title="Integrated Video Support" icon="film">
+    Built-in frame extraction and processing:
+    ```python
+    frames = pxt.create_view('detection.frames', videos,
+        iterator=pxt.iterators.FrameIterator.create(
+            video=videos.video, fps=1
+        )
+    )
+    ```
+  </Card>
+
+  <Card title="Rich Results" icon="magnifying-glass">
+    Comprehensive detection information:
+    ```python
+    {
+        "boxes": [[x1, y1, x2, y2], ...],
+        "scores": [0.98, ...],
+        "labels": [1, ...],
+        "label_text": ["person", ...]
+    }
+    ```
+  </Card>
+</CardGroup>
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Model Selection" icon="scale-balanced">
+    - Start with smaller models (nano/tiny) for prototyping
+    - Use larger models when accuracy is critical
+    - Consider hardware constraints
+  </Accordion>
+
+  <Accordion title="Performance Optimization" icon="gauge-high">
+    - Adjust FPS settings for video processing
+    - Tune confidence threshold based on needs
+    - Use batch processing when possible
+  </Accordion>
+
+  <Accordion title="Resource Management" icon="microchip">
+    - Monitor memory usage with large videos
+    - Use frame sampling for initial testing
+    - Consider model size vs. speed tradeoffs
+  </Accordion>
+</AccordionGroup>
