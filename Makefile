@@ -77,8 +77,7 @@ WHISPERX_OK := $(shell python -c "import sys; sys.stdout.write(str(sys.version_i
 .make-install/poetry:
 	@echo "Installing poetry ..."
 	@python -m pip install -qU pip
-	@python -m pip install -q poetry==1.8.4
-	@poetry self add "poetry-dynamic-versioning[plugin]"
+	@python -m pip install -q poetry==2.1.1
 	@$(TOUCH) .make-install/poetry
 
 .make-install/deps: poetry.lock
