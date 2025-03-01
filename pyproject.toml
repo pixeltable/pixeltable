@@ -1,10 +1,10 @@
 [build-system]
-requires = ["poetry-core>=1.0.0"]
-build-backend = "poetry.core.masonry.api"
+requires = ["poetry-core>=1.0.0", "poetry-dynamic-versioning>=1.7.0,<2.0.0"]
+build-backend = "poetry_dynamic_versioning.backend"
 
 [project]
 name = "pixeltable"
-version = "0.0.0"
+dynamic = ["version"]
 description = "AI Data Infrastructure: Declarative, Multimodal, and Incremental"
 license = "Apache-2.0"
 readme = "README.md"
@@ -78,6 +78,7 @@ exclude = [
     "tool",
 ]
 requires-poetry = ">=2.0"
+version = "0.0.0"
 
 [tool.poetry.requires-plugins]
 poetry-dynamic-versioning = ">=1.7.0,<2.0.0"
