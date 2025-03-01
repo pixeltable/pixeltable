@@ -1,3 +1,8 @@
+import hashlib
+from pathlib import Path
+from typing import Union
+
+
 def print_perf_counter_delta(delta: float) -> str:
     """Prints a performance counter delta in a human-readable format.
 
@@ -15,3 +20,18 @@ def print_perf_counter_delta(delta: float) -> str:
         return f'{delta * 1e3:.2f} ms'
     else:
         return f'{delta:.2f} s'
+
+
+def sha256sum(path: Union[Path, str]) -> str:
+    """
+    Compute the SHA256 hash of a file.
+    """
+    if isinstance(path, str):
+        path = Path(path)
+
+    h = hashlib.sha256()
+    with open(path, 'rb') as file:
+        while chunk := file.read(h.block_size):
+            h.update(chunk)
+
+    return h.hexdigest()
