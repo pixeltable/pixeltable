@@ -100,41 +100,41 @@
       "group": "Tutorials",
       "pages": [
         "docs/tutorials/fundamentals",
-        "docs/tutorials/feature-guide"
-      ]
-    },       
-    {
-      "group": "Cookbook",
-      "pages": [
-        "docs/examples/overview",
+        "docs/tutorials/feature-guide",
         {
-          "group": "Chatbot",
+          "group": "Cookbooks",
           "pages": [
-            "docs/examples/chat/multimodal",
-            "docs/examples/chat/memory",
-            "docs/examples/chat/tools",
-            "docs/examples/evaluations/llm-as-a-judge"
-          ]
-        },
-        {
-          "group": "Computer Vision",
-          "pages": [
-            "docs/examples/vision/label-studio",
-            "docs/examples/vision/voxel51",
-            "docs/examples/vision/yolox"
-          ]
-        },
-        {
-          "group": "Multimodal Vector Database",
-          "pages": [
-            "docs/examples/search/audio",
-            "docs/examples/search/images",
-            "docs/examples/search/PDF",
-            "docs/examples/search/website"        
+            "docs/examples/overview",
+            {
+              "group": "Chatbot",
+              "pages": [
+                "docs/examples/chat/multimodal",
+                "docs/examples/chat/memory",
+                "docs/examples/chat/tools",
+                "docs/examples/evaluations/llm-as-a-judge"
+              ]
+            },
+            {
+              "group": "Computer Vision",
+              "pages": [
+                "docs/examples/vision/label-studio",
+                "docs/examples/vision/voxel51",
+                "docs/examples/vision/yolox"
+              ]
+            },
+            {
+              "group": "Multimodal Vector Database",
+              "pages": [
+                "docs/examples/search/audio",
+                "docs/examples/search/images",
+                "docs/examples/search/PDF",
+                "docs/examples/search/website"        
+              ]
+            }
           ]
         }
       ]
-    }, 
+    },       
     {
       "group": "Support",
       "pages": [
@@ -151,8 +151,6 @@
     {
       "group": "Resources",
       "pages": [
-        "docs/resources/fundamentals",
-        "docs/resources/feature-guide",
         "docs/resources/use-cases",
         "docs/resources/interactive-demos",
         "docs/resources/sample-apps"
