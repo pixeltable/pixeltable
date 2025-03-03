@@ -58,7 +58,7 @@
   "tabs": [
     {
       "name": "Examples",
-      "url": "/docs/resources"
+      "url": "/docs/examples"
     },
     {
       "name": "API Reference",
@@ -104,31 +104,31 @@
         {
           "group": "Cookbooks",
           "pages": [
-            "docs/examples/overview",
+            "docs/cookbooks/overview",
             {
               "group": "Chatbot",
               "pages": [
-                "docs/examples/chat/multimodal",
-                "docs/examples/chat/memory",
-                "docs/examples/chat/tools",
-                "docs/examples/evaluations/llm-as-a-judge"
+                "docs/cookbooks/chat/multimodal",
+                "docs/cookbooks/chat/memory",
+                "docs/cookbooks/chat/tools",
+                "docs/cookbooks/evaluations/llm-as-a-judge"
               ]
             },
             {
               "group": "Computer Vision",
               "pages": [
-                "docs/examples/vision/label-studio",
-                "docs/examples/vision/voxel51",
-                "docs/examples/vision/yolox"
+                "docs/cookbooks/vision/label-studio",
+                "docs/cookbooks/vision/voxel51",
+                "docs/cookbooks/vision/yolox"
               ]
             },
             {
               "group": "Multimodal Vector Database",
               "pages": [
-                "docs/examples/search/audio",
-                "docs/examples/search/images",
-                "docs/examples/search/PDF",
-                "docs/examples/search/website"        
+                "docs/cookbooks/search/audio",
+                "docs/cookbooks/search/images",
+                "docs/cookbooks/search/PDF",
+                "docs/cookbooks/search/website"        
               ]
             }
           ]
@@ -149,11 +149,11 @@
       ]
     },
     {
-      "group": "Resources",
+      "group": "Examples",
       "pages": [
-        "docs/resources/use-cases",
-        "docs/resources/interactive-demos",
-        "docs/resources/sample-apps"
+        "docs/examples/use-cases",
+        "docs/examples/interactive-demos",
+        "docs/examples/sample-apps"
       ]
     },
     {
