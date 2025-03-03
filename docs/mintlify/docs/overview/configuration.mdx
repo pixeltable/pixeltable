@@ -4,7 +4,7 @@ description: "Simple configuration options for Pixeltable"
 icon: "gear"
 ---
 
-<Accordion title="Configuration Options">
+### Configuration Options
 Pixeltable can be configured through:
 - Environment variables
 - System configuration file (`~/.pixeltable/config.toml` on Linux/macOS or `C:\Users\<username>\.pixeltable\config.toml` on Windows)
@@ -24,7 +24,6 @@ api_key = 'my-openai-api-key'
 url = 'http://localhost:8080/'
 api_key = 'my-label-studio-api-key'
 ```
-</Accordion>
 
 ### System Settings
 
@@ -64,126 +63,36 @@ api_key = 'my-label-studio-api-key'
 
 <ResponseField name="OPENAI_API_KEY" type="string">
   API key to use for OpenAI services.
-  
-  ```bash
-  OPENAI_API_KEY=sk-...
-  ```
-  
-  config.toml:
-  ```toml
-  [openai]
-  api_key = 'sk-...'
-  ```
 </ResponseField>
 
 <ResponseField name="ANTHROPIC_API_KEY" type="string">
   API key to use for Anthropic services.
-  
-  ```bash
-  ANTHROPIC_API_KEY=sk-ant-...
-  ```
-  
-  config.toml:
-  ```toml
-  [anthropic]
-  api_key = 'sk-ant-...'
-  ```
 </ResponseField>
 
 <ResponseField name="MISTRAL_API_KEY" type="string">
   API key to use for Mistral AI services.
-  
-  ```bash
-  MISTRAL_API_KEY=...
-  ```
-  
-  config.toml:
-  ```toml
-  [mistral]
-  api_key = '...'
-  ```
 </ResponseField>
 
 <ResponseField name="REPLICATE_API_TOKEN" type="string">
   API token to use for Replicate services.
-  
-  ```bash
-  REPLICATE_API_TOKEN=...
-  ```
-  
-  config.toml:
-  ```toml
-  [replicate]
-  api_token = '...'
-  ```
 </ResponseField>
 
 <ResponseField name="FIREWORKS_API_KEY" type="string">
   API key to use for Fireworks AI services.
-  
-  ```bash
-  FIREWORKS_API_KEY=...
-  ```
-  
-  config.toml:
-  ```toml
-  [fireworks]
-  api_key = '...'
-  ```
 </ResponseField>
 
 <ResponseField name="TOGETHER_API_KEY" type="string">
   API key to use for Together AI services.
-  
-  ```bash
-  TOGETHER_API_KEY=...
-  ```
-  
-  config.toml:
-  ```toml
-  [together]
-  api_key = '...'
-  ```
 </ResponseField>
 
 <ResponseField name="GEMINI_API_KEY" type="string">
   API key to use for Google Gemini services.
-  
-  ```bash
-  GEMINI_API_KEY=...
-  ```
-  
-  config.toml:
-  ```toml
-  [gemini]
-  api_key = '...'
-  ```
 </ResponseField>
 
 <ResponseField name="LABEL_STUDIO_API_KEY" type="string">
   API key to use for Label Studio.
-  
-  ```bash
-  LABEL_STUDIO_API_KEY=...
-  ```
-  
-  config.toml:
-  ```toml
-  [label_studio]
-  api_key = '...'
-  ```
 </ResponseField>
 
 <ResponseField name="LABEL_STUDIO_URL" type="string">
   URL of the Label Studio server to use.
-  
-  ```bash
-  LABEL_STUDIO_URL=http://localhost:8080/
-  ```
-  
-  config.toml:
-  ```toml
-  [label_studio]
-  url = 'http://localhost:8080/'
-  ```
 </ResponseField>
