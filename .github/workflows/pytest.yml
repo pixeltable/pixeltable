@@ -21,11 +21,12 @@ on:
         default: false
 
 env:
-  POETRY_VERSION: 1.8.2
+  PXTTEST_IN_CI: 1
+  POETRY_VERSION: 2.1.1
   # The llama-cpp-python build fails in CI with LLaVA support enabled. If we ever want to test specific LLaVA
   # functionality in CI, we'll need to investigate further (it's likely due to a missing compiler dependency).
   # We also disable Metal (GPU) support on MacOS, which doesn't seem to work properly in CI.
-  CMAKE_ARGS: '-DLLAVA_BUILD=OFF -DGGML_METAL=OFF'
+  CMAKE_ARGS: '-DLLAVA_BUILD=OFF -DGGML_METAL=OFF -DGGML_METAL_EMBED_LIBRARY=OFF'
   # API keys for various services. In a PR, these secrets will be empty.
   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
   FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}

@@ -1,2 +1,6 @@
 # Global owners
 * @mkornacker @aaron-siegel
+
+# Docs owners
+/docs/mintlify/** @pierrebrunelle @jacobweiss2305
+/docs/sample-apps/** @pierrebrunelle @jacobweiss2305

@@ -951,7 +951,7 @@ class DataFrame:
 
             >>> df = person.where(t.year == 2014).update({'age': 30})
         """
-        self._validate_mutable('update')
+        self._validate_mutable('update', False)
         return self._first_tbl.tbl_version.update(value_spec, where=self.where_clause, cascade=cascade)
 
     def delete(self) -> UpdateStatus:
@@ -971,18 +971,23 @@ class DataFrame:
 
             >>> df = person.where(t.age < 18).delete()
         """
-        self._validate_mutable('delete')
+        self._validate_mutable('delete', False)
         if not self._first_tbl.is_insertable():
             raise excs.Error(f'Cannot delete from view')
         return self._first_tbl.tbl_version.delete(where=self.where_clause)
 
-    def _validate_mutable(self, op_name: str) -> None:
-        """Tests whether this DataFrame can be mutated (such as by an update operation)."""
+    def _validate_mutable(self, op_name: str, allow_select: bool) -> None:
+        """Tests whether this DataFrame can be mutated (such as by an update operation).
+
+        Args:
+            op_name: The name of the operation for which the test is being performed.
+            allow_select: If True, allow a select() specification in the Dataframe.
+        """
         if self.group_by_clause is not None or self.grouping_tbl is not None:
             raise excs.Error(f'Cannot use `{op_name}` after `group_by`')
         if self.order_by_clause is not None:
             raise excs.Error(f'Cannot use `{op_name}` after `order_by`')
-        if self.select_list is not None:
+        if self.select_list is not None and not allow_select:
             raise excs.Error(f'Cannot use `{op_name}` after `select`')
         if self.limit_val is not None:
             raise excs.Error(f'Cannot use `{op_name}` after `limit`')

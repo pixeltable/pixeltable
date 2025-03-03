@@ -5,7 +5,7 @@ import os
 import random
 import urllib.parse
 from pathlib import Path
-from typing import Any, Hashable, Optional
+from typing import Any, Optional
 
 import more_itertools
 import numpy as np
@@ -14,13 +14,11 @@ import PIL.Image
 import pytest
 
 import pixeltable as pxt
-import pixeltable.exceptions as excs
 import pixeltable.utils.s3 as s3_util
-from pixeltable import catalog, exprs
+from pixeltable import catalog, exceptions as excs
 from pixeltable.catalog.globals import UpdateStatus
 from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
-from pixeltable.functions.huggingface import clip, sentence_transformer
 from pixeltable.io import SyncStatus
 
 
@@ -513,10 +511,6 @@ def reload_catalog() -> None:
     pxt.init()
 
 
-clip_embed = clip.using(model_id='openai/clip-vit-base-patch32')
-e5_embed = sentence_transformer.using(model_id='intfloat/e5-large-v2')
-
-
 # Mock UDF for testing LLM tool invocations
 @pxt.udf
 def stock_price(ticker: str) -> float:
@@ -566,3 +560,7 @@ class ReloadTester:
                 raise RuntimeError(s) from e
         if clear:
             self.clear()
+
+
+# This will be set to True if the tests are running in a CI environment.
+IN_CI = bool(os.environ.get('PXTTEST_IN_CI'))
