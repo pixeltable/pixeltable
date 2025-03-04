@@ -696,24 +696,55 @@ class TestFunction:
         t.insert(c1='xyz')
 
         def mimic(fn: func.CallableFunction) -> None:
+            """Monkey-patches `tests.test_function.evolving_udf` with the given function."""
             tests.test_function.evolving_udf = func.CallableFunction(
                 fn.signatures, fn.py_fns, 'tests.test_function.evolving_udf'
             )
 
-        def reload_table(validation_error: Optional[str] = None) -> None:
+        def reload_and_validate_table(validation_error: Optional[str] = None) -> None:
             reload_catalog()
+
+            # Ensure a warning is generated when the table is accessed, if appropriate
             if validation_error is None:
                 t = pxt.get_table('test')
             else:
                 with pytest.warns(pxt.PixeltableWarning, match=warning_regex(validation_error)):
                     t = pxt.get_table('test')
-            assert list(t.head()) == [{'c1': 'xyz', 'result': None}]  # Ensure table can be queried
+                _ = pxt.get_table('test')  # Ensure the warning is only displayed once
+
+            # Ensure the table can be queried even if there are invalid columns
+            assert list(t.head()) == [{'c1': 'xyz', 'result': None}]
+
+            # Ensure that inserting or updating raises an error if there is an invalid column
+            if validation_error is None:
+                t.insert(c1='abc')
+                t.where(t.c1 == 'abc').update({'c1': 'def'})
+                t.where(t.c1 == 'def').delete()
+            else:
+                with pytest.raises(excs.Error, match=insert_error_regex(validation_error)):
+                    t.insert(c1='abc')
+                with pytest.raises(excs.Error, match=update_error_regex(validation_error)):
+                    t.where(t.c1 == 'xyz').update({'c1': 'def'})
 
         def warning_regex(msg: str) -> str:
             regex = '.*'.join([
                 re.escape("The computed column 'result' in table 'test' is no longer valid."),
                 re.escape(msg),
                 re.escape("You can continue to query existing data from this column, but evaluating it on new data will raise an error."),
+            ])
+            return '(?s)' + regex
+
+        def insert_error_regex(msg: str) -> str:
+            regex = '.*'.join([
+                re.escape("Data cannot be inserted into the table 'test',\nbecause the column 'result' is currently invalid:"),
+                re.escape(msg),
+            ])
+            return '(?s)' + regex
+
+        def update_error_regex(msg: str) -> str:
+            regex = '.*'.join([
+                re.escape("Data cannot be updated in the table 'test',\nbecause the column 'result' is currently invalid:"),
+                re.escape(msg),
             ])
             return '(?s)' + regex
 
@@ -753,7 +784,7 @@ class TestFunction:
             return None
 
         mimic(udf_version_2)
-        reload_table()
+        reload_and_validate_table()
 
         # Rename the parameter; this works only if the UDF was invoked with a positional argument
         @pxt.udf(_force_stored=True)
@@ -762,9 +793,9 @@ class TestFunction:
 
         mimic(udf_version_3)
         if as_kwarg:
-            reload_table(validation_error=signature_error.format(params='(c: String, b: String)'))
+            reload_and_validate_table(validation_error=signature_error.format(params='(c: String, b: String)'))
         else:
-            reload_table()
+            reload_and_validate_table()
 
         # Change the parameter from fixed to variable; this works only if the UDF was invoked with a positional
         # argument
@@ -774,9 +805,9 @@ class TestFunction:
 
         mimic(udf_version_4)
         if as_kwarg:
-            reload_table(validation_error=signature_error.format(params='(*a)'))
+            reload_and_validate_table(validation_error=signature_error.format(params='(*a)'))
         else:
-            reload_table()
+            reload_and_validate_table()
 
         # Narrow the return type; this works in all cases
         @pxt.udf(_force_stored=True)
@@ -784,7 +815,7 @@ class TestFunction:
             return None
 
         mimic(udf_version_5)
-        reload_table()
+        reload_and_validate_table()
 
         # Change the type of the parameter to something incompatible; this fails in all cases
         @pxt.udf(_force_stored=True)
@@ -792,7 +823,7 @@ class TestFunction:
             return None
 
         mimic(udf_version_6)
-        reload_table(validation_error=signature_error.format(params='(a: Float, b: Int)'))
+        reload_and_validate_table(validation_error=signature_error.format(params='(a: Float, b: Int)'))
 
         # Widen the return type; this fails in all cases
         @pxt.udf(_force_stored=True)
@@ -800,7 +831,7 @@ class TestFunction:
             return None
 
         mimic(udf_version_7)
-        reload_table(validation_error=return_type_error.format(return_type='Optional[Array]'))
+        reload_and_validate_table(validation_error=return_type_error.format(return_type='Optional[Array]'))
 
         # Add a poison parameter; this works only if the UDF was invoked with a keyword argument
         @pxt.udf(_force_stored=True)
@@ -809,13 +840,13 @@ class TestFunction:
 
         mimic(udf_version_8)
         if as_kwarg:
-            reload_table()
+            reload_and_validate_table()
         else:
-            reload_table(validation_error=signature_error.format(params='(c: Float, a: String, b: Int)'))
+            reload_and_validate_table(validation_error=signature_error.format(params='(c: Float, a: String, b: Int)'))
 
         # Remove the function entirely
         del tests.test_function.evolving_udf
-        reload_table(validation_error="the symbol 'tests.test_function.evolving_udf' no longer exists")
+        reload_and_validate_table(validation_error="the symbol 'tests.test_function.evolving_udf' no longer exists")
 
     def test_tool_errors(self):
         with pytest.raises(excs.Error) as exc_info:

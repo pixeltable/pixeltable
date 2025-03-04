@@ -290,7 +290,7 @@ class Planner:
                         because the column {col.name!r} is currently invalid:
                         {{validation_error}}
                         """
-                    ).format(validation_error=col.value_expr.validation_error)
+                    ).strip().format(validation_error=col.value_expr.validation_error)
                 )
 
         row_builder = exprs.RowBuilder([], stored_cols, [])
@@ -394,11 +394,11 @@ class Planner:
                 raise excs.Error(
                     dedent(
                         f"""
-                        Data cannot be updated in the table {tbl.name!r},
+                        Data cannot be updated in the table {tbl.tbl_version.name!r},
                         because the column {col.name!r} is currently invalid:
                         {{validation_error}}
                         """
-                    ).format(validation_error=col.value_expr.validation_error)
+                    ).strip().format(validation_error=col.value_expr.validation_error)
                 )
 
 
