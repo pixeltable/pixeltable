@@ -74,7 +74,7 @@ class Column:
           col_type is None
         - when loaded from md store: ``computed_with`` is set and col_type is set
 
-        ``stored`` (only valid for computed image columns):
+        ``stored`` (only valid for computed columns):
         - if True: the column is present in the stored table
         - if False: the column is not present in the stored table and recomputed during a query
         - if None: the system chooses for you (at present, this is always False, but this may change in the future)

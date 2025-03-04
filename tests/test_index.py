@@ -9,14 +9,13 @@ import PIL.Image
 import pytest
 
 import pixeltable as pxt
+from pixeltable import func
 from pixeltable.functions.huggingface import clip
 
 from .utils import (
     ReloadTester,
     assert_img_eq,
     assert_resultset_eq,
-    clip_embed,
-    e5_embed,
     get_sentences,
     reload_catalog,
     skip_test_if_not_installed,
@@ -37,7 +36,9 @@ class TestIndex:
     def bad_embed2(x: str) -> pxt.Array[(None,), pxt.Float]:
         return np.zeros(10)
 
-    def test_similarity_multiple_index(self, multi_idx_img_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
+    def test_similarity_multiple_index(
+        self, multi_idx_img_tbl: pxt.Table, clip_embed: func.Function, reload_tester: ReloadTester
+    ) -> None:
         skip_test_if_not_installed('transformers')
         t = multi_idx_img_tbl
         sample_img = t.select(t.img).head(1)[0, 'img']
@@ -71,7 +72,12 @@ class TestIndex:
 
     @pytest.mark.parametrize('use_index_name,use_separate_embeddings', [(False, False), (True, False), (False, True)])
     def test_similarity(
-        self, use_index_name: bool, use_separate_embeddings: bool, small_img_tbl: pxt.Table, reload_tester: ReloadTester
+        self,
+        use_index_name: bool,
+        use_separate_embeddings: bool,
+        small_img_tbl: pxt.Table,
+        clip_embed: func.Function,
+        reload_tester: ReloadTester,
     ) -> None:
         skip_test_if_not_installed('transformers')
         t = small_img_tbl
@@ -111,7 +117,7 @@ class TestIndex:
 
             t.drop_embedding_index(column='img')
 
-    def test_query(self, reset_db) -> None:
+    def test_query(self, reset_db, clip_embed: func.Function) -> None:
         skip_test_if_not_installed('transformers')
         queries = pxt.create_table('queries', {'query_text': pxt.String})
         query_rows = [
@@ -152,7 +158,7 @@ class TestIndex:
         # insert more rows in order to run the query function
         validate_update_status(queries.insert(query_rows))
 
-    def test_search_fn(self, small_img_tbl: pxt.Table) -> None:
+    def test_search_fn(self, small_img_tbl: pxt.Table, clip_embed: func.Function) -> None:
         skip_test_if_not_installed('transformers')
         t = small_img_tbl
         sample_img = t.select(t.img).head(1)[0, 'img']
@@ -167,7 +173,9 @@ class TestIndex:
 
         res = list(t.select(img=t.img.localpath, matches=img_matches(t.img)).head(1))
 
-    def test_similarity_errors(self, indexed_img_tbl: pxt.Table, small_img_tbl: pxt.Table) -> None:
+    def test_similarity_errors(
+        self, indexed_img_tbl: pxt.Table, small_img_tbl: pxt.Table, clip_embed: func.Function
+    ) -> None:
         skip_test_if_not_installed('transformers')
         t = indexed_img_tbl
         with pytest.raises(pxt.Error) as exc_info:
@@ -205,7 +213,7 @@ class TestIndex:
             _ = t.order_by(t.split.similarity(sample_img)).limit(1).collect()
         assert 'does not have an image embedding' in str(exc_info.value).lower()
 
-    def test_add_index_after_drop(self, small_img_tbl: pxt.Table) -> None:
+    def test_add_index_after_drop(self, small_img_tbl: pxt.Table, clip_embed: func.Function) -> None:
         """Test that an index with the same name can be added after the previous one is dropped"""
         skip_test_if_not_installed('transformers')
         t = small_img_tbl
@@ -262,7 +270,9 @@ class TestIndex:
         )
         assert_resultset_eq(orig_res, res, True)
 
-    def test_add_embedding_index_if_exists(self, small_img_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
+    def test_add_embedding_index_if_exists(
+        self, small_img_tbl: pxt.Table, reload_tester: ReloadTester, clip_embed: func.Function
+    ) -> None:
         skip_test_if_not_installed('transformers')
         t = small_img_tbl
         sample_img = t.select(t.img).head(1)[0, 'img']
@@ -335,7 +345,15 @@ class TestIndex:
         # sanity check persistence
         reload_tester.run_reload_test()
 
-    def test_embedding_basic(self, img_tbl: pxt.Table, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
+    def test_embedding_basic(
+        self,
+        img_tbl: pxt.Table,
+        test_tbl: pxt.Table,
+        clip_embed: func.Function,
+        e5_embed: func.Function,
+        all_mpnet_embed: func.Function,
+        reload_tester: ReloadTester,
+    ) -> None:
         skip_test_if_not_installed('transformers')
         img_t = img_tbl
         rows = list(img_t.select(img=img_t.img.fileurl, category=img_t.category, split=img_t.split).collect())
@@ -468,9 +486,7 @@ class TestIndex:
         t = pxt.create_table('t1', {'s': pxt.String})
         sents = get_sentences(3)
         status = t.insert({'s': s} for s in sents)
-        t.add_embedding_index(
-            's', string_embed=pxt.functions.huggingface.sentence_transformer.using(model_id='all-mpnet-base-v2')
-        )
+        t.add_embedding_index('s', string_embed=all_mpnet_embed)
         df = t.select(sim=t.s.similarity(sents[1]))
         res1 = df.collect()
         _ = reload_tester.run_query(t.select())
@@ -480,16 +496,10 @@ class TestIndex:
         t = pxt.create_table('t2', {'s': pxt.String})
         status = t.insert({'s': s} for s in sents)
         v = pxt.create_view('v', t)
-        v.add_embedding_index(
-            's', string_embed=pxt.functions.huggingface.sentence_transformer.using(model_id='all-mpnet-base-v2')
-        )
+        v.add_embedding_index('s', string_embed=all_mpnet_embed)
         # should work irrespective of whether the column is passed by name or reference
-        v.add_embedding_index(
-            v.s, string_embed=pxt.functions.huggingface.sentence_transformer.using(model_id='all-mpnet-base-v2')
-        )
-        v.add_embedding_index(
-            t.s, string_embed=pxt.functions.huggingface.sentence_transformer.using(model_id='all-mpnet-base-v2')
-        )
+        v.add_embedding_index(v.s, string_embed=all_mpnet_embed)
+        v.add_embedding_index(t.s, string_embed=all_mpnet_embed)
         # Expected to verify the following:
         # df = v.select(sim=v.s.similarity(sents[1]))
         # res2 = df.collect()
@@ -511,7 +521,7 @@ class TestIndex:
 
         reload_tester.run_reload_test()
 
-    def test_embedding_errors(self, small_img_tbl: pxt.Table, test_tbl: pxt.Table) -> None:
+    def test_embedding_errors(self, small_img_tbl: pxt.Table, test_tbl: pxt.Table, clip_embed: func.Function) -> None:
         skip_test_if_not_installed('transformers')
         img_t = small_img_tbl
 
