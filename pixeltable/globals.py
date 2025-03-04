@@ -445,6 +445,7 @@ def get_table(path: str) -> catalog.Table:
     Catalog.get().paths.check_is_valid(p, expected=catalog.Table)
     obj = Catalog.get().paths[p]
     assert isinstance(obj, catalog.Table)
+    obj.ensure_md_loaded()  # Ensure metadata is loaded, to surface any warnings now
     return obj
 
 

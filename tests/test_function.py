@@ -702,12 +702,11 @@ class TestFunction:
 
         def reload_table(validation_error: Optional[str] = None) -> None:
             reload_catalog()
-            t = pxt.get_table('test')
             if validation_error is None:
-                _ = repr(t)  # Force all metadata to load
+                t = pxt.get_table('test')
             else:
                 with pytest.warns(pxt.PixeltableWarning, match=warning_regex(validation_error)):
-                    _ = repr(t)
+                    t = pxt.get_table('test')
             assert list(t.head()) == [{'c1': 'xyz', 'result': None}]  # Ensure table can be queried
 
         def warning_regex(msg: str) -> str:
