@@ -243,8 +243,8 @@ class ColumnType:
             return FloatType(nullable=nullable)
         if isinstance(val, datetime.datetime):
             return TimestampType(nullable=nullable)
-        if isinstance(val, datetime.date):
-            return TimestampType(nullable=nullable)
+        #        if isinstance(val, datetime.date):
+        #            return TimestampType(nullable=nullable)
         if isinstance(val, PIL.Image.Image):
             return ImageType(width=val.width, height=val.height, mode=val.mode, nullable=nullable)
         if isinstance(val, np.ndarray):
@@ -276,8 +276,8 @@ class ColumnType:
                 inferred_type = val_type
             else:
                 inferred_type = inferred_type.supertype(val_type)
-                if inferred_type is None:
-                    return None
+            if inferred_type is None:
+                return None
             if not inferred_type.has_supertype():
                 return inferred_type
         return inferred_type
@@ -616,8 +616,8 @@ class TimestampType(ColumnType):
             return datetime.datetime.fromisoformat(val)
         if isinstance(val, datetime.datetime):
             return val
-        if isinstance(val, datetime.date):
-            return datetime.datetime.combine(val, datetime.time.min)
+        #        if isinstance(val, datetime.date):
+        #            return datetime.datetime.combine(val, datetime.time.min)
         return val
 
 

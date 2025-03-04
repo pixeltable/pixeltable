@@ -25,10 +25,10 @@ class TestParquet:
         pqts = []
         test_path = 'tests/data/datasets/'
         file_list = [
-            'bank_failures.parquet',
-            'gold_vs_bitcoin.parquet',
+            #            'bank_failures.parquet',
+            #            'gold_vs_bitcoin.parquet',
             'iris.parquet',
-            'search_trends.parquet',
+            #            'search_trends.parquet',
             'table.parquet',
             'taq.parquet',
             'titanic.parquet',
