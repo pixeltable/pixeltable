@@ -134,7 +134,7 @@ description = "A database migration tool for SQLAlchemy."
 optional = false
 python-versions = ">=3.8"
 groups = ["dev"]
-markers = "python_version == \"3.9\" or python_version == \"3.10\" or platform_system == \"Linux\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" or python_version == \"3.12\""
+markers = "python_version == \"3.9\" and sys_platform != \"win32\" or python_version == \"3.10\" and sys_platform != \"win32\" or platform_system == \"Linux\" and sys_platform != \"win32\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" and sys_platform != \"win32\" or python_version == \"3.12\" and sys_platform != \"win32\""
 files = [
     {file = "alembic-1.14.1-py3-none-any.whl", hash = "sha256:1acdd7a3a478e208b0503cd73614d5e4c6efafa4e73518bb60e4f2846a37b1c5"},
     {file = "alembic-1.14.1.tar.gz", hash = "sha256:496e888245a53adf1498fcab31713a469c65836f8de76e01399aa1c3e90dd213"},
@@ -195,7 +195,7 @@ description = "ANTLR 4.9.3 runtime for Python 3.7"
 optional = false
 python-versions = "*"
 groups = ["dev"]
-markers = "python_version == \"3.9\" or python_version == \"3.10\" or platform_system == \"Linux\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" or python_version == \"3.12\""
+markers = "python_version == \"3.9\" and sys_platform != \"win32\" or python_version == \"3.10\" and sys_platform != \"win32\" or platform_system == \"Linux\" and sys_platform != \"win32\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" and sys_platform != \"win32\" or python_version == \"3.12\" and sys_platform != \"win32\""
 files = [
     {file = "antlr4-python3-runtime-4.9.3.tar.gz", hash = "sha256:f224469b4168294902bb1efa80a8bf7855f24c99aef99cbefc1bcd3cce77881b"},
 ]
@@ -355,7 +355,7 @@ description = "Asteroid's filterbanks"
 optional = false
 python-versions = ">=3.6"
 groups = ["dev"]
-markers = "python_version == \"3.9\" or python_version == \"3.10\" or platform_system == \"Linux\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" or python_version == \"3.12\""
+markers = "python_version == \"3.9\" and sys_platform != \"win32\" or python_version == \"3.10\" and sys_platform != \"win32\" or platform_system == \"Linux\" and sys_platform != \"win32\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" and sys_platform != \"win32\" or python_version == \"3.12\" and sys_platform != \"win32\""
 files = [
     {file = "asteroid-filterbanks-0.4.0.tar.gz", hash = "sha256:415f89d1dcf2b13b35f03f7a9370968ac4e6fa6800633c522dac992b283409b9"},
     {file = "asteroid_filterbanks-0.4.0-py3-none-any.whl", hash = "sha256:4932ac8b6acc6e08fb87cbe8ece84215b5a74eee284fe83acf3540a72a02eaf5"},
@@ -1603,7 +1603,7 @@ description = "Colored terminal output for Python's logging module"
 optional = false
 python-versions = ">=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*, !=3.4.*"
 groups = ["dev"]
-markers = "platform_system == \"Linux\" and platform_machine == \"aarch64\""
+markers = "sys_platform != \"win32\""
 files = [
     {file = "coloredlogs-15.0.1-py2.py3-none-any.whl", hash = "sha256:612ee75c546f53e92e70049c9dbfcc18c935a2b9a53b66085ce9ef6a6e5c0934"},
     {file = "coloredlogs-15.0.1.tar.gz", hash = "sha256:7c991aa71a4577af2f82600d8f8f3a89f936baeaf9b50a9c197da014e5bf16b0"},
@@ -1622,14 +1622,11 @@ description = "Add colours to the output of Python's logging module."
 optional = false
 python-versions = ">=3.6"
 groups = ["dev"]
-markers = "python_version == \"3.9\" or python_version == \"3.10\" or platform_system == \"Linux\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" or python_version == \"3.12\""
+markers = "python_version == \"3.9\" and sys_platform != \"win32\" or python_version == \"3.10\" and sys_platform != \"win32\" or platform_system == \"Linux\" and sys_platform != \"win32\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" and sys_platform != \"win32\" or python_version == \"3.12\" and sys_platform != \"win32\""
 files = [
     {file = "colorlog-6.9.0-py3-none-any.whl", hash = "sha256:5906e71acd67cb07a71e779c47c4bcb45fb8c2993eebe9e5adcd6a6f1b283eff"},
     {file = "colorlog-6.9.0.tar.gz", hash = "sha256:bfba54a1b93b94f54e1f4fe48395725a3d92fd2a4af702f6bd70946bdc0c6ac2"},
 ]
-
-[package.dependencies]
-colorama = {version = "*", markers = "sys_platform == \"win32\""}
 
 [package.extras]
 development = ["black", "flake8", "mypy", "pytest", "types-colorama"]
@@ -1819,7 +1816,7 @@ description = "Fast inference engine for Transformer models"
 optional = false
 python-versions = ">=3.8"
 groups = ["dev"]
-markers = "platform_system == \"Linux\" and platform_machine == \"aarch64\""
+markers = "sys_platform != \"win32\""
 files = [
     {file = "ctranslate2-4.3.1-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:e962c9dc3ddfacf60f2467bea5f91f75239c3d9c17656e4b0c569d956d662b99"},
     {file = "ctranslate2-4.3.1-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:49a0d9136d577b667c1bb450267248d9cf205b5eb28b89b3f70c296ec5285da8"},
@@ -2120,7 +2117,7 @@ description = "Pythonic argument parser, that will make you smile"
 optional = false
 python-versions = "*"
 groups = ["dev"]
-markers = "python_version == \"3.9\" or python_version == \"3.10\" or platform_system == \"Linux\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" or python_version == \"3.12\""
+markers = "python_version == \"3.9\" and sys_platform != \"win32\" or python_version == \"3.10\" and sys_platform != \"win32\" or platform_system == \"Linux\" and sys_platform != \"win32\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" and sys_platform != \"win32\" or python_version == \"3.12\" and sys_platform != \"win32\""
 files = [
     {file = "docopt-0.6.2.tar.gz", hash = "sha256:49b3a825280bd66b3aa83585ef59c4a8c82f2c8a522dbe754a8bc8d08c85c491"},
 ]
@@ -2132,7 +2129,7 @@ description = "A new flavour of deep learning operations"
 optional = false
 python-versions = ">=3.8"
 groups = ["dev"]
-markers = "python_version == \"3.9\" or python_version == \"3.10\" or platform_system == \"Linux\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" or python_version == \"3.12\""
+markers = "python_version == \"3.9\" and sys_platform != \"win32\" or python_version == \"3.10\" and sys_platform != \"win32\" or platform_system == \"Linux\" and sys_platform != \"win32\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" and sys_platform != \"win32\" or python_version == \"3.12\" and sys_platform != \"win32\""
 files = [
     {file = "einops-0.8.1-py3-none-any.whl", hash = "sha256:919387eb55330f5757c6bea9165c5ff5cfe63a642682ea788a6d472576d81737"},
     {file = "einops-0.8.1.tar.gz", hash = "sha256:de5d960a7a761225532e0f1959e5315ebeafc0cd43394732f103ca44b9837e84"},
@@ -2235,7 +2232,7 @@ description = "Faster Whisper transcription with CTranslate2"
 optional = false
 python-versions = ">=3.8"
 groups = ["dev"]
-markers = "python_version == \"3.9\" or python_version == \"3.10\" or platform_system == \"Linux\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" or python_version == \"3.12\""
+markers = "python_version == \"3.9\" and sys_platform != \"win32\" or python_version == \"3.10\" and sys_platform != \"win32\" or platform_system == \"Linux\" and sys_platform != \"win32\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" and sys_platform != \"win32\" or python_version == \"3.12\" and sys_platform != \"win32\""
 files = [
     {file = "faster-whisper-1.1.0.tar.gz", hash = "sha256:cea4bba5d4527173fdbacafa56f2ffb17dd322688f6c3fdf5fd7b6b6c193ce17"},
     {file = "faster_whisper-1.1.0-py3-none-any.whl", hash = "sha256:0f2d025676bbff1e46c4108b6f9a82578d6e33826c174af2990e45b33fab6182"},
@@ -2405,7 +2402,7 @@ description = "The FlatBuffers serialization format for Python"
 optional = false
 python-versions = "*"
 groups = ["dev"]
-markers = "platform_system == \"Linux\" and platform_machine == \"aarch64\""
+markers = "sys_platform != \"win32\""
 files = [
     {file = "flatbuffers-25.2.10-py2.py3-none-any.whl", hash = "sha256:ebba5f4d5ea615af3f7fd70fc310636fbb2bbd1f566ac0a23d98dd412de50051"},
     {file = "flatbuffers-25.2.10.tar.gz", hash = "sha256:97e451377a41262f8d9bd4295cc836133415cc03d8cb966410a4af92eb00d26e"},
@@ -3217,14 +3214,11 @@ description = "Human friendly output for text interfaces using Python"
 optional = false
 python-versions = ">=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*, !=3.4.*"
 groups = ["dev"]
-markers = "platform_system == \"Linux\" and platform_machine == \"aarch64\""
+markers = "sys_platform != \"win32\""
 files = [
     {file = "humanfriendly-10.0-py2.py3-none-any.whl", hash = "sha256:1697e1a8a8f550fd43c2865cd84542fc175a61dcb779b6fee18cf6b6ccba1477"},
     {file = "humanfriendly-10.0.tar.gz", hash = "sha256:6b0b831ce8f15f7300721aa49829fc4e83921a9a301cc7f606be6686a2288ddc"},
 ]
-
-[package.dependencies]
-pyreadline3 = {version = "*", markers = "sys_platform == \"win32\" and python_version >= \"3.8\""}
 
 [[package]]
 name = "humanize"
@@ -3291,7 +3285,7 @@ description = "Extensions to YAML syntax for better python interaction"
 optional = false
 python-versions = "*"
 groups = ["dev"]
-markers = "python_version == \"3.9\" or python_version == \"3.10\" or platform_system == \"Linux\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" or python_version == \"3.12\""
+markers = "python_version == \"3.9\" and sys_platform != \"win32\" or python_version == \"3.10\" and sys_platform != \"win32\" or platform_system == \"Linux\" and sys_platform != \"win32\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" and sys_platform != \"win32\" or python_version == \"3.12\" and sys_platform != \"win32\""
 files = [
     {file = "HyperPyYAML-1.2.2-py3-none-any.whl", hash = "sha256:3c5864bdc8864b2f0fbd7bc495e7e8fdf2dfd5dd80116f72da27ca96a128bdeb"},
     {file = "HyperPyYAML-1.2.2.tar.gz", hash = "sha256:bdb734210d18770a262f500fe5755c7a44a5d3b91521b06e24f7a00a36ee0f87"},
@@ -3839,7 +3833,7 @@ description = "Nice DSP sweets: resampling, FFT Convolutions. All with PyTorch, 
 optional = false
 python-versions = ">=3.6.0"
 groups = ["dev"]
-markers = "python_version == \"3.9\" or python_version == \"3.10\" or platform_system == \"Linux\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" or python_version == \"3.12\""
+markers = "python_version == \"3.9\" and sys_platform != \"win32\" or python_version == \"3.10\" and sys_platform != \"win32\" or platform_system == \"Linux\" and sys_platform != \"win32\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" and sys_platform != \"win32\" or python_version == \"3.12\" and sys_platform != \"win32\""
 files = [
     {file = "julius-0.2.7.tar.gz", hash = "sha256:3c0f5f5306d7d6016fcc95196b274cae6f07e2c9596eed314e4e7641554fbb08"},
 ]
@@ -4288,7 +4282,7 @@ description = "The Deep Learning framework to train, deploy, and ship AI product
 optional = false
 python-versions = ">=3.9"
 groups = ["dev"]
-markers = "python_version == \"3.9\" or python_version == \"3.10\" or platform_system == \"Linux\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" or python_version == \"3.12\""
+markers = "python_version == \"3.9\" and sys_platform != \"win32\" or python_version == \"3.10\" and sys_platform != \"win32\" or platform_system == \"Linux\" and sys_platform != \"win32\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" and sys_platform != \"win32\" or python_version == \"3.12\" and sys_platform != \"win32\""
 files = [
     {file = "lightning-2.5.0.post0-py3-none-any.whl", hash = "sha256:b08463326e6fb39cb3e4db8ff2660a80ce3372a0688c80e3370c091346ea220c"},
     {file = "lightning-2.5.0.post0.tar.gz", hash = "sha256:f720fe4f6d03a7f15f9aef3112c5a0d1eafd8d27b903f4a1354b609685b2ec70"},
@@ -4332,7 +4326,7 @@ description = "Lightning toolbox for across the our ecosystem."
 optional = false
 python-versions = ">=3.9"
 groups = ["dev"]
-markers = "python_version == \"3.9\" or python_version == \"3.10\" or platform_system == \"Linux\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" or python_version == \"3.12\""
+markers = "python_version == \"3.9\" and sys_platform != \"win32\" or python_version == \"3.10\" and sys_platform != \"win32\" or platform_system == \"Linux\" and sys_platform != \"win32\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" and sys_platform != \"win32\" or python_version == \"3.12\" and sys_platform != \"win32\""
 files = [
     {file = "lightning_utilities-0.13.0-py3-none-any.whl", hash = "sha256:aa538db18a805ad76d2c6b94e6fc4d2d9bff6f56bd4255c82805672aa3aea12f"},
     {file = "lightning_utilities-0.13.0.tar.gz", hash = "sha256:ace17a6ce18d290410d903412fc27aef60acdbfb88956fc048ab80ef74fcea7d"},
@@ -4567,7 +4561,7 @@ description = "A super-fast templating language that borrows the best ideas from
 optional = false
 python-versions = ">=3.8"
 groups = ["dev"]
-markers = "python_version == \"3.9\" or python_version == \"3.10\" or platform_system == \"Linux\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" or python_version == \"3.12\""
+markers = "python_version == \"3.9\" and sys_platform != \"win32\" or python_version == \"3.10\" and sys_platform != \"win32\" or platform_system == \"Linux\" and sys_platform != \"win32\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" and sys_platform != \"win32\" or python_version == \"3.12\" and sys_platform != \"win32\""
 files = [
     {file = "Mako-1.3.9-py3-none-any.whl", hash = "sha256:95920acccb578427a9aa38e37a186b1e43156c87260d7ba18ca63aa4c7cbd3a1"},
     {file = "mako-1.3.9.tar.gz", hash = "sha256:b5d65ff3462870feec922dbccf38f6efb44e5714d7b593a656be86663d8600ac"},
@@ -5936,7 +5930,7 @@ description = "A flexible configuration library"
 optional = false
 python-versions = ">=3.6"
 groups = ["dev"]
-markers = "python_version == \"3.9\" or python_version == \"3.10\" or platform_system == \"Linux\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" or python_version == \"3.12\""
+markers = "python_version == \"3.9\" and sys_platform != \"win32\" or python_version == \"3.10\" and sys_platform != \"win32\" or platform_system == \"Linux\" and sys_platform != \"win32\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" and sys_platform != \"win32\" or python_version == \"3.12\" and sys_platform != \"win32\""
 files = [
     {file = "omegaconf-2.3.0-py3-none-any.whl", hash = "sha256:7b4df175cdb08ba400f45cae3bdcae7ba8365db4d165fc65fd04b050ab63b46b"},
     {file = "omegaconf-2.3.0.tar.gz", hash = "sha256:d5d4b6d29955cc50ad50c46dc269bcd92c6e00f5f90d23ab5fee7bfca4ba4cc7"},
@@ -5953,7 +5947,7 @@ description = "ONNX Runtime is a runtime accelerator for Machine Learning models
 optional = false
 python-versions = "*"
 groups = ["dev"]
-markers = "platform_system == \"Linux\" and platform_machine == \"aarch64\""
+markers = "sys_platform != \"win32\""
 files = [
     {file = "onnxruntime-1.18.0-cp310-cp310-macosx_11_0_universal2.whl", hash = "sha256:5a3b7993a5ecf4a90f35542a4757e29b2d653da3efe06cdd3164b91167bbe10d"},
     {file = "onnxruntime-1.18.0-cp310-cp310-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:15b944623b2cdfe7f7945690bfb71c10a4531b51997c8320b84e7b0bb59af902"},
@@ -6092,7 +6086,7 @@ description = "A hyperparameter optimization framework"
 optional = false
 python-versions = ">=3.8"
 groups = ["dev"]
-markers = "python_version == \"3.9\" or python_version == \"3.10\" or platform_system == \"Linux\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" or python_version == \"3.12\""
+markers = "python_version == \"3.9\" and sys_platform != \"win32\" or python_version == \"3.10\" and sys_platform != \"win32\" or platform_system == \"Linux\" and sys_platform != \"win32\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" and sys_platform != \"win32\" or python_version == \"3.12\" and sys_platform != \"win32\""
 files = [
     {file = "optuna-4.2.1-py3-none-any.whl", hash = "sha256:6d38199013441d3f70fac27136e05c0188c5f4ec3848db708ac311cbdeb30dbf"},
     {file = "optuna-4.2.1.tar.gz", hash = "sha256:2ecd74cdc8aaf5dda1f2b9e267999bab21def9a33e0a4f415ecae0c468c401e0"},
@@ -6599,7 +6593,7 @@ description = "This module contains several useful functions to work with prime 
 optional = false
 python-versions = "*"
 groups = ["dev"]
-markers = "python_version == \"3.9\" or python_version == \"3.10\" or platform_system == \"Linux\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" or python_version == \"3.12\""
+markers = "python_version == \"3.9\" and sys_platform != \"win32\" or python_version == \"3.10\" and sys_platform != \"win32\" or platform_system == \"Linux\" and sys_platform != \"win32\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" and sys_platform != \"win32\" or python_version == \"3.12\" and sys_platform != \"win32\""
 files = [
     {file = "primePy-1.3-py3-none-any.whl", hash = "sha256:5ed443718765be9bf7e2ff4c56cdff71b42140a15b39d054f9d99f0009e2317a"},
     {file = "primePy-1.3.tar.gz", hash = "sha256:25fd7e25344b0789a5984c75d89f054fcf1f180bef20c998e4befbac92de4669"},
@@ -6904,7 +6898,7 @@ description = "Neural building blocks for speaker diarization"
 optional = false
 python-versions = ">=3.9"
 groups = ["dev"]
-markers = "python_version == \"3.9\" or python_version == \"3.10\" or platform_system == \"Linux\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" or python_version == \"3.12\""
+markers = "python_version == \"3.9\" and sys_platform != \"win32\" or python_version == \"3.10\" and sys_platform != \"win32\" or platform_system == \"Linux\" and sys_platform != \"win32\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" and sys_platform != \"win32\" or python_version == \"3.12\" and sys_platform != \"win32\""
 files = [
     {file = "pyannote.audio-3.3.2-py2.py3-none-any.whl", hash = "sha256:599c694acd5d193215147ff82d0bf638bb191204ed502bd9fde8ff582e20aa1c"},
     {file = "pyannote_audio-3.3.2.tar.gz", hash = "sha256:b2115e86b0db5faedb9f36ee1a150cebd07f7758e65e815accdac1a12ca9c777"},
@@ -6944,7 +6938,7 @@ description = "Advanced data structures for handling temporal segments with atta
 optional = false
 python-versions = "*"
 groups = ["dev"]
-markers = "python_version == \"3.9\" or python_version == \"3.10\" or platform_system == \"Linux\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" or python_version == \"3.12\""
+markers = "python_version == \"3.9\" and sys_platform != \"win32\" or python_version == \"3.10\" and sys_platform != \"win32\" or platform_system == \"Linux\" and sys_platform != \"win32\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" and sys_platform != \"win32\" or python_version == \"3.12\" and sys_platform != \"win32\""
 files = [
     {file = "pyannote.core-5.0.0-py3-none-any.whl", hash = "sha256:04920a6754492242ce0dc6017545595ab643870fe69a994f20c1a5f2da0544d0"},
     {file = "pyannote.core-5.0.0.tar.gz", hash = "sha256:1a55bcc8bd680ba6be5fa53efa3b6f3d2cdd67144c07b6b4d8d66d5cb0d2096f"},
@@ -6968,7 +6962,7 @@ description = "Interface to multimedia databases and experimental protocols"
 optional = false
 python-versions = "*"
 groups = ["dev"]
-markers = "python_version == \"3.9\" or python_version == \"3.10\" or platform_system == \"Linux\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" or python_version == \"3.12\""
+markers = "python_version == \"3.9\" and sys_platform != \"win32\" or python_version == \"3.10\" and sys_platform != \"win32\" or platform_system == \"Linux\" and sys_platform != \"win32\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" and sys_platform != \"win32\" or python_version == \"3.12\" and sys_platform != \"win32\""
 files = [
     {file = "pyannote.database-5.0.1-py3-none-any.whl", hash = "sha256:4557472f08979c0f745b276f5384279ab8a87b80b6e0193c59755881b0b30dfc"},
     {file = "pyannote.database-5.0.1.tar.gz", hash = "sha256:980bdc910615380a17d8bd82805f9770006d050b2c7a946a520ade4627192681"},
@@ -6991,7 +6985,7 @@ description = "a toolkit for reproducible evaluation, diagnostic, and error anal
 optional = false
 python-versions = "*"
 groups = ["dev"]
-markers = "python_version == \"3.9\" or python_version == \"3.10\" or platform_system == \"Linux\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" or python_version == \"3.12\""
+markers = "python_version == \"3.9\" and sys_platform != \"win32\" or python_version == \"3.10\" and sys_platform != \"win32\" or platform_system == \"Linux\" and sys_platform != \"win32\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" and sys_platform != \"win32\" or python_version == \"3.12\" and sys_platform != \"win32\""
 files = [
     {file = "pyannote.metrics-3.2.1-py3-none-any.whl", hash = "sha256:46be797cdade26c82773e5018659ae610145260069c7c5bf3d3c8a029ade8e22"},
     {file = "pyannote.metrics-3.2.1.tar.gz", hash = "sha256:08024255a3550e96a8e9da4f5f4af326886548480de891414567c8900920ee5c"},
@@ -7020,7 +7014,7 @@ description = "Tunable pipelines."
 optional = false
 python-versions = "*"
 groups = ["dev"]
-markers = "python_version == \"3.9\" or python_version == \"3.10\" or platform_system == \"Linux\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" or python_version == \"3.12\""
+markers = "python_version == \"3.9\" and sys_platform != \"win32\" or python_version == \"3.10\" and sys_platform != \"win32\" or platform_system == \"Linux\" and sys_platform != \"win32\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" and sys_platform != \"win32\" or python_version == \"3.12\" and sys_platform != \"win32\""
 files = [
     {file = "pyannote.pipeline-3.0.1-py3-none-any.whl", hash = "sha256:819bde4c4dd514f740f2373dfec794832b9fc8e346a35e43a7681625ee187393"},
     {file = "pyannote.pipeline-3.0.1.tar.gz", hash = "sha256:021794e26a2cf5d8fb5bb1835951e71f5fac33eb14e23dfb7468e16b1b805151"},
@@ -7763,22 +7757,6 @@ fuzzer = ["atheris", "hypothesis"]
 test = ["coverage[toml] (>=5.2)", "hypothesis", "pytest (>=6.0)", "pytest-benchmark", "pytest-cov", "pytest-timeout"]
 
 [[package]]
-name = "pyreadline3"
-version = "3.5.4"
-description = "A python implementation of GNU readline."
-optional = false
-python-versions = ">=3.8"
-groups = ["dev"]
-markers = "sys_platform == \"win32\""
-files = [
-    {file = "pyreadline3-3.5.4-py3-none-any.whl", hash = "sha256:eaf8e6cc3c49bcccf145fc6067ba8643d1df34d604a1ec0eccbf7a18e6d3fae6"},
-    {file = "pyreadline3-3.5.4.tar.gz", hash = "sha256:8d57d53039a1c75adba8e50dd3d992b28143480816187ea5efbd5c78e6c885b7"},
-]
-
-[package.extras]
-dev = ["build", "flake8", "mypy", "pytest", "twine"]
-
-[[package]]
 name = "pytest"
 version = "7.4.4"
 description = "pytest: simple powerful testing with Python"
@@ -7878,7 +7856,7 @@ description = "PyTorch Lightning is the lightweight PyTorch wrapper for ML resea
 optional = false
 python-versions = ">=3.9"
 groups = ["dev"]
-markers = "python_version == \"3.9\" or python_version == \"3.10\" or platform_system == \"Linux\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" or python_version == \"3.12\""
+markers = "python_version == \"3.9\" and sys_platform != \"win32\" or python_version == \"3.10\" and sys_platform != \"win32\" or platform_system == \"Linux\" and sys_platform != \"win32\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" and sys_platform != \"win32\" or python_version == \"3.12\" and sys_platform != \"win32\""
 files = [
     {file = "pytorch_lightning-2.5.0.post0-py3-none-any.whl", hash = "sha256:c86bf4fded58b386f312f75337696a9b2d57077b858b3b9524400a03a0179b3a"},
     {file = "pytorch_lightning-2.5.0.post0.tar.gz", hash = "sha256:347235bf8573b4ebcf507a0dd755fcb9ce58c420c77220a9756a6edca0418532"},
@@ -7910,7 +7888,7 @@ description = "The easiest way to use deep metric learning in your application. 
 optional = false
 python-versions = ">=3.0"
 groups = ["dev"]
-markers = "python_version == \"3.9\" or python_version == \"3.10\" or platform_system == \"Linux\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" or python_version == \"3.12\""
+markers = "python_version == \"3.9\" and sys_platform != \"win32\" or python_version == \"3.10\" and sys_platform != \"win32\" or platform_system == \"Linux\" and sys_platform != \"win32\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" and sys_platform != \"win32\" or python_version == \"3.12\" and sys_platform != \"win32\""
 files = [
     {file = "pytorch-metric-learning-2.8.1.tar.gz", hash = "sha256:fcc4d3b4a805e5fce25fb2e67505c47ba6fea0563fc09c5655ea1f08d1e8ed93"},
     {file = "pytorch_metric_learning-2.8.1-py3-none-any.whl", hash = "sha256:aba6da0508d29ee9661a67fbfee911cdf62e65fc07e404b167d82871ca7e3e88"},
@@ -8623,7 +8601,7 @@ description = "ruamel.yaml is a YAML parser/emitter that supports roundtrip pres
 optional = false
 python-versions = ">=3.7"
 groups = ["dev"]
-markers = "python_version == \"3.9\" or python_version == \"3.10\" or platform_system == \"Linux\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" or python_version == \"3.12\""
+markers = "python_version == \"3.9\" and sys_platform != \"win32\" or python_version == \"3.10\" and sys_platform != \"win32\" or platform_system == \"Linux\" and sys_platform != \"win32\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" and sys_platform != \"win32\" or python_version == \"3.12\" and sys_platform != \"win32\""
 files = [
     {file = "ruamel.yaml-0.18.10-py3-none-any.whl", hash = "sha256:30f22513ab2301b3d2b577adc121c6471f28734d3d9728581245f1e76468b4f1"},
     {file = "ruamel.yaml-0.18.10.tar.gz", hash = "sha256:20c86ab29ac2153f80a428e1254a8adf686d3383df04490514ca3b79a362db58"},
@@ -8643,7 +8621,7 @@ description = "C version of reader, parser and emitter for ruamel.yaml derived f
 optional = false
 python-versions = ">=3.9"
 groups = ["dev"]
-markers = "platform_python_implementation == \"CPython\" and python_version == \"3.9\" or platform_python_implementation == \"CPython\" and python_version == \"3.10\" or platform_python_implementation == \"CPython\" and platform_system == \"Linux\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or platform_python_implementation == \"CPython\" and python_version == \"3.11\" or platform_python_implementation == \"CPython\" and python_version == \"3.12\""
+markers = "(python_version == \"3.9\" or python_version == \"3.10\" or platform_system == \"Linux\" or python_version == \"3.11\" or python_version == \"3.12\") and sys_platform != \"win32\" and platform_python_implementation == \"CPython\" and (python_version == \"3.9\" or python_version == \"3.10\" or platform_machine == \"aarch64\" or python_version == \"3.11\" or python_version == \"3.12\") and python_version <= \"3.12\""
 files = [
     {file = "ruamel.yaml.clib-0.2.12-cp310-cp310-macosx_13_0_arm64.whl", hash = "sha256:11f891336688faf5156a36293a9c362bdc7c88f03a8a027c2c1d8e0bcde998e5"},
     {file = "ruamel.yaml.clib-0.2.12-cp310-cp310-manylinux2014_aarch64.whl", hash = "sha256:a606ef75a60ecf3d924613892cc603b154178ee25abb3055db5062da811fd969"},
@@ -9020,7 +8998,7 @@ description = "Python helper for Semantic Versioning (https://semver.org)"
 optional = false
 python-versions = ">=3.7"
 groups = ["dev"]
-markers = "python_version == \"3.9\" or python_version == \"3.10\" or platform_system == \"Linux\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" or python_version == \"3.12\""
+markers = "python_version == \"3.9\" and sys_platform != \"win32\" or python_version == \"3.10\" and sys_platform != \"win32\" or platform_system == \"Linux\" and sys_platform != \"win32\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" and sys_platform != \"win32\" or python_version == \"3.12\" and sys_platform != \"win32\""
 files = [
     {file = "semver-3.0.4-py3-none-any.whl", hash = "sha256:9c824d87ba7f7ab4a1890799cec8596f15c1241cb473404ea1cb0c55e4b04746"},
     {file = "semver-3.0.4.tar.gz", hash = "sha256:afc7d8c584a5ed0a11033af086e8af226a9c0b206f313e0301f8dd7b6b589602"},
@@ -9158,7 +9136,7 @@ description = "Tool to Detect Surrounding Shell"
 optional = false
 python-versions = ">=3.7"
 groups = ["dev"]
-markers = "python_version == \"3.9\" or python_version == \"3.10\" or platform_system == \"Linux\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" or python_version == \"3.12\""
+markers = "python_version == \"3.9\" and sys_platform != \"win32\" or python_version == \"3.10\" and sys_platform != \"win32\" or platform_system == \"Linux\" and sys_platform != \"win32\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" and sys_platform != \"win32\" or python_version == \"3.12\" and sys_platform != \"win32\""
 files = [
     {file = "shellingham-1.5.4-py2.py3-none-any.whl", hash = "sha256:7ecfff8f2fd72616f7481040475a65b2bf8af90a56c89140852d1120324e8686"},
     {file = "shellingham-1.5.4.tar.gz", hash = "sha256:8dbca0739d487e5bd35ab3ca4b36e11c4078f3a234bfce294b0a0291363404de"},
@@ -9233,7 +9211,7 @@ description = "An audio library based on libsndfile, CFFI and NumPy"
 optional = false
 python-versions = "*"
 groups = ["dev"]
-markers = "python_version == \"3.9\" or python_version == \"3.10\" or platform_system == \"Linux\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" or python_version == \"3.12\""
+markers = "python_version == \"3.9\" and sys_platform != \"win32\" or python_version == \"3.10\" and sys_platform != \"win32\" or platform_system == \"Linux\" and sys_platform != \"win32\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" and sys_platform != \"win32\" or python_version == \"3.12\" and sys_platform != \"win32\""
 files = [
     {file = "soundfile-0.13.1-py2.py3-none-any.whl", hash = "sha256:a23c717560da2cf4c7b5ae1142514e0fd82d6bbd9dfc93a50423447142f2c445"},
     {file = "soundfile-0.13.1-py2.py3-none-macosx_10_9_x86_64.whl", hash = "sha256:82dc664d19831933fe59adad199bf3945ad06d84bc111a5b4c0d3089a5b9ec33"},
@@ -9385,7 +9363,7 @@ description = "All-in-one speech toolkit in pure Python and Pytorch"
 optional = false
 python-versions = ">=3.8"
 groups = ["dev"]
-markers = "python_version == \"3.9\" or python_version == \"3.10\" or platform_system == \"Linux\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" or python_version == \"3.12\""
+markers = "python_version == \"3.9\" and sys_platform != \"win32\" or python_version == \"3.10\" and sys_platform != \"win32\" or platform_system == \"Linux\" and sys_platform != \"win32\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" and sys_platform != \"win32\" or python_version == \"3.12\" and sys_platform != \"win32\""
 files = [
     {file = "speechbrain-1.0.2-py3-none-any.whl", hash = "sha256:fe5328554c28bc8fe8bfef355144ee9de5cf569b9706cee2267e19c99b092578"},
     {file = "speechbrain-1.0.2.tar.gz", hash = "sha256:b293d665161d7cd34caa3ee8966acce6c43b611b7fc9cd0b24637ce871bd7a73"},
@@ -9741,7 +9719,7 @@ description = "TensorBoardX lets you watch Tensors Flow without Tensorflow"
 optional = false
 python-versions = "*"
 groups = ["dev"]
-markers = "python_version == \"3.9\" or python_version == \"3.10\" or platform_system == \"Linux\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" or python_version == \"3.12\""
+markers = "python_version == \"3.9\" and sys_platform != \"win32\" or python_version == \"3.10\" and sys_platform != \"win32\" or platform_system == \"Linux\" and sys_platform != \"win32\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" and sys_platform != \"win32\" or python_version == \"3.12\" and sys_platform != \"win32\""
 files = [
     {file = "tensorboardX-2.6.2.2-py2.py3-none-any.whl", hash = "sha256:160025acbf759ede23fd3526ae9d9bfbfd8b68eb16c38a010ebe326dc6395db8"},
     {file = "tensorboardX-2.6.2.2.tar.gz", hash = "sha256:c6476d7cd0d529b0b72f4acadb1269f9ed8b22f441e87a84f2a3b940bb87b666"},
@@ -10269,7 +10247,7 @@ description = "A Pytorch library for audio data augmentation. Inspired by audiom
 optional = false
 python-versions = ">=3.6"
 groups = ["dev"]
-markers = "python_version == \"3.9\" or python_version == \"3.10\" or platform_system == \"Linux\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" or python_version == \"3.12\""
+markers = "python_version == \"3.9\" and sys_platform != \"win32\" or python_version == \"3.10\" and sys_platform != \"win32\" or platform_system == \"Linux\" and sys_platform != \"win32\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" and sys_platform != \"win32\" or python_version == \"3.12\" and sys_platform != \"win32\""
 files = [
     {file = "torch_audiomentations-0.12.0-py3-none-any.whl", hash = "sha256:1b80b91d2016ccf83979622cac8f702072a79b7dcc4c2bee40f00b26433a786b"},
     {file = "torch_audiomentations-0.12.0.tar.gz", hash = "sha256:b02d4c5eb86376986a53eb405cca5e34f370ea9284411237508e720c529f7888"},
@@ -10291,7 +10269,7 @@ description = ""
 optional = false
 python-versions = ">=3.4"
 groups = ["dev"]
-markers = "python_version == \"3.9\" or python_version == \"3.10\" or platform_system == \"Linux\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" or python_version == \"3.12\""
+markers = "python_version == \"3.9\" and sys_platform != \"win32\" or python_version == \"3.10\" and sys_platform != \"win32\" or platform_system == \"Linux\" and sys_platform != \"win32\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" and sys_platform != \"win32\" or python_version == \"3.12\" and sys_platform != \"win32\""
 files = [
     {file = "torch_pitch_shift-1.2.5-py3-none-any.whl", hash = "sha256:6f8500cbc13f1c98b11cde1805ce5084f82cdd195c285f34287541f168a7c6a7"},
     {file = "torch_pitch_shift-1.2.5.tar.gz", hash = "sha256:6e1c7531f08d0f407a4c55e5ff8385a41355c5c5d27ab7fa08632e51defbd0ed"},
@@ -10349,7 +10327,7 @@ description = "PyTorch native Metrics"
 optional = false
 python-versions = ">=3.9"
 groups = ["dev"]
-markers = "python_version == \"3.9\" or python_version == \"3.10\" or platform_system == \"Linux\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" or python_version == \"3.12\""
+markers = "python_version == \"3.9\" and sys_platform != \"win32\" or python_version == \"3.10\" and sys_platform != \"win32\" or platform_system == \"Linux\" and sys_platform != \"win32\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" and sys_platform != \"win32\" or python_version == \"3.12\" and sys_platform != \"win32\""
 files = [
     {file = "torchmetrics-1.6.2-py3-none-any.whl", hash = "sha256:586b970aff33a2154bfb6ed4539a557e9a268b6dce408bbdef0fec99fef3c78b"},
     {file = "torchmetrics-1.6.2.tar.gz", hash = "sha256:a3fa6372dbf01183d0f6fda2159e9526fb62818aa3630660909c290425f67df6"},
@@ -11168,7 +11146,7 @@ description = "Time-Accurate Automatic Speech Recognition using Whisper."
 optional = false
 python-versions = "<3.13,>=3.9"
 groups = ["dev"]
-markers = "python_version == \"3.9\" or python_version == \"3.10\" or platform_system == \"Linux\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" or python_version == \"3.12\""
+markers = "python_version == \"3.9\" and sys_platform != \"win32\" or python_version == \"3.10\" and sys_platform != \"win32\" or platform_system == \"Linux\" and sys_platform != \"win32\" and python_version <= \"3.12\" and platform_machine == \"aarch64\" or python_version == \"3.11\" and sys_platform != \"win32\" or python_version == \"3.12\" and sys_platform != \"win32\""
 files = [
     {file = "whisperx-3.3.1-py3-none-any.whl", hash = "sha256:974b2994b5a95166c664066489d6d46f34f01273272e42a933f81e4df8986819"},
 ]
@@ -11541,4 +11519,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.9,<4.0"
-content-hash = "e3c8a7de6d97e688ab480a0b9a43985a1e839a6fc752e64390fa2ec89d97b5b1"
+content-hash = "70032927639ff2589d70feec58efc31d3ab7408f2daa98107251ef3ef9701f40"
