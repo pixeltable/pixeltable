@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import enum
+from textwrap import dedent
 from typing import Any, Iterable, Literal, Optional, Sequence
 from uuid import UUID
 
@@ -279,6 +280,19 @@ class Planner:
         # stored_cols: all cols we need to store, incl computed cols (and indices)
         stored_cols = [c for c in tbl.cols_by_id.values() if c.is_stored]
         assert len(stored_cols) > 0  # there needs to be something to store
+
+        for col in stored_cols:
+            if col.value_expr is not None and not col.value_expr.is_valid:
+                raise excs.Error(
+                    dedent(
+                        f"""
+                        Data cannot be inserted into the table {tbl.name!r},
+                        because the column {col.name!r} is currently invalid:
+                        {{validation_error}}
+                        """
+                    ).format(validation_error=col.value_expr.validation_error)
+                )
+
         row_builder = exprs.RowBuilder([], stored_cols, [])
 
         # create InMemoryDataNode for 'rows'
@@ -374,6 +388,20 @@ class Planner:
             recomputed_cols.update(idx_val_cols)
             # we only need to recompute stored columns (unstored ones are substituted away)
             recomputed_cols = {c for c in recomputed_cols if c.is_stored}
+
+        for col in recomputed_cols:
+            if col.value_expr is not None and not col.value_expr.is_valid:
+                raise excs.Error(
+                    dedent(
+                        f"""
+                        Data cannot be updated in the table {tbl.name!r},
+                        because the column {col.name!r} is currently invalid:
+                        {{validation_error}}
+                        """
+                    ).format(validation_error=col.value_expr.validation_error)
+                )
+
+
         recomputed_base_cols = {col for col in recomputed_cols if col.tbl == target}
         copied_cols = [
             col

@@ -102,9 +102,18 @@ class FunctionCall(Expr):
         self.order_by_stop_idx = len(self.components) + len(order_by_clause)
         self.components.extend(order_by_clause)
 
+        if isinstance(self.fn, func.ExprTemplateFunction):
+            # we instantiate the template to create an Expr that can be evaluated and record that as a component
+            fn_expr = self.fn.instantiate(args, kwargs)
+            self.fn_expr_idx = len(self.components)
+            self.components.append(fn_expr)
+        else:
+            self.fn_expr_idx = sys.maxsize
+
         self._validation_error = validation_error
 
         if validation_error is not None:
+            self.resource_pool = None
             return
 
         # Now generate bound_idxs for the args and kwargs indices.
@@ -126,14 +135,6 @@ class FunctionCall(Expr):
                 if arg_name in fn.init_param_names[0]:
                     assert isinstance(arg, Literal)  # This was checked during validate_call
                     self.agg_init_args[arg_name] = arg.val
-
-        if isinstance(self.fn, func.ExprTemplateFunction):
-            # we instantiate the template to create an Expr that can be evaluated and record that as a component
-            fn_expr = self.fn.instantiate(args, kwargs)
-            self.fn_expr_idx = len(self.components)
-            self.components.append(fn_expr)
-        else:
-            self.fn_expr_idx = sys.maxsize
 
         # execution state for aggregate functions
         self.aggregator = None
