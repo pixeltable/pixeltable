@@ -1,0 +1,178 @@
+{
+  "$schema": "https://mintlify.com/schema.json",
+  "name": "Pixeltable Documentation",
+  "logo": {
+    "light": "/logo/pxt-light.svg",
+    "dark": "/logo/pxt-dark.svg"
+  },
+  "favicon": "/favicon.svg",
+  "colors": {
+    "primary": "#19191B",
+    "light": "#71717A",
+    "dark": "#09080B",
+    "anchors": {
+      "from": "#0A2F5C",
+      "to": "#404040"
+    },
+    "background": {
+      "dark": "#08080B"
+    }
+  },
+  "font": {
+    "headings": {
+      "family": "Inter"
+    },
+    "body": {
+      "family": "Inter"
+    }
+  },
+  "topbarLinks": [
+    {
+      "name": "Discord",
+      "url": "https://discord.com/invite/QPyqFYx2UN"
+    },
+    {
+      "name": "Book a Demo",
+      "url": "https://calendar.google.com/calendar/u/0/appointments/schedules/AcZssZ0BSvx8SRh7HoLdgvGeYUuhdyaifN42nhieCJESo3B1Hmy_buqteAagnSwADXG1lhKFUg3_VTZM"
+    },
+    {
+      "name": "Hiring",
+      "url": "https://jobs.gusto.com/postings/pixeltable-inc-member-of-technical-staff-360acae7-6e57-4aa2-bd03-83c9dafb7bbc"
+    }
+  ],
+  "topbarCtaButton": {
+    "type": "github",
+    "url": "https://github.com/pixeltable/pixeltable"
+  },
+  "feedback": {
+    "suggestEdit": true,
+    "raiseIssue": true
+  },
+  "search": {
+    "prompt": "Search Pixeltable docs...",
+    "placeholder": "Try 'getting started' or 'computed columns'"
+  },
+  "versions": [
+    "v0.3.4"
+  ],
+  "tabs": [
+    {
+      "name": "Examples",
+      "url": "/docs/examples"
+    },
+    {
+      "name": "API Reference",
+      "url": "https://pixeltable.github.io/pixeltable/"
+    },
+    {
+      "name": "Integrations",
+      "url": "/docs/integrations"
+    },
+    {
+      "name": "Changelog",
+      "url": "/docs/changelog"
+    }
+  ],
+  "navigation": [
+    {
+      "group": "Welcome to Pixeltable",
+      "pages": [
+        "docs/overview/pixeltable",
+        "docs/overview/installation",
+        "docs/overview/quick-start",
+        "docs/overview/configuration"
+      ]
+    },
+    {
+      "group": "Multimodal AI Datastore",
+      "pages": [
+        "docs/datastore/tables-and-operations",
+        "docs/datastore/views",
+        "docs/datastore/iterators",
+        "docs/datastore/bringing-data",
+        "docs/datastore/filtering-and-selecting",
+        "docs/datastore/computed-columns",
+        "docs/datastore/embedding-index",
+        "docs/datastore/custom-functions"
+      ]
+    },
+    {
+      "group": "Tutorials",
+      "pages": [
+        "docs/tutorials/fundamentals",
+        "docs/tutorials/feature-guide",
+        {
+          "group": "Cookbooks",
+          "pages": [
+            "docs/cookbooks/overview",
+            {
+              "group": "Chatbot",
+              "pages": [
+                "docs/cookbooks/chat/multimodal",
+                "docs/cookbooks/chat/memory",
+                "docs/cookbooks/chat/tools",
+                "docs/cookbooks/evaluations/llm-as-a-judge"
+              ]
+            },
+            {
+              "group": "Computer Vision",
+              "pages": [
+                "docs/cookbooks/vision/label-studio",
+                "docs/cookbooks/vision/voxel51",
+                "docs/cookbooks/vision/yolox"
+              ]
+            },
+            {
+              "group": "Multimodal Vector Database",
+              "pages": [
+                "docs/cookbooks/search/audio",
+                "docs/cookbooks/search/images",
+                "docs/cookbooks/search/PDF",
+                "docs/cookbooks/search/website"        
+              ]
+            }
+          ]
+        }
+      ]
+    },       
+    {
+      "group": "Support",
+      "pages": [
+        "docs/support/getting-help",
+        "docs/support/faq"
+      ]
+    },
+    {
+      "group": "Changelog",
+      "pages": [
+        "docs/changelog/product-updates"
+      ]
+    },
+    {
+      "group": "Examples",
+      "pages": [
+        "docs/examples/use-cases",
+        "docs/examples/interactive-demos",
+        "docs/examples/sample-apps"
+      ]
+    },
+    {
+      "group": "Built-in Integrations",
+      "pages": [
+        "docs/integrations/frameworks",
+        "docs/integrations/models"
+      ]
+    },
+    {
+      "group": "Bring Your Own",
+      "pages": [
+        "docs/integrations/embedding-model"
+      ]
+    }
+  ],
+  "footerSocials": {
+    "twitter": "https://twitter.com/pixeltablehq",
+    "github": "https://github.com/pixeltable/pixeltable",
+    "discord": "https://discord.com/invite/QPyqFYx2UN"
+  }
+}
