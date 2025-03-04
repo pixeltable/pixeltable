@@ -25,24 +25,18 @@
 [LLM](https://docs.pixeltable.com/docs/document-indexing-and-rag)
 </div>
 
-Pixeltable is a declarative data infrastructure for building multimodal AI applications, enabling incremental storage, transformation, indexing, and orchestration of your data.
+## 🔍 What is Pixeltable?
+Pixeltable is a declarative data infrastructure for building multimodal AI applications, enabling incremental storage, transformation, indexing, and orchestration of your data.  Traditional AI application development requires complex pipelines, extensive glue code, and separate systems for different data types. Pixeltable unifies this entire workflow into a single, consistent interface.
 
-Consider it your unified foundation for computer vision, LLMs, and multimodal AI development - where complex data operations become simple tables and computed columns, including but not limited to:
+## 🌟 Overview
+Pixeltable provides a complete solution for every stage of AI application development:
+- Data Ingestion: Unified interface for all data types (images, videos, audio, documents, URLs, blob storage, structured data)
+- Data Transformation: Chunking, embedding, and processing with declarative computed columns
+- Indexing & Storage: Type-safe tables with built-in vector indexing
+- Query & Retrieval: Queries combining filtering, sorting, and similarity search
+- Inference & Generation: Integration with AI models (OpenAI, Anthropic, PyTorch, YOLOX, DETR, Together, Hugging Face and more...)
 
-- **Work with all your data**: Interact with
-    [video data](https://github.com/pixeltable/pixeltable?tab=readme-ov-file#import-media-data-into-pixeltable-videos-images-audio)
-    at the [frame level](https://github.com/pixeltable/pixeltable?tab=readme-ov-file#text-and-image-similarity-search-on-video-frames-with-embedding-indexes)
-    and documents at the [chunk level](https://github.com/pixeltable/pixeltable?tab=readme-ov-file#automate-data-operations-with-views-eg-split-documents-into-chunks)
-- **Incremental updates**: Maintain an
-    [embedding index](https://docs.pixeltable.com/docs/embedding-vector-indexes) colocated with your data
-- **Lazy evaluation and cache management**: Eliminates the need for
-    [manual frame extraction](https://docs.pixeltable.com/docs/object-detection-in-videos)
-- **Integrates with any Python libraries**: Use
-    [built-in and custom functions (UDFs)](https://docs.pixeltable.com/docs/user-defined-functions-udfs)
-    without complex pipelines
-- **Data format agnostic and extensibility**: Access tables as Parquet files,
-    [PyTorch datasets](https://pixeltable.github.io/pixeltable/api/data-frame/#pixeltable.DataFrame.to_pytorch_dataset),
-    or [COCO annotations](https://pixeltable.github.io/pixeltable/api/table/#pixeltable.Table.to_coco_dataset)
+All of that with your custom functions (UDFs), and built-in caching, versioning, lineage tracking, and incremental computation.
 
 ## 💾 Installation
 
@@ -259,11 +253,6 @@ Learn how to work with [Embedding and Vector Indexes](https://docs.pixeltable.co
 | Quality Control | Multiple validation tools | Computed validation columns |
 
 ## ❓ FAQ
-
-### What is Pixeltable?
-
-Pixeltable unifies data storage, versioning, and indexing with orchestration and model versioning under a declarative
-table interface, with transformations, model inference, and custom logic represented as computed columns.
 
 ### What problems does Pixeltable solve?
 
