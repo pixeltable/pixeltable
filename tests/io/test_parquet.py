@@ -2,6 +2,7 @@ import datetime
 import pathlib
 from typing import TYPE_CHECKING, Iterable
 
+import pandas as pd
 import pytest
 
 import pixeltable as pxt
@@ -17,7 +18,6 @@ if TYPE_CHECKING:
 class TestParquet:
     def test_import_parquet_examples(self, reset_db, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('pyarrow')
-        import pandas as pd
         import pyarrow as pa
         from pyarrow import parquet
 

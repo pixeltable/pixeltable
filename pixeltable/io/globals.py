@@ -37,17 +37,29 @@ def _normalize_import_parameters(
     return schema_overrides, primary_key
 
 
+def _is_usable_as_column_name(name: str, schema: dict[str, Any]) -> bool:
+    from keyword import iskeyword as is_python_keyword
+    from pixeltable.catalog.globals import is_system_column_name
+    if is_system_column_name(name):
+        return False
+    if is_python_keyword(name):
+        return False
+    if name in schema:
+        return False
+    return True
+
+
 def _normalize_schema_names(
     in_schema: dict[str, Any],
     primary_key: list[str],
     schema_overrides: dict[str, Any],
-    mapping_must_be_identity: bool = False,
-) -> tuple[dict[str, pxt.ColumnType], list[str], Optional[dict[str, str]]]:
+    require_valid_pxt_column_names: bool = False,
+) -> tuple[dict[str, Any], list[str], Optional[dict[str, str]]]:
     """
     Convert all names in the input schema from source names to valid Pixeltable identifiers
     - Ensure that all names are unique.
     - Report an error if any types are missing
-    - If "mapping_must_be_identity, report an error if any col_mapping is needed
+    - If "require_valid_pxt_column_names", report an error if any column names are not valid Pixeltable column names
     - Report an error if any primary key columns are missing
     Returns
     - A new schema with normalized column names
@@ -67,24 +79,24 @@ def _normalize_schema_names(
             f'Some column(s) specified in `schema_overrides` are not present in the source: {", ".join(extraneous_overrides)}'
         )
 
-    schema: dict[str, pxt.ColumnType] = {}
-    col_mapping: dict[str, str] = {}  # Maps Pandas column names to Pixeltable column names
+    schema: dict[str, Any] = {}
+    col_mapping: dict[str, str] = {}  # Maps column names to Pixeltable column names if needed
     for in_name, pxt_type in in_schema.items():
         pxt_name = _normalize_pxt_col_name(in_name)
         # Ensure that column names are unique by appending a distinguishing suffix
         # to any collisions
-        if pxt_name in schema:
-            n = 2
-            while f'{pxt_name}_{n}' in schema:
-                n += 1
-            pxt_name = f'{pxt_name}_{n}'
-        schema[pxt_name] = pxt_type
-        col_mapping[in_name] = pxt_name
+        pxt_fname = pxt_name
+        n = 1
+        while not _is_usable_as_column_name(pxt_fname, schema):
+            pxt_fname = f'{pxt_name}_{n}'
+            n += 1
+        schema[pxt_fname] = pxt_type
+        col_mapping[in_name] = pxt_fname
 
     # Determine if the col_mapping is the identity mapping
     non_identity_keys = [k for k, v in col_mapping.items() if k != v]
     if len(non_identity_keys) > 0:
-        if mapping_must_be_identity:
+        if require_valid_pxt_column_names:
             raise excs.Error(
                 f'Column names must be valid pixeltable identifiers. Invalid names: {", ".join(non_identity_keys)}'
             )

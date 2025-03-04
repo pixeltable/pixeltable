@@ -171,7 +171,8 @@ def __pd_dtype_to_pxt_type(pd_dtype: DtypeObj, nullable: bool) -> Optional[pxt.C
     if is_extension_array_dtype(pd_dtype):
         return None
     # Most other pandas dtypes are directly NumPy compatible
-    return ts.ArrayType.from_np_dtype(pd_dtype, nullable)  # type: ignore
+    assert isinstance(pd_dtype, np.dtype)
+    return ts.ArrayType.from_np_dtype(pd_dtype, nullable)
 
 
 def __pd_coltype_to_pxt_type(pd_dtype: DtypeObj, data_col: pd.Series, nullable: bool) -> pxt.ColumnType:
