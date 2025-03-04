@@ -727,7 +727,7 @@ class TestFunction:
                     t.where(t.c1 == 'xyz').update({'c1': 'def'})
 
         def warning_regex(msg: str) -> str:
-            regex = '.*'.join([
+            regex = '\n'.join([
                 re.escape("The computed column 'result' in table 'test' is no longer valid."),
                 re.escape(msg),
                 re.escape("You can continue to query existing data from this column, but evaluating it on new data will raise an error."),
@@ -735,7 +735,7 @@ class TestFunction:
             return '(?s)' + regex
 
         def insert_error_regex(msg: str) -> str:
-            regex = '.*'.join([
+            regex = '\n'.join([
                 re.escape("Data cannot be inserted into the table 'test',\nbecause the column 'result' is currently invalid:"),
                 re.escape(msg),
             ])
@@ -844,9 +844,21 @@ class TestFunction:
         else:
             reload_and_validate_table(validation_error=signature_error.format(params='(c: Float, a: String, b: Int)'))
 
+        # Make the function into a non-UDF
+        tests.test_function.evolving_udf = lambda x: x
+        validation_error = (
+            "The UDF 'tests.test_function.evolving_udf' cannot be located, because\n"
+            "the symbol 'tests.test_function.evolving_udf' is no longer a UDF. (Was the `@pxt.udf` decorator removed?)"
+        )
+        reload_and_validate_table(validation_error=validation_error)
+
         # Remove the function entirely
         del tests.test_function.evolving_udf
-        reload_and_validate_table(validation_error="the symbol 'tests.test_function.evolving_udf' no longer exists")
+        validation_error = (
+            "The UDF 'tests.test_function.evolving_udf' cannot be located, because\n"
+            "the symbol 'tests.test_function.evolving_udf' no longer exists. (Was the UDF moved or renamed?)"
+        )
+        reload_and_validate_table(validation_error=validation_error)
 
     def test_tool_errors(self):
         with pytest.raises(excs.Error) as exc_info:

@@ -425,10 +425,9 @@ class FunctionCall(Expr):
                 dedent(
                     f"""
                     The UDF '{fn.self_path}' cannot be located, because
-                    {fn.errormsg}
-                    UDF call: ....
+                    {{errormsg}}
                     """
-                ).strip(),
+                ).strip().format(errormsg=fn.errormsg)
             )
             return cls(fn, args, kwargs, return_type, is_method_call=is_method_call, validation_error=validation_error)
 
