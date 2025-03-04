@@ -1,0 +1,3 @@
+pixeltable
+tiktoken
+sentence-transformers

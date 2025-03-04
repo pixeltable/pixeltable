@@ -1,0 +1,3 @@
+pixeltable
+openai
+duckduckgo-search
