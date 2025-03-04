@@ -23,18 +23,8 @@ _FINALIZE_URL = os.environ.get('PIXELTABLE_FINALIZE_URL')
 
 
 def publish_snapshot(dest_tbl_uri: str, src_tbl: pxt.Table) -> str:
-    request_json = {
-        'pxt_version': pxt.__version__,
-        'pxt_schema_version': metadata.VERSION,
-        'table_uri': dest_tbl_uri,
-        'md': {
-            # These are temporary; will replace with a better solution once the concurrency changes to catalog have
-            # been merged
-            'table_md': dataclasses.asdict(src_tbl._tbl_version._create_tbl_md()),
-            'table_version_md': dataclasses.asdict(src_tbl._tbl_version._create_version_md(datetime.now().timestamp())),
-            'table_schema_version_md': dataclasses.asdict(src_tbl._tbl_version._create_schema_version_md(0)),
-        },
-    }
+    packager = TablePackager(src_tbl, additional_md={'table_uri': dest_tbl_uri})
+    request_json = packager.md
     headers_json = {'X-api-key': Env.get().pxt_api_key}
 
     response = requests.post(_PUBLISH_URL, json=request_json, headers=headers_json)
@@ -48,7 +38,6 @@ def publish_snapshot(dest_tbl_uri: str, src_tbl: pxt.Table) -> str:
 
     Env.get().console_logger.info(f"Creating a snapshot of '{src_tbl._path}' at: {dest_tbl_uri}")
 
-    packager = TablePackager(src_tbl)
     bundle = packager.package()
 
     parsed_location = urllib.parse.urlparse(destination_uri)

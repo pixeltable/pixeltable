@@ -1,3 +1,5 @@
+import dataclasses
+from datetime import datetime
 import io
 import json
 import logging
@@ -6,15 +8,16 @@ import urllib.parse
 import urllib.request
 import uuid
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterator, Optional
 
 import more_itertools
 import numpy as np
 import pyarrow as pa
 import pyiceberg.catalog
 
+import pixeltable as pxt
 import pixeltable.type_system as ts
-from pixeltable import catalog, exprs
+from pixeltable import catalog, exprs, metadata
 from pixeltable.dataframe import DataFrame
 from pixeltable.env import Env
 from pixeltable.utils.arrow import PXT_TO_PA_TYPES
@@ -47,11 +50,31 @@ class TablePackager:
     tmp_dir: Path  # Temporary directory where the package will reside
     iceberg_catalog: pyiceberg.catalog.Catalog
     media_files: dict[Path, str]  # Mapping from local media file paths to their tarball names
+    md: dict[str, Any]
 
-    def __init__(self, table: catalog.Table) -> None:
+    def __init__(self, table: catalog.Table, additional_md: Optional[dict[str, Any]] = None) -> None:
         self.table = table
         self.tmp_dir = Path(Env.get().create_tmp_path())
         self.media_files = {}
+
+        # Generate metadata
+        self.md = {
+            'pxt_version': pxt.__version__,
+            'pxt_schema_version': metadata.VERSION,
+            'md': [
+                {
+                    'table_id': str(t._tbl_version.id),
+                    # These are temporary; will replace with a better solution once the concurrency changes to catalog have
+                    # been merged
+                    'table_md': dataclasses.asdict(t._tbl_version._create_tbl_md()),
+                    'table_version_md': dataclasses.asdict(t._tbl_version._create_version_md(datetime.now().timestamp())),
+                    'table_schema_version_md': dataclasses.asdict(t._tbl_version._create_schema_version_md(0)),
+                }
+                for t in (table, *table._bases)
+            ],
+        }
+        if additional_md is not None:
+            self.md.update(additional_md)
 
     def package(self) -> Path:
         """
@@ -60,8 +83,10 @@ class TablePackager:
         assert not self.tmp_dir.exists()  # Packaging can only be done once per TablePackager instance
         _logger.info(f"Packaging table '{self.table._path}' and its ancestors in: {self.tmp_dir}")
         self.tmp_dir.mkdir()
+        with open(self.tmp_dir / 'metadata.json', 'w', encoding='utf8') as fp:
+            json.dump(self.md, fp)
         self.iceberg_catalog = sqlite_catalog(self.tmp_dir / 'warehouse')
-        ancestors = [self.table] + self.table._bases
+        ancestors = (self.table, *self.table._bases)
         for t in ancestors:
             _logger.info(f"Exporting table '{t._path}'.")
             self.__export_table(t)
@@ -206,6 +231,8 @@ class TablePackager:
     def __build_tarball(self) -> Path:
         bundle_path = self.tmp_dir / 'bundle.tar.bz2'
         with tarfile.open(bundle_path, 'w:bz2') as tf:
+            # Add metadata json
+            tf.add(self.tmp_dir / 'metadata.json', arcname='metadata.json')
             # Add the Iceberg warehouse dir (including the catalog)
             tf.add(self.tmp_dir / 'warehouse', arcname='warehouse', recursive=True)
             # Add the media files

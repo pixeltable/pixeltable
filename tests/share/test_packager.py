@@ -11,6 +11,7 @@ from pyiceberg.table import Table as IcebergTable
 
 import pixeltable as pxt
 from pixeltable import exprs
+from pixeltable import metadata
 from pixeltable.env import Env
 from pixeltable.share.packager import TablePackager
 from pixeltable.utils.iceberg import sqlite_catalog
@@ -25,6 +26,8 @@ class TestPackager:
 
         # Reinstantiate a catalog to test reads from scratch
         dest = self.__extract_bundle(bundle_path)
+        metadata = json.loads((dest / 'metadata.json').read_text())
+        self.__validate_metadata(metadata, test_tbl)
         catalog = sqlite_catalog(dest / 'warehouse')
         assert catalog.list_tables('pxt') == [('pxt', 'test_tbl')]
         iceberg_tbl = catalog.load_table('pxt.test_tbl')
@@ -41,6 +44,8 @@ class TestPackager:
         bundle_path = packager.package()
 
         dest = self.__extract_bundle(bundle_path)
+        metadata = json.loads((dest / 'metadata.json').read_text())
+        self.__validate_metadata(metadata, subview)
         catalog = sqlite_catalog(dest / 'warehouse')
         assert catalog.list_tables('pxt') == [('pxt', 'test_tbl')]
         assert set(catalog.list_tables('pxt.iceberg_dir.subdir')) == {
@@ -69,6 +74,9 @@ class TestPackager:
         bundle_path = packager.package()
 
         dest = self.__extract_bundle(bundle_path)
+        metadata = json.loads((dest / 'metadata.json').read_text())
+        self.__validate_metadata(metadata, t)
+
         catalog = sqlite_catalog(dest / 'warehouse')
 
         expected_cols = 2 + 3 * 3  # rowid, v_min, plus three stored media/computed columns with error columns
@@ -81,6 +89,13 @@ class TestPackager:
         with tarfile.open(bundle_path, 'r:bz2') as tf:
             tf.extractall(tmp_dir)
         return tmp_dir
+
+    def __validate_metadata(self, md: dict, tbl: pxt.Table) -> None:
+        assert md['pxt_version'] == pxt.__version__
+        assert md['pxt_schema_version'] == metadata.VERSION
+        assert len(md['md']) == len(tbl._bases) + 1
+        for t_md, t in zip(md['md'], (tbl, *tbl._bases)):
+            assert t_md['table_id'] == str(t._tbl_version.id)
 
     def __check_iceberg_tbl(
         self,
