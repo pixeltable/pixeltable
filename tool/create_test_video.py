@@ -3,7 +3,7 @@ import tempfile
 from pathlib import Path
 from typing import Optional
 
-import av  # type: ignore[import-untyped]
+import av
 import PIL.Image
 import PIL.ImageDraw
 import PIL.ImageFont
