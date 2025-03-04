@@ -4,7 +4,7 @@ build-backend = "poetry_dynamic_versioning.backend"
 
 [project]
 name = "pixeltable"
-dynamic = ["version"]
+dynamic = []
 description = "AI Data Infrastructure: Declarative, Multimodal, and Incremental"
 license = "Apache-2.0"
 readme = "README.md"
@@ -63,6 +63,7 @@ dependencies = [
     "pyiceberg (>=0.6.0)",
     "pixeltable-pgserver (==0.3.1)",
 ]
+version = "0.3.4.post11.dev0+5ef3ff24.dirty"
 
 [project.urls]
 homepage = "https://pixeltable.com/"
@@ -78,7 +79,6 @@ exclude = [
     "tool",
 ]
 requires-poetry = ">=2.0"
-version = "0.0.0"
 
 [tool.poetry.group.dev]
 optional = true
@@ -140,9 +140,10 @@ timm = "^1.0.11"
 datasets = ">=3.2.0"
 openpyxl = ">=3.1"  # Excel (.xlsx) support
 openai-whisper = ">=20240930"
-whisperx = { version = ">=3.3.1", python = "<3.13", platform = "!=win32" }
-onnxruntime = { version = "==1.18.0", platform = "!=win32" }  # Required for whisperx on Python 3.9
-ctranslate2 = { version = "==4.3.1", platform = "!=win32" }  # Required for whisperx on Intel Mac instances
+# Don't include whisperx on Intel Mac instances
+whisperx = { version = ">=3.3.1", python = "<3.13", markers = "sys_platform != 'darwin' or platform_machine != 'x86_64'" }
+# We need to lock a specific onnxruntime version in order for whisperx to work on Python 3.9
+onnxruntime = { version = "==1.18.0", markers = "sys_platform != 'darwin' or platform_machine != 'x86_64'" }
 label-studio-sdk = "^0.0.32"
 fiftyone = "^1.0.0"
 ollama = ">=0.4.0"
@@ -152,7 +153,7 @@ llama-cpp-python = { version = ">=0.3.7", platform = "!=win32" }  # Windows buil
 extension-name = "tool.doc_plugins.mkdocstrings:get_templates_path"
 
 [tool.poetry-dynamic-versioning]
-enable = true
+enable = false
 vcs = "git"
 dirty = true
 
