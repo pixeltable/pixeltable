@@ -18,7 +18,7 @@
 </a>
 
 [Installation](https://docs.pixeltable.com/docs/installation) |
-[Documentation](https://pixeltable.readme.io/) |
+[Documentation](https://docs.pixeltable.com/docs/overview/quick-start) |
 [API Reference](https://pixeltable.github.io/pixeltable/) |
 [Code Samples](https://github.com/pixeltable/pixeltable?tab=readme-ov-file#-code-samples) |
 [Computer Vision](https://docs.pixeltable.com/docs/object-detection-in-videos) |
@@ -26,17 +26,14 @@
 </div>
 
 ## 🔍 What is Pixeltable?
-Pixeltable is a declarative data infrastructure for building multimodal AI applications, enabling incremental storage, transformation, indexing, and orchestration of your data.  Traditional AI application development requires complex pipelines, extensive glue code, and separate systems for different data types. Pixeltable unifies this entire workflow into a single, consistent interface.
+Pixeltable is a declarative data infrastructure for building multimodal AI applications, enabling incremental storage, transformation, indexing, and orchestration of your data.
+- **Data Ingestion**: Unified interface for all [data types](https://docs.pixeltable.com/docs/datastore/bringing-data) (images, videos, audio, documents, URLs, blob storage, structured data)
+- **Data Transformation**: [Chunking](https://docs.pixeltable.com/docs/datastore/views), [embedding](https://docs.pixeltable.com/docs/datastore/embedding-index), and processing with declarative [computed columns](https://docs.pixeltable.com/docs/datastore/computed-columns)
+- **Indexing & Storage**: Type-safe tables with [built-in vector indexing](https://docs.pixeltable.com/docs/cookbooks/search/website)
+- **Query & Retrieval**: [Queries](https://docs.pixeltable.com/docs/datastore/filtering-and-selecting) combining filtering, sorting, and similarity search
+- **Inference & Generation**: [Integration](https://docs.pixeltable.com/docs/integrations/frameworks#cloud-llm-providers) with AI models (OpenAI, Anthropic, PyTorch, YOLOX, DETR, Together, Hugging Face and more...)
 
-## 🌟 Overview
-Pixeltable provides a complete solution for every stage of AI application development:
-- Data Ingestion: Unified interface for all data types (images, videos, audio, documents, URLs, blob storage, structured data)
-- Data Transformation: Chunking, embedding, and processing with declarative computed columns
-- Indexing & Storage: Type-safe tables with built-in vector indexing
-- Query & Retrieval: Queries combining filtering, sorting, and similarity search
-- Inference & Generation: Integration with AI models (OpenAI, Anthropic, PyTorch, YOLOX, DETR, Together, Hugging Face and more...)
-
-All of that with your custom functions (UDFs), and built-in caching, versioning, lineage tracking, and incremental computation.
+All with your [custom functions (UDFs)](https://docs.pixeltable.com/docs/datastore/custom-functions), and built-in caching, versioning, lineage tracking, and incremental computation.
 
 ## 💾 Installation
 
@@ -55,7 +52,7 @@ Learn how to create tables, populate them with data, and enhance them with built
 | 10-Minute Tour of Pixeltable    | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/pixeltable-basics.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> </a> | Tables and Data Operations    | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/fundamentals/tables-and-data-operations.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> </a> |
 | User-Defined Functions (UDFs)    | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/feature-guides/udfs-in-pixeltable.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> </a> | Object Detection Models | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/use-cases/object-detection-in-videos.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> </a> |
 | Incremental Prompt Engineering | <a target="_blank" href="https://colab.research.google.com/github/mistralai/cookbook/blob/main/third_party/Pixeltable/incremental_prompt_engineering_and_model_comparison.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Github"/> | Working with External Files    | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/feature-guides/working-with-external-files.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> </a> |
-| Integrating with Label Studio    | <a target="_blank" href="https://pixeltable.readme.io/docs/label-studio"> <img src="https://img.shields.io/badge/📚 Documentation-013056" alt="Visit our documentation"/></a> | Audio/Video Transcript Indexing    | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/use-cases/audio-transcriptions.ipynb">  <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> |
+| Integrating with Label Studio    | <a target="_blank" href="https://docs.pixeltable.com/docs/cookbooks/vision/label-studio"> <img src="https://img.shields.io/badge/📚 Documentation-013056" alt="Visit our documentation"/></a> | Audio/Video Transcript Indexing    | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/use-cases/audio-transcriptions.ipynb">  <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> |
 | Multimodal Application    | <a target="_blank" href="https://huggingface.co/spaces/Pixeltable/Multimodal-Powerhouse"> <img src="https://img.shields.io/badge/🤗-Gradio App-FF7D04" alt="Visit our Hugging Face Space"/></a> | Document Indexing and RAG    | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/use-cases/rag-demo.ipynb">  <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> |
 | Context-Aware Discord Bot    | <a target="_blank" href="https://github.com/pixeltable/pixeltable/blob/main/docs/sample-apps/context-aware-discord-bot"> <img src="https://img.shields.io/badge/%F0%9F%92%AC-Discord Bot-%235865F2.svg" alt="Visit our documentation"/></a> | Image/Text Similarity Search  | <a target="_blank" href="https://github.com/pixeltable/pixeltable/tree/main/docs/sample-apps/text-and-image-similarity-search-nextjs-fastapi">  <img src="https://img.shields.io/badge/🖥️-Next.js + FastAPI-black.svg" alt="Open In Colab"/> |
 
@@ -77,7 +74,7 @@ paths = [
 v.insert({'video': prefix + p} for p in paths)
 ```
 
-Learn how to [work with data in Pixeltable](https://pixeltable.readme.io/docs/working-with-external-files).
+Learn how to [work with data in Pixeltable](https://docs.pixeltable.com/docs/datastore/tables-and-operations).
 
 ### Object detection in images using DETR model
 
@@ -110,7 +107,7 @@ t.select(animal = t.image,
 ```
 
 Learn about computed columns and object detection:
-[Comparing object detection models](https://pixeltable.readme.io/docs/object-detection-in-videos).
+[Comparing object detection models](https://docs.pixeltable.com/docs/examples/use-cases#multimodal-processing).
 
 ### Extend Pixeltable's capabilities with user-defined functions
 
@@ -125,7 +122,7 @@ def draw_boxes(img: PIL.Image.Image, boxes: list[list[float]]) -> PIL.Image.Imag
 ```
 
 Learn more about user-defined functions:
-[UDFs in Pixeltable](https://pixeltable.readme.io/docs/user-defined-functions-udfs).
+[UDFs in Pixeltable](https://docs.pixeltable.com/docs/datastore/custom-functions).
 
 ### Automate data operations with views, e.g., split documents into chunks
 
@@ -141,7 +138,7 @@ chunks_table = pxt.create_view(
 ```
 
 Learn how to leverage views to build your
-[RAG workflow](https://pixeltable.readme.io/docs/document-indexing-and-rag).
+[RAG workflow](https://docs.pixeltable.com/docs/cookbooks/chat/memory).
 
 ### Evaluate model performance
 
@@ -150,7 +147,7 @@ Learn how to leverage views to build your
 frames_view.select(mean_ap(frames_view.eval_yolox_tiny), mean_ap(frames_view.eval_yolox_m)).show()
 ```
 
-Learn how to leverage Pixeltable for [Model analytics](https://pixeltable.readme.io/docs/object-detection-in-videos).
+Learn how to leverage Pixeltable for [Model analytics](https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/use-cases/object-detection-in-videos.ipynb).
 
 ### Working with inference services
 
@@ -187,7 +184,7 @@ chat_table.insert([
 chat_table.select(chat_table.input, chat_table.response).head()
 ```
 
-Learn how to interact with inference services such as [Together AI](https://pixeltable.readme.io/docs/together-ai) in Pixeltable.
+Learn how to interact with inference services such as [Together AI](https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/integrations/working-with-together.ipynb) in Pixeltable.
 
 ### Text and image similarity search on video frames with embedding indexes
 
@@ -218,7 +215,7 @@ sim = frames_view.frame.similarity(sample_text)
 frames_view.order_by(sim, asc=False).limit(5).select(frames_view.frame, sim=sim).collect()
 ```
 
-Learn how to work with [Embedding and Vector Indexes](https://docs.pixeltable.com/docs/embedding-vector-indexes).
+Learn how to work with [Embedding and Vector Indexes](https://docs.pixeltable.com/docs/datastore/embedding-index).
 
 ## 🔄 AI Stack Comparison
 
@@ -291,7 +288,7 @@ dealing with the customary data plumbing.
   infrastructure and orchestration.
 
 > [!TIP]
-> Check out the [Integrations](https://pixeltable.readme.io/docs/working-with-openai) section, and feel free to submit
+> Check out the [Integrations](https://docs.pixeltable.com/docs/integrations/frameworks) section, and feel free to submit
 > a request for additional ones.
 
 ## 🤝 Contributing to Pixeltable
