@@ -700,26 +700,23 @@ class TestFunction:
                 fn.signatures, fn.py_fns, 'tests.test_function.evolving_udf'
             )
 
-        def reload_table() -> pxt.Table:
+        def reload_table(validation_error: Optional[str] = None) -> None:
             reload_catalog()
             t = pxt.get_table('test')
-            _ = repr(t)  # Force all metadata to load
+            if validation_error is None:
+                _ = repr(t)  # Force all metadata to load
+            else:
+                with pytest.warns(pxt.PixeltableWarning, match=warning_regex(validation_error)):
+                    _ = repr(t)
             assert list(t.head()) == [{'c1': 'xyz', 'result': None}]  # Ensure table can be queried
-            return t
 
         def warning_regex(msg: str) -> str:
-            warning = (
-                dedent(
-                    """
-                    The computed column 'result' in table 'test' is no longer valid.
-                    {msg}
-                    You can continue to query existing data from this column, but evaluating it on new data will raise an error.
-                    """
-                    )
-                .strip()
-                .format(msg=msg)
-            )
-            return re.escape(warning)
+            regex = '.*'.join([
+                re.escape("The computed column 'result' in table 'test' is no longer valid."),
+                re.escape(msg),
+                re.escape("You can continue to query existing data from this column, but evaluating it on new data will raise an error."),
+            ])
+            return '(?s)' + regex
 
         db_params = '(a: Optional[String])' if as_kwarg else '(Optional[String])'
         signature_error = dedent(
@@ -757,7 +754,7 @@ class TestFunction:
             return None
 
         mimic(udf_version_2)
-        t = reload_table()
+        reload_table()
 
         # Rename the parameter; this works only if the UDF was invoked with a positional argument
         @pxt.udf(_force_stored=True)
@@ -766,12 +763,9 @@ class TestFunction:
 
         mimic(udf_version_3)
         if as_kwarg:
-            with pytest.warns(
-                pxt.PixeltableWarning, match=warning_regex(signature_error.format(params='(c: String, b: String)'))
-            ):
-                t = reload_table()
+            reload_table(validation_error=signature_error.format(params='(c: String, b: String)'))
         else:
-            t = reload_table()
+            reload_table()
 
         # Change the parameter from fixed to variable; this works only if the UDF was invoked with a positional
         # argument
@@ -781,10 +775,9 @@ class TestFunction:
 
         mimic(udf_version_4)
         if as_kwarg:
-            with pytest.warns(pxt.PixeltableWarning, match=warning_regex(signature_error.format(params='(*a)'))):
-                t = reload_table()
+            reload_table(validation_error=signature_error.format(params='(*a)'))
         else:
-            t = reload_table()
+            reload_table()
 
         # Narrow the return type; this works in all cases
         @pxt.udf(_force_stored=True)
@@ -792,7 +785,7 @@ class TestFunction:
             return None
 
         mimic(udf_version_5)
-        t = reload_table()
+        reload_table()
 
         # Change the type of the parameter to something incompatible; this fails in all cases
         @pxt.udf(_force_stored=True)
@@ -800,10 +793,7 @@ class TestFunction:
             return None
 
         mimic(udf_version_6)
-        with pytest.warns(
-            pxt.PixeltableWarning, match=warning_regex(signature_error.format(params='(a: Float, b: Int)'))
-        ):
-            t = reload_table()
+        reload_table(validation_error=signature_error.format(params='(a: Float, b: Int)'))
 
         # Widen the return type; this fails in all cases
         @pxt.udf(_force_stored=True)
@@ -811,10 +801,7 @@ class TestFunction:
             return None
 
         mimic(udf_version_7)
-        with pytest.warns(
-            pxt.PixeltableWarning, match=warning_regex(return_type_error.format(return_type='Optional[Array]'))
-        ):
-            t = reload_table()
+        reload_table(validation_error=return_type_error.format(return_type='Optional[Array]'))
 
         # Add a poison parameter; this works only if the UDF was invoked with a keyword argument
         @pxt.udf(_force_stored=True)
@@ -823,22 +810,13 @@ class TestFunction:
 
         mimic(udf_version_8)
         if as_kwarg:
-            t = reload_table()
+            reload_table()
         else:
-            with pytest.warns(
-                pxt.PixeltableWarning,
-                match=warning_regex(signature_error.format(params='(c: Float, a: String, b: Int)')),
-            ):
-                t = reload_table()
+            reload_table(validation_error=signature_error.format(params='(c: Float, a: String, b: Int)'))
 
         # Remove the function entirely
         del tests.test_function.evolving_udf
-        with pytest.warns(
-            pxt.PixeltableWarning, match="the symbol 'tests.test_function.evolving_udf' no longer exists"
-        ):
-            t = reload_table()
-
-        assert False
+        reload_table(validation_error="the symbol 'tests.test_function.evolving_udf' no longer exists")
 
     def test_tool_errors(self):
         with pytest.raises(excs.Error) as exc_info:
