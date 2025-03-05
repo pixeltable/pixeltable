@@ -157,6 +157,15 @@ class Function(ABC):
         args = [exprs.Expr.from_object(arg) for arg in args]
         kwargs = {k: exprs.Expr.from_object(v) for k, v in kwargs.items()}
 
+        for i, expr in enumerate(args):
+            if expr is None:
+                raise excs.Error(f'Argument {i + 1} in call to {self.self_path!r} is not a valid Pixeltable expression')
+        for param_name, expr in kwargs.items():
+            if expr is None:
+                raise excs.Error(
+                    f'Argument {param_name!r} in call to {self.self_path!r} is not a valid Pixeltable expression'
+                )
+
         resolved_fn, bound_args = self._bind_to_matching_signature(args, kwargs)
         return_type = resolved_fn.call_return_type(bound_args)
 
@@ -323,8 +332,10 @@ class Function(ABC):
                 raise excs.Error(f'Unknown parameter: {k}')
             param = self.signature.parameters[k]
             expr = exprs.Expr.from_object(v)
+            if not isinstance(expr, exprs.Literal):
+                raise excs.Error(f'Expected a constant value for parameter {k!r} in call to .using()')
             if not param.col_type.is_supertype_of(expr.col_type):
-                raise excs.Error(f'Expected type `{param.col_type}` for parameter `{k}`; got `{expr.col_type}`')
+                raise excs.Error(f'Expected type `{param.col_type}` for parameter {k!r}; got `{expr.col_type}`')
             bindings[k] = expr
 
         residual_params = [p for p in self.signature.parameters.values() if p.name not in bindings]

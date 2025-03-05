@@ -152,6 +152,7 @@ class Signature:
             context = f' ({context})'
 
         for param_name, arg in bound_args.items():
+            assert param_name in self.parameters
             param = self.parameters[param_name]
             is_var_param = param.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
             if is_var_param:
@@ -162,8 +163,8 @@ class Signature:
                 raise excs.Error(f'Parameter {param_name!r}{context}: invalid argument')
 
             # Check that the argument is consistent with the expected parameter type, with the allowance that
-            # non-nullable parameters can still accept nullable arguments (since function calls with Nones
-            # assigned to non-nullable parameters will always return None)
+            # non-nullable parameters can still accept nullable arguments (since in that event, FunctionCall.eval()
+            # detects the Nones and skips evaluation).
             if not (
                 param.col_type.is_supertype_of(arg.col_type, ignore_nullable=True)
                 # TODO: this is a hack to allow JSON columns to be passed to functions that accept scalar

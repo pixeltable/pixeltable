@@ -25,8 +25,16 @@ class FunctionCall(Expr):
     agg_init_args: dict[str, Any]
     resource_pool: Optional[str]
 
+    # These collections hold the component indices corresponding to the args and kwargs
+    # that were passed to the FunctionCall. They're 1:1 with the original call pattern.
     arg_idxs: list[int]
     kwarg_idxs: dict[str, int]
+
+    # A "bound" version of the FunctionCall arguments, mapping each specified parameter name
+    # to one of three types of bindings:
+    # - a component index, if the parameter is a non-variadic parameter
+    # - a list of component indices, if the parameter is a variadic positional parameter
+    # - a dict mapping keyword names to component indices, if the parameter is a variadic keyword parameter
     bound_idxs: dict[str, Union[int, list[int], dict[str, int]]]
 
     return_type: ts.ColumnType

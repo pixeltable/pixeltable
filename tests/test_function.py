@@ -329,8 +329,12 @@ class TestFunction:
         assert 'Unknown parameter: non_param' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
+            self.binding_test_udf.using(p1=t.c1)
+        assert "Expected a constant value for parameter 'p1' in call to .using()" in str(exc_info.value)
+
+        with pytest.raises(excs.Error) as exc_info:
             self.binding_test_udf.using(p1=5)
-        assert 'Expected type `String` for parameter `p1`; got `Int`' in str(exc_info.value)
+        assert "Expected type `String` for parameter 'p1'; got `Int`" in str(exc_info.value)
 
         with pytest.raises(TypeError) as exc_info:
             _ = pb1(p1='a')
@@ -521,9 +525,8 @@ class TestFunction:
         assert fc_int2.fn.signature == fn.signatures[1]
         assert fc_int2.col_type.is_int_type()
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(excs.Error, match='has no matching signature') as exc_info:
             fn(t.c3, t.c3)
-        assert 'has no matching signature' in str(exc_info.value)
 
         res = t.select(fc_str2, fc_int2).order_by(t.c2).collect()
         res_direct = t.select(format('{0}{1}', t.c1, t.c1), t.c2 + t.c2 + 1).order_by(t.c2).collect()
