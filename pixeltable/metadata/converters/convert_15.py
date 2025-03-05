@@ -5,8 +5,8 @@ from typing import Any
 import cloudpickle  # type: ignore[import-untyped]
 import sqlalchemy as sql
 
-import pixeltable.func as func
 import pixeltable.type_system as ts
+from pixeltable import func
 from pixeltable.metadata import register_converter
 from pixeltable.metadata.schema import Function
 
@@ -17,10 +17,10 @@ _logger = logging.getLogger('pixeltable')
 def _(engine: sql.engine.Engine) -> None:
     with engine.begin() as conn:
         for row in conn.execute(sql.select(Function)):
-            id, dir_id, md, binary_obj = row
+            tbl_id, _, md, binary_obj = row
             md['md'] = __update_md(md['md'], binary_obj)
-            _logger.info(f'Updating function: {id}')
-            conn.execute(sql.update(Function).where(Function.id == id).values(md=md))
+            _logger.info(f'Updating function: {tbl_id}')
+            conn.execute(sql.update(Function).where(Function.id == tbl_id).values(md=md))
 
 
 def __update_md(orig_d: dict, binary_obj: bytes) -> Any:

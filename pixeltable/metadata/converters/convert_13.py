@@ -13,12 +13,12 @@ _logger = logging.getLogger('pixeltable')
 def _(engine: sql.engine.Engine) -> None:
     with engine.begin() as conn:
         for row in conn.execute(sql.select(Table)):
-            id = row[0]
+            tbl_id = row[0]
             md = row[2]
             updated_md = __update_md(md)
             if updated_md != md:
-                _logger.info(f'Updating schema for table: {id}')
-                conn.execute(sql.update(Table).where(Table.id == id).values(md=updated_md))
+                _logger.info(f'Updating schema for table: {tbl_id}')
+                conn.execute(sql.update(Table).where(Table.id == tbl_id).values(md=updated_md))
 
 
 # Traverse the schema dictionary and replace instances of `ExplicitBatchedFunction` with
