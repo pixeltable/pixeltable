@@ -1,12 +1,10 @@
 import logging
-from typing import Any, Optional
 from uuid import UUID
 
 import sqlalchemy as sql
 
 from pixeltable.metadata import register_converter
 from pixeltable.metadata.converters.util import convert_table_md
-from pixeltable.metadata.schema import Table
 
 _logger = logging.getLogger('pixeltable')
 

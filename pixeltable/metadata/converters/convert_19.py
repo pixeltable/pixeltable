@@ -17,9 +17,9 @@ def _(engine: sql.engine.Engine) -> None:
     # default time zone, which is what we want, since in versions <= 19 they were naive timestamps.)
     with engine.begin() as conn:
         tables = conn.execute(sql.select(schema.Table.id, schema.Table.md))
-        for id, md in tables:
+        for tbl_id, md in tables:
             store_prefix = 'view' if md['view_md'] is not None else 'tbl'
-            store_name = f'{store_prefix}_{id.hex}'
+            store_name = f'{store_prefix}_{tbl_id.hex}'
             column_md = md['column_md']
             timestamp_cols = [
                 col_id for col_id, col in column_md.items() if col['col_type']['_classname'] == 'TimestampType'

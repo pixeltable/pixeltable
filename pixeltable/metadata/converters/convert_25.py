@@ -13,7 +13,7 @@ def _(engine: sql.engine.Engine) -> None:
 
 def __substitute_md(k: Optional[str], v: Any) -> Optional[tuple[Optional[str], Any]]:
     if k == 'path' and (
-        v in ['pixeltable.functions.huggingface.clip_text', 'pixeltable.functions.huggingface.clip_image']
+        v in {'pixeltable.functions.huggingface.clip_text', 'pixeltable.functions.huggingface.clip_image'}
     ):
         return 'path', 'pixeltable.functions.huggingface.clip'
     return None

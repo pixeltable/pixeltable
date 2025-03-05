@@ -1,7 +1,7 @@
 import dataclasses
 import enum
 import logging
-from typing import Any, Iterable, Iterator, Optional, Union
+from typing import Any, ClassVar, Iterable, Iterator, Optional, Union
 
 import ftfy
 
@@ -96,7 +96,7 @@ class DocumentSplitter(ComponentIterator):
     Chunked text will be cleaned with `ftfy.fix_text` to fix up common problems with unicode sequences.
     """
 
-    METADATA_COLUMN_TYPES = {
+    METADATA_COLUMN_TYPES: ClassVar[dict[ChunkMetadata, ColumnType]] = {
         ChunkMetadata.TITLE: StringType(nullable=True),
         ChunkMetadata.HEADING: JsonType(nullable=True),
         ChunkMetadata.SOURCELINE: IntType(nullable=True),
@@ -164,7 +164,7 @@ class DocumentSplitter(ComponentIterator):
             assert self._doc_handle.txt_doc is not None
             self._sections = self._txt_sections()
         else:
-            assert False, f'Unsupported document format: {self._doc_handle.format}'
+            raise AssertionError(f'Unsupported document format: {self._doc_handle.format}')
 
         if Separator.SENTENCE in self._separators:
             self._sections = self._sentence_sections(self._sections)
@@ -259,9 +259,9 @@ class DocumentSplitter(ComponentIterator):
             sourceline = el.sourceline
             if el.name in _HTML_HEADINGS:
                 # remove the previously seen lower levels
-                lower_levels = [l for l in headings if l > el.name]
-                for l in lower_levels:
-                    del headings[l]
+                lower_levels = [lv for lv in headings if lv > el.name]
+                for lv in lower_levels:
+                    del headings[lv]
                 headings[el.name] = el.get_text().strip()
 
         def emit() -> Iterator[DocumentSection]:
@@ -320,9 +320,9 @@ class DocumentSplitter(ComponentIterator):
             level = f'h{lint}'
             text = heading['children'][0]['raw'].strip()
             # remove the previously seen lower levels
-            lower_levels = [l for l in headings.keys() if l > level]
-            for l in lower_levels:
-                del headings[l]
+            lower_levels = [lv for lv in headings if lv > level]
+            for lv in lower_levels:
+                del headings[lv]
             headings[level] = text
 
         def emit() -> Iterator[DocumentSection]:

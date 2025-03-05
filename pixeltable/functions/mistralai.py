@@ -148,7 +148,7 @@ _embedding_dimensions_cache: dict[str, int] = {'mistral-embed': 1024}
 
 
 @pxt.udf(batch_size=16, resource_pool='request-rate:mistral')
-async def embeddings(input: Batch[str], *, model: str) -> Batch[pxt.Array[(None,), pxt.Float]]:
+async def embeddings(input: Batch[str], *, model: str) -> Batch[pxt.Array[(None,), pxt.Float]]:  # noqa: RUF029
     """
     Embeddings API.
 

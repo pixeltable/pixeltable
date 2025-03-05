@@ -12,8 +12,8 @@ from typing import Any, Callable, Optional, TypeVar
 import PIL.Image
 
 import pixeltable as pxt
-import pixeltable.env as env
 import pixeltable.exceptions as excs
+from pixeltable import env
 from pixeltable.func import Batch
 from pixeltable.functions.util import normalize_image_mode, resolve_torch_device
 from pixeltable.utils.code import local_public_names
@@ -50,7 +50,6 @@ def sentence_transformer(
     """
     env.Env.get().require_package('sentence_transformers')
     device = resolve_torch_device('auto')
-    import torch
     from sentence_transformers import SentenceTransformer  # type: ignore
 
     # specifying the device, moves the model to device (gpu:cuda/mps, cpu)
@@ -76,7 +75,6 @@ def _(model_id: str) -> pxt.ArrayType:
 def sentence_transformer_list(sentences: list, *, model_id: str, normalize_embeddings: bool = False) -> list:
     env.Env.get().require_package('sentence_transformers')
     device = resolve_torch_device('auto')
-    import torch
     from sentence_transformers import SentenceTransformer
 
     # specifying the device, moves the model to device (gpu:cuda/mps, cpu)
@@ -117,7 +115,6 @@ def cross_encoder(sentences1: Batch[str], sentences2: Batch[str], *, model_id: s
     """
     env.Env.get().require_package('sentence_transformers')
     device = resolve_torch_device('auto')
-    import torch
     from sentence_transformers import CrossEncoder
 
     # specifying the device, moves the model to device (gpu:cuda/mps, cpu)
@@ -132,7 +129,6 @@ def cross_encoder(sentences1: Batch[str], sentences2: Batch[str], *, model_id: s
 def cross_encoder_list(sentence1: str, sentences2: list, *, model_id: str) -> list:
     env.Env.get().require_package('sentence_transformers')
     device = resolve_torch_device('auto')
-    import torch
     from sentence_transformers import CrossEncoder
 
     # specifying the device, moves the model to device (gpu:cuda/mps, cpu)

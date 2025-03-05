@@ -62,7 +62,7 @@ def create_chat_completion(
 def _is_gpu_available() -> bool:
     import llama_cpp
 
-    global _IS_GPU_AVAILABLE
+    global _IS_GPU_AVAILABLE  # noqa: PLW0603
     if _IS_GPU_AVAILABLE is None:
         llama_cpp_path = Path(llama_cpp.__file__).parent
         lib = llama_cpp.llama_cpp.load_shared_library('llama', llama_cpp_path / 'lib')

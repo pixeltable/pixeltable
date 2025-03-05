@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import enum
-from typing import Any, Optional
+from typing import Any, ClassVar, Optional
 
 import numpy as np
 import pgvector.sqlalchemy  # type: ignore[import-untyped]
@@ -31,7 +31,11 @@ class EmbeddingIndex(IndexBase):
         IP = 2
         L2 = 3
 
-    PGVECTOR_OPS = {Metric.COSINE: 'vector_cosine_ops', Metric.IP: 'vector_ip_ops', Metric.L2: 'vector_l2_ops'}
+    PGVECTOR_OPS: ClassVar[dict[Metric, str]] = {
+        Metric.COSINE: 'vector_cosine_ops',
+        Metric.IP: 'vector_ip_ops',
+        Metric.L2: 'vector_l2_ops',
+    }
 
     metric: Metric
     value_expr: exprs.FunctionCall
@@ -55,7 +59,7 @@ class EmbeddingIndex(IndexBase):
         if metric.lower() not in metric_names:
             raise excs.Error(f'Invalid metric {metric}, must be one of {metric_names}')
         if not c.col_type.is_string_type() and not c.col_type.is_image_type():
-            raise excs.Error(f'Embedding index requires string or image column')
+            raise excs.Error('Embedding index requires string or image column')
 
         self.string_embed = None
         self.image_embed = None
@@ -228,7 +232,7 @@ class EmbeddingIndex(IndexBase):
             )
 
         shape = return_type.shape
-        if len(shape) != 1 or shape[0] == None:
+        if len(shape) != 1 or shape[0] is None:
             raise excs.Error(
                 f'The function `{embed_fn.name}` is not a valid embedding: '
                 f'it must return a 1-dimensional array of a specific length, but returns {return_type}'

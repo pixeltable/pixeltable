@@ -1,3 +1,5 @@
+# noqa: A005
+
 from typing import Any, Iterator
 
 import pixeltable.exceptions as excs

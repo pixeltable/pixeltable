@@ -13,4 +13,3 @@ def _(engine: sql.engine.Engine) -> None:
         conn.execute(sql.update(Table).values(md=Table.md - 'parameters'))
         # Add `table_attrs` to all instances of tableschemaversions.md.
         conn.execute(sql.update(TableSchemaVersion).values(md=TableSchemaVersion.md.concat(default_table_attrs)))
-    return

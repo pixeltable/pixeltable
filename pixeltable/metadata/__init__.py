@@ -5,7 +5,7 @@ import pkgutil
 from typing import Callable
 
 import sqlalchemy as sql
-import sqlalchemy.orm as orm
+from sqlalchemy import orm
 
 from .schema import SystemInfo, SystemInfoMd
 
@@ -30,7 +30,6 @@ converter_cbs: dict[int, Callable[[sql.engine.Engine], None]] = {}
 
 def register_converter(version: int) -> Callable[[Callable[[sql.engine.Engine], None]], None]:
     def decorator(fn: Callable[[sql.engine.Engine], None]) -> None:
-        global converter_cbs
         assert version not in converter_cbs
         converter_cbs[version] = fn
 
