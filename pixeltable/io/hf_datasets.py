@@ -114,7 +114,7 @@ def import_huggingface_dataset(
 
     import pixeltable as pxt
 
-    from .globals import _normalize_import_parameters, _normalize_schema_names
+    from .utils import _normalize_import_parameters, _normalize_schema_names
 
     if not isinstance(dataset, (datasets.Dataset, datasets.DatasetDict)):
         raise excs.Error(f'`type(dataset)` must be `datasets.Dataset` or `datasets.DatasetDict`. Got {type(dataset)=}')

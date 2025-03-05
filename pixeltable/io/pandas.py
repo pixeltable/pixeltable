@@ -10,7 +10,7 @@ import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable import Table
 
-from .globals import _find_or_create_table, _normalize_import_parameters, _normalize_schema_names
+from .utils import _find_or_create_table, _normalize_import_parameters, _normalize_schema_names
 
 
 def import_pandas(

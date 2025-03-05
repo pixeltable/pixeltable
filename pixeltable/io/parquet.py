@@ -174,8 +174,9 @@ def import_parquet(
     from pyarrow import parquet
 
     import pixeltable as pxt
-    from pixeltable.io.globals import _normalize_import_parameters, _normalize_schema_names
     from pixeltable.utils.arrow import ar_infer_schema, iter_tuples2
+
+    from .utils import _normalize_import_parameters, _normalize_schema_names
 
     input_path = Path(parquet_path).expanduser()
     parquet_dataset = parquet.ParquetDataset(str(input_path))
