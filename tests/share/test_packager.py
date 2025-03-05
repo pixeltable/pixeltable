@@ -10,8 +10,7 @@ import numpy as np
 from pyiceberg.table import Table as IcebergTable
 
 import pixeltable as pxt
-from pixeltable import exprs
-from pixeltable import metadata
+from pixeltable import exprs, metadata
 from pixeltable.env import Env
 from pixeltable.share.packager import TablePackager
 from pixeltable.utils.iceberg import sqlite_catalog

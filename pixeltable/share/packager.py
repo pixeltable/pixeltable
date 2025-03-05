@@ -1,5 +1,4 @@
 import dataclasses
-from datetime import datetime
 import io
 import json
 import logging
@@ -7,6 +6,7 @@ import tarfile
 import urllib.parse
 import urllib.request
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterator, Optional
 
@@ -67,7 +67,9 @@ class TablePackager:
                     # These are temporary; will replace with a better solution once the concurrency changes to catalog have
                     # been merged
                     'table_md': dataclasses.asdict(t._tbl_version._create_tbl_md()),
-                    'table_version_md': dataclasses.asdict(t._tbl_version._create_version_md(datetime.now().timestamp())),
+                    'table_version_md': dataclasses.asdict(
+                        t._tbl_version._create_version_md(datetime.now().timestamp())
+                    ),
                     'table_schema_version_md': dataclasses.asdict(t._tbl_version._create_schema_version_md(0)),
                 }
                 for t in (table, *table._bases)
