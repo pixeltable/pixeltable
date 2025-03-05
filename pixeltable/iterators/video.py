@@ -2,7 +2,7 @@ import logging
 import math
 from fractions import Fraction
 from pathlib import Path
-from typing import Any, Optional, Sequence
+from typing import Any, Optional
 
 import av  # type: ignore[import-untyped]
 import pandas as pd
@@ -91,21 +91,20 @@ class FrameIterator(ComponentIterator):
                 self.frames_to_extract = None
             else:
                 spacing = float(self.video_frame_count) / float(num_frames)
-                self.frames_to_extract = list(round(i * spacing) for i in range(num_frames))
+                self.frames_to_extract = [round(i * spacing) for i in range(num_frames)]
                 assert len(self.frames_to_extract) == num_frames
+        elif fps is None or fps == 0.0:
+            # Extract all frames
+            self.frames_to_extract = None
+        elif fps > float(self.video_framerate):
+            raise excs.Error(
+                f'Video {video}: requested fps ({fps}) exceeds that of the video ({float(self.video_framerate)})'
+            )
         else:
-            if fps is None or fps == 0.0:
-                # Extract all frames
-                self.frames_to_extract = None
-            elif fps > float(self.video_framerate):
-                raise excs.Error(
-                    f'Video {video}: requested fps ({fps}) exceeds that of the video ({float(self.video_framerate)})'
-                )
-            else:
-                # Extract frames at the implied frequency
-                freq = fps / float(self.video_framerate)
-                n = math.ceil(self.video_frame_count * freq)  # number of frames to extract
-                self.frames_to_extract = list(round(i / freq) for i in range(n))
+            # Extract frames at the implied frequency
+            freq = fps / float(self.video_framerate)
+            n = math.ceil(self.video_frame_count * freq)  # number of frames to extract
+            self.frames_to_extract = [round(i / freq) for i in range(n)]
 
         _logger.debug(f'FrameIterator: path={self.video_path} fps={self.fps} num_frames={self.num_frames}')
         self.next_pos = 0
@@ -149,7 +148,7 @@ class FrameIterator(ComponentIterator):
             try:
                 frame = next(self.container.decode(video=0))
             except EOFError:
-                raise StopIteration
+                raise StopIteration from None
             # Compute the index of the current frame in the video based on the presentation timestamp (pts);
             # this ensures we have a canonical understanding of frame index, regardless of how we got here
             # (seek or iteration)

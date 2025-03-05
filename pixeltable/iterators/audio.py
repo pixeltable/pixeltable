@@ -1,15 +1,12 @@
 import logging
-import math
 import uuid
 from fractions import Fraction
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, ClassVar, Optional
 
 import av  # type: ignore[import-untyped]
 
-import pixeltable.env as env
-import pixeltable.exceptions as excs
-import pixeltable.type_system as ts
+from pixeltable import env, exceptions as excs, type_system as ts
 
 from .base import ComponentIterator
 
@@ -18,7 +15,8 @@ _logger = logging.getLogger('pixeltable')
 
 class AudioSplitter(ComponentIterator):
     """
-    Iterator over chunks of an audio file. The audio file is split into smaller chunks, where the duration of each chunk is determined by chunk_duration_sec.
+    Iterator over chunks of an audio file. The audio file is split into smaller chunks,
+    where the duration of each chunk is determined by chunk_duration_sec.
     The iterator yields audio chunks as pxt.Audio, along with the start and end time of each chunk.
     If the input contains no audio, no chunks are yielded.
 
@@ -39,11 +37,11 @@ class AudioSplitter(ComponentIterator):
 
     # List of chunks to extract
     # Each chunk is defined by start and end presentation timestamps in audio file (int)
-    chunks_to_extract_in_pts: Optional[list[tuple[int, int]]] = []
+    chunks_to_extract_in_pts: Optional[list[tuple[int, int]]]
     # next chunk to extract
     next_pos: int
 
-    __codec_map = {
+    __codec_map: ClassVar[dict[str, str]] = {
         'mp3': 'mp3',  # MP3 decoder -> mp3/libmp3lame encoder
         'mp3float': 'mp3',  # MP3float decoder -> mp3 encoder
         'aac': 'aac',  # AAC decoder -> AAC encoder
@@ -88,7 +86,8 @@ class AudioSplitter(ComponentIterator):
             )
         ]
         _logger.debug(
-            f'AudioIterator: path={self.audio_path} total_audio_duration_pts={total_audio_duration_pts} chunks_to_extract_in_pts={self.chunks_to_extract_in_pts}'
+            f'AudioIterator: path={self.audio_path} total_audio_duration_pts={total_audio_duration_pts} '
+            f'chunks_to_extract_in_pts={self.chunks_to_extract_in_pts}'
         )
 
     @classmethod
@@ -154,7 +153,7 @@ class AudioSplitter(ComponentIterator):
             try:
                 frame = next(self.container.decode(audio=0))
             except EOFError as e:
-                raise excs.Error(f'Failed to read audio file `{self.audio_path}`, error `{e}`')
+                raise excs.Error(f"Failed to read audio file '{self.audio_path}': {e}") from e
             except StopIteration:
                 # no more frames to scan
                 break
@@ -162,7 +161,8 @@ class AudioSplitter(ComponentIterator):
                 # Current frame is behind chunk's start time, always get frame next to chunk's start time
                 continue
             if frame.pts >= target_chunk_end:
-                # Frame has crossed the chunk boundary, it should be picked up by next chunk, throw away the current frame
+                # Frame has crossed the chunk boundary, it should be picked up by next chunk, throw away
+                # the current frame
                 break
             frame_end = frame.pts + frame.samples
             if frame_count == 0:
