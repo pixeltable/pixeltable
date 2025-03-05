@@ -4,8 +4,7 @@ import uuid
 from typing import Any, Optional, TypeVar, Union, get_type_hints
 
 import sqlalchemy as sql
-from sqlalchemy import orm
-from sqlalchemy import BigInteger, ForeignKey, Integer, LargeBinary
+from sqlalchemy import BigInteger, ForeignKey, Integer, LargeBinary, orm
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm.decl_api import DeclarativeMeta
 
