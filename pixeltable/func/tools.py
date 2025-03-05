@@ -49,7 +49,7 @@ class Tool(pydantic.BaseModel):
         }
 
     # `tool_calls` must be in standardized tool invocation format:
-    # {tool_name: {'args': {name1: value1, name2: value2, ...}}, ...}
+    # {tool_name: [{'args': {name1: value1, name2: value2, ...}}, ...], ...}
     def invoke(self, tool_calls: 'exprs.Expr') -> 'exprs.FunctionCall':
         kwargs = {param.name: self.__extract_tool_arg(param, tool_calls) for param in self.parameters.values()}
         return self.fn(**kwargs)
