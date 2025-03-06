@@ -153,7 +153,7 @@ class TestPandas:
                 'tests/data/datasets/onlinefoods.csv',
                 schema_overrides={'Non-Column': pxt.StringType(nullable=True)},
             )
-        assert '`Non-Column` specified in `schema_overrides` does not exist' in str(exc_info.value)
+        assert 'Some column(s) specified in `schema_overrides` are not present' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
             _ = import_csv('edge_cases', 'tests/data/datasets/edge-cases.csv', primary_key=['!!int', 'Non-Column'])

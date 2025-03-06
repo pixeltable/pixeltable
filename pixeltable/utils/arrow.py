@@ -10,7 +10,6 @@ import pixeltable.type_system as ts
 PA_TO_PXT_TYPES: dict[pa.DataType, ts.ColumnType] = {
     pa.string(): ts.StringType(nullable=True),
     pa.large_string(): ts.StringType(nullable=True),
-    #    pa.date32(): ts.TimestampType(nullable=True),
     pa.timestamp('us', tz=datetime.timezone.utc): ts.TimestampType(nullable=True),
     pa.bool_(): ts.BoolType(nullable=True),
     pa.uint8(): ts.IntType(nullable=True),

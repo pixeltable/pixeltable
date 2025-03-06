@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     import fiftyone as fo  # type: ignore[import-untyped]
 
 
-from .utils import _find_or_create_table, _normalize_import_parameters, _normalize_schema_names
+from .utils import find_or_create_table, normalize_import_parameters, normalize_schema_names
 
 
 def _infer_schema_from_rows(
@@ -218,11 +218,11 @@ def import_rows(
     Returns:
         A handle to the newly created [`Table`][pixeltable.Table].
     """
-    schema_overrides, primary_key = _normalize_import_parameters(schema_overrides, primary_key)
+    schema_overrides, primary_key = normalize_import_parameters(schema_overrides, primary_key)
     row_schema = _infer_schema_from_rows(rows, schema_overrides, primary_key)
-    schema, pxt_pk, _ = _normalize_schema_names(row_schema, primary_key, schema_overrides, True)
+    schema, pxt_pk, _ = normalize_schema_names(row_schema, primary_key, schema_overrides, True)
 
-    table = _find_or_create_table(
+    table = find_or_create_table(
         tbl_path, schema, primary_key=pxt_pk, num_retained_versions=num_retained_versions, comment=comment
     )
     table.insert(rows)
@@ -276,11 +276,9 @@ def import_json(
         contents = urllib.request.urlopen(filepath_or_url).read()
     rows = json.loads(contents, **kwargs)
 
-    # from pixeltable.io.globals import _normalize_schema_names
-
-    schema_overrides, primary_key = _normalize_import_parameters(schema_overrides, primary_key)
+    schema_overrides, primary_key = normalize_import_parameters(schema_overrides, primary_key)
     row_schema = _infer_schema_from_rows(rows, schema_overrides, primary_key)
-    schema, pxt_pk, col_mapping = _normalize_schema_names(row_schema, primary_key, schema_overrides, False)
+    schema, pxt_pk, col_mapping = normalize_schema_names(row_schema, primary_key, schema_overrides, False)
 
     # Convert all rows to insertable format - not needed, misnamed columns and types are errors in the incoming row format
     if col_mapping is not None:
@@ -290,7 +288,7 @@ def import_json(
     else:
         tbl_rows = rows
 
-    table = _find_or_create_table(
+    table = find_or_create_table(
         tbl_path, schema, primary_key=pxt_pk, num_retained_versions=num_retained_versions, comment=comment
     )
 

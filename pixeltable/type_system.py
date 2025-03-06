@@ -243,8 +243,6 @@ class ColumnType:
             return FloatType(nullable=nullable)
         if isinstance(val, datetime.datetime):
             return TimestampType(nullable=nullable)
-        #        if isinstance(val, datetime.date):
-        #            return TimestampType(nullable=nullable)
         if isinstance(val, PIL.Image.Image):
             return ImageType(width=val.width, height=val.height, mode=val.mode, nullable=nullable)
         if isinstance(val, np.ndarray):
@@ -616,8 +614,6 @@ class TimestampType(ColumnType):
             return datetime.datetime.fromisoformat(val)
         if isinstance(val, datetime.datetime):
             return val
-        #        if isinstance(val, datetime.date):
-        #            return datetime.datetime.combine(val, datetime.time.min)
         return val
 
 

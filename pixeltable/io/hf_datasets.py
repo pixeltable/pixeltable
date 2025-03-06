@@ -10,6 +10,8 @@ import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable import exceptions as excs
 
+from .utils import normalize_import_parameters, normalize_schema_names
+
 if typing.TYPE_CHECKING:
     import datasets  # type: ignore[import-untyped]
 
@@ -114,14 +116,12 @@ def import_huggingface_dataset(
 
     import pixeltable as pxt
 
-    from .utils import _normalize_import_parameters, _normalize_schema_names
-
     if not isinstance(dataset, (datasets.Dataset, datasets.DatasetDict)):
         raise excs.Error(f'`type(dataset)` must be `datasets.Dataset` or `datasets.DatasetDict`. Got {type(dataset)=}')
 
     # Create the pixeltable schema from the huggingface schema
     hf_schema_source = _get_hf_schema(dataset)
-    schema_overrides, primary_key = _normalize_import_parameters(schema_overrides, primary_key)
+    schema_overrides, primary_key = normalize_import_parameters(schema_overrides, primary_key)
     hf_schema = huggingface_schema_to_pxt_schema(hf_schema_source, schema_overrides, primary_key)
 
     # Add the split column to the schema if requested
@@ -132,7 +132,7 @@ def import_huggingface_dataset(
             )
         hf_schema[column_name_for_split] = ts.StringType(nullable=True)
 
-    schema, pxt_pk, _ = _normalize_schema_names(hf_schema, primary_key, schema_overrides, True)
+    schema, pxt_pk, _ = normalize_schema_names(hf_schema, primary_key, schema_overrides, True)
 
     # Prepare to create table and insert data
     if table_path in pxt.list_tables():

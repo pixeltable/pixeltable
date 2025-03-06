@@ -10,7 +10,7 @@ import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable import Table
 
-from .utils import _find_or_create_table, _normalize_import_parameters, _normalize_schema_names
+from .utils import find_or_create_table, normalize_import_parameters, normalize_schema_names
 
 
 def import_pandas(
@@ -44,16 +44,16 @@ def import_pandas(
     Returns:
         A handle to the newly created [`Table`][pixeltable.Table].
     """
-    schema_overrides, primary_key = _normalize_import_parameters(schema_overrides, primary_key)
+    schema_overrides, primary_key = normalize_import_parameters(schema_overrides, primary_key)
     pd_schema = df_infer_schema(df, schema_overrides, primary_key)
-    schema, pxt_pk, col_mapping = _normalize_schema_names(pd_schema, primary_key, schema_overrides, False)
+    schema, pxt_pk, col_mapping = normalize_schema_names(pd_schema, primary_key, schema_overrides, False)
 
     __check_primary_key_values(df, primary_key)
 
     # Convert all rows to insertable format
     tbl_rows = [__df_row_to_pxt_row(row, pd_schema, col_mapping) for row in df.itertuples()]
 
-    table = _find_or_create_table(
+    table = find_or_create_table(
         tbl_name, schema, primary_key=pxt_pk, num_retained_versions=num_retained_versions, comment=comment
     )
     table.insert(tbl_rows)
@@ -136,12 +136,6 @@ def df_infer_schema(
     Returns:
         A tuple containing a Pixeltable schema and a list of primary key column names.
     """
-    for pd_name in schema_overrides:
-        if pd_name not in df.columns:
-            raise excs.Error(
-                f'Column `{pd_name}` specified in `schema_overrides` does not exist in the given `DataFrame`.'
-            )
-
     pd_schema: dict[str, pxt.ColumnType] = {}
     for pd_name, pd_dtype in zip(df.columns, df.dtypes):
         if pd_name in schema_overrides:
@@ -151,6 +145,15 @@ def df_infer_schema(
         pd_schema[pd_name] = pxt_type
 
     return pd_schema
+
+
+"""
+# Check if a datetime64[ns, UTC] dtype
+def is_datetime_tz_utc(x: Any) -> bool:
+    if isinstance(x, pd.Timestamp) and x.tzinfo is not None and str(x.tzinfo) == 'UTC':
+        return True
+    return pd.api.types.is_datetime64tz_dtype(x) and str(x).endswith('UTC]')
+"""
 
 
 def __pd_dtype_to_pxt_type(pd_dtype: DtypeObj, nullable: bool) -> Optional[pxt.ColumnType]:
@@ -163,9 +166,8 @@ def __pd_dtype_to_pxt_type(pd_dtype: DtypeObj, nullable: bool) -> Optional[pxt.C
     Returns:
         pxt.ColumnType: A pixeltable ColumnType
     """
-    # Main incompatibility cases:
-    # 1. Pandas extension arrays (Int64, boolean, string[pyarrow], etc.)
-    # 2. Datetime types with timezone information
+    # Pandas extension arrays / types (Int64, boolean, string[pyarrow], etc.) are not directly compatible with NumPy dtypes
+    # The timezone-aware datetime64[ns, tz=] dtype is a pandas extension dtype
     if is_datetime64_any_dtype(pd_dtype):
         return ts.TimestampType(nullable=nullable)
     if is_extension_array_dtype(pd_dtype):

@@ -1,11 +1,13 @@
+from keyword import iskeyword as is_python_keyword
 from typing import Any, Optional, Union
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable import Table
+from pixeltable.catalog.globals import is_system_column_name
 
 
-def _normalize_pxt_col_name(name: str) -> str:
+def normalize_pxt_col_name(name: str) -> str:
     """
     Normalizes an arbitrary DataFrame column name into a valid Pixeltable identifier by:
     - replacing any non-ascii or non-alphanumeric characters with an underscore _
@@ -20,7 +22,7 @@ def _normalize_pxt_col_name(name: str) -> str:
     return id
 
 
-def _normalize_import_parameters(
+def normalize_import_parameters(
     schema_overrides: Optional[dict[str, Any]] = None, primary_key: Optional[Union[str, list[str]]] = None
 ) -> tuple[dict[str, Any], list[str]]:
     if schema_overrides is None:
@@ -32,21 +34,11 @@ def _normalize_import_parameters(
     return schema_overrides, primary_key
 
 
-def _is_usable_as_column_name(name: str, schema: dict[str, Any]) -> bool:
-    from keyword import iskeyword as is_python_keyword
-
-    from pixeltable.catalog.globals import is_system_column_name
-
-    if is_system_column_name(name):
-        return False
-    if is_python_keyword(name):
-        return False
-    if name in schema:
-        return False
-    return True
+def _is_usable_as_column_name(name: str, destination_schema: dict[str, Any]) -> bool:
+    return not (is_system_column_name(name) or is_python_keyword(name) or name in destination_schema)
 
 
-def _normalize_schema_names(
+def normalize_schema_names(
     in_schema: dict[str, Any],
     primary_key: list[str],
     schema_overrides: dict[str, Any],
@@ -79,7 +71,7 @@ def _normalize_schema_names(
     schema: dict[str, Any] = {}
     col_mapping: dict[str, str] = {}  # Maps column names to Pixeltable column names if needed
     for in_name, pxt_type in in_schema.items():
-        pxt_name = _normalize_pxt_col_name(in_name)
+        pxt_name = normalize_pxt_col_name(in_name)
         # Ensure that column names are unique by appending a distinguishing suffix
         # to any collisions
         pxt_fname = pxt_name
@@ -110,7 +102,7 @@ def _normalize_schema_names(
     return schema, pxt_pk, col_mapping
 
 
-def _find_or_create_table(
+def find_or_create_table(
     tbl_path: str,
     schema: dict[str, Any],
     *,

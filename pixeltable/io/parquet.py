@@ -19,6 +19,8 @@ import pixeltable.type_system as ts
 from pixeltable.env import Env
 from pixeltable.utils.transactional_directory import transactional_directory
 
+from .utils import normalize_import_parameters, normalize_schema_names
+
 if typing.TYPE_CHECKING:
     import pyarrow as pa
 
@@ -173,32 +175,29 @@ def import_parquet(
     """
     from pyarrow import parquet
 
-    import pixeltable as pxt
     from pixeltable.utils.arrow import ar_infer_schema, iter_tuples2
-
-    from .utils import _normalize_import_parameters, _normalize_schema_names
 
     input_path = Path(parquet_path).expanduser()
     parquet_dataset = parquet.ParquetDataset(str(input_path))
 
-    print(parquet_dataset.schema)
-
-    schema_overrides, primary_key = _normalize_import_parameters(schema_overrides, primary_key)
+    schema_overrides, primary_key = normalize_import_parameters(schema_overrides, primary_key)
     ar_schema = ar_infer_schema(parquet_dataset.schema, schema_overrides, primary_key)
-    schema, pxt_pk, col_mapping = _normalize_schema_names(ar_schema, primary_key, schema_overrides, False)
+    schema, pxt_pk, col_mapping = normalize_schema_names(ar_schema, primary_key, schema_overrides, False)
 
     if table in pxt.list_tables():
         raise exc.Error(f'Table {table} already exists')
 
+    tmp_name = f'{table}_tmp_{random.randint(0, 100000000)}'
+    total_rows = 0
     try:
-        tmp_name = f'{table}_tmp_{random.randint(0, 100000000)}'
         tab = pxt.create_table(tmp_name, schema, primary_key=pxt_pk, **kwargs)
         for fragment in parquet_dataset.fragments:  # type: ignore[attr-defined]
             for batch in fragment.to_batches():
                 dict_batch = list(iter_tuples2(batch, col_mapping, schema))
+                total_rows += len(dict_batch)
                 tab.insert(dict_batch)
     except Exception as e:
-        _logger.error(f'Error while inserting Parquet file into table: {e}')
+        _logger.error(f'Error after inserting {total_rows} rows from Parquet file into table: {e}')
         raise e
 
     pxt.move(tmp_name, table)
