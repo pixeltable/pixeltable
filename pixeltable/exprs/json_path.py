@@ -43,6 +43,8 @@ class JsonPath(Expr):
         self.id = self._create_id()
 
     def __repr__(self) -> str:
+        if self._anchor is None and len(self.path_elements) == 0:
+            return 'R'
         # else "R": the anchor is RELATIVE_PATH_ROOT
         return (
             f'{str(self._anchor) if self._anchor is not None else "R"}'

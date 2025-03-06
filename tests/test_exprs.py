@@ -1399,6 +1399,9 @@ class TestExprs:
             (t.c_int == None, 'c_int == None'),
             # JsonPath
             (t.c_json.f2.f5[2:4][3], 'c_json.f2.f5[2:4][3]'),
+            # JsonPath with relative root (with and without a succeeding path)
+            (t.c_json.f2.f5['*'] >> R, 'c_json.f2.f5[*] >> R'),
+            (t.c_json.f2.f5['*'] >> R.abcd, 'c_json.f2.f5[*] >> R.abcd'),
             # MethodRef
             (t.c_image.resize((100, 100)), 'c_image.resize([100, 100])'),
             # TypeCast
