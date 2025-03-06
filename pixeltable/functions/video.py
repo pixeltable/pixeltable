@@ -14,9 +14,9 @@ t.select(pxt_video.extract_audio(t.video_col)).collect()
 import tempfile
 import uuid
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
-import av  # type: ignore[import-untyped]
+import av
 import numpy as np
 import PIL.Image
 
@@ -54,10 +54,14 @@ class make_video(pxt.Aggregator):
     Aggregator that creates a video from a sequence of images.
     """
 
+    container: Optional[av.container.OutputContainer]
+    stream: Optional[av.video.stream.VideoStream]
+    fps: int
+
     def __init__(self, fps: int = 25):
         """follows https://pyav.org/docs/develop/cookbook/numpy.html#generating-video"""
-        self.container: Optional[av.container.OutputContainer] = None
-        self.stream: Optional[av.stream.Stream] = None
+        self.container = None
+        self.stream = None
         self.fps = fps
 
     def update(self, frame: PIL.Image.Image) -> None:
@@ -108,9 +112,10 @@ def extract_audio(
 
         with av.open(output_filename, 'w', format=format) as output_container:
             output_stream = output_container.add_stream(codec or default_codec)
+            assert isinstance(output_stream, av.audio.stream.AudioStream)
             for packet in container.demux(audio_stream):
                 for frame in packet.decode():
-                    output_container.mux(output_stream.encode(frame))
+                    output_container.mux(output_stream.encode(frame))  # type: ignore[arg-type]
 
         return output_filename
 
@@ -142,7 +147,7 @@ def __get_stream_metadata(stream: av.stream.Stream) -> dict:
         return {'type': stream.type}  # Currently unsupported
 
     codec_context = stream.codec_context
-    codec_context_md = {
+    codec_context_md: dict[str, Any] = {
         'name': codec_context.name,
         'codec_tag': codec_context.codec_tag.encode('unicode-escape').decode('utf-8'),
         'profile': codec_context.profile,
@@ -161,9 +166,11 @@ def __get_stream_metadata(stream: av.stream.Stream) -> dict:
 
     if stream.type == 'audio':
         # Additional metadata for audio
-        codec_context_md['channels'] = int(codec_context.channels) if codec_context.channels is not None else None
+        channels = getattr(stream.codec_context, 'channels', None)
+        codec_context_md['channels'] = int(channels) if channels is not None else None
     else:
         assert stream.type == 'video'
+        assert isinstance(stream, av.video.stream.VideoStream)
         # Additional metadata for video
         codec_context_md['pix_fmt'] = getattr(stream.codec_context, 'pix_fmt', None)
         metadata.update(
