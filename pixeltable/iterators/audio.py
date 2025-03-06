@@ -5,7 +5,7 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Any, Optional
 
-import av  # type: ignore[import-untyped]
+import av
 
 import pixeltable.env as env
 import pixeltable.exceptions as excs
@@ -146,6 +146,7 @@ class AudioSplitter(ComponentIterator):
         input_stream = self.container.streams.audio[0]
         codec_name = AudioSplitter.__codec_map.get(input_stream.codec_context.name, input_stream.codec_context.name)
         output_stream = output_container.add_stream(codec_name, rate=input_stream.codec_context.sample_rate)
+        assert isinstance(output_stream, av.audio.stream.AudioStream)
         frame_count = 0
         # Since frames don't align with chunk boundaries, we may have read an extra frame in previous iteration
         # Seek to the nearest frame in stream at current chunk start time
