@@ -158,6 +158,7 @@ class JsonPath(Expr):
         return ''.join(result)
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
+        assert self._anchor is not None, self
         val = data_row[self._anchor.slot_idx]
         if self.compiled_path is not None:
             val = self.compiled_path.search(val)
