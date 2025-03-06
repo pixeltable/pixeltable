@@ -575,7 +575,7 @@ class Table(SchemaObject):
 
         Args:
             kwargs: Exactly one keyword argument of the form `col_name=expression`.
-            stored: Whether the column is materialized and stored or computed on demand. Only valid for image columns.
+            stored: Whether the column is materialized and stored or computed on demand.
             print_stats: If `True`, print execution metrics during evaluation.
             on_error: Determines the behavior if an error occurs while evaluating the column expression for at least one
                 row.

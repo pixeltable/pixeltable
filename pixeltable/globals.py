@@ -315,14 +315,16 @@ def create_view(
         ... view = pxt.create_view('my_view', tbl.where(tbl.col1 > 100), if_exists='replace_force')
     """
     where: Optional[exprs.Expr] = None
+    select_list: Optional[list[tuple[exprs.Expr, Optional[str]]]] = None
     if isinstance(base, catalog.Table):
         tbl_version_path = base._tbl_version_path
     elif isinstance(base, DataFrame):
-        base._validate_mutable('create_view')
+        base._validate_mutable('create_view', allow_select=True)
         if len(base._from_clause.tbls) > 1:
             raise excs.Error('Cannot create a view of a join')
         tbl_version_path = base._from_clause.tbls[0]
         where = base.where_clause
+        select_list = base.select_list
     else:
         raise excs.Error('`base` must be an instance of `Table` or `DataFrame`')
     assert isinstance(base, catalog.Table) or isinstance(base, DataFrame)
@@ -359,6 +361,7 @@ def create_view(
             dir._id,
             path.name,
             base=tbl_version_path,
+            select_list=select_list,
             additional_columns=additional_columns,
             predicate=where,
             is_snapshot=is_snapshot,
@@ -668,7 +671,7 @@ def create_dir(
         parent = cat.get_schema_object(str(path_obj.parent))
         assert parent is not None
         dir = catalog.Dir._create(parent._id, path_obj.name)
-        Env.get().console_logger.info(f'Created directory `{path}`.')
+        Env.get().console_logger.info(f'Created directory {path!r}.')
         return dir
 
 

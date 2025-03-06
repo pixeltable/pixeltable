@@ -4,9 +4,9 @@ import numpy as np
 import pytest
 
 import pixeltable as pxt
-import pixeltable.exceptions as excs
+from pixeltable import exceptions as excs, func
 
-from .utils import ReloadTester, assert_resultset_eq, clip_embed, create_img_tbl, create_test_tbl, reload_catalog
+from .utils import ReloadTester, assert_resultset_eq, create_img_tbl, create_test_tbl, reload_catalog
 
 
 class TestSnapshot:
@@ -196,7 +196,7 @@ class TestSnapshot:
         assert s1._id == id_before['test_snap_t']
         assert s2._id == id_before['test_snap_v']
 
-    def test_errors(self, reset_db) -> None:
+    def test_errors(self, reset_db, clip_embed: func.Function) -> None:
         tbl = create_test_tbl()
         snap = pxt.create_snapshot('snap', tbl)
 

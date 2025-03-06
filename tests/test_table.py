@@ -14,7 +14,7 @@ from jsonschema.exceptions import ValidationError
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
-from pixeltable import catalog, exceptions as excs
+from pixeltable import catalog, exceptions as excs, func
 from pixeltable.exprs import ColumnRef
 from pixeltable.func import Batch
 from pixeltable.io.external_store import MockProject
@@ -2076,7 +2076,7 @@ class TestTable:
             'func_r': pxt.StringType(nullable=False),
         }
 
-    def test_repr(self, test_tbl: catalog.Table) -> None:
+    def test_repr(self, test_tbl: catalog.Table, all_mpnet_embed: func.Function) -> None:
         skip_test_if_not_installed('sentence_transformers')
 
         v = pxt.create_view('test_view', test_tbl)
@@ -2084,9 +2084,7 @@ class TestTable:
         v2 = pxt.create_view('test_subview', v, comment='This is an intriguing table comment.')
         fn = lambda x: np.full((3, 4), x)
         v2.add_computed_column(computed1=v2.c2.apply(fn, col_type=pxt.Array[(3, 4), pxt.Int]))  # type: ignore[misc]
-        v2.add_embedding_index(
-            'c1', string_embed=pxt.functions.huggingface.sentence_transformer.using(model_id='all-mpnet-base-v2')
-        )
+        v2.add_embedding_index('c1', string_embed=all_mpnet_embed)
         v2._link_external_store(MockProject.create(v2, 'project', {}, {}))
         v2.describe()
 

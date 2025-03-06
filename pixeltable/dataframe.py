@@ -426,7 +426,7 @@ class DataFrame:
             nl = '\n'
             # [-1:0:-1]: leave out entry 0 and reverse order, so that the most recent frame is at the top
             msg += f'\nStack:\n{nl.join(stack_trace[-1:1:-1])}'
-        raise excs.Error(msg)
+        raise excs.Error(msg) from e
 
     def _output_row_iterator(self) -> Iterator[list]:
         try:
@@ -570,15 +570,9 @@ class DataFrame:
         # analyze select list; wrap literals with the corresponding expressions
         select_list: list[tuple[exprs.Expr, Optional[str]]] = []
         for raw_expr, name in base_list:
-            if isinstance(raw_expr, exprs.Expr):
-                select_list.append((raw_expr, name))
-            elif isinstance(raw_expr, (dict, list, tuple)):
-                select_list.append((exprs.Expr.from_object(raw_expr), name))
-            elif isinstance(raw_expr, np.ndarray):
-                select_list.append((exprs.Expr.from_array(raw_expr), name))
-            else:
-                select_list.append((exprs.Literal(raw_expr), name))
-            expr = select_list[-1][0]
+            expr = exprs.Expr.from_object(raw_expr)
+            if expr is None:
+                raise excs.Error(f'Invalid expression: {raw_expr}')
             if expr.col_type.is_invalid_type():
                 raise excs.Error(f'Invalid type: {raw_expr}')
             if not expr.is_bound_by(self._from_clause.tbls):
@@ -586,6 +580,7 @@ class DataFrame:
                     f"Expression '{expr}' cannot be evaluated in the context of this query's tables "
                     f'({",".join(tbl.tbl_name() for tbl in self._from_clause.tbls)})'
                 )
+            select_list.append((expr, name))
 
         # check user provided names do not conflict among themselves or with auto-generated ones
         seen: set[str] = set()
@@ -948,7 +943,7 @@ class DataFrame:
 
             >>> df = person.where(t.year == 2014).update({'age': 30})
         """
-        self._validate_mutable('update')
+        self._validate_mutable('update', False)
         with Env.get().begin():
             return self._first_tbl.tbl_version.get().update(value_spec, where=self.where_clause, cascade=cascade)
 
@@ -969,19 +964,24 @@ class DataFrame:
 
             >>> df = person.where(t.age < 18).delete()
         """
-        self._validate_mutable('delete')
+        self._validate_mutable('delete', False)
         if not self._first_tbl.is_insertable():
             raise excs.Error(f'Cannot delete from view')
         with Env.get().begin():
             return self._first_tbl.tbl_version.get().delete(where=self.where_clause)
 
-    def _validate_mutable(self, op_name: str) -> None:
-        """Tests whether this DataFrame can be mutated (such as by an update operation)."""
+    def _validate_mutable(self, op_name: str, allow_select: bool) -> None:
+        """Tests whether this DataFrame can be mutated (such as by an update operation).
+
+        Args:
+            op_name: The name of the operation for which the test is being performed.
+            allow_select: If True, allow a select() specification in the Dataframe.
+        """
         if self.group_by_clause is not None or self.grouping_tbl is not None:
             raise excs.Error(f'Cannot use `{op_name}` after `group_by`')
         if self.order_by_clause is not None:
             raise excs.Error(f'Cannot use `{op_name}` after `order_by`')
-        if self.select_list is not None:
+        if self.select_list is not None and not allow_select:
             raise excs.Error(f'Cannot use `{op_name}` after `select`')
         if self.limit_val is not None:
             raise excs.Error(f'Cannot use `{op_name}` after `limit`')

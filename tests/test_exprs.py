@@ -441,7 +441,7 @@ class TestExprs:
 
         with pytest.raises(excs.Error) as exc_info:
             t.select(t.c6 + t.c2.apply(math.floor, col_type=pxt.Int)).collect()
-        assert '+ requires numeric type, but c6 has type dict' in str(exc_info.value)
+        assert '+ requires numeric types, but c6 has type dict' in str(exc_info.value)
 
     def test_comparison(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
@@ -519,6 +519,23 @@ class TestExprs:
         print(result.show(5))
         assert isinstance(result.select_list[0][0], Literal)
 
+        arr1 = np.array([1, 2, 3, 4, 5], dtype=np.int64)
+        arr2 = np.array([[1, 2, 3], [4, 5, 6]], dtype=np.int64)
+
+        # r0 = t.select(None)
+        # print(r0.show(5))
+
+        r1 = t.select(pxt.array(arr1))
+        print(r1.show(5))
+
+        arr3 = pxt.array([1, 2, 3, 4, 5])
+        r2 = t.select(arr3)
+        print(r2.show(5))
+
+        arr4 = pxt.array(np.array([1, 2, 3, 4, 5], dtype=np.int64))
+        r3 = t.select(arr4)
+        print(r3.show(5))
+
         result = t.select(
             1,
             (100, 100),
@@ -529,6 +546,8 @@ class TestExprs:
             pxt.array(['a', 'b', 'c']),
             # This is an np.array, dtype='<U7' : col_type = StringType
             pxt.array(['abc', 'd', 'efghijk']),
+            arr1,
+            arr2,
             {'b': [4, 5]},
             {'c': {}},
             {'d': {'d': 6, 'e': [7, 8], 'f': {}, 'g': {'h': 9}}},

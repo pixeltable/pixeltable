@@ -17,6 +17,7 @@ from ..utils import (
 )
 
 
+@pytest.mark.flaky(reruns=3, reruns_delay=15)  # Guard against connection errors downloading models
 class TestHuggingface:
     def test_hf_function(self, reset_db) -> None:
         skip_test_if_not_installed('sentence_transformers')

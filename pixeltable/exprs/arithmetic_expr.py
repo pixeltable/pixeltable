@@ -102,13 +102,13 @@ class ArithmeticExpr(Expr):
         op2_val = data_row[self._op2.slot_idx]
 
         # if one or both columns is JsonTyped, we need a dynamic check that they are numeric
-        if self._op1.col_type.is_json_type() and not isinstance(op1_val, int) and not isinstance(op1_val, float):
+        if self._op1.col_type.is_json_type() and op1_val is not None and not isinstance(op1_val, (int, float)):
             raise excs.Error(
-                f'{self.operator} requires numeric type, but {self._op1} has type {type(op1_val).__name__}'
+                f'{self.operator} requires numeric types, but {self._op1} has type {type(op1_val).__name__}'
             )
-        if self._op2.col_type.is_json_type() and not isinstance(op2_val, int) and not isinstance(op2_val, float):
+        if self._op2.col_type.is_json_type() and op2_val is not None and not isinstance(op2_val, (int, float)):
             raise excs.Error(
-                f'{self.operator} requires numeric type, but {self._op2} has type {type(op2_val).__name__}'
+                f'{self.operator} requires numeric types, but {self._op2} has type {type(op2_val).__name__}'
             )
 
         data_row[self.slot_idx] = self.eval_nullable(op1_val, op2_val)
