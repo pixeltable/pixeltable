@@ -11,7 +11,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Iterable, Literal, Mapping, Optional, Sequence, Union
 
-import av  # type: ignore
+import av
 import jsonschema
 import jsonschema.protocols
 import jsonschema.validators

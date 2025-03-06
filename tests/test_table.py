@@ -5,7 +5,7 @@ import random
 import re
 from typing import Any, Union, _GenericAlias  # type: ignore[attr-defined]
 
-import av  # type: ignore[import-untyped]
+import av
 import numpy as np
 import pandas as pd
 import PIL

@@ -325,10 +325,30 @@ async def translations(
 
 
 def _default_max_tokens(model: str) -> int:
-    if model in ('o1', 'o3-mini'):
+    if (
+        _is_model_family(model, 'gpt-4o-realtime')
+        or _is_model_family(model, 'gpt-4o-mini-realtime')
+        or _is_model_family(model, 'gpt-4-turbo')
+        or _is_model_family(model, 'gpt-3.5-turbo')
+    ):
+        return 4096
+    if _is_model_family(model, 'gpt-4'):
+        return 8192  # All other gpt-4 models (will not match on gpt-4o models)
+    if _is_model_family(model, 'gpt-4o') or _is_model_family(model, 'gpt-4.5-preview'):
+        return 16384  # All other gpt-4o / gpt-4.5 models
+    if _is_model_family(model, 'o1-preview'):
+        return 32768
+    if _is_model_family(model, 'o1-mini'):
         return 65536
-    else:
-        return 1024
+    if _is_model_family(model, 'o1') or _is_model_family(model, 'o3'):
+        return 100000  # All other o1 / o3 models
+    return 100000  # global default
+
+
+def _is_model_family(model: str, family: str) -> bool:
+    # `model.startswith(family)` would be a simpler match, but increases the risk of false positives.
+    # We use a slightly more complicated criterion to make things a little less error prone.
+    return model == family or model.startswith(f'{family}-')
 
 
 def _chat_completions_get_request_resources(
@@ -426,9 +446,6 @@ async def chat_completions(
     rate_limits_info = env.Env.get().get_resource_pool_info(
         resource_pool, lambda: OpenAIRateLimitsInfo(_chat_completions_get_request_resources)
     )
-
-    if max_completion_tokens is None and max_tokens is None:
-        max_completion_tokens = _default_max_tokens(model)
 
     # cast(Any, ...): avoid mypy errors
     result = await _openai_client().chat.completions.with_raw_response.create(
@@ -554,9 +571,6 @@ async def vision(
     rate_limits_info = env.Env.get().get_resource_pool_info(
         resource_pool, lambda: OpenAIRateLimitsInfo(_vision_get_request_resources)
     )
-
-    if max_completion_tokens is None and max_tokens is None:
-        max_completion_tokens = _default_max_tokens(model)
 
     result = await _openai_client().chat.completions.with_raw_response.create(
         messages=messages,  # type: ignore
