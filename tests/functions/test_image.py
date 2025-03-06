@@ -1,11 +1,11 @@
 from PIL.Image import Dither, Quantize, Transpose
 
-from pixeltable import Table
+import pixeltable as pxt
 from pixeltable.functions.image import alpha_composite, blend, composite
 
 
 class TestImage:
-    def test_image(self, img_tbl: Table) -> None:
+    def test_image(self, img_tbl: pxt.Table) -> None:
         # mask_img = next(f for f in get_image_files() if f.endswith('n03888257_1389.JPEG'))
         t = img_tbl
         _ = t.select(t.img.rotate(90)).show()
@@ -32,3 +32,27 @@ class TestImage:
         _ = t.select(t.img.reduce(2)).show()
         _ = t.select(t.img.reduce(2, box=[0, 0, 10, 10])).show()
         _ = t.select(t.img.transpose(Transpose.FLIP_LEFT_RIGHT)).show()
+
+    def test_return_types(self, reset_db) -> None:
+        for nullable in (True, False):
+            type_hint = pxt.Image[(200, 300), 'RGB']  # type: ignore
+            type_hint = type_hint if nullable else pxt.Required[type_hint]  # type: ignore
+            t = pxt.create_table('test', {'img': type_hint, 'info': pxt.Required[pxt.Json]}, if_exists='replace')
+
+            assert t.img.convert(mode='L').col_type == pxt.ImageType(size=(200, 300), mode='L', nullable=nullable)
+            assert t.img.crop(box=(50, 50, 100, 100)).col_type == pxt.ImageType(
+                size=(50, 50), mode='RGB', nullable=nullable
+            )
+            assert t.img.crop(box=t.info).col_type == pxt.ImageType(nullable=nullable)  # Non-constant box
+            assert t.img.effect_spread(distance=10).col_type == pxt.ImageType(
+                size=(200, 300), mode='RGB', nullable=nullable
+            )
+            assert t.img.getchannel(channel=0).col_type == pxt.ImageType(size=(200, 300), mode='L', nullable=nullable)
+            assert t.img.resize(size=(100, 100)).col_type == pxt.ImageType(
+                size=(100, 100), mode='RGB', nullable=nullable
+            )
+            assert t.img.resize(size=t.info).col_type == pxt.ImageType(nullable=nullable)  # Non-constant size
+            assert t.img.rotate(angle=90).col_type == pxt.ImageType(size=(200, 300), mode='RGB', nullable=nullable)
+            assert t.img.transpose(method=Transpose.FLIP_LEFT_RIGHT).col_type == pxt.ImageType(
+                size=(200, 300), mode='RGB', nullable=nullable
+            )

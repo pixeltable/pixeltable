@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import inspect
+import typing
 from abc import ABC, abstractmethod
 from copy import copy
 from typing import TYPE_CHECKING, Any, Callable, Optional, Sequence, cast
@@ -255,29 +256,58 @@ class Function(ABC):
     ) -> Optional[dict[str, Any]]:
         """
         Return the kwargs to pass to callable, given bound_args passed to this function.
+
+        This is used by `conditional_return_type` and `get_resource_pool` to determine call-specific characteristics
+        of this function.
+
+        In both cases, the specified `Callable` takes a subset of the parameters of this Function, which may
+        be typed as either `Expr`s or Python values. Any parameters typed as Python values expect to see constants
+        (Literals); if the corresponding entries in `bound_args` are not constants, then the return value is None.
         """
         from pixeltable import exprs
 
         assert not self.is_polymorphic
 
         callable_signature = inspect.signature(callable)
+        callable_type_hints = typing.get_type_hints(callable)
         callable_args: dict[str, Any] = {}
 
         for param in callable_signature.parameters.values():
-            arg: Any
+            assert param.name in self.signature.parameters
+
+            arg: exprs.Expr
             if param.name in bound_args:
                 arg = bound_args[param.name]
             elif self.signature.parameters[param.name].has_default():
                 arg = self.signature.parameters[param.name].default
             else:
+                # This parameter is missing from bound_args and has no default value, so return None.
                 return None
+            assert isinstance(arg, exprs.Expr)
 
-            if isinstance(arg, exprs.Literal):
-                callable_args[param.name] = arg.val
-            elif isinstance(arg, exprs.Expr):
-                return None
+            expects_expr: Optional[type[exprs.Expr]] = None
+            type_hint = callable_type_hints.get(param.name)
+            if typing.get_origin(type_hint) is not None:
+                type_hint = typing.get_origin(type_hint)
+            if isinstance(type_hint, type) and issubclass(type_hint, exprs.Expr):
+                # The callable expects an Expr for this parameter. We allow for the case where the
+                # callable requests a specific subtype of Expr.
+                expects_expr = type_hint
+
+            if expects_expr is not None:
+                # The callable is expecting `param.name` to be an Expr. Validate that it's of the appropriate type;
+                # otherwise return None.
+                if isinstance(arg, expects_expr):
+                    callable_args[param.name] = arg
+                else:
+                    return None
             else:
-                callable_args[param.name] = arg
+                # The callable is expecting `param.name` to be a constant Python value. Unpack a Literal if we find
+                # one; otherwise return None.
+                if isinstance(arg, exprs.Literal):
+                    callable_args[param.name] = arg.val
+                else:
+                    return None
 
         return callable_args
 
