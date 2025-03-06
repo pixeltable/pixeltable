@@ -682,6 +682,7 @@ class Table(SchemaObject):
             elif isinstance(spec, exprs.Expr):
                 # create copy so we can modify it
                 value_expr = spec.copy()
+                value_expr.bind_rel_paths()
             elif isinstance(spec, dict):
                 cls._validate_column_spec(name, spec)
                 if 'type' in spec:
@@ -692,6 +693,7 @@ class Table(SchemaObject):
                 if value_expr is not None and isinstance(value_expr, exprs.Expr):
                     # create copy so we can modify it
                     value_expr = value_expr.copy()
+                    value_expr.bind_rel_paths()
                 stored = spec.get('stored', True)
                 primary_key = spec.get('primary_key')
                 media_validation_str = spec.get('media_validation')

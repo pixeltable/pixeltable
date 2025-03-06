@@ -648,6 +648,12 @@ class TestExprs:
         for row in res:
             assert row['output'] == [x * row['input']['f5'][1] for x in row['input']['f5']]
 
+        # test it as a computed column
+        validate_update_status(t.add_computed_column(output=t.c6.f5['*'] >> (R * t.c6.f5[1])), 100)
+        res2 = reload_tester.run_query(t.select(t.output))
+        for row, row2 in zip(res, res2):
+            assert row['output'] == row2['output']
+
         reload_tester.run_reload_test()
 
     def test_dicts(self, test_tbl: catalog.Table) -> None:
