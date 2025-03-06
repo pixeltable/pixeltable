@@ -4,6 +4,7 @@ from typing import Optional
 
 import sqlalchemy as sql
 
+from pixeltable.exprs.expr_set import ExprSet
 import pixeltable.type_system as ts
 
 from .data_row import DataRow
@@ -107,7 +108,7 @@ class JsonMapper(Expr):
         for i, val in enumerate(src):
             data_row[self.scope_anchor.slot_idx] = val
             # stored target_expr
-            row_builder.eval(data_row, self.target_expr_eval_ctx)
+            row_builder.eval(data_row, self.target_expr_eval_ctx, force_eval=self._target_expr.scope())
             result[i] = data_row[self._target_expr.slot_idx]
         data_row[self.slot_idx] = result
 

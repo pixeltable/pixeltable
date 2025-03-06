@@ -43,13 +43,11 @@ class JsonPath(Expr):
         self.id = self._create_id()
 
     def __repr__(self) -> str:
-        if self._anchor is None and len(self.path_elements) == 0:
-            return 'R'
-        # else "R": the anchor is RELATIVE_PATH_ROOT
-        return (
-            f'{str(self._anchor) if self._anchor is not None else "R"}'
-            f'{"." if isinstance(self.path_elements[0], str) else ""}{self._json_path()}'
-        )
+        # else 'R': the anchor is RELATIVE_PATH_ROOT
+        anchor_str = str(self._anchor) if self._anchor is not None else 'R'
+        if len(self.path_elements) == 0:
+            return anchor_str
+        return f'{anchor_str}{"." if isinstance(self.path_elements[0], str) else ""}{self._json_path()}'
 
     def _as_dict(self) -> dict:
         path_elements = [[el.start, el.stop, el.step] if isinstance(el, slice) else el for el in self.path_elements]

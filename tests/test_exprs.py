@@ -630,19 +630,25 @@ class TestExprs:
         assert all(res['slice_range_step'][i] == orig[i][3:7:2] for i in range(len(orig)))
         assert all(res['slice_range_step_item'][i] == orig[i][3:7:2] for i in range(len(orig)))
 
-    def test_json_mapper(self, test_tbl: catalog.Table) -> None:
+    def test_json_mapper(self, test_tbl: catalog.Table, reload_tester: ReloadTester) -> None:
         t = test_tbl
+
         # top-level is dict
-        df = t.select(t.c6.f5['*'] >> (R + 1))
-        res = df.show()
-        print(res)
-        _ = t.select(t.c7['*'].f5 >> [R[3], R[2], R[1], R[0]])
-        _ = _.show()
-        print(_)
+        res = reload_tester.run_query(t.select(input=t.c6.f5, output=t.c6.f5['*'] >> (R + 1)))
+        for row in res:
+            assert row['output'] == [x + 1 for x in row['input']]
+
+        # top-level is list of dicts; subsequent json path element references the dicts
+        res = reload_tester.run_query(t.select(input=t.c7, output=t.c7['*'].f5 >> [R[3], R[2], R[1], R[0]]))
+        for row in res:
+            assert row['output'] == [[d['f5'][3], d['f5'][2], d['f5'][1], d['f5'][0]] for d in row['input']]
+
         # target expr contains global-scope dependency
-        df = t.select(t.c6.f5['*'] >> (R * t.c6.f5[1]))
-        res = df.show()
-        print(res)
+        res = reload_tester.run_query(t.select(input=t.c6, output=t.c6.f5['*'] >> (R * t.c6.f5[1])))
+        for row in res:
+            assert row['output'] == [x * row['input']['f5'][1] for x in row['input']['f5']]
+
+        reload_tester.run_reload_test()
 
     def test_dicts(self, test_tbl: catalog.Table) -> None:
         t = test_tbl

@@ -17,7 +17,7 @@ from pixeltable.env import Env
 from pixeltable.utils.media_store import MediaStore
 
 from .data_row import DataRow
-from .expr import Expr
+from .expr import Expr, ExprScope
 from .expr_set import ExprSet
 
 
@@ -376,7 +376,7 @@ class RowBuilder:
             data_row.set_exc(slot_idx, exc)
 
     def eval(
-        self, data_row: DataRow, ctx: EvalCtx, profile: Optional[ExecProfile] = None, ignore_errors: bool = False
+        self, data_row: DataRow, ctx: EvalCtx, profile: Optional[ExecProfile] = None, ignore_errors: bool = False, force_eval: Optional[ExprScope] = None
     ) -> None:
         """
         Populates the slots in data_row given in ctx.
@@ -384,10 +384,11 @@ class RowBuilder:
         and omits any of that expr's dependents's eval().
         profile: if present, populated with execution time of each expr.eval() call; indexed by expr.slot_idx
         ignore_errors: if False, raises ExprEvalError if any expr.eval() raises an exception
+        force_eval: forces exprs in the specified scope to be reevaluated, even if they already have a value
         """
         for expr in ctx.exprs:
             assert expr.slot_idx >= 0
-            if data_row.has_val[expr.slot_idx] or data_row.has_exc(expr.slot_idx):
+            if expr.scope() != force_eval and (data_row.has_val[expr.slot_idx] or data_row.has_exc(expr.slot_idx)):
                 continue
             try:
                 start_time = time.perf_counter()

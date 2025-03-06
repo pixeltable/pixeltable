@@ -29,9 +29,6 @@ class ObjectRef(Expr):
     def scope(self) -> ExprScope:
         return self._scope
 
-    def __str__(self) -> str:
-        assert False
-
     def _equals(self, other: ObjectRef) -> bool:
         return self.owner is other.owner
 
