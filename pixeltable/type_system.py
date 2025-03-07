@@ -11,7 +11,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Iterable, Literal, Mapping, Optional, Sequence, Union
 
-import av  # type: ignore
+import av
 import jsonschema
 import jsonschema.protocols
 import jsonschema.validators
@@ -47,8 +47,8 @@ class ColumnType:
         @classmethod
         def supertype(
             cls,
-            type1: 'ColumnType.Type',
-            type2: 'ColumnType.Type',
+            type1: Optional['ColumnType.Type'],
+            type2: Optional['ColumnType.Type'],
             # we need to pass this in because we can't easily append it as a class member
             common_supertypes: dict[tuple['ColumnType.Type', 'ColumnType.Type'], 'ColumnType.Type'],
         ) -> Optional['ColumnType.Type']:
@@ -495,7 +495,7 @@ class InvalidType(ColumnType):
         super().__init__(self.Type.INVALID, nullable=nullable)
 
     def to_sa_type(self) -> sql.types.TypeEngine:
-        assert False
+        return sql.types.NullType()
 
     def print_value(self, val: Any) -> str:
         return str(val)
@@ -651,6 +651,10 @@ class JsonType(ColumnType):
         return val_type.print_value(val)
 
     def _validate_literal(self, val: Any) -> None:
+        if isinstance(val, tuple):
+            val = list(val)
+        if isinstance(val, pydantic.BaseModel):
+            val = val.model_dump()
         if not self.__is_valid_json(val):
             raise TypeError(f'That literal is not a valid Pixeltable JSON object: {val}')
         if self.__validator is not None:
@@ -818,14 +822,20 @@ class ArrayType(ColumnType):
         return hash((self._type, self.nullable, self.shape, self.dtype))
 
     def supertype(self, other: ColumnType) -> Optional[ArrayType]:
+        basic_supertype = super().supertype(other)
+        if basic_supertype is not None:
+            assert isinstance(basic_supertype, ArrayType)
+            return basic_supertype
+
         if not isinstance(other, ArrayType):
             return None
+
         super_dtype = self.Type.supertype(self.dtype, other.dtype, self.common_supertypes)
         if super_dtype is None:
             # if the dtypes are incompatible, then the supertype is a fully general array
             return ArrayType(nullable=(self.nullable or other.nullable))
         super_shape: Optional[tuple[Optional[int], ...]]
-        if len(self.shape) != len(other.shape):
+        if self.shape is None or other.shape is None or len(self.shape) != len(other.shape):
             super_shape = None
         else:
             super_shape = tuple(n1 if n1 == n2 else None for n1, n2 in zip(self.shape, other.shape))
@@ -1009,8 +1019,14 @@ class ImageType(ColumnType):
         return hash((self._type, self.nullable, self.size, self.mode))
 
     def supertype(self, other: ColumnType) -> Optional[ImageType]:
+        basic_supertype = super().supertype(other)
+        if basic_supertype is not None:
+            assert isinstance(basic_supertype, ImageType)
+            return basic_supertype
+
         if not isinstance(other, ImageType):
             return None
+
         width = self.width if self.width == other.width else None
         height = self.height if self.height == other.height else None
         mode = self.mode if self.mode == other.mode else None
