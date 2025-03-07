@@ -45,8 +45,8 @@ class FunctionCall(Expr):
     return_type: ts.ColumnType
     group_by_start_idx: int
     group_by_stop_idx: int
-    order_by_start_idx: int
     fn_expr_idx: int
+    order_by_start_idx: int
     aggregator: Optional[Any]
     current_partition_vals: Optional[list[Any]]
 
@@ -177,8 +177,8 @@ class FunctionCall(Expr):
             ('kwargs', self.kwarg_idxs),
             ('group_by_start_idx', self.group_by_start_idx),
             ('group_by_stop_idx', self.group_by_stop_idx),
-            ('order_by_start_idx', self.order_by_start_idx),
             ('fn_expr_idx', self.fn_expr_idx),
+            ('order_by_start_idx', self.order_by_start_idx),
         ]
 
     def __repr__(self) -> str:
