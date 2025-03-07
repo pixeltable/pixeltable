@@ -31,6 +31,7 @@ class TablePackager:
     Packages a pixeltable Table into a tarball containing Iceberg tables and media files. The structure of the tarball
     is as follows:
 
+    metadata.json  # Pixeltable metadata for the packaged table
     warehouse/catalog.db  # sqlite Iceberg catalog
     warehouse/pxt.db/**  # Iceberg metadata and data files (parquet/avro/json)
     media/**  # Local media files
@@ -60,20 +61,22 @@ class TablePackager:
         # Generate metadata
         self.md = {
             'pxt_version': pxt.__version__,
-            'pxt_schema_version': metadata.VERSION,
-            'md': [
-                {
-                    'table_id': str(t._tbl_version.id),
-                    # These are temporary; will replace with a better solution once the concurrency changes to catalog have
-                    # been merged
-                    'table_md': dataclasses.asdict(t._tbl_version._create_tbl_md()),
-                    'table_version_md': dataclasses.asdict(
-                        t._tbl_version._create_version_md(datetime.now().timestamp())
-                    ),
-                    'table_schema_version_md': dataclasses.asdict(t._tbl_version._create_schema_version_md(0)),
-                }
-                for t in (table, *table._bases)
-            ],
+            'pxt_md_version': metadata.VERSION,
+            'md': {
+                'tables': [
+                    {
+                        'table_id': str(t._tbl_version.id),
+                        # These are temporary; will replace with a better solution once the concurrency changes to catalog have
+                        # been merged
+                        'table_md': dataclasses.asdict(t._tbl_version._create_tbl_md()),
+                        'table_version_md': dataclasses.asdict(
+                            t._tbl_version._create_version_md(datetime.now().timestamp())
+                        ),
+                        'table_schema_version_md': dataclasses.asdict(t._tbl_version._create_schema_version_md(0)),
+                    }
+                    for t in (table, *table._bases)
+                ],
+            }
         }
         if additional_md is not None:
             self.md.update(additional_md)

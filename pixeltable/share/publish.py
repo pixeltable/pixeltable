@@ -55,6 +55,7 @@ def publish_snapshot(dest_tbl_uri: str, src_tbl: pxt.Table) -> str:
         'sha256': sha256sum(bundle),  # Generate our own SHA for independent verification
     }
 
+    # TODO: Use Pydantic for validation
     finalize_response = requests.post(_FINALIZE_URL, json=finalize_request_json, headers=headers_json)
     if finalize_response.status_code != 200:
         raise excs.Error(f'Error finalizing snapshot: {finalize_response.text}')
@@ -78,7 +79,7 @@ def _upload_bundle_to_s3(bundle: Path, parsed_location: urllib.parse.ParseResult
 
     boto_config = {
         'max_pool_connections': 5,
-        'connect_timeout': 86400,
+        'connect_timeout': 15,
         'retries': {'max_attempts': 3, 'mode': 'adaptive'},
     }
     s3_client = get_client(**boto_config)
