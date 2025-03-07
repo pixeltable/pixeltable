@@ -1,7 +1,7 @@
 import math
 from typing import Counter, Optional
 
-import av  # type: ignore[import-untyped]
+import av
 import pytest
 
 import pixeltable as pxt

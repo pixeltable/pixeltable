@@ -6,7 +6,7 @@ import logging
 import mimetypes
 from typing import Any, Callable, Optional
 
-import av  # type: ignore[import-untyped]
+import av
 import numpy as np
 import PIL
 import PIL.Image as Image

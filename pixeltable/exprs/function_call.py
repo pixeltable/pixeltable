@@ -30,8 +30,16 @@ class FunctionCall(Expr):
     agg_init_args: dict[str, Any]
     resource_pool: Optional[str]
 
+    # These collections hold the component indices corresponding to the args and kwargs
+    # that were passed to the FunctionCall. They're 1:1 with the original call pattern.
     arg_idxs: list[int]
     kwarg_idxs: dict[str, int]
+
+    # A "bound" version of the FunctionCall arguments, mapping each specified parameter name
+    # to one of three types of bindings:
+    # - a component index, if the parameter is a non-variadic parameter
+    # - a list of component indices, if the parameter is a variadic positional parameter
+    # - a dict mapping keyword names to component indices, if the parameter is a variadic keyword parameter
     bound_idxs: dict[str, Union[int, list[int], dict[str, int]]]
 
     return_type: ts.ColumnType
@@ -76,6 +84,26 @@ class FunctionCall(Expr):
         self.arg_idxs = list(range(len(self.components)))
         self.components.extend(arg.copy() for arg in kwargs.values())
         self.kwarg_idxs = {name: i + len(args) for i, name in enumerate(kwargs.keys())}
+
+        # Now generate bound_idxs for the args and kwargs indices.
+        # This is guaranteed to work, because at this point the call has already been validated.
+        # These will be used later to dereference specific parameter values.
+        bindings = fn.signature.py_signature.bind(*self.arg_idxs, **self.kwarg_idxs)
+        self.bound_idxs = bindings.arguments
+
+        # Separately generate bound_args for purposes of determining the resource pool.
+        bindings = fn.signature.py_signature.bind(*args, **kwargs)
+        bound_args = bindings.arguments
+        self.resource_pool = fn.call_resource_pool(bound_args)
+
+        self.agg_init_args = {}
+        if self.is_agg_fn_call:
+            # We separate out the init args for the aggregator. Unpack Literals in init args.
+            assert isinstance(fn, func.AggregateFunction)
+            for arg_name, arg in bound_args.items():
+                if arg_name in fn.init_param_names[0]:
+                    assert isinstance(arg, Literal)  # This was checked during validate_call
+                    self.agg_init_args[arg_name] = arg.val
 
         # window function state:
         # self.components[self.group_by_start_idx:self.group_by_stop_idx] contains group_by exprs
@@ -152,11 +180,10 @@ class FunctionCall(Expr):
     def _equals(self, other: FunctionCall) -> bool:
         if self.fn != other.fn:
             return False
-        if len(self.arg_idxs) != len(other.arg_idxs):
+        if self.arg_idxs != other.arg_idxs:
             return False
-        for i in range(len(self.arg_idxs)):
-            if self.arg_idxs[i] != other.arg_idxs[i]:
-                return False
+        if self.kwarg_idxs != other.kwarg_idxs:
+            return False
         if self.group_by_start_idx != other.group_by_start_idx:
             return False
         if self.group_by_stop_idx != other.group_by_stop_idx:
@@ -294,7 +321,6 @@ class FunctionCall(Expr):
             val = data_row[self.components[idx].slot_idx]
             if (
                 val is None
-                and idx < len(parameters_by_pos)
                 and parameters_by_pos[idx].kind
                 in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
                 and not parameters_by_pos[idx].col_type.nullable
@@ -308,7 +334,6 @@ class FunctionCall(Expr):
             val = data_row[self.components[idx].slot_idx]
             if (
                 val is None
-                and param_name in parameters
                 and parameters[param_name].kind
                 in (inspect.Parameter.KEYWORD_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
                 and not parameters[param_name].col_type.nullable

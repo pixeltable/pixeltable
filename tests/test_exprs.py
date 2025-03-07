@@ -1225,6 +1225,17 @@ class TestExprs:
             # nested aggregates
             _ = t.group_by(t.c2 % 2).select(sum(count(t.c2))).collect()
 
+    def test_function_call_errors(self, test_tbl: pxt.Table) -> None:
+        t = test_tbl
+        with pytest.raises(
+            excs.Error, match="Argument 2 in call to 'tests.test_exprs.udf1' is not a valid Pixeltable expression"
+        ):
+            udf1(t.c2, bool)
+        with pytest.raises(
+            excs.Error, match="Argument 'eggs' in call to 'tests.test_exprs.udf1' is not a valid Pixeltable expression"
+        ):
+            udf1(eggs=bool)
+
     @pxt.uda(allows_window=True, requires_order_by=False)
     class window_agg(pxt.Aggregator):
         def __init__(self, val: int = 0):
@@ -1406,3 +1417,8 @@ class TestExprs:
         ]
         for e, expected_repr in instances:
             assert repr(e) == expected_repr
+
+
+@pxt.udf
+def udf1(x: int, y: str) -> str:
+    return f'{x} {y}'

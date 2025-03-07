@@ -4,7 +4,7 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Any, Optional, Sequence
 
-import av  # type: ignore[import-untyped]
+import av
 import pandas as pd
 import PIL.Image
 
