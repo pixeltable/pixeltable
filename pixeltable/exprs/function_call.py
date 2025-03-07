@@ -82,7 +82,7 @@ class FunctionCall(Expr):
         bindings = fn.signature.py_signature.bind(*self.arg_idxs, **self.kwarg_idxs)
         self.bound_idxs = bindings.arguments
 
-        # Sepearately generate bound_args for purposes of determining the resource pool.
+        # Separately generate bound_args for purposes of determining the resource pool.
         bindings = fn.signature.py_signature.bind(*args, **kwargs)
         bound_args = bindings.arguments
         self.resource_pool = fn.call_resource_pool(bound_args)
@@ -145,11 +145,10 @@ class FunctionCall(Expr):
     def _equals(self, other: FunctionCall) -> bool:
         if self.fn != other.fn:
             return False
-        if len(self.arg_idxs) != len(other.arg_idxs):
+        if self.arg_idxs != other.arg_idxs:
             return False
-        for i in range(len(self.arg_idxs)):
-            if self.arg_idxs[i] != other.arg_idxs[i]:
-                return False
+        if self.kwarg_idxs != other.kwarg_idxs:
+            return False
         if self.group_by_start_idx != other.group_by_start_idx:
             return False
         if self.group_by_stop_idx != other.group_by_stop_idx:
@@ -278,7 +277,6 @@ class FunctionCall(Expr):
             val = data_row[self.components[idx].slot_idx]
             if (
                 val is None
-                and idx < len(parameters_by_pos)
                 and parameters_by_pos[idx].kind
                 in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
                 and not parameters_by_pos[idx].col_type.nullable
@@ -292,7 +290,6 @@ class FunctionCall(Expr):
             val = data_row[self.components[idx].slot_idx]
             if (
                 val is None
-                and param_name in parameters
                 and parameters[param_name].kind
                 in (inspect.Parameter.KEYWORD_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
                 and not parameters[param_name].col_type.nullable
