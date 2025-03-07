@@ -38,3 +38,6 @@ class ObjectRef(Expr):
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         # this will be called, but the value has already been materialized elsewhere
         pass
+
+    def __repr__(self) -> str:
+        return f'ObjectRef({self.owner})'

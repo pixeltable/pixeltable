@@ -656,6 +656,12 @@ class TestExprs:
 
         reload_tester.run_reload_test()
 
+    def test_json_mapper_2(self, reset_db) -> None:
+        t = pxt.create_table('test', {'jcol': pxt.Json})
+        t.add_computed_column(output=t.jcol.x['*'] >> (R + 1))
+        t.add_computed_column(output2=t.jcol.y['*'] >> (R + 2))
+        t.insert(jcol={'y': [7, 8, 9]})
+
     def test_dicts(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         # top-level is dict
