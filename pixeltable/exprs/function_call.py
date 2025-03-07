@@ -46,7 +46,6 @@ class FunctionCall(Expr):
     group_by_start_idx: int
     group_by_stop_idx: int
     order_by_start_idx: int
-    order_by_stop_idx: int
     fn_expr_idx: int
     aggregator: Optional[Any]
     current_partition_vals: Optional[list[Any]]
@@ -85,26 +84,6 @@ class FunctionCall(Expr):
         self.components.extend(arg.copy() for arg in kwargs.values())
         self.kwarg_idxs = {name: i + len(args) for i, name in enumerate(kwargs.keys())}
 
-        # Now generate bound_idxs for the args and kwargs indices.
-        # This is guaranteed to work, because at this point the call has already been validated.
-        # These will be used later to dereference specific parameter values.
-        bindings = fn.signature.py_signature.bind(*self.arg_idxs, **self.kwarg_idxs)
-        self.bound_idxs = bindings.arguments
-
-        # Separately generate bound_args for purposes of determining the resource pool.
-        bindings = fn.signature.py_signature.bind(*args, **kwargs)
-        bound_args = bindings.arguments
-        self.resource_pool = fn.call_resource_pool(bound_args)
-
-        self.agg_init_args = {}
-        if self.is_agg_fn_call:
-            # We separate out the init args for the aggregator. Unpack Literals in init args.
-            assert isinstance(fn, func.AggregateFunction)
-            for arg_name, arg in bound_args.items():
-                if arg_name in fn.init_param_names[0]:
-                    assert isinstance(arg, Literal)  # This was checked during validate_call
-                    self.agg_init_args[arg_name] = arg.val
-
         # window function state:
         # self.components[self.group_by_start_idx:self.group_by_stop_idx] contains group_by exprs
         self.group_by_start_idx, self.group_by_stop_idx = 0, 0
@@ -120,16 +99,6 @@ class FunctionCall(Expr):
             self.group_by_stop_idx = len(self.components) + len(group_by_exprs)
             self.components.extend(group_by_exprs)
 
-        # we want to make sure that order_by_clause get assigned slot_idxs, even though we won't need to evaluate them
-        # (that's done in SQL)
-        if len(order_by_clause) > 0 and not isinstance(order_by_clause[0], Expr):
-            raise excs.Error(
-                f'order_by argument needs to be a Pixeltable expression, but instead is a {type(order_by_clause[0])}'
-            )
-        self.order_by_start_idx = len(self.components)
-        self.order_by_stop_idx = len(self.components) + len(order_by_clause)
-        self.components.extend(order_by_clause)
-
         if isinstance(self.fn, func.ExprTemplateFunction):
             # we instantiate the template to create an Expr that can be evaluated and record that as a component
             fn_expr = self.fn.instantiate(args, kwargs)
@@ -137,6 +106,15 @@ class FunctionCall(Expr):
             self.components.append(fn_expr)
         else:
             self.fn_expr_idx = sys.maxsize
+
+        # we want to make sure that order_by_clause get assigned slot_idxs, even though we won't need to evaluate them
+        # (that's done in SQL)
+        if len(order_by_clause) > 0 and not isinstance(order_by_clause[0], Expr):
+            raise excs.Error(
+                f'order_by argument needs to be a Pixeltable expression, but instead is a {type(order_by_clause[0])}'
+            )
+        self.order_by_start_idx = len(self.components)
+        self.components.extend(order_by_clause)
 
         self._validation_error = validation_error
 
@@ -190,8 +168,6 @@ class FunctionCall(Expr):
             return False
         if self.order_by_start_idx != other.order_by_start_idx:
             return False
-        if self.order_by_stop_idx != other.order_by_stop_idx:
-            return False
         return True
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
@@ -202,7 +178,6 @@ class FunctionCall(Expr):
             ('group_by_start_idx', self.group_by_start_idx),
             ('group_by_stop_idx', self.group_by_stop_idx),
             ('order_by_start_idx', self.order_by_start_idx),
-            ('order_by_stop_idx', self.order_by_stop_idx),
             ('fn_expr_idx', self.fn_expr_idx),
         ]
 
@@ -244,7 +219,7 @@ class FunctionCall(Expr):
 
     @property
     def order_by(self) -> list[Expr]:
-        return self.components[self.order_by_start_idx : self.order_by_stop_idx]
+        return self.components[self.order_by_start_idx :]
 
     @property
     def is_window_fn_call(self) -> bool:
@@ -423,7 +398,6 @@ class FunctionCall(Expr):
             'group_by_start_idx': self.group_by_start_idx,
             'group_by_stop_idx': self.group_by_stop_idx,
             'order_by_start_idx': self.order_by_start_idx,
-            'order_by_stop_idx': self.order_by_stop_idx,
             'is_method_call': self.is_method_call,
             **super()._as_dict(),
         }
@@ -437,13 +411,14 @@ class FunctionCall(Expr):
         group_by_start_idx: int = d['group_by_start_idx']
         group_by_stop_idx: int = d['group_by_stop_idx']
         order_by_start_idx: int = d['order_by_start_idx']
-        order_by_stop_idx: int = d['order_by_stop_idx']
         is_method_call: bool = d['is_method_call']
 
         args = [components[idx] for idx in arg_idxs]
         kwargs = {name: components[idx] for name, idx in kwarg_idxs.items()}
         group_by_exprs = components[group_by_start_idx:group_by_stop_idx]
-        order_by_exprs = components[order_by_start_idx:order_by_stop_idx]
+        order_by_exprs = components[order_by_start_idx:]
+
+        validation_error: Optional[str] = None
 
         if isinstance(fn, func.InvalidFunction):
             validation_error = (
@@ -452,7 +427,9 @@ class FunctionCall(Expr):
                     The UDF '{fn.self_path}' cannot be located, because
                     {{errormsg}}
                     """
-                ).strip().format(errormsg=fn.errormsg)
+                )
+                .strip()
+                .format(errormsg=fn.errormsg)
             )
             return cls(fn, args, kwargs, return_type, is_method_call=is_method_call, validation_error=validation_error)
 
@@ -461,7 +438,6 @@ class FunctionCall(Expr):
         # serialized.
 
         resolved_fn: func.Function = fn
-        validation_error: Optional[str] = None
 
         try:
             # Bind args and kwargs to the function signature in the current codebase.

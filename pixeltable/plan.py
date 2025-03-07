@@ -290,7 +290,9 @@ class Planner:
                         because the column {col.name!r} is currently invalid:
                         {{validation_error}}
                         """
-                    ).strip().format(validation_error=col.value_expr.validation_error)
+                    )
+                    .strip()
+                    .format(validation_error=col.value_expr.validation_error)
                 )
 
         row_builder = exprs.RowBuilder([], stored_cols, [])
@@ -398,9 +400,10 @@ class Planner:
                         because the column {col.name!r} is currently invalid:
                         {{validation_error}}
                         """
-                    ).strip().format(validation_error=col.value_expr.validation_error)
+                    )
+                    .strip()
+                    .format(validation_error=col.value_expr.validation_error)
                 )
-
 
         recomputed_base_cols = {col for col in recomputed_cols if col.tbl == target}
         copied_cols = [

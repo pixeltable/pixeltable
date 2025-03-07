@@ -514,5 +514,6 @@ class InvalidFunction(Function):
     def _as_dict(self) -> dict:
         return self.fn_dict
 
+    @property
     def is_async(self) -> bool:
         return False

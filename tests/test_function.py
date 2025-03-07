@@ -730,25 +730,37 @@ class TestFunction:
                     t.where(t.c1 == 'xyz').update({'c1': 'def'})
 
         def warning_regex(msg: str) -> str:
-            regex = '\n'.join([
-                re.escape("The computed column 'result' in table 'test' is no longer valid."),
-                re.escape(msg),
-                re.escape("You can continue to query existing data from this column, but evaluating it on new data will raise an error."),
-            ])
+            regex = '\n'.join(
+                [
+                    re.escape("The computed column 'result' in table 'test' is no longer valid."),
+                    re.escape(msg),
+                    re.escape(
+                        'You can continue to query existing data from this column, but evaluating it on new data will raise an error.'
+                    ),
+                ]
+            )
             return '(?s)' + regex
 
         def insert_error_regex(msg: str) -> str:
-            regex = '\n'.join([
-                re.escape("Data cannot be inserted into the table 'test',\nbecause the column 'result' is currently invalid:"),
-                re.escape(msg),
-            ])
+            regex = '\n'.join(
+                [
+                    re.escape(
+                        "Data cannot be inserted into the table 'test',\nbecause the column 'result' is currently invalid:"
+                    ),
+                    re.escape(msg),
+                ]
+            )
             return '(?s)' + regex
 
         def update_error_regex(msg: str) -> str:
-            regex = '.*'.join([
-                re.escape("Data cannot be updated in the table 'test',\nbecause the column 'result' is currently invalid:"),
-                re.escape(msg),
-            ])
+            regex = '.*'.join(
+                [
+                    re.escape(
+                        "Data cannot be updated in the table 'test',\nbecause the column 'result' is currently invalid:"
+                    ),
+                    re.escape(msg),
+                ]
+            )
             return '(?s)' + regex
 
         db_params = '(a: Optional[String])' if as_kwarg else '(Optional[String])'
@@ -848,7 +860,7 @@ class TestFunction:
             reload_and_validate_table(validation_error=signature_error.format(params='(c: Float, a: String, b: Int)'))
 
         # Make the function into a non-UDF
-        tests.test_function.evolving_udf = lambda x: x
+        tests.test_function.evolving_udf = lambda x: x  # type: ignore[assignment]
         validation_error = (
             "The UDF 'tests.test_function.evolving_udf' cannot be located, because\n"
             "the symbol 'tests.test_function.evolving_udf' is no longer a UDF. (Was the `@pxt.udf` decorator removed?)"
