@@ -77,11 +77,7 @@ def _upload_bundle_to_s3(bundle: Path, parsed_location: urllib.parse.ParseResult
 
     Env.get().console_logger.info(f'Uploading snapshot to: {bucket}:{remote_path}')
 
-    boto_config = {
-        'max_pool_connections': 5,
-        'connect_timeout': 15,
-        'retries': {'max_attempts': 3, 'mode': 'adaptive'},
-    }
+    boto_config = {'max_pool_connections': 5, 'connect_timeout': 15, 'retries': {'max_attempts': 3, 'mode': 'adaptive'}}
     s3_client = get_client(**boto_config)
 
     upload_args = {'ChecksumAlgorithm': 'SHA256'}

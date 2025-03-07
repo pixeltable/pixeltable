@@ -75,8 +75,8 @@ class TablePackager:
                         'table_schema_version_md': dataclasses.asdict(t._tbl_version._create_schema_version_md(0)),
                     }
                     for t in (table, *table._bases)
-                ],
-            }
+                ]
+            },
         }
         if additional_md is not None:
             self.md.update(additional_md)
