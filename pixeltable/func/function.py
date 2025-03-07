@@ -288,7 +288,7 @@ class Function(ABC):
             expects_expr: Optional[type[exprs.Expr]] = None
             type_hint = callable_type_hints.get(param.name)
             if typing.get_origin(type_hint) is not None:
-                type_hint = typing.get_origin(type_hint)
+                type_hint = typing.get_origin(type_hint)  # Remove type subscript if one exists
             if isinstance(type_hint, type) and issubclass(type_hint, exprs.Expr):
                 # The callable expects an Expr for this parameter. We allow for the case where the
                 # callable requests a specific subtype of Expr.
