@@ -583,7 +583,7 @@ class Expr(abc.ABC):
 
     def __bool__(self) -> bool:
         raise TypeError(
-            'Pixeltable expressions cannot be used in conjunction with Python boolean operators (and/or/not)'
+            f'Pixeltable expressions cannot be used in conjunction with Python boolean operators (and/or/not)\n{self!r}'
         )
 
     def __lt__(self, other: object) -> 'exprs.Comparison':
@@ -784,7 +784,7 @@ class Expr(abc.ABC):
             if (
                 len(params) >= 2
                 and second_param.kind not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
-                and second_param.default == inspect.Parameter.empty
+                and second_param.default is inspect.Parameter.empty
             ):
                 raise excs.Error(f'Function `{fn.__name__}` has multiple required parameters.')
         except ValueError:

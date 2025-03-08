@@ -283,7 +283,7 @@ def from_table(
                 result_dict[name] = var
                 # Since this is a data column, it becomes a UDF parameter.
                 # If the column is nullable, then the parameter will have a default value of None.
-                default_value = None if col.col_type.nullable else inspect.Parameter.empty
+                default_value = exprs.Literal(None) if col.col_type.nullable else None
                 param = Parameter(name, col.col_type, inspect._ParameterKind.POSITIONAL_OR_KEYWORD, default_value)
                 params.append(param)
 

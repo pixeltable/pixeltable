@@ -1,3 +1,4 @@
+import dataclasses
 import io
 import json
 import logging
@@ -5,8 +6,9 @@ import tarfile
 import urllib.parse
 import urllib.request
 import uuid
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterator, Optional
 
 import more_itertools
 import numpy as np
@@ -15,7 +17,8 @@ import pyiceberg.catalog
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
-from pixeltable import exprs
+from pixeltable import catalog, exprs, metadata
+from pixeltable.dataframe import DataFrame
 from pixeltable.env import Env
 from pixeltable.utils.arrow import PXT_TO_PA_TYPES
 from pixeltable.utils.iceberg import sqlite_catalog
@@ -28,6 +31,7 @@ class TablePackager:
     Packages a pixeltable Table into a tarball containing Iceberg tables and media files. The structure of the tarball
     is as follows:
 
+    metadata.json  # Pixeltable metadata for the packaged table
     warehouse/catalog.db  # sqlite Iceberg catalog
     warehouse/pxt.db/**  # Iceberg metadata and data files (parquet/avro/json)
     media/**  # Local media files
@@ -43,15 +47,39 @@ class TablePackager:
       'media/{uuid}{extension}', and the Iceberg table will contain the ephemeral URI 'pxtmedia://{uuid}{extension}'.
     """
 
-    table: pxt.Table  # The table to be packaged
+    table: catalog.Table  # The table to be packaged
     tmp_dir: Path  # Temporary directory where the package will reside
     iceberg_catalog: pyiceberg.catalog.Catalog
     media_files: dict[Path, str]  # Mapping from local media file paths to their tarball names
+    md: dict[str, Any]
 
-    def __init__(self, table: pxt.Table) -> None:
+    def __init__(self, table: catalog.Table, additional_md: Optional[dict[str, Any]] = None) -> None:
         self.table = table
         self.tmp_dir = Path(Env.get().create_tmp_path())
         self.media_files = {}
+
+        # Generate metadata
+        self.md = {
+            'pxt_version': pxt.__version__,
+            'pxt_md_version': metadata.VERSION,
+            'md': {
+                'tables': [
+                    {
+                        'table_id': str(t._tbl_version.id),
+                        # These are temporary; will replace with a better solution once the concurrency changes to catalog have
+                        # been merged
+                        'table_md': dataclasses.asdict(t._tbl_version._create_tbl_md()),
+                        'table_version_md': dataclasses.asdict(
+                            t._tbl_version._create_version_md(datetime.now().timestamp())
+                        ),
+                        'table_schema_version_md': dataclasses.asdict(t._tbl_version._create_schema_version_md(0)),
+                    }
+                    for t in (table, *table._bases)
+                ]
+            },
+        }
+        if additional_md is not None:
+            self.md.update(additional_md)
 
     def package(self) -> Path:
         """
@@ -60,18 +88,20 @@ class TablePackager:
         assert not self.tmp_dir.exists()  # Packaging can only be done once per TablePackager instance
         _logger.info(f"Packaging table '{self.table._path}' and its ancestors in: {self.tmp_dir}")
         self.tmp_dir.mkdir()
+        with open(self.tmp_dir / 'metadata.json', 'w', encoding='utf8') as fp:
+            json.dump(self.md, fp)
         self.iceberg_catalog = sqlite_catalog(self.tmp_dir / 'warehouse')
         with Env.get().begin():
-            ancestors = [self.table] + self.table._bases
-            for t in ancestors:
-                _logger.info(f"Exporting table '{t._path}'.")
-                self.__export_table(t)
+            ancestors = (self.table, *self.table._bases)
+		for t in ancestors:
+		    _logger.info(f"Exporting table '{t._path}'.")
+		    self.__export_table(t)
         _logger.info(f'Building archive.')
         bundle_path = self.__build_tarball()
         _logger.info(f'Packaging complete: {bundle_path}')
         return bundle_path
 
-    def __export_table(self, t: pxt.Table) -> None:
+    def __export_table(self, t: catalog.Table) -> None:
         """
         Exports the data from `t` into an Iceberg table.
         """
@@ -117,7 +147,7 @@ class TablePackager:
             iceberg_tbl.append(pa_table)
 
     @classmethod
-    def __iceberg_namespace(cls, table: pxt.Table) -> str:
+    def __iceberg_namespace(cls, table: catalog.Table) -> str:
         """
         Iceberg tables must have a namespace, which cannot be the empty string, so we prepend `pxt` to the table path.
         """
@@ -150,11 +180,7 @@ class TablePackager:
         return PXT_TO_PA_TYPES.get(col_type.__class__)
 
     def __to_pa_tables(
-        self,
-        df: pxt.DataFrame,
-        actual_col_types: list[pxt.ColumnType],
-        arrow_schema: pa.Schema,
-        batch_size: int = 1_000,
+        self, df: DataFrame, actual_col_types: list[ts.ColumnType], arrow_schema: pa.Schema, batch_size: int = 1_000
     ) -> Iterator[pa.Table]:
         """
         Load a DataFrame as a sequence of pyarrow tables. The pyarrow tables are batched into smaller chunks
@@ -166,7 +192,7 @@ class TablePackager:
             cols['_v_min'] = [row[-1] for row in rows]
             yield pa.Table.from_pydict(cols, schema=arrow_schema)
 
-    def __to_pa_rows(self, df: pxt.DataFrame, actual_col_types: list[pxt.ColumnType]) -> Iterator[list]:
+    def __to_pa_rows(self, df: DataFrame, actual_col_types: list[ts.ColumnType]) -> Iterator[list]:
         for row in df._exec():
             vals = [row[e.slot_idx] for e in df._select_list_exprs]
             result = [self.__to_pa_value(val, col_type) for val, col_type in zip(vals, actual_col_types)]
@@ -211,6 +237,8 @@ class TablePackager:
     def __build_tarball(self) -> Path:
         bundle_path = self.tmp_dir / 'bundle.tar.bz2'
         with tarfile.open(bundle_path, 'w:bz2') as tf:
+            # Add metadata json
+            tf.add(self.tmp_dir / 'metadata.json', arcname='metadata.json')
             # Add the Iceberg warehouse dir (including the catalog)
             tf.add(self.tmp_dir / 'warehouse', arcname='warehouse', recursive=True)
             # Add the media files

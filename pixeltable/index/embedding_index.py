@@ -100,10 +100,10 @@ class EmbeddingIndex(IndexBase):
         # Now validate the return types of the embedding functions.
 
         if self.string_embed is not None:
-            self._validate_embedding_fn(self.string_embed, ts.ColumnType.Type.STRING)
+            self._validate_embedding_fn(self.string_embed)
 
         if self.image_embed is not None:
-            self._validate_embedding_fn(self.image_embed, ts.ColumnType.Type.IMAGE)
+            self._validate_embedding_fn(self.image_embed)
 
         if c.col_type.is_string_type() and self.string_embed is None:
             raise excs.Error(f"Text embedding function is required for column {c.name} (parameter 'string_embed')")
@@ -208,21 +208,12 @@ class EmbeddingIndex(IndexBase):
         return None
 
     @classmethod
-    def _validate_embedding_fn(cls, embed_fn: func.Function, expected_type: ts.ColumnType.Type) -> None:
+    def _validate_embedding_fn(cls, embed_fn: func.Function) -> None:
         """Validate the given embedding function."""
         assert not embed_fn.is_polymorphic
-        sig = embed_fn.signature
 
-        # validate return type
-        param_name = sig.parameters_by_pos[0].name
-        if expected_type == ts.ColumnType.Type.STRING:
-            return_type = embed_fn.call_return_type([], {param_name: 'dummy'})
-        else:
-            assert expected_type == ts.ColumnType.Type.IMAGE
-            img = PIL.Image.new('RGB', (512, 512))
-            return_type = embed_fn.call_return_type([], {param_name: img})
+        return_type = embed_fn.signature.return_type
 
-        assert return_type is not None
         if not isinstance(return_type, ts.ArrayType):
             raise excs.Error(
                 f'The function `{embed_fn.name}` is not a valid embedding: '

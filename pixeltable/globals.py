@@ -1,6 +1,7 @@
 import dataclasses
 import logging
 from typing import Any, Iterable, Literal, Optional, Type, Union, cast
+#import urllib.parse
 from uuid import UUID
 
 import pandas as pd
@@ -12,8 +13,8 @@ from sqlalchemy.util.preloaded import orm
 import pixeltable.env as env
 import pixeltable.exceptions as excs
 import pixeltable.exprs as exprs
-from pixeltable import DataFrame, catalog, func
 from pixeltable.catalog import Catalog, IfExistsParam, IfNotExistsParam
+from pixeltable import DataFrame, catalog, func, share
 from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
@@ -774,6 +775,13 @@ def _extract_paths(
     for name, entry in [(name, entry) for name, entry in dir_entries.items() if len(entry.dir_entries) > 0]:
         result.extend(_extract_paths(entry.dir_entries, prefix=_join_path(prefix, name), entry_type=entry_type))
     return result
+
+
+def publish_snapshot(dest_uri: str, table: catalog.Table) -> None:
+    parsed_uri = urllib.parse.urlparse(dest_uri)
+    if parsed_uri.scheme != 'pxt':
+        raise excs.Error(f'Invalid Pixeltable URI (does not start with pxt://): {dest_uri}')
+    share.publish_snapshot(dest_uri, table)
 
 
 def list_dirs(path_str: str = '', recursive: bool = True) -> list[str]:
