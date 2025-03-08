@@ -1128,7 +1128,7 @@ class TestExprs:
         assert len(subexprs) == 1
         e = t.img.rotate(90).resize((224, 224))
         subexprs = [s for s in e.subexprs()]
-        assert len(subexprs) == 6
+        assert len(subexprs) == 5
         subexprs = [s for s in e.subexprs(expr_class=ColumnRef)]
         assert len(subexprs) == 1
         assert t.img.equals(subexprs[0])
@@ -1261,6 +1261,17 @@ class TestExprs:
             # nested aggregates
             _ = t.group_by(t.c2 % 2).select(sum(count(t.c2))).collect()
 
+    def test_function_call_errors(self, test_tbl: pxt.Table) -> None:
+        t = test_tbl
+        with pytest.raises(
+            excs.Error, match="Argument 2 in call to 'tests.test_exprs.udf1' is not a valid Pixeltable expression"
+        ):
+            udf1(t.c2, bool)
+        with pytest.raises(
+            excs.Error, match="Argument 'eggs' in call to 'tests.test_exprs.udf1' is not a valid Pixeltable expression"
+        ):
+            udf1(eggs=bool)
+
     @pxt.uda(allows_window=True, requires_order_by=False)
     class window_agg(pxt.Aggregator):
         def __init__(self, val: int = 0):
@@ -1302,7 +1313,7 @@ class TestExprs:
 
         with pytest.raises(excs.Error) as exc_info:
             _ = t.select(self.window_agg(t.c2, val=t.c2, order_by=t.c2)).collect()
-        assert 'needs to be a constant' in str(exc_info.value)
+        assert 'must be a constant value' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
             # ordering expression not a pixeltable expr
@@ -1445,3 +1456,8 @@ class TestExprs:
         ]
         for e, expected_repr in instances:
             assert repr(e) == expected_repr
+
+
+@pxt.udf
+def udf1(x: int, y: str) -> str:
+    return f'{x} {y}'

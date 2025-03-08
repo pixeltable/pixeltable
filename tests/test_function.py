@@ -1,4 +1,5 @@
 import typing
+from datetime import datetime
 from textwrap import dedent
 from typing import Optional
 
@@ -151,7 +152,7 @@ class TestFunction:
             def f1(a: int, b: float, c='') -> float:
                 return a + b + c
 
-        assert 'cannot infer pixeltable type for parameter c' in str(exc_info.value).lower()
+        assert "cannot infer pixeltable type for parameter 'c'" in str(exc_info.value).lower()
         # bad parameter name
         with pytest.raises(excs.Error) as exc_info:
 
@@ -328,8 +329,12 @@ class TestFunction:
         assert 'Unknown parameter: non_param' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
+            self.binding_test_udf.using(p1=t.c1)
+        assert "Expected a constant value for parameter 'p1' in call to .using()" in str(exc_info.value)
+
+        with pytest.raises(excs.Error) as exc_info:
             self.binding_test_udf.using(p1=5)
-        assert 'Expected type `String` for parameter `p1`; got `Int`' in str(exc_info.value)
+        assert "Expected type `String` for parameter 'p1'; got `Int`" in str(exc_info.value)
 
         with pytest.raises(TypeError) as exc_info:
             _ = pb1(p1='a')
@@ -386,7 +391,7 @@ class TestFunction:
             def add1(x, y) -> int:
                 return x + y
 
-        assert 'missing type for parameter y' in str(exc_info.value).lower()
+        assert "missing type for parameter 'y'" in str(exc_info.value).lower()
 
         with pytest.raises(TypeError) as t_exc_info:
             # signature has correct parameter kind
@@ -434,7 +439,7 @@ class TestFunction:
             def udf4(array: np.ndarray) -> str:
                 return ''
 
-        assert 'cannot infer pixeltable type for parameter array' in str(exc_info.value).lower()
+        assert "cannot infer pixeltable type for parameter 'array'" in str(exc_info.value).lower()
 
         with pytest.raises(excs.Error) as exc_info:
 
@@ -442,7 +447,7 @@ class TestFunction:
             def udf5(name: str, untyped) -> str:
                 return ''
 
-        assert 'cannot infer pixeltable type for parameter untyped' in str(exc_info.value).lower()
+        assert "cannot infer pixeltable type for parameter 'untyped'" in str(exc_info.value).lower()
 
         with pytest.raises(ValueError) as v_exc_info:
 
@@ -520,9 +525,8 @@ class TestFunction:
         assert fc_int2.fn.signature == fn.signatures[1]
         assert fc_int2.col_type.is_int_type()
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(excs.Error, match='has no matching signature') as exc_info:
             fn(t.c3, t.c3)
-        assert 'has no matching signature' in str(exc_info.value)
 
         res = t.select(fc_str2, fc_int2).order_by(t.c2).collect()
         res_direct = t.select(format('{0}{1}', t.c1, t.c1), t.c2 + t.c2 + 1).order_by(t.c2).collect()
@@ -644,6 +648,140 @@ class TestFunction:
         res_direct = t.order_by(t.c2).select(t.c1, t.c2, t.c3).collect()
         assert len(res) == 1
         assert res[0] == {'c1': max(res_direct['c1']), 'c2': max(res_direct['c2']), 'c3': max(res_direct['c3'])}
+
+    def test_constants(self, reset_db) -> None:
+        """
+        Test UDFs with default values and/or constant arguments that are not JSON serializable.
+        """
+
+        @pxt.udf(_force_stored=True)
+        def udf_with_timestamp_constants(ts1: datetime, ts2: datetime = datetime.fromtimestamp(0)) -> float:
+            return (ts1 - ts2).seconds
+
+        t = pxt.create_table('test1', {'ts1': pxt.Timestamp})
+        t.add_computed_column(seconds_since_epoch=udf_with_timestamp_constants(t.ts1))
+        t.add_computed_column(seconds_since_2000=udf_with_timestamp_constants(t.ts1, ts2=datetime(2000, 1, 1)))
+
+        @pxt.udf(_force_stored=True)
+        def udf_with_array_constants(
+            a: pxt.Array[pxt.Float, (6,)], b: pxt.Array[pxt.Float, (6,)] = np.ones(6, dtype=np.float32)
+        ) -> pxt.Array[pxt.Float, (6,)]:
+            return a + b
+
+        t = pxt.create_table('test2', {'a': pxt.Array[pxt.Float, (6,)]})  # type: ignore[misc]
+        t.add_computed_column(add_one=udf_with_array_constants(t.a))
+        t.add_computed_column(add_zeros=udf_with_array_constants(t.a, b=np.zeros(6, dtype=np.float32)))
+
+        reload_catalog()
+
+    @pytest.mark.parametrize('as_kwarg', [False, True])
+    def test_udf_evolution(self, as_kwarg: bool, reset_db) -> None:
+        """
+        Tests that code changes to UDFs that are backward-compatible with the code pattern in a stored computed
+        column are accepted by Pixeltable.
+
+        The test operates by instantiating a computed column with the UDF `evolving_udf`, then repeatedly
+        monkey-patching `evolving_udf` with different signatures and checking that they new signatures are
+        accepted by Pixeltable (or, in some cases, that they generate appropriate error messages).
+
+        The test runs two ways:
+        - with the UDF invoked using a positional argument: `evolving_udf(t.c1)`
+        - with the UDF invoked using a keyword argument: `evolving_udf(a=t.c1)`
+        """
+        import tests.test_function
+
+        t = pxt.create_table('test', {'c1': pxt.String})
+
+        def mimic(fn: func.CallableFunction) -> None:
+            tests.test_function.evolving_udf = func.CallableFunction(
+                fn.signatures, fn.py_fns, 'tests.test_function.evolving_udf'
+            )
+
+        def reload_table() -> None:
+            reload_catalog()
+            t = pxt.get_table('test')
+            repr(t)  # Force table metadata to load
+
+        @pxt.udf(_force_stored=True)
+        def udf_base_version(a: str, b: int = 3) -> Optional[pxt.Array[pxt.Float]]:
+            return None
+
+        mimic(udf_base_version)
+        if as_kwarg:
+            t.add_computed_column(result=tests.test_function.evolving_udf(a=t.c1))
+        else:
+            t.add_computed_column(result=tests.test_function.evolving_udf(t.c1))
+
+        # Change type of an unused optional parameter; this works in all cases
+        @pxt.udf(_force_stored=True)
+        def udf_version_2(a: str, b: str = 'x') -> Optional[pxt.Array[pxt.Float]]:
+            return None
+
+        mimic(udf_version_2)
+        reload_table()
+
+        # Rename the parameter; this works only if the UDF was invoked with a positional argument
+        @pxt.udf(_force_stored=True)
+        def udf_version_3(c: str, b: str = 'x') -> Optional[pxt.Array[pxt.Float]]:
+            return None
+
+        mimic(udf_version_3)
+        if as_kwarg:
+            with pytest.raises(excs.Error, match='signature stored in the database.*no longer matches'):
+                reload_table()
+        else:
+            reload_table()
+
+        # Change the parameter from fixed to variable; this works only if the UDF was invoked with a positional
+        # argument
+        @pxt.udf(_force_stored=True)
+        def udf_version_4(*a: str) -> Optional[pxt.Array[pxt.Float]]:
+            return None
+
+        mimic(udf_version_4)
+        if as_kwarg:
+            with pytest.raises(excs.Error, match='signature stored in the database.*no longer matches'):
+                reload_table()
+        else:
+            reload_table()
+
+        # Narrow the return type; this works in all cases
+        @pxt.udf(_force_stored=True)
+        def udf_version_5(a: str, b: int = 3) -> Optional[pxt.Array[pxt.Float, (512,)]]:
+            return None
+
+        mimic(udf_version_5)
+        reload_table()
+
+        # Change the type of the parameter to something incompatible; this fails in all cases
+        @pxt.udf(_force_stored=True)
+        def udf_version_6(a: float, b: int = 3) -> Optional[pxt.Array[pxt.Float]]:
+            return None
+
+        mimic(udf_version_6)
+        with pytest.raises(excs.Error, match='signature stored in the database.*no longer matches'):
+            reload_table()
+
+        # Widen the return type; this fails in all cases
+        @pxt.udf(_force_stored=True)
+        def udf_version_7(a: str, b: int = 3) -> Optional[pxt.Array]:
+            return None
+
+        mimic(udf_version_7)
+        with pytest.raises(excs.Error, match='return type stored in the database.*no longer matches'):
+            reload_table()
+
+        # Add a poison parameter; this works only if the UDF was invoked with a keyword argument
+        @pxt.udf(_force_stored=True)
+        def udf_version_8(c: float = 5.0, a: str = '', b: int = 3) -> Optional[pxt.Array[pxt.Float]]:
+            return None
+
+        mimic(udf_version_8)
+        if as_kwarg:
+            reload_table()
+        else:
+            with pytest.raises(excs.Error, match='signature stored in the database.*no longer matches'):
+                reload_table()
 
     def test_tool_errors(self):
         with pytest.raises(excs.Error) as exc_info:
@@ -790,9 +928,12 @@ class TestFunction:
         ]
 
         fn6 = pxt.udf(t, return_value=t.in4.rotate(t.in1))
-        u.select(fn4(22, 'starfruit', in4=u.b)).collect()
+        u.select(fn6(22, 'starfruit', in4=u.b)).collect()
 
 
 @pxt.udf
 def udf6(name: str) -> str:
     return ''
+
+
+evolving_udf: Optional[func.CallableFunction] = None

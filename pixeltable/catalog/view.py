@@ -119,31 +119,34 @@ class View(Table):
 
             # validate iterator_args
             py_signature = inspect.signature(iterator_cls.__init__)
+
+            # make sure iterator_args can be used to instantiate iterator_cls
+            bound_args: dict[str, Any]
             try:
-                # make sure iterator_args can be used to instantiate iterator_cls
                 bound_args = py_signature.bind(None, **iterator_args).arguments  # None: arg for self
-                # we ignore 'self'
-                first_param_name = next(iter(py_signature.parameters))  # can't guarantee it's actually 'self'
-                del bound_args[first_param_name]
-
-                # construct Signature and type-check bound_args
-                params = [
-                    func.Parameter(param_name, param_type, kind=inspect.Parameter.POSITIONAL_OR_KEYWORD)
-                    for param_name, param_type in iterator_cls.input_schema().items()
-                ]
-                sig = func.Signature(ts.InvalidType(), params)
-                from pixeltable.exprs import FunctionCall
-
-                FunctionCall.normalize_args(iterator_cls.__name__, sig, bound_args)
             except TypeError as e:
-                raise excs.Error(f'Cannot instantiate iterator with given arguments: {e}')
+                raise excs.Error(f'Invalid iterator arguments: {e}')
+            # we ignore 'self'
+            first_param_name = next(iter(py_signature.parameters))  # can't guarantee it's actually 'self'
+            del bound_args[first_param_name]
+
+            # construct Signature and type-check bound_args
+            params = [
+                func.Parameter(param_name, param_type, kind=inspect.Parameter.POSITIONAL_OR_KEYWORD)
+                for param_name, param_type in iterator_cls.input_schema().items()
+            ]
+            sig = func.Signature(ts.InvalidType(), params)
+
+            expr_args = {k: exprs.Expr.from_object(v) for k, v in bound_args.items()}
+            sig.validate_args(expr_args, context=f'in iterator {iterator_cls.__name__!r}')
+            literal_args = {k: v.val if isinstance(v, exprs.Literal) else v for k, v in expr_args.items()}
 
             # prepend pos and output_schema columns to cols:
             # a component view exposes the pos column of its rowid;
             # we create that column here, so it gets assigned a column id;
             # stored=False: it is not stored separately (it's already stored as part of the rowid)
             iterator_cols = [Column(_POS_COLUMN_NAME, ts.IntType(), stored=False)]
-            output_dict, unstored_cols = iterator_cls.output_schema(**bound_args)
+            output_dict, unstored_cols = iterator_cls.output_schema(**literal_args)
             iterator_cols.extend(
                 [
                     Column(col_name, col_type, stored=col_name not in unstored_cols)
