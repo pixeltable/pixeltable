@@ -183,12 +183,14 @@ class TestOpenai:
             t.insert(prompt='What is the weather in San Francisco?')
             t.insert(prompt='What is the stock price of NVDA today, and what is the weather in San Francisco?')
             t.insert(prompt='How many grams of corn are in a bushel?')
+            t.insert(prompt='What is the stock price of NVDA today? Also, what is the stock price of UAL?')
             res = t.select(t.response, t.tool_calls).head()
             print(f'Responses with tool_choice equal to: {tool_choice}')
             print(res[0]['response'])
             print(res[1]['response'])
             print(res[2]['response'])
             print(res[3]['response'])
+            print(res[4]['response'])
 
             # Request for stock price: works except when tool_choice is set explicitly to weather
             print('Checking stock price inquiry')
@@ -239,6 +241,11 @@ class TestOpenai:
                     {'stock_price': [0.0], 'weather': None},
                     {'stock_price': None, 'weather': ['Unknown city']},
                 ]
+
+            print('Checking multiple stock prices question')
+            if tool_choice is None or tool_choice.auto:
+                # If you specify an explicit tool, it seems to only call it once.
+                assert res[4]['tool_calls'] == {'stock_price': [131.17, 82.88], 'weather': None}
 
     def test_custom_tool_invocations(self, reset_db) -> None:
         skip_test_if_not_installed('openai')
