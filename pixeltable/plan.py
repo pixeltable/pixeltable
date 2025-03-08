@@ -377,7 +377,7 @@ class Planner:
             recomputed_cols.update(idx_val_cols)
             # we only need to recompute stored columns (unstored ones are substituted away)
             recomputed_cols = {c for c in recomputed_cols if c.is_stored}
-        recomputed_base_cols = {col for col in recomputed_cols if col.tbl == target}
+        recomputed_base_cols = {col for col in recomputed_cols if col.tbl == tbl.tbl_version}
         copied_cols = [
             col
             for col in target.cols_by_id.values()

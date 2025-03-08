@@ -59,12 +59,12 @@ class Table(SchemaObject):
     # FileCache.emit_eviction_warnings() at the end of the operation.
 
     _is_dropped: bool
-    _tbl_version_path: TableVersionPath
+    __tbl_version_path: TableVersionPath
 
     def __init__(self, id: UUID, dir_id: UUID, name: str, tbl_version_path: TableVersionPath):
         super().__init__(id, name, dir_id)
         self._is_dropped = False
-        self._tbl_version_path = tbl_version_path
+        self.__tbl_version_path = tbl_version_path
 
     # @property
     # def _has_dependents(self) -> bool:
@@ -124,12 +124,17 @@ class Table(SchemaObject):
     @property
     def _version(self) -> int:
         """Return the version of this table. Used by tests to ascertain version changes."""
-        return self._tbl_version.effective_version
+        return self._tbl_version.get().version
 
     @property
     def _tbl_version(self) -> TableVersionHandle:
         """Return TableVersion for just this table."""
         return self._tbl_version_path.tbl_version
+
+    @property
+    def _tbl_version_path(self) -> TableVersionPath:
+        self._check_is_dropped()
+        return self.__tbl_version_path
 
     def __hash__(self) -> int:
         return hash(self._tbl_version.id)
@@ -140,7 +145,7 @@ class Table(SchemaObject):
 
     def __getattr__(self, name: str) -> 'pxt.exprs.ColumnRef':
         """Return a ColumnRef for the given name."""
-        col = self._tbl_version_path.get_column(name, include_bases=True)
+        col = self._tbl_version_path.get_column(name)
         if col is None:
             raise AttributeError(f'Column {name!r} unknown')
         from pixeltable.exprs import ColumnRef

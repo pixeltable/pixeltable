@@ -224,6 +224,7 @@ class TestVideo:
         # reference to the frame col requires ordering by base, pos
         from pixeltable.functions.video import make_video
 
+        _ = view_t.select(view_t.pos, view_t.frame).show()
         _ = view_t.select(make_video(view_t.pos, view_t.frame)).group_by(base_t).show()
         # the same without frame col
         view_t.add_computed_column(transformed=view_t.frame.rotate(30), stored=True)

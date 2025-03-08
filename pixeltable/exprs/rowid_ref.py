@@ -75,6 +75,8 @@ class RowidRef(Expr):
 
     def __repr__(self) -> str:
         # check if this is the pos column of a component view
+        from pixeltable import store
+
         tbl = self.tbl.get() if self.tbl is not None else catalog.Catalog.get().get_tbl_version(self.tbl_id, None)
         if (
             tbl.is_component_view()

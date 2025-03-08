@@ -429,17 +429,17 @@ class DataFrame:
         raise excs.Error(msg) from e
 
     def _output_row_iterator(self) -> Iterator[list]:
-        try:
-            for data_row in self._exec():
-                yield [data_row[e.slot_idx] for e in self._select_list_exprs]
-        except excs.ExprEvalError as e:
-            self._raise_expr_eval_err(e)
-        except sql.exc.DBAPIError as e:
-            raise excs.Error(f'Error during SQL execution:\n{e}')
+        with Env.get().begin():
+            try:
+                for data_row in self._exec():
+                    yield [data_row[e.slot_idx] for e in self._select_list_exprs]
+            except excs.ExprEvalError as e:
+                self._raise_expr_eval_err(e)
+            except sql.exc.DBAPIError as e:
+                raise excs.Error(f'Error during SQL execution:\n{e}')
 
     def collect(self) -> DataFrameResultSet:
-        with Env.get().begin():
-            return DataFrameResultSet(list(self._output_row_iterator()), self.schema)
+        return DataFrameResultSet(list(self._output_row_iterator()), self.schema)
 
     async def _acollect(self) -> DataFrameResultSet:
         try:
@@ -1083,7 +1083,8 @@ class DataFrame:
             assert data_file_path.is_file()
             return data_file_path
         else:
-            return write_coco_dataset(self, dest_path)
+            with Env.get().begin():
+                return write_coco_dataset(self, dest_path)
 
     def to_pytorch_dataset(self, image_format: str = 'pt') -> 'torch.utils.data.IterableDataset':
         """
@@ -1127,6 +1128,7 @@ class DataFrame:
         if dest_path.exists():  # fast path: use cache
             assert dest_path.is_dir()
         else:
-            export_parquet(self, dest_path, inline_images=True)
+            with Env.get().begin():
+                export_parquet(self, dest_path, inline_images=True)
 
         return PixeltablePytorchDataset(path=dest_path, image_format=image_format)

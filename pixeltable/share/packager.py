@@ -61,10 +61,11 @@ class TablePackager:
         _logger.info(f"Packaging table '{self.table._path}' and its ancestors in: {self.tmp_dir}")
         self.tmp_dir.mkdir()
         self.iceberg_catalog = sqlite_catalog(self.tmp_dir / 'warehouse')
-        ancestors = [self.table] + self.table._bases
-        for t in ancestors:
-            _logger.info(f"Exporting table '{t._path}'.")
-            self.__export_table(t)
+        with Env.get().begin():
+            ancestors = [self.table] + self.table._bases
+            for t in ancestors:
+                _logger.info(f"Exporting table '{t._path}'.")
+                self.__export_table(t)
         _logger.info(f'Building archive.')
         bundle_path = self.__build_tarball()
         _logger.info(f'Packaging complete: {bundle_path}')
@@ -87,7 +88,7 @@ class TablePackager:
         # to get the column types, since we'll be substituting `fileurl`s for media columns.
         actual_col_types: list[ts.ColumnType] = []
 
-        for col_name, col in t._tbl_version.cols_by_name.items():
+        for col_name, col in t._tbl_version.get().cols_by_name.items():
             if not col.is_stored:
                 continue
             if col.col_type.is_media_type():
@@ -120,7 +121,7 @@ class TablePackager:
         """
         Iceberg tables must have a namespace, which cannot be the empty string, so we prepend `pxt` to the table path.
         """
-        parent_path = table._parent._path
+        parent_path = table._parent()._path()
         if len(parent_path) == 0:
             return 'pxt'
         else:

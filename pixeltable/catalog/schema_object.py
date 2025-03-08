@@ -13,6 +13,9 @@ class SchemaObject:
     Base class of all addressable objects within a Db.
     Each object has an id, a name and a parent directory.
     """
+    _id: UUID
+    _name: str
+    _dir_id: Optional[UUID]
 
     def __init__(self, obj_id: UUID, name: str, dir_id: Optional[UUID]):
         # make these private so they don't collide with column names (id and name are fairly common)
@@ -20,16 +23,13 @@ class SchemaObject:
         self._name = name
         self._dir_id = dir_id
 
-    # @property
-    # def _parent(self) -> Optional['catalog.Dir']:
-    #     """Returns the parent directory of this schema object."""
-    #     from pixeltable import catalog
-    #
-    #     if self._dir_id is None:
-    #         return None
-    #     dir = catalog.Catalog.get().paths.get_schema_obj(self._dir_id)
-    #     assert isinstance(dir, catalog.Dir)
-    #     return dir
+    def _parent(self) -> Optional['catalog.Dir']:
+        """Returns the parent directory of this schema object."""
+        from .catalog import Catalog
+        with env.Env.get().begin():
+            if self._dir_id is None:
+                return None
+            return Catalog.get().get_dir(self._dir_id)
 
     def _path(self) -> str:
         """Returns the path to this schema object."""
@@ -56,11 +56,6 @@ class SchemaObject:
         Return name displayed in error messages.
         """
         pass
-
-    # @property
-    # @abstractmethod
-    # def _has_dependents(self) -> bool:
-    #     """Returns True if this object has dependents (e.g., children, views)"""
 
     def _move(self, new_name: str, new_dir_id: UUID) -> None:
         """Subclasses need to override this to make the change persistent"""

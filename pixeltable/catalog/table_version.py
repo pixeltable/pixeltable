@@ -987,7 +987,7 @@ class TableVersion:
             base_versions = [None if plan is None else self.version] + base_versions  # don't update in place
             # propagate to views
             for view in self.mutable_views:
-                recomputed_cols = [col for col in recomputed_view_cols if col.tbl is view]
+                recomputed_cols = [col for col in recomputed_view_cols if col.tbl == view]
                 plan = None
                 if len(recomputed_cols) > 0:
                     from pixeltable.plan import Planner

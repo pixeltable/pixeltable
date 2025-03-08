@@ -24,6 +24,11 @@ from .table_version_path import TableVersionPath
 _logger = logging.getLogger('pixeltable')
 
 
+def _join_path(path: str, name: str) -> str:
+    """Append name to path, if path is not empty."""
+    return name if path == '' else f'{path}.{name}'
+
+
 class Catalog:
     """The functional interface to getting access to catalog objects
 
@@ -75,7 +80,7 @@ class Catalog:
         session = env.Env.get().session
         tbl = session.query(schema.Table).filter(schema.Table.id == tbl_id).one()
         dir_path = self.get_dir_path(tbl.dir_id)
-        return f'{dir_path}.{tbl.md["name"]}'
+        return _join_path(dir_path, tbl.md["name"])
 
     @dataclasses.dataclass
     class DirEntry:
@@ -197,10 +202,22 @@ class Catalog:
     def add_tbl_version(self, tbl_version: TableVersion) -> None:
         """Explicitly add a TableVersion"""
         self._tbl_versions[(tbl_version.id, tbl_version.effective_version)] = tbl_version
+        # if this is a mutable view, also record it in the base
+        if tbl_version.is_view() and tbl_version.effective_version is None:
+            base = tbl_version.base.get()
+            base.mutable_views.append(TableVersionHandle(tbl_version.id, tbl_version.effective_version))
 
     def clear_tbl_version(self, tbl_version: TableVersion) -> None:
         assert (tbl_version.id, tbl_version.effective_version) in self._tbl_versions
         del self._tbl_versions[(tbl_version.id, tbl_version.effective_version)]
+
+    def get_dir(self, dir_id: UUID) -> Optional[Dir]:
+        """Return the Dir with the given id, or None if it doesn't exist"""
+        session = env.Env.get().session
+        dir_record = session.query(schema.Dir).filter(schema.Dir.id == dir_id).one_or_none()
+        if dir_record is None:
+            return None
+        return Dir(dir_record.id, dir_record.parent_id, dir_record.md['name'])
 
     def _get_dir(self, path: str) -> Optional[schema.Dir]:
         session = env.Env.get().session
@@ -375,7 +392,7 @@ class Catalog:
             if session.query(sql.func.count(schema.Dir.id)).scalar() > 0:
                 return
             # create a top-level directory, so that every schema object has a directory
-            dir_md = schema.DirMd(name='')
+            dir_md = schema.DirMd(name='', user=None, additional_md={})
             dir_record = schema.Dir(parent_id=None, md=dataclasses.asdict(dir_md))
             session.add(dir_record)
             session.flush()

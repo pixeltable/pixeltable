@@ -46,6 +46,11 @@ class TableVersionHandle:
         self.effective_version = effective_version
         self._tbl_version = tbl_version
 
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, TableVersionHandle):
+            return False
+        return self.id == other.id and self.effective_version == other.effective_version
+
     @classmethod
     def create(cls, tbl_version: TableVersion) -> TableVersionHandle:
         return cls(tbl_version.id, tbl_version.effective_version, tbl_version)
@@ -58,8 +63,8 @@ class TableVersionHandle:
         return self._tbl_version
 
     def as_dict(self) -> dict:
-        return {'tbl_id': str(self.id), 'effective_version': self.effective_version}
+        return {'id': str(self.id), 'effective_version': self.effective_version}
 
     @classmethod
     def from_dict(cls, d: dict) -> TableVersionHandle:
-        return cls(UUID(d['tbl_id']), d['effective_version'])
+        return cls(UUID(d['id']), d['effective_version'])

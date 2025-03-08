@@ -162,7 +162,7 @@ class TestSnapshot:
 
         # scenario 3: path exists but is not a snapshot
         _ = pxt.create_table('not_snapshot', {'c1': pxt.String}, if_exists='ignore')
-        with pytest.raises(pxt.Error, match='already exists'):
+        with pytest.raises(pxt.Error, match='is an existing'):
             pxt.create_snapshot('not_snapshot', t)
         for _ie in ['ignore', 'replace', 'replace_force']:
             with pytest.raises(excs.Error) as exc_info:
@@ -335,6 +335,8 @@ class TestSnapshot:
             assert np.all(s4.select(s4.c3).order_by(s4.c2).collect().to_pandas()['c3'] == orig_c3 + 1)
 
             # v1
+            a = v.select(v.v1).order_by(v.c2).collect().to_pandas()['v1']
+            b = t.select(t.c3).order_by(t.c2).collect().to_pandas()['c3']
             assert np.all(
                 v.select(v.v1).order_by(v.c2).collect().to_pandas()['v1']
                 == t.select(t.c3).order_by(t.c2).collect().to_pandas()['c3'] + 1

@@ -101,7 +101,7 @@ class TableVersionPath:
     def columns(self) -> list[Column]:
         """Return all user columns visible in this tbl version path, including columns from bases"""
         result = list(self.tbl_version.get().cols_by_name.values())
-        if self.base is not None and self.tbl_version.include_base_columns:
+        if self.base is not None and self.tbl_version.get().include_base_columns():
             base_cols = self.base.columns()
             # we only include base columns that don't conflict with one of our column names
             result.extend(c for c in base_cols if c.name not in self.tbl_version.get().cols_by_name)
@@ -117,12 +117,12 @@ class TableVersionPath:
         cols = self.columns()
         return {col.id: col for col in cols}
 
-    def get_column(self, name: str, include_bases: bool = True) -> Optional[Column]:
+    def get_column(self, name: str, include_bases: Optional[bool] = None) -> Optional[Column]:
         """Return the column with the given name, or None if not found"""
         col = self.tbl_version.get().cols_by_name.get(name)
         if col is not None:
             return col
-        elif self.base is not None and include_bases:
+        elif self.base is not None and (include_bases or self.tbl_version.get().include_base_columns()):
             return self.base.get_column(name)
         else:
             return None

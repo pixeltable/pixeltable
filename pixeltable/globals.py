@@ -125,7 +125,7 @@ def _handle_path_collision(
         _drop_dir(obj._id, path, force=True)
     else:
         assert isinstance(obj, catalog.Table)
-        _drop_table(obj, force=True)
+        _drop_table(obj, force=if_exists == IfExistsParam.REPLACE_FORCE, is_replace=True)
     return None
 
 
@@ -196,8 +196,8 @@ def create_table(
     cat = Catalog.get()
 
     with env.Env.get().begin():
-        _if_exists = catalog.IfExistsParam.validated(if_exists, 'if_exists')
-        existing = _handle_path_collision(path_str, catalog.InsertableTable, False, _if_exists)
+        if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
+        existing = _handle_path_collision(path_str, catalog.InsertableTable, False, if_exists_)
         if existing is not None:
             assert isinstance(existing, catalog.Table)
             return existing
@@ -333,8 +333,8 @@ def create_view(
     cat = Catalog.get()
 
     with Env.get().begin():
-        _if_exists = catalog.IfExistsParam.validated(if_exists, 'if_exists')
-        existing = _handle_path_collision(path_str, catalog.View, is_snapshot, _if_exists)
+        if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
+        existing = _handle_path_collision(path_str, catalog.View, is_snapshot, if_exists_)
         if existing is not None:
             assert isinstance(existing, catalog.View)
             return existing
@@ -481,7 +481,7 @@ def get_table(path: str) -> catalog.Table:
         >>> tbl = pxt.get_table('my_snapshot')
     """
     with Env.get().begin():
-        obj = Catalog.get().get_schema_object(path, expected=catalog.Table)
+        obj = Catalog.get().get_schema_object(path, expected=catalog.Table, raise_if_not_exists=True)
         assert isinstance(obj, catalog.Table)
         return obj
 
@@ -560,7 +560,8 @@ def drop_table(
             tbl = cast(
                 Optional[catalog.Table],
                 cat.get_schema_object(
-                    table, expected=catalog.Table, raise_if_not_exists=if_not_exists_ == IfNotExistsParam.ERROR or force
+                    table, expected=catalog.Table,
+                    raise_if_not_exists=if_not_exists_ == IfNotExistsParam.ERROR and not force
                 ),
             )
             if tbl is None:
@@ -568,10 +569,10 @@ def drop_table(
                 return
         else:
             tbl = table
-        _drop_table(tbl, force=force)
+        _drop_table(tbl, force=force, is_replace=False)
 
 
-def _drop_table(tbl: catalog.Table, force: bool = False) -> None:
+def _drop_table(tbl: catalog.Table, force: bool, is_replace: bool) -> None:
     cat = Catalog.get()
     view_ids = cat.get_views(tbl._id)
     if len(view_ids) > 0:
@@ -580,7 +581,17 @@ def _drop_table(tbl: catalog.Table, force: bool = False) -> None:
             for view_path in view_paths:
                 drop_table(view_path, force=True)
         else:
-            raise excs.Error(f'Table {tbl._path()} has dependents: {", ".join(view_paths)}')
+            is_snapshot = tbl._tbl_version_path.is_snapshot()
+            obj_type_str = 'Snapshot' if is_snapshot else tbl._display_name().capitalize()
+            msg: str
+            if is_replace:
+                msg = (
+                    f'{obj_type_str} {tbl._path()} already exists and has dependents: {", ".join(view_paths)}. '
+                    "Use `if_exists='replace_force'` to replace it."
+                )
+            else:
+                msg = f'{obj_type_str} {tbl._path()} has dependents: {", ".join(view_paths)}'
+            raise excs.Error(msg)
     tbl._drop()
     _logger.info(f'Dropped table `{tbl._path()}`.')
 
@@ -662,8 +673,8 @@ def create_dir(
     cat = Catalog.get()
 
     with env.Env.get().begin():
-        _if_exists = catalog.IfExistsParam.validated(if_exists, 'if_exists')
-        existing = _handle_path_collision(path, catalog.Dir, False, _if_exists)
+        if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
+        existing = _handle_path_collision(path, catalog.Dir, False, if_exists_)
         if existing is not None:
             assert isinstance(existing, catalog.Dir)
             return existing
