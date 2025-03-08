@@ -1,16 +1,19 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import sqlalchemy as sql
 
-from pixeltable.exprs.expr_set import ExprSet
 import pixeltable.type_system as ts
+from pixeltable.exprs.expr_set import ExprSet
 
 from .data_row import DataRow
 from .expr import _GLOBAL_SCOPE, Expr, ExprScope
 from .row_builder import RowBuilder
 from .sql_element_cache import SqlElementCache
+
+if TYPE_CHECKING:
+    from .object_ref import ObjectRef
 
 
 class JsonMapper(Expr):
@@ -30,11 +33,17 @@ class JsonMapper(Expr):
 
         from .object_ref import ObjectRef
 
-        scope_anchor = ObjectRef(self.target_expr_scope, self)
-        self.components = [src_expr, target_expr, scope_anchor]
+        self.components = [src_expr, target_expr]
         self.parent_mapper: Optional[JsonMapper] = None
         self.target_expr_eval_ctx: Optional[RowBuilder.EvalCtx] = None
+
+        # Intentionally create the id now, before adding the scope anchor; this ensures that JsonMappers will
+        # be recognized as equal so long as they have the same src_expr and target_expr.
+        # TODO: Might this cause problems after substitution?
         self.id = self._create_id()
+
+        scope_anchor = ObjectRef(self.target_expr_scope, self)
+        self.components.append(scope_anchor)
 
     def bind_rel_paths(self, mapper: Optional[JsonMapper] = None) -> None:
         self._src_expr.bind_rel_paths(mapper)
@@ -85,8 +94,12 @@ class JsonMapper(Expr):
         return self.components[1]
 
     @property
-    def scope_anchor(self) -> Expr:
-        return self.components[2]
+    def scope_anchor(self) -> 'ObjectRef':
+        from .object_ref import ObjectRef
+
+        result = self.components[2]
+        assert isinstance(result, ObjectRef)
+        return result
 
     def _equals(self, _: JsonMapper) -> bool:
         return True

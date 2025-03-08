@@ -299,6 +299,7 @@ class RowBuilder:
                 # this is input and therefore doesn't depend on other exprs
                 continue
             for d in expr.dependencies():
+                assert d.slot_idx is not None, f'{expr}, {d}'
                 if d.slot_idx in excluded_slot_idxs:
                     continue
                 dependencies[expr.slot_idx].add(d.slot_idx)

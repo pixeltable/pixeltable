@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional
 
 import sqlalchemy as sql
 
@@ -26,11 +26,22 @@ class ObjectRef(Expr):
         self.owner = owner
         self.id = self._create_id()
 
+    def _id_attrs(self) -> list[tuple[str, Any]]:
+        # We have no components, so we can't rely on the default behavior here (otherwise, all ObjectRef
+        # instances will be conflated into a single slot).
+        return [('addr', id(self))]
+
+    def substitute(self, subs: dict[Expr, Expr]) -> Expr:
+        # Just return self; we need to avoid creating a new id after doing the substitution, because otherwise
+        # we'll wind up in a situation where the scope_anchor of the enclosing JsonMapper is different from the
+        # nested ObjectRefs inside its target_expr (and therefore occupies a different slot_idx).
+        return self
+
     def scope(self) -> ExprScope:
         return self._scope
 
     def _equals(self, other: ObjectRef) -> bool:
-        return self.owner is other.owner
+        return self.id == other.id
 
     def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
         return None
@@ -40,4 +51,4 @@ class ObjectRef(Expr):
         pass
 
     def __repr__(self) -> str:
-        return f'ObjectRef({self.owner})'
+        return f'ObjectRef({self.owner}, {self.id}, {self.owner.id})'
