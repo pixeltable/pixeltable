@@ -112,7 +112,10 @@ class TestAnthropic:
             print('Checking double inquiry')
             if tool_choice is None or tool_choice.parallel_tool_calls:
                 # Both tools invoked in parallel
-                assert res[2]['tool_calls'] == {'stock_price': [131.17], 'weather': ['Cloudy with a chance of meatballs']}
+                assert res[2]['tool_calls'] == {
+                    'stock_price': [131.17],
+                    'weather': ['Cloudy with a chance of meatballs'],
+                }
             else:
                 # Only one tool invoked, but it's not specified which
                 assert not tool_choice.parallel_tool_calls

@@ -39,7 +39,7 @@ class JsonMapper(Expr):
 
         # Intentionally create the id now, before adding the scope anchor; this ensures that JsonMappers will
         # be recognized as equal so long as they have the same src_expr and target_expr.
-        # TODO: Might this cause problems after substitution?
+        # TODO: Might this cause problems after certain substitutions?
         self.id = self._create_id()
 
         scope_anchor = ObjectRef(self.target_expr_scope, self)

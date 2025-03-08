@@ -216,7 +216,10 @@ class TestOpenai:
             print('Checking double inquiry')
             if tool_choice is None or (tool_choice.parallel_tool_calls and tool_choice.tool is None):
                 # Both tools invoked in parallel
-                assert res[2]['tool_calls'] == {'stock_price': [131.17], 'weather': ['Cloudy with a chance of meatballs']}
+                assert res[2]['tool_calls'] == {
+                    'stock_price': [131.17],
+                    'weather': ['Cloudy with a chance of meatballs'],
+                }
             elif tool_choice.tool == 'stock_price':
                 assert res[2]['tool_calls'] == {'stock_price': [131.17], 'weather': None}
             elif tool_choice.tool == 'weather':

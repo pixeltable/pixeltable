@@ -678,6 +678,8 @@ class TestExprs:
             assert res[i]['outputy'] == (None if (i & 2) == 0 else [6, 7, 8])
             assert res[i]['outputz'] == (None if (i & 4) == 0 else [10, 11, 12])
 
+        reload_tester.run_reload_test()
+
     def test_dicts(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         # top-level is dict

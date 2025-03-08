@@ -377,7 +377,12 @@ class RowBuilder:
             data_row.set_exc(slot_idx, exc)
 
     def eval(
-        self, data_row: DataRow, ctx: EvalCtx, profile: Optional[ExecProfile] = None, ignore_errors: bool = False, force_eval: Optional[ExprScope] = None
+        self,
+        data_row: DataRow,
+        ctx: EvalCtx,
+        profile: Optional[ExecProfile] = None,
+        ignore_errors: bool = False,
+        force_eval: Optional[ExprScope] = None,
     ) -> None:
         """
         Populates the slots in data_row given in ctx.
