@@ -7,7 +7,6 @@ from .utils import make_tbl, reload_catalog
 
 
 class TestDirs:
-
     def test_create(self, reset_db) -> None:
         dirs = ['dir1', 'dir1.sub1', 'dir1.sub1.subsub1']
         for name in dirs:
@@ -151,7 +150,7 @@ class TestDirs:
         pxt.drop_dir(dir_name, if_not_exists='ignore')
         assert pxt.list_dirs(recursive=True) == orig_dirs
         # when force=True, if_not_exists is ignored
-        #pxt.drop_dir(dir_name, if_not_exists='error', force=True)
+        pxt.drop_dir(dir_name, if_not_exists='error', force=True)
         assert pxt.list_dirs(recursive=True) == orig_dirs
         # invalid if_not_exists value is rejected, but only
         # when the directory doesn't exist.

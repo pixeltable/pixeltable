@@ -67,9 +67,6 @@ class QueryTemplateFunction(Function):
     def _update_as_overload_resolution(self, signature_idx: int) -> None:
         pass  # only one signature supported for QueryTemplateFunction
 
-    # def set_conn(self, conn: Optional[sql.engine.Connection]) -> None:
-    #     self.conn = conn
-
     @property
     def is_async(self) -> bool:
         return True

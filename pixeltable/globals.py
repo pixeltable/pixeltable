@@ -1,24 +1,19 @@
-import dataclasses
 import logging
-from typing import Any, Iterable, Literal, Optional, Type, Union, cast
-#import urllib.parse
+import urllib.parse
+from typing import Any, Iterable, Literal, Optional, Union, cast
 from uuid import UUID
 
 import pandas as pd
-import sqlalchemy as sql
-from google.ai.generativelanguage_v1beta import Schema
 from pandas.io.formats.style import Styler
-from sqlalchemy.util.preloaded import orm
 
 import pixeltable.env as env
 import pixeltable.exceptions as excs
 import pixeltable.exprs as exprs
-from pixeltable.catalog import Catalog, IfExistsParam, IfNotExistsParam
 from pixeltable import DataFrame, catalog, func, share
+from pixeltable.catalog import Catalog, IfExistsParam, IfNotExistsParam
 from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
-from pixeltable.metadata import schema
 from pixeltable.utils.filecache import FileCache
 
 _logger = logging.getLogger('pixeltable')
@@ -27,71 +22,6 @@ _logger = logging.getLogger('pixeltable')
 def init() -> None:
     """Initializes the Pixeltable environment."""
     _ = Catalog.get()
-
-
-# def _get_or_drop_existing_path2(
-#     path_str: str,
-#     expected_obj_type: type[catalog.SchemaObject],
-#     expected_snapshot: bool,
-#     if_exists: catalog.IfExistsParam,
-# ) -> Optional[catalog.SchemaObject]:
-#     """Handle schema object path collision during creation according to the if_exists parameter.
-#
-#     Args:
-#         path_str: An existing and valid path to the dir, table, view, or snapshot.
-#         expected_obj_type: Whether the caller of this function is creating a dir, table, or view at the existing path.
-#         expected_snapshot: Whether the caller of this function is creating a snapshot at the existing path.
-#         if_exists: Directive regarding how to handle the existing path.
-#
-#     Returns:
-#         A handle to the existing dir, table, view, or snapshot, if `if_exists='ignore'`, otherwise `None`.
-#
-#     Raises:
-#         Error: If the existing path is not of the expected type, or if the existing path has dependents and
-#             `if_exists='replace'` or `if_exists='replace_force'`.
-#     """
-#     cat = Catalog.get()
-#     path = catalog.Path(path_str)
-#     assert cat.paths.get_object(path) is not None
-#
-#     if if_exists == catalog.IfExistsParam.ERROR:
-#         raise excs.Error(f'Path `{path_str}` already exists.')
-#
-#     existing_path = cat.paths[path]
-#     existing_path_is_snapshot = (
-#         'is_snapshot' in existing_path.get_metadata() and existing_path.get_metadata()['is_snapshot']
-#     )
-#     obj_type_str = 'Snapshot' if expected_snapshot else expected_obj_type._display_name().capitalize()
-#     # Check if the existing path is of expected type.
-#     if not isinstance(existing_path, expected_obj_type) or (expected_snapshot and not existing_path_is_snapshot):
-#         raise excs.Error(
-#             f'Path `{path_str}` already exists but is not a {obj_type_str}. Cannot {if_exists.name.lower()} it.'
-#         )
-#
-#     # if_exists='ignore' return the handle to the existing object.
-#     assert isinstance(existing_path, expected_obj_type)
-#     if if_exists == catalog.IfExistsParam.IGNORE:
-#         return existing_path
-#
-#     # Check if the existing object has dependents. If so, cannot replace it
-#     # unless if_exists='replace_force'.
-#     has_dependents = existing_path._has_dependents
-#     if if_exists == catalog.IfExistsParam.REPLACE and has_dependents:
-#         raise excs.Error(
-#             f"{obj_type_str} `{path_str}` already exists and has dependents. Use `if_exists='replace_force'` to replace it."
-#         )
-#     else:
-#         assert if_exists == catalog.IfExistsParam.REPLACE_FORCE or not has_dependents
-#         # Drop the existing path so it can be replaced.
-#         # Any errors during drop will be raised.
-#         _logger.info(f'Dropping {obj_type_str} `{path_str}` to replace it.')
-#         if isinstance(existing_path, catalog.Dir):
-#             drop_dir(path_str, force=True)
-#         else:
-#             drop_table(path_str, force=True)
-#         assert cat.paths.get_object(path) is None
-#
-#     return None
 
 
 def _handle_path_collision(
@@ -561,8 +491,9 @@ def drop_table(
             tbl = cast(
                 Optional[catalog.Table],
                 cat.get_schema_object(
-                    table, expected=catalog.Table,
-                    raise_if_not_exists=if_not_exists_ == IfNotExistsParam.ERROR and not force
+                    table,
+                    expected=catalog.Table,
+                    raise_if_not_exists=if_not_exists_ == IfNotExistsParam.ERROR and not force,
                 ),
             )
             if tbl is None:
@@ -729,7 +660,9 @@ def drop_dir(path: str, force: bool = False, if_not_exists: Literal['error', 'ig
     if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
     with Env.get().begin():
         dir = cat.get_schema_object(
-            path, expected=catalog.Dir, raise_if_not_exists=if_not_exists_ == catalog.IfNotExistsParam.ERROR
+            path,
+            expected=catalog.Dir,
+            raise_if_not_exists=if_not_exists_ == catalog.IfNotExistsParam.ERROR and not force
         )
         if dir is None:
             _logger.info(f'Directory {path!r} does not exist, skipped drop_dir().')

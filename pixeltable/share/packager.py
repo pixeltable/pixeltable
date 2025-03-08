@@ -68,11 +68,13 @@ class TablePackager:
                         'table_id': str(t._tbl_version.id),
                         # These are temporary; will replace with a better solution once the concurrency changes to catalog have
                         # been merged
-                        'table_md': dataclasses.asdict(t._tbl_version._create_tbl_md()),
+                        'table_md': dataclasses.asdict(t._tbl_version.get()._create_tbl_md()),
                         'table_version_md': dataclasses.asdict(
-                            t._tbl_version._create_version_md(datetime.now().timestamp())
+                            t._tbl_version.get()._create_version_md(datetime.now().timestamp())
                         ),
-                        'table_schema_version_md': dataclasses.asdict(t._tbl_version._create_schema_version_md(0)),
+                        'table_schema_version_md': dataclasses.asdict(
+                            t._tbl_version.get()._create_schema_version_md(0)
+                        ),
                     }
                     for t in (table, *table._bases)
                 ]
@@ -93,9 +95,9 @@ class TablePackager:
         self.iceberg_catalog = sqlite_catalog(self.tmp_dir / 'warehouse')
         with Env.get().begin():
             ancestors = (self.table, *self.table._bases)
-		for t in ancestors:
-		    _logger.info(f"Exporting table '{t._path}'.")
-		    self.__export_table(t)
+            for t in ancestors:
+                _logger.info(f"Exporting table '{t._path}'.")
+                self.__export_table(t)
         _logger.info(f'Building archive.')
         bundle_path = self.__build_tarball()
         _logger.info(f'Packaging complete: {bundle_path}')

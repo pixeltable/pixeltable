@@ -980,7 +980,9 @@ class Table(SchemaObject):
                 if _if_exists == IfExistsParam.ERROR:
                     raise excs.Error(f'Duplicate index name: {idx_name}')
                 if not isinstance(self._tbl_version.get().idxs_by_name[idx_name].idx, index.EmbeddingIndex):
-                    raise excs.Error(f'Index `{idx_name}` is not an embedding index. Cannot {_if_exists.name.lower()} it.')
+                    raise excs.Error(
+                        f'Index `{idx_name}` is not an embedding index. Cannot {_if_exists.name.lower()} it.'
+                    )
                 if _if_exists == IfExistsParam.IGNORE:
                     return
                 assert _if_exists == IfExistsParam.REPLACE or _if_exists == IfExistsParam.REPLACE_FORCE
@@ -989,7 +991,9 @@ class Table(SchemaObject):
             from pixeltable.index import EmbeddingIndex
 
             # create the EmbeddingIndex instance to verify args
-            idx = EmbeddingIndex(col, metric=metric, embed=embedding, string_embed=string_embed, image_embed=image_embed)
+            idx = EmbeddingIndex(
+                col, metric=metric, embed=embedding, string_embed=string_embed, image_embed=image_embed
+            )
             with env.Env.get().begin():
                 status = self._tbl_version.get().add_index(col, idx_name=idx_name, idx=idx)
             # TODO: how to deal with exceptions here? drop the index and raise?

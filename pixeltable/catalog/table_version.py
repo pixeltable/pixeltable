@@ -86,7 +86,6 @@ class TableVersion:
 
     external_stores: dict[str, pxt.io.ExternalStore]
     store_tbl: 'store.StoreBase'
-    # base_store_tbl: Optional['store.StoreBase']  # always set for views
 
     @dataclasses.dataclass
     class IndexInfo:
@@ -194,7 +193,7 @@ class TableVersion:
             self.version,
             self._create_schema_version_md(preceding_schema_version=0),  # preceding_schema_version: dummy value
             mutable_views=[],
-            base=base
+            base=base,
         )
 
     @classmethod

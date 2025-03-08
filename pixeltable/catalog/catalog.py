@@ -47,9 +47,6 @@ class Catalog:
     def get(cls) -> Catalog:
         if cls._instance is None:
             cls._instance = cls()
-            # with orm.Session(env.Env.get().engine, future=True) as session:
-            #     cls._instance._load_table_versions(session)
-            #     # cls._instance._load_functions(session)
         return cls._instance
 
     @classmethod
@@ -80,7 +77,7 @@ class Catalog:
         session = env.Env.get().session
         tbl = session.query(schema.Table).filter(schema.Table.id == tbl_id).one()
         dir_path = self.get_dir_path(tbl.dir_id)
-        return _join_path(dir_path, tbl.md["name"])
+        return _join_path(dir_path, tbl.md['name'])
 
     @dataclasses.dataclass
     class DirEntry:

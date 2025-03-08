@@ -1020,7 +1020,9 @@ class DataFrame:
             join_clauses = [plan.JoinClause(**clause_dict) for clause_dict in d['from_clause']['join_clauses']]
             from_clause = plan.FromClause(tbls=tbls, join_clauses=join_clauses)
             select_list = (
-                [(exprs.Expr.from_dict(e), name) for e, name in d['select_list']] if d['select_list'] is not None else None
+                [(exprs.Expr.from_dict(e), name) for e, name in d['select_list']]
+                if d['select_list'] is not None
+                else None
             )
             where_clause = exprs.Expr.from_dict(d['where_clause']) if d['where_clause'] is not None else None
             group_by_clause = (

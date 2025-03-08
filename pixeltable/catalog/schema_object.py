@@ -13,6 +13,7 @@ class SchemaObject:
     Base class of all addressable objects within a Db.
     Each object has an id, a name and a parent directory.
     """
+
     _id: UUID
     _name: str
     _dir_id: Optional[UUID]
@@ -26,6 +27,7 @@ class SchemaObject:
     def _parent(self) -> Optional['catalog.Dir']:
         """Returns the parent directory of this schema object."""
         from .catalog import Catalog
+
         with env.Env.get().begin():
             if self._dir_id is None:
                 return None
