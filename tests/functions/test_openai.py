@@ -193,51 +193,51 @@ class TestOpenai:
             # Request for stock price: works except when tool_choice is set explicitly to weather
             print('Checking stock price inquiry')
             if tool_choice is None or tool_choice.tool != 'weather':
-                assert res[0]['tool_calls'] == {'stock_price': 131.17, 'weather': None}
+                assert res[0]['tool_calls'] == {'stock_price': [131.17], 'weather': None}
             else:  # Explicitly set to weather; we may or may not get stock price also
                 assert res[0]['tool_calls'] in [
-                    {'stock_price': None, 'weather': 'Unknown city'},
-                    {'stock_price': 131.17, 'weather': 'Unknown city'},
+                    {'stock_price': None, 'weather': ['Unknown city']},
+                    {'stock_price': [131.17], 'weather': ['Unknown city']},
                 ]
 
             # Request for weather: works except when tool_choice is set explicitly to stock_price
             print('Checking weather inquiry')
             if tool_choice is None or tool_choice.tool != 'stock_price':
-                assert res[1]['tool_calls'] == {'stock_price': None, 'weather': 'Cloudy with a chance of meatballs'}
+                assert res[1]['tool_calls'] == {'stock_price': None, 'weather': ['Cloudy with a chance of meatballs']}
             else:  # Explicitly set to stock_price; we may or may not get weather also
                 assert res[1]['tool_calls'] in [
-                    {'stock_price': 0.0, 'weather': None},
-                    {'stock_price': 0.0, 'weather': 'Cloudy with a chance of meatballs'},
+                    {'stock_price': [0.0], 'weather': None},
+                    {'stock_price': [0.0], 'weather': ['Cloudy with a chance of meatballs']},
                 ]
 
             # Request for both stock price and weather
             print('Checking double inquiry')
             if tool_choice is None or (tool_choice.parallel_tool_calls and tool_choice.tool is None):
                 # Both tools invoked in parallel
-                assert res[2]['tool_calls'] == {'stock_price': 131.17, 'weather': 'Cloudy with a chance of meatballs'}
+                assert res[2]['tool_calls'] == {'stock_price': [131.17], 'weather': ['Cloudy with a chance of meatballs']}
             elif tool_choice.tool == 'stock_price':
-                assert res[2]['tool_calls'] == {'stock_price': 131.17, 'weather': None}
+                assert res[2]['tool_calls'] == {'stock_price': [131.17], 'weather': None}
             elif tool_choice.tool == 'weather':
-                assert res[2]['tool_calls'] == {'stock_price': None, 'weather': 'Cloudy with a chance of meatballs'}
+                assert res[2]['tool_calls'] == {'stock_price': None, 'weather': ['Cloudy with a chance of meatballs']}
             else:
                 # Only one tool invoked, but it's not specified which
                 assert not tool_choice.parallel_tool_calls
                 assert res[2]['tool_calls'] in [
-                    {'stock_price': 131.17, 'weather': None},
-                    {'stock_price': None, 'weather': 'Cloudy with a chance of meatballs'},
+                    {'stock_price': [131.17], 'weather': None},
+                    {'stock_price': None, 'weather': ['Cloudy with a chance of meatballs']},
                 ]
 
             print('Checking random question')
             if tool_choice is None or tool_choice.auto:
                 assert res[3]['tool_calls'] == {'stock_price': None, 'weather': None}
             elif tool_choice.tool == 'stock_price':
-                assert res[3]['tool_calls'] == {'stock_price': 0.0, 'weather': None}
+                assert res[3]['tool_calls'] == {'stock_price': [0.0], 'weather': None}
             elif tool_choice.tool == 'weather':
-                assert res[3]['tool_calls'] == {'stock_price': None, 'weather': 'Unknown city'}
+                assert res[3]['tool_calls'] == {'stock_price': None, 'weather': ['Unknown city']}
             else:
                 assert res[3]['tool_calls'] in [
-                    {'stock_price': 0.0, 'weather': None},
-                    {'stock_price': None, 'weather': 'Unknown city'},
+                    {'stock_price': [0.0], 'weather': None},
+                    {'stock_price': None, 'weather': ['Unknown city']},
                 ]
 
     def test_custom_tool_invocations(self, reset_db) -> None:
@@ -259,7 +259,7 @@ class TestOpenai:
         res = t.select(t.output, t.tool_calls).head()
 
         assert res[0]['output'] is None
-        assert res[0]['tool_calls'] == {'banana_quantity': 131.17}
+        assert res[0]['tool_calls'] == {'banana_quantity': [131.17]}
 
     @pytest.mark.expensive
     def test_gpt_4_vision(self, reset_db) -> None:
