@@ -14,10 +14,7 @@ import numpy as np
 import sqlalchemy as sql
 from typing_extensions import Self, _AnnotatedAlias
 
-import pixeltable.catalog as catalog
-import pixeltable.exceptions as excs
-import pixeltable.func as func
-import pixeltable.type_system as ts
+from pixeltable import catalog, exceptions as excs, func, type_system as ts
 
 from .data_row import DataRow
 from .globals import ArithmeticOperator, ComparisonOperator, LiteralPythonTypes, LogicalOperator
@@ -109,6 +106,18 @@ class Expr(abc.ABC):
             or a valid identifier (according to catalog.is_valid_identifer) otherwise.
         """
         return None
+
+    @property
+    def validation_error(self) -> Optional[str]:
+        for c in self.components:
+            error = c.validation_error
+            if error is not None:
+                return error
+        return None
+
+    @property
+    def is_valid(self) -> bool:
+        return self.validation_error is None
 
     def equals(self, other: Expr) -> bool:
         """

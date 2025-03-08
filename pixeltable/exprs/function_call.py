@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import inspect
+import logging
 import sys
+import warnings
+from textwrap import dedent
 from typing import Any, Optional, Sequence, Union
 
 import sqlalchemy as sql
@@ -17,6 +20,8 @@ from .literal import Literal
 from .row_builder import RowBuilder
 from .rowid_ref import RowidRef
 from .sql_element_cache import SqlElementCache
+
+_logger = logging.getLogger('pixeltable')
 
 
 class FunctionCall(Expr):
@@ -45,6 +50,8 @@ class FunctionCall(Expr):
     aggregator: Optional[Any]
     current_partition_vals: Optional[list[Any]]
 
+    _validation_error: Optional[str]
+
     def __init__(
         self,
         fn: func.Function,
@@ -54,6 +61,7 @@ class FunctionCall(Expr):
         order_by_clause: Optional[list[Any]] = None,
         group_by_clause: Optional[list[Any]] = None,
         is_method_call: bool = False,
+        validation_error: Optional[str] = None,
     ):
         assert not fn.is_polymorphic
         assert all(isinstance(arg, Expr) for arg in args)
@@ -75,26 +83,6 @@ class FunctionCall(Expr):
         self.arg_idxs = list(range(len(self.components)))
         self.components.extend(arg.copy() for arg in kwargs.values())
         self.kwarg_idxs = {name: i + len(args) for i, name in enumerate(kwargs.keys())}
-
-        # Now generate bound_idxs for the args and kwargs indices.
-        # This is guaranteed to work, because at this point the call has already been validated.
-        # These will be used later to dereference specific parameter values.
-        bindings = fn.signature.py_signature.bind(*self.arg_idxs, **self.kwarg_idxs)
-        self.bound_idxs = bindings.arguments
-
-        # Separately generate bound_args for purposes of determining the resource pool.
-        bindings = fn.signature.py_signature.bind(*args, **kwargs)
-        bound_args = bindings.arguments
-        self.resource_pool = fn.call_resource_pool(bound_args)
-
-        self.agg_init_args = {}
-        if self.is_agg_fn_call:
-            # We separate out the init args for the aggregator. Unpack Literals in init args.
-            assert isinstance(fn, func.AggregateFunction)
-            for arg_name, arg in bound_args.items():
-                if arg_name in fn.init_param_names[0]:
-                    assert isinstance(arg, Literal)  # This was checked during validate_call
-                    self.agg_init_args[arg_name] = arg.val
 
         # window function state:
         # self.components[self.group_by_start_idx:self.group_by_stop_idx] contains group_by exprs
@@ -125,9 +113,34 @@ class FunctionCall(Expr):
             raise excs.Error(
                 f'order_by argument needs to be a Pixeltable expression, but instead is a {type(order_by_clause[0])}'
             )
-        # don't add components after this, everthing after order_by_start_idx is part of the order_by clause
         self.order_by_start_idx = len(self.components)
         self.components.extend(order_by_clause)
+
+        self._validation_error = validation_error
+
+        if validation_error is not None:
+            self.resource_pool = None
+            return
+
+        # Now generate bound_idxs for the args and kwargs indices.
+        # This is guaranteed to work, because at this point the call has already been validated.
+        # These will be used later to dereference specific parameter values.
+        bindings = fn.signature.py_signature.bind(*self.arg_idxs, **self.kwarg_idxs)
+        self.bound_idxs = bindings.arguments
+
+        # Separately generate bound_args for purposes of determining the resource pool.
+        bindings = fn.signature.py_signature.bind(*args, **kwargs)
+        bound_args = bindings.arguments
+        self.resource_pool = fn.call_resource_pool(bound_args)
+
+        self.agg_init_args = {}
+        if self.is_agg_fn_call:
+            # We separate out the init args for the aggregator. Unpack Literals in init args.
+            assert isinstance(fn, func.AggregateFunction)
+            for arg_name, arg in bound_args.items():
+                if arg_name in fn.init_param_names[0]:
+                    assert isinstance(arg, Literal)  # This was checked during validate_call
+                    self.agg_init_args[arg_name] = arg.val
 
         # execution state for aggregate functions
         self.aggregator = None
@@ -165,11 +178,15 @@ class FunctionCall(Expr):
             ('group_by_start_idx', self.group_by_start_idx),
             ('group_by_stop_idx', self.group_by_stop_idx),
             ('fn_expr_idx', self.fn_expr_idx),
-            ('order_by_idx', self.order_by_start_idx),
+            ('order_by_start_idx', self.order_by_start_idx),
         ]
 
     def __repr__(self) -> str:
         return self.display_str()
+
+    @property
+    def validation_error(self) -> Optional[str]:
+        return self._validation_error or super().validation_error
 
     def display_str(self, inline: bool = True) -> str:
         if self.is_method_call:
@@ -232,6 +249,8 @@ class FunctionCall(Expr):
         return self.order_by
 
     def sql_expr(self, sql_elements: SqlElementCache) -> Optional[sql.ColumnElement]:
+        assert self.is_valid
+
         # we currently can't translate aggregate functions with grouping and/or ordering to SQL
         if self.has_group_by() or len(self.order_by) > 0:
             return None
@@ -304,6 +323,7 @@ class FunctionCall(Expr):
         Returns a list of dicts mapping each param name to its value when this FunctionCall is evaluated against
         data_rows
         """
+        assert self.is_valid
         assert all(name in self.fn.signature.parameters for name in param_names), f'{param_names}, {self.fn.signature}'
         result: list[dict[str, Any]] = []
         for row in data_rows:
@@ -327,6 +347,8 @@ class FunctionCall(Expr):
         return result
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
+        assert self.is_valid
+
         if isinstance(self.fn, func.ExprTemplateFunction):
             # we need to evaluate the template
             # TODO: can we get rid of this extra copy?
@@ -396,51 +418,68 @@ class FunctionCall(Expr):
         group_by_exprs = components[group_by_start_idx:group_by_stop_idx]
         order_by_exprs = components[order_by_start_idx:]
 
+        validation_error: Optional[str] = None
+
+        if isinstance(fn, func.InvalidFunction):
+            validation_error = (
+                dedent(
+                    f"""
+                    The UDF '{fn.self_path}' cannot be located, because
+                    {{errormsg}}
+                    """
+                )
+                .strip()
+                .format(errormsg=fn.errormsg)
+            )
+            return cls(fn, args, kwargs, return_type, is_method_call=is_method_call, validation_error=validation_error)
+
         # Now re-bind args and kwargs using the version of `fn` that is currently represented in code. This ensures
         # that we get a valid binding even if the signatures of `fn` have changed since the FunctionCall was
         # serialized.
 
-        resolved_fn: func.Function
-        bound_args: dict[str, Expr]
+        resolved_fn: func.Function = fn
 
         try:
+            # Bind args and kwargs to the function signature in the current codebase.
             resolved_fn, bound_args = fn._bind_to_matching_signature(args, kwargs)
         except (TypeError, excs.Error):
-            # TODO: Handle this more gracefully (instead of failing the DB load, allow the DB load to succeed, but
-            #       mark any enclosing FunctionCall as unusable). It's the same issue as dealing with a renamed UDF or
-            #       FunctionCall return type mismatch.
             signature_note_str = 'any of its signatures' if fn.is_polymorphic else 'its signature'
-            instance_signature_str = f'{len(fn.signatures)} signatures' if fn.is_polymorphic else str(fn.signature)
-            raise excs.Error(
-                f'The signature stored in the database for the UDF `{fn.self_path}` no longer matches '
-                f'{signature_note_str} as currently defined in the code.\nThis probably means that the code for '
-                f'`{fn.self_path}` has changed in a backward-incompatible way.\n'
-                f'Signature in database: {fn}\n'
-                f'Signature as currently defined in code: {instance_signature_str}'
-            )
-
-        # Evaluate the call_return_type as defined in the current codebase.
-        call_return_type = resolved_fn.call_return_type(bound_args)
-
-        if return_type is None:
-            # Schema versions prior to 25 did not store the return_type in metadata, and there is no obvious way to
-            # infer it during DB migration, so we might encounter a stored return_type of None. In that case, we use
-            # the call_return_type that we just inferred (which matches the deserialization behavior prior to
-            # version 25).
-            return_type = call_return_type
+            args_str = [str(arg.col_type) for arg in args]
+            args_str.extend(f'{name}: {arg.col_type}' for name, arg in kwargs.items())
+            call_signature_str = f'({", ".join(args_str)}) -> {return_type}'
+            fn_signature_str = f'{len(fn.signatures)} signatures' if fn.is_polymorphic else str(fn.signature)
+            validation_error = dedent(
+                f"""
+                The signature stored in the database for a UDF call to {fn.self_path!r} no longer
+                matches {signature_note_str} as currently defined in the code. This probably means that the
+                code for {fn.self_path!r} has changed in a backward-incompatible way.
+                Signature of UDF call in the database: {call_signature_str}
+                Signature of UDF as currently defined in code: {fn_signature_str}
+                """
+            ).strip()
         else:
-            # There is a return_type stored in metadata (schema version >= 25).
-            # Check that the stored return_type of the UDF call matches the column type of the FunctionCall, and
-            # fail-fast if it doesn't (otherwise we risk getting downstream database errors).
-            # TODO: Handle this more gracefully (as noted above).
-            if not return_type.is_supertype_of(call_return_type, ignore_nullable=True):
-                raise excs.Error(
-                    f'The return type stored in the database for a UDF call to `{fn.self_path}` no longer matches the '
-                    f'return type of the UDF as currently defined in the code.\nThis probably means that the code for '
-                    f'`{fn.self_path}` has changed in a backward-incompatible way.\n'
-                    f'Return type in database: `{return_type}`\n'
-                    f'Return type as currently defined in code: `{call_return_type}`'
-                )
+            # Evaluate the call_return_type as defined in the current codebase.
+            call_return_type = resolved_fn.call_return_type(bound_args)
+            if return_type is None:
+                # Schema versions prior to 25 did not store the return_type in metadata, and there is no obvious way to
+                # infer it during DB migration, so we might encounter a stored return_type of None. In that case, we use
+                # the call_return_type that we just inferred (which matches the deserialization behavior prior to
+                # version 25).
+                return_type = call_return_type
+            else:
+                # There is a return_type stored in metadata (schema version >= 25).
+                # Check that the stored return_type of the UDF call matches the column type of the FunctionCall, and
+                # fail-fast if it doesn't (otherwise we risk getting downstream database errors).
+                if not return_type.is_supertype_of(call_return_type, ignore_nullable=True):
+                    validation_error = dedent(
+                        f"""
+                        The return type stored in the database for a UDF call to {fn.self_path!r} no longer
+                        matches its return type as currently defined in the code. This probably means that the
+                        code for {fn.self_path!r} has changed in a backward-incompatible way.
+                        Return type of UDF call in the database: {return_type}
+                        Return type of UDF as currently defined in code: {call_return_type}
+                        """
+                    ).strip()
 
         fn_call = cls(
             resolved_fn,
@@ -450,6 +489,7 @@ class FunctionCall(Expr):
             group_by_clause=group_by_exprs,
             order_by_clause=order_by_exprs,
             is_method_call=is_method_call,
+            validation_error=validation_error,
         )
 
         return fn_call
