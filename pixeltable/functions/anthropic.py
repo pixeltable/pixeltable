@@ -213,9 +213,15 @@ def invoke_tools(tools: Tools, response: exprs.Expr) -> exprs.InlineDict:
 @pxt.udf
 def _anthropic_response_to_pxt_tool_calls(response: dict) -> Optional[dict]:
     anthropic_tool_calls = [r for r in response['content'] if r['type'] == 'tool_use']
-    if len(anthropic_tool_calls) > 0:
-        return {tool_call['name']: {'args': tool_call['input']} for tool_call in anthropic_tool_calls}
-    return None
+    if len(anthropic_tool_calls) == 0:
+        return None
+    pxt_tool_calls: dict[str, list[dict[str, Any]]] = {}
+    for tool_call in anthropic_tool_calls:
+        tool_name = tool_call['name']
+        if tool_name not in pxt_tool_calls:
+            pxt_tool_calls[tool_name] = []
+        pxt_tool_calls[tool_name].append({'args': tool_call['input']})
+    return pxt_tool_calls
 
 
 _T = TypeVar('_T')

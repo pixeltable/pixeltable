@@ -308,7 +308,10 @@ class ExprEvalNode(ExecNode):
                 if self.exc_event.is_set():
                     # we got an exception that we need to propagate through __iter__()
                     _logger.debug(f'Propagating exception {self.error}')
-                    raise self.error
+                    if isinstance(self.error, excs.ExprEvalError):
+                        raise self.error from self.error.exc
+                    else:
+                        raise self.error
                 if completed_aw in done:
                     self._log_state('completed_aw done')
                     completed_aw = None
