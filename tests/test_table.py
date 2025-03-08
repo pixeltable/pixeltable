@@ -1877,9 +1877,9 @@ class TestTable:
         t.drop_column('c1')
         assert len(t.columns) == num_orig_cols - 1
         assert 'c1' not in t.columns
-        with pytest.raises(AttributeError, match="Column 'c1' unknown") as exc_info:
+        with pytest.raises(AttributeError, match="Column 'c1' unknown"):
             _ = t.c1
-        with pytest.raises(excs.Error, match="Column 'c1' unknown") as exc_info:
+        with pytest.raises(excs.Error, match="Column 'c1' unknown"):
             t.drop_column('c1')
         # non-existing column by name - column was already dropped
         self.__test_drop_column_if_not_exists(t, 'c1')
@@ -1887,9 +1887,9 @@ class TestTable:
         # but of a different table
         self.__test_drop_column_if_not_exists(t, dummy_t.dummy_col)
         assert 'unknown' not in t.columns
-        with pytest.raises(excs.Error, match="Column 'unknown' unknown") as exc_info:
+        with pytest.raises(excs.Error, match="Column 'unknown' unknown"):
             t.drop_column('unknown')
-        with pytest.raises(AttributeError, match="Column 'unknown' unknown") as exc_info:
+        with pytest.raises(AttributeError, match="Column 'unknown' unknown"):
             t.drop_column(t.unknown)
         # non-existing column by name - column was never created
         self.__test_drop_column_if_not_exists(t, 'unknown')
@@ -1933,13 +1933,11 @@ class TestTable:
         # drop_column is not allowed on a snapshot
         s1 = pxt.create_snapshot('s1', t, additional_columns={'s1': t.c3 + 1})
         assert 'c1' not in s1.columns
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(excs.Error, match='Cannot drop column from a snapshot') as exc_info:
             s1.drop_column('c1')
-        assert 'cannot drop column from a snapshot' in str(exc_info.value).lower()
         assert 's1' in s1.columns
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(excs.Error, match='Cannot drop column from a snapshot'):
             s1.drop_column('s1')
-        assert 'cannot drop column from a snapshot' in str(exc_info.value).lower()
         assert 's1' in s1.columns
 
     def test_drop_column_via_reference(self, reset_db) -> None:

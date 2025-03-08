@@ -16,6 +16,7 @@ class TableVersionHandle:
     """
     Indirection mechanism for TableVersion instances, which get resolved against the catalog at runtime.
     """
+
     id: UUID
     effective_version: Optional[int]
     _tbl_version: Optional[TableVersion]

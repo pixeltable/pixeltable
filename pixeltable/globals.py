@@ -662,7 +662,7 @@ def drop_dir(path: str, force: bool = False, if_not_exists: Literal['error', 'ig
         dir = cat.get_schema_object(
             path,
             expected=catalog.Dir,
-            raise_if_not_exists=if_not_exists_ == catalog.IfNotExistsParam.ERROR and not force
+            raise_if_not_exists=if_not_exists_ == catalog.IfNotExistsParam.ERROR and not force,
         )
         if dir is None:
             _logger.info(f'Directory {path!r} does not exist, skipped drop_dir().')
