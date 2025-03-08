@@ -656,11 +656,27 @@ class TestExprs:
 
         reload_tester.run_reload_test()
 
-    def test_json_mapper_2(self, reset_db) -> None:
+    def test_multi_json_mapper(self, reset_db, reload_tester: ReloadTester) -> None:
+        # Workflow with multiple JsonMapper instances
         t = pxt.create_table('test', {'jcol': pxt.Json})
-        t.add_computed_column(output=t.jcol.x['*'] >> (R + 1))
-        t.add_computed_column(output2=t.jcol.y['*'] >> (R + 2))
-        t.insert(jcol={'y': [7, 8, 9]})
+        t.add_computed_column(outputx=t.jcol.x['*'] >> (R + 1))
+        t.add_computed_column(outputy=t.jcol.y['*'] >> (R + 2))
+        t.add_computed_column(outputz=t.jcol.z['*'] >> (R + 3))
+        for i in range(8):
+            data = {}
+            if (i & 1) != 0:
+                data['x'] = [1, 2, 3]
+            if (i & 2) != 0:
+                data['y'] = [4, 5, 6]
+            if (i & 4) != 0:
+                data['z'] = [7, 8, 9]
+            t.insert(jcol=data)
+        res = reload_tester.run_query(t.select(t.outputx, t.outputy, t.outputz))
+        for i in range(8):
+            print(res[i])
+            assert res[i]['outputx'] == (None if (i & 1) == 0 else [2, 3, 4])
+            assert res[i]['outputy'] == (None if (i & 2) == 0 else [6, 7, 8])
+            assert res[i]['outputz'] == (None if (i & 4) == 0 else [10, 11, 12])
 
     def test_dicts(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
