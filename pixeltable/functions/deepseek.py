@@ -1,9 +1,12 @@
 
 import json
-from typing import TYPE_CHECKING, Any, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional, Union, cast
+
+import httpx
 
 import pixeltable as pxt
 from pixeltable import env
+from pixeltable.utils.code import local_public_names
 
 from .openai import _opt
 
@@ -11,18 +14,22 @@ if TYPE_CHECKING:
     import openai
 
 @env.register_client('deepseek')
-def _(api_key: str) -> 'openai.OpenAI':
+def _(api_key: str) -> 'openai.AsyncOpenAI':
     import openai
 
-    return openai.OpenAI(api_key=api_key, base_url='https://api.deepseek.com')
+    return openai.AsyncOpenAI(
+        api_key=api_key,
+        base_url='https://api.deepseek.com',
+        http_client=httpx.AsyncClient(limits=httpx.Limits(max_keepalive_connections=100, max_connections=500)),
+    )
 
 
-def _deepseek_client() -> 'openai.OpenAI':
+def _deepseek_client() -> 'openai.AsyncOpenAI':
     return env.Env.get().get_client('deepseek')
 
 
 @pxt.udf
-def chat_completions(
+async def chat_completions(
     messages: list,
     *,
     model: str,
@@ -51,7 +58,7 @@ def chat_completions(
     - `pip install openai`
 
     Args:
-        messages: A list of messages to use for chat completion, as described in the OpenAI API documentation.
+        messages: A list of messages to use for chat completion, as described in the Deepseek API documentation.
         model: The model to use for chat completion.
 
     For details on the other parameters, see: <https://api-docs.deepseek.com/api/create-chat-completion>
@@ -87,7 +94,7 @@ def chat_completions(
         extra_body = {'parallel_tool_calls': False}
 
     # cast(Any, ...): avoid mypy errors
-    result = _deepseek_client().chat.completions.create(
+    result = await _deepseek_client().chat.completions.with_raw_response.create(
         messages=messages,
         model=model,
         frequency_penalty=_opt(frequency_penalty),
@@ -95,13 +102,20 @@ def chat_completions(
         top_logprobs=_opt(top_logprobs),
         max_tokens=_opt(max_tokens),
         presence_penalty=_opt(presence_penalty),
-        response_format=_opt(response_format),
+        response_format=_opt(cast(Any, response_format)),
         stop=_opt(stop),
         temperature=_opt(temperature),
-        tools=_opt(tools),
-        tool_choice=_opt(tool_choice_),
+        tools=_opt(cast(Any, tools)),
+        tool_choice=_opt(cast(Any, tool_choice_)),
         top_p=_opt(top_p),
         extra_body=extra_body,
     )
 
-    return result.to_dict()
+    return json.loads(result.text)
+
+
+__all__ = local_public_names(__name__)
+
+
+def __dir__():
+    return __all__
