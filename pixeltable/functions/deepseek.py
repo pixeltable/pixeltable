@@ -1,4 +1,3 @@
-
 import json
 from typing import TYPE_CHECKING, Any, Optional, Union, cast
 
@@ -12,6 +11,7 @@ from .openai import _opt
 
 if TYPE_CHECKING:
     import openai
+
 
 @env.register_client('deepseek')
 def _(api_key: str) -> 'openai.AsyncOpenAI':
