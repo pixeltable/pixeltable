@@ -1,4 +1,5 @@
 import hashlib
+import urllib.parse
 from pathlib import Path
 from typing import Union
 
@@ -35,3 +36,22 @@ def sha256sum(path: Union[Path, str]) -> str:
             h.update(chunk)
 
     return h.hexdigest()
+
+
+def parse_file_or_url(file_or_url: str) -> Union[Path, urllib.parse.ParseResult]:
+    """
+    Parses a string that may be either a URL or a local file path.
+
+    If the string is a local file path or a file-scheme URL (file://), then a Path object will be returned.
+    Otherwise, the ParseResult of the URL will be returned.
+    """
+    parsed = urllib.parse.urlparse(file_or_url)
+    if len(parsed.scheme) <= 1:
+        # We're using `urlparse` to help distinguish file paths from URLs. If there is no scheme, then it's a file path.
+        # If there's a single-character scheme, we also interpret this as a file path; this insures that drive letters
+        # on Windows pathnames are correctly handled.
+        return Path(file_or_url)
+    elif parsed.scheme == 'file':
+        return Path(urllib.parse.unquote(urllib.request.url2pathname(parsed.path)))
+    else:
+        return parsed

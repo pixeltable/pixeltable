@@ -23,7 +23,9 @@ from typing_extensions import _AnnotatedAlias
 
 import pixeltable.exceptions as excs
 
-from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
+from typing import _GenericAlias
+
+from pixeltable.utils import parse_file_or_url  # type: ignore[attr-defined]  # isort: skip
 
 
 class ColumnType:
@@ -397,12 +399,9 @@ class ColumnType:
     def _validate_file_path(self, val: Any) -> None:
         """Raises TypeError if not a valid local file path or not a path/byte sequence"""
         if isinstance(val, str):
-            parsed = urllib.parse.urlparse(val)
-            if parsed.scheme != '' and parsed.scheme != 'file':
-                return
-            path = Path(urllib.parse.unquote(urllib.request.url2pathname(parsed.path)))
-            if not path.is_file():
-                raise TypeError(f'File not found: {str(path)}')
+            parsed = parse_file_or_url(val)
+            if isinstance(parsed, Path) and not parsed.is_file():
+                raise TypeError(f'File not found: {parsed}')
         else:
             if not isinstance(val, bytes):
                 raise TypeError(f'expected file path or bytes, got {type(val)}')
