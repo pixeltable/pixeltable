@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, Literal, Optional, Union
+from typing import TYPE_CHECKING, Any, Literal, Optional, Union, Iterable
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
@@ -10,11 +10,11 @@ if TYPE_CHECKING:
     import fiftyone as fo  # type: ignore[import-untyped]
 
 
-from .utils import find_or_create_table, normalize_import_parameters, normalize_schema_names
+from .utils import find_or_create_table, find_or_create_table2, normalize_import_parameters, normalize_schema_names, normalize_primary_key_parameter
 
 
 def _infer_schema_from_rows(
-    rows: list[dict[str, Any]], schema_overrides: dict[str, Any], primary_key: list[str]
+    rows: Iterable[dict[str, Any]], schema_overrides: dict[str, Any], primary_key: list[str]
 ) -> dict[str, pxt.ColumnType]:
     schema: dict[str, pxt.ColumnType] = {}
     cols_with_nones: set[str] = set()
@@ -194,6 +194,8 @@ def import_rows(
     num_retained_versions: int = 10,
     comment: str = '',
 ) -> Table:
+    return create_from_import(tbl_path, source=rows, schema=schema_overrides, primary_key=primary_key, num_retained_versions=num_retained_versions, comment=comment)
+
     """
     Creates a new base table from a list of dictionaries. The dictionaries must be of the
     form `{column_name: value, ...}`. Pixeltable will attempt to infer the schema of the table from the
@@ -382,3 +384,342 @@ def export_images_as_fo_dataset(
     return fo.Dataset.from_importer(
         PxtImageDatasetImporter(tbl, images, image_format, classifications=classifications, detections=detections)
     )
+
+
+# ---------------------------------------------------------------------------------------------------------
+import abc
+import logging
+
+_logger = logging.getLogger('pixeltable')
+
+# Standard library imports
+import os
+from io import BytesIO, StringIO
+from pathlib import Path
+from typing import Any, BinaryIO, Iterable, Literal, Optional, TextIO, Union, cast
+
+# Huggingface datasets
+import datasets  # type: ignore[import-untyped]
+
+# from catalog import UpdateStatus
+# pandas dataframes
+import pandas as pd
+
+# Pixeltable imports (assuming these are from a package named pixeltable)
+# from pixeltable import UpdateStatus
+from pixeltable import catalog
+
+PathLike = Union[str, os.PathLike, Path]
+RowData = Iterable[dict[str, Any]]
+# Sources of binary or text data
+TableDataSourceType = Union[
+    PathLike,  # OS paths, filenames, URLs
+    #        BinaryIO,       # File-like objects for bytes
+    #        TextIO,         # File-like objects for text
+    #        BytesIO,        # In-memory byte streams
+    #        StringIO,       # In-memory text streams
+    # Specific data types - we will add more as needed
+    RowData,  # Iterable[dict]
+    #        catalog.Table,  # Pixeltable Table
+    pxt.DataFrame,  # Pixeltable DataFrame
+    #        DataFrameResultSet, # Pixeltable DataFrameResultSet
+    pd.DataFrame,  # pandas DataFrame
+    Union[datasets.Dataset, datasets.DatasetDict],  # Huggingface datasets
+]
+TableDataSourceFormatType = Literal['csv', 'excel', 'parquet', 'json', 'pandas', 'rows', 'huggingface', 'pxt.DataFrame']
+
+# ---------------------------------------------------------------------------------------------------------
+
+from dataclasses import dataclass, fields
+
+@dataclass
+class TableDataSource:
+    source: TableDataSourceType
+    source_format: Optional[TableDataSourceFormatType] = None
+    source_column_map: Optional[dict[Union[int, str], str]] = None
+    if_row_exists: Literal['update', 'ignore', 'error'] = 'error'
+    pxt_schema: Optional[dict[str, Any]] = None
+    src_schema_overrides: Optional[dict[str, Any]] = None
+    src_schema: Optional[dict[str, Any]] = None
+    pxt_pk: Optional[list[str]] = None
+    src_pk: Optional[list[str]] = None
+    valid_rows: Optional[Iterable[dict[str, Any]]] = None
+    '''
+    def __init__(
+        self,
+        source: TableDataSourceType,
+        source_format: Optional[TableDataSourceFormatType] = None,
+        source_column_map: Optional[dict[Union[int, str], str]] = None,
+        if_row_exists: Literal['update', 'ignore', 'error'] = 'error',
+        **kwargs: Any,
+    ) -> None:
+        self.source=source
+        self.source_format=source_format
+        self.source_column_map=source_column_map
+        self.if_row_exists=if_row_exists
+    '''
+    def is_direct_df(self) -> bool:
+        return isinstance(self.source, pxt.DataFrame) and self.source_column_map is None
+
+    def infer_schema(self) -> dict[str, Any]:
+        assert False
+
+    def valid_row_batch(self) -> Optional[Iterable[dict]]:
+        assert False
+
+# ---------------------------------------------------------------------------------------------------------
+
+class TableDataSourceDF(TableDataSource):
+    pxt_df: pxt.DataFrame = None
+
+    @classmethod
+    def from_tds(cls, tds: TableDataSource) -> 'TableDataSourceDF':
+        foo_fields = {f.name for f in fields(tds)}
+        kwargs = {k: v for k, v in tds.__dict__.items() if k in foo_fields}
+        t = cls(**kwargs)
+        assert isinstance(tds.source, pxt.DataFrame)
+        t.pxt_df = tds.source
+        return t
+
+    def infer_schema(self) -> dict[str, Any]:
+        self.pxt_schema = self.pxt_df.schema
+        self.pxt_pk = self.src_pk
+        return self.pxt_schema
+
+    def valid_row_batch(self) -> Optional[Iterable[dict]]:
+        assert False
+
+# ---------------------------------------------------------------------------------------------------------
+
+class TableDataSourceRowData(TableDataSource):
+    raw_rows: RowData = None
+
+    @classmethod
+    def from_tds(cls, tds: TableDataSource) -> 'TableDataSourceRowData':
+        foo_fields = {f.name for f in fields(tds)}
+        kwargs = {k: v for k, v in tds.__dict__.items() if k in foo_fields}
+        t = cls(**kwargs)
+        t.raw_rows = cast(RowData, tds.source)
+        return t
+
+    @classmethod
+    def validate_rowdata_types(cls, d: TableDataSourceType) -> bool:
+        if isinstance(d, list):
+            for row in d:
+                if not isinstance(row, dict):
+                    return False
+        return True
+
+    def infer_schema(self) -> dict[str, Any]:
+        if self.source_column_map is None:
+            if self.src_schema_overrides is None:
+                self.src_schema_overrides = {}
+            self.src_schema = _infer_schema_from_rows(self.raw_rows, self.src_schema_overrides, self.src_pk)
+            self.pxt_schema, self.pxt_pk, self.source_column_map = normalize_schema_names(self.src_schema, self.src_pk, self.src_schema_overrides, True) # type: ignore
+            self.valid_rows = self.raw_rows
+            return self.pxt_schema
+        else:
+            assert False
+
+    def valid_row_batch(self) -> Optional[Iterable[dict]]:
+        return self.valid_rows
+
+# ---------------------------------------------------------------------------------------------------------
+
+from pixeltable.io.pandas import df_infer_schema, _df_check_primary_key_values, _df_row_to_pxt_row
+
+class TableDataSourcePandas(TableDataSource):
+    pd_df: pd.DataFrame = None
+
+    @classmethod
+    def from_tds(cls, tds: TableDataSource) -> 'TableDataSourcePandas':
+        foo_fields = {f.name for f in fields(tds)}
+        kwargs = {k: v for k, v in tds.__dict__.items() if k in foo_fields}
+        t = cls(**kwargs)
+        assert isinstance(tds.source, pd.DataFrame)
+        t.pd_df = tds.source
+        return t
+
+    @classmethod
+    def validate_rowdata_types(cls, d: TableDataSourceType) -> bool:
+        if isinstance(d, list):
+            for row in d:
+                if not isinstance(row, dict):
+                    return False
+        return True
+
+    def infer_schema(self) -> dict[str, Any]:
+        if self.source_column_map is None:
+            if self.src_schema_overrides is None:
+                self.src_schema_overrides = {}
+            self.src_schema = df_infer_schema(self.pd_df, self.src_schema_overrides, self.src_pk)
+            self.pxt_schema, self.pxt_pk, self.source_column_map = normalize_schema_names(self.src_schema, self.src_pk, self.src_schema_overrides, False) # type: ignore
+            _df_check_primary_key_values(self.pd_df, self.src_pk)
+            return self.pxt_schema
+        else:
+            assert False
+
+    def valid_row_batch(self) -> Optional[list[dict]]:
+        # Convert all rows to insertable format
+        self.valid_rows = [_df_row_to_pxt_row(row, self.src_schema, self.source_column_map) for row in self.pd_df.itertuples()]
+        return self.valid_rows
+
+# ---------------------------------------------------------------------------------------------------------
+
+def TDS_specialize(tds: TableDataSource) -> TableDataSource:
+    if tds.source_format == 'pxt.DataFrame' or isinstance(tds.source, pxt.DataFrame):
+        return TableDataSourceDF.from_tds(tds)
+    if tds.source_format == 'pandas' or isinstance(tds.source, pd.DataFrame):
+        return TableDataSourcePandas.from_tds(tds)
+    if tds.source_format == 'rows' or TableDataSourceRowData.validate_rowdata_types(tds.source):
+        return TableDataSourceRowData.from_tds(tds)
+
+    '''
+    if isinstance(tds.source, datasets.Dataset):
+        return TableDataSourceHuggingface(tds.source)
+    if isinstance(tds.source, catalog.Table):
+        return TableDataSourceTable(tds.source)
+    if isinstance(tds.source, PathLike):
+        return TableDataSourcePath(tds.source, tds.source_format, tds.source_column_map)
+    if isinstance(tds.source, BinaryIO):
+        return TableDataSourceBinaryIO(tds.source, tds.source_format, tds.source_column_map)
+    if isinstance(tds.source, TextIO):
+        return TableDataSourceTextIO(tds.source, tds.source_format, tds.source_column_map)
+    if isinstance(tds.source, BytesIO):
+        return TableDataSourceBytesIO(tds.source, tds.source_format, tds.source_column_map)
+    if isinstance(tds.source, StringIO):
+        return TableDataSourceStringIO(tds.source, tds.source_format, tds.source_column_map)
+    if isinstance(tds.source, datasets.DatasetDict):
+        return TableDataSourceHuggingfaceDict(tds.source)
+    '''
+    raise excs.Error(f'Unsupported data source type: {type(tds.source)}')
+
+# ---------------------------------------------------------------------------------------------------------
+
+def create_from_import(
+    path_str: str,
+    *,
+    schema: Optional[dict[str, Any]] = None,
+    primary_key: Optional[Union[str, list[str]]] = None,
+    source: Optional[TableDataSourceType] = None,
+    source_format: Optional[TableDataSourceFormatType] = None,
+    if_row_exists: Literal['update', 'ignore', 'error'] = 'error',
+    on_error: Literal['abort', 'ignore'] = 'abort',
+    source_column_map: Optional[dict[Union[int, str], str]] = None,
+    num_retained_versions: int = 10,
+    comment: str = '',
+    media_validation: Literal['on_read', 'on_write'] = 'on_write',
+    if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
+    **kwargs: Any,  # Explicit arguments to source data provider
+) -> catalog.Table:
+    '''
+    The field names in the schema and primary_keys arguments are the names that will be used for the columns of any created table,
+    unless the source_column_map argument is given, then the field names in the schema and primary_keys arguments are in the source data.
+    '''
+    from pixeltable.catalog import Catalog, IfExistsParam
+    from pixeltable.globals import _get_or_drop_existing_path
+
+    primary_key = normalize_primary_key_parameter(primary_key)
+
+    path = catalog.Path(path_str)
+    cat = Catalog.get()
+    table = None
+    if cat.paths.get_object(path) is not None:
+        # The table already exists. Handle it as per user directive.
+        _if_exists = catalog.IfExistsParam.validated(if_exists, 'if_exists')
+        table = _get_or_drop_existing_path(path_str, catalog.InsertableTable, False, _if_exists)
+
+    dir = cat.paths[path.parent]
+
+    tds = None
+    data_source = None
+    if source is not None:
+        tds = TableDataSource(source, source_format=source_format, source_column_map=source_column_map, if_row_exists=if_row_exists, **kwargs) if source is not None else None
+        data_source = TDS_specialize(tds)
+        if table is not None:
+            assert isinstance(table, catalog.Table)
+            data_source.pxt_schema = table._schema
+            data_source.pxt_pk = [c.name for c in table._tbl_version.primary_key_columns()]
+        elif data_source.source_column_map is not None:
+            data_source.pxt_schema = schema
+            data_source.pxt_pk = primary_key
+        else:
+            data_source.src_schema_overrides = schema
+            data_source.src_pk = primary_key
+            data_source.infer_schema()
+
+    schema = data_source.pxt_schema if data_source is not None else schema
+    primary_key = data_source.pxt_pk if data_source is not None else primary_key
+    is_direct_df = data_source.is_direct_df() if data_source is not None else False
+
+    if table is None and schema is None and data_source is None:
+        raise excs.Error('Table does not exist, at least one of `schema` or `source` must be provided')
+
+    if table is None:
+        # Create the table with the specified or inferred schema
+        if len(schema) == 0:
+            raise excs.Error(f'Table schema is empty: `{path_str}`')
+        if not isinstance(schema, dict):
+            raise excs.Error('`schema_or_df` must be either a schema dictionary or a Pixeltable DataFrame.')
+
+        table = catalog.InsertableTable._create(
+            dir._id,
+            path.name,
+            schema,
+            data_source.pxt_df if isinstance(data_source, TableDataSourceDF) else None, # cast(pxt.DataFrame, source) if is_direct_df else None,
+            primary_key=primary_key,
+            num_retained_versions=num_retained_versions,
+            comment=comment,
+            media_validation=catalog.MediaValidation.validated(media_validation, 'media_validation'),
+        )
+        cat.paths[path] = table
+        _logger.info(f'Created table `{path_str}`.')
+
+    assert table is not None
+    assert isinstance(table, catalog.Table)
+
+    if source is None or is_direct_df:
+        return table
+
+    insert3(table, data_source, on_error)
+    return table
+
+# ---------------------------------------------------------------------------------------------------------
+
+def insert_new(
+    table: catalog.Table,
+    source: Optional[TableDataSourceType] = None,
+    source_format: Optional[TableDataSourceFormatType] = None,
+    if_row_exists: Literal['update', 'ignore', 'error'] = 'error',
+    on_error: Literal['abort', 'ignore'] = 'abort',
+    source_column_map: Optional[dict[Union[int, str], str]] = None,
+    print_stats: bool = False,
+    **kwargs: Any,  # Explicit arguments to source
+) -> pxt.UpdateStatus:
+    data_source = TableDataSource(source, source_format=source_format, source_column_map=source_column_map, if_row_exists=if_row_exists, **kwargs)
+    return insert3(table, data_source, on_error)
+
+from pixeltable.utils.filecache import FileCache
+
+# ---------------------------------------------------------------------------------------------------------
+
+def insert3(
+    tableself: catalog.Table,
+    source: TableDataSource,
+    on_error: Literal['abort', 'ignore'] = 'abort') -> pxt.UpdateStatus:
+
+    print_stats = False
+    fail_on_exception = on_error == 'abort'
+
+    # Open / access data if necessary
+
+    # Import rows if necessary
+
+    # Validate rows
+
+    status = tableself._tbl_version.insert(rows=source.valid_row_batch(), df=None, print_stats=print_stats, fail_on_exception=fail_on_exception)
+
+    msg = 'should be a message TODO' # msg = status.insert_message()
+    _logger.info(f'InsertableTable {tableself._name}: {msg}')
+    FileCache.get().emit_eviction_warnings()
+    return status

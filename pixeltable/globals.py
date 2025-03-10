@@ -155,6 +155,13 @@ def create_table(
 
         >>> tbl = pxt.create_table('my_table', schema={'col1': pxt.Int, 'col2': pxt.Float}, if_exists='replace')
     """
+    from pixeltable.io.globals import create_from_import
+
+    if isinstance(schema_or_df, DataFrame):
+        return create_from_import(path_str, source=schema_or_df, primary_key=primary_key, num_retained_versions=num_retained_versions, media_validation=media_validation, if_exists=if_exists)
+    else:
+        return create_from_import(path_str, schema=schema_or_df, primary_key=primary_key, num_retained_versions=num_retained_versions, media_validation=media_validation, if_exists=if_exists)
+
     path = catalog.Path(path_str)
     cat = Catalog.get()
 
