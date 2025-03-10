@@ -1,9 +1,9 @@
 import datetime
 import math
 import os
-from pathlib import Path
 import random
 import re
+from pathlib import Path
 from typing import Any, Union, _GenericAlias  # type: ignore[attr-defined]
 
 import av

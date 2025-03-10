@@ -1,7 +1,7 @@
 import json
-from pathlib import Path
 import urllib.parse
 import urllib.request
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union
 
 import pixeltable as pxt

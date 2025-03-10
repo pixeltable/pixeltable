@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import datetime
 import io
-from pathlib import Path
 import urllib.parse
 import urllib.request
+from pathlib import Path
 from typing import Any, Optional
 
 import numpy as np

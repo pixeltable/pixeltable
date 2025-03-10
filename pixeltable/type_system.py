@@ -22,10 +22,9 @@ import sqlalchemy as sql
 from typing_extensions import _AnnotatedAlias
 
 import pixeltable.exceptions as excs
+from pixeltable.utils import parse_file_or_url
 
-from typing import _GenericAlias
-
-from pixeltable.utils import parse_file_or_url  # type: ignore[attr-defined]  # isort: skip
+from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
 
 
 class ColumnType:
