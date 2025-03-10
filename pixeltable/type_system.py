@@ -93,6 +93,9 @@ class ColumnType:
         self._type = t
         self._nullable = nullable
 
+    def has_supertype(self) -> bool:
+        return True
+
     @property
     def nullable(self) -> bool:
         return self._nullable
@@ -271,8 +274,10 @@ class ColumnType:
                 inferred_type = val_type
             else:
                 inferred_type = inferred_type.supertype(val_type)
-                if inferred_type is None:
-                    return None
+            if inferred_type is None:
+                return None
+            if not inferred_type.has_supertype():
+                return inferred_type
         return inferred_type
 
     @classmethod
@@ -508,6 +513,9 @@ class StringType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.STRING, nullable=nullable)
 
+    def has_supertype(self):
+        return not self.nullable
+
     def to_sa_type(self) -> sql.types.TypeEngine:
         return sql.String()
 
@@ -591,6 +599,9 @@ class TimestampType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.TIMESTAMP, nullable=nullable)
 
+    def has_supertype(self):
+        return not self.nullable
+
     def to_sa_type(self) -> sql.types.TypeEngine:
         return sql.TIMESTAMP(timezone=True)
 
@@ -601,6 +612,8 @@ class TimestampType(ColumnType):
     def _create_literal(self, val: Any) -> Any:
         if isinstance(val, str):
             return datetime.datetime.fromisoformat(val)
+        if isinstance(val, datetime.datetime):
+            return val
         return val
 
 
