@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime
 import io
+from pathlib import Path
 import urllib.parse
 import urllib.request
 from typing import Any, Optional
@@ -206,9 +207,10 @@ class DataRow:
                 # local file path
                 assert self.file_urls[idx] is None and self.file_paths[idx] is None
                 if len(parsed.scheme) <= 1:
-                    self.file_urls[idx] = urllib.parse.urljoin('file:', urllib.request.pathname2url(val))
-                    self.file_paths[idx] = val
-                else:
+                    path = str(Path(val).absolute())  # Ensure we're using an absolute pathname.
+                    self.file_urls[idx] = urllib.parse.urljoin('file:', urllib.request.pathname2url(path))
+                    self.file_paths[idx] = path
+                else:  # file:// URL
                     self.file_urls[idx] = val
                     # Wrap the path in a url2pathname() call to ensure proper handling on Windows.
                     self.file_paths[idx] = urllib.parse.unquote(urllib.request.url2pathname(parsed.path))

@@ -50,7 +50,7 @@ def parse_file_or_url(file_or_url: str) -> Union[Path, urllib.parse.ParseResult]
         # We're using `urlparse` to help distinguish file paths from URLs. If there is no scheme, then it's a file path.
         # If there's a single-character scheme, we also interpret this as a file path; this insures that drive letters
         # on Windows pathnames are correctly handled.
-        return Path(file_or_url)
+        return Path(file_or_url).absolute()
     elif parsed.scheme == 'file':
         return Path(urllib.parse.unquote(urllib.request.url2pathname(parsed.path)))
     else:
