@@ -8,6 +8,8 @@ import pixeltable.type_system as ts
 
 PA_TO_PXT_TYPES: dict[pa.DataType, ts.ColumnType] = {
     pa.string(): ts.StringType(nullable=True),
+    pa.large_string(): ts.StringType(nullable=True),
+    pa.timestamp('us', tz=datetime.timezone.utc): ts.TimestampType(nullable=True),
     pa.bool_(): ts.BoolType(nullable=True),
     pa.uint8(): ts.IntType(nullable=True),
     pa.int8(): ts.IntType(nullable=True),
@@ -16,6 +18,7 @@ PA_TO_PXT_TYPES: dict[pa.DataType, ts.ColumnType] = {
     pa.int32(): ts.IntType(nullable=True),
     pa.int64(): ts.IntType(nullable=True),
     pa.float32(): ts.FloatType(nullable=True),
+    pa.float64(): ts.FloatType(nullable=True),
 }
 
 PXT_TO_PA_TYPES: dict[type[ts.ColumnType], pa.DataType] = {
@@ -32,19 +35,20 @@ PXT_TO_PA_TYPES: dict[type[ts.ColumnType], pa.DataType] = {
 }
 
 
-def to_pixeltable_type(arrow_type: pa.DataType) -> Optional[ts.ColumnType]:
+def to_pixeltable_type(arrow_type: pa.DataType, nullable: bool) -> Optional[ts.ColumnType]:
     """Convert a pyarrow DataType to a pixeltable ColumnType if one is defined.
     Returns None if no conversion is currently implemented.
     """
     if isinstance(arrow_type, pa.TimestampType):
-        return ts.TimestampType(nullable=True)
+        return ts.TimestampType(nullable=nullable)
     elif arrow_type in PA_TO_PXT_TYPES:
-        return PA_TO_PXT_TYPES[arrow_type]
+        pt = PA_TO_PXT_TYPES[arrow_type]
+        return pt.copy(nullable=nullable)
     elif isinstance(arrow_type, pa.FixedShapeTensorType):
-        dtype = to_pixeltable_type(arrow_type.value_type)
+        dtype = to_pixeltable_type(arrow_type.value_type, nullable)
         if dtype is None:
             return None
-        return ts.ArrayType(shape=arrow_type.shape, dtype=dtype)
+        return ts.ArrayType(shape=arrow_type.shape, dtype=dtype, nullable=nullable)
     else:
         return None
 
@@ -61,8 +65,17 @@ def to_arrow_type(pixeltable_type: ts.ColumnType) -> Optional[pa.DataType]:
         return None
 
 
-def to_pixeltable_schema(arrow_schema: pa.Schema) -> dict[str, ts.ColumnType]:
-    return {field.name: to_pixeltable_type(field.type) for field in arrow_schema}
+def ar_infer_schema(
+    arrow_schema: pa.Schema, schema_overrides: dict[str, Any], primary_key: list[str]
+) -> dict[str, ts.ColumnType]:
+    """Convert a pyarrow Schema to a schema using pyarrow names and pixeltable types."""
+    ar_schema = {
+        field.name: to_pixeltable_type(field.type, field.name not in primary_key)
+        if field.name not in schema_overrides
+        else schema_overrides[field.name]
+        for field in arrow_schema
+    }
+    return ar_schema
 
 
 def to_arrow_schema(pixeltable_schema: dict[str, Any]) -> pa.Schema:
@@ -96,3 +109,23 @@ def iter_tuples(batch: Union[pa.Table, pa.RecordBatch]) -> Iterator[dict[str, An
 
     for i in range(batch_size):
         yield {col_name: values[i] for col_name, values in pydict.items()}
+
+
+def iter_tuples2(
+    batch: Union[pa.Table, pa.RecordBatch], col_mapping: Optional[dict[str, str]], schema: dict[str, ts.ColumnType]
+) -> Iterator[dict[str, Any]]:
+    """Convert a RecordBatch to an iterator of dictionaries. also works with pa.Table and pa.RowGroup"""
+    pydict = to_pydict(batch)
+    assert len(pydict) > 0, 'empty record batch'
+    for _, v in pydict.items():
+        batch_size = len(v)
+        break
+
+    for i in range(batch_size):
+        # Convert a row to insertable format
+        yield {
+            (pxt_name := col_name if col_mapping is None else col_mapping[col_name]): schema[pxt_name].create_literal(
+                values[i]
+            )
+            for col_name, values in pydict.items()
+        }
