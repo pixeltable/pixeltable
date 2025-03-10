@@ -8,7 +8,6 @@ import json
 import typing
 import urllib.parse
 import urllib.request
-from pathlib import Path
 from typing import Any, Iterable, Literal, Mapping, Optional, Sequence, Union
 
 import av
@@ -22,7 +21,7 @@ import sqlalchemy as sql
 from typing_extensions import _AnnotatedAlias
 
 import pixeltable.exceptions as excs
-from pixeltable.utils import parse_file_or_url
+from pixeltable.utils import parse_local_file_path
 
 from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
 
@@ -398,9 +397,9 @@ class ColumnType:
     def _validate_file_path(self, val: Any) -> None:
         """Raises TypeError if not a valid local file path or not a path/byte sequence"""
         if isinstance(val, str):
-            parsed = parse_file_or_url(val)
-            if isinstance(parsed, Path) and not parsed.is_file():
-                raise TypeError(f'File not found: {parsed}')
+            path = parse_local_file_path(val)
+            if path is not None and not path.is_file():
+                raise TypeError(f'File not found: {path}')
         else:
             if not isinstance(val, bytes):
                 raise TypeError(f'expected file path or bytes, got {type(val)}')

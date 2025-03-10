@@ -2,7 +2,7 @@ import hashlib
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Union
+from typing import Optional, Union
 
 
 def print_perf_counter_delta(delta: float) -> str:
@@ -39,12 +39,12 @@ def sha256sum(path: Union[Path, str]) -> str:
     return h.hexdigest()
 
 
-def parse_file_or_url(file_or_url: str) -> Union[Path, urllib.parse.ParseResult]:
+def parse_local_file_path(file_or_url: str) -> Optional[Path]:
     """
     Parses a string that may be either a URL or a local file path.
 
     If the string is a local file path or a file-scheme URL (file://), then a Path object will be returned.
-    Otherwise, the ParseResult of the URL will be returned.
+    Otherwise, None will be returned.
     """
     parsed = urllib.parse.urlparse(file_or_url)
     if len(parsed.scheme) <= 1:
@@ -55,4 +55,4 @@ def parse_file_or_url(file_or_url: str) -> Union[Path, urllib.parse.ParseResult]
     elif parsed.scheme == 'file':
         return Path(urllib.parse.unquote(urllib.request.url2pathname(parsed.path)))
     else:
-        return parsed
+        return None

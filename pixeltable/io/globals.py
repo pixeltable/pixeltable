@@ -9,7 +9,7 @@ import pixeltable.exceptions as excs
 from pixeltable import Table, exprs
 from pixeltable.env import Env
 from pixeltable.io.external_store import SyncStatus
-from pixeltable.utils import parse_file_or_url
+from pixeltable.utils import parse_local_file_path
 
 if TYPE_CHECKING:
     import fiftyone as fo  # type: ignore[import-untyped]
@@ -258,13 +258,13 @@ def import_json(
     Returns:
         A handle to the newly created [`Table`][pixeltable.Table].
     """
-    parsed = parse_file_or_url(filepath_or_url)
-    if isinstance(parsed, Path):
-        with open(parsed) as fp:
-            contents = fp.read()
-    else:  # URL
+    path = parse_local_file_path(filepath_or_url)
+    if path is None:  # it's a URL
         # TODO: This should read from S3 as well.
         contents = urllib.request.urlopen(filepath_or_url).read()
+    else:
+        with open(path) as fp:
+            contents = fp.read()
     data = json.loads(contents, **kwargs)
     return import_rows(
         tbl_path,
