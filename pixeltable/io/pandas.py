@@ -7,7 +7,6 @@ from pandas.api.types import is_datetime64_any_dtype, is_extension_array_dtype
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
-import pixeltable.type_system as ts
 from pixeltable import Table
 
 from .utils import find_or_create_table, normalize_import_parameters, normalize_schema_names
@@ -169,12 +168,12 @@ def __pd_dtype_to_pxt_type(pd_dtype: DtypeObj, nullable: bool) -> Optional[pxt.C
     # Pandas extension arrays / types (Int64, boolean, string[pyarrow], etc.) are not directly compatible with NumPy dtypes
     # The timezone-aware datetime64[ns, tz=] dtype is a pandas extension dtype
     if is_datetime64_any_dtype(pd_dtype):
-        return ts.TimestampType(nullable=nullable)
+        return pxt.TimestampType(nullable=nullable)
     if is_extension_array_dtype(pd_dtype):
         return None
     # Most other pandas dtypes are directly NumPy compatible
     assert isinstance(pd_dtype, np.dtype)
-    return ts.ArrayType.from_np_dtype(pd_dtype, nullable)
+    return pxt.ArrayType.from_np_dtype(pd_dtype, nullable)
 
 
 def __pd_coltype_to_pxt_type(pd_dtype: DtypeObj, data_col: pd.Series, nullable: bool) -> pxt.ColumnType:

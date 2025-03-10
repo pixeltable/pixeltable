@@ -15,7 +15,6 @@ import PIL.Image
 
 import pixeltable as pxt
 import pixeltable.exceptions as exc
-import pixeltable.type_system as ts
 from pixeltable.env import Env
 from pixeltable.utils.transactional_directory import transactional_directory
 

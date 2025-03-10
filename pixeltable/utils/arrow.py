@@ -4,7 +4,6 @@ from typing import Any, Iterator, Optional, Union
 import numpy as np
 import pyarrow as pa
 
-import pixeltable as pxt
 import pixeltable.type_system as ts
 
 PA_TO_PXT_TYPES: dict[pa.DataType, ts.ColumnType] = {
@@ -68,7 +67,7 @@ def to_arrow_type(pixeltable_type: ts.ColumnType) -> Optional[pa.DataType]:
 
 def ar_infer_schema(
     arrow_schema: pa.Schema, schema_overrides: dict[str, Any], primary_key: list[str]
-) -> dict[str, pxt.ColumnType]:
+) -> dict[str, ts.ColumnType]:
     """Convert a pyarrow Schema to a schema using pyarrow names and pixeltable types."""
     ar_schema = {
         field.name: to_pixeltable_type(field.type, field.name not in primary_key)
@@ -113,7 +112,7 @@ def iter_tuples(batch: Union[pa.Table, pa.RecordBatch]) -> Iterator[dict[str, An
 
 
 def iter_tuples2(
-    batch: Union[pa.Table, pa.RecordBatch], col_mapping: Optional[dict[str, str]], schema: dict[str, pxt.ColumnType]
+    batch: Union[pa.Table, pa.RecordBatch], col_mapping: Optional[dict[str, str]], schema: dict[str, ts.ColumnType]
 ) -> Iterator[dict[str, Any]]:
     """Convert a RecordBatch to an iterator of dictionaries. also works with pa.Table and pa.RowGroup"""
     pydict = to_pydict(batch)
