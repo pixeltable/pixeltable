@@ -6,7 +6,7 @@ from ..utils import skip_test_if_no_client, skip_test_if_not_installed, validate
 
 
 @pytest.mark.remote_api
-@pytest.mark.flaky(reruns=3, reruns_delay=8)
+#@pytest.mark.flaky(reruns=3, reruns_delay=8)
 class TestDeepseek:
     def test_chat_completions(self, reset_db) -> None:
         skip_test_if_not_installed('openai')
@@ -32,8 +32,10 @@ class TestDeepseek:
                 top_p=0.8,
             )
         )
+        t.add_computed_column(reasoning_output=chat_completions(model='deepseek-reasoner', messages=t.input_msgs))
 
         validate_update_status(t.insert(input='What is the capital of France?'), 1)
         result = t.collect()
-        assert 'Paris' in result['chat_output'][0]['choices'][0]['message']['content']
-        assert 'Paris' in result['chat_output_2'][0]['choices'][0]['message']['content']
+        assert 'paris' in result['chat_output'][0]['choices'][0]['message']['content'].lower()
+        assert 'paris' in result['chat_output_2'][0]['choices'][0]['message']['content'].lower()
+        assert 'paris' in result['reasoning_output'][0]['choices'][0]['message']['content'].lower()
