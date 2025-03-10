@@ -21,6 +21,10 @@ def import_pandas(
     num_retained_versions: int = 10,
     comment: str = '',
 ) -> pxt.Table:
+    from pixeltable.io.globals import create_from_import
+    return create_from_import(tbl_name, source=df, schema=schema_overrides, primary_key=primary_key, num_retained_versions=num_retained_versions, comment=comment)
+
+
     """Creates a new base table from a Pandas
     [`DataFrame`](https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.html), with the
     specified name. The schema of the table will be inferred from the DataFrame.
@@ -47,10 +51,10 @@ def import_pandas(
     pd_schema = df_infer_schema(df, schema_overrides, primary_key)
     schema, pxt_pk, col_mapping = normalize_schema_names(pd_schema, primary_key, schema_overrides, False)
 
-    __check_primary_key_values(df, primary_key)
+    _df_check_primary_key_values(df, primary_key)
 
     # Convert all rows to insertable format
-    tbl_rows = [__df_row_to_pxt_row(row, pd_schema, col_mapping) for row in df.itertuples()]
+    tbl_rows = [_df_row_to_pxt_row(row, pd_schema, col_mapping) for row in df.itertuples()]
 
     table = find_or_create_table(
         tbl_name, schema, primary_key=pxt_pk, num_retained_versions=num_retained_versions, comment=comment
@@ -118,7 +122,7 @@ def import_excel(
     )
 
 
-def __check_primary_key_values(df: pd.DataFrame, primary_key: list[str]) -> None:
+def _df_check_primary_key_values(df: pd.DataFrame, primary_key: list[str]) -> None:
     for pd_name in primary_key:
         # This can be faster for large DataFrames
         has_nulls = df[pd_name].count() < len(df)
@@ -204,7 +208,7 @@ def __pd_coltype_to_pxt_type(pd_dtype: DtypeObj, data_col: pd.Series, nullable: 
     raise excs.Error(f'Could not infer Pixeltable type of column: {data_col.name} (dtype: {pd_dtype})')
 
 
-def __df_row_to_pxt_row(
+def _df_row_to_pxt_row(
     row: tuple[Any, ...], schema: dict[str, pxt.ColumnType], col_mapping: Optional[dict[str, str]]
 ) -> dict[str, Any]:
     """Convert a row to insertable format"""

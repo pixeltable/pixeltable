@@ -153,20 +153,20 @@ def import_huggingface_dataset(
         if isinstance(feature_type, datasets.ClassLabel)
     }
 
+    def _translate_row(row: dict[str, Any], split_name: str) -> dict[str, Any]:
+        output_row = row.copy()
+        # map all class labels to strings
+        for field, values in categorical_features.items():
+            output_row[field] = values[row[field]]
+        # add split name to row
+        if column_name_for_split is not None:
+            output_row[column_name_for_split] = split_name
+        return output_row
+
     try:
         # random tmp name
         tmp_name = f'{table_path}_tmp_{random.randint(0, 100000000)}'
         tab = pxt.create_table(tmp_name, schema, primary_key=pxt_pk, **kwargs)
-
-        def _translate_row(row: dict[str, Any], split_name: str) -> dict[str, Any]:
-            output_row = row.copy()
-            # map all class labels to strings
-            for field, values in categorical_features.items():
-                output_row[field] = values[row[field]]
-            # add split name to row
-            if column_name_for_split is not None:
-                output_row[column_name_for_split] = split_name
-            return output_row
 
         for split_name, split_dataset in dataset_dict.items():
             num_batches = split_dataset.size_in_bytes / _K_BATCH_SIZE_BYTES

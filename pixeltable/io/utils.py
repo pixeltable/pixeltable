@@ -1,5 +1,5 @@
 from keyword import iskeyword as is_python_keyword
-from typing import Any, Optional, Union
+from typing import Any, Literal, Optional, Union
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
@@ -22,15 +22,25 @@ def normalize_pxt_col_name(name: str) -> str:
     return id
 
 
+def normalize_primary_key_parameter(
+    primary_key: Optional[Union[str, list[str]]] = None
+) -> list[str]:
+    if primary_key is None:
+        primary_key = []
+    elif isinstance(primary_key, str):
+        primary_key = [primary_key]
+    else:
+        if not isinstance(primary_key, list) or not all(isinstance(pk, str) for pk in primary_key):
+            raise excs.Error('primary_key must be a single column name or a list of column names')
+    return primary_key
+
+
 def normalize_import_parameters(
     schema_overrides: Optional[dict[str, Any]] = None, primary_key: Optional[Union[str, list[str]]] = None
 ) -> tuple[dict[str, Any], list[str]]:
     if schema_overrides is None:
         schema_overrides = {}
-    if primary_key is None:
-        primary_key = []
-    elif isinstance(primary_key, str):
-        primary_key = [primary_key]
+    primary_key = normalize_primary_key_parameter(primary_key)
     return schema_overrides, primary_key
 
 
@@ -109,7 +119,47 @@ def find_or_create_table(
     primary_key: Optional[Union[str, list[str]]],
     num_retained_versions: int,
     comment: str,
+    media_validation: Literal['on_read', 'on_write'] = 'on_write',
+    if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
 ) -> Table:
     return pxt.create_table(
         tbl_path, schema, primary_key=primary_key, num_retained_versions=num_retained_versions, comment=comment
     )
+
+
+def find_or_create_table2(
+    tbl_path: str,
+    schema: Optional[dict[str, Any]] = None,
+    *,
+    primary_key: Optional[Union[str, list[str]]],
+    num_retained_versions: int,
+    comment: str,
+    media_validation: Optional[Literal['on_read', 'on_write']] = 'on_write',
+    if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
+    schema_is_complete: bool = False,
+) -> Optional[Table]:
+    if tbl_path in pxt.list_tables():
+        if if_exists == 'error':
+            raise excs.Error(f'Table {tbl_path} already exists.')
+        table = pxt.get_table(tbl_path)
+        if (
+            (table._schema == schema or schema is None)
+            and (table._primary_key == primary_key or primary_key is None)
+            and (media_validation == table._media_validation or media_validation is None)
+        ):
+            return table
+        if schema_is_complete:
+            raise excs.Error(f'Table {tbl_path} already exists with a different schema.')
+        return table
+
+    if schema_is_complete:
+        return pxt.create_table(
+            tbl_path,
+            schema,
+            primary_key=primary_key,
+            num_retained_versions=num_retained_versions,
+            comment=comment,
+            media_validation=media_validation,
+        )
+        return table
+    return None
