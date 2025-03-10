@@ -9,8 +9,6 @@ import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable import Table
 
-from .utils import find_or_create_table, normalize_import_parameters, normalize_schema_names
-
 
 def import_pandas(
     tbl_name: str,
@@ -43,20 +41,14 @@ def import_pandas(
     Returns:
         A handle to the newly created [`Table`][pixeltable.Table].
     """
-    schema_overrides, primary_key = normalize_import_parameters(schema_overrides, primary_key)
-    pd_schema = df_infer_schema(df, schema_overrides, primary_key)
-    schema, pxt_pk, col_mapping = normalize_schema_names(pd_schema, primary_key, schema_overrides, False)
-
-    __check_primary_key_values(df, primary_key)
-
-    # Convert all rows to insertable format
-    tbl_rows = [__df_row_to_pxt_row(row, pd_schema, col_mapping) for row in df.itertuples()]
-
-    table = find_or_create_table(
-        tbl_name, schema, primary_key=pxt_pk, num_retained_versions=num_retained_versions, comment=comment
+    return pxt.create_table(
+        tbl_name,
+        source=df,
+        schema_overrides=schema_overrides,
+        primary_key=primary_key,
+        num_retained_versions=num_retained_versions,
+        comment=comment,
     )
-    table.insert(tbl_rows)
-    return table
 
 
 def import_csv(
@@ -77,14 +69,14 @@ def import_csv(
     Returns:
         A handle to the newly created [`Table`][pixeltable.Table].
     """
-    df = pd.read_csv(filepath_or_buffer, **kwargs)
-    return import_pandas(
+    return pxt.create_table(
         tbl_name,
-        df,
+        source=filepath_or_buffer,
         schema_overrides=schema_overrides,
         primary_key=primary_key,
         num_retained_versions=num_retained_versions,
         comment=comment,
+        **kwargs,
     )
 
 
@@ -107,18 +99,18 @@ def import_excel(
     Returns:
         A handle to the newly created [`Table`][pixeltable.Table].
     """
-    df = pd.read_excel(io, *args, **kwargs)
-    return import_pandas(
+    return pxt.create_table(
         tbl_name,
-        df,
+        source=io,
         schema_overrides=schema_overrides,
         primary_key=primary_key,
         num_retained_versions=num_retained_versions,
         comment=comment,
+        **kwargs,
     )
 
 
-def __check_primary_key_values(df: pd.DataFrame, primary_key: list[str]) -> None:
+def _df_check_primary_key_values(df: pd.DataFrame, primary_key: list[str]) -> None:
     for pd_name in primary_key:
         # This can be faster for large DataFrames
         has_nulls = df[pd_name].count() < len(df)
@@ -144,15 +136,6 @@ def df_infer_schema(
         pd_schema[pd_name] = pxt_type
 
     return pd_schema
-
-
-"""
-# Check if a datetime64[ns, UTC] dtype
-def is_datetime_tz_utc(x: Any) -> bool:
-    if isinstance(x, pd.Timestamp) and x.tzinfo is not None and str(x.tzinfo) == 'UTC':
-        return True
-    return pd.api.types.is_datetime64tz_dtype(x) and str(x).endswith('UTC]')
-"""
 
 
 def __pd_dtype_to_pxt_type(pd_dtype: DtypeObj, nullable: bool) -> Optional[pxt.ColumnType]:
@@ -204,7 +187,7 @@ def __pd_coltype_to_pxt_type(pd_dtype: DtypeObj, data_col: pd.Series, nullable: 
     raise excs.Error(f'Could not infer Pixeltable type of column: {data_col.name} (dtype: {pd_dtype})')
 
 
-def __df_row_to_pxt_row(
+def _df_row_to_pxt_row(
     row: tuple[Any, ...], schema: dict[str, pxt.ColumnType], col_mapping: Optional[dict[str, str]]
 ) -> dict[str, Any]:
     """Convert a row to insertable format"""
@@ -230,6 +213,6 @@ def __df_row_to_pxt_row(
                 val = None
             else:
                 val = pd.Timestamp(val).to_pydatetime()
-        pxt_name = col_name if col_mapping is None else col_mapping[col_name]
+        pxt_name = col_mapping.get(col_name, col_name)
         pxt_row[pxt_name] = val
     return pxt_row

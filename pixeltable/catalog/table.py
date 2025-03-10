@@ -1174,10 +1174,11 @@ class Table(SchemaObject):
             idx_id = idx_info[0].id
         self._tbl_version.get().drop_index(idx_id)
 
+    """
     @overload
     def insert(
         self,
-        rows: Iterable[dict[str, Any]],
+        rows: Any,  # Iterable[dict[str, Any]],
         /,
         *,
         print_stats: bool = False,
@@ -1188,13 +1189,15 @@ class Table(SchemaObject):
     def insert(
         self, *, print_stats: bool = False, on_error: Literal['abort', 'ignore'] = 'abort', **kwargs: Any
     ) -> UpdateStatus: ...
+    """
 
-    @abc.abstractmethod  # type: ignore[misc]
+    @abc.abstractmethod
     def insert(
         self,
-        rows: Optional[Iterable[dict[str, Any]]] = None,
+        rows: Any = None,  # Optional[Iterable[dict[str, Any]]] = None,
         /,
         *,
+        schema_override: Optional[dict[str, ts.ColumnType]] = None,
         print_stats: bool = False,
         on_error: Literal['abort', 'ignore'] = 'abort',
         **kwargs: Any,

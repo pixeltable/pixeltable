@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Iterable, Literal, Optional, overload
+from typing import TYPE_CHECKING, Any, Iterable, Literal, Optional, overload
 from uuid import UUID
 
 import pixeltable as pxt
@@ -83,10 +83,11 @@ class InsertableTable(Table):
         md['is_snapshot'] = False
         return md
 
+    """
     @overload
     def insert(
         self,
-        rows: Iterable[dict[str, Any]],
+        rows: Any,  # Iterable[dict[str, Any]]
         /,
         *,
         print_stats: bool = False,
@@ -97,51 +98,66 @@ class InsertableTable(Table):
     def insert(
         self, *, print_stats: bool = False, on_error: Literal['abort', 'ignore'] = 'abort', **kwargs: Any
     ) -> UpdateStatus: ...
+    """
 
-    def insert(  # type: ignore[misc]
+    def insert(
         self,
-        rows: Optional[Iterable[dict[str, Any]]] = None,
+        rows: Optional[Any] = None,
         /,
         *,
-        print_stats: bool = False,
+        source: Optional[Any] = None,
+        source_format: Optional[Literal['csv', 'excel', 'parquet', 'json']] = None,
+        schema_overrides: Optional[dict[str, ts.ColumnType]] = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
+        print_stats: bool = False,
         **kwargs: Any,
     ) -> UpdateStatus:
-        if rows is None:
-            rows = [kwargs]
-        else:
-            rows = list(rows)
-            if len(kwargs) > 0:
-                raise excs.Error('`kwargs` cannot be specified unless `rows is None`.')
+        from pixeltable.io.globals import OnErrorParameter, TableDataSourceUnk
 
-        fail_on_exception = on_error == 'abort'
+        table = self
+        source = rows
+        if source is None:
+            source = [kwargs]
+            kwargs = None
 
-        if not isinstance(rows, list):
-            raise excs.Error('rows must be a list of dictionaries')
-        if len(rows) == 0:
-            raise excs.Error('rows must not be empty')
-        for row in rows:
-            if not isinstance(row, dict):
-                raise excs.Error('rows must be a list of dictionaries')
-        self._validate_input_rows(rows)
-        with Env.get().begin_xact():
-            status = self._tbl_version.get().insert(
-                rows, None, print_stats=print_stats, fail_on_exception=fail_on_exception
-            )
-
-        if status.num_excs == 0:
-            cols_with_excs_str = ''
-        else:
-            cols_with_excs_str = (
-                f' across {len(status.cols_with_excs)} column{"" if len(status.cols_with_excs) == 1 else "s"}'
-            )
-            cols_with_excs_str += f' ({", ".join(status.cols_with_excs)})'
-        msg = (
-            f'Inserted {status.num_rows} row{"" if status.num_rows == 1 else "s"} '
-            f'with {status.num_excs} error{"" if status.num_excs == 1 else "s"}{cols_with_excs_str}.'
+        tds = TableDataSourceUnk(
+            source, source_format=source_format, src_schema_overrides=schema_overrides, extra_fields=kwargs
         )
-        Env.get().console_logger.info(msg)
-        _logger.info(f'InsertableTable {self._name}: {msg}')
+        data_source = tds.specialize()
+        if data_source.source_column_map is None:
+            data_source.src_pk = []
+
+        assert isinstance(table, Table)
+        data_source.add_table_info(table)
+        data_source.prepare_for_insert_into_table()
+
+        fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
+        return table.insert_table_data_source(
+            data_source=data_source, fail_on_exception=fail_on_exception, print_stats=print_stats
+        )
+
+    if TYPE_CHECKING:
+        from pixeltable.io.globals import TableDataSource
+
+    def insert_table_data_source(
+        self, data_source: TableDataSource, fail_on_exception: bool, print_stats: bool = False
+    ) -> pxt.UpdateStatus:
+        from pixeltable.io.globals import TableDataSource, TableDataSourceDF
+
+        status = pxt.UpdateStatus()
+        with Env.get().begin_xact():
+            if isinstance(data_source, TableDataSourceDF):
+                status += self._tbl_version.get().insert(
+                    rows=None, df=data_source.pxt_df, print_stats=print_stats, fail_on_exception=fail_on_exception
+                )
+            else:
+                for row_batch in data_source.valid_row_batch():
+                    status += self._tbl_version.get().insert(
+                        rows=row_batch, df=None, print_stats=print_stats, fail_on_exception=fail_on_exception
+                    )
+
+        Env.get().console_logger.info(status.build_insert_msg())
+
         FileCache.get().emit_eviction_warnings()
         return status
 

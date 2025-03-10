@@ -1235,6 +1235,10 @@ class TableVersion:
         """Return all non-system columns"""
         return [c for c in self.cols if c.is_pk]
 
+    def primary_key(self) -> list[str]:
+        """Return the names of the primary key columns"""
+        return [c.name for c in self.cols if c.is_pk]
+
     def get_required_col_names(self) -> list[str]:
         """Return the names of all columns for which values must be specified in insert()"""
         assert not self.is_view
