@@ -1,3 +1,7 @@
+import json
+import urllib.parse
+import urllib.request
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union
 
 import pixeltable as pxt
@@ -5,6 +9,7 @@ import pixeltable.exceptions as excs
 from pixeltable import Table, exprs
 from pixeltable.env import Env
 from pixeltable.io.external_store import SyncStatus
+from pixeltable.utils import parse_local_file_path
 
 if TYPE_CHECKING:
     import fiftyone as fo  # type: ignore[import-untyped]
@@ -257,23 +262,14 @@ def import_json(
     Returns:
         A handle to the newly created [`Table`][pixeltable.Table].
     """
-    import json
-    import urllib.parse
-    import urllib.request
-
-    # TODO Consolidate this logic with other places where files/URLs are parsed
-    parsed = urllib.parse.urlparse(filepath_or_url)
-    if len(parsed.scheme) <= 1 or parsed.scheme == 'file':
-        # local file path
-        if len(parsed.scheme) <= 1:
-            filepath = filepath_or_url
-        else:
-            filepath = urllib.parse.unquote(urllib.request.url2pathname(parsed.path))
-        with open(filepath) as fp:
-            contents = fp.read()
-    else:
-        # URL
+    path = parse_local_file_path(filepath_or_url)
+    if path is None:  # it's a URL
+        # TODO: This should read from S3 as well.
         contents = urllib.request.urlopen(filepath_or_url).read()
+    else:
+        with open(path) as fp:
+            contents = fp.read()
+
     rows = json.loads(contents, **kwargs)
 
     schema_overrides, primary_key = normalize_import_parameters(schema_overrides, primary_key)
