@@ -43,6 +43,7 @@ nav:
     - Computer Vision: pixeltable/functions/vision.md
   - Model and Inference Functions:
     - anthropic: pixeltable/functions/anthropic.md
+    - deepseek: pixeltable/functions/deepseek.md
     - fireworks: pixeltable/functions/fireworks.md
     - gemini: pixeltable/functions/gemini.md
     - huggingface: pixeltable/functions/huggingface.md

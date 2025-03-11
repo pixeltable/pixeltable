@@ -3,6 +3,7 @@ import math
 import os
 import random
 import re
+from pathlib import Path
 from typing import Any, Union, _GenericAlias  # type: ignore[attr-defined]
 
 import av
@@ -826,6 +827,22 @@ class TestTable:
             },
         ]
         self.check_bad_media(rows, pxt.Video)
+
+    def test_file_paths(self, reset_db: None, reload_tester: ReloadTester) -> None:
+        t = pxt.create_table('test', {'img': pxt.Image})
+
+        # File path contains unusual characters such as '#'
+        tests_dir = os.path.dirname(__file__)
+        path = Path(tests_dir) / 'data/images/#_strange_file name!@$.jpg'
+        validate_update_status(t.insert(img=str(path)), 1)
+        # Run a query that selects both the image and its path, to ensure it's loadable
+        res = reload_tester.run_query(t.select(t.img, path=t.img.localpath))
+        assert res[0]['path'] == str(path)
+
+        # File path is a relative path
+        validate_update_status(t.insert(img='tests/data/images/#_strange_file name!@$.jpg'), 1)
+        res = reload_tester.run_query(t.select(t.img, path=t.img.localpath))
+        assert res[1]['path'] == str(Path('tests/data/images/#_strange_file name!@$.jpg').absolute())
 
     def test_create_s3_image_table(self, reset_db: None) -> None:
         skip_test_if_not_installed('boto3')

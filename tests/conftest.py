@@ -41,6 +41,8 @@ def pxt_test_harness() -> Iterator[None]:
 
 @pytest.fixture(scope='session')
 def init_env(tmp_path_factory, worker_id) -> None:
+    os.chdir(os.path.dirname(os.path.dirname(__file__)))  # Project root directory
+
     # Set the relevant env vars for the test db.
     # We use a single shared pgserver instance, running in the "true" home directory ($PIXELTABLE_HOME/pgdata).
     # Each worker gets its own test db in this instance, along with its own home directory for everything else
