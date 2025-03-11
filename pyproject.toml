@@ -4,7 +4,7 @@ build-backend = "poetry_dynamic_versioning.backend"
 
 [project]
 name = "pixeltable"
-dynamic = []
+dynamic = ["version"]
 description = "AI Data Infrastructure: Declarative, Multimodal, and Incremental"
 license = "Apache-2.0"
 readme = "README.md"
@@ -63,7 +63,6 @@ dependencies = [
     "pyiceberg (>=0.6.0)",
     "pixeltable-pgserver (==0.3.1)",
 ]
-version = "0.3.4.post11.dev0+5ef3ff24.dirty"
 
 [project.urls]
 homepage = "https://pixeltable.com/"
@@ -79,6 +78,7 @@ exclude = [
     "tool",
 ]
 requires-poetry = ">=2.0"
+version = "0.0.0"
 
 [tool.poetry.group.dev]
 optional = true
@@ -154,7 +154,7 @@ llama-cpp-python = { version = ">=0.3.7", platform = "!=win32" }  # Windows buil
 extension-name = "tool.doc_plugins.mkdocstrings:get_templates_path"
 
 [tool.poetry-dynamic-versioning]
-enable = false
+enable = true
 vcs = "git"
 dirty = true
 
