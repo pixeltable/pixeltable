@@ -2,7 +2,7 @@ import json
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, Optional, Union, Iterable
+from typing import TYPE_CHECKING, Any, Iterable, Literal, Optional, Union
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
@@ -15,7 +15,13 @@ if TYPE_CHECKING:
     import fiftyone as fo  # type: ignore[import-untyped]
 
 
-from .utils import find_or_create_table, find_or_create_table2, normalize_import_parameters, normalize_schema_names, normalize_primary_key_parameter
+from .utils import (
+    find_or_create_table,
+    find_or_create_table2,
+    normalize_import_parameters,
+    normalize_primary_key_parameter,
+    normalize_schema_names,
+)
 
 
 def _infer_schema_from_rows(
@@ -199,7 +205,15 @@ def import_rows(
     num_retained_versions: int = 10,
     comment: str = '',
 ) -> Table:
-    return create_from_import(tbl_path, source=rows, schema=schema_overrides, primary_key=primary_key, num_retained_versions=num_retained_versions, comment=comment)
+    if 1:
+        return create_from_import(
+            tbl_path,
+            source=rows,
+            schema=schema_overrides,
+            primary_key=primary_key,
+            num_retained_versions=num_retained_versions,
+            comment=comment,
+        )
 
     """
     Creates a new base table from a list of dictionaries. The dictionaries must be of the
@@ -264,6 +278,17 @@ def import_json(
     Returns:
         A handle to the newly created [`Table`][pixeltable.Table].
     """
+    if 1:
+        return create_from_import(
+            tbl_path,
+            source=filepath_or_url,
+            schema=schema_overrides,
+            primary_key=primary_key,
+            num_retained_versions=num_retained_versions,
+            comment=comment,
+            **kwargs,
+        )
+
     path = parse_local_file_path(filepath_or_url)
     if path is None:  # it's a URL
         # TODO: This should read from S3 as well.
@@ -383,7 +408,7 @@ def export_images_as_fo_dataset(
 
 
 # ---------------------------------------------------------------------------------------------------------
-import abc
+
 import logging
 
 _logger = logging.getLogger('pixeltable')
@@ -397,12 +422,10 @@ from typing import Any, BinaryIO, Iterable, Literal, Optional, TextIO, Union, ca
 # Huggingface datasets
 import datasets  # type: ignore[import-untyped]
 
-# from catalog import UpdateStatus
 # pandas dataframes
 import pandas as pd
 
 # Pixeltable imports (assuming these are from a package named pixeltable)
-# from pixeltable import UpdateStatus
 from pixeltable import catalog
 
 PathLike = Union[str, os.PathLike, Path]
@@ -427,8 +450,9 @@ TableDataSourceFormatType = Literal['csv', 'excel', 'parquet', 'json', 'pandas',
 
 # ---------------------------------------------------------------------------------------------------------
 
+from dataclasses import dataclass, field, fields
 from typing import Generator
-from dataclasses import dataclass, fields
+
 
 @dataclass
 class TableDataSource:
@@ -442,20 +466,8 @@ class TableDataSource:
     pxt_pk: Optional[list[str]] = None
     src_pk: Optional[list[str]] = None
     valid_rows: Optional[RowData] = None
-    '''
-    def __init__(
-        self,
-        source: TableDataSourceType,
-        source_format: Optional[TableDataSourceFormatType] = None,
-        source_column_map: Optional[ColumnMap] = None,
-        if_row_exists: Literal['update', 'ignore', 'error'] = 'error',
-        **kwargs: Any,
-    ) -> None:
-        self.source=source
-        self.source_format=source_format
-        self.source_column_map=source_column_map
-        self.if_row_exists=if_row_exists
-    '''
+    extra_fields: dict[str, Any] = field(default_factory=dict)
+
     def is_direct_df(self) -> bool:
         return isinstance(self.source, pxt.DataFrame) and self.source_column_map is None
 
@@ -465,7 +477,9 @@ class TableDataSource:
     def valid_row_batch(self) -> Generator[RowData, None, None]:
         assert False
 
+
 # ---------------------------------------------------------------------------------------------------------
+
 
 class TableDataSourceDF(TableDataSource):
     pxt_df: pxt.DataFrame = None
@@ -487,10 +501,13 @@ class TableDataSourceDF(TableDataSource):
     def valid_row_batch(self) -> Generator[RowData, None, None]:
         assert False
 
+
 # ---------------------------------------------------------------------------------------------------------
+
 
 class TableDataSourceRowData(TableDataSource):
     raw_rows: RowData = None
+    disable_mapping: bool = True
     batch_count: int = 0
 
     @classmethod
@@ -504,32 +521,55 @@ class TableDataSourceRowData(TableDataSource):
 
     @classmethod
     def validate_rowdata_types(cls, d: TableDataSourceType) -> bool:
-        if isinstance(d, list):
-            for row in d:
-                if not isinstance(row, dict):
-                    return False
+        if not isinstance(d, list) or len(d) == 0:
+            return False
+        for row in d:
+            if not isinstance(row, dict):
+                return False
         return True
+
+    def _translate_row(self, row: dict[str, Any]) -> dict[str, Any]:
+        output_row: dict[str, Any] = {}
+        for col_name, val in row.items():
+            mapped_col_name = self.source_column_map.get(col_name, col_name)
+            # basic sanity checks here
+            try:
+                checked_val = self.pxt_schema[mapped_col_name].create_literal(val)
+            except TypeError as e:
+                msg = str(e)
+                raise excs.Error(f'Error in column {col_name}: {msg[0].lower() + msg[1:]}\nRow: {row}') from e
+            output_row[mapped_col_name] = checked_val
+        return output_row
 
     def infer_schema(self) -> dict[str, Any]:
         if self.source_column_map is None:
             if self.src_schema_overrides is None:
                 self.src_schema_overrides = {}
             self.src_schema = _infer_schema_from_rows(self.raw_rows, self.src_schema_overrides, self.src_pk)
-            self.pxt_schema, self.pxt_pk, self.source_column_map = normalize_schema_names(self.src_schema, self.src_pk, self.src_schema_overrides, True)
-            self.valid_rows = self.raw_rows
-            self.batch_count = 1 if self.raw_rows is not None else 0
-            return self.pxt_schema
+            self.pxt_schema, self.pxt_pk, self.source_column_map = normalize_schema_names(
+                self.src_schema, self.src_pk, self.src_schema_overrides, self.disable_mapping
+            )
         else:
             assert False
+
+        # Convert all rows to insertable format - not needed, misnamed columns and types are errors in the incoming row format
+        if self.source_column_map is None:
+            self.source_column_map = {}
+        self.valid_rows = [self._translate_row(row) for row in self.raw_rows]
+
+        self.batch_count = 1 if self.raw_rows is not None else 0
+        return self.pxt_schema
 
     def valid_row_batch(self) -> Generator[RowData, None, None]:
         if self.batch_count > 0:
             self.batch_count -= 1
             yield self.valid_rows
 
+
 # ---------------------------------------------------------------------------------------------------------
 
-from pixeltable.io.pandas import df_infer_schema, _df_check_primary_key_values, _df_row_to_pxt_row
+from pixeltable.io.pandas import _df_check_primary_key_values, _df_row_to_pxt_row, df_infer_schema
+
 
 class TableDataSourcePandas(TableDataSource):
     pd_df: pd.DataFrame = None
@@ -558,7 +598,9 @@ class TableDataSourcePandas(TableDataSource):
             if self.src_schema_overrides is None:
                 self.src_schema_overrides = {}
             self.src_schema = df_infer_schema(self.pd_df, self.src_schema_overrides, self.src_pk)
-            self.pxt_schema, self.pxt_pk, self.source_column_map = normalize_schema_names(self.src_schema, self.src_pk, self.src_schema_overrides, False)
+            self.pxt_schema, self.pxt_pk, self.source_column_map = normalize_schema_names(
+                self.src_schema, self.src_pk, self.src_schema_overrides, False
+            )
             _df_check_primary_key_values(self.pd_df, self.src_pk)
             self.prepare_insert()
             return self.pxt_schema
@@ -567,7 +609,9 @@ class TableDataSourcePandas(TableDataSource):
 
     def prepare_insert(self) -> None:
         # Convert all rows to insertable format
-        self.valid_rows = [_df_row_to_pxt_row(row, self.src_schema, self.source_column_map) for row in self.pd_df.itertuples()]
+        self.valid_rows = [
+            _df_row_to_pxt_row(row, self.src_schema, self.source_column_map) for row in self.pd_df.itertuples()
+        ]
         self.batch_count = 1
 
     def valid_row_batch(self) -> Generator[RowData, None, None]:
@@ -575,14 +619,70 @@ class TableDataSourcePandas(TableDataSource):
             self.batch_count -= 1
             yield self.valid_rows
 
+
+# ---------------------------------------------------------------------------------------------------------
+
+
+class TableDataSourceCSV(TableDataSource):
+    @classmethod
+    def from_tds(cls, tds: TableDataSource) -> 'TableDataSourcePandas':
+        foo_fields = {f.name for f in fields(tds)}
+        kwargs = {k: v for k, v in tds.__dict__.items() if k in foo_fields}
+        t = cls(**kwargs)
+        assert isinstance(t.source, str)
+        t.source = pd.read_csv(t.source, **t.extra_fields)
+        return TableDataSourcePandas.from_tds(t)
+
+
+# ---------------------------------------------------------------------------------------------------------
+
+
+class TableDataSourceExcel(TableDataSource):
+    @classmethod
+    def from_tds(cls, tds: TableDataSource) -> 'TableDataSourcePandas':
+        foo_fields = {f.name for f in fields(tds)}
+        kwargs = {k: v for k, v in tds.__dict__.items() if k in foo_fields}
+        t = cls(**kwargs)
+        assert isinstance(t.source, str)
+        t.source = pd.read_excel(t.source, **t.extra_fields)
+        return TableDataSourcePandas.from_tds(t)
+
+
+# ---------------------------------------------------------------------------------------------------------
+
+
+class TableDataSourceJson(TableDataSource):
+    @classmethod
+    def from_tds(cls, tds: TableDataSource) -> 'TableDataSourceRowData':
+        foo_fields = {f.name for f in fields(tds)}
+        kwargs = {k: v for k, v in tds.__dict__.items() if k in foo_fields}
+        t = cls(**kwargs)
+        assert isinstance(t.source, str)
+
+        path = parse_local_file_path(t.source)
+        if path is None:  # it's a URL
+            # TODO: This should read from S3 as well.
+            contents = urllib.request.urlopen(t.source).read()
+        else:
+            with open(path) as fp:
+                contents = fp.read()
+        rows = json.loads(contents, **t.extra_fields)
+        t.source = rows
+        t2 = TableDataSourceRowData.from_tds(t)
+        t2.disable_mapping = False
+        return t2
+
+
 # ---------------------------------------------------------------------------------------------------------
 
 import math
-import datasets
+
 from pixeltable.io.hf_datasets import _get_hf_schema, huggingface_schema_to_pxt_schema
+
 
 class TableDataSourceHF(TableDataSource):
     hf_ds: Optional[Union[datasets.Dataset, datasets.DatasetDict]] = None
+    column_name_for_split: Optional[str] = None
 
     @classmethod
     def from_tds(cls, tds: TableDataSource) -> 'TableDataSourceHF':
@@ -591,6 +691,8 @@ class TableDataSourceHF(TableDataSource):
         t = cls(**kwargs)
         assert isinstance(tds.source, (datasets.Dataset, datasets.DatasetDict))
         t.hf_ds = tds.source
+        if 'column_name_for_split' in t.extra_fields:
+            t.column_name_for_split = t.extra_fields['column_name_for_split']
         return t
 
     @classmethod
@@ -606,10 +708,12 @@ class TableDataSourceHF(TableDataSource):
             if self.src_schema_overrides is None:
                 self.src_schema_overrides = {}
             self.hf_schema_source = _get_hf_schema(self.hf_ds)
-            self.src_schema = huggingface_schema_to_pxt_schema(self.hf_schema_source, self.src_schema_overrides, self.src_pk)
+            self.src_schema = huggingface_schema_to_pxt_schema(
+                self.hf_schema_source, self.src_schema_overrides, self.src_pk
+            )
 
             # Add the split column to the schema if requested
-            self.column_name_for_split = None # FIXME
+            #            self.column_name_for_split = None # FIXME
             if self.column_name_for_split is not None:
                 if self.column_name_for_split in self.src_schema:
                     raise excs.Error(
@@ -617,7 +721,9 @@ class TableDataSourceHF(TableDataSource):
                     )
                 self.src_schema[self.column_name_for_split] = pxt.StringType(nullable=True)
 
-            self.pxt_schema, self.pxt_pk, self.source_column_map = normalize_schema_names(self.src_schema, self.src_pk, self.src_schema_overrides, True)
+            self.pxt_schema, self.pxt_pk, self.source_column_map = normalize_schema_names(
+                self.src_schema, self.src_pk, self.src_schema_overrides, True
+            )
         else:
             assert False
 
@@ -642,15 +748,24 @@ class TableDataSourceHF(TableDataSource):
         }
 
     def _translate_row(self, row: dict[str, Any], split_name: str) -> dict[str, Any]:
-        output_row = row.copy()
-        # map all class labels to strings
-        for field, values in self.categorical_features.items():
-            output_row[field] = values[row[field]]
-        # add split name to row
+        output_row: dict[str, Any] = {}
+        for col_name, val in row.items():
+            # translate category ints to strings
+            if col_name in self.categorical_features:
+                val = self.categorical_features[col_name][val]
+
+            # basic sanity checks here
+            try:
+                checked_val = self.pxt_schema[col_name].create_literal(val)
+            except TypeError as e:
+                msg = str(e)
+                raise excs.Error(f'Error in column {col_name}: {msg[0].lower() + msg[1:]}\nRow: {row}') from e
+            output_row[col_name] = checked_val
+
+        # add split name to output row
         if self.column_name_for_split is not None:
             output_row[self.column_name_for_split] = split_name
         return output_row
-
 
     def valid_row_batch(self) -> Generator[RowData, None, None]:
         _K_BATCH_SIZE_BYTES = 100_000_000
@@ -669,25 +784,91 @@ class TableDataSourceHF(TableDataSource):
             if len(batch) > 0:
                 yield batch
 
+
 # ---------------------------------------------------------------------------------------------------------
+
+from pyarrow.parquet import ParquetDataset
+
+
+class TableDataSourceParquet(TableDataSource):
+    pq_ds: Optional[ParquetDataset] = None
+
+    @classmethod
+    def from_tds(cls, tds: TableDataSource) -> 'TableDataSourceParquet':
+        foo_fields = {f.name for f in fields(tds)}
+        kwargs = {k: v for k, v in tds.__dict__.items() if k in foo_fields}
+        t = cls(**kwargs)
+
+        from pyarrow import parquet
+
+        assert isinstance(tds.source, str)
+        input_path = Path(tds.source).expanduser()
+        t.pq_ds = parquet.ParquetDataset(str(input_path))
+        return t
+
+    def infer_schema(self) -> dict[str, Any]:
+        from pixeltable.utils.arrow import ar_infer_schema
+
+        if self.source_column_map is None:
+            if self.src_schema_overrides is None:
+                self.src_schema_overrides = {}
+            self.src_schema = ar_infer_schema(self.pq_ds.schema, self.src_schema_overrides, self.src_pk)
+            self.pxt_schema, self.pxt_pk, self.source_column_map = normalize_schema_names(
+                self.src_schema, self.src_pk, self.src_schema_overrides
+            )
+        else:
+            assert False
+
+        self.prepare_insert()
+        return self.pxt_schema
+
+    def prepare_insert(self) -> None:
+        self.total_rows = 0
+
+    #        if self.source_column_map is None:
+    #            self.source_column_map = {}
+
+    def valid_row_batch(self) -> Generator[RowData, None, None]:
+        #        from pyarrow import parquet
+        from pixeltable.utils.arrow import iter_tuples2
+
+        try:
+            for fragment in self.pq_ds.fragments:  # type: ignore[attr-defined]
+                for batch in fragment.to_batches():
+                    dict_batch = list(iter_tuples2(batch, self.source_column_map, self.pxt_schema))
+                    self.total_rows += len(dict_batch)
+                    yield dict_batch
+        except Exception as e:
+            _logger.error(f'Error after inserting {self.total_rows} rows from Parquet file into table: {e}')
+            raise e
+
+
+# ---------------------------------------------------------------------------------------------------------
+
 
 def TDS_specialize(tds: TableDataSource) -> TableDataSource:
     if tds.source_format == 'pxt.DataFrame' or isinstance(tds.source, pxt.DataFrame):
         return TableDataSourceDF.from_tds(tds)
     if tds.source_format == 'pandas' or isinstance(tds.source, pd.DataFrame):
         return TableDataSourcePandas.from_tds(tds)
-    if tds.source_format == 'rows' or TableDataSourceRowData.validate_rowdata_types(tds.source):
-        return TableDataSourceRowData.from_tds(tds)
     if tds.source_format == 'huggingface' or isinstance(tds.source, (datasets.Dataset, datasets.DatasetDict)):
         return TableDataSourceHF.from_tds(tds)
+    if tds.source_format == 'csv' or (isinstance(tds.source, str) and '.csv' in tds.source.lower()):
+        return TableDataSourceCSV.from_tds(tds)
+    if tds.source_format == 'excel' or (isinstance(tds.source, str) and '.xls' in tds.source.lower()):
+        return TableDataSourceExcel.from_tds(tds)
+    if tds.source_format == 'rows' or TableDataSourceRowData.validate_rowdata_types(tds.source):
+        return TableDataSourceRowData.from_tds(tds)
+    if tds.source_format == 'json' or (isinstance(tds.source, str) and '.json' in tds.source.lower()):
+        return TableDataSourceJson.from_tds(tds)
+    if tds.source_format == 'parquet' or (
+        isinstance(tds.source, str) and any(s in tds.source.lower() for s in ['.parquet', '.pq', '.parq'])
+    ):
+        return TableDataSourceParquet.from_tds(tds)
 
-    '''
-    if isinstance(tds.source, datasets.Dataset):
-        return TableDataSourceHuggingface(tds.source)
+    """
     if isinstance(tds.source, catalog.Table):
         return TableDataSourceTable(tds.source)
-    if isinstance(tds.source, PathLike):
-        return TableDataSourcePath(tds.source, tds.source_format, tds.source_column_map)
     if isinstance(tds.source, BinaryIO):
         return TableDataSourceBinaryIO(tds.source, tds.source_format, tds.source_column_map)
     if isinstance(tds.source, TextIO):
@@ -696,12 +877,12 @@ def TDS_specialize(tds: TableDataSource) -> TableDataSource:
         return TableDataSourceBytesIO(tds.source, tds.source_format, tds.source_column_map)
     if isinstance(tds.source, StringIO):
         return TableDataSourceStringIO(tds.source, tds.source_format, tds.source_column_map)
-    if isinstance(tds.source, datasets.DatasetDict):
-        return TableDataSourceHuggingfaceDict(tds.source)
-    '''
+    """
     raise excs.Error(f'Unsupported data source type: {type(tds.source)}')
 
+
 # ---------------------------------------------------------------------------------------------------------
+
 
 def create_from_import(
     path_str: str,
@@ -719,10 +900,10 @@ def create_from_import(
     if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     **kwargs: Any,  # Explicit arguments to source data provider
 ) -> catalog.Table:
-    '''
+    """
     The field names in the schema and primary_keys arguments are the names that will be used for the columns of any created table,
     unless the source_column_map argument is given, then the field names in the schema and primary_keys arguments are in the source data.
-    '''
+    """
     from pixeltable.catalog import Catalog, IfExistsParam
     from pixeltable.globals import _get_or_drop_existing_path
 
@@ -741,7 +922,17 @@ def create_from_import(
     tds = None
     data_source = None
     if source is not None:
-        tds = TableDataSource(source, source_format=source_format, source_column_map=source_column_map, if_row_exists=if_row_exists, **kwargs) if source is not None else None
+        tds = (
+            TableDataSource(
+                source,
+                source_format=source_format,
+                source_column_map=source_column_map,
+                if_row_exists=if_row_exists,
+                extra_fields=kwargs,
+            )
+            if source is not None
+            else None
+        )
         data_source = TDS_specialize(tds)
         if table is not None:
             assert isinstance(table, catalog.Table)
@@ -761,19 +952,18 @@ def create_from_import(
 
     if table is None and schema is None and data_source is None:
         raise excs.Error('Table does not exist, at least one of `schema` or `source` must be provided')
+    if table is None and (len(schema) == 0 or not isinstance(schema, dict)):
+        raise excs.Error('Unable to create a proper schema, please supply one')
 
     if table is None:
         # Create the table with the specified or inferred schema
-        if len(schema) == 0:
-            raise excs.Error(f'Table schema is empty: `{path_str}`')
-        if not isinstance(schema, dict):
-            raise excs.Error('`schema_or_df` must be either a schema dictionary or a Pixeltable DataFrame.')
-
         table = catalog.InsertableTable._create(
             dir._id,
             path.name,
             schema,
-            data_source.pxt_df if isinstance(data_source, TableDataSourceDF) else None, # cast(pxt.DataFrame, source) if is_direct_df else None,
+            data_source.pxt_df
+            if isinstance(data_source, TableDataSourceDF)
+            else None,  # cast(pxt.DataFrame, source) if is_direct_df else None,
             primary_key=primary_key,
             num_retained_versions=num_retained_versions,
             comment=comment,
@@ -791,7 +981,9 @@ def create_from_import(
     insert3(table, data_source, on_error)
     return table
 
+
 # ---------------------------------------------------------------------------------------------------------
+
 
 def insert_new(
     table: catalog.Table,
@@ -803,20 +995,9 @@ def insert_new(
     print_stats: bool = False,
     **kwargs: Any,  # Explicit arguments to source
 ) -> pxt.UpdateStatus:
-    data_source = TableDataSource(source, source_format=source_format, source_column_map=source_column_map, if_row_exists=if_row_exists, **kwargs)
-    return insert3(table, data_source, on_error)
-
-from pixeltable.utils.filecache import FileCache
-
-# ---------------------------------------------------------------------------------------------------------
-
-def insert3(
-    tableself: catalog.Table,
-    source: TableDataSource,
-    on_error: Literal['abort', 'ignore'] = 'abort') -> pxt.UpdateStatus:
-
-    print_stats = False
-    fail_on_exception = on_error == 'abort'
+    data_source = TableDataSource(
+        source, source_format=source_format, source_column_map=source_column_map, if_row_exists=if_row_exists, **kwargs
+    )
 
     # Open / access data if necessary
 
@@ -824,10 +1005,26 @@ def insert3(
 
     # Validate rows
 
-    for rows in source.valid_row_batch():
-        status = tableself._tbl_version.insert(rows=rows, df=None, print_stats=print_stats, fail_on_exception=fail_on_exception)
+    return insert3(table, data_source, on_error)
 
-    msg = 'should be a message TODO' # msg = status.insert_message()
+
+from pixeltable.utils.filecache import FileCache
+
+# ---------------------------------------------------------------------------------------------------------
+
+
+def insert3(
+    tableself: catalog.Table, source: TableDataSource, on_error: Literal['abort', 'ignore'] = 'abort'
+) -> pxt.UpdateStatus:
+    print_stats = False
+    fail_on_exception = on_error == 'abort'
+
+    for rows in source.valid_row_batch():
+        status = tableself._tbl_version.insert(
+            rows=rows, df=None, print_stats=print_stats, fail_on_exception=fail_on_exception
+        )
+
+    msg = 'should be a message TODO'  # msg = status.insert_message()
     _logger.info(f'InsertableTable {tableself._name}: {msg}')
     FileCache.get().emit_eviction_warnings()
     return status

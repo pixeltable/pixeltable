@@ -68,7 +68,8 @@ class TestParquet:
         parquet_dir.mkdir()
         _ = make_test_arrow_table(parquet_dir)
 
-        tab = pxt.io.import_parquet('test_parquet', parquet_path=str(parquet_dir))
+        # This test passes only a directory to the parquet reader. The source_format must be explicit in this case.
+        tab = pxt.io.import_parquet('test_parquet', parquet_path=str(parquet_dir), source_format='parquet')
         assert 'test_parquet' in pxt.list_tables()
         assert tab is not None
         num_elts = tab.count()
@@ -183,7 +184,7 @@ class TestParquet:
         parquet_dir.mkdir()
         orig_file_path = make_test_arrow_table(parquet_dir)
 
-        tab = pxt.io.import_parquet('test_parquet', parquet_path=str(parquet_dir))
+        tab = pxt.io.import_parquet('test_parquet', parquet_path=str(parquet_dir), source_format='parquet')
         assert 'test_parquet' in pxt.list_tables()
         assert tab is not None
         result_before = tab.order_by(tab.c_id).collect()

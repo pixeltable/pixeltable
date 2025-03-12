@@ -135,4 +135,4 @@ class TestHfDatasets:
         skip_test_if_not_installed('datasets')
         with pytest.raises(excs.Error) as exc_info:
             pxt.io.import_huggingface_dataset('test', {})
-        assert 'type(dataset)' in str(exc_info.value)
+        assert 'Unsupported data source type' in str(exc_info.value)

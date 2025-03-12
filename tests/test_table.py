@@ -381,7 +381,7 @@ class TestTable:
 
         with pytest.raises(excs.Error) as exc_info:
             _ = pxt.create_table('test3', ['I am a string.'])  # type: ignore[arg-type]
-        assert '`schema_or_df` must be either a schema dictionary or a Pixeltable DataFrame' in str(exc_info.value)
+        assert 'Unable to create a proper schema' in str(exc_info.value)
 
     # Test the various combinations of type hints available in schema definitions and validate that they map to the
     # correct ColumnType instances.
@@ -493,7 +493,7 @@ class TestTable:
     def test_empty_table(self, reset_db: None) -> None:
         with pytest.raises(excs.Error) as exc_info:
             pxt.create_table('empty_table', {})
-        assert 'Table schema is empty' in str(exc_info.value)
+        assert 'Unable to create a proper schema' in str(exc_info.value)
 
     def test_drop_table(self, test_tbl: pxt.Table) -> None:
         t = pxt.get_table('test_tbl')

@@ -22,8 +22,16 @@ def import_pandas(
     comment: str = '',
 ) -> pxt.Table:
     from pixeltable.io.globals import create_from_import
-    return create_from_import(tbl_name, source=df, schema=schema_overrides, primary_key=primary_key, num_retained_versions=num_retained_versions, comment=comment)
 
+    if 1:
+        return create_from_import(
+            tbl_name,
+            source=df,
+            schema=schema_overrides,
+            primary_key=primary_key,
+            num_retained_versions=num_retained_versions,
+            comment=comment,
+        )
 
     """Creates a new base table from a Pandas
     [`DataFrame`](https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.html), with the
@@ -81,6 +89,19 @@ def import_csv(
     Returns:
         A handle to the newly created [`Table`][pixeltable.Table].
     """
+    from pixeltable.io.globals import create_from_import
+
+    if 1:
+        return create_from_import(
+            tbl_name,
+            source=filepath_or_buffer,
+            schema=schema_overrides,
+            primary_key=primary_key,
+            num_retained_versions=num_retained_versions,
+            comment=comment,
+            **kwargs,
+        )
+
     df = pd.read_csv(filepath_or_buffer, **kwargs)
     return import_pandas(
         tbl_name,
@@ -111,6 +132,19 @@ def import_excel(
     Returns:
         A handle to the newly created [`Table`][pixeltable.Table].
     """
+    from pixeltable.io.globals import create_from_import
+
+    if 1:
+        return create_from_import(
+            tbl_name,
+            source=io,
+            schema=schema_overrides,
+            primary_key=primary_key,
+            num_retained_versions=num_retained_versions,
+            comment=comment,
+            **kwargs,
+        )
+
     df = pd.read_excel(io, *args, **kwargs)
     return import_pandas(
         tbl_name,

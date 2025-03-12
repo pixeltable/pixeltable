@@ -22,9 +22,7 @@ def normalize_pxt_col_name(name: str) -> str:
     return id
 
 
-def normalize_primary_key_parameter(
-    primary_key: Optional[Union[str, list[str]]] = None
-) -> list[str]:
+def normalize_primary_key_parameter(primary_key: Optional[Union[str, list[str]]] = None) -> list[str]:
     if primary_key is None:
         primary_key = []
     elif isinstance(primary_key, str):

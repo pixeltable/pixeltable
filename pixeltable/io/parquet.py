@@ -172,6 +172,13 @@ def import_parquet(
     Returns:
         A handle to the newly created table.
     """
+    from pixeltable.io.globals import create_from_import
+
+    if 1:
+        return create_from_import(
+            table, source=parquet_path, schema=schema_overrides, primary_key=primary_key, **kwargs
+        )
+
     from pyarrow import parquet
 
     from pixeltable.utils.arrow import ar_infer_schema, iter_tuples2
@@ -190,7 +197,7 @@ def import_parquet(
     total_rows = 0
     try:
         tab = pxt.create_table(tmp_name, schema, primary_key=pxt_pk, **kwargs)
-        for fragment in parquet_dataset.fragments:  # type: ignore[attr-defined]
+        for fragment in parquet_dataset.fragments:
             for batch in fragment.to_batches():
                 dict_batch = list(iter_tuples2(batch, col_mapping, schema))
                 total_rows += len(dict_batch)

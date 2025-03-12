@@ -112,6 +112,18 @@ def import_huggingface_dataset(
     Returns:
         A handle to the newly created [`Table`][pixeltable.Table].
     """
+    from .globals import create_from_import
+
+    if 1:
+        return create_from_import(
+            table_path,
+            source=dataset,
+            column_name_for_split=column_name_for_split,
+            schema_overrides=schema_overrides,
+            primary_key=primary_key,
+            **kwargs,
+        )
+
     import datasets
 
     import pixeltable as pxt
