@@ -51,15 +51,15 @@ def convert_table_md(
                 conn.execute(sql.update(Table).where(Table.id == tbl_id).values(md=updated_table_md))
 
         for row in conn.execute(sql.select(Function)):
-            id = row[0]
+            fn_id = row[0]
             function_md = row[2]
             assert isinstance(function_md, dict)
             updated_function_md = copy.deepcopy(function_md)
             if substitution_fn is not None:
                 updated_function_md = __substitute_md_rec(updated_function_md, substitution_fn)
             if updated_function_md != function_md:
-                __logger.info(f'Updating function: {id}')
-                conn.execute(sql.update(Function).where(Function.id == id).values(md=updated_function_md))
+                __logger.info(f'Updating function: {fn_id}')
+                conn.execute(sql.update(Function).where(Function.id == fn_id).values(md=updated_function_md))
 
 
 def __update_column_md(table_md: dict, column_md_updater: Callable[[dict], None]) -> None:
