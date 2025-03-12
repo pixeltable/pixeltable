@@ -287,7 +287,7 @@ class DataFrame:
             group_by_clause = self.group_by_clause
 
         for item in self._select_list_exprs:
-            item.bind_rel_paths(None)
+            item.bind_rel_paths()
 
         return plan.Planner.create_query_plan(
             self._from_clause,

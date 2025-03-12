@@ -142,13 +142,13 @@ class DataRow:
         self.file_paths[slot_idx] = None
         self.file_urls[slot_idx] = None
 
-    def __getitem__(self, index: object) -> Any:
+    def __getitem__(self, index: int) -> Any:
         """Returns in-memory value, ie, what is needed for expr evaluation"""
         assert isinstance(index, int)
         if not self.has_val[index]:
-            # for debugging purposes
-            pass
-        assert self.has_val[index], index
+            # This is a sufficiently cheap and sensitive validation that it makes sense to keep the assertion around
+            # even if python is running with -O.
+            raise AssertionError(index)
 
         if self.file_urls[index] is not None and index in self.img_slot_idxs:
             # if we need to load this from a file, it should have been materialized locally

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import sqlalchemy as sql
 
@@ -11,6 +11,9 @@ from .expr import _GLOBAL_SCOPE, Expr, ExprScope
 from .row_builder import RowBuilder
 from .sql_element_cache import SqlElementCache
 
+if TYPE_CHECKING:
+    from .object_ref import ObjectRef
+
 
 class JsonMapper(Expr):
     """
@@ -18,6 +21,10 @@ class JsonMapper(Expr):
     The target expr would typically contain relative JsonPaths, which are bound to an ObjectRef, which in turn
     is populated by JsonMapper.eval(). The JsonMapper effectively creates a new scope for its target expr.
     """
+
+    target_expr_scope: ExprScope
+    parent_mapper: Optional[JsonMapper]
+    target_expr_eval_ctx: Optional[RowBuilder.EvalCtx]
 
     def __init__(self, src_expr: Expr, target_expr: Expr):
         # TODO: type spec should be list[target_expr.col_type]
@@ -29,11 +36,17 @@ class JsonMapper(Expr):
 
         from .object_ref import ObjectRef
 
-        scope_anchor = ObjectRef(self.target_expr_scope, self)
-        self.components = [src_expr, target_expr, scope_anchor]
-        self.parent_mapper: Optional[JsonMapper] = None
-        self.target_expr_eval_ctx: Optional[RowBuilder.EvalCtx] = None
+        self.components = [src_expr, target_expr]
+        self.parent_mapper = None
+        self.target_expr_eval_ctx = None
+
+        # Intentionally create the id now, before adding the scope anchor; this ensures that JsonMappers will
+        # be recognized as equal so long as they have the same src_expr and target_expr.
+        # TODO: Might this cause problems after certain substitutions?
         self.id = self._create_id()
+
+        scope_anchor = ObjectRef(self.target_expr_scope, self)
+        self.components.append(scope_anchor)
 
     def bind_rel_paths(self, mapper: Optional[JsonMapper] = None) -> None:
         self._src_expr.bind_rel_paths(mapper)
@@ -84,8 +97,12 @@ class JsonMapper(Expr):
         return self.components[1]
 
     @property
-    def scope_anchor(self) -> Expr:
-        return self.components[2]
+    def scope_anchor(self) -> 'ObjectRef':
+        from .object_ref import ObjectRef
+
+        result = self.components[2]
+        assert isinstance(result, ObjectRef)
+        return result
 
     def _equals(self, _: JsonMapper) -> bool:
         return True
@@ -107,7 +124,7 @@ class JsonMapper(Expr):
         for i, val in enumerate(src):
             data_row[self.scope_anchor.slot_idx] = val
             # stored target_expr
-            row_builder.eval(data_row, self.target_expr_eval_ctx)
+            row_builder.eval(data_row, self.target_expr_eval_ctx, force_eval=self._target_expr.scope())
             result[i] = data_row[self._target_expr.slot_idx]
         data_row[self.slot_idx] = result
 
