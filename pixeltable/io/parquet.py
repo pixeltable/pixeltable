@@ -15,9 +15,10 @@ import PIL.Image
 
 import pixeltable as pxt
 import pixeltable.exceptions as exc
-import pixeltable.type_system as ts
 from pixeltable.env import Env
 from pixeltable.utils.transactional_directory import transactional_directory
+
+from .utils import normalize_import_parameters, normalize_schema_names
 
 if typing.TYPE_CHECKING:
     import pyarrow as pa
@@ -149,19 +150,13 @@ def export_parquet(
             _write_batch(current_value_batch, arrow_schema, temp_path / f'part-{batch_num:05d}.parquet')
 
 
-def parquet_schema_to_pixeltable_schema(parquet_path: str) -> dict[str, Optional[ts.ColumnType]]:
-    """Generate a default pixeltable schema for the given parquet file. Returns None for unknown types."""
-    from pyarrow import parquet
-
-    from pixeltable.utils.arrow import to_pixeltable_schema
-
-    input_path = Path(parquet_path).expanduser()
-    parquet_dataset = parquet.ParquetDataset(str(input_path))
-    return to_pixeltable_schema(parquet_dataset.schema)
-
-
 def import_parquet(
-    table: str, *, parquet_path: str, schema_overrides: Optional[dict[str, ts.ColumnType]] = None, **kwargs: Any
+    table: str,
+    *,
+    parquet_path: str,
+    schema_overrides: Optional[dict[str, Any]] = None,
+    primary_key: Optional[Union[str, list[str]]] = None,
+    **kwargs: Any,
 ) -> pxt.Table:
     """Creates a new base table from a Parquet file or set of files. Requires pyarrow to be installed.
 
@@ -172,6 +167,7 @@ def import_parquet(
             name `name` will be given type `type`, instead of being inferred from the Parquet dataset. The keys in
             `schema_overrides` should be the column names of the Parquet dataset (whether or not they are valid
             Pixeltable identifiers).
+        primary_key: The primary key of the table (see [`create_table()`][pixeltable.create_table]).
         kwargs: Additional arguments to pass to `create_table`.
 
     Returns:
@@ -179,33 +175,29 @@ def import_parquet(
     """
     from pyarrow import parquet
 
-    import pixeltable as pxt
-    from pixeltable.utils.arrow import iter_tuples
+    from pixeltable.utils.arrow import ar_infer_schema, iter_tuples2
 
     input_path = Path(parquet_path).expanduser()
     parquet_dataset = parquet.ParquetDataset(str(input_path))
 
-    schema = parquet_schema_to_pixeltable_schema(parquet_path)
-    if schema_overrides is None:
-        schema_overrides = {}
-
-    schema.update(schema_overrides)
-    for k, v in schema.items():
-        if v is None:
-            raise exc.Error(f'Could not infer pixeltable type for column {k} from parquet file')
+    schema_overrides, primary_key = normalize_import_parameters(schema_overrides, primary_key)
+    ar_schema = ar_infer_schema(parquet_dataset.schema, schema_overrides, primary_key)
+    schema, pxt_pk, col_mapping = normalize_schema_names(ar_schema, primary_key, schema_overrides, False)
 
     if table in pxt.list_tables():
         raise exc.Error(f'Table {table} already exists')
 
+    tmp_name = f'{table}_tmp_{random.randint(0, 100000000)}'
+    total_rows = 0
     try:
-        tmp_name = f'{table}_tmp_{random.randint(0, 100000000)}'
-        tab = pxt.create_table(tmp_name, schema, **kwargs)
+        tab = pxt.create_table(tmp_name, schema, primary_key=pxt_pk, **kwargs)
         for fragment in parquet_dataset.fragments:  # type: ignore[attr-defined]
             for batch in fragment.to_batches():
-                dict_batch = list(iter_tuples(batch))
+                dict_batch = list(iter_tuples2(batch, col_mapping, schema))
+                total_rows += len(dict_batch)
                 tab.insert(dict_batch)
     except Exception as e:
-        _logger.error(f'Error while inserting Parquet file into table: {e}')
+        _logger.error(f'Error after inserting {total_rows} rows from Parquet file into table: {e}')
         raise e
 
     pxt.move(tmp_name, table)
