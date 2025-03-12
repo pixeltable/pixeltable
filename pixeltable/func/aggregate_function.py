@@ -12,7 +12,7 @@ from .globals import validate_symbol_path
 from .signature import Parameter, Signature
 
 if TYPE_CHECKING:
-    import pixeltable
+    from pixeltable import exprs
 
 
 class Aggregator(abc.ABC):
@@ -80,6 +80,8 @@ class AggregateFunction(Function):
         """Inspects the Aggregator class to infer the corresponding function signature. Returns the
         inferred signature along with the list of init_param_names (for downstream error handling).
         """
+        from pixeltable import exprs
+
         # infer type parameters; set return_type=InvalidType() because it has no meaning here
         init_sig = Signature.create(
             py_fn=cls.__init__, return_type=ts.InvalidType(), is_cls_method=True, type_substitutions=type_substitutions
@@ -102,14 +104,24 @@ class AggregateFunction(Function):
         py_update_params = list(inspect.signature(cls.update).parameters.values())[1:]  # leave out self
         assert len(py_update_params) == len(update_types)
         update_params = [
-            Parameter(p.name, col_type=update_types[i], kind=p.kind, default=p.default)
+            Parameter(
+                p.name,
+                col_type=update_types[i],
+                kind=p.kind,
+                default=exprs.Expr.from_object(p.default),  # type: ignore[arg-type]
+            )
             for i, p in enumerate(py_update_params)
         ]
         # starting at 1: leave out self
         py_init_params = list(inspect.signature(cls.__init__).parameters.values())[1:]
         assert len(py_init_params) == len(init_types)
         init_params = [
-            Parameter(p.name, col_type=init_types[i], kind=inspect.Parameter.KEYWORD_ONLY, default=p.default)
+            Parameter(
+                p.name,
+                col_type=init_types[i],
+                kind=inspect.Parameter.KEYWORD_ONLY,
+                default=exprs.Expr.from_object(p.default),  # type: ignore[arg-type]
+            )
             for i, p in enumerate(py_init_params)
         ]
         duplicate_params = set(p.name for p in init_params) & set(p.name for p in update_params)
@@ -157,7 +169,7 @@ class AggregateFunction(Function):
         res += '\n\n' + inspect.getdoc(self.agg_classes[0].update)
         return res
 
-    def __call__(self, *args: object, **kwargs: object) -> 'pixeltable.exprs.FunctionCall':
+    def __call__(self, *args: Any, **kwargs: Any) -> 'exprs.FunctionCall':
         from pixeltable import exprs
 
         # perform semantic analysis of special parameters 'order_by' and 'group_by'
@@ -194,29 +206,31 @@ class AggregateFunction(Function):
                 )
             group_by_clause = kwargs.pop(self.GROUP_BY_PARAM)
 
+        args = [exprs.Expr.from_object(arg) for arg in args]
+        kwargs = {k: exprs.Expr.from_object(v) for k, v in kwargs.items()}
+
         resolved_fn, bound_args = self._bind_to_matching_signature(args, kwargs)
-        return_type = resolved_fn.call_return_type(args, kwargs)
+        return_type = resolved_fn.call_return_type(bound_args)
+
         return exprs.FunctionCall(
             resolved_fn,
-            bound_args,
+            args,
+            kwargs,
             return_type,
             order_by_clause=[order_by_clause] if order_by_clause is not None else [],
             group_by_clause=[group_by_clause] if group_by_clause is not None else [],
         )
 
-    def validate_call(self, bound_args: dict[str, Any]) -> None:
-        # check that init parameters are not Exprs
-        # TODO: do this in the planner (check that init parameters are either constants or only refer to grouping exprs)
+    def validate_call(self, bound_args: dict[str, 'exprs.Expr']) -> None:
         from pixeltable import exprs
 
-        assert not self.is_polymorphic
+        super().validate_call(bound_args)
 
+        # check that init parameters are not Exprs
+        # TODO: do this in the planner (check that init parameters are either constants or only refer to grouping exprs)
         for param_name in self.init_param_names[0]:
-            if param_name in bound_args and isinstance(bound_args[param_name], exprs.Expr):
-                raise excs.Error(
-                    f'{self.display_name}(): init() parameter {param_name} needs to be a constant, not a Pixeltable '
-                    f'expression'
-                )
+            if param_name in bound_args and not isinstance(bound_args[param_name], exprs.Literal):
+                raise excs.Error(f'{self.display_name}(): init() parameter {param_name!r} must be a constant value')
 
     def __repr__(self) -> str:
         return f'<Pixeltable Aggregator {self.name}>'

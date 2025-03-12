@@ -1,5 +1,6 @@
 import dataclasses
 import logging
+import urllib.parse
 from typing import Any, Iterable, Literal, Optional, Union
 from uuid import UUID
 
@@ -8,7 +9,7 @@ import sqlalchemy as sql
 from pandas.io.formats.style import Styler
 from sqlalchemy.util.preloaded import orm
 
-from pixeltable import DataFrame, catalog, exceptions as excs, exprs, func
+from pixeltable import DataFrame, catalog, exceptions as excs, exprs, func, share
 from pixeltable.catalog import Catalog
 from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
@@ -727,6 +728,13 @@ def drop_dir(path_str: str, force: bool = False, if_not_exists: Literal['error',
         conn.execute(sql.delete(schema.Dir.__table__).where(schema.Dir.id == dir_._id))
     del Catalog.get().paths[path]
     _logger.info(f'Removed directory `{path_str}`.')
+
+
+def publish_snapshot(dest_uri: str, table: catalog.Table) -> None:
+    parsed_uri = urllib.parse.urlparse(dest_uri)
+    if parsed_uri.scheme != 'pxt':
+        raise excs.Error(f'Invalid Pixeltable URI (does not start with pxt://): {dest_uri}')
+    share.publish_snapshot(dest_uri, table)
 
 
 def list_dirs(path_str: str = '', recursive: bool = True) -> list[str]:

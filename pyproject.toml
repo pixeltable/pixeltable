@@ -4,7 +4,7 @@ build-backend = "poetry_dynamic_versioning.backend"
 
 [project]
 name = "pixeltable"
-dynamic = []
+dynamic = ["version"]
 description = "AI Data Infrastructure: Declarative, Multimodal, and Incremental"
 license = "Apache-2.0"
 readme = "README.md"
@@ -63,7 +63,6 @@ dependencies = [
     "pyiceberg (>=0.6.0)",
     "pixeltable-pgserver (==0.3.1)",
 ]
-version = "0.3.4.post11.dev0+5ef3ff24.dirty"
 
 [project.urls]
 homepage = "https://pixeltable.com/"
@@ -79,6 +78,7 @@ exclude = [
     "tool",
 ]
 requires-poetry = ">=2.0"
+version = "0.0.0"
 
 [tool.poetry.group.dev]
 optional = true
@@ -91,7 +91,7 @@ pytest-rerunfailures = "^14.0.0"
 coverage = "^7.4"
 # type checking
 mypy = "^1.13.0"
-boto3-stubs = "==1.35.5"
+boto3-stubs = "==1.36.23"
 pandas-stubs = ">=2.0"
 pyarrow-stubs = "^10.0.1.7"
 types-beautifulsoup4 = ">=4.2"
@@ -129,7 +129,8 @@ fireworks-ai = "^0.13.0"
 mistralai = "^1.2.1"
 replicate = "^1.0.2"
 google-generativeai = "^0.8.4"
-boto3 = "==1.35.5"  # Locking a specific version of boto3 dramatically improves `poetry lock` runtimes
+boto3 = "==1.36.23"  # Locking a specific version of boto3/botocore dramatically improves `poetry lock` runtimes
+botocore = "==1.36.23"
 spacy = ">=3.7"
 sentencepiece = ">=0.2.0"
 tiktoken = ">=0.7"
@@ -152,7 +153,7 @@ llama-cpp-python = { version = ">=0.3.7", platform = "!=win32" }  # Windows buil
 extension-name = "tool.doc_plugins.mkdocstrings:get_templates_path"
 
 [tool.poetry-dynamic-versioning]
-enable = false
+enable = true
 vcs = "git"
 dirty = true
 

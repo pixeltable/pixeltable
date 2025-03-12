@@ -8,7 +8,6 @@ import json
 import typing
 import urllib.parse
 import urllib.request
-from pathlib import Path
 from typing import Any, ClassVar, Iterable, Literal, Mapping, Optional, Sequence, Union
 
 import av
@@ -22,6 +21,7 @@ import sqlalchemy as sql
 from typing_extensions import _AnnotatedAlias
 
 import pixeltable.exceptions as excs
+from pixeltable.utils import parse_local_file_path
 
 from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
 
@@ -47,8 +47,8 @@ class ColumnType:
         @classmethod
         def supertype(
             cls,
-            type1: 'ColumnType.Type',
-            type2: 'ColumnType.Type',
+            type1: Optional['ColumnType.Type'],
+            type2: Optional['ColumnType.Type'],
             # we need to pass this in because we can't easily append it as a class member
             common_supertypes: dict[tuple['ColumnType.Type', 'ColumnType.Type'], 'ColumnType.Type'],
         ) -> Optional['ColumnType.Type']:
@@ -92,6 +92,9 @@ class ColumnType:
     def __init__(self, t: Type, nullable: bool = False):
         self._type = t
         self._nullable = nullable
+
+    def has_supertype(self) -> bool:
+        return True
 
     @property
     def nullable(self) -> bool:
@@ -273,8 +276,10 @@ class ColumnType:
                 inferred_type = val_type
             else:
                 inferred_type = inferred_type.supertype(val_type)
-                if inferred_type is None:
-                    return None
+            if inferred_type is None:
+                return None
+            if not inferred_type.has_supertype():
+                return inferred_type
         return inferred_type
 
     @classmethod
@@ -399,11 +404,8 @@ class ColumnType:
     def _validate_file_path(self, val: Any) -> None:
         """Raises TypeError if not a valid local file path or not a path/byte sequence"""
         if isinstance(val, str):
-            parsed = urllib.parse.urlparse(val)
-            if parsed.scheme not in {'', 'file'}:
-                return
-            path = Path(urllib.parse.unquote(urllib.request.url2pathname(parsed.path)))
-            if not path.is_file():
+            path = parse_local_file_path(val)
+            if path is not None and not path.is_file():
                 raise TypeError(f'File not found: {path}')
         elif not isinstance(val, bytes):
             raise TypeError(f'expected file path or bytes, got {type(val)}')
@@ -497,7 +499,7 @@ class InvalidType(ColumnType):
 
     @classmethod
     def to_sa_type(cls) -> sql.types.TypeEngine:
-        raise AssertionError()
+        return sql.types.NullType()
 
     def print_value(self, val: Any) -> str:
         return str(val)
@@ -509,6 +511,9 @@ class InvalidType(ColumnType):
 class StringType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.STRING, nullable=nullable)
+
+    def has_supertype(self):
+        return not self.nullable
 
     @classmethod
     def to_sa_type(cls) -> sql.types.TypeEngine:
@@ -597,6 +602,9 @@ class TimestampType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.TIMESTAMP, nullable=nullable)
 
+    def has_supertype(self):
+        return not self.nullable
+
     @classmethod
     def to_sa_type(cls) -> sql.types.TypeEngine:
         return sql.TIMESTAMP(timezone=True)
@@ -608,6 +616,8 @@ class TimestampType(ColumnType):
     def _create_literal(self, val: Any) -> Any:
         if isinstance(val, str):
             return datetime.datetime.fromisoformat(val)
+        if isinstance(val, datetime.datetime):
+            return val
         return val
 
 
@@ -659,6 +669,10 @@ class JsonType(ColumnType):
         return val_type.print_value(val)
 
     def _validate_literal(self, val: Any) -> None:
+        if isinstance(val, tuple):
+            val = list(val)
+        if isinstance(val, pydantic.BaseModel):
+            val = val.model_dump()
         if not self.__is_valid_json(val):
             raise TypeError(f'That literal is not a valid Pixeltable JSON object: {val}')
         if self.__validator is not None:
@@ -826,14 +840,20 @@ class ArrayType(ColumnType):
         return hash((self._type, self.nullable, self.shape, self.dtype))
 
     def supertype(self, other: ColumnType) -> Optional[ArrayType]:
+        basic_supertype = super().supertype(other)
+        if basic_supertype is not None:
+            assert isinstance(basic_supertype, ArrayType)
+            return basic_supertype
+
         if not isinstance(other, ArrayType):
             return None
+
         super_dtype = self.Type.supertype(self.dtype, other.dtype, self.common_supertypes)
         if super_dtype is None:
             # if the dtypes are incompatible, then the supertype is a fully general array
             return ArrayType(nullable=(self.nullable or other.nullable))
         super_shape: Optional[tuple[Optional[int], ...]]
-        if len(self.shape) != len(other.shape):
+        if self.shape is None or other.shape is None or len(self.shape) != len(other.shape):
             super_shape = None
         else:
             super_shape = tuple(n1 if n1 == n2 else None for n1, n2 in zip(self.shape, other.shape))
@@ -1018,8 +1038,14 @@ class ImageType(ColumnType):
         return hash((self._type, self.nullable, self.size, self.mode))
 
     def supertype(self, other: ColumnType) -> Optional[ImageType]:
+        basic_supertype = super().supertype(other)
+        if basic_supertype is not None:
+            assert isinstance(basic_supertype, ImageType)
+            return basic_supertype
+
         if not isinstance(other, ImageType):
             return None
+
         width = self.width if self.width == other.width else None
         height = self.height if self.height == other.height else None
         mode = self.mode if self.mode == other.mode else None

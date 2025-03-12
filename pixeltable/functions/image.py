@@ -133,6 +133,13 @@ def getchannel(self: PIL.Image.Image, channel: int) -> PIL.Image.Image:
     pass
 
 
+@getchannel.conditional_return_type
+def _(self: Expr) -> pxt.ColumnType:
+    input_type = self.col_type
+    assert isinstance(input_type, pxt.ImageType)
+    return pxt.ImageType(size=input_type.size, mode='L', nullable=input_type.nullable)
+
+
 @pxt.udf(is_method=True)
 def get_metadata(self: PIL.Image.Image) -> dict:
     """
@@ -146,13 +153,6 @@ def get_metadata(self: PIL.Image.Image) -> dict:
         'format': self.format,
         'palette': self.palette,
     }
-
-
-@getchannel.conditional_return_type
-def _(self: Expr) -> pxt.ColumnType:
-    input_type = self.col_type
-    assert isinstance(input_type, pxt.ImageType)
-    return pxt.ImageType(size=input_type.size, mode='L', nullable=input_type.nullable)
 
 
 # Image.point()

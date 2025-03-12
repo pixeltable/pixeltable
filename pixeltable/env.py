@@ -76,6 +76,8 @@ class Env:
     _module_log_level: dict[str, int]  # module name -> log level
     _config_file: Optional[Path]
     _config: Optional[Config]
+    _file_cache_size_g: float
+    _pxt_api_key: Optional[str]
     _stdout_handler: logging.StreamHandler
     _initialized: bool
 
@@ -286,6 +288,7 @@ class Env:
                 f'(either add a `file_cache_size_g` entry to the `pixeltable` section of {self._config_file},\n'
                 'or set the PIXELTABLE_FILE_CACHE_SIZE_G environment variable)'
             )
+        self._pxt_api_key = self._config.get_string_value('api_key')
 
         # Disable spurious warnings
         warnings.simplefilter('ignore', category=TqdmWarning)
@@ -455,6 +458,15 @@ class Env:
 
     def _upgrade_metadata(self) -> None:
         metadata.upgrade_md(self._sa_engine)
+
+    @property
+    def pxt_api_key(self) -> str:
+        if self._pxt_api_key is None:
+            raise excs.Error(
+                'No API key is configured. Set the PIXELTABLE_API_KEY environment variable, or add an entry to '
+                f'config.toml as described here:\nhttps://pixeltable.github.io/pixeltable/config/'
+            )
+        return self._pxt_api_key
 
     def get_client(self, name: str) -> Any:
         """
