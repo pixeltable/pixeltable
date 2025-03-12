@@ -67,8 +67,8 @@ Pixeltable's Voxel51 integration works in two phases:
         return [
             {'label': label, 'confidence': score}
             for label, score in zip(
-                vit_labels['label_text'], 
-                vit_labels['scores']
+                vit_labels.label_text, 
+                vit_labels.scores
             )
         ]
 
@@ -77,9 +77,9 @@ Pixeltable's Voxel51 integration works in two phases:
         """Convert DETR detection output to Voxel51 format"""
         result = []
         for label, box, score in zip(
-            detr_labels['label_text'], 
-            detr_labels['boxes'], 
-            detr_labels['scores']
+            detr_labels.label_text, 
+            detr_labels.boxes, 
+            detr_labels.scores
         ):
             # Convert DETR (x1,y1,x2,y2) to Voxel51 (x,y,w,h) format
             fo_box = [
