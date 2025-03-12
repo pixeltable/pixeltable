@@ -124,7 +124,7 @@ class InsertableTable(Table):
             if not isinstance(row, dict):
                 raise excs.Error('rows must be a list of dictionaries')
         self._validate_input_rows(rows)
-        with Env.get().begin():
+        with Env.get().begin_xact():
             status = self._tbl_version.get().insert(
                 rows, None, print_stats=print_stats, fail_on_exception=fail_on_exception
             )
@@ -187,5 +187,5 @@ class InsertableTable(Table):
 
             >>> tbl.delete(tbl.a > 5)
         """
-        with Env.get().begin():
+        with Env.get().begin_xact():
             return self._tbl_version.get().delete(where=where)

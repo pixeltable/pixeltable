@@ -226,10 +226,10 @@ class View(Table):
         if tbl_version_path.is_snapshot():
             return tbl_version_path
         tbl_version = tbl_version_path.tbl_version.get()
-        if not tbl_version.is_snapshot():
+        if not tbl_version.is_snapshot:
             # create and register snapshot version
             tbl_version = tbl_version.create_snapshot_copy()
-            assert tbl_version.is_snapshot()
+            assert tbl_version.is_snapshot
 
         return TableVersionPath(
             TableVersionHandle(tbl_version.id, tbl_version.effective_version),
@@ -245,7 +245,7 @@ class View(Table):
             TableVersion.delete_md(self._id)
             # update catalog
             cat = catalog.Catalog.get()
-            cat.clear_tbl(self._id)
+            cat.remove_tbl(self._id)
         else:
             super()._drop()
 

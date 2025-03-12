@@ -93,7 +93,7 @@ class TablePackager:
         with open(self.tmp_dir / 'metadata.json', 'w', encoding='utf8') as fp:
             json.dump(self.md, fp)
         self.iceberg_catalog = sqlite_catalog(self.tmp_dir / 'warehouse')
-        with Env.get().begin():
+        with Env.get().begin_xact():
             ancestors = (self.table, *self.table._bases)
             for t in ancestors:
                 _logger.info(f"Exporting table '{t._path}'.")

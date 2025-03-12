@@ -181,7 +181,7 @@ class Env:
         return self._current_session
 
     @contextmanager
-    def begin(self) -> Iterator[sql.Connection]:
+    def begin_xact(self) -> Iterator[sql.Connection]:
         """Return a context manager that yields a connection to the database. Idempotent."""
         if self._current_conn is None:
             assert self._current_session is None

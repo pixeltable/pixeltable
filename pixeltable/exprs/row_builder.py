@@ -173,9 +173,7 @@ class RowBuilder:
         def refs_unstored_iter_col(col_ref: ColumnRef) -> bool:
             tbl = col_ref.col.tbl
             return (
-                tbl.get().is_component_view()
-                and tbl.get().is_iterator_column(col_ref.col)
-                and not col_ref.col.is_stored
+                tbl.get().is_component_view and tbl.get().is_iterator_column(col_ref.col) and not col_ref.col.is_stored
             )
 
         unstored_iter_col_refs = [col_ref for col_ref in col_refs if refs_unstored_iter_col(col_ref)]

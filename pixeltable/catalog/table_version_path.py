@@ -65,15 +65,15 @@ class TableVersionPath:
 
     def is_snapshot(self) -> bool:
         """Return True if this is a path of snapshot versions"""
-        if not self.tbl_version.get().is_snapshot():
+        if not self.tbl_version.get().is_snapshot:
             return False
         return self.base.is_snapshot() if self.base is not None else True
 
     def is_view(self) -> bool:
-        return self.tbl_version.get().is_view()
+        return self.tbl_version.get().is_view
 
     def is_component_view(self) -> bool:
-        return self.tbl_version.get().is_component_view()
+        return self.tbl_version.get().is_component_view
 
     def is_insertable(self) -> bool:
         return self.tbl_version.get().is_insertable()
@@ -101,7 +101,7 @@ class TableVersionPath:
     def columns(self) -> list[Column]:
         """Return all user columns visible in this tbl version path, including columns from bases"""
         result = list(self.tbl_version.get().cols_by_name.values())
-        if self.base is not None and self.tbl_version.get().include_base_columns():
+        if self.base is not None and self.tbl_version.get().include_base_columns:
             base_cols = self.base.columns()
             # we only include base columns that don't conflict with one of our column names
             result.extend(c for c in base_cols if c.name not in self.tbl_version.get().cols_by_name)
@@ -122,7 +122,7 @@ class TableVersionPath:
         col = self.tbl_version.get().cols_by_name.get(name)
         if col is not None:
             return col
-        elif self.base is not None and (include_bases or self.tbl_version.get().include_base_columns()):
+        elif self.base is not None and (include_bases or self.tbl_version.get().include_base_columns):
             return self.base.get_column(name)
         else:
             return None

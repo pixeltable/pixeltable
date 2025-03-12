@@ -276,7 +276,7 @@ class Planner:
         cls, tbl: catalog.TableVersion, rows: list[dict[str, Any]], ignore_errors: bool
     ) -> exec.ExecNode:
         """Creates a plan for TableVersion.insert()"""
-        assert not tbl.is_view()
+        assert not tbl.is_view
         # stored_cols: all cols we need to store, incl computed cols (and indices)
         stored_cols = [c for c in tbl.cols_by_id.values() if c.is_stored]
         assert len(stored_cols) > 0  # there needs to be something to store
@@ -321,7 +321,7 @@ class Planner:
     def create_df_insert_plan(
         cls, tbl: catalog.TableVersion, df: 'pxt.DataFrame', ignore_errors: bool
     ) -> exec.ExecNode:
-        assert not tbl.is_view()
+        assert not tbl.is_view
         plan = df._create_query_plan()  # ExecNode constructed by the DataFrame
 
         # Modify the plan RowBuilder to register the output columns
@@ -510,7 +510,7 @@ class Planner:
             - list of columns that are being recomputed
         """
         assert isinstance(view, catalog.TableVersionPath)
-        assert view.is_view()
+        assert view.is_view
         target = view.tbl_version.get()  # the one we need to update
         # retrieve all stored cols and all target exprs
         recomputed_cols = set(recompute_targets.copy())
@@ -554,7 +554,7 @@ class Planner:
             - number of materialized values per row
         """
         assert isinstance(view, catalog.TableVersionPath)
-        assert view.is_view()
+        assert view.is_view
         # things we need to materialize as DataRows:
         # 1. stored computed cols
         # - iterator columns are effectively computed, just not with a value_expr
@@ -588,7 +588,7 @@ class Planner:
             exact_version_only=view.get_bases() if propagates_insert else [],
         )
         exec_ctx = plan.ctx
-        if target.is_component_view():
+        if target.is_component_view:
             plan = exec.ComponentIterationNode(view.tbl_version, plan)
         if len(view_output_exprs) > 0:
             plan = exec.ExprEvalNode(

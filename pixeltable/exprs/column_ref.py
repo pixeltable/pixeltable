@@ -52,7 +52,7 @@ class ColumnRef(Expr):
         assert col.tbl is not None
         self.col = col
         self.is_unstored_iter_col = (
-            col.tbl.get().is_component_view() and col.tbl.get().is_iterator_column(col) and not col.is_stored
+            col.tbl.get().is_component_view and col.tbl.get().is_iterator_column(col) and not col.is_stored
         )
         self.iter_arg_ctx = None
         # number of rowid columns in the base table
@@ -225,7 +225,7 @@ class ColumnRef(Expr):
 
     def _as_dict(self) -> dict:
         tbl = self.col.tbl
-        version = tbl.get().version if tbl.get().is_snapshot() else None
+        version = tbl.get().version if tbl.get().is_snapshot else None
         # we omit self.components, even if this is a validating ColumnRef, because init() will recreate the
         # non-validating component ColumnRef
         return {

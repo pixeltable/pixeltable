@@ -88,7 +88,7 @@ class Comparison(Expr):
             idx_info = [
                 info for info in self._op1.col.get_idx_info().values() if isinstance(info.idx, index.BtreeIndex)
             ]
-            if len(idx_info) > 0 and not tbl.is_snapshot():
+            if len(idx_info) > 0 and not tbl.is_snapshot:
                 # there shouldn't be multiple B-tree indices on a column
                 assert len(idx_info) == 1
                 left = idx_info[0].val_col.sa_col

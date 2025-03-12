@@ -434,7 +434,7 @@ class StoreBase:
 
 class StoreTable(StoreBase):
     def __init__(self, tbl_version: catalog.TableVersion):
-        assert not tbl_version.is_view()
+        assert not tbl_version.is_view
         super().__init__(tbl_version)
 
     def _create_rowid_columns(self) -> list[sql.Column]:
@@ -450,7 +450,7 @@ class StoreTable(StoreBase):
 
 class StoreView(StoreBase):
     def __init__(self, catalog_view: catalog.TableVersion):
-        assert catalog_view.is_view()
+        assert catalog_view.is_view
         super().__init__(catalog_view)
 
     def _create_rowid_columns(self) -> list[sql.Column]:

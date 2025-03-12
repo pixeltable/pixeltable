@@ -19,7 +19,7 @@ class ComponentIterationNode(ExecNode):
     __OUTPUT_BATCH_SIZE = 1024
 
     def __init__(self, view: catalog.TableVersionHandle, input: ExecNode):
-        assert view.get().is_component_view()
+        assert view.get().is_component_view
         super().__init__(input.row_builder, [], [], input)
         self.view = view
         iterator_args = [view.get().iterator_args.copy()]

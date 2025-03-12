@@ -126,7 +126,7 @@ def create_table(
     path = catalog.Path(path_str)
     cat = Catalog.get()
 
-    with env.Env.get().begin():
+    with env.Env.get().begin_xact():
         if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
         existing = _handle_path_collision(path_str, catalog.InsertableTable, False, if_exists_)
         if existing is not None:
@@ -263,7 +263,7 @@ def create_view(
     path = catalog.Path(path_str)
     cat = Catalog.get()
 
-    with Env.get().begin():
+    with Env.get().begin_xact():
         if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
         existing = _handle_path_collision(path_str, catalog.View, is_snapshot, if_exists_)
         if existing is not None:
@@ -411,7 +411,7 @@ def get_table(path: str) -> catalog.Table:
 
         >>> tbl = pxt.get_table('my_snapshot')
     """
-    with Env.get().begin():
+    with Env.get().begin_xact():
         obj = Catalog.get().get_schema_object(path, expected=catalog.Table, raise_if_not_exists=True)
         assert isinstance(obj, catalog.Table)
         return obj
@@ -437,7 +437,7 @@ def move(path: str, new_path: str) -> None:
         >>>> pxt.move('dir1.my_table', 'dir1.new_name')
     """
     cat = Catalog.get()
-    with Env.get().begin():
+    with Env.get().begin_xact():
         obj = cat.get_schema_object(path, raise_if_not_exists=True)
         new_p = catalog.Path(new_path)
         dest_dir_path = str(new_p.parent)
@@ -484,7 +484,7 @@ def drop_table(
     """
     cat = Catalog.get()
     tbl: Optional[catalog.Table]
-    with Env.get().begin():
+    with Env.get().begin_xact():
         if isinstance(table, str):
             _ = catalog.Path(table)  # validate path
             if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
@@ -553,7 +553,7 @@ def list_tables(dir_path: str = '', recursive: bool = True) -> list[str]:
     """
     _ = catalog.Path(dir_path, empty_is_valid=True)  # validate format
     cat = Catalog.get()
-    with Env.get().begin():
+    with Env.get().begin_xact():
         dir = cat.get_schema_object(dir_path, expected=catalog.Dir, raise_if_not_exists=True)
         contents = cat.get_dir_contents(dir._id, recursive=recursive)
         return _extract_paths(contents, prefix=dir_path, entry_type=catalog.Table)
@@ -604,7 +604,7 @@ def create_dir(
     path_obj = catalog.Path(path)
     cat = Catalog.get()
 
-    with env.Env.get().begin():
+    with env.Env.get().begin_xact():
         if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
         existing = _handle_path_collision(path, catalog.Dir, False, if_exists_)
         if existing is not None:
@@ -658,7 +658,7 @@ def drop_dir(path: str, force: bool = False, if_not_exists: Literal['error', 'ig
     _ = catalog.Path(path)  # validate format
     cat = Catalog.get()
     if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
-    with Env.get().begin():
+    with Env.get().begin_xact():
         dir = cat.get_schema_object(
             path,
             expected=catalog.Dir,
@@ -736,7 +736,7 @@ def list_dirs(path_str: str = '', recursive: bool = True) -> list[str]:
     """
     _ = catalog.Path(path_str, empty_is_valid=True)  # validate format
     cat = Catalog.get()
-    with Env.get().begin():
+    with Env.get().begin_xact():
         dir = cat.get_schema_object(path_str, expected=catalog.Dir, raise_if_not_exists=True)
         contents = cat.get_dir_contents(dir._id, recursive=recursive)
         return _extract_paths(contents, prefix=path_str, entry_type=catalog.Dir)
