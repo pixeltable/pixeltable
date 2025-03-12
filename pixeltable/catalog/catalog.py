@@ -2,16 +2,16 @@ from __future__ import annotations
 
 import dataclasses
 import logging
-from typing import Optional, Type
+from typing import Any, Optional
 from uuid import UUID
 
 import sqlalchemy as sql
 
-# This import must go last to avoid circular imports.
-import pixeltable.env as env  # isort: skip
 import pixeltable.exceptions as excs
 import pixeltable.metadata.schema as schema
 
+# This import must go last to avoid circular imports.
+from pixeltable.env import Env  # isort: skip
 from .dir import Dir
 from .schema_object import SchemaObject
 from .table import Table
@@ -19,14 +19,35 @@ from .table_version import TableVersion
 from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
 
-# from .. import InsertableTable
-
 _logger = logging.getLogger('pixeltable')
 
 
 def _join_path(path: str, name: str) -> str:
     """Append name to path, if path is not empty."""
     return name if path == '' else f'{path}.{name}'
+
+
+def _unpack_row(
+    row: Optional[sql.engine.Row], entities: list[type[sql.orm.decl_api.DeclarativeBase]]
+) -> Optional[list[Any]]:
+    """Convert a Row result into a list of entity instances.
+
+    Assumes that the query contains a select() of exactly those entities.
+    """
+    if row is None:
+        return None
+
+    result: list[sql.orm.decl_api.DeclarativeBase] = []
+    column_offset = 0
+
+    for entity in entities:
+        num_cols = len(entity.__table__.columns)
+        data = {name: row[column_offset + i] for i, name in enumerate(entity.__table__.columns.keys())}
+        inst = entity(**data)
+        result.append(inst)
+        column_offset += num_cols
+
+    return result
 
 
 class Catalog:
@@ -61,10 +82,12 @@ class Catalog:
 
     def get_dir_path(self, dir_id: UUID) -> str:
         """Return path for directory with given id"""
-        session = env.Env.get().session
+        conn = Env.get().conn
         names: list[str] = []
         while True:
-            dir = session.query(schema.Dir).filter(schema.Dir.id == dir_id).one()
+            q = sql.select(schema.Dir).where(schema.Dir.id == dir_id)
+            row = conn.execute(q).one()
+            dir = schema.Dir(**row._mapping)
             if dir.md['name'] == '':
                 break
             names.insert(0, dir.md['name'])
@@ -74,8 +97,10 @@ class Catalog:
 
     def get_tbl_path(self, tbl_id: UUID) -> str:
         """Return path for table with given id"""
-        session = env.Env.get().session
-        tbl = session.query(schema.Table).filter(schema.Table.id == tbl_id).one()
+        conn = Env.get().conn
+        q = sql.select(schema.Table).where(schema.Table.id == tbl_id)
+        row = conn.execute(q).one()
+        tbl = schema.Table(**row._mapping)
         dir_path = self.get_dir_path(tbl.dir_id)
         return _join_path(dir_path, tbl.md['name'])
 
@@ -87,33 +112,131 @@ class Catalog:
 
     def get_dir_contents(self, dir_id: UUID, recursive: bool = False) -> dict[str, DirEntry]:
         """Returns a dict mapping the entry names to DirEntry objects"""
-        session = env.Env.get().session
+        conn = Env.get().conn
         result: dict[str, Catalog.DirEntry] = {}
 
-        dirs = session.query(schema.Dir).filter(schema.Dir.parent_id == dir_id).all()
-        for dir in dirs:
+        q = sql.select(schema.Dir).where(schema.Dir.parent_id == dir_id)
+        rows = conn.execute(q).all()
+        for row in rows:
+            dir = schema.Dir(**row._mapping)
             dir_contents: dict[str, Catalog.DirEntry] = {}
             if recursive:
                 dir_contents = self.get_dir_contents(dir.id, recursive=True)
             result[dir.md['name']] = self.DirEntry(dir=dir, dir_entries=dir_contents, table=None)
 
-        tbls = session.query(schema.Table).filter(schema.Table.dir_id == dir_id).all()
-        for tbl in tbls:
+        q = sql.select(schema.Table).where(schema.Table.dir_id == dir_id)
+        rows = conn.execute(q).all()
+        for row in rows:
+            tbl = schema.Table(**row._mapping)
             result[tbl.md['name']] = self.DirEntry(dir=None, dir_entries={}, table=tbl)
 
         return result
 
     def drop_dir(self, dir_id: UUID) -> None:
         """Delete the directory with the given id"""
-        session = env.Env.get().session
-        session.query(schema.Dir).filter(schema.Dir.id == dir_id).delete()
+        conn = Env.get().conn
+        conn.execute(sql.delete(schema.Dir.__table__).where(schema.Dir.id == dir_id))
+
+    def prepare_dir_op(
+        self,
+        add_dir_path: Optional[str] = None,
+        add_name: Optional[str] = None,
+        drop_dir_path: Optional[str] = None,
+        drop_name: Optional[str] = None,
+        drop_expected: Optional[type[SchemaObject]] = None,
+        raise_if_exists: bool = False,
+        raise_if_not_exists: bool = False,
+    ) -> tuple[Optional[SchemaObject], Optional[SchemaObject], Optional[SchemaObject]]:
+        """
+        Validates paths and acquires locks needed for a directory operation, ie, add/drop/rename (add + drop) of a
+        directory entry.
+
+        The target entry is either a table or directory. The directory operation can include
+        - adding an entry (<add_dir_path>.<add_name>)
+        - dropping an entry (<drop_dir_path>.<drop_name>)
+
+        Returns: (existing SchemaObject of add path, Dir of add path, existing SchemaObject of drop path)
+
+        Locking protocol:
+        - X locks on the immediate parent directories of the added/dropped entries; this prevents concurrent
+          modifications of the parent
+        - S locks on the parents' ancestors
+        - lock parent before child
+        - if both add and drop, lock the immediate parents in a pre-determined order (in this case, by name) in order
+          to prevent deadlocks between concurrent directory modifications
+        """
+        assert (add_dir_path is None) == (add_name is None)
+        assert (drop_dir_path is None) == (drop_name is None)
+        dir_paths: set[str] = set()
+        if add_dir_path is not None:
+            dir_paths.add(add_dir_path)
+        if drop_dir_path is not None:
+            dir_paths.add(drop_dir_path)
+
+        add_dir: Optional[schema.Dir] = None
+        drop_dir: Optional[schema.Dir] = None
+        for p in sorted(list(dir_paths)):
+            dir = self._get_dir(p, for_update=True)
+            if dir is None:
+                raise excs.Error(f'Directory {p!r} does not exist')
+            if p == add_dir_path:
+                add_dir = dir
+            if p == drop_dir_path:
+                drop_dir = dir
+
+        add_obj: Optional[SchemaObject] = None
+        if add_dir is not None:
+            add_obj = self._get_dir_entry(add_dir.id, add_name, for_update=True)
+            if add_obj is not None and raise_if_exists:
+                add_path = _join_path(add_dir_path, add_name)
+                raise excs.Error(f'Path {add_path!r} already exists')
+
+        drop_obj: Optional[SchemaObject] = None
+        if drop_dir is not None:
+            drop_path = _join_path(drop_dir_path, drop_name)
+            drop_obj = self._get_dir_entry(drop_dir.id, drop_name, for_update=True)
+            if drop_obj is None and raise_if_not_exists:
+                raise excs.Error(f'Path {drop_path!r} does not exist')
+            if drop_obj is not None and drop_expected is not None and not isinstance(drop_obj, drop_expected):
+                raise excs.Error(
+                    f'{drop_path!r} needs to be a {drop_expected._display_name()} '
+                    f'but is a {type(drop_obj)._display_name()}'
+                )
+
+        add_dir_obj = Dir(add_dir.id, add_dir.parent_id, add_dir.md['name']) if add_dir is not None else None
+        return add_obj, add_dir_obj, drop_obj
+
+    def _get_dir_entry(self, dir_id: UUID, name: str, for_update: bool = False) -> Optional[SchemaObject]:
+        conn = Env.get().conn
+
+        # check for subdirectory
+        q = sql.select(schema.Dir).where(schema.Dir.parent_id == dir_id, schema.Dir.md['name'].astext == name)
+        if for_update:
+            q = q.with_for_update()
+        row = conn.execute(q).one_or_none()
+        if row is not None:
+            dir_record = schema.Dir(**row._mapping)
+            return Dir(dir_record.id, dir_record.parent_id, name)
+
+        # check for table
+        q = sql.select(schema.Table.id).where(schema.Table.dir_id == dir_id, schema.Table.md['name'].astext == name)
+        if for_update:
+            q = q.with_for_update()
+        tbl_id = conn.execute(q).scalar_one_or_none()
+        if tbl_id is not None:
+            if not tbl_id in self._tbls:
+                self._tbls[tbl_id] = self._load_tbl(tbl_id)
+            return self._tbls[tbl_id]
+
+        return None
 
     def get_schema_object(
         self,
         path: str,
-        expected: Optional[Type[SchemaObject]] = None,
+        expected: Optional[type[SchemaObject]] = None,
         raise_if_exists: bool = False,
         raise_if_not_exists: bool = False,
+        for_update: bool = False,
     ) -> Optional[SchemaObject]:
         """Return the schema object at the given path, or None if it doesn't exist.
 
@@ -123,42 +246,20 @@ class Catalog:
         - raise_if_not_exists is True and the path does not exist
         - expected is not None and the existing object has a different type
         """
-        session = env.Env.get().session
         if path == '':
             # the root dir
             if expected is not None and expected is not Dir:
                 raise excs.Error(f'{path!r} needs to be a {expected._display_name()} but is a {Dir._display_name()}')
-            dir = self._get_dir(path)
+            dir = self._get_dir(path, for_update=for_update)
             return Dir(dir.id, dir.parent_id, dir.md['name'])
 
         components = path.split('.')
         parent_path = '.'.join(components[:-1])
-        parent_dir = self._get_dir('.'.join(components[:-1]))
+        parent_dir = self._get_dir('.'.join(components[:-1]), for_update=False)
         if parent_dir is None:
             raise excs.Error(f'Directory {parent_path!r} does not exist')
         name = components[-1]
-
-        # check if path points to a directory
-        obj: Optional[SchemaObject] = None
-        dir = (
-            session.query(schema.Dir)
-            .filter(schema.Dir.parent_id == parent_dir.id, schema.Dir.md['name'].astext == name)
-            .one_or_none()
-        )
-        if dir is not None:
-            obj = Dir(dir.id, dir.parent_id, dir.md['name'])
-        else:
-            # check if it's a table
-            row = (
-                session.query(schema.Table.id)
-                .filter(schema.Table.dir_id == parent_dir.id, schema.Table.md['name'].astext == name)
-                .one_or_none()
-            )
-            if row is not None:
-                tbl_id = row[0]
-                if not tbl_id in self._tbls:
-                    self._tbls[tbl_id] = self._load_tbl(tbl_id)
-                obj = self._tbls[tbl_id]
+        obj = self._get_dir_entry(parent_dir.id, name, for_update=for_update)
 
         if obj is None and raise_if_not_exists:
             raise excs.Error(f'Path {path!r} does not exist')
@@ -182,9 +283,9 @@ class Catalog:
 
     def get_views(self, tbl_id: UUID) -> list[UUID]:
         """Return the ids of views that directly reference the given table"""
-        session = env.Env.get().session
-        q = session.query(schema.Table.id).filter(sql.text(f"md->'view_md'->'base_versions'->0->>0 = {tbl_id.hex!r}"))
-        result = [r[0] for r in q.all()]
+        conn = Env.get().conn
+        q = sql.select(schema.Table.id).where(sql.text(f"md->'view_md'->'base_versions'->0->>0 = {tbl_id.hex!r}"))
+        result = [r[0] for r in conn.execute(q).all()]
         return result
 
     def clear_tbl(self, tbl_id: UUID) -> None:
@@ -210,39 +311,50 @@ class Catalog:
 
     def get_dir(self, dir_id: UUID) -> Optional[Dir]:
         """Return the Dir with the given id, or None if it doesn't exist"""
-        session = env.Env.get().session
-        dir_record = session.query(schema.Dir).filter(schema.Dir.id == dir_id).one_or_none()
-        if dir_record is None:
+        conn = Env.get().conn
+        q = sql.select(schema.Dir).where(schema.Dir.id == dir_id)
+        row = conn.execute(q).one_or_none()
+        if row is None:
             return None
+        dir_record = schema.Dir(**row._mapping)
         return Dir(dir_record.id, dir_record.parent_id, dir_record.md['name'])
 
-    def _get_dir(self, path: str) -> Optional[schema.Dir]:
-        session = env.Env.get().session
-        assert session is not None
+    def _get_dir(self, path: str, for_update: bool = False) -> Optional[schema.Dir]:
+        """
+        Locking protocol:
+        - S locks on all ancestors
+        - X lock on dir if for_update == True, otherwise also an S lock
+        """
+        conn = Env.get().conn
         if path == '':
-            return session.query(schema.Dir).filter(schema.Dir.parent_id.is_(None)).one()
+            q = sql.select(schema.Dir).where(schema.Dir.parent_id.is_(None))
+            if for_update:
+                q = q.with_for_update()
+            row = conn.execute(q).one()
+            return schema.Dir(**row._mapping)
         else:
             components = path.split('.')
             parent_path = '.'.join(components[:-1])
-            parent_dir = self._get_dir(parent_path)
+            parent_dir = self._get_dir(parent_path, for_update=False)
             if parent_dir is None:
                 return None
             name = components[-1]
-            dir = (
-                session.query(schema.Dir)
-                .filter(schema.Dir.parent_id == parent_dir.id, schema.Dir.md['name'].astext == name)
-                .one_or_none()
+            q = sql.select(schema.Dir).where(
+                schema.Dir.parent_id == parent_dir.id, schema.Dir.md['name'].astext == name
             )
-            return dir
+            if for_update:
+                q = q.with_for_update()
+            row = conn.execute(q).one_or_none()
+            return schema.Dir(**row._mapping) if row is not None else None
 
     def _load_tbl(self, tbl_id: UUID) -> Optional[Table]:
         _logger.info(f'Loading table {tbl_id}')
         from .insertable_table import InsertableTable
         from .view import View
 
-        session = env.Env.get().session
-        tbl_record, schema_version_record = (
-            session.query(schema.Table, schema.TableSchemaVersion)
+        conn = Env.get().conn
+        q = (
+            sql.select(schema.Table, schema.TableSchemaVersion)
             .join(schema.TableSchemaVersion)
             .where(schema.Table.id == schema.TableSchemaVersion.tbl_id)
             # Table.md['current_schema_version'] == TableSchemaVersion.schema_version
@@ -253,10 +365,11 @@ class Catalog:
                 )
             )
             .where(schema.Table.id == tbl_id)
-            .one_or_none()
         )
-        if tbl_record is None:
+        row = conn.execute(q).one_or_none()
+        if row is None:
             return None
+        tbl_record, schema_version_record = _unpack_row(row, [schema.Table, schema.TableSchemaVersion])
 
         tbl_md = schema.md_from_dict(schema.TableMd, tbl_record.md)
         view_md = tbl_md.view_md
@@ -293,9 +406,9 @@ class Catalog:
 
     def _load_tbl_version(self, tbl_id: UUID, effective_version: Optional[int]) -> Optional[TableVersion]:
         _logger.info(f'Loading table version: {tbl_id}:{effective_version}')
-        session = env.Env.get().session
+        conn = Env.get().conn
         q = (
-            session.query(schema.Table, schema.TableSchemaVersion)
+            sql.select(schema.Table, schema.TableSchemaVersion)
             .select_from(schema.Table)
             .where(schema.Table.id == tbl_id)
             .join(schema.TableSchemaVersion)
@@ -337,19 +450,20 @@ class Catalog:
                 )
             )
 
-        tbl_record, schema_version_record = q.one_or_none()
+        row = conn.execute(q).one_or_none()
+        tbl_record, schema_version_record = _unpack_row(row, [schema.Table, schema.TableSchemaVersion])
         tbl_md = schema.md_from_dict(schema.TableMd, tbl_record.md)
         schema_version_md = schema.md_from_dict(schema.TableSchemaVersionMd, schema_version_record.md)
         view_md = tbl_md.view_md
 
         # load mutable view ids
-        q = session.query(schema.Table.id).filter(
+        q = sql.select(schema.Table.id).where(
             sql.text(
                 f"md->'view_md'->'base_versions'->0->>0 = {tbl_id.hex!r} "
                 "AND md->'view_md'->'base_versions'->0->1 IS NULL"
             )
         )
-        mutable_view_ids = [r[0] for r in q.all()]
+        mutable_view_ids = [r[0] for r in conn.execute(q).all()]
         mutable_views = [TableVersionHandle(id, None) for id in mutable_view_ids]
 
         if view_md is None:
@@ -384,14 +498,14 @@ class Catalog:
 
     def _init_store(self) -> None:
         """One-time initialization of the stored catalog. Idempotent."""
-        with env.Env.get().begin():
-            session = env.Env.get().session
-            if session.query(sql.func.count(schema.Dir.id)).scalar() > 0:
+        with Env.get().begin() as conn:
+            q = sql.select(sql.func.count(schema.Dir.id))
+            if conn.execute(q).scalar_one() > 0:
                 return
             # create a top-level directory, so that every schema object has a directory
             dir_md = schema.DirMd(name='', user=None, additional_md={})
             dir_record = schema.Dir(parent_id=None, md=dataclasses.asdict(dir_md))
+            session = Env.get().session
             session.add(dir_record)
             session.flush()
-            session.commit()
             _logger.info(f'Initialized catalog')

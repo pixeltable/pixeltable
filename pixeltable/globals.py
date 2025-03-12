@@ -28,21 +28,21 @@ def _handle_path_collision(
     path: str, expected_obj_type: type[catalog.SchemaObject], expected_snapshot: bool, if_exists: catalog.IfExistsParam
 ) -> Optional[catalog.SchemaObject]:
     cat = Catalog.get()
-    obj: Optional[catalog.SchemaObject]
-    if if_exists == catalog.IfExistsParam.ERROR:
-        _ = cat.get_schema_object(path, raise_if_exists=True)
-        obj = None
+    path_obj = catalog.Path(path)
+    obj, _, _ = cat.prepare_dir_op(add_dir_path=str(path_obj.parent), add_name=path_obj.name)
+
+    if if_exists == catalog.IfExistsParam.ERROR and obj is not None:
+        raise excs.Error(f'Path {path!r} is an existing {type(obj)._display_name()}')
     else:
-        obj = cat.get_schema_object(path)
         is_snapshot = isinstance(obj, catalog.View) and obj._tbl_version_path.is_snapshot()
         if obj is not None and (not isinstance(obj, expected_obj_type) or (expected_snapshot and not is_snapshot)):
             obj_type_str = 'snapshot' if expected_snapshot else expected_obj_type._display_name()
             raise excs.Error(
                 f'Path {path!r} already exists but is not a {obj_type_str}. Cannot {if_exists.name.lower()} it.'
             )
+
     if obj is None:
         return None
-
     if if_exists == IfExistsParam.IGNORE:
         return obj
 
@@ -58,6 +58,37 @@ def _handle_path_collision(
         assert isinstance(obj, catalog.Table)
         _drop_table(obj, force=if_exists == IfExistsParam.REPLACE_FORCE, is_replace=True)
     return None
+
+    # obj: Optional[catalog.SchemaObject]
+    # if if_exists == catalog.IfExistsParam.ERROR:
+    #     _ = cat.get_schema_object(path, raise_if_exists=True)
+    #     obj = None
+    # else:
+    #     obj = cat.get_schema_object(path)
+    #     is_snapshot = isinstance(obj, catalog.View) and obj._tbl_version_path.is_snapshot()
+    #     if obj is not None and (not isinstance(obj, expected_obj_type) or (expected_snapshot and not is_snapshot)):
+    #         obj_type_str = 'snapshot' if expected_snapshot else expected_obj_type._display_name()
+    #         raise excs.Error(
+    #             f'Path {path!r} already exists but is not a {obj_type_str}. Cannot {if_exists.name.lower()} it.'
+    #         )
+    # if obj is None:
+    #     return None
+    #
+    # if if_exists == IfExistsParam.IGNORE:
+    #     return obj
+    #
+    # # drop the existing schema object
+    # if isinstance(obj, catalog.Dir):
+    #     dir_contents = cat.get_dir_contents(obj._id)
+    #     if len(dir_contents) > 0 and if_exists == IfExistsParam.REPLACE:
+    #         raise excs.Error(
+    #             f'Directory {path!r} already exists and is not empty. Use `if_exists="replace_force"` to replace it.'
+    #         )
+    #     _drop_dir(obj._id, path, force=True)
+    # else:
+    #     assert isinstance(obj, catalog.Table)
+    #     _drop_table(obj, force=if_exists == IfExistsParam.REPLACE_FORCE, is_replace=True)
+    # return None
 
 
 def create_table(
@@ -436,14 +467,37 @@ def move(path: str, new_path: str) -> None:
 
         >>>> pxt.move('dir1.my_table', 'dir1.new_name')
     """
+    if path == new_path:
+        raise excs.Error('move(): source and destination cannot be identical')
     cat = Catalog.get()
     with Env.get().begin():
-        obj = cat.get_schema_object(path, raise_if_not_exists=True)
-        new_p = catalog.Path(new_path)
-        dest_dir_path = str(new_p.parent)
-        dest_dir = cat.get_schema_object(dest_dir_path, expected=catalog.Dir, raise_if_not_exists=True)
-        _ = cat.get_schema_object(new_path, raise_if_exists=True)
-        obj._move(new_p.name, dest_dir._id)
+        path_obj, new_path_obj = catalog.Path(path), catalog.Path(new_path)
+        if path_obj.is_ancestor(new_path_obj):
+            raise excs.Error(f'move(): cannot move {path!r} into its own subdirectory')
+        _, dest_dir, src_obj = cat.prepare_dir_op(
+            add_dir_path=str(new_path_obj.parent),
+            add_name=new_path_obj.name,
+            drop_dir_path=str(path_obj.parent),
+            drop_name=path_obj.name,
+            raise_if_exists=True,
+            raise_if_not_exists=True,
+        )
+        src_obj._move(new_path_obj.name, dest_dir._id)
+
+    #     obj = cat.get_schema_object(path, raise_if_not_exists=True)
+    #     new_p = catalog.Path(new_path)
+    #     dest_dir_path = str(new_p.parent)
+    #     dest_dir = cat.get_schema_object(dest_dir_path, expected=catalog.Dir, raise_if_not_exists=True)
+    #     _ = cat.get_schema_object(new_path, raise_if_exists=True)
+    #     obj._move(new_p.name, dest_dir._id)
+    #
+    # with Env.get().begin():
+    #     obj = cat.get_schema_object(path, raise_if_not_exists=True)
+    #     new_p = catalog.Path(new_path)
+    #     dest_dir_path = str(new_p.parent)
+    #     dest_dir = cat.get_schema_object(dest_dir_path, expected=catalog.Dir, raise_if_not_exists=True)
+    #     _ = cat.get_schema_object(new_path, raise_if_exists=True)
+    #     obj._move(new_p.name, dest_dir._id)
 
 
 def drop_table(
@@ -484,22 +538,26 @@ def drop_table(
     """
     cat = Catalog.get()
     tbl: Optional[catalog.Table]
+    if isinstance(table, catalog.Table):
+        with Env.get().begin():
+            table = cat.get_tbl_path(table._id)
     with Env.get().begin():
         if isinstance(table, str):
-            _ = catalog.Path(table)  # validate path
+            path_obj = catalog.Path(table)  # validate path
             if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
-            tbl = cast(
-                Optional[catalog.Table],
-                cat.get_schema_object(
-                    table,
-                    expected=catalog.Table,
-                    raise_if_not_exists=if_not_exists_ == IfNotExistsParam.ERROR and not force,
-                ),
+            _, _, src_obj = cat.prepare_dir_op(
+                drop_dir_path=str(path_obj.parent),
+                drop_name=path_obj.name,
+                drop_expected=catalog.Table,
+                raise_if_not_exists=if_not_exists_ == catalog.IfNotExistsParam.ERROR and not force,
             )
-            if tbl is None:
+            if src_obj is None:
                 _logger.info(f'Skipped table `{table}` (does not exist).')
                 return
+            assert isinstance(src_obj, catalog.Table)
+            tbl = src_obj
         else:
+            # TODO: correct locks
             tbl = table
         _drop_table(tbl, force=force, is_replace=False)
 
@@ -658,16 +716,18 @@ def drop_dir(path: str, force: bool = False, if_not_exists: Literal['error', 'ig
     _ = catalog.Path(path)  # validate format
     cat = Catalog.get()
     if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
+    path_obj = catalog.Path(path)
     with Env.get().begin():
-        dir = cat.get_schema_object(
-            path,
-            expected=catalog.Dir,
+        _, _, schema_obj = cat.prepare_dir_op(
+            drop_dir_path=str(path_obj.parent),
+            drop_name=path_obj.name,
+            drop_expected=catalog.Dir,
             raise_if_not_exists=if_not_exists_ == catalog.IfNotExistsParam.ERROR and not force,
         )
-        if dir is None:
+        if schema_obj is None:
             _logger.info(f'Directory {path!r} does not exist, skipped drop_dir().')
             return
-        _drop_dir(dir._id, path, force=force)
+        _drop_dir(schema_obj._id, path, force=force)
 
 
 def _drop_dir(dir_id: UUID, path: str, force: bool = False) -> None:
@@ -680,7 +740,7 @@ def _drop_dir(dir_id: UUID, path: str, force: bool = False) -> None:
 
     for tbl_path in tbl_paths:
         # check if the table still exists, it might be a view that already got force-deleted
-        if cat.get_schema_object(tbl_path, expected=catalog.Table, raise_if_not_exists=False) is not None:
+        if cat.get_schema_object(tbl_path, expected=catalog.Table, for_update=True) is not None:
             drop_table(tbl_path, force=True)
     for dir_path in dir_paths:
         drop_dir(dir_path, force=True)
