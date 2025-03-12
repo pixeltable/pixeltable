@@ -51,10 +51,10 @@ class Tool(pydantic.BaseModel):
     # The output of `tool_calls` must be a dict in standardized tool invocation format:
     # {tool_name: [{'args': {name1: value1, name2: value2, ...}}, ...], ...}
     def invoke(self, tool_calls: 'exprs.Expr') -> 'exprs.Expr':
-        from ..exprs import RELATIVE_PATH_ROOT as R
+        from pixeltable import exprs
 
         func_name = self.name or self.fn.name
-        return tool_calls[func_name]['*'] >> self.__invoke_kwargs(R.args)
+        return exprs.JsonMapper(tool_calls[func_name]['*'], self.__invoke_kwargs(exprs.RELATIVE_PATH_ROOT.args))
 
     def __invoke_kwargs(self, kwargs: 'exprs.Expr') -> 'exprs.FunctionCall':
         kwargs = {param.name: self.__extract_tool_arg(param, kwargs) for param in self.parameters.values()}

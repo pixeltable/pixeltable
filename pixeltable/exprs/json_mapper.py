@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, Optional
 import sqlalchemy as sql
 
 import pixeltable.type_system as ts
-from pixeltable.exprs.expr_set import ExprSet
 
 from .data_row import DataRow
 from .expr import _GLOBAL_SCOPE, Expr, ExprScope
@@ -23,6 +22,10 @@ class JsonMapper(Expr):
     is populated by JsonMapper.eval(). The JsonMapper effectively creates a new scope for its target expr.
     """
 
+    target_expr_scope: ExprScope
+    parent_mapper: Optional[JsonMapper]
+    target_expr_eval_ctx: Optional[RowBuilder.EvalCtx]
+
     def __init__(self, src_expr: Expr, target_expr: Expr):
         # TODO: type spec should be list[target_expr.col_type]
         super().__init__(ts.JsonType())
@@ -34,8 +37,8 @@ class JsonMapper(Expr):
         from .object_ref import ObjectRef
 
         self.components = [src_expr, target_expr]
-        self.parent_mapper: Optional[JsonMapper] = None
-        self.target_expr_eval_ctx: Optional[RowBuilder.EvalCtx] = None
+        self.parent_mapper = None
+        self.target_expr_eval_ctx = None
 
         # Intentionally create the id now, before adding the scope anchor; this ensures that JsonMappers will
         # be recognized as equal so long as they have the same src_expr and target_expr.
