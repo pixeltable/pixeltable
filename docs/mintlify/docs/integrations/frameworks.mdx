@@ -145,9 +145,12 @@ If you have a framework that you want us to integrate with, please reach out and
 
     # Create a table with computed column for OpenAI completion
     table = pxt.create_table('responses', {'prompt': pxt.String})
-    table['response'] = openai.chat_completions(
-        messages=[{'role': 'user', 'content': table.prompt}],
-        model='gpt-4'
+
+    table.add_computed_column(
+        response=openai.chat_completions(
+            messages=[{'role': 'user', 'content': table.prompt}],
+            model='gpt-4'
+        )
     )
     ```
   </Accordion>
@@ -157,9 +160,11 @@ If you have a framework that you want us to integrate with, please reach out and
     from pixeltable.functions.yolox import yolox
     
     # Add object detection to video frames
-    frames_view['detections'] = yolox(
-        frames_view.frame,
-        model_id='yolox_l'
+    frames_view.add_computed_column(
+        detections=yolox(
+            frames_view.frame,
+            model_id='yolox_l'
+        )
     )
     ```
   </Accordion>
@@ -169,9 +174,11 @@ If you have a framework that you want us to integrate with, please reach out and
     from pixeltable.functions import openai
     
     # Transcribe audio files
-    audio_table['transcription'] = openai.transcriptions(
-        audio=audio_table.file,
-        model='whisper-1'
+    audio_table.add_computed_column(
+        transcription=openai.transcriptions(
+            audio=audio_table.file,
+            model='whisper-1'
+        )
     )
     ```
   </Accordion>

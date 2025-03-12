@@ -37,15 +37,19 @@ Requirements: Install required dependencies with `pip install transformers`. Som
 from pixeltable.functions.huggingface import clip
 
 # For text embedding
-table['text_embedding'] = clip(
-    table.text_column,
-    model_id='openai/clip-vit-base-patch32'
+t.add_computed_column(
+    text_embedding=clip(
+        t.text_column,
+        model_id='openai/clip-vit-base-patch32'
+    )
 )
 
 # For image embedding
-table['image_embedding'] = clip(
-    table.image_column,
-    model_id='openai/clip-vit-base-patch32'
+t.add_computed_column(
+    image_embedding=clip(
+        t.image_column,
+        model_id='openai/clip-vit-base-patch32'
+    )
 )
 ```
 Perfect for multimodal applications combining text and image understanding.
@@ -54,10 +58,12 @@ Perfect for multimodal applications combining text and image understanding.
 ```python
 from pixeltable.functions.huggingface import cross_encoder
 
-table['similarity_score'] = cross_encoder(
-    table.sentence1,
-    table.sentence2,
-    model_id='cross-encoder/ms-marco-MiniLM-L-4-v2'
+t.add_computed_column(
+    similarity_score=cross_encoder(
+        t.sentence1,
+        t.sentence2,
+        model_id='cross-encoder/ms-marco-MiniLM-L-4-v2'
+    )
 )
 ```
 Ideal for semantic similarity tasks and sentence pair classification.
@@ -66,14 +72,18 @@ Ideal for semantic similarity tasks and sentence pair classification.
 ```python
 from pixeltable.functions.huggingface import detr_for_object_detection
 
-table['detections'] = detr_for_object_detection(
-    table.image,
-    model_id='facebook/detr-resnet-50',
-    threshold=0.8
+t.add_computed_column(
+    detections=detr_for_object_detection(
+        t.image,
+        model_id='facebook/detr-resnet-50',
+        threshold=0.8
+    )
 )
 
 # Convert to COCO format if needed
-table['coco_format'] = detr_to_coco(table.image, table.detections)
+t.add_computed_column(
+    coco_format=detr_to_coco(t.image, t.detections)
+)
 ```
 Powerful object detection with end-to-end transformer architecture.
 
@@ -81,10 +91,12 @@ Powerful object detection with end-to-end transformer architecture.
 ```python
 from pixeltable.functions.huggingface import sentence_transformer
 
-table['embeddings'] = sentence_transformer(
-    table.text,
-    model_id='sentence-transformers/all-mpnet-base-v2',
-    normalize_embeddings=True
+t.add_computed_column(
+    embeddings=sentence_transformer(
+        t.text,
+        model_id='sentence-transformers/all-mpnet-base-v2',
+        normalize_embeddings=True
+    )
 )
 ```
 State-of-the-art sentence and document embeddings for semantic search and similarity.
@@ -94,16 +106,20 @@ State-of-the-art sentence and document embeddings for semantic search and simila
 from pixeltable.functions.huggingface import speech2text_for_conditional_generation
 
 # Basic transcription
-table['transcript'] = speech2text_for_conditional_generation(
-    table.audio,
-    model_id='facebook/s2t-small-librispeech-asr'
+t.add_computed_column(
+    transcript=speech2text_for_conditional_generation(
+        t.audio,
+        model_id='facebook/s2t-small-librispeech-asr'
+    )
 )
 
 # Multilingual translation
-table['translation'] = speech2text_for_conditional_generation(
-    table.audio,
-    model_id='facebook/s2t-medium-mustc-multilingual-st',
-    language='fr'
+t.add_computed_column(
+    translation=speech2text_for_conditional_generation(
+        t.audio,
+        model_id='facebook/s2t-medium-mustc-multilingual-st',
+        language='fr'
+    )
 )
 ```
 Support for both transcription and translation of audio content.
@@ -112,10 +128,12 @@ Support for both transcription and translation of audio content.
 ```python
 from pixeltable.functions.huggingface import vit_for_image_classification
 
-table['classifications'] = vit_for_image_classification(
-    table.image,
-    model_id='google/vit-base-patch16-224',
-    top_k=5
+t.add_computed_column(
+    classifications=vit_for_image_classification(
+        t.image,
+        model_id='google/vit-base-patch16-224',
+        top_k=5
+    )
 )
 ```
 Modern image classification using transformer architecture.
@@ -127,8 +145,12 @@ Modern image classification using transformer architecture.
     All models can be used directly in computed columns for automated processing:
     ```python
     # Example: Combine CLIP embeddings with ViT classification
-    table['image_features'] = clip(table.image, model_id='openai/clip-vit-base-patch32')
-    table['classifications'] = vit_for_image_classification(table.image, model_id='google/vit-base-patch16-224')
+    t.add_computed_column(
+        image_features=clip(t.image, model_id='openai/clip-vit-base-patch32')
+    )
+    t.add_computed_column(
+        classifications=vit_for_image_classification(t.image, model_id='google/vit-base-patch16-224')
+    )
     ```
   </Accordion>
 
@@ -136,9 +158,11 @@ Modern image classification using transformer architecture.
     Pixeltable automatically handles batch processing and optimization:
     ```python
     # Pixeltable efficiently processes large datasets
-    table['embeddings'] = sentence_transformer(
-        table.text,
-        model_id='all-mpnet-base-v2'
+    t.add_computed_column(
+        embeddings=sentence_transformer(
+            t.text,
+            model_id='all-mpnet-base-v2'
+        )
     )
     ```
   </Accordion>
