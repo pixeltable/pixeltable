@@ -17,7 +17,6 @@ if TYPE_CHECKING:
 
 from .utils import (
     find_or_create_table,
-    find_or_create_table2,
     normalize_import_parameters,
     normalize_primary_key_parameter,
     normalize_schema_names,
