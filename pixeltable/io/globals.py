@@ -1,3 +1,7 @@
+import json
+import urllib.parse
+import urllib.request
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union
 
 import pixeltable as pxt
@@ -5,9 +9,59 @@ import pixeltable.exceptions as excs
 from pixeltable import Table, exprs
 from pixeltable.env import Env
 from pixeltable.io.external_store import SyncStatus
+from pixeltable.utils import parse_local_file_path
 
 if TYPE_CHECKING:
     import fiftyone as fo  # type: ignore[import-untyped]
+
+
+from .utils import find_or_create_table, normalize_import_parameters, normalize_schema_names
+
+
+def _infer_schema_from_rows(
+    rows: list[dict[str, Any]], schema_overrides: dict[str, Any], primary_key: list[str]
+) -> dict[str, pxt.ColumnType]:
+    schema: dict[str, pxt.ColumnType] = {}
+    cols_with_nones: set[str] = set()
+
+    for n, row in enumerate(rows):
+        for col_name, value in row.items():
+            if col_name in schema_overrides:
+                # We do the insertion here; this will ensure that the column order matches the order
+                # in which the column names are encountered in the input data, even if `schema_overrides`
+                # is specified.
+                if col_name not in schema:
+                    schema[col_name] = schema_overrides[col_name]
+            elif value is not None:
+                # If `key` is not in `schema_overrides`, then we infer its type from the data.
+                # The column type will always be nullable by default.
+                col_type = pxt.ColumnType.infer_literal_type(value, nullable=col_name not in primary_key)
+                if col_type is None:
+                    raise excs.Error(
+                        f'Could not infer type for column `{col_name}`; the value in row {n} has an unsupported type: {type(value)}'
+                    )
+                if col_name not in schema:
+                    schema[col_name] = col_type
+                else:
+                    supertype = schema[col_name].supertype(col_type)
+                    if supertype is None:
+                        raise excs.Error(
+                            f'Could not infer type of column `{col_name}`; the value in row {n} does not match preceding type {schema[col_name]}: {value!r}\n'
+                            'Consider specifying the type explicitly in `schema_overrides`.'
+                        )
+                    schema[col_name] = supertype
+            else:
+                cols_with_nones.add(col_name)
+
+    entirely_none_cols = cols_with_nones - schema.keys()
+    if len(entirely_none_cols) > 0:
+        # A column can only end up in `entirely_none_cols` if it was not in `schema_overrides` and
+        # was not encountered in any row with a non-None value.
+        raise excs.Error(
+            f'The following columns have no non-null values: {", ".join(entirely_none_cols)}\n'
+            'Consider specifying the type(s) explicitly in `schema_overrides`.'
+        )
+    return schema
 
 
 def create_label_studio_project(
@@ -140,7 +194,7 @@ def import_rows(
     tbl_path: str,
     rows: list[dict[str, Any]],
     *,
-    schema_overrides: Optional[dict[str, pxt.ColumnType]] = None,
+    schema_overrides: Optional[dict[str, Any]] = None,
     primary_key: Optional[Union[str, list[str]]] = None,
     num_retained_versions: int = 10,
     comment: str = '',
@@ -169,67 +223,22 @@ def import_rows(
     Returns:
         A handle to the newly created [`Table`][pixeltable.Table].
     """
-    if schema_overrides is None:
-        schema_overrides = {}
-    schema: dict[str, pxt.ColumnType] = {}
-    cols_with_nones: set[str] = set()
+    schema_overrides, primary_key = normalize_import_parameters(schema_overrides, primary_key)
+    row_schema = _infer_schema_from_rows(rows, schema_overrides, primary_key)
+    schema, pxt_pk, _ = normalize_schema_names(row_schema, primary_key, schema_overrides, True)
 
-    for n, row in enumerate(rows):
-        for col_name, value in row.items():
-            if col_name in schema_overrides:
-                # We do the insertion here; this will ensure that the column order matches the order
-                # in which the column names are encountered in the input data, even if `schema_overrides`
-                # is specified.
-                if col_name not in schema:
-                    schema[col_name] = schema_overrides[col_name]
-            elif value is not None:
-                # If `key` is not in `schema_overrides`, then we infer its type from the data.
-                # The column type will always be nullable by default.
-                col_type = pxt.ColumnType.infer_literal_type(value, nullable=True)
-                if col_type is None:
-                    raise excs.Error(
-                        f'Could not infer type for column `{col_name}`; the value in row {n} has an unsupported type: {type(value)}'
-                    )
-                if col_name not in schema:
-                    schema[col_name] = col_type
-                else:
-                    supertype = schema[col_name].supertype(col_type)
-                    if supertype is None:
-                        raise excs.Error(
-                            f'Could not infer type of column `{col_name}`; the value in row {n} does not match preceding type {schema[col_name]}: {value!r}\n'
-                            'Consider specifying the type explicitly in `schema_overrides`.'
-                        )
-                    schema[col_name] = supertype
-            else:
-                cols_with_nones.add(col_name)
-
-    extraneous_keys = schema_overrides.keys() - schema.keys()
-    if len(extraneous_keys) > 0:
-        raise excs.Error(
-            f'The following columns specified in `schema_overrides` are not present in the data: {", ".join(extraneous_keys)}'
-        )
-
-    entirely_none_cols = cols_with_nones - schema.keys()
-    if len(entirely_none_cols) > 0:
-        # A column can only end up in `entirely_null_cols` if it was not in `schema_overrides` and
-        # was not encountered in any row with a non-None value.
-        raise excs.Error(
-            f'The following columns have no non-null values: {", ".join(entirely_none_cols)}\n'
-            'Consider specifying the type(s) explicitly in `schema_overrides`.'
-        )
-
-    t = pxt.create_table(
-        tbl_path, schema, primary_key=primary_key, num_retained_versions=num_retained_versions, comment=comment
+    table = find_or_create_table(
+        tbl_path, schema, primary_key=pxt_pk, num_retained_versions=num_retained_versions, comment=comment
     )
-    t.insert(rows)
-    return t
+    table.insert(rows)
+    return table
 
 
 def import_json(
     tbl_path: str,
     filepath_or_url: str,
     *,
-    schema_overrides: Optional[dict[str, pxt.ColumnType]] = None,
+    schema_overrides: Optional[dict[str, Any]] = None,
     primary_key: Optional[Union[str, list[str]]] = None,
     num_retained_versions: int = 10,
     comment: str = '',
@@ -253,32 +262,34 @@ def import_json(
     Returns:
         A handle to the newly created [`Table`][pixeltable.Table].
     """
-    import json
-    import urllib.parse
-    import urllib.request
-
-    # TODO Consolidate this logic with other places where files/URLs are parsed
-    parsed = urllib.parse.urlparse(filepath_or_url)
-    if len(parsed.scheme) <= 1 or parsed.scheme == 'file':
-        # local file path
-        if len(parsed.scheme) <= 1:
-            filepath = filepath_or_url
-        else:
-            filepath = urllib.parse.unquote(urllib.request.url2pathname(parsed.path))
-        with open(filepath) as fp:
-            contents = fp.read()
-    else:
-        # URL
+    path = parse_local_file_path(filepath_or_url)
+    if path is None:  # it's a URL
+        # TODO: This should read from S3 as well.
         contents = urllib.request.urlopen(filepath_or_url).read()
-    data = json.loads(contents, **kwargs)
-    return import_rows(
-        tbl_path,
-        data,
-        schema_overrides=schema_overrides,
-        primary_key=primary_key,
-        num_retained_versions=num_retained_versions,
-        comment=comment,
+    else:
+        with open(path) as fp:
+            contents = fp.read()
+
+    rows = json.loads(contents, **kwargs)
+
+    schema_overrides, primary_key = normalize_import_parameters(schema_overrides, primary_key)
+    row_schema = _infer_schema_from_rows(rows, schema_overrides, primary_key)
+    schema, pxt_pk, col_mapping = normalize_schema_names(row_schema, primary_key, schema_overrides, False)
+
+    # Convert all rows to insertable format - not needed, misnamed columns and types are errors in the incoming row format
+    if col_mapping is not None:
+        tbl_rows = [
+            {field if col_mapping is None else col_mapping[field]: val for field, val in row.items()} for row in rows
+        ]
+    else:
+        tbl_rows = rows
+
+    table = find_or_create_table(
+        tbl_path, schema, primary_key=pxt_pk, num_retained_versions=num_retained_versions, comment=comment
     )
+
+    table.insert(tbl_rows)
+    return table
 
 
 def export_images_as_fo_dataset(
