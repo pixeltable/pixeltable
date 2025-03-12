@@ -110,7 +110,7 @@ class Table(SchemaObject):
                 ```
         """
         self._check_is_dropped()
-        with env.Env.get().begin():
+        with env.Env.get().begin_xact():
             md = super().get_metadata()
             md['base'] = self._base._path() if self._base is not None else None
             md['schema'] = self._schema
@@ -148,8 +148,6 @@ class Table(SchemaObject):
         col = self._tbl_version_path.get_column(name)
         if col is None:
             raise AttributeError(f'Column {name!r} unknown')
-        from pixeltable.exprs import ColumnRef
-
         return ColumnRef(col)
 
     def __getitem__(self, name: str) -> 'pxt.exprs.ColumnRef':
@@ -168,7 +166,7 @@ class Table(SchemaObject):
             A list of view paths.
         """
         self._check_is_dropped()
-        with env.Env.get().begin():
+        with env.Env.get().begin_xact():
             return [t._path() for t in self._get_views(recursive=recursive)]
 
     def _get_views(self, *, recursive: bool = True) -> list['Table']:
@@ -390,7 +388,7 @@ class Table(SchemaObject):
         self._is_dropped = True
         # update catalog
         cat = catalog.Catalog.get()
-        cat.clear_tbl(self._id)
+        cat.remove_tbl(self._id)
 
     # TODO Factor this out into a separate module.
     # The return type is unresolvable, but torch can't be imported since it's an optional dependency.
@@ -497,7 +495,7 @@ class Table(SchemaObject):
             for col_name, spec in schema.items()
         }
 
-        with Env.get().begin():
+        with Env.get().begin_xact():
             # handle existing columns based on if_exists parameter
             cols_to_ignore = self._ignore_or_drop_existing_columns(
                 list(col_schema.keys()), IfExistsParam.validated(if_exists, 'if_exists')
@@ -551,7 +549,7 @@ class Table(SchemaObject):
         """
         self._check_is_dropped()
         # verify kwargs
-        if self._tbl_version.get().is_snapshot():
+        if self._tbl_version.get().is_snapshot:
             raise excs.Error('Cannot add column to a snapshot.')
         # verify kwargs and construct column schema dict
         if len(kwargs) != 1:
@@ -628,7 +626,7 @@ class Table(SchemaObject):
         if stored is not None:
             col_schema['stored'] = stored
 
-        with Env.get().begin():
+        with Env.get().begin_xact():
             # handle existing columns based on if_exists parameter
             cols_to_ignore = self._ignore_or_drop_existing_columns(
                 [col_name], IfExistsParam.validated(if_exists, 'if_exists')
@@ -694,6 +692,7 @@ class Table(SchemaObject):
             elif isinstance(spec, exprs.Expr):
                 # create copy so we can modify it
                 value_expr = spec.copy()
+                value_expr.bind_rel_paths()
             elif isinstance(spec, dict):
                 cls._validate_column_spec(name, spec)
                 if 'type' in spec:
@@ -704,6 +703,7 @@ class Table(SchemaObject):
                 if value_expr is not None and isinstance(value_expr, exprs.Expr):
                     # create copy so we can modify it
                     value_expr = value_expr.copy()
+                    value_expr.bind_rel_paths()
                 stored = spec.get('stored', True)
                 primary_key = spec.get('primary_key')
                 media_validation_str = spec.get('media_validation')
@@ -818,7 +818,7 @@ class Table(SchemaObject):
                 f'{", ".join(c.name for c in dependent_user_cols)}'
             )
 
-        with Env.get().begin():
+        with Env.get().begin_xact():
             # See if this column has a dependent store. We need to look through all stores in all
             # (transitive) views of this table.
             dependent_stores = [
@@ -855,7 +855,7 @@ class Table(SchemaObject):
             >>> tbl = pxt.get_table('my_table')
             ... tbl.rename_column('col1', 'col2')
         """
-        with Env.get().begin():
+        with Env.get().begin_xact():
             self._tbl_version.get().rename_column(old_name, new_name)
 
     def _list_index_info_for_test(self) -> list[dict[str, Any]]:
@@ -972,7 +972,7 @@ class Table(SchemaObject):
             self.__check_column_ref_exists(column, include_bases=True)
             col = column.col
 
-        with Env.get().begin():
+        with Env.get().begin_xact():
             if idx_name is not None and idx_name in self._tbl_version.get().idxs_by_name:
                 _if_exists = IfExistsParam.validated(if_exists, 'if_exists')
                 # An index with the same name already exists.
@@ -994,8 +994,7 @@ class Table(SchemaObject):
             idx = EmbeddingIndex(
                 col, metric=metric, embed=embedding, string_embed=string_embed, image_embed=image_embed
             )
-            with env.Env.get().begin():
-                status = self._tbl_version.get().add_index(col, idx_name=idx_name, idx=idx)
+            status = self._tbl_version.get().add_index(col, idx_name=idx_name, idx=idx)
             # TODO: how to deal with exceptions here? drop the index and raise?
             FileCache.get().emit_eviction_warnings()
 
@@ -1062,7 +1061,7 @@ class Table(SchemaObject):
                 col = column.col
             assert col is not None
 
-        with Env.get().begin():
+        with Env.get().begin_xact():
             self._drop_index(col=col, idx_name=idx_name, _idx_class=index.EmbeddingIndex, if_not_exists=if_not_exists)
 
     def drop_index(
@@ -1128,7 +1127,7 @@ class Table(SchemaObject):
                 col = column.col
             assert col is not None
 
-        with Env.get().begin():
+        with Env.get().begin_xact():
             self._drop_index(col=col, idx_name=idx_name, if_not_exists=if_not_exists)
 
     def _drop_index(
@@ -1282,7 +1281,7 @@ class Table(SchemaObject):
 
             >>> tbl.update({'int_col': tbl.int_col + 1}, where=tbl.int_col == 0)
         """
-        with Env.get().begin():
+        with Env.get().begin_xact():
             status = self._tbl_version.get().update(value_spec, where, cascade)
             FileCache.get().emit_eviction_warnings()
             return status
@@ -1346,7 +1345,7 @@ class Table(SchemaObject):
                     raise excs.Error(f'Primary key columns ({", ".join(missing_cols)}) missing in {row_spec}')
             row_updates.append(col_vals)
 
-        with Env.get().begin():
+        with Env.get().begin_xact():
             status = self._tbl_version.get().batch_update(
                 row_updates,
                 rowids,
@@ -1382,7 +1381,7 @@ class Table(SchemaObject):
         """
         if self._tbl_version_path.is_snapshot():
             raise excs.Error('Cannot revert a snapshot')
-        with Env.get().begin():
+        with Env.get().begin_xact():
             self._tbl_version.get().revert()
 
     @property
@@ -1393,12 +1392,12 @@ class Table(SchemaObject):
         """
         Links the specified `ExternalStore` to this table.
         """
-        if self._tbl_version.get().is_snapshot():
+        if self._tbl_version.get().is_snapshot:
             raise excs.Error(f'Table `{self._name}` is a snapshot, so it cannot be linked to an external store.')
         if store.name in self.external_stores:
             raise excs.Error(f'Table `{self._name}` already has an external store with that name: {store.name}')
         _logger.info(f'Linking external store `{store.name}` to table `{self._name}`')
-        with Env.get().begin():
+        with Env.get().begin_xact():
             self._tbl_version.get().link_external_store(store)
             env.Env.get().console_logger.info(f'Linked external store `{store.name}` to table `{self._name}`.')
 
@@ -1434,7 +1433,7 @@ class Table(SchemaObject):
                 if store not in all_stores:
                     raise excs.Error(f'Table `{self._name}` has no external store with that name: {store}')
 
-        with Env.get().begin():
+        with Env.get().begin_xact():
             for store in stores:
                 self._tbl_version.get().unlink_external_store(store, delete_external_data=delete_external_data)
                 env.Env.get().console_logger.info(f'Unlinked external store from table `{self._name}`: {store}')
@@ -1464,7 +1463,7 @@ class Table(SchemaObject):
                 raise excs.Error(f'Table `{self._name}` has no external store with that name: {store}')
 
         sync_status = pxt.io.SyncStatus.empty()
-        with Env.get().begin():
+        with Env.get().begin_xact():
             for store in stores:
                 store_obj = self._tbl_version.get().external_stores[store]
                 store_sync_status = store_obj.sync(self, export_data=export_data, import_data=import_data)

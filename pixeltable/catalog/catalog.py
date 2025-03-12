@@ -9,9 +9,9 @@ import sqlalchemy as sql
 
 import pixeltable.exceptions as excs
 import pixeltable.metadata.schema as schema
+from pixeltable.env import Env
 
-# This import must go last to avoid circular imports.
-from pixeltable.env import Env  # isort: skip
+from pixeltable.env import Env
 from .dir import Dir
 from .schema_object import SchemaObject
 from .table import Table
@@ -288,7 +288,7 @@ class Catalog:
         result = [r[0] for r in conn.execute(q).all()]
         return result
 
-    def clear_tbl(self, tbl_id: UUID) -> None:
+    def remove_tbl(self, tbl_id: UUID) -> None:
         assert tbl_id in self._tbls
         del self._tbls[tbl_id]
 
@@ -301,11 +301,11 @@ class Catalog:
         """Explicitly add a TableVersion"""
         self._tbl_versions[(tbl_version.id, tbl_version.effective_version)] = tbl_version
         # if this is a mutable view, also record it in the base
-        if tbl_version.is_view() and tbl_version.effective_version is None:
+        if tbl_version.is_view and tbl_version.effective_version is None:
             base = tbl_version.base.get()
             base.mutable_views.append(TableVersionHandle(tbl_version.id, tbl_version.effective_version))
 
-    def clear_tbl_version(self, tbl_version: TableVersion) -> None:
+    def remove_tbl_version(self, tbl_version: TableVersion) -> None:
         assert (tbl_version.id, tbl_version.effective_version) in self._tbl_versions
         del self._tbl_versions[(tbl_version.id, tbl_version.effective_version)]
 
@@ -498,9 +498,9 @@ class Catalog:
 
     def _init_store(self) -> None:
         """One-time initialization of the stored catalog. Idempotent."""
-        with Env.get().begin() as conn:
-            q = sql.select(sql.func.count(schema.Dir.id))
-            if conn.execute(q).scalar_one() > 0:
+        with env.Env.get().begin_xact():
+            session = env.Env.get().session
+            if session.query(sql.func.count(schema.Dir.id)).scalar() > 0:
                 return
             # create a top-level directory, so that every schema object has a directory
             dir_md = schema.DirMd(name='', user=None, additional_md={})

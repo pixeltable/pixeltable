@@ -79,7 +79,7 @@ class RowidRef(Expr):
 
         tbl = self.tbl.get() if self.tbl is not None else catalog.Catalog.get().get_tbl_version(self.tbl_id, None)
         if (
-            tbl.is_component_view()
+            tbl.is_component_view
             and self.rowid_component_idx == cast(store.StoreComponentView, tbl.store_tbl).pos_col_idx
         ):
             return catalog.globals._POS_COLUMN_NAME

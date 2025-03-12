@@ -28,14 +28,14 @@ class SchemaObject:
         """Returns the parent directory of this schema object."""
         from .catalog import Catalog
 
-        with env.Env.get().begin():
+        with env.Env.get().begin_xact():
             if self._dir_id is None:
                 return None
             return Catalog.get().get_dir(self._dir_id)
 
     def _path(self) -> str:
         """Returns the path to this schema object."""
-        with env.Env.get().begin():
+        with env.Env.get().begin_xact():
             from .catalog import Catalog
 
             cat = Catalog.get()

@@ -250,7 +250,7 @@ class TestTable:
                     'base': None if t._base is None else t._base._path(),
                     'comment': t._comment,
                     'is_view': isinstance(t, catalog.View),
-                    'is_snapshot': t._tbl_version.get().is_snapshot(),
+                    'is_snapshot': t._tbl_version.get().is_snapshot,
                     'name': t._name,
                     'num_retained_versions': t._num_retained_versions,
                     'media_validation': media_val,

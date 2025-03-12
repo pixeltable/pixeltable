@@ -90,7 +90,7 @@ def export_parquet(
         current_value_batch: dict[str, deque] = {k: deque() for k in df.schema.keys()}
         current_byte_estimate = 0
 
-        with Env.get().begin():
+        with Env.get().begin_xact():
             for data_row in df._exec():
                 for (col_name, col_type), e in zip(df.schema.items(), df._select_list_exprs):
                     val = data_row[e.slot_idx]
