@@ -4,18 +4,16 @@ import logging
 from typing import Any, Iterable, Literal, Optional, overload
 from uuid import UUID
 
-import sqlalchemy.orm as orm
-
 import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable import exceptions as excs
 from pixeltable.env import Env
 from pixeltable.utils.filecache import FileCache
 
-from .catalog import Catalog
 from .globals import MediaValidation, UpdateStatus
 from .table import Table
 from .table_version import TableVersion
+from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
 
 _logger = logging.getLogger('pixeltable')
@@ -24,15 +22,14 @@ _logger = logging.getLogger('pixeltable')
 class InsertableTable(Table):
     """A `Table` that allows inserting and deleting rows."""
 
-    def __init__(self, dir_id: UUID, tbl_version: TableVersion):
+    def __init__(self, dir_id: UUID, tbl_version: TableVersionHandle):
         tbl_version_path = TableVersionPath(tbl_version)
-        super().__init__(tbl_version.id, dir_id, tbl_version.name, tbl_version_path)
+        super().__init__(tbl_version.id, dir_id, tbl_version.get().name, tbl_version_path)
 
     @classmethod
     def _display_name(cls) -> str:
         return 'table'
 
-    # MODULE-LOCAL, NOT PUBLIC
     @classmethod
     def _create(
         cls,
@@ -56,33 +53,29 @@ class InsertableTable(Table):
                 raise excs.Error(f'Primary key column {pk_col} cannot be nullable')
             col.is_pk = True
 
-        with orm.Session(Env.get().engine, future=True) as session:
-            _, tbl_version = TableVersion.create(
-                session,
-                dir_id,
-                name,
-                columns,
-                num_retained_versions=num_retained_versions,
-                comment=comment,
-                media_validation=media_validation,
-            )
-            tbl = cls(dir_id, tbl_version)
-            # TODO We need to commit before doing the insertion, in order to avoid a primary key (version) collision
-            #   when the table metadata gets updated. Once we have a notion of user-defined transactions in
-            #   Pixeltable, we can wrap the create/insert in a transaction to avoid this.
-            session.commit()
-            if df is not None:
-                # A DataFrame was provided, so insert its contents into the table
-                # (using the same DB session as the table creation)
-                tbl_version.insert(None, df, conn=session.connection(), fail_on_exception=True)
-            session.commit()
-            cat = Catalog.get()
-            cat.tbl_dependents[tbl._id] = []
-            cat.tbls[tbl._id] = tbl
+        _, tbl_version = TableVersion.create(
+            dir_id,
+            name,
+            columns,
+            num_retained_versions=num_retained_versions,
+            comment=comment,
+            media_validation=media_validation,
+        )
+        tbl = cls(dir_id, TableVersionHandle.create(tbl_version))
+        # TODO We need to commit before doing the insertion, in order to avoid a primary key (version) collision
+        #   when the table metadata gets updated. Once we have a notion of user-defined transactions in
+        #   Pixeltable, we can wrap the create/insert in a transaction to avoid this.
+        session = Env.get().session
+        session.commit()
+        if df is not None:
+            # A DataFrame was provided, so insert its contents into the table
+            # (using the same DB session as the table creation)
+            tbl_version.insert(None, df, fail_on_exception=True)
+        session.commit()
 
-            _logger.info(f'Created table `{name}`, id={tbl_version.id}')
-            Env.get().console_logger.info(f'Created table `{name}`.')
-            return tbl
+        _logger.info(f'Created table `{name}`, id={tbl_version.id}')
+        Env.get().console_logger.info(f'Created table `{name}`.')
+        return tbl
 
     def get_metadata(self) -> dict[str, Any]:
         md = super().get_metadata()
@@ -131,7 +124,10 @@ class InsertableTable(Table):
             if not isinstance(row, dict):
                 raise excs.Error('rows must be a list of dictionaries')
         self._validate_input_rows(rows)
-        status = self._tbl_version.insert(rows, None, print_stats=print_stats, fail_on_exception=fail_on_exception)
+        with Env.get().begin_xact():
+            status = self._tbl_version.get().insert(
+                rows, None, print_stats=print_stats, fail_on_exception=fail_on_exception
+            )
 
         if status.num_excs == 0:
             cols_with_excs_str = ''
@@ -152,8 +148,8 @@ class InsertableTable(Table):
     def _validate_input_rows(self, rows: list[dict[str, Any]]) -> None:
         """Verify that the input rows match the table schema"""
         valid_col_names = set(self._schema.keys())
-        reqd_col_names = set(self._tbl_version_path.tbl_version.get_required_col_names())
-        computed_col_names = set(self._tbl_version_path.tbl_version.get_computed_col_names())
+        reqd_col_names = set(self._tbl_version_path.tbl_version.get().get_required_col_names())
+        computed_col_names = set(self._tbl_version_path.tbl_version.get().get_computed_col_names())
         for row in rows:
             assert isinstance(row, dict)
             col_names = set(row.keys())
@@ -191,4 +187,5 @@ class InsertableTable(Table):
 
             >>> tbl.delete(tbl.a > 5)
         """
-        return self._tbl_version.delete(where=where)
+        with Env.get().begin_xact():
+            return self._tbl_version.get().delete(where=where)

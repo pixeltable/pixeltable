@@ -139,12 +139,12 @@ class TestView:
         pxt.drop_table('test_view')
         with pytest.raises(excs.Error) as exc_info:
             _ = pxt.get_table('test_view')
-        assert 'No such path:' in str(exc_info.value)
+        assert 'does not exist' in str(exc_info.value)
         reload_catalog()
         # still true after reload
         with pytest.raises(excs.Error) as exc_info:
             _ = pxt.get_table('test_view')
-        assert 'No such path:' in str(exc_info.value)
+        assert 'does not exist' in str(exc_info.value)
 
         t = pxt.get_table('test_tbl')
         with pytest.raises(excs.Error) as exc_info:
@@ -163,7 +163,7 @@ class TestView:
         assert "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']" in str(exc_info.value)
 
         # scenario 1: a view exists at the path already
-        with pytest.raises(excs.Error, match=r'already exists'):
+        with pytest.raises(excs.Error, match='is an existing view'):
             pxt.create_view('test_view', t)
         # if_exists='ignore' should return the existing view
         v2 = pxt.create_view('test_view', t, if_exists='ignore')
@@ -177,7 +177,7 @@ class TestView:
 
         # scenario 2: a view exists at the path, but has dependency
         v_on_v = pxt.create_view('test_view_on_view', v2)
-        with pytest.raises(excs.Error, match=r'already exists'):
+        with pytest.raises(excs.Error, match='is an existing view'):
             pxt.create_view('test_view', t)
         # if_exists='ignore' should return the existing view
         v3 = pxt.create_view('test_view', t, if_exists='ignore')
@@ -201,14 +201,14 @@ class TestView:
 
         # scenario 3: path exists but is not a view
         _ = pxt.create_table('not_view', {'c1': pxt.String})
-        with pytest.raises(excs.Error, match=r'already exists'):
+        with pytest.raises(excs.Error, match='is an existing table'):
             pxt.create_view('not_view', t)
-        for _ie in ['ignore', 'replace', 'replace_force']:
+        for if_exists in ['ignore', 'replace', 'replace_force']:
             with pytest.raises(excs.Error) as exc_info:
-                _ = pxt.create_view('not_view', t, if_exists=_ie)  # type: ignore[arg-type]
+                _ = pxt.create_view('not_view', t, if_exists=if_exists)  # type: ignore[arg-type]
             err_msg = str(exc_info.value).lower()
             assert 'already exists' in err_msg and 'is not a view' in err_msg
-            assert 'not_view' in pxt.list_tables(), f'with if_exists={_ie}'
+            assert 'not_view' in pxt.list_tables(), f'with if_exists={if_exists}'
 
         # sanity check persistence
         _ = reload_tester.run_query(t.select())
@@ -634,12 +634,10 @@ class TestView:
         check_views()
 
     def test_selected_cols(self, reset_db, reload_tester: ReloadTester) -> None:
-        reload_tester.clear()
         t = self.create_tbl()
 
-        schema = {'v1': {'value': t.c2, 'stored': True}}
-
         # Note that v1.c3 overrides t.c3, but both are accessible
+        schema = {'v1': {'value': t.c2, 'stored': True}}
         v1 = pxt.create_view(
             'test_view1', t.select(t.c2, t.c2 + 99, foo=t.c2, bar=t.c2 + 27, c3=t.c3 * 2), additional_columns=schema
         )
@@ -657,7 +655,7 @@ class TestView:
         res1 = reload_tester.run_query(v1.select(t.c2 == v1.c2, t.c3 * 2 == v1.c3))
         assert all(all(row) for row in res1)
 
-        with pytest.raises(AttributeError, match='Column c1 unknown'):
+        with pytest.raises(AttributeError, match="Column 'c1' unknown"):
             _ = v1.select(v1.c1).head(5)
 
         res = reload_tester.run_query(v1.select(t.c4).limit(5))
@@ -681,7 +679,7 @@ class TestView:
         res2b = v1.select(v1.c2, v1.c3)
         assert_resultset_eq(res2a.collect(), res2b.collect())
 
-        with pytest.raises(AttributeError, match='Column c1 unknown'):
+        with pytest.raises(AttributeError, match="Column 'c1' unknown"):
             _ = v1.select(v1.c1).head(5)
 
     def test_computed_cols(self, reset_db) -> None:

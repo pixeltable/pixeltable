@@ -18,7 +18,7 @@ class TestSnapshot:
         extra_items: dict[str, Any],
         reload_md: bool,
     ) -> None:
-        tbl_path, snap_path = tbl._path, snap._path
+        tbl_path, snap_path = tbl._path(), snap._path()
         # run the initial query against the base table here, before reloading, otherwise the filter breaks
         tbl_select_list = [tbl[col_name] for col_name in tbl._schema.keys()]
         tbl_select_list.extend([value_expr for _, value_expr in extra_items.items()])
@@ -101,7 +101,7 @@ class TestSnapshot:
         # the time of creating a snapshot will raise an error now.
         tbl = create_test_tbl(name=tbl_path)
         assert 'c1' in tbl.columns
-        with pytest.raises(pxt.Error, match=r"Column 'c1' already exists in the base table"):
+        with pytest.raises(pxt.Error, match="Column 'c1' already exists in the base table"):
             pxt.create_snapshot('snap2', tbl, additional_columns={'c1': pxt.Int})
 
     def __test_create_if_exists(self, sname: str, t: pxt.Table, s: pxt.Table) -> None:
@@ -121,7 +121,7 @@ class TestSnapshot:
         )
 
         # scenario 1: a snapshot exists at the path already
-        with pytest.raises(pxt.Error, match=r'already exists'):
+        with pytest.raises(pxt.Error, match='is an existing'):
             pxt.create_snapshot(sname, t)
         # if_exists='ignore' should return the existing snapshot
         s12 = pxt.create_snapshot(sname, t, if_exists='ignore')
@@ -138,7 +138,7 @@ class TestSnapshot:
         # dependent of the snapshot iff the snapshot has additional columns
         # not present in the base table/view of that snapshot.
         v_on_s1 = pxt.create_view('test_view_on_snapshot1', s12)
-        with pytest.raises(pxt.Error, match=r'already exists'):
+        with pytest.raises(pxt.Error, match='is an existing'):
             pxt.create_snapshot(sname, t)
         # if_exists='ignore' should return the existing snapshot
         s13 = pxt.create_snapshot(sname, t, if_exists='ignore')
@@ -162,7 +162,7 @@ class TestSnapshot:
 
         # scenario 3: path exists but is not a snapshot
         _ = pxt.create_table('not_snapshot', {'c1': pxt.String}, if_exists='ignore')
-        with pytest.raises(pxt.Error, match=r'already exists'):
+        with pytest.raises(pxt.Error, match='is an existing'):
             pxt.create_snapshot('not_snapshot', t)
         for _ie in ['ignore', 'replace', 'replace_force']:
             with pytest.raises(excs.Error) as exc_info:
@@ -209,11 +209,11 @@ class TestSnapshot:
         assert 'cannot insert into view' in str(excinfo.value).lower()
 
         # adding column is not supported for snapshots
-        with pytest.raises(pxt.Error, match=r'Cannot add column to a snapshot'):
+        with pytest.raises(pxt.Error, match='Cannot add column to a snapshot'):
             snap.add_column(non_existing_col1=pxt.String)
-        with pytest.raises(pxt.Error, match=r'Cannot add column to a snapshot'):
+        with pytest.raises(pxt.Error, match='Cannot add column to a snapshot'):
             snap.add_computed_column(on_existing_col1=tbl.c2 + tbl.c3)
-        with pytest.raises(pxt.Error, match=r'Cannot add column to a snapshot'):
+        with pytest.raises(pxt.Error, match='Cannot add column to a snapshot'):
             snap.add_columns({'non_existing_col1': pxt.String, 'non_existing_col2': pxt.String})
 
         with pytest.raises(pxt.Error) as excinfo:
@@ -335,6 +335,8 @@ class TestSnapshot:
             assert np.all(s4.select(s4.c3).order_by(s4.c2).collect().to_pandas()['c3'] == orig_c3 + 1)
 
             # v1
+            a = v.select(v.v1).order_by(v.c2).collect().to_pandas()['v1']
+            b = t.select(t.c3).order_by(t.c2).collect().to_pandas()['c3']
             assert np.all(
                 v.select(v.v1).order_by(v.c2).collect().to_pandas()['v1']
                 == t.select(t.c3).order_by(t.c2).collect().to_pandas()['c3'] + 1

@@ -13,9 +13,9 @@ import sqlalchemy as sql
 from tqdm import TqdmWarning, tqdm
 
 import pixeltable.catalog as catalog
-import pixeltable.env as env
 import pixeltable.exceptions as excs
 from pixeltable import exprs
+from pixeltable.env import Env
 from pixeltable.exec import ExecNode
 from pixeltable.metadata import schema
 from pixeltable.utils.media_store import MediaStore
@@ -33,7 +33,7 @@ class StoreBase:
     - v_max: version at which the row was deleted (or MAX_VERSION if it's still live)
     """
 
-    tbl_version: catalog.TableVersion
+    tbl_version: catalog.TableVersionHandle
     sa_md: sql.MetaData
     sa_tbl: Optional[sql.Table]
     _pk_cols: list[sql.Column]
@@ -44,12 +44,14 @@ class StoreBase:
     __INSERT_BATCH_SIZE = 1000
 
     def __init__(self, tbl_version: catalog.TableVersion):
-        self.tbl_version = tbl_version
+        self.tbl_version = catalog.TableVersionHandle(
+            tbl_version.id, tbl_version.effective_version, tbl_version=tbl_version
+        )
         self.sa_md = sql.MetaData()
         self.sa_tbl = None
         # We need to declare a `base` variable here, even though it's only defined for instances of `StoreView`,
         # since it's referenced by various methods of `StoreBase`
-        self.base = None if tbl_version.base is None else tbl_version.base.store_tbl
+        self.base = tbl_version.base.get().store_tbl if tbl_version.base is not None else None
         self.create_sa_tbl()
 
     def pk_columns(self) -> list[sql.Column]:
@@ -76,7 +78,7 @@ class StoreBase:
         """Create self.sa_tbl from self.tbl_version."""
         system_cols = self._create_system_columns()
         all_cols = system_cols.copy()
-        for col in [c for c in self.tbl_version.cols if c.is_stored]:
+        for col in [c for c in self.tbl_version.get().cols if c.is_stored]:
             # re-create sql.Column for each column, regardless of whether it already has sa_col set: it was bound
             # to the last sql.Table version we created and cannot be reused
             col.create_sa_cols()
@@ -115,7 +117,7 @@ class StoreBase:
 
     def _move_tmp_media_file(self, file_url: Optional[str], col: catalog.Column, v_min: int) -> str:
         """Move tmp media file with given url to Env.media_dir and return new url, or given url if not a tmp_dir file"""
-        pxt_tmp_dir = str(env.Env.get().tmp_dir)
+        pxt_tmp_dir = str(Env.get().tmp_dir)
         if file_url is None:
             return None
         parsed = urllib.parse.urlparse(file_url)
@@ -158,36 +160,36 @@ class StoreBase:
             table_row[pk_col.name] = pk_val
         return table_row, num_excs
 
-    def count(self, conn: Optional[sql.engine.Connection] = None) -> int:
+    def count(self) -> int:
         """Return the number of rows visible in self.tbl_version"""
         stmt = (
             sql.select(sql.func.count('*'))
             .select_from(self.sa_tbl)
-            .where(self.v_min_col <= self.tbl_version.version)
-            .where(self.v_max_col > self.tbl_version.version)
+            .where(self.v_min_col <= self.tbl_version.get().version)
+            .where(self.v_max_col > self.tbl_version.get().version)
         )
-        if conn is None:
-            with env.Env.get().engine.connect() as conn:
-                result = conn.execute(stmt).scalar_one()
-        else:
-            result = conn.execute(stmt).scalar_one()
+        conn = Env.get().conn
+        result = conn.execute(stmt).scalar_one()
         assert isinstance(result, int)
         return result
 
-    def create(self, conn: sql.engine.Connection) -> None:
+    def create(self) -> None:
+        conn = Env.get().conn
         self.sa_md.create_all(bind=conn)
 
-    def drop(self, conn: sql.engine.Connection) -> None:
+    def drop(self) -> None:
         """Drop store table"""
+        conn = Env.get().conn
         self.sa_md.drop_all(bind=conn)
 
-    def add_column(self, col: catalog.Column, conn: sql.engine.Connection) -> None:
+    def add_column(self, col: catalog.Column) -> None:
         """Add column(s) to the store-resident table based on a catalog column
 
         Note that a computed catalog column will require two extra columns (for the computed value and for the error
         message).
         """
         assert col.is_stored
+        conn = Env.get().conn
         col_type_str = col.get_sa_col_type().compile(dialect=conn.dialect)
         stmt = sql.text(f'ALTER TABLE {self._storage_name()} ADD COLUMN {col.store_name()} {col_type_str} NULL')
         log_stmt(_logger, stmt)
@@ -207,8 +209,9 @@ class StoreBase:
         self.create_sa_tbl()
         _logger.info(f'Added columns {added_storage_cols} to storage table {self._storage_name()}')
 
-    def drop_column(self, col: catalog.Column, conn: sql.engine.Connection) -> None:
+    def drop_column(self, col: catalog.Column) -> None:
         """Execute Alter Table Drop Column statement"""
+        conn = Env.get().conn
         stmt = f'ALTER TABLE {self._storage_name()} DROP COLUMN {col.store_name()}'
         conn.execute(sql.text(stmt))
         if col.records_errors:
@@ -218,12 +221,7 @@ class StoreBase:
             conn.execute(sql.text(stmt))
 
     def load_column(
-        self,
-        col: catalog.Column,
-        exec_plan: ExecNode,
-        value_expr_slot_idx: int,
-        conn: sql.engine.Connection,
-        on_error: Literal['abort', 'ignore'],
+        self, col: catalog.Column, exec_plan: ExecNode, value_expr_slot_idx: int, on_error: Literal['abort', 'ignore']
     ) -> int:
         """Update store column of a computed column with values produced by an execution plan
 
@@ -250,6 +248,7 @@ class StoreBase:
             tmp_errormsg_col = sql.Column(col.sa_errormsg_col.name, col.sa_errormsg_col.type)
             tmp_cols.append(tmp_errormsg_col)
         tmp_tbl = sql.Table(tmp_name, self.sa_md, *tmp_cols, prefixes=['TEMPORARY'])
+        conn = Env.get().conn
         tmp_tbl.create(bind=conn)
 
         try:
@@ -280,7 +279,7 @@ class StoreBase:
                         else:
                             if col.col_type.is_image_type() and result_row.file_urls[value_expr_slot_idx] is None:
                                 # we have yet to store this image
-                                filepath = str(MediaStore.prepare_media_path(col.tbl.id, col.id, col.tbl.version))
+                                filepath = str(MediaStore.prepare_media_path(col.tbl.id, col.id, col.tbl.get().version))
                                 result_row.flush_img(value_expr_slot_idx, filepath)
                             val = result_row.get_stored_val(value_expr_slot_idx, col.sa_col.type)
                             if col.col_type.is_media_type():
@@ -313,7 +312,6 @@ class StoreBase:
     def insert_rows(
         self,
         exec_plan: ExecNode,
-        conn: sql.engine.Connection,
         v_min: Optional[int] = None,
         show_progress: bool = True,
         rowids: Optional[Iterator[int]] = None,
@@ -324,7 +322,6 @@ class StoreBase:
             number of inserted rows, number of exceptions, set of column ids that have exceptions
         """
         assert v_min is not None
-        exec_plan.ctx.set_conn(conn)
         # TODO: total?
         num_excs = 0
         num_rows = 0
@@ -332,6 +329,8 @@ class StoreBase:
         progress_bar: Optional[tqdm] = None  # create this only after we started executing
         row_builder = exec_plan.row_builder
         media_cols = [info.col for info in row_builder.table_columns if info.col.col_type.is_media_type()]
+        conn = Env.get().conn
+
         try:
             exec_plan.open()
             for row_batch in exec_plan:
@@ -357,7 +356,7 @@ class StoreBase:
                             if progress_bar is None:
                                 warnings.simplefilter('ignore', category=TqdmWarning)
                                 progress_bar = tqdm(
-                                    desc=f'Inserting rows into `{self.tbl_version.name}`',
+                                    desc=f'Inserting rows into `{self.tbl_version.get().name}`',
                                     unit=' rows',
                                     ncols=100,
                                     file=sys.stdout,
@@ -378,7 +377,9 @@ class StoreBase:
         v = versions[0]
         if v is None:
             # we're looking at live rows
-            clause = sql.and_(self.v_min_col <= self.tbl_version.version, self.v_max_col == schema.Table.MAX_VERSION)
+            clause = sql.and_(
+                self.v_min_col <= self.tbl_version.get().version, self.v_max_col == schema.Table.MAX_VERSION
+            )
         else:
             # we're looking at a specific version
             clause = self.v_min_col == v if match_on_vmin else self.v_max_col == v
@@ -392,7 +393,6 @@ class StoreBase:
         base_versions: list[Optional[int]],
         match_on_vmin: bool,
         where_clause: Optional[sql.ColumnElement[bool]],
-        conn: sql.engine.Connection,
     ) -> int:
         """Mark rows as deleted that are live and were created prior to current_version.
         Also: populate the undo columns
@@ -414,7 +414,7 @@ class StoreBase:
             sql.true() if len(base_versions) == 0 else self.base._versions_clause(base_versions, match_on_vmin)
         )
         set_clause: dict[sql.Column, Union[int, sql.Column]] = {self.v_max_col: current_version}
-        for index_info in self.tbl_version.idxs_by_name.values():
+        for index_info in self.tbl_version.get().idxs_by_name.values():
             # copy value column to undo column
             set_clause[index_info.undo_col.sa_col] = index_info.val_col.sa_col
             # set value column to NULL
@@ -426,6 +426,7 @@ class StoreBase:
             .where(rowid_join_clause)
             .where(base_versions_clause)
         )
+        conn = Env.get().conn
         log_explain(_logger, stmt, conn)
         status = conn.execute(stmt)
         return status.rowcount
@@ -433,7 +434,7 @@ class StoreBase:
 
 class StoreTable(StoreBase):
     def __init__(self, tbl_version: catalog.TableVersion):
-        assert not tbl_version.is_view()
+        assert not tbl_version.is_view
         super().__init__(tbl_version)
 
     def _create_rowid_columns(self) -> list[sql.Column]:
@@ -449,7 +450,7 @@ class StoreTable(StoreBase):
 
 class StoreView(StoreBase):
     def __init__(self, catalog_view: catalog.TableVersion):
-        assert catalog_view.is_view()
+        assert catalog_view.is_view
         super().__init__(catalog_view)
 
     def _create_rowid_columns(self) -> list[sql.Column]:
@@ -492,7 +493,7 @@ class StoreComponentView(StoreView):
     def create_sa_tbl(self) -> None:
         super().create_sa_tbl()
         # we need to fix up the 'pos' column in TableVersion
-        self.tbl_version.cols_by_name['pos'].sa_col = self.pos_col
+        self.tbl_version.get().cols_by_name['pos'].sa_col = self.pos_col
 
     def _rowid_join_predicate(self) -> sql.ColumnElement[bool]:
         return sql.and_(

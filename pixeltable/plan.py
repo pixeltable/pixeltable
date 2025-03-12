@@ -10,6 +10,7 @@ import sqlalchemy as sql
 import pixeltable as pxt
 import pixeltable.exec as exec
 from pixeltable import catalog, exceptions as excs, exprs
+from pixeltable.catalog import TableVersionHandle
 from pixeltable.exec.sql_node import OrderByClause, OrderByItem, combine_order_by_clauses, print_order_by_clause
 
 
@@ -275,14 +276,16 @@ class Planner:
         cls, tbl: catalog.TableVersion, rows: list[dict[str, Any]], ignore_errors: bool
     ) -> exec.ExecNode:
         """Creates a plan for TableVersion.insert()"""
-        assert not tbl.is_view()
+        assert not tbl.is_view
         # stored_cols: all cols we need to store, incl computed cols (and indices)
         stored_cols = [c for c in tbl.cols_by_id.values() if c.is_stored]
         assert len(stored_cols) > 0  # there needs to be something to store
         row_builder = exprs.RowBuilder([], stored_cols, [])
 
         # create InMemoryDataNode for 'rows'
-        plan: exec.ExecNode = exec.InMemoryDataNode(tbl, rows, row_builder, tbl.next_rowid)
+        plan: exec.ExecNode = exec.InMemoryDataNode(
+            TableVersionHandle(tbl.id, tbl.effective_version), rows, row_builder, tbl.next_rowid
+        )
 
         media_input_col_info = [
             exprs.ColumnSlotIdx(col_ref.col, col_ref.slot_idx)
@@ -318,7 +321,7 @@ class Planner:
     def create_df_insert_plan(
         cls, tbl: catalog.TableVersion, df: 'pxt.DataFrame', ignore_errors: bool
     ) -> exec.ExecNode:
-        assert not tbl.is_view()
+        assert not tbl.is_view
         plan = df._create_query_plan()  # ExecNode constructed by the DataFrame
 
         # Modify the plan RowBuilder to register the output columns
@@ -363,7 +366,7 @@ class Planner:
         """
         # retrieve all stored cols and all target exprs
         assert isinstance(tbl, catalog.TableVersionPath)
-        target = tbl.tbl_version  # the one we need to update
+        target = tbl.tbl_version.get()  # the one we need to update
         updated_cols = list(update_targets.keys())
         if len(recompute_targets) > 0:
             recomputed_cols = set(recompute_targets)
@@ -374,7 +377,7 @@ class Planner:
             recomputed_cols.update(idx_val_cols)
             # we only need to recompute stored columns (unstored ones are substituted away)
             recomputed_cols = {c for c in recomputed_cols if c.is_stored}
-        recomputed_base_cols = {col for col in recomputed_cols if col.tbl == target}
+        recomputed_base_cols = {col for col in recomputed_cols if col.tbl == tbl.tbl_version}
         copied_cols = [
             col
             for col in target.cols_by_id.values()
@@ -398,7 +401,7 @@ class Planner:
         for i, col in enumerate(all_base_cols):
             plan.row_builder.add_table_column(col, select_list[i].slot_idx)
         recomputed_user_cols = [c for c in recomputed_cols if c.name is not None]
-        return plan, [f'{c.tbl.name}.{c.name}' for c in updated_cols + recomputed_user_cols], recomputed_user_cols
+        return plan, [f'{c.tbl.get().name}.{c.name}' for c in updated_cols + recomputed_user_cols], recomputed_user_cols
 
     @classmethod
     def create_batch_update_plan(
@@ -417,7 +420,7 @@ class Planner:
         - list of user-visible columns that are being recomputed
         """
         assert isinstance(tbl, catalog.TableVersionPath)
-        target = tbl.tbl_version  # the one we need to update
+        target = tbl.tbl_version.get()  # the one we need to update
         sa_key_cols: list[sql.Column] = []
         key_vals: list[tuple] = []
         if len(rowids) > 0:
@@ -507,8 +510,8 @@ class Planner:
             - list of columns that are being recomputed
         """
         assert isinstance(view, catalog.TableVersionPath)
-        assert view.is_view()
-        target = view.tbl_version  # the one we need to update
+        assert view.is_view
+        target = view.tbl_version.get()  # the one we need to update
         # retrieve all stored cols and all target exprs
         recomputed_cols = set(recompute_targets.copy())
         copied_cols = [col for col in target.cols_by_id.values() if col.is_stored and not col in recomputed_cols]
@@ -551,13 +554,13 @@ class Planner:
             - number of materialized values per row
         """
         assert isinstance(view, catalog.TableVersionPath)
-        assert view.is_view()
+        assert view.is_view
         # things we need to materialize as DataRows:
         # 1. stored computed cols
         # - iterator columns are effectively computed, just not with a value_expr
         # - we can ignore stored non-computed columns because they have a default value that is supplied directly by
         #   the store
-        target = view.tbl_version  # the one we need to populate
+        target = view.tbl_version.get()  # the one we need to populate
         stored_cols = [c for c in target.cols_by_id.values() if c.is_stored]
         # 2. for component views: iterator args
         iterator_args = [target.iterator_args] if target.iterator_args is not None else []
@@ -585,8 +588,8 @@ class Planner:
             exact_version_only=view.get_bases() if propagates_insert else [],
         )
         exec_ctx = plan.ctx
-        if target.is_component_view():
-            plan = exec.ComponentIterationNode(target, plan)
+        if target.is_component_view:
+            plan = exec.ComponentIterationNode(view.tbl_version, plan)
         if len(view_output_exprs) > 0:
             plan = exec.ExprEvalNode(
                 row_builder, output_exprs=view_output_exprs, input_exprs=base_output_exprs, input=plan
@@ -668,7 +671,7 @@ class Planner:
         order_by_clause: Optional[list[tuple[exprs.Expr, bool]]] = None,
         limit: Optional[exprs.Expr] = None,
         ignore_errors: bool = False,
-        exact_version_only: Optional[list[catalog.TableVersion]] = None,
+        exact_version_only: Optional[list[catalog.TableVersionHandle]] = None,
     ) -> exec.ExecNode:
         """Return plan for executing a query.
         Updates 'select_list' in place to make it executable.
@@ -714,7 +717,7 @@ class Planner:
         eval_ctx: exprs.RowBuilder.EvalCtx,
         limit: Optional[exprs.Expr] = None,
         with_pk: bool = False,
-        exact_version_only: Optional[list[catalog.TableVersion]] = None,
+        exact_version_only: Optional[list[catalog.TableVersionHandle]] = None,
     ) -> exec.ExecNode:
         """
         Create plan to materialize eval_ctx.

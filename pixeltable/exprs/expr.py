@@ -245,7 +245,7 @@ class Expr(abc.ABC):
 
     def retarget(self, tbl: catalog.TableVersionPath) -> Self:
         """Retarget ColumnRefs in this expr to the specific TableVersions in tbl."""
-        tbl_versions = {tbl_version.id: tbl_version for tbl_version in tbl.get_tbl_versions()}
+        tbl_versions = {tbl_version.id: tbl_version.get() for tbl_version in tbl.get_tbl_versions()}
         return self._retarget(tbl_versions)
 
     def _retarget(self, tbl_versions: dict[UUID, catalog.TableVersion]) -> Self:

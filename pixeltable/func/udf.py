@@ -268,7 +268,7 @@ def from_table(
     params: list[Parameter] = []
 
     for t in ancestors:
-        for name, col in t._tbl_version.cols_by_name.items():
+        for name, col in t._tbl_version.get().cols_by_name.items():
             assert name not in result_dict, f'Column name is not unique: {name}'
             if col.is_computed:
                 # Computed column. Apply any existing substitutions and add the new expression to the subst dict.

@@ -11,40 +11,41 @@ class TestDirs:
         dirs = ['dir1', 'dir1.sub1', 'dir1.sub1.subsub1']
         for name in dirs:
             dir = pxt.create_dir(name)
-            assert dir._path == name
-            assert dir._name == name.split('.')[-1]
-            assert dir._parent._path == '.'.join(name.split('.')[:-1])
+            md = dir.get_metadata()
+            assert md['path'] == name
+            assert md['name'] == name.split('.')[-1]
 
         # invalid names
-        with pytest.raises(excs.Error, match=r'Invalid path format'):
+        with pytest.raises(excs.Error, match='Invalid path format'):
             pxt.create_dir('1dir')
-        with pytest.raises(excs.Error, match=r'Invalid path format'):
+        with pytest.raises(excs.Error, match='Invalid path format'):
             pxt.create_dir('_dir1')
-        with pytest.raises(excs.Error, match=r'Invalid path format'):
+        with pytest.raises(excs.Error, match='Invalid path format'):
             pxt.create_dir('dir 1')
-        with pytest.raises(excs.Error, match=r'Invalid path format'):
+        with pytest.raises(excs.Error, match='Invalid path format'):
             pxt.create_dir('dir1..sub2')
-        with pytest.raises(excs.Error, match=r'Invalid path format'):
+        with pytest.raises(excs.Error, match='Invalid path format'):
             pxt.create_dir('dir1.sub2.')
-        with pytest.raises(excs.Error, match=r'Invalid path format'):
+        with pytest.raises(excs.Error, match='Invalid path format'):
             pxt.create_dir('dir1:sub2.')
 
         # existing dirs raise error by default
-        with pytest.raises(excs.Error, match=r'already exists'):
+        with pytest.raises(excs.Error, match='is an existing'):
             pxt.create_dir('dir1')
-        with pytest.raises(excs.Error, match=r'already exists'):
+        with pytest.raises(excs.Error, match='is an existing'):
             pxt.create_dir('dir1.sub1')
-        with pytest.raises(excs.Error, match=r'already exists'):
+        with pytest.raises(excs.Error, match='is an existing'):
             pxt.create_dir('dir1.sub1.subsub1')
 
         # existing table
         make_tbl('dir1.t1')
-        with pytest.raises(excs.Error, match=r'already exists'):
+        t = pxt.get_table('dir1.t1')
+        with pytest.raises(excs.Error, match='is an existing'):
             pxt.create_dir('dir1.t1')
-        with pytest.raises(excs.Error, match=r'No such path'):
+        with pytest.raises(excs.Error, match='does not exist'):
             pxt.create_dir('dir2.sub2')
         make_tbl('t2')
-        with pytest.raises(excs.Error, match=r'Not a directory'):
+        with pytest.raises(excs.Error, match=f"Directory 't2' does not exist"):
             pxt.create_dir('t2.sub2')
 
         # new client: force loading from store
@@ -69,7 +70,7 @@ class TestDirs:
         id_before = {}
         for name in dirs:
             dir = pxt.create_dir(name)
-            assert dir._path == name
+            assert dir._path() == name
             id_before[name] = dir._id
 
         # invalid if_exists value is rejected
@@ -102,12 +103,12 @@ class TestDirs:
         with pytest.raises(excs.Error) as exc_info:
             pxt.create_dir('dir1.sub1', if_exists='replace')
         err_msg = str(exc_info.value).lower()
-        assert 'already exists' in err_msg and 'has dependents' in err_msg and 'replace_force' in err_msg
+        assert 'already exists' in err_msg and 'is not empty' in err_msg and 'replace_force' in err_msg
         assert pxt.list_dirs(recursive=True) == dirs
         with pytest.raises(excs.Error) as exc_info:
             pxt.create_dir('dir1', if_exists='replace')
         err_msg = str(exc_info.value).lower()
-        assert 'already exists' in err_msg and 'has dependents' in err_msg and 'replace_force' in err_msg
+        assert 'already exists' in err_msg and 'is not empty' in err_msg and 'replace_force' in err_msg
         assert pxt.list_dirs(recursive=True) == dirs
 
         # if_exists='replace_force' should replace existing Dir,
@@ -126,11 +127,11 @@ class TestDirs:
 
         # scenrio 2: path already exists but is not a Dir
         make_tbl('dir1.t1')
-        for _ie in ['ignore', 'replace', 'replace_force']:
+        for if_exists in ['ignore', 'replace', 'replace_force']:
             with pytest.raises(excs.Error) as exc_info:
-                pxt.create_dir('dir1.t1', if_exists=_ie)  # type: ignore[arg-type]
+                pxt.create_dir('dir1.t1', if_exists=if_exists)  # type: ignore[arg-type]
             err_msg = str(exc_info.value).lower()
-            assert 'already exists' in err_msg and 'not a dir' in err_msg, f" for if_exists='{_ie}'"
+            assert 'already exists' in err_msg and 'not a dir' in err_msg, f' for if_exists={if_exists!r}'
 
     def _test_drop_if_not_exists(self, dir_name: str) -> None:
         """Test if_not_exists parameter of drop_dir"""
@@ -140,9 +141,9 @@ class TestDirs:
 
         # if_not_exists='error' should raise error
         # default behavior is to raise error
-        with pytest.raises(excs.Error, match=r'does not exist'):
+        with pytest.raises(excs.Error, match='does not exist'):
             pxt.drop_dir(dir_name, if_not_exists='error')
-        with pytest.raises(excs.Error, match=r'does not exist'):
+        with pytest.raises(excs.Error, match='does not exist'):
             pxt.drop_dir(dir_name)
 
         # if_not_exists='ignore' should be successful but a no-op
@@ -165,19 +166,19 @@ class TestDirs:
         make_tbl('dir1.t1')
 
         # bad name
-        with pytest.raises(excs.Error, match=r'Invalid path format'):
+        with pytest.raises(excs.Error, match='Invalid path format'):
             pxt.drop_dir('1dir')
         # bad path
-        with pytest.raises(excs.Error, match=r'Invalid path format'):
+        with pytest.raises(excs.Error, match='Invalid path format'):
             pxt.drop_dir('dir1..sub1')
         # doesn't exist
         self._test_drop_if_not_exists('dir2')
         # not empty
-        with pytest.raises(excs.Error, match=r'is not empty'):
+        with pytest.raises(excs.Error, match='is not empty'):
             pxt.drop_dir('dir1')
-        with pytest.raises(excs.Error, match=r'is not empty'):
+        with pytest.raises(excs.Error, match='must be one of'):
             pxt.drop_dir('dir1', if_not_exists='invalid')  # type: ignore[arg-type]
-        with pytest.raises(excs.Error, match=r'needs to be a directory but is a table'):
+        with pytest.raises(excs.Error, match='needs to be a directory but is a table'):
             pxt.drop_dir('t1')
 
         pxt.drop_dir('dir1.sub1.subsub1')
@@ -192,7 +193,7 @@ class TestDirs:
         pxt.create_dir('dir2')
         pxt.create_dir('dir1.subdir')
         pxt.create_dir('dir1.subdir.subsub')
-        # Create lots of views all over the place
+
         t = pxt.create_table('dir1.subdir.tbl', {'col': pxt.String})
         v = pxt.create_view('dir1.subdir.subsub.v1', t)
         _ = pxt.create_view('dir1.v2', t)

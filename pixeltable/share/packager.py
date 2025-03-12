@@ -68,11 +68,13 @@ class TablePackager:
                         'table_id': str(t._tbl_version.id),
                         # These are temporary; will replace with a better solution once the concurrency changes to catalog have
                         # been merged
-                        'table_md': dataclasses.asdict(t._tbl_version._create_tbl_md()),
+                        'table_md': dataclasses.asdict(t._tbl_version.get()._create_tbl_md()),
                         'table_version_md': dataclasses.asdict(
-                            t._tbl_version._create_version_md(datetime.now().timestamp())
+                            t._tbl_version.get()._create_version_md(datetime.now().timestamp())
                         ),
-                        'table_schema_version_md': dataclasses.asdict(t._tbl_version._create_schema_version_md(0)),
+                        'table_schema_version_md': dataclasses.asdict(
+                            t._tbl_version.get()._create_schema_version_md(0)
+                        ),
                     }
                     for t in (table, *table._bases)
                 ]
@@ -91,10 +93,11 @@ class TablePackager:
         with open(self.tmp_dir / 'metadata.json', 'w', encoding='utf8') as fp:
             json.dump(self.md, fp)
         self.iceberg_catalog = sqlite_catalog(self.tmp_dir / 'warehouse')
-        ancestors = (self.table, *self.table._bases)
-        for t in ancestors:
-            _logger.info(f"Exporting table '{t._path}'.")
-            self.__export_table(t)
+        with Env.get().begin_xact():
+            ancestors = (self.table, *self.table._bases)
+            for t in ancestors:
+                _logger.info(f"Exporting table '{t._path}'.")
+                self.__export_table(t)
         _logger.info(f'Building archive.')
         bundle_path = self.__build_tarball()
         _logger.info(f'Packaging complete: {bundle_path}')
@@ -117,7 +120,7 @@ class TablePackager:
         # to get the column types, since we'll be substituting `fileurl`s for media columns.
         actual_col_types: list[ts.ColumnType] = []
 
-        for col_name, col in t._tbl_version.cols_by_name.items():
+        for col_name, col in t._tbl_version.get().cols_by_name.items():
             if not col.is_stored:
                 continue
             if col.col_type.is_media_type():
@@ -150,7 +153,7 @@ class TablePackager:
         """
         Iceberg tables must have a namespace, which cannot be the empty string, so we prepend `pxt` to the table path.
         """
-        parent_path = table._parent._path
+        parent_path = table._parent()._path()
         if len(parent_path) == 0:
             return 'pxt'
         else:
