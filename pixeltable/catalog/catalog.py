@@ -10,8 +10,6 @@ import sqlalchemy as sql
 import pixeltable.exceptions as excs
 import pixeltable.metadata.schema as schema
 from pixeltable.env import Env
-
-from pixeltable.env import Env
 from .dir import Dir
 from .schema_object import SchemaObject
 from .table import Table
@@ -160,10 +158,9 @@ class Catalog:
         Locking protocol:
         - X locks on the immediate parent directories of the added/dropped entries; this prevents concurrent
           modifications of the parent
-        - S locks on the parents' ancestors
         - lock parent before child
-        - if both add and drop, lock the immediate parents in a pre-determined order (in this case, by name) in order
-          to prevent deadlocks between concurrent directory modifications
+        - if both add and drop (= two directories are involved), lock the directories in a pre-determined order
+          (in this case, by name) in order to prevent deadlocks between concurrent directory modifications
         """
         assert (add_dir_path is None) == (add_name is None)
         assert (drop_dir_path is None) == (drop_name is None)
@@ -498,14 +495,13 @@ class Catalog:
 
     def _init_store(self) -> None:
         """One-time initialization of the stored catalog. Idempotent."""
-        with env.Env.get().begin_xact():
-            session = env.Env.get().session
+        with Env.get().begin_xact():
+            session = Env.get().session
             if session.query(sql.func.count(schema.Dir.id)).scalar() > 0:
                 return
             # create a top-level directory, so that every schema object has a directory
             dir_md = schema.DirMd(name='', user=None, additional_md={})
             dir_record = schema.Dir(parent_id=None, md=dataclasses.asdict(dir_md))
-            session = Env.get().session
             session.add(dir_record)
             session.flush()
             _logger.info(f'Initialized catalog')
