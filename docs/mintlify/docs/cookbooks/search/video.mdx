@@ -1,0 +1,306 @@
+---
+title: "Video"
+description: "Build a video search workflow with Pixeltable"
+icon: "video"
+---
+
+# Building a Video Search Workflow
+
+Pixeltable lets you build video search workflows in two phases:
+1. Define your processing workflow (once)
+2. Query your knowledge base (anytime)
+
+<Steps>
+  <Step title="Install Dependencies">
+    ```bash
+    pip install pixeltable openai tiktoken openai-whisper spacy sentence-transformers
+    ```
+  </Step>
+
+  <Step title="Define Your Workflow" icon="diagram-project">
+    Create `table.py`:
+    ```python
+    from datetime import datetime
+    import pixeltable as pxt
+    from pixeltable.functions import openai
+    from pixeltable.functions.huggingface import sentence_transformer
+    from pixeltable.functions.video import extract_audio
+    from pixeltable.iterators import AudioSplitter
+    from pixeltable.iterators.string import StringSplitter
+
+    # Define constants
+    DIRECTORY = 'video_index'
+    TABLE_NAME = f'{DIRECTORY}.video'
+    CHUNKS_VIEW_NAME = f'{DIRECTORY}.video_chunks'
+    SENTENCES_VIEW_NAME = f'{DIRECTORY}.video_sentence_chunks'
+    WHISPER_MODEL = 'whisper-1'
+    DELETE_INDEX = True
+
+    # Optionally delete existing index
+    if DELETE_INDEX and TABLE_NAME in pxt.list_tables():
+        pxt.drop_dir(DIRECTORY, force=True)
+
+    if TABLE_NAME not in pxt.list_tables():
+        # Create video table
+        pxt.create_dir(DIRECTORY, if_exists='ignore')
+        video_index = pxt.create_table(TABLE_NAME, {'video': pxt.Video, 'uploaded_at': pxt.Timestamp})
+
+        # Video-to-audio extraction
+        video_index.add_computed_column(audio_extract=extract_audio(video_index.video, format='mp3'))
+
+        # Create view for audio chunks
+        chunks_view = pxt.create_view(
+            CHUNKS_VIEW_NAME,
+            video_index,
+            iterator=AudioSplitter.create(
+                audio=video_index.audio_extract,
+                chunk_duration_sec=30.0,
+                overlap_sec=2.0,
+                min_chunk_duration_sec=5.0
+            )
+        )
+
+        # Audio-to-text for chunks
+        chunks_view.add_computed_column(
+            transcription=openai.transcriptions(audio=chunks_view.audio_chunk, model=WHISPER_MODEL)
+        )
+
+        # Create view that chunks text into sentences
+        transcription_chunks = pxt.create_view(
+            SENTENCES_VIEW_NAME,
+            chunks_view,
+            iterator=StringSplitter.create(text=chunks_view.transcription.text, separators='sentence'),
+        )
+
+        # Define the embedding model
+        embed_model = sentence_transformer.using(model_id='intfloat/e5-large-v2')
+
+        # Create embedding index
+        transcription_chunks.add_embedding_index('text', string_embed=embed_model)
+
+    else:
+        # Connect to existing tables and views
+        video_index = pxt.get_table(TABLE_NAME)
+        chunks_view = pxt.get_table(CHUNKS_VIEW_NAME)
+        transcription_chunks = pxt.get_table(SENTENCES_VIEW_NAME)
+    ```
+  </Step>
+
+  <Step title="Use Your Workflow" icon="play">
+    Create `app.py`:
+    ```python
+    from datetime import datetime
+    import pixeltable as pxt
+    
+    # Constants
+    DIRECTORY = 'video_index'
+    TABLE_NAME = f'{DIRECTORY}.video'
+    CHUNKS_VIEW_NAME = f'{DIRECTORY}.video_chunks'
+    SENTENCES_VIEW_NAME = f'{DIRECTORY}.video_sentence_chunks'
+    
+    # Connect to your tables and views
+    video_index = pxt.get_table(TABLE_NAME)
+    chunks_view = pxt.get_table(CHUNKS_VIEW_NAME)
+    transcription_chunks = pxt.get_table(SENTENCES_VIEW_NAME)
+
+    # Insert videos to the knowledge base
+    videos = [
+        'https://github.com/pixeltable/pixeltable/raw/release/docs/resources/audio-transcription-demo/'
+        f'Lex-Fridman-Podcast-430-Excerpt-{n}.mp4'
+        for n in range(3)
+    ]
+
+    video_index.insert({'video': video, 'uploaded_at': datetime.now()} for video in videos[:2])
+
+    # Perform search
+    @pxt.query
+    def search_videos(query_text: str, limit: int = 5):
+        sim = transcription_chunks.text.similarity(query_text)
+        return (
+            transcription_chunks.order_by(sim, transcription_chunks.uploaded_at, asc=False)
+            .limit(limit)
+            .select(transcription_chunks.text, transcription_chunks.uploaded_at, similarity=sim)
+        )
+
+    # Example search
+    results = search_videos("What is happiness?")
+    
+    # Print results
+    for result in results.collect():
+        print(f"Similarity: {result['similarity']:.3f}")
+        print(f"Text: {result['text']}")
+        print(f"Uploaded: {result['uploaded_at']}\n")
+    ```
+  </Step>
+</Steps>
+
+## What Makes This Different?
+
+<CardGroup cols={1}>
+  <Card title="Complete Video Processing Pipeline" icon="gears">
+    End-to-end workflow from video to searchable text:
+    ```python
+    # Extract audio from video
+    video_index.add_computed_column(audio_extract=extract_audio(video_index.video, format='mp3'))
+    
+    # Create chunks of audio for processing
+    iterator=AudioSplitter.create(
+        audio=video_index.audio_extract,
+        chunk_duration_sec=30.0,
+        overlap_sec=2.0
+    )
+    
+    # Transcribe audio chunks
+    transcription=openai.transcriptions(audio=chunks_view.audio_chunk, model=WHISPER_MODEL)
+    ```
+  </Card>
+
+  <Card title="Smart Chunking Strategy" icon="scissors">
+    Two-level chunking for optimal processing and search:
+    ```python
+    # First level: Audio chunks for efficient transcription
+    chunks_view = pxt.create_view(
+        CHUNKS_VIEW_NAME,
+        video_index,
+        iterator=AudioSplitter.create(
+            audio=video_index.audio_extract,
+            chunk_duration_sec=30.0,
+            overlap_sec=2.0,
+            min_chunk_duration_sec=5.0
+        )
+    )
+    
+    # Second level: Sentence-based chunks for natural language search
+    transcription_chunks = pxt.create_view(
+        SENTENCES_VIEW_NAME,
+        chunks_view,
+        iterator=StringSplitter.create(text=chunks_view.transcription.text, separators='sentence'),
+    )
+    ```
+  </Card>
+
+  <Card title="Vector Search with Metadata" icon="magnifying-glass">
+    Semantic search with timestamp ordering:
+    ```python
+    transcription_chunks.order_by(sim, transcription_chunks.uploaded_at, asc=False)
+    .limit(limit)
+    .select(transcription_chunks.text, transcription_chunks.uploaded_at, similarity=sim)
+    ```
+  </Card>
+</CardGroup>
+
+## Workflow Components
+
+<AccordionGroup>
+  <Accordion title="Video Processing" icon="film">
+    Processes video content for search:
+    - Video file ingestion from URLs or local files
+    - Automatic audio extraction with format selection
+    - Timestamp preservation for search results
+    - Supports various video formats
+  </Accordion>
+
+  <Accordion title="Audio Processing" icon="waveform">
+    Handles audio for efficient transcription:
+    - Smart chunking to optimize transcription
+    - Configurable chunk duration (30 sec default)
+    - Overlap between chunks (2 sec default)
+    - Minimum chunk threshold (5 sec default)
+  </Accordion>
+
+  <Accordion title="Speech-to-Text" icon="microphone">
+    Uses OpenAI's Whisper for transcription:
+    - High-quality speech recognition
+    - Multiple language support
+    - Sentence-level segmentation
+    - Configurable model selection
+  </Accordion>
+
+  <Accordion title="Vector Search" icon="database">
+    Implements search using E5 embeddings:
+    - High-quality vector representations
+    - Fast similarity search
+    - Combined ranking with timestamps
+    - Configurable top-k retrieval
+  </Accordion>
+</AccordionGroup>
+
+## Advanced Usage
+
+### Custom Search Functions
+
+Create search functions with different parameters:
+
+```python
+@pxt.query
+def search_with_threshold(query_text: str, min_similarity: float = 0.7, max_results: int = 10):
+    sim = transcription_chunks.text.similarity(query_text)
+    return (
+        transcription_chunks.where(sim >= min_similarity)
+        .order_by(sim, transcription_chunks.uploaded_at, asc=False)
+        .select(transcription_chunks.text, transcription_chunks.uploaded_at, similarity=sim)
+        .limit(max_results)
+    )
+```
+
+### Batch Processing
+
+Process multiple videos in batch:
+
+```python
+videos = [
+    'https://example.com/video1.mp4',
+    'https://example.com/video2.mp4',
+    'https://example.com/video3.mp4'
+]
+
+video_index.insert({'video': video, 'uploaded_at': datetime.now()} for video in videos)
+```
+
+### Different Chunking Strategies
+
+Adjust audio chunking parameters for different content types:
+
+```python
+# For longer-form content (like lectures)
+iterator=AudioSplitter.create(
+    audio=video_index.audio_extract,
+    chunk_duration_sec=60.0,  # Longer chunks
+    overlap_sec=5.0,          # More overlap
+    min_chunk_duration_sec=10.0
+)
+
+# For short-form content (like interviews)
+iterator=AudioSplitter.create(
+    audio=video_index.audio_extract,
+    chunk_duration_sec=15.0,  # Shorter chunks
+    overlap_sec=1.0,          # Less overlap
+    min_chunk_duration_sec=3.0
+)
+```
+
+### Different Embedding Models
+
+Use alternative sentence transformer models:
+
+```python
+# Alternative embedding models
+embed_model = sentence_transformer.using(
+    model_id="sentence-transformers/all-mpnet-base-v2"
+)
+# or
+embed_model = sentence_transformer.using(
+    model_id="sentence-transformers/all-MiniLM-L6-v2"
+)
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Video Frame Analysis" icon="image" href="/docs/video/frame-analysis">
+    Learn how to extract and analyze individual frames from videos
+  </Card>
+  <Card title="Multi-modal Search" icon="layer-group" href="/docs/video/multimodal">
+    Combine text and visual features for more powerful search
+  </Card>
+</CardGroup>
