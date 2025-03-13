@@ -211,15 +211,24 @@ class Catalog:
         q = sql.select(schema.Dir).where(schema.Dir.parent_id == dir_id, schema.Dir.md['name'].astext == name)
         if for_update:
             q = q.with_for_update()
-        row = conn.execute(q).one_or_none()
-        if row is not None:
-            dir_record = schema.Dir(**row._mapping)
+        _debug_print(for_update, f'dir name={name!r} parent={dir_id}')
+        # row = conn.execute(q).one_or_none()
+        # if row is not None:
+        #     dir_record = schema.Dir(**row._mapping)
+        #     return Dir(dir_record.id, dir_record.parent_id, name)
+        rows = conn.execute(q).all()
+        if len(rows) > 1:
+            print(rows)
+            assert False
+        if len(rows) == 1:
+            dir_record = schema.Dir(**rows[0]._mapping)
             return Dir(dir_record.id, dir_record.parent_id, name)
 
         # check for table
         q = sql.select(schema.Table.id).where(schema.Table.dir_id == dir_id, schema.Table.md['name'].astext == name)
         if for_update:
             q = q.with_for_update()
+        _debug_print(for_update, f'table name={name!r} parent={dir_id}')
         tbl_id = conn.execute(q).scalar_one_or_none()
         if tbl_id is not None:
             if not tbl_id in self._tbls:

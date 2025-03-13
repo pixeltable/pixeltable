@@ -22,6 +22,7 @@ from pathlib import Path
 from sys import stdout
 from typing import TYPE_CHECKING, Any, Callable, Iterator, Optional, TypeVar
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+import time
 
 import pixeltable_pgserver
 import sqlalchemy as sql
@@ -187,6 +188,7 @@ class Env:
             assert self._current_session is None
             with self.engine.begin() as conn:
                 with sql.orm.Session(conn) as session:
+                    print(f'{time.monotonic()}: start xact')
                     self._current_conn = conn
                     self._current_session = session
                     try:
@@ -194,6 +196,7 @@ class Env:
                     finally:
                         self._current_session = None
                         self._current_conn = None
+                        print(f'{time.monotonic()}: end xact')
         else:
             assert self._current_session is not None
             yield self._current_conn
