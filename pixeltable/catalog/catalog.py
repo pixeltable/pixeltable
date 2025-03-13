@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import time
 from typing import Any, Optional
 from uuid import UUID
 
@@ -10,7 +11,6 @@ import sqlalchemy as sql
 import pixeltable.exceptions as excs
 import pixeltable.metadata.schema as schema
 from pixeltable.env import Env
-
 from .dir import Dir
 from .schema_object import SchemaObject
 from .table import Table
@@ -328,6 +328,7 @@ class Catalog:
             q = sql.select(schema.Dir).where(schema.Dir.parent_id.is_(None))
             if for_update:
                 q = q.with_for_update()
+            _debug_print(for_update, 'root dir')
             row = conn.execute(q).one()
             return schema.Dir(**row._mapping)
         else:
@@ -342,6 +343,7 @@ class Catalog:
             )
             if for_update:
                 q = q.with_for_update()
+            _debug_print(for_update, f'dir {path}')
             row = conn.execute(q).one_or_none()
             return schema.Dir(**row._mapping) if row is not None else None
 
@@ -506,3 +508,11 @@ class Catalog:
             session.add(dir_record)
             session.flush()
             _logger.info(f'Initialized catalog')
+
+
+def _lock_str(for_update: bool) -> str:
+    return 'X' if for_update else 'S'
+
+
+def _debug_print(for_update: bool, msg: str) -> None:
+    print(f'{time.monotonic()}: {_lock_str(for_update)}: {msg}')
