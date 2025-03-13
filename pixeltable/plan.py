@@ -8,8 +8,7 @@ from uuid import UUID
 import sqlalchemy as sql
 
 import pixeltable as pxt
-import pixeltable.exec as exec
-from pixeltable import catalog, exceptions as excs, exprs
+from pixeltable import catalog, exceptions as excs, exec, exprs
 from pixeltable.catalog import TableVersionHandle
 from pixeltable.exec.sql_node import OrderByClause, OrderByItem, combine_order_by_clauses, print_order_by_clause
 
@@ -55,9 +54,9 @@ class JoinType(enum.Enum):
     def validated(cls, name: str, error_prefix: str) -> JoinType:
         try:
             return cls[name.upper()]
-        except KeyError:
-            val_strs = ', '.join(f'{s.lower()!r}' for s in cls.__members__.keys())
-            raise excs.Error(f'{error_prefix} must be one of: [{val_strs}]')
+        except KeyError as exc:
+            val_strs = ', '.join(f'{s.lower()!r}' for s in cls.__members__)
+            raise excs.Error(f'{error_prefix} must be one of: [{val_strs}]') from exc
 
 
 @dataclasses.dataclass
@@ -178,19 +177,21 @@ class Analyzer:
             )
 
         # check that Where clause and filter doesn't contain aggregates
-        if self.sql_where_clause is not None:
-            if any(_is_agg_fn_call(e) for e in self.sql_where_clause.subexprs(expr_class=exprs.FunctionCall)):
-                raise excs.Error(f'where() cannot contain aggregate functions: {self.sql_where_clause}')
-        if self.filter is not None:
-            if any(_is_agg_fn_call(e) for e in self.filter.subexprs(expr_class=exprs.FunctionCall)):
-                raise excs.Error(f'where() cannot contain aggregate functions: {self.filter}')
+        if self.sql_where_clause is not None and any(
+            _is_agg_fn_call(e) for e in self.sql_where_clause.subexprs(expr_class=exprs.FunctionCall)
+        ):
+            raise excs.Error(f'where() cannot contain aggregate functions: {self.sql_where_clause}')
+        if self.filter is not None and any(
+            _is_agg_fn_call(e) for e in self.filter.subexprs(expr_class=exprs.FunctionCall)
+        ):
+            raise excs.Error(f'where() cannot contain aggregate functions: {self.filter}')
 
         # check that grouping exprs don't contain aggregates and can be expressed as SQL (we perform sort-based
         # aggregation and rely on the SqlScanNode returning data in the correct order)
         for e in self.group_by_clause:
             if not self.sql_elements.contains(e):
                 raise excs.Error(f'Invalid grouping expression, needs to be expressible in SQL: {e}')
-            if e._contains(filter=lambda e: _is_agg_fn_call(e)):
+            if e._contains(filter=_is_agg_fn_call):
                 raise excs.Error(f'Grouping expression contains aggregate function: {e}')
 
     def _determine_agg_status(self, e: exprs.Expr, grouping_expr_ids: set[int]) -> tuple[bool, bool]:
@@ -208,7 +209,7 @@ class Analyzer:
             return True, False
         elif isinstance(e, exprs.Literal):
             return True, True
-        elif isinstance(e, exprs.ColumnRef) or isinstance(e, exprs.RowidRef):
+        elif isinstance(e, (exprs.ColumnRef, exprs.RowidRef)):
             # we already know that this isn't a grouping expr
             return False, True
         else:
@@ -381,7 +382,7 @@ class Planner:
         copied_cols = [
             col
             for col in target.cols_by_id.values()
-            if col.is_stored and not col in updated_cols and not col in recomputed_base_cols
+            if col.is_stored and col not in updated_cols and col not in recomputed_base_cols
         ]
         select_list: list[exprs.Expr] = [exprs.ColumnRef(col) for col in copied_cols]
         select_list.extend(update_targets.values())
@@ -443,7 +444,7 @@ class Planner:
         copied_cols = [
             col
             for col in target.cols_by_id.values()
-            if col.is_stored and not col in updated_cols and not col in recomputed_base_cols
+            if col.is_stored and col not in updated_cols and col not in recomputed_base_cols
         ]
         select_list: list[exprs.Expr] = [exprs.ColumnRef(col) for col in copied_cols]
         select_list.extend(exprs.ColumnRef(col) for col in updated_cols)
@@ -514,7 +515,7 @@ class Planner:
         target = view.tbl_version.get()  # the one we need to update
         # retrieve all stored cols and all target exprs
         recomputed_cols = set(recompute_targets.copy())
-        copied_cols = [col for col in target.cols_by_id.values() if col.is_stored and not col in recomputed_cols]
+        copied_cols = [col for col in target.cols_by_id.values() if col.is_stored and col not in recomputed_cols]
         select_list: list[exprs.Expr] = [exprs.ColumnRef(col) for col in copied_cols]
         # resolve recomputed exprs to stored columns in the base
         recomputed_exprs = [
@@ -642,11 +643,12 @@ class Planner:
     @classmethod
     def _is_contained_in(cls, l1: Iterable[exprs.Expr], l2: Iterable[exprs.Expr]) -> bool:
         """Returns True if l1 is contained in l2"""
-        s1, s2 = set(e.id for e in l1), set(e.id for e in l2)
-        return s1 <= s2
+        return {e.id for e in l1} <= {e.id for e in l2}
 
     @classmethod
-    def _insert_prefetch_node(cls, tbl_id: UUID, row_builder: exprs.RowBuilder, input: exec.ExecNode) -> exec.ExecNode:
+    def _insert_prefetch_node(
+        cls, tbl_id: UUID, row_builder: exprs.RowBuilder, input_node: exec.ExecNode
+    ) -> exec.ExecNode:
         """Returns a CachePrefetchNode into the plan if needed, otherwise returns input"""
         # we prefetch external files for all media ColumnRefs, even those that aren't part of the dependencies
         # of output_exprs: if unstored iterator columns are present, we might need to materialize ColumnRefs that
@@ -655,10 +657,10 @@ class Planner:
             e for e in list(row_builder.unique_exprs) if isinstance(e, exprs.ColumnRef) and e.col_type.is_media_type()
         ]
         if len(media_col_refs) == 0:
-            return input
+            return input_node
         # we need to prefetch external files for media column types
         file_col_info = [exprs.ColumnSlotIdx(e.col, e.slot_idx) for e in media_col_refs]
-        prefetch_node = exec.CachePrefetchNode(tbl_id, file_col_info, input)
+        prefetch_node = exec.CachePrefetchNode(tbl_id, file_col_info, input_node)
         return prefetch_node
 
     @classmethod
@@ -755,13 +757,11 @@ class Planner:
         )
         if analyzer.filter is not None:
             candidates.extend(
-                exprs.Expr.subexprs(analyzer.filter, filter=lambda e: sql_elements.contains(e), traverse_matches=False)
+                exprs.Expr.subexprs(analyzer.filter, filter=sql_elements.contains, traverse_matches=False)
             )
         if is_python_agg and analyzer.group_by_clause is not None:
             candidates.extend(
-                exprs.Expr.list_subexprs(
-                    analyzer.group_by_clause, filter=lambda e: sql_elements.contains(e), traverse_matches=False
-                )
+                exprs.Expr.list_subexprs(analyzer.group_by_clause, filter=sql_elements.contains, traverse_matches=False)
             )
         # not isinstance(...): we don't want to materialize Literals via a Select
         sql_exprs = exprs.ExprSet(e for e in candidates if not isinstance(e, exprs.Literal))

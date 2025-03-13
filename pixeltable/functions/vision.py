@@ -250,7 +250,6 @@ class mean_ap(pxt.Aggregator):
         eps = np.finfo(np.float32).eps
         result: dict[int, float] = {}
         for class_idx, tpfp in self.class_tpfp.items():
-            a1 = [x['tp'] for x in tpfp]
             tp = np.concatenate([x['tp'] for x in tpfp], axis=0)
             fp = np.concatenate([x['fp'] for x in tpfp], axis=0)
             num_gts = np.sum([x['num_gts'] for x in tpfp])
@@ -341,16 +340,14 @@ def draw_bounding_boxes(
     elif len(labels) != num_boxes:
         raise ValueError('Number of boxes and labels must match')
 
-    DEFAULT_COLOR = 'white'
     if box_colors is not None:
         if len(box_colors) != num_boxes:
             raise ValueError('Number of boxes and box colors must match')
+    elif color is not None:
+        box_colors = [color] * num_boxes
     else:
-        if color is not None:
-            box_colors = [color] * num_boxes
-        else:
-            label_colors = __create_label_colors(labels)
-            box_colors = [label_colors[label] for label in labels]
+        label_colors = __create_label_colors(labels)
+        box_colors = [label_colors[label] for label in labels]
 
     from PIL import ImageColor, ImageDraw, ImageFont
 
@@ -369,13 +366,13 @@ def draw_bounding_boxes(
 
         if fill:
             rgb_color = ImageColor.getrgb(color)
-            fill_color = rgb_color + (100,)  # semi-transparent
+            fill_color = (*rgb_color, 100)  # semi-transparent
             draw.rectangle(bbox, outline=color, width=width, fill=fill_color)  # type: ignore[arg-type]
         else:
             draw.rectangle(bbox, outline=color, width=width)  # type: ignore[arg-type]
 
     # Now draw labels separately, so they are not obscured by the boxes
-    for i, (bbox, label) in enumerate(zip(boxes, labels)):
+    for bbox, label in zip(boxes, labels):
         if label is not None:
             label_str = str(label)
             _, _, text_width, text_height = draw.textbbox((0, 0), label_str, font=txt_font)

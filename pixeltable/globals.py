@@ -6,10 +6,7 @@ from uuid import UUID
 import pandas as pd
 from pandas.io.formats.style import Styler
 
-import pixeltable.env as env
-import pixeltable.exceptions as excs
-import pixeltable.exprs as exprs
-from pixeltable import DataFrame, catalog, func, share
+from pixeltable import DataFrame, catalog, env, exceptions as excs, exprs, func, share
 from pixeltable.catalog import Catalog, IfExistsParam, IfNotExistsParam
 from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
@@ -144,7 +141,8 @@ def create_table(
             schema = df.schema
         elif isinstance(schema_or_df, DataFrameResultSet):
             raise excs.Error(
-                '`schema_or_df` must be either a schema dictionary or a Pixeltable DataFrame. (Is there an extraneous call to `collect()`?)'
+                '`schema_or_df` must be either a schema dictionary or a Pixeltable DataFrame. '
+                '(Is there an extraneous call to `collect()`?)'
             )
         else:
             raise excs.Error('`schema_or_df` must be either a schema dictionary or a Pixeltable DataFrame.')
@@ -156,9 +154,8 @@ def create_table(
             primary_key = []
         elif isinstance(primary_key, str):
             primary_key = [primary_key]
-        else:
-            if not isinstance(primary_key, list) or not all(isinstance(pk, str) for pk in primary_key):
-                raise excs.Error('primary_key must be a single column name or a list of column names')
+        elif not isinstance(primary_key, list) or not all(isinstance(pk, str) for pk in primary_key):
+            raise excs.Error('primary_key must be a single column name or a list of column names')
 
         tbl = catalog.InsertableTable._create(
             dir._id,
@@ -258,7 +255,7 @@ def create_view(
         select_list = base.select_list
     else:
         raise excs.Error('`base` must be an instance of `Table` or `DataFrame`')
-    assert isinstance(base, catalog.Table) or isinstance(base, DataFrame)
+    assert isinstance(base, (catalog.Table, DataFrame))
 
     path = catalog.Path(path_str)
     cat = Catalog.get()
@@ -277,7 +274,7 @@ def create_view(
             additional_columns = {}
         else:
             # additional columns should not be in the base table
-            for col_name in additional_columns.keys():
+            for col_name in additional_columns:
                 if col_name in [c.name for c in tbl_version_path.columns()]:
                     raise excs.Error(
                         f'Column {col_name!r} already exists in the base table '
@@ -366,7 +363,9 @@ def create_snapshot(
         if `my_snapshot` does not already exist:
 
         >>> view = pxt.get_table('my_view')
-        ... snapshot = pxt.create_snapshot('my_snapshot', view, additional_columns={'col3': pxt.Int}, if_exists='ignore')
+        ... snapshot = pxt.create_snapshot(
+        ...     'my_snapshot', view, additional_columns={'col3': pxt.Int}, if_exists='ignore'
+        ... )
 
         Create a snapshot `my_snapshot` on a table `my_table`, and replace any existing snapshot named `my_snapshot`:
 
@@ -575,8 +574,8 @@ def create_dir(
             - `'replace_force'`: drop the existing directory and all its children, and create a new one
 
     Returns:
-        A handle to the newly created directory, or to an already existing directory at the path when `if_exists='ignore'`.
-            Please note the existing directory may not be empty.
+        A handle to the newly created directory, or to an already existing directory at the path when
+            `if_exists='ignore'`. Please note the existing directory may not be empty.
 
     Raises:
         Error: If
@@ -690,7 +689,7 @@ def _drop_dir(dir_id: UUID, path: str, force: bool = False) -> None:
 
 def _join_path(path: str, name: str) -> str:
     """Append name to path, if path is not empty."""
-    return name if path == '' else f'{path}.{name}'
+    return f'{path}.{name}' if path else name
 
 
 def _extract_paths(
@@ -766,7 +765,7 @@ def list_functions() -> Styler:
         }
     )
     pd_df = pd_df.style.set_properties(None, **{'text-align': 'left'}).set_table_styles(
-        [dict(selector='th', props=[('text-align', 'center')])]
+        [{'selector': 'th', 'props': [('text-align', 'center')]}]
     )  # center-align headings
     return pd_df.hide(axis='index')
 

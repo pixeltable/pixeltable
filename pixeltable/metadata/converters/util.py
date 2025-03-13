@@ -34,12 +34,12 @@ def convert_table_md(
     """
     with engine.begin() as conn:
         for row in conn.execute(sql.select(Table)):
-            id = row[0]
+            tbl_id = row[0]
             table_md = row[2]
             assert isinstance(table_md, dict)
             updated_table_md = copy.deepcopy(table_md)
             if table_md_updater is not None:
-                table_md_updater(updated_table_md, id)
+                table_md_updater(updated_table_md, tbl_id)
             if column_md_updater is not None:
                 __update_column_md(updated_table_md, column_md_updater)
             if external_store_md_updater is not None:
@@ -47,19 +47,19 @@ def convert_table_md(
             if substitution_fn is not None:
                 updated_table_md = __substitute_md_rec(updated_table_md, substitution_fn)
             if updated_table_md != table_md:
-                __logger.info(f'Updating schema for table: {id}')
-                conn.execute(sql.update(Table).where(Table.id == id).values(md=updated_table_md))
+                __logger.info(f'Updating schema for table: {tbl_id}')
+                conn.execute(sql.update(Table).where(Table.id == tbl_id).values(md=updated_table_md))
 
         for row in conn.execute(sql.select(Function)):
-            id = row[0]
+            fn_id = row[0]
             function_md = row[2]
             assert isinstance(function_md, dict)
             updated_function_md = copy.deepcopy(function_md)
             if substitution_fn is not None:
                 updated_function_md = __substitute_md_rec(updated_function_md, substitution_fn)
             if updated_function_md != function_md:
-                __logger.info(f'Updating function: {id}')
-                conn.execute(sql.update(Function).where(Function.id == id).values(md=updated_function_md))
+                __logger.info(f'Updating function: {fn_id}')
+                conn.execute(sql.update(Function).where(Function.id == fn_id).values(md=updated_function_md))
 
 
 def __update_column_md(table_md: dict, column_md_updater: Callable[[dict], None]) -> None:

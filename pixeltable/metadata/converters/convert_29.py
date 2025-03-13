@@ -63,13 +63,12 @@ def __substitute_md(k: Optional[str], v: Any) -> Optional[tuple[Optional[str], A
             # is an edge case that won't migrate properly.
             parameters: list[dict] = v['fn']['signature']['parameters']
             for i, param in enumerate(parameters):
-                if param['kind'] == 'VAR_POSITIONAL':
-                    if new_args_len > i:
-                        # For peculiar historical reasons, variable kwargs might show up in args. Thus variable
-                        # positional args is not necessarily the last element of args; it might be the second-to-last.
-                        assert new_args_len <= i + 2, new_args
-                        rolled_args = new_args[i]
-                        new_args = new_args[:i] + new_args[i + 1 :]
+                if param['kind'] == 'VAR_POSITIONAL' and new_args_len > i:
+                    # For peculiar historical reasons, variable kwargs might show up in args. Thus variable
+                    # positional args is not necessarily the last element of args; it might be the second-to-last.
+                    assert new_args_len <= i + 2, new_args
+                    rolled_args = new_args[i]
+                    new_args = new_args[:i] + new_args[i + 1 :]
                 if param['kind'] == 'VAR_KEYWORD':
                     # As noted above, variable kwargs might show up either in args or in kwargs. If it's in args, it
                     # is necessarily the last element.
@@ -81,7 +80,7 @@ def __substitute_md(k: Optional[str], v: Any) -> Optional[tuple[Optional[str], A
                         rolled_kwargs = kwargs.pop(param['name'])
 
         if rolled_args is not None:
-            assert rolled_args['_classname'] in ('InlineArray', 'InlineList')
+            assert rolled_args['_classname'] in {'InlineArray', 'InlineList'}
             new_args.extend(rolled_args['components'])
         if rolled_kwargs is not None:
             assert rolled_kwargs['_classname'] == 'InlineDict'
