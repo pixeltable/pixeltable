@@ -37,7 +37,7 @@ class IndexBase(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def create_index(self, index_name: str, index_value_col: catalog.Column, conn: sql.engine.Connection) -> None:
+    def create_index(self, index_name: str, index_value_col: catalog.Column) -> None:
         """Create the index on the index value column"""
         pass
 

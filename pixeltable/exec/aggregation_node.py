@@ -29,7 +29,7 @@ class AggregationNode(ExecNode):
 
     def __init__(
         self,
-        tbl: catalog.TableVersion,
+        tbl: catalog.TableVersionHandle,
         row_builder: exprs.RowBuilder,
         group_by: Optional[list[exprs.Expr]],
         agg_fn_calls: list[exprs.FunctionCall],
@@ -86,9 +86,10 @@ class AggregationNode(ExecNode):
                     self._reset_agg_state(0)
                 self._update_agg_state(row, 0)
                 prev_row = row
-        # emit the last group
-        self.row_builder.eval(prev_row, self.agg_fn_eval_ctx, profile=self.ctx.profile)
-        self.output_batch.add_row(prev_row)
+        if prev_row is not None:
+            # emit the last group
+            self.row_builder.eval(prev_row, self.agg_fn_eval_ctx, profile=self.ctx.profile)
+            self.output_batch.add_row(prev_row)
 
         self.output_batch.flush_imgs(None, self.stored_img_cols, self.flushed_img_slots)
         _logger.debug(f'AggregateNode: consumed {num_input_rows} rows, returning {len(self.output_batch.rows)} rows')

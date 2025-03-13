@@ -14,23 +14,25 @@ class ComponentIterationNode(ExecNode):
     Returns row batches of OUTPUT_BATCH_SIZE size.
     """
 
+    view: catalog.TableVersionHandle
+
     __OUTPUT_BATCH_SIZE = 1024
 
-    def __init__(self, view: catalog.TableVersion, input: ExecNode):
-        assert view.is_component_view()
+    def __init__(self, view: catalog.TableVersionHandle, input: ExecNode):
+        assert view.get().is_component_view
         super().__init__(input.row_builder, [], [], input)
         self.view = view
-        iterator_args = [view.iterator_args.copy()]
+        iterator_args = [view.get().iterator_args.copy()]
         self.row_builder.set_slot_idxs(iterator_args)
         self.iterator_args = iterator_args[0]
         assert isinstance(self.iterator_args, exprs.InlineDict)
         self.iterator_args_ctx = self.row_builder.create_eval_ctx([self.iterator_args])
-        self.iterator_output_schema, self.unstored_column_names = self.view.iterator_cls.output_schema(
+        self.iterator_output_schema, self.unstored_column_names = self.view.get().iterator_cls.output_schema(
             **self.iterator_args.to_kwargs()
         )
         self.iterator_output_fields = list(self.iterator_output_schema.keys())
         self.iterator_output_cols = {
-            field_name: self.view.cols_by_name[field_name] for field_name in self.iterator_output_fields
+            field_name: self.view.get().cols_by_name[field_name] for field_name in self.iterator_output_fields
         }
         # referenced iterator output fields
         self.refd_output_slot_idxs = {
@@ -50,7 +52,7 @@ class ComponentIterationNode(ExecNode):
                 # specified and are not null. If any of them are null, then we skip this row (i.e., we emit 0
                 # output rows for this input row).
                 if self.__non_nullable_args_specified(iterator_args):
-                    iterator = self.view.iterator_cls(**iterator_args)
+                    iterator = self.view.get().iterator_cls(**iterator_args)
                     for pos, component_dict in enumerate(iterator):
                         output_row = output_batch.add_row()
                         input_row.copy(output_row)
@@ -67,7 +69,7 @@ class ComponentIterationNode(ExecNode):
         """
         Returns true if all non-nullable iterator arguments are not `None`.
         """
-        input_schema = self.view.iterator_cls.input_schema()
+        input_schema = self.view.get().iterator_cls.input_schema()
         for arg_name, arg_value in iterator_args.items():
             col_type = input_schema[arg_name]
             if arg_value is None and not col_type.nullable:
@@ -80,7 +82,9 @@ class ComponentIterationNode(ExecNode):
         # verify and copy component_dict fields to their respective slots in output_row
         for field_name, field_val in component_dict.items():
             if field_name not in self.iterator_output_fields:
-                raise excs.Error(f'Invalid field name {field_name} in output of {self.view.iterator_cls.__name__}')
+                raise excs.Error(
+                    f'Invalid field name {field_name} in output of {self.view.get().iterator_cls.__name__}'
+                )
             if field_name not in self.refd_output_slot_idxs:
                 # we can ignore this
                 continue
@@ -90,5 +94,5 @@ class ComponentIterationNode(ExecNode):
         if len(component_dict) != len(self.iterator_output_fields):
             missing_fields = set(self.refd_output_slot_idxs.keys()) - set(component_dict.keys())
             raise excs.Error(
-                f'Invalid output of {self.view.iterator_cls.__name__}: missing fields {", ".join(missing_fields)}'
+                f'Invalid output of {self.view.get().iterator_cls.__name__}: missing fields {", ".join(missing_fields)}'
             )

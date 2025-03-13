@@ -112,7 +112,7 @@ class TestPackager:
         # Only check columns defined in the table (not ancestors)
         select_exprs: dict[str, exprs.Expr] = {}
         actual_col_types: list[pxt.ColumnType] = []
-        for col_name, col in t._tbl_version.cols_by_name.items():
+        for col_name, col in t._tbl_version.get().cols_by_name.items():
             if not col.is_stored:
                 continue
             if col.col_type.is_media_type():

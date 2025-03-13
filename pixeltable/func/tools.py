@@ -48,22 +48,27 @@ class Tool(pydantic.BaseModel):
             'additionalProperties': False,  # TODO Handle kwargs?
         }
 
-    # `tool_calls` must be in standardized tool invocation format:
-    # {tool_name: {'args': {name1: value1, name2: value2, ...}}, ...}
-    def invoke(self, tool_calls: 'exprs.Expr') -> 'exprs.FunctionCall':
-        kwargs = {param.name: self.__extract_tool_arg(param, tool_calls) for param in self.parameters.values()}
+    # The output of `tool_calls` must be a dict in standardized tool invocation format:
+    # {tool_name: [{'args': {name1: value1, name2: value2, ...}}, ...], ...}
+    def invoke(self, tool_calls: 'exprs.Expr') -> 'exprs.Expr':
+        from pixeltable import exprs
+
+        func_name = self.name or self.fn.name
+        return exprs.JsonMapper(tool_calls[func_name]['*'], self.__invoke_kwargs(exprs.RELATIVE_PATH_ROOT.args))
+
+    def __invoke_kwargs(self, kwargs: 'exprs.Expr') -> 'exprs.FunctionCall':
+        kwargs = {param.name: self.__extract_tool_arg(param, kwargs) for param in self.parameters.values()}
         return self.fn(**kwargs)
 
-    def __extract_tool_arg(self, param: Parameter, tool_calls: 'exprs.Expr') -> 'exprs.Expr':
-        func_name = self.name or self.fn.name
+    def __extract_tool_arg(self, param: Parameter, kwargs: 'exprs.Expr') -> 'exprs.FunctionCall':
         if param.col_type.is_string_type():
-            return _extract_str_tool_arg(tool_calls, func_name=func_name, param_name=param.name)
+            return _extract_str_tool_arg(kwargs, param_name=param.name)
         if param.col_type.is_int_type():
-            return _extract_int_tool_arg(tool_calls, func_name=func_name, param_name=param.name)
+            return _extract_int_tool_arg(kwargs, param_name=param.name)
         if param.col_type.is_float_type():
-            return _extract_float_tool_arg(tool_calls, func_name=func_name, param_name=param.name)
+            return _extract_float_tool_arg(kwargs, param_name=param.name)
         if param.col_type.is_bool_type():
-            return _extract_bool_tool_arg(tool_calls, func_name=func_name, param_name=param.name)
+            return _extract_bool_tool_arg(kwargs, param_name=param.name)
         assert False
 
 
@@ -113,34 +118,29 @@ class Tools(pydantic.BaseModel):
 
 
 @udf
-def _extract_str_tool_arg(tool_calls: dict[str, Any], func_name: str, param_name: str) -> Optional[str]:
-    return _extract_arg(str, tool_calls, func_name, param_name)
+def _extract_str_tool_arg(kwargs: dict[str, Any], param_name: str) -> Optional[str]:
+    return _extract_arg(str, kwargs, param_name)
 
 
 @udf
-def _extract_int_tool_arg(tool_calls: dict[str, Any], func_name: str, param_name: str) -> Optional[int]:
-    return _extract_arg(int, tool_calls, func_name, param_name)
+def _extract_int_tool_arg(kwargs: dict[str, Any], param_name: str) -> Optional[int]:
+    return _extract_arg(int, kwargs, param_name)
 
 
 @udf
-def _extract_float_tool_arg(tool_calls: dict[str, Any], func_name: str, param_name: str) -> Optional[float]:
-    return _extract_arg(float, tool_calls, func_name, param_name)
+def _extract_float_tool_arg(kwargs: dict[str, Any], param_name: str) -> Optional[float]:
+    return _extract_arg(float, kwargs, param_name)
 
 
 @udf
-def _extract_bool_tool_arg(tool_calls: dict[str, Any], func_name: str, param_name: str) -> Optional[bool]:
-    return _extract_arg(bool, tool_calls, func_name, param_name)
+def _extract_bool_tool_arg(kwargs: dict[str, Any], param_name: str) -> Optional[bool]:
+    return _extract_arg(bool, kwargs, param_name)
 
 
 T = TypeVar('T')
 
 
-def _extract_arg(
-    eval_fn: Callable[[Any], T], tool_calls: dict[str, Any], func_name: str, param_name: str
-) -> Optional[T]:
-    if func_name in tool_calls:
-        arguments = tool_calls[func_name]['args']
-        if param_name in arguments:
-            return eval_fn(arguments[param_name])
-        return None
+def _extract_arg(eval_fn: Callable[[Any], T], kwargs: dict[str, Any], param_name: str) -> Optional[T]:
+    if param_name in kwargs:
+        return eval_fn(kwargs[param_name])
     return None

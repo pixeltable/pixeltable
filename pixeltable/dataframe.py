@@ -245,14 +245,13 @@ class DataFrame:
         """
         return {name: var.col_type for name, var in self._vars().items()}
 
-    def _exec(self, conn: Optional[sql.engine.Connection] = None) -> Iterator[exprs.DataRow]:
+    def _exec(self) -> Iterator[exprs.DataRow]:
         """Run the query and return rows as a generator.
         This function must not modify the state of the DataFrame, otherwise it breaks dataset caching.
         """
         plan = self._create_query_plan()
 
-        def exec_plan(conn: sql.engine.Connection) -> Iterator[exprs.DataRow]:
-            plan.ctx.set_conn(conn)
+        def exec_plan() -> Iterator[exprs.DataRow]:
             plan.open()
             try:
                 for row_batch in plan:
@@ -260,18 +259,13 @@ class DataFrame:
             finally:
                 plan.close()
 
-        if conn is None:
-            with Env.get().engine.begin() as conn_:
-                yield from exec_plan(conn_)
-        else:
-            yield from exec_plan(conn)
+        yield from exec_plan()
 
-    async def _aexec(self, conn: sql.engine.Connection) -> AsyncIterator[exprs.DataRow]:
+    async def _aexec(self) -> AsyncIterator[exprs.DataRow]:
         """Run the query and return rows as a generator.
         This function must not modify the state of the DataFrame, otherwise it breaks dataset caching.
         """
         plan = self._create_query_plan()
-        plan.ctx.set_conn(conn)
         plan.open()
         try:
             async for row_batch in plan:
@@ -287,13 +281,13 @@ class DataFrame:
             assert self.group_by_clause is None
             num_rowid_cols = len(self.grouping_tbl.store_tbl.rowid_columns())
             # the grouping table must be a base of self.tbl
-            assert num_rowid_cols <= len(self._first_tbl.tbl_version.store_tbl.rowid_columns())
+            assert num_rowid_cols <= len(self._first_tbl.tbl_version.get().store_tbl.rowid_columns())
             group_by_clause = [exprs.RowidRef(self._first_tbl.tbl_version, idx) for idx in range(num_rowid_cols)]
         elif self.group_by_clause is not None:
             group_by_clause = self.group_by_clause
 
         for item in self._select_list_exprs:
-            item.bind_rel_paths(None)
+            item.bind_rel_paths()
 
         return plan.Planner.create_query_plan(
             self._from_clause,
@@ -330,7 +324,7 @@ class DataFrame:
             raise excs.Error('head() cannot be used with order_by()')
         if self._has_joins():
             raise excs.Error('head() not supported for joins')
-        num_rowid_cols = len(self._first_tbl.tbl_version.store_tbl.rowid_columns())
+        num_rowid_cols = len(self._first_tbl.tbl_version.get().store_tbl.rowid_columns())
         order_by_clause = [exprs.RowidRef(self._first_tbl.tbl_version, idx) for idx in range(num_rowid_cols)]
         return self.order_by(*order_by_clause, asc=True).limit(n).collect()
 
@@ -353,7 +347,7 @@ class DataFrame:
             raise excs.Error('tail() cannot be used with order_by()')
         if self._has_joins():
             raise excs.Error('tail() not supported for joins')
-        num_rowid_cols = len(self._first_tbl.tbl_version.store_tbl.rowid_columns())
+        num_rowid_cols = len(self._first_tbl.tbl_version.get().store_tbl.rowid_columns())
         order_by_clause = [exprs.RowidRef(self._first_tbl.tbl_version, idx) for idx in range(num_rowid_cols)]
         result = self.order_by(*order_by_clause, asc=False).limit(n).collect()
         result._reverse()
@@ -434,24 +428,22 @@ class DataFrame:
             msg += f'\nStack:\n{nl.join(stack_trace[-1:1:-1])}'
         raise excs.Error(msg) from e
 
-    def _output_row_iterator(self, conn: Optional[sql.engine.Connection] = None) -> Iterator[list]:
-        try:
-            for data_row in self._exec(conn):
-                yield [data_row[e.slot_idx] for e in self._select_list_exprs]
-        except excs.ExprEvalError as e:
-            self._raise_expr_eval_err(e)
-        except sql.exc.DBAPIError as e:
-            raise excs.Error(f'Error during SQL execution:\n{e}') from e
+    def _output_row_iterator(self) -> Iterator[list]:
+        with Env.get().begin_xact():
+            try:
+                for data_row in self._exec():
+                    yield [data_row[e.slot_idx] for e in self._select_list_exprs]
+            except excs.ExprEvalError as e:
+                self._raise_expr_eval_err(e)
+            except sql.exc.DBAPIError as e:
+                raise excs.Error(f'Error during SQL execution:\n{e}')
 
     def collect(self) -> DataFrameResultSet:
-        return self._collect()
+        return DataFrameResultSet(list(self._output_row_iterator()), self.schema)
 
-    def _collect(self, conn: Optional[sql.engine.Connection] = None) -> DataFrameResultSet:
-        return DataFrameResultSet(list(self._output_row_iterator(conn)), self.schema)
-
-    async def _acollect(self, conn: sql.engine.Connection) -> DataFrameResultSet:
+    async def _acollect(self) -> DataFrameResultSet:
         try:
-            result = [[row[e.slot_idx] for e in self._select_list_exprs] async for row in self._aexec(conn)]
+            result = [[row[e.slot_idx] for e in self._select_list_exprs] async for row in self._aexec()]
             return DataFrameResultSet(result, self.schema)
         except excs.ExprEvalError as e:
             self._raise_expr_eval_err(e)
@@ -467,7 +459,7 @@ class DataFrame:
         from pixeltable.plan import Planner
 
         stmt = Planner.create_count_stmt(self._first_tbl, self.where_clause)
-        with Env.get().engine.connect() as conn:
+        with Env.get().begin_xact() as conn:
             result: int = conn.execute(stmt).scalar_one()
             assert isinstance(result, int)
             return result
@@ -840,7 +832,7 @@ class DataFrame:
                 base = self._first_tbl.find_tbl_version(item._tbl_version_path.tbl_id())
                 if base is None or base.id == self._first_tbl.tbl_id():
                     raise excs.Error(f'group_by(): {item._name} is not a base table of {self._first_tbl.tbl_name()}')
-                grouping_tbl = item._tbl_version_path.tbl_version
+                grouping_tbl = item._tbl_version_path.tbl_version.get()
                 break
             if not isinstance(item, exprs.Expr):
                 raise excs.Error(f'Invalid expression in group_by(): {item}')
@@ -953,7 +945,8 @@ class DataFrame:
             >>> df = person.where(t.year == 2014).update({'age': 30})
         """
         self._validate_mutable('update', False)
-        return self._first_tbl.tbl_version.update(value_spec, where=self.where_clause, cascade=cascade)
+        with Env.get().begin_xact():
+            return self._first_tbl.tbl_version.get().update(value_spec, where=self.where_clause, cascade=cascade)
 
     def delete(self) -> UpdateStatus:
         """Delete rows form the underlying table of the DataFrame.
@@ -975,7 +968,8 @@ class DataFrame:
         self._validate_mutable('delete', False)
         if not self._first_tbl.is_insertable():
             raise excs.Error('Cannot delete from view')
-        return self._first_tbl.tbl_version.delete(where=self.where_clause)
+        with Env.get().begin_xact():
+            return self._first_tbl.tbl_version.get().delete(where=self.where_clause)
 
     def _validate_mutable(self, op_name: str, allow_select: bool) -> None:
         """Tests whether this DataFrame can be mutated (such as by an update operation).
@@ -1021,32 +1015,37 @@ class DataFrame:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> 'DataFrame':
-        tbls = [catalog.TableVersionPath.from_dict(tbl_dict) for tbl_dict in d['from_clause']['tbls']]
-        join_clauses = [plan.JoinClause(**clause_dict) for clause_dict in d['from_clause']['join_clauses']]
-        from_clause = plan.FromClause(tbls=tbls, join_clauses=join_clauses)
-        select_list = (
-            [(exprs.Expr.from_dict(e), name) for e, name in d['select_list']] if d['select_list'] is not None else None
-        )
-        where_clause = exprs.Expr.from_dict(d['where_clause']) if d['where_clause'] is not None else None
-        group_by_clause = (
-            [exprs.Expr.from_dict(e) for e in d['group_by_clause']] if d['group_by_clause'] is not None else None
-        )
-        grouping_tbl = catalog.TableVersion.from_dict(d['grouping_tbl']) if d['grouping_tbl'] is not None else None
-        order_by_clause = (
-            [(exprs.Expr.from_dict(e), asc) for e, asc in d['order_by_clause']]
-            if d['order_by_clause'] is not None
-            else None
-        )
-        limit_val = exprs.Expr.from_dict(d['limit_val']) if d['limit_val'] is not None else None
-        return DataFrame(
-            from_clause=from_clause,
-            select_list=select_list,
-            where_clause=where_clause,
-            group_by_clause=group_by_clause,
-            grouping_tbl=grouping_tbl,
-            order_by_clause=order_by_clause,
-            limit=limit_val,
-        )
+        # we need to wrap the construction with a transaction, because it might need to load metadata
+        with Env.get().begin_xact():
+            tbls = [catalog.TableVersionPath.from_dict(tbl_dict) for tbl_dict in d['from_clause']['tbls']]
+            join_clauses = [plan.JoinClause(**clause_dict) for clause_dict in d['from_clause']['join_clauses']]
+            from_clause = plan.FromClause(tbls=tbls, join_clauses=join_clauses)
+            select_list = (
+                [(exprs.Expr.from_dict(e), name) for e, name in d['select_list']]
+                if d['select_list'] is not None
+                else None
+            )
+            where_clause = exprs.Expr.from_dict(d['where_clause']) if d['where_clause'] is not None else None
+            group_by_clause = (
+                [exprs.Expr.from_dict(e) for e in d['group_by_clause']] if d['group_by_clause'] is not None else None
+            )
+            grouping_tbl = catalog.TableVersion.from_dict(d['grouping_tbl']) if d['grouping_tbl'] is not None else None
+            order_by_clause = (
+                [(exprs.Expr.from_dict(e), asc) for e, asc in d['order_by_clause']]
+                if d['order_by_clause'] is not None
+                else None
+            )
+            limit_val = exprs.Expr.from_dict(d['limit_val']) if d['limit_val'] is not None else None
+
+            return DataFrame(
+                from_clause=from_clause,
+                select_list=select_list,
+                where_clause=where_clause,
+                group_by_clause=group_by_clause,
+                grouping_tbl=grouping_tbl,
+                order_by_clause=order_by_clause,
+                limit=limit_val,
+            )
 
     def _hash_result_set(self) -> str:
         """Return a hash that changes when the result set changes."""
@@ -1054,7 +1053,7 @@ class DataFrame:
         # add list of referenced table versions (the actual versions, not the effective ones) in order to force cache
         # invalidation when any of the referenced tables changes
         d['tbl_versions'] = [
-            tbl_version.version for tbl in self._from_clause.tbls for tbl_version in tbl.get_tbl_versions()
+            tbl_version.get().version for tbl in self._from_clause.tbls for tbl_version in tbl.get_tbl_versions()
         ]
         summary_string = json.dumps(d)
         return hashlib.sha256(summary_string.encode()).hexdigest()
@@ -1087,7 +1086,8 @@ class DataFrame:
             assert data_file_path.is_file()
             return data_file_path
         else:
-            return write_coco_dataset(self, dest_path)
+            with Env.get().begin_xact():
+                return write_coco_dataset(self, dest_path)
 
     def to_pytorch_dataset(self, image_format: str = 'pt') -> 'torch.utils.data.IterableDataset':
         """
@@ -1131,6 +1131,7 @@ class DataFrame:
         if dest_path.exists():  # fast path: use cache
             assert dest_path.is_dir()
         else:
-            export_parquet(self, dest_path, inline_images=True)
+            with Env.get().begin_xact():
+                export_parquet(self, dest_path, inline_images=True)
 
         return PixeltablePytorchDataset(path=dest_path, image_format=image_format)

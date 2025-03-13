@@ -40,7 +40,7 @@ class CachePrefetchNode(ExecNode):
     boto_client_lock: threading.Lock
 
     # execution state
-    batch_tbl_version: Optional[catalog.TableVersion]  # needed to construct output batches
+    batch_tbl_version: Optional[catalog.TableVersionHandle]  # needed to construct output batches
     num_returned_rows: int
 
     # ready_rows: rows that are ready to be returned, ordered by row idx;

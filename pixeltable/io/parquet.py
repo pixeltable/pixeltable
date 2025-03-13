@@ -90,63 +90,64 @@ def export_parquet(
         current_value_batch: dict[str, deque] = {k: deque() for k in df.schema.keys()}
         current_byte_estimate = 0
 
-        for data_row in df._exec():
-            for (col_name, col_type), e in zip(df.schema.items(), df._select_list_exprs):
-                val = data_row[e.slot_idx]
-                if val is None:
+        with Env.get().begin_xact():
+            for data_row in df._exec():
+                for (col_name, col_type), e in zip(df.schema.items(), df._select_list_exprs):
+                    val = data_row[e.slot_idx]
+                    if val is None:
+                        current_value_batch[col_name].append(val)
+                        continue
+
+                    assert val is not None
+                    if col_type.is_image_type():
+                        # images get inlined into the parquet file
+                        if data_row.file_paths is not None and data_row.file_paths[e.slot_idx] is not None:
+                            # if there is a file, read directly to preserve information
+                            with open(data_row.file_paths[e.slot_idx], 'rb') as f:
+                                val = f.read()
+                        elif isinstance(val, PIL.Image.Image):
+                            # if no file available, eg. bc it is computed, convert to png
+                            buf = io.BytesIO()
+                            val.save(buf, format='PNG')
+                            val = buf.getvalue()
+                        else:
+                            assert False, f'unknown image type {type(val)}'
+                        length = len(val)
+                    elif col_type.is_string_type():
+                        length = len(val)
+                    elif col_type.is_video_type():
+                        if data_row.file_paths is not None and data_row.file_paths[e.slot_idx] is not None:
+                            val = data_row.file_paths[e.slot_idx]
+                        else:
+                            assert False, f'unknown video type {type(val)}'
+                        length = len(val)
+                    elif col_type.is_json_type():
+                        val = json.dumps(val)
+                        length = len(val)
+                    elif col_type.is_array_type():
+                        length = val.nbytes
+                    elif col_type.is_int_type():
+                        length = 8
+                    elif col_type.is_float_type():
+                        length = 8
+                    elif col_type.is_bool_type():
+                        length = 1
+                    elif col_type.is_timestamp_type():
+                        val = val.astimezone(datetime.timezone.utc)
+                        length = 8
+                    else:
+                        assert False, f'unknown type {col_type} for {col_name}'
+
                     current_value_batch[col_name].append(val)
-                    continue
+                    current_byte_estimate += length
+                if current_byte_estimate > partition_size_bytes:
+                    assert batch_num < 100_000, 'wrote too many parquet files, unclear ordering'
+                    _write_batch(current_value_batch, arrow_schema, temp_path / f'part-{batch_num:05d}.parquet')
+                    batch_num += 1
+                    current_value_batch = {k: deque() for k in df.schema.keys()}
+                    current_byte_estimate = 0
 
-                assert val is not None
-                if col_type.is_image_type():
-                    # images get inlined into the parquet file
-                    if data_row.file_paths is not None and data_row.file_paths[e.slot_idx] is not None:
-                        # if there is a file, read directly to preserve information
-                        with open(data_row.file_paths[e.slot_idx], 'rb') as f:
-                            val = f.read()
-                    elif isinstance(val, PIL.Image.Image):
-                        # if no file available, eg. bc it is computed, convert to png
-                        buf = io.BytesIO()
-                        val.save(buf, format='PNG')
-                        val = buf.getvalue()
-                    else:
-                        assert False, f'unknown image type {type(val)}'
-                    length = len(val)
-                elif col_type.is_string_type():
-                    length = len(val)
-                elif col_type.is_video_type():
-                    if data_row.file_paths is not None and data_row.file_paths[e.slot_idx] is not None:
-                        val = data_row.file_paths[e.slot_idx]
-                    else:
-                        assert False, f'unknown video type {type(val)}'
-                    length = len(val)
-                elif col_type.is_json_type():
-                    val = json.dumps(val)
-                    length = len(val)
-                elif col_type.is_array_type():
-                    length = val.nbytes
-                elif col_type.is_int_type():
-                    length = 8
-                elif col_type.is_float_type():
-                    length = 8
-                elif col_type.is_bool_type():
-                    length = 1
-                elif col_type.is_timestamp_type():
-                    val = val.astimezone(datetime.timezone.utc)
-                    length = 8
-                else:
-                    assert False, f'unknown type {col_type} for {col_name}'
-
-                current_value_batch[col_name].append(val)
-                current_byte_estimate += length
-            if current_byte_estimate > partition_size_bytes:
-                assert batch_num < 100_000, 'wrote too many parquet files, unclear ordering'
-                _write_batch(current_value_batch, arrow_schema, temp_path / f'part-{batch_num:05d}.parquet')
-                batch_num += 1
-                current_value_batch = {k: deque() for k in df.schema.keys()}
-                current_byte_estimate = 0
-
-        _write_batch(current_value_batch, arrow_schema, temp_path / f'part-{batch_num:05d}.parquet')
+            _write_batch(current_value_batch, arrow_schema, temp_path / f'part-{batch_num:05d}.parquet')
 
 
 def import_parquet(

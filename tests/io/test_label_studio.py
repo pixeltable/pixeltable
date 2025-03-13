@@ -109,7 +109,7 @@ class TestLabelStudio:
             col_mapping={'image_col': 'image'},
             sync_immediately=False,
         )
-        store = t._tbl_version.external_stores['test_project']
+        store = t._tbl_version.get().external_stores['test_project']
         assert isinstance(store, LabelStudioProject)
         assert store.name == 'test_project'
         assert store.project_title == 'Test Project'
@@ -207,7 +207,7 @@ class TestLabelStudio:
         validate_sync_status(sync_status, t_count, 0, 0, 0, 0)
 
         # Check that the project and tasks were properly created
-        store = t._tbl_version.external_stores['ls_project_0']
+        store = t._tbl_version.get().external_stores['ls_project_0']
         assert isinstance(store, LabelStudioProject)
         tasks = store.project.get_tasks()
         assert len(tasks) == t_count
@@ -228,7 +228,7 @@ class TestLabelStudio:
         # Import the annotations back to Pixeltable
         reload_catalog()
         t = pxt.get_table('test_ls_sync')
-        store = t._tbl_version.external_stores['ls_project_0']
+        store = t._tbl_version.get().external_stores['ls_project_0']
         assert isinstance(store, LabelStudioProject)
         ann_count = min(10, t_count)
         sync_status = t.sync()
@@ -310,7 +310,7 @@ class TestLabelStudio:
         validate_sync_status(sync_status, t.count(), 0, 0, 0, 0)
 
         # Check that the preannotations sent to Label Studio are what we expect
-        store = t._tbl_version.external_stores['ls_project_0']
+        store = t._tbl_version.get().external_stores['ls_project_0']
         assert isinstance(store, LabelStudioProject)
         tasks = store.project.get_tasks()
         assert len(tasks) == 5
@@ -347,7 +347,7 @@ class TestLabelStudio:
             col_mapping={'image_col': 'image', 'annotations_col': 'annotations'},
         )
         validate_sync_status(sync_status, v2.count(), 0, 0, 0, 0)
-        store = v2._tbl_version.external_stores['ls_project_0']
+        store = v2._tbl_version.get().external_stores['ls_project_0']
         assert isinstance(store, LabelStudioProject)
         tasks = store.project.get_tasks()
         assert len(tasks) == v2.count()
@@ -392,7 +392,7 @@ class TestLabelStudio:
         v = pxt.get_table('frames_view')
         sync_status = v.sync()  # Verify that this has no effect
         validate_sync_status(sync_status, 0, 0, 0, 0, 0)
-        store = v._tbl_version.external_stores['complex_project']
+        store = v._tbl_version.get().external_stores['complex_project']
         assert isinstance(store, LabelStudioProject)
         tasks: list[dict] = store.project.get_tasks()
         assert len(tasks) == 10
