@@ -227,9 +227,9 @@ class DataFrame:
             all_exprs.extend([expr for expr, _ in self.order_by_clause])
         if self.limit_val is not None:
             all_exprs.append(self.limit_val)
-        vars_ = exprs.Expr.list_subexprs(all_exprs, expr_class=exprs.Variable)
+        vars = exprs.Expr.list_subexprs(all_exprs, expr_class=exprs.Variable)
         unique_vars: dict[str, exprs.Variable] = {}
-        for var in vars_:
+        for var in vars:
             if var.name not in unique_vars:
                 unique_vars[var.name] = var
             elif unique_vars[var.name].col_type != var.col_type:
@@ -369,12 +369,12 @@ class DataFrame:
         limit_val = copy.deepcopy(self.limit_val)
 
         var_exprs: dict[exprs.Expr, exprs.Expr] = {}
-        vars_ = self._vars()
+        vars = self._vars()
         for arg_name, arg_val in args.items():
-            if arg_name not in vars_:
+            if arg_name not in vars:
                 # ignore unused variables
                 continue
-            var_expr = vars_[arg_name]
+            var_expr = vars[arg_name]
             arg_expr = exprs.Expr.from_object(arg_val)
             if arg_expr is None:
                 raise excs.Error(f'Cannot convert argument {arg_val} to a Pixeltable expression')

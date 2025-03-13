@@ -214,6 +214,7 @@ ignore = [
     "B023",  # Function definition does not bind to loop variable (appears to generate false positives)
     # A bunch of rules that are just plain fussy about code complexity:
     "C901", "PLR0904", "PLR0911", "PLR0912", "PLR0913", "PLR0914", "PLR0915", "PLR0916", "PLR0917", "PLR1702",
+    "E711",  # None comparison (x == None); needed for Pandas/Pixeltable expressions
     "N801",  # Class name should use CapWords convention (we intentionally violate this for aggregate functions)
     "PLC0415",
     "PLC2701",  # Allow private name imports
