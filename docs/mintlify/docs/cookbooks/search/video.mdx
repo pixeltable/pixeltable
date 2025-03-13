@@ -1,14 +1,15 @@
 ---
 title: "Video"
-description: "Build a video search workflow with Pixeltable"
+description: "Build a multimodal video search workflow with Pixeltable"
 icon: "video"
+mode: "wide"
 ---
 
-# Building a Video Search Workflow
+# Building a Multimodal Video Search Workflow
 
-Pixeltable lets you build video search workflows in two phases:
-1. Define your processing workflow (once)
-2. Query your knowledge base (anytime)
+Pixeltable lets you build comprehensive video search workflows combining both audio and visual content:
+1. Process both audio and visual content
+2. Query your knowledge base by text or visual concepts
 
 <Steps>
   <Step title="Install Dependencies">
@@ -25,64 +26,70 @@ Pixeltable lets you build video search workflows in two phases:
     from pixeltable.functions import openai
     from pixeltable.functions.huggingface import sentence_transformer
     from pixeltable.functions.video import extract_audio
-    from pixeltable.iterators import AudioSplitter
+    from pixeltable.iterators import AudioSplitter, FrameIterator
     from pixeltable.iterators.string import StringSplitter
+    from pixeltable.functions.openai import vision
 
-    # Define constants
-    DIRECTORY = 'video_index'
-    TABLE_NAME = f'{DIRECTORY}.video'
-    CHUNKS_VIEW_NAME = f'{DIRECTORY}.video_chunks'
-    SENTENCES_VIEW_NAME = f'{DIRECTORY}.video_sentence_chunks'
-    WHISPER_MODEL = 'whisper-1'
-    DELETE_INDEX = True
+    # Define the embedding model once for reuse
+    EMBED_MODEL = sentence_transformer.using(model_id='intfloat/e5-large-v2')
 
-    # Optionally delete existing index
-    if DELETE_INDEX and TABLE_NAME in pxt.list_tables():
-        pxt.drop_dir(DIRECTORY, force=True)
+    # Set up directory and table name
+    directory = 'video_index'
+    table_name = f'{directory}.video'
 
-    if TABLE_NAME not in pxt.list_tables():
-        # Create video table
-        pxt.create_dir(DIRECTORY, if_exists='ignore')
-        video_index = pxt.create_table(TABLE_NAME, {'video': pxt.Video, 'uploaded_at': pxt.Timestamp})
+    # Create video table
+    pxt.create_dir(directory, if_exists='replace_force')
+    video_index = pxt.create_table(table_name, {'video': pxt.Video, 'uploaded_at': pxt.Timestamp})
+    video_index.add_computed_column(audio_extract=extract_audio(video_index.video, format='mp3')) 
 
-        # Video-to-audio extraction
-        video_index.add_computed_column(audio_extract=extract_audio(video_index.video, format='mp3'))
-
-        # Create view for audio chunks
-        chunks_view = pxt.create_view(
-            CHUNKS_VIEW_NAME,
-            video_index,
-            iterator=AudioSplitter.create(
-                audio=video_index.audio_extract,
-                chunk_duration_sec=30.0,
-                overlap_sec=2.0,
-                min_chunk_duration_sec=5.0
-            )
+    # Create view for frames
+    frames_view = pxt.create_view(
+        f'{directory}.video_frames',
+        video_index,
+        iterator=FrameIterator.create(
+            video=video_index.video,
+            fps=1
         )
+    )
 
-        # Audio-to-text for chunks
-        chunks_view.add_computed_column(
-            transcription=openai.transcriptions(audio=chunks_view.audio_chunk, model=WHISPER_MODEL)
+    # Create a column for image description using OpenAI gpt-4o-mini
+    frames_view.add_computed_column(
+        image_description=vision(
+            prompt="Provide quick caption for the image.",
+            image=frames_view.frame,
+            model="gpt-4o-mini"
         )
+    )    
 
-        # Create view that chunks text into sentences
-        transcription_chunks = pxt.create_view(
-            SENTENCES_VIEW_NAME,
-            chunks_view,
-            iterator=StringSplitter.create(text=chunks_view.transcription.text, separators='sentence'),
+    # Create embedding index for image description
+    frames_view.add_embedding_index('image_description', string_embed=EMBED_MODEL)    
+
+    # Create view for audio chunks
+    chunks_view = pxt.create_view(
+        f'{directory}.video_chunks',
+        video_index,
+        iterator=AudioSplitter.create(
+            audio=video_index.audio_extract,
+            chunk_duration_sec=30.0,
+            overlap_sec=2.0,
+            min_chunk_duration_sec=5.0
         )
+    )
 
-        # Define the embedding model
-        embed_model = sentence_transformer.using(model_id='intfloat/e5-large-v2')
+    # Audio-to-text for chunks
+    chunks_view.add_computed_column(
+        transcription=openai.transcriptions(audio=chunks_view.audio_chunk, model='whisper-1')
+    )
 
-        # Create embedding index
-        transcription_chunks.add_embedding_index('text', string_embed=embed_model)
+    # Create view that chunks text into sentences
+    transcription_chunks = pxt.create_view(
+        f'{directory}.video_sentence_chunks',
+        chunks_view,
+        iterator=StringSplitter.create(text=chunks_view.transcription.text, separators='sentence'),
+    )
 
-    else:
-        # Connect to existing tables and views
-        video_index = pxt.get_table(TABLE_NAME)
-        chunks_view = pxt.get_table(CHUNKS_VIEW_NAME)
-        transcription_chunks = pxt.get_table(SENTENCES_VIEW_NAME)
+    # Create embedding index for audio
+    transcription_chunks.add_embedding_index('text', string_embed=EMBED_MODEL)
     ```
   </Step>
 
@@ -93,15 +100,13 @@ Pixeltable lets you build video search workflows in two phases:
     import pixeltable as pxt
     
     # Constants
-    DIRECTORY = 'video_index'
-    TABLE_NAME = f'{DIRECTORY}.video'
-    CHUNKS_VIEW_NAME = f'{DIRECTORY}.video_chunks'
-    SENTENCES_VIEW_NAME = f'{DIRECTORY}.video_sentence_chunks'
+    directory = 'video_index'
+    table_name = f'{directory}.video'
     
     # Connect to your tables and views
-    video_index = pxt.get_table(TABLE_NAME)
-    chunks_view = pxt.get_table(CHUNKS_VIEW_NAME)
-    transcription_chunks = pxt.get_table(SENTENCES_VIEW_NAME)
+    video_index = pxt.get_table(table_name)
+    frames_view = pxt.get_table(f'{directory}.video_frames')
+    transcription_chunks = pxt.get_table(f'{directory}.video_sentence_chunks')
 
     # Insert videos to the knowledge base
     videos = [
@@ -112,9 +117,9 @@ Pixeltable lets you build video search workflows in two phases:
 
     video_index.insert({'video': video, 'uploaded_at': datetime.now()} for video in videos[:2])
 
-    # Perform search
+    # Perform audio-based search
     @pxt.query
-    def search_videos(query_text: str, limit: int = 5):
+    def search_audio(query_text: str, limit: int = 5):
         sim = transcription_chunks.text.similarity(query_text)
         return (
             transcription_chunks.order_by(sim, transcription_chunks.uploaded_at, asc=False)
@@ -122,13 +127,33 @@ Pixeltable lets you build video search workflows in two phases:
             .select(transcription_chunks.text, transcription_chunks.uploaded_at, similarity=sim)
         )
 
-    # Example search
-    results = search_videos("What is happiness?")
+    # Perform visual concept search
+    @pxt.query
+    def search_frames(visual_concept: str, limit: int = 5):
+        sim = frames_view.image_description.similarity(visual_concept)
+        return (
+            frames_view.order_by(sim, frames_view.uploaded_at, asc=False)
+            .limit(limit)
+            .select(frames_view.image_description, frames_view.uploaded_at, similarity=sim)
+        )
+
+    # Example searches
+    audio_results = search_audio("Definition of happiness according to the guest")
+    frame_results = search_frames("Lex Fridman interviewing a guest in a podcast setting")
+
     
-    # Print results
-    for result in results.collect():
+    # Print audio search results
+    print("Audio Search Results:")
+    for result in audio_results.collect():
         print(f"Similarity: {result['similarity']:.3f}")
         print(f"Text: {result['text']}")
+        print(f"Uploaded: {result['uploaded_at']}\n")
+        
+    # Print visual search results
+    print("Visual Search Results:")
+    for result in frame_results.collect():
+        print(f"Similarity: {result['similarity']:.3f}")
+        print(f"Description: {result['image_description']}")
         print(f"Uploaded: {result['uploaded_at']}\n")
     ```
   </Step>
@@ -137,54 +162,57 @@ Pixeltable lets you build video search workflows in two phases:
 ## What Makes This Different?
 
 <CardGroup cols={1}>
-  <Card title="Complete Video Processing Pipeline" icon="gears">
-    End-to-end workflow from video to searchable text:
+  <Card title="True Multimodal Processing" icon="layer-group">
+    Process both audio and visual content from the same videos:
     ```python
     # Extract audio from video
     video_index.add_computed_column(audio_extract=extract_audio(video_index.video, format='mp3'))
     
-    # Create chunks of audio for processing
-    iterator=AudioSplitter.create(
-        audio=video_index.audio_extract,
-        chunk_duration_sec=30.0,
-        overlap_sec=2.0
-    )
-    
-    # Transcribe audio chunks
-    transcription=openai.transcriptions(audio=chunks_view.audio_chunk, model=WHISPER_MODEL)
-    ```
-  </Card>
-
-  <Card title="Smart Chunking Strategy" icon="scissors">
-    Two-level chunking for optimal processing and search:
-    ```python
-    # First level: Audio chunks for efficient transcription
-    chunks_view = pxt.create_view(
-        CHUNKS_VIEW_NAME,
+    # Extract frames from video
+    frames_view = pxt.create_view(
+        f'{directory}.video_frames',
         video_index,
-        iterator=AudioSplitter.create(
-            audio=video_index.audio_extract,
-            chunk_duration_sec=30.0,
-            overlap_sec=2.0,
-            min_chunk_duration_sec=5.0
+        iterator=FrameIterator.create(
+            video=video_index.video,
+            fps=1
         )
     )
-    
-    # Second level: Sentence-based chunks for natural language search
-    transcription_chunks = pxt.create_view(
-        SENTENCES_VIEW_NAME,
-        chunks_view,
-        iterator=StringSplitter.create(text=chunks_view.transcription.text, separators='sentence'),
+    ```
+  </Card>
+
+  <Card title="AI-Powered Frame Analysis" icon="robot">
+    Automatic image description using vision models:
+    ```python
+    frames_view.add_computed_column(
+        image_description=vision(
+            prompt="Provide quick caption for the image.",
+            image=frames_view.frame,
+            model="gpt-4o-mini"
+        )
     )
     ```
   </Card>
 
-  <Card title="Vector Search with Metadata" icon="magnifying-glass">
-    Semantic search with timestamp ordering:
+  <Card title="Unified Embedding Space" icon="brain">
+    Use the same embedding model for both text and image descriptions:
     ```python
-    transcription_chunks.order_by(sim, transcription_chunks.uploaded_at, asc=False)
-    .limit(limit)
-    .select(transcription_chunks.text, transcription_chunks.uploaded_at, similarity=sim)
+    # Define once, use for both modalities
+    EMBED_MODEL = sentence_transformer.using(model_id='intfloat/e5-large-v2')
+    
+    # Use for frame descriptions
+    frames_view.add_embedding_index('image_description', string_embed=EMBED_MODEL)
+    
+    # Use for transcriptions
+    transcription_chunks.add_embedding_index('text', string_embed=EMBED_MODEL)
+    ```
+  </Card>
+
+  <Card title="Dual Search Capabilities" icon="magnifying-glass">
+    Search independently across audio or visual content:
+    ```python
+    # Get similarity scores   
+    audio_sim = transcription_chunks.text.similarity("Definition of happiness according to the guest")
+    image_sim = frames_view.image_description.similarity("Lex Fridman interviewing a guest in a podcast setting")
     ```
   </Card>
 </CardGroup>
@@ -193,11 +221,19 @@ Pixeltable lets you build video search workflows in two phases:
 
 <AccordionGroup>
   <Accordion title="Video Processing" icon="film">
-    Processes video content for search:
+    Extracts both audio and visual content:
     - Video file ingestion from URLs or local files
     - Automatic audio extraction with format selection
-    - Timestamp preservation for search results
-    - Supports various video formats
+    - Frame extraction at configurable frame rates
+    - Preserves timestamps for accurate retrieval
+  </Accordion>
+
+  <Accordion title="Visual Content Analysis" icon="image">
+    Analyzes video frames with AI:
+    - Extracts frames at 1 frame per second (configurable)
+    - Generates natural language descriptions of each frame
+    - Creates semantic embeddings of visual content
+    - Enables search by visual concepts
   </Accordion>
 
   <Accordion title="Audio Processing" icon="waveform">
@@ -217,90 +253,147 @@ Pixeltable lets you build video search workflows in two phases:
   </Accordion>
 
   <Accordion title="Vector Search" icon="database">
-    Implements search using E5 embeddings:
-    - High-quality vector representations
-    - Fast similarity search
-    - Combined ranking with timestamps
+    Implements unified embedding space:
+    - Same embedding model for both modalities
+    - High-quality E5 vector representations
+    - Fast similarity search across content types
     - Configurable top-k retrieval
   </Accordion>
 </AccordionGroup>
 
 ## Advanced Usage
 
-### Custom Search Functions
+### Combined Multimodal Search
 
-Create search functions with different parameters:
+Create search functions that blend audio and visual results:
 
 ```python
-@pxt.query
-def search_with_threshold(query_text: str, min_similarity: float = 0.7, max_results: int = 10):
-    sim = transcription_chunks.text.similarity(query_text)
-    return (
-        transcription_chunks.where(sim >= min_similarity)
-        .order_by(sim, transcription_chunks.uploaded_at, asc=False)
-        .select(transcription_chunks.text, transcription_chunks.uploaded_at, similarity=sim)
-        .limit(max_results)
-    )
+pxt.query
+def search_multimodal(query_text: str, limit: int = 5):
+    # Search both audio and visual content
+    audio_sim = transcription_chunks.text.similarity(query_text)
+    image_sim = frames_view.image_description.similarity(query_text)
+    
+    # Get top results from each modality
+    audio_results = (
+        transcription_chunks.order_by(audio_sim, asc=False)
+        .limit(limit)
+        .select(
+            transcription_chunks.text, 
+            transcription_chunks.uploaded_at, 
+            similarity=audio_sim,
+        )
+    ).collect()
+    
+    image_results = (
+        frames_view.order_by(image_sim, asc=False)
+        .limit(limit)
+        .select(
+            text=frames_view.image_description, 
+            frames_view.uploaded_at, 
+            similarity=image_sim,
+        )
+    ).collect()
+    
+    # Process and combine results
+    results = []
+    for audio_item in audio_results:
+        audio_text = audio_item['text']
+        similarity = audio_item['similarity']
+        timestamp = audio_item['uploaded_at']
+        results.append({
+            'text': f"[AUDIO] {audio_text}",
+            'similarity': similarity,
+            'uploaded_at': timestamp
+        })
+    
+    for image_item in image_results:
+        image_text = image_item['text']
+        similarity = image_item['similarity']
+        timestamp = image_item['uploaded_at']
+        results.append({
+            'text': f"[VISUAL] {image_text}",
+            'similarity': similarity,
+            'uploaded_at': timestamp
+        })
+    
+    # Sort combined results by similarity
+    return sorted(results, key=lambda x: x['similarity'], reverse=True)[:limit]
 ```
 
-### Batch Processing
+### Adjusting Frame Extraction Rate
 
-Process multiple videos in batch:
-
-```python
-videos = [
-    'https://example.com/video1.mp4',
-    'https://example.com/video2.mp4',
-    'https://example.com/video3.mp4'
-]
-
-video_index.insert({'video': video, 'uploaded_at': datetime.now()} for video in videos)
-```
-
-### Different Chunking Strategies
-
-Adjust audio chunking parameters for different content types:
+Customize frame extraction based on video content:
 
 ```python
-# For longer-form content (like lectures)
-iterator=AudioSplitter.create(
-    audio=video_index.audio_extract,
-    chunk_duration_sec=60.0,  # Longer chunks
-    overlap_sec=5.0,          # More overlap
-    min_chunk_duration_sec=10.0
+# For action-packed content (more frames)
+iterator=FrameIterator.create(
+    video=video_index.video,
+    fps=2  # 2 frames per second
 )
 
-# For short-form content (like interviews)
-iterator=AudioSplitter.create(
-    audio=video_index.audio_extract,
-    chunk_duration_sec=15.0,  # Shorter chunks
-    overlap_sec=1.0,          # Less overlap
-    min_chunk_duration_sec=3.0
+# For slow-paced content (fewer frames)
+iterator=FrameIterator.create(
+    video=video_index.video,
+    fps=0.5  # 1 frame every 2 seconds
 )
 ```
 
-### Different Embedding Models
+### Fine-tuning Vision Prompts
 
-Use alternative sentence transformer models:
+Customize frame description prompts for different use cases:
 
 ```python
-# Alternative embedding models
-embed_model = sentence_transformer.using(
-    model_id="sentence-transformers/all-mpnet-base-v2"
+# For general content
+image_description=vision(
+    prompt="Provide a quick caption for the image.",
+    image=frames_view.frame,
+    model="gpt-4o-mini"
 )
-# or
-embed_model = sentence_transformer.using(
+
+# For people recognition
+image_description=vision(
+    prompt="Describe the people in this image, their clothing, and expressions.",
+    image=frames_view.frame,
+    model="gpt-4o-mini"
+)
+
+# For object description
+image_description=vision(
+    prompt="List all visible objects in this scene.",
+    image=frames_view.frame,
+    model="gpt-4o-mini"
+)
+```
+
+### Alternative Embedding Models
+
+Try different embedding models for different use cases:
+
+```python
+# General purpose
+EMBED_MODEL = sentence_transformer.using(
+    model_id="intfloat/e5-large-v2"
+)
+
+# More efficient for larger collections
+EMBED_MODEL = sentence_transformer.using(
     model_id="sentence-transformers/all-MiniLM-L6-v2"
+)
+
+# Higher quality but more compute-intensive
+EMBED_MODEL = sentence_transformer.using(
+    model_id="sentence-transformers/all-mpnet-base-v2"
 )
 ```
 
 ## Next Steps
 
 <CardGroup cols={2}>
-  <Card title="Video Frame Analysis" icon="image" href="/docs/video/frame-analysis">
-    Learn how to extract and analyze individual frames from videos
+  <Card title="Cross-modal Retrieval" icon="arrows-turn-to-dots" href="/docs/video/cross-modal">
+    Learn to retrieve frames based on audio descriptions and vice versa
   </Card>
-  <Card title="Multi-modal Search" icon="layer-group" href="/docs/video/multimodal">
-    Combine text and visual features for more powerful search
+  <Card title="Temporal Analysis" icon="timeline" href="/docs/video/temporal">
+    Track concepts and topics over time within video content
   </Card>
 </CardGroup>
