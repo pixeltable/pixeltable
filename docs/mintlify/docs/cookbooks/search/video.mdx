@@ -117,44 +117,23 @@ Pixeltable lets you build comprehensive video search workflows combining both au
 
     video_index.insert({'video': video, 'uploaded_at': datetime.now()} for video in videos[:2])
 
-    # Perform audio-based search
-    @pxt.query
-    def search_audio(query_text: str, limit: int = 5):
-        sim = transcription_chunks.text.similarity(query_text)
-        return (
-            transcription_chunks.order_by(sim, transcription_chunks.uploaded_at, asc=False)
-            .limit(limit)
-            .select(transcription_chunks.text, transcription_chunks.uploaded_at, similarity=sim)
-        )
+    audio_results = (
+        transcription_chunks.order_by(audio_sim, transcription_chunks.uploaded_at, asc=False)
+        .limit(5)
+        .select(transcription_chunks.text, transcription_chunks.uploaded_at, similarity=audio_sim)
+        .collect()
+    )
 
-    # Perform visual concept search
-    @pxt.query
-    def search_frames(visual_concept: str, limit: int = 5):
-        sim = frames_view.image_description.similarity(visual_concept)
-        return (
-            frames_view.order_by(sim, frames_view.uploaded_at, asc=False)
-            .limit(limit)
-            .select(frames_view.image_description, frames_view.uploaded_at, similarity=sim)
-        )
+    # Fetch 5 most similar frames
+    frame_results = (
+        frames_view.order_by(image_sim, frames_view.uploaded_at, asc=False)
+        .limit(5)
+        .select(frames_view.image_description, frames_view.uploaded_at, similarity=image_sim)
+        .collect()
+    )
 
-    # Example searches
-    audio_results = search_audio("Definition of happiness according to the guest")
-    frame_results = search_frames("Lex Fridman interviewing a guest in a podcast setting")
-
-    
-    # Print audio search results
-    print("Audio Search Results:")
-    for result in audio_results.collect():
-        print(f"Similarity: {result['similarity']:.3f}")
-        print(f"Text: {result['text']}")
-        print(f"Uploaded: {result['uploaded_at']}\n")
-        
-    # Print visual search results
-    print("Visual Search Results:")
-    for result in frame_results.collect():
-        print(f"Similarity: {result['similarity']:.3f}")
-        print(f"Description: {result['image_description']}")
-        print(f"Uploaded: {result['uploaded_at']}\n")
+    print(audio_results)
+    print(frame_results)
     ```
   </Step>
 </Steps>
@@ -260,140 +239,3 @@ Pixeltable lets you build comprehensive video search workflows combining both au
     - Configurable top-k retrieval
   </Accordion>
 </AccordionGroup>
-
-## Advanced Usage
-
-### Combined Multimodal Search
-
-Create search functions that blend audio and visual results:
-
-```python
-pxt.query
-def search_multimodal(query_text: str, limit: int = 5):
-    # Search both audio and visual content
-    audio_sim = transcription_chunks.text.similarity(query_text)
-    image_sim = frames_view.image_description.similarity(query_text)
-    
-    # Get top results from each modality
-    audio_results = (
-        transcription_chunks.order_by(audio_sim, asc=False)
-        .limit(limit)
-        .select(
-            transcription_chunks.text, 
-            transcription_chunks.uploaded_at, 
-            similarity=audio_sim,
-        )
-    ).collect()
-    
-    image_results = (
-        frames_view.order_by(image_sim, asc=False)
-        .limit(limit)
-        .select(
-            text=frames_view.image_description, 
-            frames_view.uploaded_at, 
-            similarity=image_sim,
-        )
-    ).collect()
-    
-    # Process and combine results
-    results = []
-    for audio_item in audio_results:
-        audio_text = audio_item['text']
-        similarity = audio_item['similarity']
-        timestamp = audio_item['uploaded_at']
-        results.append({
-            'text': f"[AUDIO] {audio_text}",
-            'similarity': similarity,
-            'uploaded_at': timestamp
-        })
-    
-    for image_item in image_results:
-        image_text = image_item['text']
-        similarity = image_item['similarity']
-        timestamp = image_item['uploaded_at']
-        results.append({
-            'text': f"[VISUAL] {image_text}",
-            'similarity': similarity,
-            'uploaded_at': timestamp
-        })
-    
-    # Sort combined results by similarity
-    return sorted(results, key=lambda x: x['similarity'], reverse=True)[:limit]
-```
-
-### Adjusting Frame Extraction Rate
-
-Customize frame extraction based on video content:
-
-```python
-# For action-packed content (more frames)
-iterator=FrameIterator.create(
-    video=video_index.video,
-    fps=2  # 2 frames per second
-)
-
-# For slow-paced content (fewer frames)
-iterator=FrameIterator.create(
-    video=video_index.video,
-    fps=0.5  # 1 frame every 2 seconds
-)
-```
-
-### Fine-tuning Vision Prompts
-
-Customize frame description prompts for different use cases:
-
-```python
-# For general content
-image_description=vision(
-    prompt="Provide a quick caption for the image.",
-    image=frames_view.frame,
-    model="gpt-4o-mini"
-)
-
-# For people recognition
-image_description=vision(
-    prompt="Describe the people in this image, their clothing, and expressions.",
-    image=frames_view.frame,
-    model="gpt-4o-mini"
-)
-
-# For object description
-image_description=vision(
-    prompt="List all visible objects in this scene.",
-    image=frames_view.frame,
-    model="gpt-4o-mini"
-)
-```
-
-### Alternative Embedding Models
-
-Try different embedding models for different use cases:
-
-```python
-# General purpose
-EMBED_MODEL = sentence_transformer.using(
-    model_id="intfloat/e5-large-v2"
-)
-
-# More efficient for larger collections
-EMBED_MODEL = sentence_transformer.using(
-    model_id="sentence-transformers/all-MiniLM-L6-v2"
-)
-
-# Higher quality but more compute-intensive
-EMBED_MODEL = sentence_transformer.using(
-    model_id="sentence-transformers/all-mpnet-base-v2"
-)
-```
-
-## Next Steps
-
-<CardGroup cols={2}>
-  <Card title="Cross-modal Retrieval" icon="arrows-turn-to-dots" href="/docs/video/cross-modal">
-    Learn to retrieve frames based on audio descriptions and vice versa
-  </Card>
-  <Card title="Temporal Analysis" icon="timeline" href="/docs/video/temporal">
-    Track concepts and topics over time within video content
-  </Card>
-</CardGroup>
