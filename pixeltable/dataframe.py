@@ -13,9 +13,7 @@ from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Hashable, Iterat
 import pandas as pd
 import sqlalchemy as sql
 
-import pixeltable.exceptions as excs
-import pixeltable.type_system as ts
-from pixeltable import catalog, exec, exprs, plan  # noqa: A004
+from pixeltable import catalog, exceptions as excs, exec, exprs, plan, type_system as ts
 from pixeltable.catalog import is_valid_identifier
 from pixeltable.catalog.globals import UpdateStatus
 from pixeltable.env import Env

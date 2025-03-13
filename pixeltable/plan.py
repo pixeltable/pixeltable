@@ -8,7 +8,7 @@ from uuid import UUID
 import sqlalchemy as sql
 
 import pixeltable as pxt
-from pixeltable import catalog, exceptions as excs, exec, exprs  # noqa: A004
+from pixeltable import catalog, exceptions as excs, exec, exprs
 from pixeltable.catalog import TableVersionHandle
 from pixeltable.exec.sql_node import OrderByClause, OrderByItem, combine_order_by_clauses, print_order_by_clause
 

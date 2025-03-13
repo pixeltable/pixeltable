@@ -12,7 +12,7 @@ from typing import Any, Iterator, Literal, Optional, Union
 import sqlalchemy as sql
 from tqdm import TqdmWarning, tqdm
 
-from pixeltable import exceptions as excs, catalog, exprs
+from pixeltable import catalog, exceptions as excs, exprs
 from pixeltable.env import Env
 from pixeltable.exec import ExecNode
 from pixeltable.metadata import schema

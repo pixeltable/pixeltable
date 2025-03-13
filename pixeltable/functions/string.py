@@ -1,5 +1,3 @@
-# noqa: A005
-
 """
 Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs) for `StringType`.
 It closely follows the Pandas `pandas.Series.str` API.
@@ -324,7 +322,7 @@ def join(sep: str, elements: list) -> str:
 
 
 @pxt.udf(is_method=True)
-def len(self: str) -> int:  # noqa: A001
+def len(self: str) -> int:
     """
     Return the number of characters in the string.
 
@@ -560,7 +558,7 @@ def rstrip(self: str, chars: Optional[str] = None) -> str:
 
 
 @pxt.udf(is_method=True)
-def slice(self: str, start: Optional[int] = None, stop: Optional[int] = None, step: Optional[int] = None) -> str:  # noqa: A001
+def slice(self: str, start: Optional[int] = None, stop: Optional[int] = None, step: Optional[int] = None) -> str:
     """
     Return a slice.
 

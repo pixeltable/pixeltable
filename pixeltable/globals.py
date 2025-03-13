@@ -6,7 +6,7 @@ from uuid import UUID
 import pandas as pd
 from pandas.io.formats.style import Styler
 
-from pixeltable import env, exceptions as excs, exprs, DataFrame, catalog, func, share
+from pixeltable import DataFrame, catalog, env, exceptions as excs, exprs, func, share
 from pixeltable.catalog import Catalog, IfExistsParam, IfNotExistsParam
 from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env

@@ -1,9 +1,6 @@
-# noqa: A005
-
 from typing import Any, Iterator
 
-import pixeltable.exceptions as excs
-import pixeltable.type_system as ts
+from pixeltable import exceptions as excs, type_system as ts
 from pixeltable.env import Env
 from pixeltable.iterators.base import ComponentIterator
 
