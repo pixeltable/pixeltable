@@ -512,6 +512,11 @@ class InvalidFunction(Function):
         self.errormsg = errormsg
 
     def _as_dict(self) -> dict:
+        """
+        Here we write out (verbatim) the original metadata that failed to load (and that resulted in the
+        InvalidFunction). Note that the InvalidFunction itself is never serlialized, so there is no corresponding
+        from_dict() method.
+        """
         return self.fn_dict
 
     @property

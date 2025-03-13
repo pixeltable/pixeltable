@@ -11,7 +11,7 @@ import sqlalchemy as sql
 import pixeltable as pxt
 import pixeltable.exec as exec
 from pixeltable import catalog, exceptions as excs, exprs
-from pixeltable.catalog import TableVersionHandle
+from pixeltable.catalog import Column, TableVersionHandle
 from pixeltable.exec.sql_node import OrderByClause, OrderByItem, combine_order_by_clauses, print_order_by_clause
 
 
@@ -282,19 +282,7 @@ class Planner:
         stored_cols = [c for c in tbl.cols_by_id.values() if c.is_stored]
         assert len(stored_cols) > 0  # there needs to be something to store
 
-        for col in stored_cols:
-            if col.value_expr is not None and not col.value_expr.is_valid:
-                raise excs.Error(
-                    dedent(
-                        f"""
-                        Data cannot be inserted into the table {tbl.name!r},
-                        because the column {col.name!r} is currently invalid:
-                        {{validation_error}}
-                        """
-                    )
-                    .strip()
-                    .format(validation_error=col.value_expr.validation_error)
-                )
+        cls.__check_valid_columns(tbl, stored_cols, 'inserted into')
 
         row_builder = exprs.RowBuilder([], stored_cols, [])
 
@@ -394,19 +382,7 @@ class Planner:
             # we only need to recompute stored columns (unstored ones are substituted away)
             recomputed_cols = {c for c in recomputed_cols if c.is_stored}
 
-        for col in recomputed_cols:
-            if col.value_expr is not None and not col.value_expr.is_valid:
-                raise excs.Error(
-                    dedent(
-                        f"""
-                        Data cannot be updated in the table {tbl.tbl_version.get().name!r},
-                        because the column {col.name!r} is currently invalid:
-                        {{validation_error}}
-                        """
-                    )
-                    .strip()
-                    .format(validation_error=col.value_expr.validation_error)
-                )
+        cls.__check_valid_columns(tbl.tbl_version.get(), recomputed_cols, 'updated in')
 
         recomputed_base_cols = {col for col in recomputed_cols if col.tbl == tbl.tbl_version}
         copied_cols = [
@@ -433,6 +409,24 @@ class Planner:
             plan.row_builder.add_table_column(col, select_list[i].slot_idx)
         recomputed_user_cols = [c for c in recomputed_cols if c.name is not None]
         return plan, [f'{c.tbl.get().name}.{c.name}' for c in updated_cols + recomputed_user_cols], recomputed_user_cols
+
+    @classmethod
+    def __check_valid_columns(
+        cls, tbl: catalog.TableVersion, cols: Iterable[Column], op_name: Literal['inserted into', 'updated in']
+    ) -> None:
+        for col in cols:
+            if col.value_expr is not None and not col.value_expr.is_valid:
+                raise excs.Error(
+                    dedent(
+                        f"""
+                        Data cannot be {op_name} the table {tbl.name!r},
+                        because the column {col.name!r} is currently invalid:
+                        {{validation_error}}
+                        """
+                    )
+                    .strip()
+                    .format(validation_error=col.value_expr.validation_error)
+                )
 
     @classmethod
     def create_batch_update_plan(

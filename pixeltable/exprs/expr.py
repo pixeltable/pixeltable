@@ -109,6 +109,12 @@ class Expr(abc.ABC):
 
     @property
     def validation_error(self) -> Optional[str]:
+        """
+        Subclasses can override this to indicate that validation has failed after a catalog load.
+
+        If an Expr (or any of its transitive components) is invalid, then it cannot be evaluated, but its metadata
+        will still be preserved in the catalog (so that the user can take appropriate corrective action).
+        """
         for c in self.components:
             error = c.validation_error
             if error is not None:
