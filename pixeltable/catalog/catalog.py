@@ -10,6 +10,7 @@ import sqlalchemy as sql
 import pixeltable.exceptions as excs
 import pixeltable.metadata.schema as schema
 from pixeltable.env import Env
+
 from .dir import Dir
 from .schema_object import SchemaObject
 from .table import Table
