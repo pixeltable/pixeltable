@@ -371,7 +371,7 @@ class Table(SchemaObject):
 
     def ensure_md_loaded(self) -> None:
         """Ensure that table metadata is loaded."""
-        for col in self._tbl_version.cols_by_id.values():
+        for col in self._tbl_version.get().cols_by_id.values():
             _ = col.value_expr
 
     def describe(self) -> None:

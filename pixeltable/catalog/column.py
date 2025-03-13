@@ -136,7 +136,7 @@ class Column:
                 message = (
                     dedent(
                         f"""
-                        The computed column {self.name!r} in table {self.tbl.name!r} is no longer valid.
+                        The computed column {self.name!r} in table {self.tbl.get().name!r} is no longer valid.
                         {{validation_error}}
                         You can continue to query existing data from this column, but evaluating it on new data will raise an error.
                         """

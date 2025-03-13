@@ -399,7 +399,7 @@ class Planner:
                 raise excs.Error(
                     dedent(
                         f"""
-                        Data cannot be updated in the table {tbl.tbl_version.name!r},
+                        Data cannot be updated in the table {tbl.tbl_version.get().name!r},
                         because the column {col.name!r} is currently invalid:
                         {{validation_error}}
                         """
