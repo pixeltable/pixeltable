@@ -7,17 +7,15 @@ from typing import Any, Iterable, Optional, Sequence
 from uuid import UUID
 
 import numpy as np
-import sqlalchemy as sql
 
 import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
-import pixeltable.func as func
 import pixeltable.utils as utils
 from pixeltable.env import Env
 from pixeltable.utils.media_store import MediaStore
 
 from .data_row import DataRow
-from .expr import Expr
+from .expr import Expr, ExprScope
 from .expr_set import ExprSet
 
 
@@ -174,11 +172,13 @@ class RowBuilder:
 
         def refs_unstored_iter_col(col_ref: ColumnRef) -> bool:
             tbl = col_ref.col.tbl
-            return tbl.is_component_view() and tbl.is_iterator_column(col_ref.col) and not col_ref.col.is_stored
+            return (
+                tbl.get().is_component_view and tbl.get().is_iterator_column(col_ref.col) and not col_ref.col.is_stored
+            )
 
         unstored_iter_col_refs = [col_ref for col_ref in col_refs if refs_unstored_iter_col(col_ref)]
         component_views = [col_ref.col.tbl for col_ref in unstored_iter_col_refs]
-        unstored_iter_args = {view.id: view.iterator_args.copy() for view in component_views}
+        unstored_iter_args = {view.id: view.get().iterator_args.copy() for view in component_views}
         self.unstored_iter_args = {
             id: self._record_unique_expr(arg, recursive=True) for id, arg in unstored_iter_args.items()
         }
@@ -236,13 +236,6 @@ class RowBuilder:
         """Return ColumnSlotIdx for output columns"""
         return self.table_columns
 
-    def set_conn(self, conn: sql.engine.Connection) -> None:
-        from .function_call import FunctionCall
-
-        for expr in self.unique_exprs:
-            if isinstance(expr, FunctionCall) and isinstance(expr.fn, func.QueryTemplateFunction):
-                expr.fn.set_conn(conn)
-
     @property
     def num_materialized(self) -> int:
         return self.next_slot_idx
@@ -299,6 +292,7 @@ class RowBuilder:
                 # this is input and therefore doesn't depend on other exprs
                 continue
             for d in expr.dependencies():
+                assert d.slot_idx is not None, f'{expr}, {d}'
                 if d.slot_idx in excluded_slot_idxs:
                     continue
                 dependencies[expr.slot_idx].add(d.slot_idx)
@@ -376,7 +370,12 @@ class RowBuilder:
             data_row.set_exc(slot_idx, exc)
 
     def eval(
-        self, data_row: DataRow, ctx: EvalCtx, profile: Optional[ExecProfile] = None, ignore_errors: bool = False
+        self,
+        data_row: DataRow,
+        ctx: EvalCtx,
+        profile: Optional[ExecProfile] = None,
+        ignore_errors: bool = False,
+        force_eval: Optional[ExprScope] = None,
     ) -> None:
         """
         Populates the slots in data_row given in ctx.
@@ -384,10 +383,11 @@ class RowBuilder:
         and omits any of that expr's dependents's eval().
         profile: if present, populated with execution time of each expr.eval() call; indexed by expr.slot_idx
         ignore_errors: if False, raises ExprEvalError if any expr.eval() raises an exception
+        force_eval: forces exprs in the specified scope to be reevaluated, even if they already have a value
         """
         for expr in ctx.exprs:
             assert expr.slot_idx >= 0
-            if data_row.has_val[expr.slot_idx] or data_row.has_exc(expr.slot_idx):
+            if expr.scope() != force_eval and (data_row.has_val[expr.slot_idx] or data_row.has_exc(expr.slot_idx)):
                 continue
             try:
                 start_time = time.perf_counter()
@@ -425,7 +425,7 @@ class RowBuilder:
             else:
                 if col.col_type.is_image_type() and data_row.file_urls[slot_idx] is None:
                     # we have yet to store this image
-                    filepath = str(MediaStore.prepare_media_path(col.tbl.id, col.id, col.tbl.version))
+                    filepath = str(MediaStore.prepare_media_path(col.tbl.id, col.id, col.tbl.get().version))
                     data_row.flush_img(slot_idx, filepath)
                 val = data_row.get_stored_val(slot_idx, col.sa_col.type)
                 table_row[col.store_name()] = val

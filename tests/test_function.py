@@ -937,10 +937,9 @@ class TestFunction:
         v.add_column(in5=pxt.Json)
         v.add_computed_column(out5=(v.out1 + v.in3 + v.in5.number))
 
-        vv = pxt.create_view('test_subview', v)
+        vv = pxt.create_view('test_subview', v, comment='This is an example table comment.')
         vv.add_column(in6=pxt.Json)
         vv.add_computed_column(out6=(vv.out5 + v.out1 + t.in3 + vv.in6.number))
-        vv._tbl_version.set_comment('This is an example table comment.')
 
         fn2 = pxt.udf(vv)
         res = u.select(result=fn2(22, 'jackfruit', in3=28.0, in5={'number': 33})).collect()['result']

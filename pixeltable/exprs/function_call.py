@@ -150,7 +150,7 @@ class FunctionCall(Expr):
 
     def _create_rowid_refs(self, tbl: catalog.Table) -> list[Expr]:
         target = tbl._tbl_version_path.tbl_version
-        return [RowidRef(target, i) for i in range(target.num_rowid_columns())]
+        return [RowidRef(target, i) for i in range(target.get().num_rowid_columns())]
 
     def default_column_name(self) -> Optional[str]:
         return self.fn.name

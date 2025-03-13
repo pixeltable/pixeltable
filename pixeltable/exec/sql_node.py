@@ -1,13 +1,14 @@
 import logging
 import warnings
 from decimal import Decimal
-from typing import TYPE_CHECKING, AsyncIterator, Iterable, Iterator, NamedTuple, Optional, Sequence
+from typing import TYPE_CHECKING, AsyncIterator, Iterable, NamedTuple, Optional, Sequence
 from uuid import UUID
 
 import sqlalchemy as sql
 
 import pixeltable.catalog as catalog
 import pixeltable.exprs as exprs
+from pixeltable.env import Env
 
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
@@ -122,7 +123,7 @@ class SqlNode(ExecNode):
         if set_pk:
             # we also need to retrieve the pk columns
             assert tbl is not None
-            self.num_pk_cols = len(tbl.tbl_version.store_tbl.pk_columns())
+            self.num_pk_cols = len(tbl.tbl_version.get().store_tbl.pk_columns())
 
         # additional state
         self.result_cursor = None
@@ -142,7 +143,7 @@ class SqlNode(ExecNode):
         sql_select_list = [self.sql_elements.get(e) for e in self.select_list]
         if self.set_pk:
             assert self.tbl is not None
-            sql_select_list += self.tbl.tbl_version.store_tbl.pk_columns()
+            sql_select_list += self.tbl.tbl_version.get().store_tbl.pk_columns()
         stmt = sql.select(*sql_select_list)
 
         where_clause_element = (
@@ -215,29 +216,31 @@ class SqlNode(ExecNode):
             exact_version_only = set()
         candidates = tbl.get_tbl_versions()
         assert len(candidates) > 0
-        joined_tbls: list[catalog.TableVersion] = [candidates[0]]
+        joined_tbls: list[catalog.TableVersionHandle] = [candidates[0]]
         for tbl in candidates[1:]:
             if tbl.id in refd_tbl_ids:
                 joined_tbls.append(tbl)
 
         first = True
-        prev_tbl: catalog.TableVersion
+        prev_tbl: catalog.TableVersionHandle
         for tbl in joined_tbls[::-1]:
             if first:
-                stmt = stmt.select_from(tbl.store_tbl.sa_tbl)
+                stmt = stmt.select_from(tbl.get().store_tbl.sa_tbl)
                 first = False
             else:
                 # join tbl to prev_tbl on prev_tbl's rowid cols
-                prev_tbl_rowid_cols = prev_tbl.store_tbl.rowid_columns()
-                tbl_rowid_cols = tbl.store_tbl.rowid_columns()
+                prev_tbl_rowid_cols = prev_tbl.get().store_tbl.rowid_columns()
+                tbl_rowid_cols = tbl.get().store_tbl.rowid_columns()
                 rowid_clauses = [
                     c1 == c2 for c1, c2 in zip(prev_tbl_rowid_cols, tbl_rowid_cols[: len(prev_tbl_rowid_cols)])
                 ]
-                stmt = stmt.join(tbl.store_tbl.sa_tbl, sql.and_(*rowid_clauses))
+                stmt = stmt.join(tbl.get().store_tbl.sa_tbl, sql.and_(*rowid_clauses))
             if tbl.id in exact_version_only:
-                stmt = stmt.where(tbl.store_tbl.v_min_col == tbl.version)
+                stmt = stmt.where(tbl.get().store_tbl.v_min_col == tbl.get().version)
             else:
-                stmt = stmt.where(tbl.store_tbl.v_min_col <= tbl.version).where(tbl.store_tbl.v_max_col > tbl.version)
+                stmt = stmt.where(tbl.get().store_tbl.v_min_col <= tbl.get().version).where(
+                    tbl.get().store_tbl.v_max_col > tbl.get().version
+                )
             prev_tbl = tbl
         return stmt
 
@@ -264,10 +267,11 @@ class SqlNode(ExecNode):
         self.limit = limit
 
     def _log_explain(self, stmt: sql.Select) -> None:
+        conn = Env.get().conn
         try:
             # don't set dialect=Env.get().engine.dialect: x % y turns into x %% y, which results in a syntax error
             stmt_str = str(stmt.compile(compile_kwargs={'literal_binds': True}))
-            explain_result = self.ctx.conn.execute(sql.text(f'EXPLAIN {stmt_str}'))
+            explain_result = conn.execute(sql.text(f'EXPLAIN {stmt_str}'))
             explain_str = '\n'.join([str(row) for row in explain_result])
             _logger.debug(f'SqlScanNode explain:\n{explain_str}')
         except Exception as e:
@@ -275,7 +279,6 @@ class SqlNode(ExecNode):
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
         # run the query; do this here rather than in _open(), exceptions are only expected during iteration
-        assert self.ctx.conn is not None
         with warnings.catch_warnings(record=True) as w:
             stmt = self._create_stmt()
             try:
@@ -286,7 +289,8 @@ class SqlNode(ExecNode):
                 pass
             self._log_explain(stmt)
 
-            result_cursor = self.ctx.conn.execute(stmt)
+            conn = Env.get().conn
+            result_cursor = conn.execute(stmt)
             for warning in w:
                 pass
 
@@ -351,7 +355,7 @@ class SqlScanNode(SqlNode):
     Supports filtering and ordering.
     """
 
-    exact_version_only: list[catalog.TableVersion]
+    exact_version_only: list[catalog.TableVersionHandle]
 
     def __init__(
         self,
@@ -359,7 +363,7 @@ class SqlScanNode(SqlNode):
         row_builder: exprs.RowBuilder,
         select_list: Iterable[exprs.Expr],
         set_pk: bool = False,
-        exact_version_only: Optional[list[catalog.TableVersion]] = None,
+        exact_version_only: Optional[list[catalog.TableVersionHandle]] = None,
     ):
         """
         Args:

@@ -6,6 +6,7 @@ import sqlalchemy as sql
 # import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
 from pixeltable import catalog, exprs
+from pixeltable.env import Env
 from pixeltable.func.udf import udf
 
 from .base import IndexBase
@@ -52,9 +53,10 @@ class BtreeIndex(IndexBase):
         """Return the sqlalchemy type of the index value column"""
         return self.value_expr.col_type.to_sa_type()
 
-    def create_index(self, index_name: str, index_value_col: 'catalog.Column', conn: sql.engine.Connection) -> None:
+    def create_index(self, index_name: str, index_value_col: 'catalog.Column') -> None:
         """Create the index on the index value column"""
         idx = sql.Index(index_name, index_value_col.sa_col, postgresql_using='btree')
+        conn = Env.get().conn
         idx.create(bind=conn)
 
     @classmethod

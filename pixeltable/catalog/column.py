@@ -15,6 +15,7 @@ from .globals import MediaValidation, is_valid_identifier
 
 if TYPE_CHECKING:
     from .table_version import TableVersion
+    from .table_version_handle import TableVersionHandle
 
 _logger = logging.getLogger('pixeltable')
 
@@ -42,7 +43,7 @@ class Column:
     _value_expr: Optional[exprs.Expr]
     value_expr_dict: Optional[dict[str, Any]]
     dependent_cols: set[Column]
-    tbl: Optional[TableVersion]
+    tbl: Optional[TableVersionHandle]
 
     def __init__(
         self,
@@ -168,7 +169,7 @@ class Column:
 
     def get_idx_info(self) -> dict[str, 'TableVersion.IndexInfo']:
         assert self.tbl is not None
-        return {name: info for name, info in self.tbl.idxs_by_name.items() if info.col == self}
+        return {name: info for name, info in self.tbl.get().idxs_by_name.items() if info.col == self}
 
     @property
     def is_computed(self) -> bool:
@@ -191,14 +192,14 @@ class Column:
     @property
     def qualified_name(self) -> str:
         assert self.tbl is not None
-        return f'{self.tbl.name}.{self.name}'
+        return f'{self.tbl.get().name}.{self.name}'
 
     @property
     def media_validation(self) -> MediaValidation:
         if self._media_validation is not None:
             return self._media_validation
         assert self.tbl is not None
-        return self.tbl.media_validation
+        return self.tbl.get().media_validation
 
     def source(self) -> None:
         """
@@ -243,7 +244,7 @@ class Column:
         return f'{self.name}: {self.col_type}'
 
     def __repr__(self) -> str:
-        return f'Column({self.id!r}, {self.name!r}, tbl={self.tbl.name!r})'
+        return f'Column({self.id!r}, {self.name!r}, tbl={self.tbl.get().name!r})'
 
     def __hash__(self) -> int:
         # TODO(aaron-siegel): This and __eq__ do not capture the table version. We need to rethink the Column

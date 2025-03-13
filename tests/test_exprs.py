@@ -630,19 +630,55 @@ class TestExprs:
         assert all(res['slice_range_step'][i] == orig[i][3:7:2] for i in range(len(orig)))
         assert all(res['slice_range_step_item'][i] == orig[i][3:7:2] for i in range(len(orig)))
 
-    def test_json_mapper(self, test_tbl: catalog.Table) -> None:
+    def test_json_mapper(self, test_tbl: catalog.Table, reload_tester: ReloadTester) -> None:
         t = test_tbl
+
         # top-level is dict
-        df = t.select(t.c6.f5['*'] >> (R + 1))
-        res = df.show()
-        print(res)
-        _ = t.select(t.c7['*'].f5 >> [R[3], R[2], R[1], R[0]])
-        _ = _.show()
-        print(_)
+        res = reload_tester.run_query(t.select(input=t.c6.f5, output=t.c6.f5['*'] >> (R + 1)))
+        for row in res:
+            assert row['output'] == [x + 1 for x in row['input']]
+
+        # top-level is list of dicts; subsequent json path element references the dicts
+        res = reload_tester.run_query(t.select(input=t.c7, output=t.c7['*'].f5 >> [R[3], R[2], R[1], R[0]]))
+        for row in res:
+            assert row['output'] == [[d['f5'][3], d['f5'][2], d['f5'][1], d['f5'][0]] for d in row['input']]
+
         # target expr contains global-scope dependency
-        df = t.select(t.c6.f5['*'] >> (R * t.c6.f5[1]))
-        res = df.show()
-        print(res)
+        res = reload_tester.run_query(t.select(input=t.c6, output=t.c6.f5['*'] >> (R * t.c6.f5[1])))
+        for row in res:
+            assert row['output'] == [x * row['input']['f5'][1] for x in row['input']['f5']]
+
+        # test it as a computed column
+        validate_update_status(t.add_computed_column(output=t.c6.f5['*'] >> (R * t.c6.f5[1])), 100)
+        res2 = reload_tester.run_query(t.select(t.output))
+        for row, row2 in zip(res, res2):
+            assert row['output'] == row2['output']
+
+        reload_tester.run_reload_test()
+
+    def test_multi_json_mapper(self, reset_db, reload_tester: ReloadTester) -> None:
+        # Workflow with multiple JsonMapper instances
+        t = pxt.create_table('test', {'jcol': pxt.Json})
+        t.add_computed_column(outputx=t.jcol.x['*'] >> (R + 1))
+        t.add_computed_column(outputy=t.jcol.y['*'] >> (R + 2))
+        t.add_computed_column(outputz=t.jcol.z['*'] >> (R + 3))
+        for i in range(8):
+            data = {}
+            if (i & 1) != 0:
+                data['x'] = [1, 2, 3]
+            if (i & 2) != 0:
+                data['y'] = [4, 5, 6]
+            if (i & 4) != 0:
+                data['z'] = [7, 8, 9]
+            t.insert(jcol=data)
+        res = reload_tester.run_query(t.select(t.outputx, t.outputy, t.outputz))
+        for i in range(8):
+            print(res[i])
+            assert res[i]['outputx'] == (None if (i & 1) == 0 else [2, 3, 4])
+            assert res[i]['outputy'] == (None if (i & 2) == 0 else [6, 7, 8])
+            assert res[i]['outputz'] == (None if (i & 4) == 0 else [10, 11, 12])
+
+        reload_tester.run_reload_test()
 
     def test_dicts(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
@@ -1410,6 +1446,9 @@ class TestExprs:
             (t.c_int == None, 'c_int == None'),
             # JsonPath
             (t.c_json.f2.f5[2:4][3], 'c_json.f2.f5[2:4][3]'),
+            # JsonPath with relative root (with and without a succeeding path)
+            (t.c_json.f2.f5['*'] >> R, 'c_json.f2.f5[*] >> R'),
+            (t.c_json.f2.f5['*'] >> R.abcd, 'c_json.f2.f5[*] >> R.abcd'),
             # MethodRef
             (t.c_image.resize((100, 100)), 'c_image.resize([100, 100])'),
             # TypeCast

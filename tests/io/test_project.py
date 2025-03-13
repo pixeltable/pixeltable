@@ -148,7 +148,7 @@ class TestProject:
             reload_catalog()
             t = pxt.get_table('test_store')
 
-        num_cols_before_linking = len(t._tbl_version.cols_by_id)
+        num_cols_before_linking = len(t._tbl_version.get().cols_by_id)
         store1 = MockProject.create(
             t,
             'store1',
@@ -157,7 +157,7 @@ class TestProject:
             {'rot_img': 'push_img', 'rot_other_img': 'push_other_img'},
         )
         t._link_external_store(store1)
-        assert len(t._tbl_version.cols_by_id) == num_cols_before_linking + 2
+        assert len(t._tbl_version.get().cols_by_id) == num_cols_before_linking + 2
         assert t.rot_img.col in store1.stored_proxies  # Stored proxy
         assert store1.stored_proxies[t.rot_img.col].tbl == t._tbl_version
         assert t.rot_other_img.col in store1.stored_proxies  # Stored proxy
@@ -182,7 +182,7 @@ class TestProject:
         )
         t._link_external_store(store2)
         # Ensure the stored proxy is created just once (for both external stores)
-        assert len(t._tbl_version.cols_by_id) == num_cols_before_linking + 2
+        assert len(t._tbl_version.get().cols_by_id) == num_cols_before_linking + 2
 
         if with_reloads:
             reload_catalog()
@@ -191,7 +191,7 @@ class TestProject:
         t.unlink_external_stores('store1')
         # Now rot_img_renamed is still linked through store2, but rot_other_img
         # is not linked to any store. So just rot_img_renamed should have a proxy
-        assert len(t._tbl_version.cols_by_id) == num_cols_before_linking + 1
+        assert len(t._tbl_version.get().cols_by_id) == num_cols_before_linking + 1
         assert t.rot_img_renamed.col in store2.stored_proxies
 
         if with_reloads:
@@ -199,7 +199,7 @@ class TestProject:
             t = pxt.get_table('test_store')
 
         t.unlink_external_stores('store2')
-        assert len(t._tbl_version.cols_by_id) == num_cols_before_linking
+        assert len(t._tbl_version.get().cols_by_id) == num_cols_before_linking
 
         # Now try linking through a view.
         v1 = pxt.create_view('test_view_1', t)

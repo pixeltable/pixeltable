@@ -117,7 +117,7 @@ class TestMigration:
             tbl = pxt.get_table(t)
             assert tbl is not None
             tbl_id = tbl._tbl_version.id
-            for idx in tbl._tbl_version.idx_md.values():
+            for idx in tbl._tbl_version.get().idx_md.values():
                 # Verify that indexed_col_tbl_id is set for all indexes
                 # from version 24 onwards.
                 assert idx.indexed_col_tbl_id is not None
@@ -206,7 +206,7 @@ class TestMigration:
 
         # Test that external stores are loaded properly.
         assert len(v.external_stores) == 2
-        stores = list(v._tbl_version.external_stores.values())
+        stores = list(v._tbl_version.get().external_stores.values())
         assert len(stores) == 2
         store0 = stores[0]
         assert isinstance(store0, MockProject)
