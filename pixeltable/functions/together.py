@@ -68,7 +68,7 @@ async def completions(
     Generate completions based on a given prompt using a specified model.
 
     Equivalent to the Together AI `completions` API endpoint.
-    For additional details, see: [https://docs.together.ai/reference/completions-1](https://docs.together.ai/reference/completions-1)
+    For additional details, see: <https://docs.together.ai/reference/completions-1>
 
     Request throttling:
     Applies the rate limit set in the config (section `together.rate_limits`, key `chat`). If no rate
@@ -82,14 +82,14 @@ async def completions(
         prompt: A string providing context for the model to complete.
         model: The name of the model to query.
 
-    For details on the other parameters, see: [https://docs.together.ai/reference/completions-1](https://docs.together.ai/reference/completions-1)
+    For details on the other parameters, see: <https://docs.together.ai/reference/completions-1>
 
     Returns:
         A dictionary containing the response and other metadata.
 
     Examples:
-        Add a computed column that applies the model `mistralai/Mixtral-8x7B-v0.1` to an existing Pixeltable column `tbl.prompt`
-        of the table `tbl`:
+        Add a computed column that applies the model `mistralai/Mixtral-8x7B-v0.1` to an existing Pixeltable column
+        `tbl.prompt` of the table `tbl`:
 
         >>> tbl.add_computed_column(response=completions(tbl.prompt, model='mistralai/Mixtral-8x7B-v0.1'))
     """
@@ -133,7 +133,7 @@ async def chat_completions(
     Generate chat completions based on a given prompt using a specified model.
 
     Equivalent to the Together AI `chat/completions` API endpoint.
-    For additional details, see: [https://docs.together.ai/reference/chat-completions-1](https://docs.together.ai/reference/chat-completions-1)
+    For additional details, see: <https://docs.together.ai/reference/chat-completions-1>
 
     Request throttling:
     Applies the rate limit set in the config (section `together.rate_limits`, key `chat`). If no rate
@@ -147,14 +147,14 @@ async def chat_completions(
         messages: A list of messages comprising the conversation so far.
         model: The name of the model to query.
 
-    For details on the other parameters, see: [https://docs.together.ai/reference/chat-completions-1](https://docs.together.ai/reference/chat-completions-1)
+    For details on the other parameters, see: <https://docs.together.ai/reference/chat-completions-1>
 
     Returns:
         A dictionary containing the response and other metadata.
 
     Examples:
-        Add a computed column that applies the model `mistralai/Mixtral-8x7B-v0.1` to an existing Pixeltable column `tbl.prompt`
-        of the table `tbl`:
+        Add a computed column that applies the model `mistralai/Mixtral-8x7B-v0.1` to an existing Pixeltable column
+        `tbl.prompt` of the table `tbl`:
 
         >>> messages = [{'role': 'user', 'content': tbl.prompt}]
         ... tbl.add_computed_column(response=chat_completions(messages, model='mistralai/Mixtral-8x7B-v0.1'))
@@ -197,7 +197,7 @@ async def embeddings(input: Batch[str], *, model: str) -> Batch[pxt.Array[(None,
     Query an embedding model for a given string of text.
 
     Equivalent to the Together AI `embeddings` API endpoint.
-    For additional details, see: [https://docs.together.ai/reference/embeddings-2](https://docs.together.ai/reference/embeddings-2)
+    For additional details, see: <https://docs.together.ai/reference/embeddings-2>
 
     Request throttling:
     Applies the rate limit set in the config (section `together.rate_limits`, key `embeddings`). If no rate
@@ -248,7 +248,7 @@ async def image_generations(
     Generate images based on a given prompt using a specified model.
 
     Equivalent to the Together AI `images/generations` API endpoint.
-    For additional details, see: [https://docs.together.ai/reference/post_images-generations](https://docs.together.ai/reference/post_images-generations)
+    For additional details, see: <https://docs.together.ai/reference/post_images-generations>
 
     Request throttling:
     Applies the rate limit set in the config (section `together.rate_limits`, key `images`). If no rate
@@ -262,7 +262,7 @@ async def image_generations(
         prompt: A description of the desired images.
         model: The model to use for image generation.
 
-    For details on the other parameters, see: [https://docs.together.ai/reference/post_images-generations](https://docs.together.ai/reference/post_images-generations)
+    For details on the other parameters, see: <https://docs.together.ai/reference/post_images-generations>
 
     Returns:
         The generated image.
@@ -271,7 +271,9 @@ async def image_generations(
         Add a computed column that applies the model `stabilityai/stable-diffusion-xl-base-1.0`
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
-        >>> tbl.add_computed_column(response=image_generations(tbl.prompt, model='stabilityai/stable-diffusion-xl-base-1.0'))
+        >>> tbl.add_computed_column(
+        ...     response=image_generations(tbl.prompt, model='stabilityai/stable-diffusion-xl-base-1.0')
+        ... )
     """
     result = await _together_client().images.generate(
         prompt=prompt, model=model, steps=steps, seed=seed, height=height, width=width, negative_prompt=negative_prompt

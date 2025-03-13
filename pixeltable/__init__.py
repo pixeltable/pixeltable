@@ -1,3 +1,5 @@
+# ruff: noqa: F401
+
 from .__version__ import __version__, __version_tuple__
 from .catalog import Column, InsertableTable, Table, UpdateStatus, View
 from .dataframe import DataFrame
@@ -56,7 +58,7 @@ from . import ext, functions, io, iterators  # isort: skip
 # This is the safest / most maintainable way to construct __all__: start with the default and "blacklist"
 # stuff that we don't want in there. (Using a "whitelist" is considerably harder to maintain.)
 
-__default_dir = set(symbol for symbol in dir() if not symbol.startswith('_'))
+__default_dir = {symbol for symbol in dir() if not symbol.startswith('_')}
 __removed_symbols = {
     'catalog',
     'dataframe',
@@ -72,7 +74,7 @@ __removed_symbols = {
     'type_system',
     'utils',
 }
-__all__ = sorted(list(__default_dir - __removed_symbols))
+__all__ = sorted(__default_dir - __removed_symbols)
 
 
 def __dir__():

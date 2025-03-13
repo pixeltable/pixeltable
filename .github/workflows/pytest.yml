@@ -174,17 +174,20 @@ jobs:
       - name: Type check
         if: ${{ matrix.test-category == 'lint' }}
         run: mypy pixeltable tests tool
+      - name: Validate docstrings
+        if: ${{ matrix.test-category == 'lint' }}
+        run: mkdocs build --strict
+      - name: Lint
+        if: ${{ matrix.test-category == 'lint' }}
+        run: ruff check pixeltable/*.py pixeltable/functions pixeltable/index pixeltable/iterators pixeltable/metadata
+      - name: Validate links in notebooks
+        if: ${{ matrix.test-category == 'lint' }}
+        run: ./scripts/lint-notebooks.sh
       - name: Formatter check
         if: ${{ matrix.test-category == 'lint' }}
         run: |
           ruff format --check
           ruff check --select I
-      - name: Validate docstrings
-        if: ${{ matrix.test-category == 'lint' }}
-        run: mkdocs build --strict
-      - name: Validate links in notebooks
-        if: ${{ matrix.test-category == 'lint' }}
-        run: ./scripts/lint-notebooks.sh
       - name: Archive log files
         # Archive the log files even if a preceding step failed. Currently we do this only on ubuntu runners.
         if: ${{ always() && startsWith(matrix.os, 'ubuntu') }}

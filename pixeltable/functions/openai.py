@@ -183,7 +183,7 @@ async def speech(
     Generates audio from the input text.
 
     Equivalent to the OpenAI `audio/speech` API endpoint.
-    For additional details, see: [https://platform.openai.com/docs/guides/text-to-speech](https://platform.openai.com/docs/guides/text-to-speech)
+    For additional details, see: <https://platform.openai.com/docs/guides/text-to-speech>
 
     Request throttling:
     Applies the rate limit set in the config (section `openai.rate_limits`; use the model id as the key). If no rate
@@ -199,7 +199,7 @@ async def speech(
         voice: The voice profile to use for speech synthesis. Supported options include:
             `alloy`, `echo`, `fable`, `onyx`, `nova`, and `shimmer`.
 
-    For details on the other parameters, see: [https://platform.openai.com/docs/api-reference/audio/createSpeech](https://platform.openai.com/docs/api-reference/audio/createSpeech)
+    For details on the other parameters, see: <https://platform.openai.com/docs/api-reference/audio/createSpeech>
 
     Returns:
         An audio file containing the synthesized speech.
@@ -238,7 +238,7 @@ async def transcriptions(
     Transcribes audio into the input language.
 
     Equivalent to the OpenAI `audio/transcriptions` API endpoint.
-    For additional details, see: [https://platform.openai.com/docs/guides/speech-to-text](https://platform.openai.com/docs/guides/speech-to-text)
+    For additional details, see: <https://platform.openai.com/docs/guides/speech-to-text>
 
     Request throttling:
     Applies the rate limit set in the config (section `openai.rate_limits`; use the model id as the key). If no rate
@@ -252,7 +252,7 @@ async def transcriptions(
         audio: The audio to transcribe.
         model: The model to use for speech transcription.
 
-    For details on the other parameters, see: [https://platform.openai.com/docs/api-reference/audio/createTranscription](https://platform.openai.com/docs/api-reference/audio/createTranscription)
+    For details on the other parameters, see: <https://platform.openai.com/docs/api-reference/audio/createTranscription>
 
     Returns:
         A dictionary containing the transcription and other metadata.
@@ -288,7 +288,7 @@ async def translations(
     Translates audio into English.
 
     Equivalent to the OpenAI `audio/translations` API endpoint.
-    For additional details, see: [https://platform.openai.com/docs/guides/speech-to-text](https://platform.openai.com/docs/guides/speech-to-text)
+    For additional details, see: <https://platform.openai.com/docs/guides/speech-to-text>
 
     Request throttling:
     Applies the rate limit set in the config (section `openai.rate_limits`; use the model id as the key). If no rate
@@ -302,7 +302,7 @@ async def translations(
         audio: The audio to translate.
         model: The model to use for speech transcription and translation.
 
-    For details on the other parameters, see: [https://platform.openai.com/docs/api-reference/audio/createTranslation](https://platform.openai.com/docs/api-reference/audio/createTranslation)
+    For details on the other parameters, see: <https://platform.openai.com/docs/api-reference/audio/createTranslation>
 
     Returns:
         A dictionary containing the translation and other metadata.
@@ -395,7 +395,7 @@ async def chat_completions(
     Creates a model response for the given chat conversation.
 
     Equivalent to the OpenAI `chat/completions` API endpoint.
-    For additional details, see: [https://platform.openai.com/docs/guides/chat-completions](https://platform.openai.com/docs/guides/chat-completions)
+    For additional details, see: <https://platform.openai.com/docs/guides/chat-completions>
 
     Request throttling:
     Uses the rate limit-related headers returned by the API to throttle requests adaptively, based on available
@@ -409,7 +409,7 @@ async def chat_completions(
         messages: A list of messages to use for chat completion, as described in the OpenAI API documentation.
         model: The model to use for chat completion.
 
-    For details on the other parameters, see: [https://platform.openai.com/docs/api-reference/chat](https://platform.openai.com/docs/api-reference/chat)
+    For details on the other parameters, see: <https://platform.openai.com/docs/api-reference/chat>
 
     Returns:
         A dictionary containing the response and other metadata.
@@ -498,9 +498,9 @@ def _vision_get_request_resources(
     crops_height = math.ceil(image.height / 512)
     total_crops = crops_width * crops_height
 
-    BASE_TOKENS = 85  # base cost for the initial 512x512 overview
-    CROP_TOKENS = 170  # cost per additional 512x512 crop
-    img_tokens = BASE_TOKENS + (CROP_TOKENS * total_crops)
+    base_tokens = 85  # base cost for the initial 512x512 overview
+    crop_tokens = 170  # cost per additional 512x512 crop
+    img_tokens = base_tokens + (crop_tokens * total_crops)
 
     total_tokens = (
         prompt_tokens
@@ -527,7 +527,7 @@ async def vision(
     Analyzes an image with the OpenAI vision capability. This is a convenience function that takes an image and
     prompt, and constructs a chat completion request that utilizes OpenAI vision.
 
-    For additional details, see: [https://platform.openai.com/docs/guides/vision](https://platform.openai.com/docs/guides/vision)
+    For additional details, see: <https://platform.openai.com/docs/guides/vision>
 
     Request throttling:
     Uses the rate limit-related headers returned by the API to throttle requests adaptively, based on available
@@ -616,7 +616,7 @@ async def embeddings(
     Creates an embedding vector representing the input text.
 
     Equivalent to the OpenAI `embeddings` API endpoint.
-    For additional details, see: [https://platform.openai.com/docs/guides/embeddings](https://platform.openai.com/docs/guides/embeddings)
+    For additional details, see: <https://platform.openai.com/docs/guides/embeddings>
 
     Request throttling:
     Uses the rate limit-related headers returned by the API to throttle requests adaptively, based on available
@@ -632,7 +632,7 @@ async def embeddings(
         dimensions: The vector length of the embedding. If not specified, Pixeltable will use
             a default value based on the model.
 
-    For details on the other parameters, see: [https://platform.openai.com/docs/api-reference/embeddings](https://platform.openai.com/docs/api-reference/embeddings)
+    For details on the other parameters, see: <https://platform.openai.com/docs/api-reference/embeddings>
 
     Returns:
         An array representing the application of the given embedding to `input`.
@@ -671,7 +671,7 @@ def _(model: str, dimensions: Optional[int] = None) -> pxt.ArrayType:
         if model not in _embedding_dimensions_cache:
             # TODO: find some other way to retrieve a sample
             return pxt.ArrayType((None,), dtype=pxt.FloatType(), nullable=False)
-        dimensions = _embedding_dimensions_cache.get(model, None)
+        dimensions = _embedding_dimensions_cache.get(model)
     return pxt.ArrayType((dimensions,), dtype=pxt.FloatType(), nullable=False)
 
 
@@ -694,7 +694,7 @@ async def image_generations(
     Creates an image given a prompt.
 
     Equivalent to the OpenAI `images/generations` API endpoint.
-    For additional details, see: [https://platform.openai.com/docs/guides/images](https://platform.openai.com/docs/guides/images)
+    For additional details, see: <https://platform.openai.com/docs/guides/images>
 
     Request throttling:
     Applies the rate limit set in the config (section `openai.rate_limits`; use the model id as the key). If no rate
@@ -708,7 +708,7 @@ async def image_generations(
         prompt: Prompt for the image.
         model: The model to use for the generations.
 
-    For details on the other parameters, see: [https://platform.openai.com/docs/api-reference/images/create](https://platform.openai.com/docs/api-reference/images/create)
+    For details on the other parameters, see: <https://platform.openai.com/docs/api-reference/images/create>
 
     Returns:
         The generated image.
@@ -761,7 +761,7 @@ async def moderations(input: str, *, model: str = 'omni-moderation-latest') -> d
     Classifies if text is potentially harmful.
 
     Equivalent to the OpenAI `moderations` API endpoint.
-    For additional details, see: [https://platform.openai.com/docs/guides/moderation](https://platform.openai.com/docs/guides/moderation)
+    For additional details, see: <https://platform.openai.com/docs/guides/moderation>
 
     Request throttling:
     Applies the rate limit set in the config (section `openai.rate_limits`; use the model id as the key). If no rate
@@ -775,7 +775,7 @@ async def moderations(input: str, *, model: str = 'omni-moderation-latest') -> d
         input: Text to analyze with the moderations model.
         model: The model to use for moderations.
 
-    For details on the other parameters, see: [https://platform.openai.com/docs/api-reference/moderations](https://platform.openai.com/docs/api-reference/moderations)
+    For details on the other parameters, see: <https://platform.openai.com/docs/api-reference/moderations>
 
     Returns:
         Details of the moderations results.
