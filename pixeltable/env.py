@@ -185,15 +185,14 @@ class Env:
         """Return a context manager that yields a connection to the database. Idempotent."""
         if self._current_conn is None:
             assert self._current_session is None
-            with self.engine.begin() as conn:
-                with sql.orm.Session(conn) as session:
-                    self._current_conn = conn
-                    self._current_session = session
-                    try:
-                        yield conn
-                    finally:
-                        self._current_session = None
-                        self._current_conn = None
+            with self.engine.begin() as conn, sql.orm.Session(conn) as session:
+                self._current_conn = conn
+                self._current_session = session
+                try:
+                    yield conn
+                finally:
+                    self._current_session = None
+                    self._current_conn = None
         else:
             assert self._current_session is not None
             yield self._current_conn
@@ -404,7 +403,7 @@ class Env:
         self._create_engine(time_zone_name=tz_name, echo=echo)
 
         if create_db:
-            import pixeltable.metadata as metadata
+            from pixeltable import metadata
 
             metadata.schema.base_metadata.create_all(self._sa_engine)
             metadata.create_system_info(self._sa_engine)
@@ -489,7 +488,7 @@ class Env:
             engine.dispose()
 
     def _upgrade_metadata(self) -> None:
-        import pixeltable.metadata as metadata
+        from pixeltable import metadata
 
         metadata.upgrade_md(self._sa_engine)
 

@@ -436,7 +436,7 @@ class DataFrame:
             except excs.ExprEvalError as e:
                 self._raise_expr_eval_err(e)
             except sql.exc.DBAPIError as e:
-                raise excs.Error(f'Error during SQL execution:\n{e}')
+                raise excs.Error(f'Error during SQL execution:\n{e}') from e
 
     def collect(self) -> DataFrameResultSet:
         return DataFrameResultSet(list(self._output_row_iterator()), self.schema)

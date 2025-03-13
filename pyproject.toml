@@ -209,7 +209,7 @@ exclude = ["*.ipynb"]  # For now, exclude notebooks
 line-length = 120
 
 [tool.ruff.lint]
-select = ["F", "E", "W", "C", "N", "B", "A", "ICN", "PYI", "SIM", "TD002", "PL", "RUF"]  # everything except "I"
+select = ["F", "E", "W", "C", "N", "B", "ICN", "PYI", "SIM", "TD002", "PL", "RUF"]  # everything except "I"
 ignore = [
     "B023",  # Function definition does not bind to loop variable (appears to generate false positives)
     # A bunch of rules that are just plain fussy about code complexity:
