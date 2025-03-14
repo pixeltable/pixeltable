@@ -131,7 +131,8 @@
                 "docs/cookbooks/search/website",
                 "docs/cookbooks/search/video"
               ]
-            }
+            },
+              "docs/cookbooks/mcp/overview"          
           ]
         }
       ]
