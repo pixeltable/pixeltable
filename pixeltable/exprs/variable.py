@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, NoReturn
 
-import pixeltable.type_system as ts
+from pixeltable import type_system as ts
 
 from .data_row import DataRow
 from .expr import Expr
@@ -22,7 +22,7 @@ class Variable(Expr):
         self.id = self._create_id()
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
-        return super()._id_attrs() + [('name', self.name)]
+        return [*super()._id_attrs(), ('name', self.name)]
 
     def default_column_name(self) -> NoReturn:
         raise NotImplementedError()

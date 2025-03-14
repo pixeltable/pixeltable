@@ -81,12 +81,12 @@ class JsonMapper(Expr):
         """
         We override equals() because we need to avoid comparing our scope anchor.
         """
-        if type(self) != type(other):
+        if type(self) is not type(other):
             return False
         return self._src_expr.equals(other._src_expr) and self._target_expr.equals(other._target_expr)
 
     def __repr__(self) -> str:
-        return f'{str(self._src_expr)} >> {str(self._target_expr)}'
+        return f'{self._src_expr} >> {self._target_expr}'
 
     @property
     def _src_expr(self) -> Expr:
