@@ -62,7 +62,6 @@ class Function(ABC):
         # Check that stored functions cannot be declared using `is_method` or `is_property`:
         assert not ((is_method or is_property) and self_path is None)
         assert isinstance(signatures, list)
-        assert len(signatures) > 0
         self.signatures = signatures
         self.self_path = self_path  # fully-qualified path to self
         self.is_method = is_method
@@ -71,6 +70,10 @@ class Function(ABC):
         self.__resolved_fns = []
         self._to_sql = self.__default_to_sql
         self._resource_pool = self.__default_resource_pool
+
+    @property
+    def is_valid(self) -> bool:
+        return len(self.signatures) > 0
 
     @property
     def name(self) -> str:
@@ -468,11 +471,18 @@ class Function(ABC):
     @classmethod
     def _from_dict(cls, d: dict) -> Function:
         """Default deserialization: load the symbol indicated by the stored symbol_path"""
-        assert 'path' in d and d['path'] is not None
-        assert 'signature' in d and d['signature'] is not None
-        instance = resolve_symbol(d['path'])
-        assert isinstance(instance, Function)
-        return instance
+        path = d.get('path')
+        assert path is not None
+        try:
+            instance = resolve_symbol(path)
+            if isinstance(instance, Function):
+                return instance
+            else:
+                return InvalidFunction(
+                    path, d, f'the symbol {path!r} is no longer a UDF. (Was the `@pxt.udf` decorator removed?)'
+                )
+        except (AttributeError, ImportError):
+            return InvalidFunction(path, d, f'the symbol {path!r} no longer exists. (Was the UDF moved or renamed?)')
 
     def to_store(self) -> tuple[dict, bytes]:
         """
@@ -490,3 +500,25 @@ class Function(ABC):
         Create a Function instance from the serialized representation returned by to_store()
         """
         raise NotImplementedError()
+
+
+class InvalidFunction(Function):
+    fn_dict: dict[str, Any]
+    errormsg: str
+
+    def __init__(self, self_path: str, fn_dict: dict[str, Any], errormsg: str):
+        super().__init__([], self_path)
+        self.fn_dict = fn_dict
+        self.errormsg = errormsg
+
+    def _as_dict(self) -> dict:
+        """
+        Here we write out (verbatim) the original metadata that failed to load (and that resulted in the
+        InvalidFunction). Note that the InvalidFunction itself is never serlialized, so there is no corresponding
+        from_dict() method.
+        """
+        return self.fn_dict
+
+    @property
+    def is_async(self) -> bool:
+        return False

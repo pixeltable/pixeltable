@@ -413,6 +413,7 @@ def get_table(path: str) -> catalog.Table:
     with Env.get().begin_xact():
         obj = Catalog.get().get_schema_object(path, expected=catalog.Table, raise_if_not_exists=True)
         assert isinstance(obj, catalog.Table)
+        obj.ensure_md_loaded()
         return obj
 
 

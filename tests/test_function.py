@@ -1,3 +1,4 @@
+import re
 import typing
 from datetime import datetime
 from textwrap import dedent
@@ -682,25 +683,105 @@ class TestFunction:
 
         The test operates by instantiating a computed column with the UDF `evolving_udf`, then repeatedly
         monkey-patching `evolving_udf` with different signatures and checking that they new signatures are
-        accepted by Pixeltable (or, in some cases, that they generate appropriate error messages).
+        accepted by Pixeltable.
 
         The test runs two ways:
         - with the UDF invoked using a positional argument: `evolving_udf(t.c1)`
         - with the UDF invoked using a keyword argument: `evolving_udf(a=t.c1)`
+
+        We also test that backward-incompatible changes raise appropriate warnings and errors. Because the
+        error messages are lengthy and complex, we match against the entire fully-baked error string, to ensure
+        that they remain comprehensible after future refactorings.
         """
         import tests.test_function
 
         t = pxt.create_table('test', {'c1': pxt.String})
+        t.insert(c1='xyz')
 
         def mimic(fn: func.CallableFunction) -> None:
+            """Monkey-patches `tests.test_function.evolving_udf` with the given function."""
             tests.test_function.evolving_udf = func.CallableFunction(
                 fn.signatures, fn.py_fns, 'tests.test_function.evolving_udf'
             )
 
-        def reload_table() -> None:
+        def reload_and_validate_table(validation_error: Optional[str] = None) -> None:
             reload_catalog()
-            t = pxt.get_table('test')
-            repr(t)  # Force table metadata to load
+
+            # Ensure a warning is generated when the table is accessed, if appropriate
+            if validation_error is None:
+                t = pxt.get_table('test')
+            else:
+                with pytest.warns(pxt.PixeltableWarning, match=warning_regex(validation_error)):
+                    t = pxt.get_table('test')
+                _ = pxt.get_table('test')  # Ensure the warning is only displayed once
+
+            # Ensure the table can be queried even if there are invalid columns
+            assert list(t.head()) == [{'c1': 'xyz', 'result': None}]
+
+            # Ensure that inserting or updating raises an error if there is an invalid column
+            if validation_error is None:
+                t.insert(c1='abc')
+                t.where(t.c1 == 'abc').update({'c1': 'def'})
+                t.where(t.c1 == 'def').delete()
+            else:
+                with pytest.raises(excs.Error, match=insert_error_regex(validation_error)):
+                    t.insert(c1='abc')
+                with pytest.raises(excs.Error, match=update_error_regex(validation_error)):
+                    t.where(t.c1 == 'xyz').update({'c1': 'def'})
+
+        def warning_regex(msg: str) -> str:
+            regex = '\n'.join(
+                [
+                    re.escape("The computed column 'result' in table 'test' is no longer valid."),
+                    re.escape(msg),
+                    re.escape(
+                        'You can continue to query existing data from this column, but evaluating it on new data will raise an error.'
+                    ),
+                ]
+            )
+            return '(?s)' + regex
+
+        def insert_error_regex(msg: str) -> str:
+            regex = '\n'.join(
+                [
+                    re.escape(
+                        "Data cannot be inserted into the table 'test',\nbecause the column 'result' is currently invalid:"
+                    ),
+                    re.escape(msg),
+                ]
+            )
+            return '(?s)' + regex
+
+        def update_error_regex(msg: str) -> str:
+            regex = '.*'.join(
+                [
+                    re.escape(
+                        "Data cannot be updated in the table 'test',\nbecause the column 'result' is currently invalid:"
+                    ),
+                    re.escape(msg),
+                ]
+            )
+            return '(?s)' + regex
+
+        db_params = '(a: Optional[String])' if as_kwarg else '(Optional[String])'
+        signature_error = dedent(
+            f"""
+            The signature stored in the database for a UDF call to 'tests.test_function.evolving_udf' no longer
+            matches its signature as currently defined in the code. This probably means that the
+            code for 'tests.test_function.evolving_udf' has changed in a backward-incompatible way.
+            Signature of UDF call in the database: {db_params} -> Optional[Array[Float]]
+            Signature of UDF as currently defined in code: {{params}} -> Optional[Array[Float]]
+            """
+        ).strip()
+        return_type_error = dedent(
+            """
+            The return type stored in the database for a UDF call to 'tests.test_function.evolving_udf' no longer
+            matches its return type as currently defined in the code. This probably means that the
+            code for 'tests.test_function.evolving_udf' has changed in a backward-incompatible way.
+            Return type of UDF call in the database: Optional[Array[Float]]
+            Return type of UDF as currently defined in code: {return_type}
+            """
+        ).strip()
 
         @pxt.udf(_force_stored=True)
         def udf_base_version(a: str, b: int = 3) -> Optional[pxt.Array[pxt.Float]]:
@@ -718,7 +799,7 @@ class TestFunction:
             return None
 
         mimic(udf_version_2)
-        reload_table()
+        reload_and_validate_table()
 
         # Rename the parameter; this works only if the UDF was invoked with a positional argument
         @pxt.udf(_force_stored=True)
@@ -727,10 +808,9 @@ class TestFunction:
 
         mimic(udf_version_3)
         if as_kwarg:
-            with pytest.raises(excs.Error, match='signature stored in the database.*no longer matches'):
-                reload_table()
+            reload_and_validate_table(validation_error=signature_error.format(params='(c: String, b: String)'))
         else:
-            reload_table()
+            reload_and_validate_table()
 
         # Change the parameter from fixed to variable; this works only if the UDF was invoked with a positional
         # argument
@@ -740,10 +820,9 @@ class TestFunction:
 
         mimic(udf_version_4)
         if as_kwarg:
-            with pytest.raises(excs.Error, match='signature stored in the database.*no longer matches'):
-                reload_table()
+            reload_and_validate_table(validation_error=signature_error.format(params='(*a)'))
         else:
-            reload_table()
+            reload_and_validate_table()
 
         # Narrow the return type; this works in all cases
         @pxt.udf(_force_stored=True)
@@ -751,7 +830,7 @@ class TestFunction:
             return None
 
         mimic(udf_version_5)
-        reload_table()
+        reload_and_validate_table()
 
         # Change the type of the parameter to something incompatible; this fails in all cases
         @pxt.udf(_force_stored=True)
@@ -759,8 +838,7 @@ class TestFunction:
             return None
 
         mimic(udf_version_6)
-        with pytest.raises(excs.Error, match='signature stored in the database.*no longer matches'):
-            reload_table()
+        reload_and_validate_table(validation_error=signature_error.format(params='(a: Float, b: Int)'))
 
         # Widen the return type; this fails in all cases
         @pxt.udf(_force_stored=True)
@@ -768,8 +846,7 @@ class TestFunction:
             return None
 
         mimic(udf_version_7)
-        with pytest.raises(excs.Error, match='return type stored in the database.*no longer matches'):
-            reload_table()
+        reload_and_validate_table(validation_error=return_type_error.format(return_type='Optional[Array]'))
 
         # Add a poison parameter; this works only if the UDF was invoked with a keyword argument
         @pxt.udf(_force_stored=True)
@@ -778,10 +855,25 @@ class TestFunction:
 
         mimic(udf_version_8)
         if as_kwarg:
-            reload_table()
+            reload_and_validate_table()
         else:
-            with pytest.raises(excs.Error, match='signature stored in the database.*no longer matches'):
-                reload_table()
+            reload_and_validate_table(validation_error=signature_error.format(params='(c: Float, a: String, b: Int)'))
+
+        # Make the function into a non-UDF
+        tests.test_function.evolving_udf = lambda x: x  # type: ignore[assignment]
+        validation_error = (
+            "The UDF 'tests.test_function.evolving_udf' cannot be located, because\n"
+            "the symbol 'tests.test_function.evolving_udf' is no longer a UDF. (Was the `@pxt.udf` decorator removed?)"
+        )
+        reload_and_validate_table(validation_error=validation_error)
+
+        # Remove the function entirely
+        del tests.test_function.evolving_udf
+        validation_error = (
+            "The UDF 'tests.test_function.evolving_udf' cannot be located, because\n"
+            "the symbol 'tests.test_function.evolving_udf' no longer exists. (Was the UDF moved or renamed?)"
+        )
+        reload_and_validate_table(validation_error=validation_error)
 
     def test_tool_errors(self):
         with pytest.raises(excs.Error) as exc_info:
