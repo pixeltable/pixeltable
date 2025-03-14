@@ -209,17 +209,17 @@ exclude = ["*.ipynb"]  # For now, exclude notebooks
 line-length = 120
 
 [tool.ruff.lint]
-select = ["F", "E", "W", "C", "N", "B", "ICN", "PYI", "SIM", "TD002", "PL", "RUF"]  # everything except "I"
+select = ["B", "C", "E", "F", "ICN", "N", "PL", "PYI", "RUF", "SIM", "TD002", "W"]
 ignore = [
     "B023",  # Function definition does not bind to loop variable (appears to generate false positives)
     # A bunch of rules that are just plain fussy about code complexity:
     "C901", "PLR0904", "PLR0911", "PLR0912", "PLR0913", "PLR0914", "PLR0915", "PLR0916", "PLR0917", "PLR1702",
     "E711",  # None comparison (x == None); needed for Pandas/Pixeltable expressions
     "N801",  # Class name should use CapWords convention (we intentionally violate this for aggregate functions)
-    "PLC0415",
+    "PLC0415",  # Allow imports within functions (I don't see how this linting rule could ever work)
     "PLC2701",  # Allow private name imports
     "PLE0605",  # Invalid format for __all__ (appears to generate false positives)
-    "PLR2004",
+    "PLR2004",  # Permit "magic values" (numbers that are not defined as constants)
     "PLR6301",  # Class method (not sure what to do yet)
     "PLW3201",  # Dunder method has no special meaning (conflicts with _repr_html_)
     "SIM108",  # Don't prefer use of ternary if/else operator
