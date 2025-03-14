@@ -1,16 +1,14 @@
-import dataclasses
 import os
 import sys
 import urllib.parse
 import urllib.request
-from datetime import datetime
 from pathlib import Path
 
 import requests
 from tqdm import tqdm
 
 import pixeltable as pxt
-from pixeltable import exceptions as excs, metadata
+from pixeltable import exceptions as excs
 from pixeltable.env import Env
 from pixeltable.utils import sha256sum
 
@@ -46,7 +44,7 @@ def publish_snapshot(dest_tbl_uri: str, src_tbl: pxt.Table) -> str:
     else:
         raise excs.Error(f'Unsupported destination: {destination_uri}')
 
-    Env.get().console_logger.info(f'Finalizing snapshot ...')
+    Env.get().console_logger.info('Finalizing snapshot ...')
 
     finalize_request_json = {
         'upload_id': upload_id,
@@ -83,7 +81,7 @@ def _upload_bundle_to_s3(bundle: Path, parsed_location: urllib.parse.ParseResult
     upload_args = {'ChecksumAlgorithm': 'SHA256'}
 
     progress_bar = tqdm(
-        desc=f'Uploading',
+        desc='Uploading',
         total=bundle.stat().st_size,
         unit='B',
         unit_scale=True,
