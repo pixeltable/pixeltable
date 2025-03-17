@@ -103,11 +103,11 @@ endif
 install: setup-install .make-install/poetry .make-install/deps .make-install/others
 
 .PHONY: test
-test: pytest typecheck docstest formattest
+test: pytest typecheck docstest lint formattest
 	@echo "All tests passed!"
 
 .PHONY: fulltest
-fulltest: fullpytest nbtest typecheck docstest formattest
+fulltest: fullpytest nbtest typecheck docstest lint formattest
 	@echo "All tests passed!"
 
 .PHONY: pytest
@@ -137,16 +137,17 @@ docstest: install
 	@echo "Running mkdocs build --strict ..."
 	@mkdocs build --strict
 
+.PHONY: lint
+lint: install
+	@echo "Running ruff check ..."
+	@ruff check pixeltable/*.py pixeltable/functions pixeltable/index pixeltable/iterators pixeltable/metadata
+
 .PHONY: formattest
 formattest: install
 	@echo "Running ruff format --check ..."
 	@ruff format --check
 	@echo "Running ruff check --select I ..."
 	@ruff check --select I
-
-.PHONY: lint
-lint: install
-	@$(SHELL_PREFIX) scripts/lint-changed-files.sh
 
 .PHONY: format
 format: install

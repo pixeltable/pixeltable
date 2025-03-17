@@ -4,16 +4,14 @@ import uuid
 from typing import Any, Optional, TypeVar, Union, get_type_hints
 
 import sqlalchemy as sql
-import sqlalchemy.orm as orm
-from sqlalchemy import BigInteger, ForeignKey, Integer, LargeBinary
+from sqlalchemy import BigInteger, ForeignKey, Integer, LargeBinary, orm
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm.decl_api import DeclarativeMeta
 
 # Base has to be marked explicitly as a type, in order to be used elsewhere as a type hint. But in addition to being
 # a type, it's also a `DeclarativeMeta`. The following pattern enables us to expose both `Base` and `Base.metadata`
 # outside of the module in a typesafe way.
-Base: type = declarative_base()
+Base: type = orm.declarative_base()
 assert isinstance(Base, DeclarativeMeta)
 base_metadata = Base.metadata
 
@@ -23,7 +21,7 @@ T = TypeVar('T')
 def md_from_dict(data_class_type: type[T], data: Any) -> T:
     """Re-instantiate a dataclass instance that contains nested dataclasses from a dict."""
     if dataclasses.is_dataclass(data_class_type):
-        fieldtypes = {f: t for f, t in get_type_hints(data_class_type).items()}
+        fieldtypes = get_type_hints(data_class_type)
         return data_class_type(**{f: md_from_dict(fieldtypes[f], data[f]) for f in data})  # type: ignore[return-value]
 
     origin = typing.get_origin(data_class_type)
@@ -43,7 +41,7 @@ def md_from_dict(data_class_type: type[T], data: Any) -> T:
         elif origin is tuple:
             return tuple(md_from_dict(arg_type, elem) for arg_type, elem in zip(type_args, data))  # type: ignore[return-value]
         else:
-            assert False
+            raise AssertionError(origin)
     else:
         return data
 

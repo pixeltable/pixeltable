@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import warnings
+from textwrap import dedent
 from typing import TYPE_CHECKING, Any, Optional
 
 import sqlalchemy as sql
@@ -130,6 +132,19 @@ class Column:
             from pixeltable import exprs
 
             self._value_expr = exprs.Expr.from_dict(self.value_expr_dict)
+            if not self._value_expr.is_valid:
+                message = (
+                    dedent(
+                        f"""
+                        The computed column {self.name!r} in table {self.tbl.get().name!r} is no longer valid.
+                        {{validation_error}}
+                        You can continue to query existing data from this column, but evaluating it on new data will raise an error.
+                        """
+                    )
+                    .strip()
+                    .format(validation_error=self._value_expr.validation_error)
+                )
+                warnings.warn(message, category=excs.PixeltableWarning)
         return self._value_expr
 
     def set_value_expr(self, value_expr: exprs.Expr) -> None:

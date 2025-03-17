@@ -6,9 +6,8 @@ from typing import Optional, Union
 
 import sqlalchemy as sql
 
-import pixeltable.func as func
 import pixeltable.type_system as ts
-from pixeltable import exprs
+from pixeltable import exprs, func
 from pixeltable.utils.code import local_public_names
 
 
@@ -50,7 +49,6 @@ def _(val: sql.ColumnElement) -> Optional[sql.ColumnElement]:
 @func.uda(
     allows_window=True,
     # Allow counting non-null values of any type
-    # TODO: I couldn't include "Array" because we don't have a way to represent a generic array (of arbitrary dimension).
     # TODO: should we have an "Any" type that can be used here?
     type_substitutions=tuple(
         {T: Optional[t]}  # type: ignore[misc]
@@ -60,6 +58,7 @@ def _(val: sql.ColumnElement) -> Optional[sql.ColumnElement]:
             ts.Float,
             ts.Bool,
             ts.Timestamp,
+            ts.Array,
             ts.Json,
             ts.Image,
             ts.Video,
@@ -107,7 +106,7 @@ class min(func.Aggregator, typing.Generic[T]):
 
 @min.to_sql
 def _(val: sql.ColumnElement) -> Optional[sql.ColumnElement]:
-    if val.type.python_type == bool:
+    if val.type.python_type is bool:
         # TODO: min/max aggregation of booleans is not supported in Postgres (but it is in Python).
         # Right now we simply force the computation to be done in Python; we might consider implementing an alternate
         # way of doing it in SQL. (min/max of booleans is simply logical and/or, respectively.)
@@ -137,7 +136,7 @@ class max(func.Aggregator, typing.Generic[T]):
 
 @max.to_sql
 def _(val: sql.ColumnElement) -> Optional[sql.ColumnElement]:
-    if val.type.python_type == bool:
+    if val.type.python_type is bool:
         # TODO: see comment in @min.to_sql.
         return None
     return sql.sql.func.max(val)

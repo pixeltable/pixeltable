@@ -105,7 +105,6 @@ types-sqlalchemy-utils = "^1.1"
 types-toml = ">=0.10"
 types-tqdm = "^4.64"
 # linting
-pylint = "^3.1.0"
 ruff = "^0.9.3"
 # jupyter
 notebook = "^7.1.0"
@@ -179,25 +178,6 @@ strict_optional = false
 warn_return_any = true
 warn_unused_ignores = true
 
-[tool.pylint.main]
-max-line-length = 120
-
-[tool.pylint."messages control"]
-# Disable various Pylint messages that seem pointless or annoying.
-# If Pylint is bugging you about something that seems like it should be excluded,
-# propose it as a new exclusion by adding it to this list as part of the PR.
-# C0114: Missing module docstring (missing-module-docstring)
-# C0116: Missing function or method docstring (missing-function-docstring)
-# C0415: Import outside toplevel
-# E1121: Too many positional arguments for method call (too-many-function-args)
-# R0401: Cyclic import
-# R0801: Similar lines in 2 files
-# R0902: Too many instance attributes
-# R0913: Too many arguments
-# R0914: Too many local variables
-# W0511: TODO
-disable = ["C0114","C0116","C0415","E1121","R0401","R0801","R0902","R0913","R0914","W0511"]
-
 [tool.pytest.ini_options]
 addopts = "-v -m \"not remote_api and not expensive\" --strict-markers"
 markers = [
@@ -229,9 +209,26 @@ exclude = ["*.ipynb"]  # For now, exclude notebooks
 line-length = 120
 
 [tool.ruff.lint]
-select = ["F", "E", "W", "C", "I", "N", "B", "A", "ICN", "PYI", "SIM", "TD002", "PL", "RUF"]
-ignore = ["PLC0415", "PLR0904", "PLR0912", "PLR0913", "PLR0914", "PLR0915", "PLR2004"]
+select = ["F", "E", "W", "C", "N", "B", "ICN", "PYI", "SIM", "TD002", "PL", "RUF"]  # everything except "I"
+ignore = [
+    "B023",  # Function definition does not bind to loop variable (appears to generate false positives)
+    # A bunch of rules that are just plain fussy about code complexity:
+    "C901", "PLR0904", "PLR0911", "PLR0912", "PLR0913", "PLR0914", "PLR0915", "PLR0916", "PLR0917", "PLR1702",
+    "E711",  # None comparison (x == None); needed for Pandas/Pixeltable expressions
+    "N801",  # Class name should use CapWords convention (we intentionally violate this for aggregate functions)
+    "PLC0415",
+    "PLC2701",  # Allow private name imports
+    "PLE0605",  # Invalid format for __all__ (appears to generate false positives)
+    "PLR2004",
+    "PLR6301",  # Class method (not sure what to do yet)
+    "PLW3201",  # Dunder method has no special meaning (conflicts with _repr_html_)
+    "SIM108",  # Don't prefer use of ternary if/else operator
+    "TD002"  # Don't require author for TODOs
+]
 preview = true
+
+[tool.ruff.lint.flake8-builtins]
+builtins-ignorelist = ["format", "input"]
 
 [tool.ruff.lint.isort]
 combine-as-imports = true

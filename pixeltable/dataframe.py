@@ -10,13 +10,10 @@ import traceback
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Hashable, Iterator, NoReturn, Optional, Sequence, Union
 
-import numpy as np
 import pandas as pd
 import sqlalchemy as sql
 
-import pixeltable.exceptions as excs
-import pixeltable.type_system as ts
-from pixeltable import catalog, exec, exprs, plan
+from pixeltable import catalog, exceptions as excs, exec, exprs, plan, type_system as ts
 from pixeltable.catalog import is_valid_identifier
 from pixeltable.catalog.globals import UpdateStatus
 from pixeltable.env import Env
@@ -80,7 +77,7 @@ class DataFrameResultSet:
         if isinstance(index, int):
             return self._row_to_dict(index)
         if isinstance(index, tuple) and len(index) == 2:
-            if not isinstance(index[0], int) or not (isinstance(index[1], str) or isinstance(index[1], int)):
+            if not isinstance(index[0], int) or not isinstance(index[1], (str, int)):
                 raise excs.Error(f'Bad index, expected [<row idx>, <column name | column index>]: {index}')
             if isinstance(index[1], str) and index[1] not in self._col_names:
                 raise excs.Error(f'Invalid column name: {index[1]}')
@@ -95,6 +92,9 @@ class DataFrameResultSet:
         if not isinstance(other, DataFrameResultSet):
             return False
         return self.to_pandas().equals(other.to_pandas())
+
+    def __hash__(self):
+        return hash(self.to_pandas())
 
 
 # # TODO: remove this; it's only here as a reminder that we still need to call release() in the current implementation
@@ -232,9 +232,8 @@ class DataFrame:
         for var in vars:
             if var.name not in unique_vars:
                 unique_vars[var.name] = var
-            else:
-                if unique_vars[var.name].col_type != var.col_type:
-                    raise excs.Error(f'Multiple definitions of parameter {var.name}')
+            elif unique_vars[var.name].col_type != var.col_type:
+                raise excs.Error(f'Multiple definitions of parameter {var.name}')
         return unique_vars
 
     def parameters(self) -> dict[str, ColumnType]:
@@ -242,8 +241,7 @@ class DataFrame:
 
         Parameters are Variables contained in any component of the DataFrame.
         """
-        vars = self._vars()
-        return {name: var.col_type for name, var in vars.items()}
+        return {name: var.col_type for name, var in self._vars().items()}
 
     def _exec(self) -> Iterator[exprs.DataRow]:
         """Run the query and return rows as a generator.
@@ -321,9 +319,9 @@ class DataFrame:
                 if the DataFrame has an order_by clause.
         """
         if self.order_by_clause is not None:
-            raise excs.Error(f'head() cannot be used with order_by()')
+            raise excs.Error('head() cannot be used with order_by()')
         if self._has_joins():
-            raise excs.Error(f'head() not supported for joins')
+            raise excs.Error('head() not supported for joins')
         num_rowid_cols = len(self._first_tbl.tbl_version.get().store_tbl.rowid_columns())
         order_by_clause = [exprs.RowidRef(self._first_tbl.tbl_version, idx) for idx in range(num_rowid_cols)]
         return self.order_by(*order_by_clause, asc=True).limit(n).collect()
@@ -344,9 +342,9 @@ class DataFrame:
                 if the DataFrame has an order_by clause.
         """
         if self.order_by_clause is not None:
-            raise excs.Error(f'tail() cannot be used with order_by()')
+            raise excs.Error('tail() cannot be used with order_by()')
         if self._has_joins():
-            raise excs.Error(f'tail() not supported for joins')
+            raise excs.Error('tail() not supported for joins')
         num_rowid_cols = len(self._first_tbl.tbl_version.get().store_tbl.rowid_columns())
         order_by_clause = [exprs.RowidRef(self._first_tbl.tbl_version, idx) for idx in range(num_rowid_cols)]
         result = self.order_by(*order_by_clause, asc=False).limit(n).collect()
@@ -412,7 +410,7 @@ class DataFrame:
         )
 
     def _raise_expr_eval_err(self, e: excs.ExprEvalError) -> NoReturn:
-        msg = f'In row {e.row_num} the {e.expr_msg} encountered exception {type(e.exc).__name__}:\n{str(e.exc)}'
+        msg = f'In row {e.row_num} the {e.expr_msg} encountered exception {type(e.exc).__name__}:\n{e.exc}'
         if len(e.input_vals) > 0:
             input_msgs = [
                 f"'{d}' = {d.col_type.print_value(e.input_vals[i])}" for i, d in enumerate(e.expr.dependencies())
@@ -436,7 +434,7 @@ class DataFrame:
             except excs.ExprEvalError as e:
                 self._raise_expr_eval_err(e)
             except sql.exc.DBAPIError as e:
-                raise excs.Error(f'Error during SQL execution:\n{e}')
+                raise excs.Error(f'Error during SQL execution:\n{e}') from e
 
     def collect(self) -> DataFrameResultSet:
         return DataFrameResultSet(list(self._output_row_iterator()), self.schema)
@@ -448,7 +446,7 @@ class DataFrame:
         except excs.ExprEvalError as e:
             self._raise_expr_eval_err(e)
         except sql.exc.DBAPIError as e:
-            raise excs.Error(f'Error during SQL execution:\n{e}')
+            raise excs.Error(f'Error during SQL execution:\n{e}') from e
 
     def count(self) -> int:
         """Return the number of rows in the DataFrame.
@@ -559,7 +557,7 @@ class DataFrame:
 
         """
         if self.select_list is not None:
-            raise excs.Error(f'Select list already specified')
+            raise excs.Error('Select list already specified')
         for name, _ in named_items.items():
             if not isinstance(name, str) or not is_valid_identifier(name):
                 raise excs.Error(f'Invalid name: {name}')
@@ -645,7 +643,7 @@ class DataFrame:
     ) -> exprs.Expr:
         """Verifies user-specified 'on' argument and converts it into a join predicate."""
         col_refs: list[exprs.ColumnRef] = []
-        joined_tbls = self._from_clause.tbls + [other]
+        joined_tbls = [*self._from_clause.tbls, other]
 
         if isinstance(on, exprs.ColumnRef):
             on = [on]
@@ -655,14 +653,13 @@ class DataFrame:
             if not on.col_type.is_bool_type():
                 raise excs.Error(f"'on': boolean expression expected, but got {on.col_type}: {on}")
             return on
-        else:
-            if not isinstance(on, Sequence) or len(on) == 0:
-                raise excs.Error(f"'on': must be a sequence of column references or a boolean expression")
+        elif not isinstance(on, Sequence) or len(on) == 0:
+            raise excs.Error("'on': must be a sequence of column references or a boolean expression")
 
         assert isinstance(on, Sequence)
         for col_ref in on:
             if not isinstance(col_ref, exprs.ColumnRef):
-                raise excs.Error(f"'on': must be a sequence of column references or a boolean expression")
+                raise excs.Error("'on': must be a sequence of column references or a boolean expression")
             if not col_ref.is_bound_by(joined_tbls):
                 raise excs.Error(f"'on': expression cannot be evaluated in the context of the joined tables: {col_ref}")
             col_refs.append(col_ref)
@@ -757,7 +754,7 @@ class DataFrame:
         join_pred: Optional[exprs.Expr]
         if how == 'cross':
             if on is not None:
-                raise excs.Error(f"'on' not allowed for cross join")
+                raise excs.Error("'on' not allowed for cross join")
             join_pred = None
         else:
             if on is None:
@@ -820,15 +817,15 @@ class DataFrame:
             >>> df = book.group_by(t.genre).select(t.genre, total=sum(t.price)).show()
         """
         if self.group_by_clause is not None:
-            raise excs.Error(f'Group-by already specified')
+            raise excs.Error('Group-by already specified')
         grouping_tbl: Optional[catalog.TableVersion] = None
         group_by_clause: Optional[list[exprs.Expr]] = None
         for item in grouping_items:
             if isinstance(item, catalog.Table):
                 if len(grouping_items) > 1:
-                    raise excs.Error(f'group_by(): only one table can be specified')
+                    raise excs.Error('group_by(): only one table can be specified')
                 if len(self._from_clause.tbls) > 1:
-                    raise excs.Error(f'group_by() with Table not supported for joins')
+                    raise excs.Error('group_by() with Table not supported for joins')
                 # we need to make sure that the grouping table is a base of self.tbl
                 base = self._first_tbl.find_tbl_version(item._tbl_version_path.tbl_id())
                 if base is None or base.id == self._first_tbl.tbl_id():
@@ -935,11 +932,13 @@ class DataFrame:
 
             >>> person = t.select()
 
-            Via the above DataFrame person, update the column 'city' to 'Oakland' and 'state' to 'CA' in the table t:
+            Via the above DataFrame person, update the column 'city' to 'Oakland'
+            and 'state' to 'CA' in the table t:
 
             >>> df = person.update({'city': 'Oakland', 'state': 'CA'})
 
-            Via the above DataFrame person, update the column 'age' to 30 for any rows where 'year' is 2014 in the table t:
+            Via the above DataFrame person, update the column 'age' to 30 for any
+            rows where 'year' is 2014 in the table t:
 
             >>> df = person.where(t.year == 2014).update({'age': 30})
         """
@@ -966,7 +965,7 @@ class DataFrame:
         """
         self._validate_mutable('delete', False)
         if not self._first_tbl.is_insertable():
-            raise excs.Error(f'Cannot delete from view')
+            raise excs.Error('Cannot delete from view')
         with Env.get().begin_xact():
             return self._first_tbl.tbl_version.get().delete(where=self.where_clause)
 

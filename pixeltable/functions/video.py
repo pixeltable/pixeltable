@@ -21,18 +21,19 @@ import numpy as np
 import PIL.Image
 
 import pixeltable as pxt
-import pixeltable.env as env
+from pixeltable import env
 from pixeltable.utils.code import local_public_names
 
 _format_defaults = {  # format -> (codec, ext)
     'wav': ('pcm_s16le', 'wav'),
     'mp3': ('libmp3lame', 'mp3'),
     'flac': ('flac', 'flac'),
-    #'mp4': ('aac', 'm4a'),
+    # 'mp4': ('aac', 'm4a'),
 }
 
 # for mp4:
-# - extract_audio() fails with "Application provided invalid, non monotonically increasing dts to muxer in stream 0: 1146 >= 290"
+# - extract_audio() fails with
+#   "Application provided invalid, non monotonically increasing dts to muxer in stream 0: 1146 >= 290"
 # - chatgpt suggests this can be fixed in the following manner
 #     for packet in container.demux(audio_stream):
 #         packet.pts = None  # Reset the PTS and DTS to allow FFmpeg to set them automatically
@@ -142,7 +143,7 @@ def _get_metadata(path: str) -> dict:
 
 
 def __get_stream_metadata(stream: av.stream.Stream) -> dict:
-    if stream.type != 'audio' and stream.type != 'video':
+    if stream.type not in {'audio', 'video'}:
         return {'type': stream.type}  # Currently unsupported
 
     codec_context = stream.codec_context

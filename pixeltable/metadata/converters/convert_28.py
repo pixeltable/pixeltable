@@ -1,5 +1,3 @@
-import logging
-
 import sqlalchemy as sql
 
 from pixeltable.metadata import register_converter

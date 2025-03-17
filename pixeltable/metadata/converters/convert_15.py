@@ -5,8 +5,6 @@ from typing import Any
 import cloudpickle  # type: ignore[import-untyped]
 import sqlalchemy as sql
 
-import pixeltable.func as func
-import pixeltable.type_system as ts
 from pixeltable.metadata import register_converter
 from pixeltable.metadata.schema import Function
 

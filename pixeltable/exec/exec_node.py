@@ -6,7 +6,7 @@ import logging
 import sys
 from typing import AsyncIterator, Iterable, Iterator, Optional, TypeVar
 
-import pixeltable.exprs as exprs
+from pixeltable import exprs
 
 from .data_row_batch import DataRowBatch
 from .exec_context import ExecContext
@@ -31,6 +31,7 @@ class ExecNode(abc.ABC):
         input_exprs: Iterable[exprs.Expr],
         input: Optional[ExecNode] = None,
     ):
+        assert all(expr.is_valid for expr in output_exprs)
         self.output_exprs = output_exprs
         self.row_builder = row_builder
         self.input = input
@@ -65,7 +66,7 @@ class ExecNode(abc.ABC):
             # check if we are already in an event loop (eg, Jupyter's); if so, patch it to allow
             # multiple run_until_complete()
             running_loop = asyncio.get_running_loop()
-            import nest_asyncio  # type: ignore
+            import nest_asyncio  # type: ignore[import-untyped]
 
             nest_asyncio.apply()
             loop = running_loop

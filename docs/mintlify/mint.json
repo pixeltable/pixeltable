@@ -128,9 +128,11 @@
                 "docs/cookbooks/search/audio",
                 "docs/cookbooks/search/images",
                 "docs/cookbooks/search/PDF",
-                "docs/cookbooks/search/website"        
+                "docs/cookbooks/search/website",
+                "docs/cookbooks/search/video"
               ]
-            }
+            },
+              "docs/cookbooks/mcp/overview"          
           ]
         }
       ]
