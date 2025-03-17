@@ -1,13 +1,13 @@
 import logging
 import urllib.parse
-from typing import Any, Iterable, Literal, Optional, Union, cast
+from typing import Any, Iterable, Literal, Optional, Union
 from uuid import UUID
 
 import pandas as pd
 from pandas.io.formats.style import Styler
 
 from pixeltable import DataFrame, catalog, env, exceptions as excs, exprs, func, share
-from pixeltable.catalog import Catalog, IfExistsParam, IfNotExistsParam
+from pixeltable.catalog import Catalog, IfExistsParam
 from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
@@ -438,20 +438,11 @@ def move(path: str, new_path: str) -> None:
     """
     if path == new_path:
         raise excs.Error('move(): source and destination cannot be identical')
+    path_obj, new_path_obj = catalog.Path(path), catalog.Path(new_path)
+    if path_obj.is_ancestor(new_path_obj):
+        raise excs.Error(f'move(): cannot move {path!r} into its own subdirectory')
     cat = Catalog.get()
-    with Env.get().begin_xact():
-        path_obj, new_path_obj = catalog.Path(path), catalog.Path(new_path)
-        if path_obj.is_ancestor(new_path_obj):
-            raise excs.Error(f'move(): cannot move {path!r} into its own subdirectory')
-        _, dest_dir, src_obj = cat.prepare_dir_op(
-            add_dir_path=str(new_path_obj.parent),
-            add_name=new_path_obj.name,
-            drop_dir_path=str(path_obj.parent),
-            drop_name=path_obj.name,
-            raise_if_exists=True,
-            raise_if_not_exists=True,
-        )
-        src_obj._move(new_path_obj.name, dest_dir._id)
+    cat.move(path, new_path)
 
 
 def drop_table(

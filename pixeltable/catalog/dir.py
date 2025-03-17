@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+import datetime
 import json
 import logging
 from uuid import UUID
@@ -28,6 +29,7 @@ class Dir(SchemaObject):
         dir_record = schema.Dir(parent_id=parent_id, md=dataclasses.asdict(dir_md))
         session.add(dir_record)
         session.flush()
+        print(f'{datetime.datetime.now()} create dir {dir_record}')
         assert dir_record.id is not None
         assert isinstance(dir_record.id, UUID)
         dir = cls(dir_record.id, parent_id, name)
@@ -45,6 +47,9 @@ class Dir(SchemaObject):
         return super()._path()
 
     def _move(self, new_name: str, new_dir_id: UUID) -> None:
+        print(
+            f'{datetime.datetime.now()} move dir name={self._name} parent={self._dir_id} new_name={new_name} new_dir_id={new_dir_id}'
+        )
         super()._move(new_name, new_dir_id)
         stmt = sql.text(
             (

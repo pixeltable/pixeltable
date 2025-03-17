@@ -1,17 +1,21 @@
 from __future__ import annotations
 
 import dataclasses
+import datetime
 import logging
 import time
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 from uuid import UUID
 
+import psycopg
 import sqlalchemy as sql
 
 import pixeltable.exceptions as excs
 import pixeltable.metadata.schema as schema
 from pixeltable.env import Env
+
 from .dir import Dir
+from .path import Path
 from .schema_object import SchemaObject
 from .table import Table
 from .table_version import TableVersion
@@ -55,6 +59,8 @@ class Catalog:
     All interface functions must be called in the context of a transaction, started with Env.begin().
     """
 
+    MAX_RETRIES = 3
+
     _instance: Optional[Catalog] = None
 
     # key: [id, version]
@@ -85,6 +91,7 @@ class Catalog:
         names: list[str] = []
         while True:
             q = sql.select(schema.Dir).where(schema.Dir.id == dir_id)
+            _debug_print(for_update=False, msg=f'dir id={dir_id}')
             row = conn.execute(q).one()
             dir = schema.Dir(**row._mapping)
             if dir.md['name'] == '':
@@ -98,6 +105,7 @@ class Catalog:
         """Return path for table with given id"""
         conn = Env.get().conn
         q = sql.select(schema.Table).where(schema.Table.id == tbl_id)
+        _debug_print(for_update=False, msg=f'tbl id={tbl_id}')
         row = conn.execute(q).one()
         tbl = schema.Table(**row._mapping)
         dir_path = self.get_dir_path(tbl.dir_id)
@@ -115,6 +123,7 @@ class Catalog:
         result: dict[str, Catalog.DirEntry] = {}
 
         q = sql.select(schema.Dir).where(schema.Dir.parent_id == dir_id)
+        _debug_print(for_update=False, msg=f'dirs parent_id={dir_id}')
         rows = conn.execute(q).all()
         for row in rows:
             dir = schema.Dir(**row._mapping)
@@ -124,6 +133,7 @@ class Catalog:
             result[dir.md['name']] = self.DirEntry(dir=dir, dir_entries=dir_contents, table=None)
 
         q = sql.select(schema.Table).where(schema.Table.dir_id == dir_id)
+        _debug_print(for_update=False, msg=f'tbls parent_id={dir_id}')
         rows = conn.execute(q).all()
         for row in rows:
             tbl = schema.Table(**row._mapping)
@@ -134,7 +144,40 @@ class Catalog:
     def drop_dir(self, dir_id: UUID) -> None:
         """Delete the directory with the given id"""
         conn = Env.get().conn
+        _debug_print(for_update=True, msg=f'drop dir id={dir_id}')
         conn.execute(sql.delete(schema.Dir.__table__).where(schema.Dir.id == dir_id))
+
+    def _retry_loop(self, op: Callable) -> None:
+        num_remaining_retries = self.MAX_RETRIES
+        while True:
+            try:
+                op()
+                return
+            except sql.exc.DBAPIError as e:
+                if isinstance(e.orig, psycopg.errors.SerializationFailure) and num_remaining_retries > 0:
+                    num_remaining_retries -= 1
+                    print(f'serialization failure:\n{e}')
+                    print('retrying ************************************************************')
+                    time.sleep(1)
+                else:
+                    raise
+
+    def move(self, path: str, new_path: str) -> None:
+        self._retry_loop(lambda: self._move(path, new_path))
+
+    def _move(self, path: str, new_path: str) -> None:
+        with Env.get().begin_xact():
+            path_obj = Path(path)
+            new_path_obj = Path(new_path)
+            _, dest_dir, src_obj = self.prepare_dir_op(
+                add_dir_path=str(new_path_obj.parent),
+                add_name=new_path_obj.name,
+                drop_dir_path=str(path_obj.parent),
+                drop_name=path_obj.name,
+                raise_if_exists=True,
+                raise_if_not_exists=True,
+            )
+            src_obj._move(new_path_obj.name, dest_dir._id)
 
     def prepare_dir_op(
         self,
@@ -218,8 +261,7 @@ class Catalog:
         #     return Dir(dir_record.id, dir_record.parent_id, name)
         rows = conn.execute(q).all()
         if len(rows) > 1:
-            print(rows)
-            assert False
+            assert False, rows
         if len(rows) == 1:
             dir_record = schema.Dir(**rows[0]._mapping)
             return Dir(dir_record.id, dir_record.parent_id, name)
@@ -292,6 +334,7 @@ class Catalog:
         """Return the ids of views that directly reference the given table"""
         conn = Env.get().conn
         q = sql.select(schema.Table.id).where(sql.text(f"md->'view_md'->'base_versions'->0->>0 = {tbl_id.hex!r}"))
+        _debug_print(for_update=False, msg=f'views of tbl id={tbl_id}')
         result = [r[0] for r in conn.execute(q).all()]
         return result
 
@@ -320,6 +363,7 @@ class Catalog:
         """Return the Dir with the given id, or None if it doesn't exist"""
         conn = Env.get().conn
         q = sql.select(schema.Dir).where(schema.Dir.id == dir_id)
+        _debug_print(for_update=False, msg=f'dir id={dir_id!r}')
         row = conn.execute(q).one_or_none()
         if row is None:
             return None
@@ -375,6 +419,7 @@ class Catalog:
             )
             .where(schema.Table.id == tbl_id)
         )
+        _debug_print(for_update=False, msg=f'load table id={tbl_id!r}')
         row = conn.execute(q).one_or_none()
         if row is None:
             return None
@@ -524,4 +569,5 @@ def _lock_str(for_update: bool) -> str:
 
 
 def _debug_print(for_update: bool, msg: str) -> None:
-    print(f'{time.monotonic()}: {_lock_str(for_update)}: {msg}')
+    return
+    print(f'{datetime.datetime.now()}: {_lock_str(for_update)}: {msg}')

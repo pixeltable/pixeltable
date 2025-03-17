@@ -22,7 +22,6 @@ from pathlib import Path
 from sys import stdout
 from typing import TYPE_CHECKING, Any, Callable, Iterator, Optional, TypeVar
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-import time
 
 import pixeltable_pgserver
 import sqlalchemy as sql
@@ -188,14 +187,14 @@ class Env:
             assert self._current_session is None
             try:
                 with self.engine.begin() as conn, sql.orm.Session(conn) as session:
-                    print(f'{time.monotonic()}: start xact')
+                    print(f'{datetime.datetime.now()}: start xact')
                     self._current_conn = conn
                     self._current_session = session
                     yield conn
             finally:
                 self._current_session = None
                 self._current_conn = None
-                print(f'{time.monotonic()}: end xact')
+                print(f'{datetime.datetime.now()}: end xact')
         else:
             assert self._current_session is not None
             yield self._current_conn
@@ -420,7 +419,7 @@ class Env:
     def _create_engine(self, time_zone_name: Optional[str], echo: bool = False) -> None:
         connect_args = {} if time_zone_name is None else {'options': f'-c timezone={time_zone_name}'}
         self._sa_engine = sql.create_engine(
-            self.db_url, echo=echo, future=True, isolation_level='REPEATABLE READ', connect_args=connect_args
+            self.db_url, echo=echo, isolation_level='REPEATABLE READ', connect_args=connect_args
         )
         self._logger.info(f'Created SQLAlchemy engine at: {self.db_url}')
         with self.engine.begin() as conn:

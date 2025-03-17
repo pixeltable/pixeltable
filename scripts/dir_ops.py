@@ -8,6 +8,7 @@ import pixeltable as pxt
 dirs = ['A', 'B']
 names = ['x', 'y', 'z']
 
+
 def list_objects(dir: str) -> tuple[list[str], list[str]]:
     tbls = pxt.list_tables(dir)
     subdirs = pxt.list_dirs(dir)
