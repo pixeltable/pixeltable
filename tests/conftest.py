@@ -8,6 +8,7 @@ import pytest
 import requests
 import tenacity
 from filelock import FileLock
+from sqlalchemy import orm
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
@@ -80,23 +81,27 @@ def reset_db(init_env) -> None:
     FileCache.get().set_capacity(10 << 30)  # 10 GiB
 
 
-def clean_db(restore_tables: bool = True) -> None:
+def clean_db(restore_md_tables: bool = True) -> None:
     from pixeltable.env import Env
 
-    # UUID-named data tables will
-    # not be cleaned. If in the future it is desirable to clean out data tables as well,
-    # the commented lines may be used to drop ALL tables from the test db.
-    # sql_md = declarative_base().metadata
-    # sql_md.reflect(Env.get().engine)
-    # sql_md.drop_all(bind=Env.get().engine)
+    # Drop all tables from the DB, including data tables. Dropping the data tables is necessary for certain tests,
+    # such as test_db_migration, that may lead to UUID collisions if interrupted.
     engine = Env.get().engine
-    SystemInfo.__table__.drop(engine, checkfirst=True)
-    TableSchemaVersion.__table__.drop(engine, checkfirst=True)
-    TableVersion.__table__.drop(engine, checkfirst=True)
-    Table.__table__.drop(engine, checkfirst=True)
-    Function.__table__.drop(engine, checkfirst=True)
-    Dir.__table__.drop(engine, checkfirst=True)
-    if restore_tables:
+    sql_md = orm.declarative_base().metadata
+    sql_md.reflect(engine)
+    sql_md.drop_all(bind=engine)
+
+    # The following lines may be uncommented as a replacement for the above, if one wishes to drop only metadata
+    # tables for testing purposes.
+    # SystemInfo.__table__.drop(engine, checkfirst=True)
+    # TableSchemaVersion.__table__.drop(engine, checkfirst=True)
+    # TableVersion.__table__.drop(engine, checkfirst=True)
+    # Table.__table__.drop(engine, checkfirst=True)
+    # Function.__table__.drop(engine, checkfirst=True)
+    # Dir.__table__.drop(engine, checkfirst=True)
+
+    if restore_md_tables:
+        # Restore metadata tables and system info
         Dir.__table__.create(engine)
         Function.__table__.create(engine)
         Table.__table__.create(engine)

@@ -47,6 +47,7 @@ class Env:
     """
 
     _instance: Optional[Env] = None
+    __initializing: bool = False
     _log_fmt_str = '%(asctime)s %(levelname)s %(name)s %(filename)s:%(lineno)d: %(message)s'
 
     _media_dir: Optional[Path]
@@ -68,7 +69,6 @@ class Env:
     _httpd: Optional[http.server.HTTPServer]
     _http_address: Optional[str]
     _logger: logging.Logger
-    _console_logger: ConsoleLogger
     _default_log_level: int
     _logfilename: Optional[str]
     _log_to_stdout: bool
@@ -90,10 +90,13 @@ class Env:
 
     @classmethod
     def _init_env(cls, reinit_db: bool = False) -> None:
+        assert not cls.__initializing, 'Circular env initialization detected.'
+        cls.__initializing = True
         env = Env()
         env._set_up(reinit_db=reinit_db)
         env._upgrade_metadata()
         cls._instance = env
+        cls.__initializing = False
 
     def __init__(self):
         assert self._instance is None, 'Env is a singleton; use Env.get() to access the instance'
