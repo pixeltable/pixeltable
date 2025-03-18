@@ -25,13 +25,35 @@ class Config:
 
     __home: Path
     __config_file: Path
-    __config: dict[str, Any]
+    __config_dict: dict[str, Any]
 
-    def __init__(self, home: Path, config_file: Path, config: dict[str, Any]) -> None:
+    def __init__(self) -> None:
         assert self.__instance is None, 'Config is a singleton; use Config.get() to access the instance'
-        self.__home = home
-        self.__config_file = config_file
-        self.__config = config
+
+        self.__home = Path(os.environ.get('PIXELTABLE_HOME', str(Path.home() / '.pixeltable')))
+        if self.__home.exists() and not self.__home.is_dir():
+            raise RuntimeError(f'{self.__home} is not a directory')
+        if not self.__home.exists():
+            print(f'Creating a Pixeltable instance at: {self.__home}')
+            self.__home.mkdir()
+
+        self.__config_file = Path(os.environ.get('PIXELTABLE_CONFIG', str(self.__home / 'config.toml')))
+
+        self.__config_dict: dict[str, Any]
+        if os.path.isfile(self.__config_file):
+            with open(self.__config_file, 'r', encoding='utf-8') as stream:
+                try:
+                    self.__config_dict = toml.load(stream)
+                except Exception as exc:
+                    raise excs.Error(f'Could not read config file: {self.__config_file}') from exc
+        else:
+            self.__config_dict = self.__create_default_config(self.__config_file)
+            with open(self.__config_file, 'w', encoding='utf-8') as stream:
+                try:
+                    toml.dump(self.__config_dict, stream)
+                except Exception as exc:
+                    raise excs.Error(f'Could not write config file: {self.__config_file}') from exc
+            _logger.info(f'Created default config file at: {self.__config_file}')
 
     @property
     def home(self) -> Path:
@@ -44,41 +66,8 @@ class Config:
     @classmethod
     def get(cls) -> Config:
         if cls.__instance is None:
-            cls.reload()
+            cls.__instance = cls()
         return cls.__instance
-
-    @classmethod
-    def reload(cls) -> None:
-        """
-        Loads configuration from PIXELTABLE_CONFIG as specified in the environment. If PIXELTABLE_HOME and/or
-        PIXELTABLE_CONFIG do not exist, they will be created.
-        """
-        home = Path(os.environ.get('PIXELTABLE_HOME', str(Path.home() / '.pixeltable')))
-        if home.exists() and not home.is_dir():
-            raise RuntimeError(f'{home} is not a directory')
-        if not home.exists():
-            print(f'Creating a Pixeltable instance at: {home}')
-            home.mkdir()
-
-        config_file = Path(os.environ.get('PIXELTABLE_CONFIG', str(home / 'config.toml')))
-
-        config_dict: dict[str, Any]
-        if os.path.isfile(config_file):
-            with open(config_file, 'r', encoding='utf-8') as stream:
-                try:
-                    config_dict = toml.load(stream)
-                except Exception as exc:
-                    raise excs.Error(f'Could not read config file: {config_file}') from exc
-        else:
-            config_dict = cls.__create_default_config(config_file)
-            with open(config_file, 'w', encoding='utf-8') as stream:
-                try:
-                    toml.dump(config_dict, stream)
-                except Exception as exc:
-                    raise excs.Error(f'Could not write config file: {config_file}') from exc
-            _logger.info(f'Created default config file at: {config_file}')
-
-        cls.__instance = cls(home, config_file, config_dict)
 
     @classmethod
     def __create_default_config(cls, config_path: Path) -> dict[str, Any]:
@@ -91,8 +80,8 @@ class Config:
         env_var = f'{section.upper()}_{key.upper()}'
         if env_var in os.environ:
             value = os.environ[env_var]
-        elif section in self.__config and key in self.__config[section]:
-            value = self.__config[section][key]
+        elif section in self.__config_dict and key in self.__config_dict[section]:
+            value = self.__config_dict[section][key]
         else:
             return None
 
