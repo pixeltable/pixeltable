@@ -13,7 +13,6 @@ import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable import catalog, exprs, func
 from pixeltable.env import Env
-from pixeltable.exprs import RELATIVE_PATH_ROOT as R
 from pixeltable.functions.huggingface import clip, sentence_transformer
 from pixeltable.metadata import SystemInfo, create_system_info
 from pixeltable.metadata.schema import Dir, Function, Table, TableSchemaVersion, TableVersion
@@ -132,7 +131,7 @@ def test_tbl_exprs(test_tbl: catalog.Table) -> list[exprs.Expr]:
         ~(t.c2 > 5),
         (t.c2 > 5) & (t.c1 == 'test'),
         (t.c2 > 5) | (t.c1 == 'test'),
-        t.c7['*'].f5 >> [R[3], R[2], R[1], R[0]],
+        pxtf.map(t.c7['*'].f5, lambda x: [x[3], x[2], x[1], x[0]]),
         t.c8[0, 1:],
         t.c2.isin([1, 2, 3]),
         t.c2.isin(t.c6.f5),
