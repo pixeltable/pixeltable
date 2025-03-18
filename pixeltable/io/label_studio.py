@@ -15,6 +15,7 @@ import pixeltable as pxt
 import pixeltable.env as env
 import pixeltable.exceptions as excs
 from pixeltable import Column, Table
+from pixeltable.config import Config
 from pixeltable.exprs import ColumnRef, DataRow, Expr
 from pixeltable.io.external_store import Project, SyncStatus
 from pixeltable.utils import coco
@@ -356,7 +357,7 @@ class LabelStudioProject(Project):
     @classmethod
     def __localpath_to_lspath(cls, localpath: str) -> str:
         # Transform the local path into Label Studio's bespoke path format.
-        relpath = Path(localpath).relative_to(env.Env.get().home)
+        relpath = Path(localpath).relative_to(Config.get().home)
         return f'/data/local-files/?d={str(relpath)}'
 
     def __delete_stale_tasks(
@@ -618,7 +619,7 @@ class LabelStudioProject(Project):
 
         if media_import_method == 'file':
             # We need to set up a local storage connection to receive media files
-            os.environ['LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT'] = str(env.Env.get().home)
+            os.environ['LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT'] = str(Config.get().home)
             try:
                 project.connect_local_import_storage(local_store_path=str(env.Env.get().media_dir))
             except HTTPError as exc:
