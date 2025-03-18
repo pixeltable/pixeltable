@@ -62,6 +62,7 @@ def init_env(tmp_path_factory, worker_id) -> None:
     # don't have several processes trying to initialize pgserver in parallel.
     root_tmp_dir = tmp_path_factory.getbasetemp().parent
     with FileLock(str(root_tmp_dir / 'pxt-init.lock')):
+        Env._init_env(reinit_db=True)
         pxt.init()
 
     Env.get().configure_logging(level=logging.DEBUG, to_stdout=True)
