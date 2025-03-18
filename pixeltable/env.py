@@ -25,10 +25,10 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pixeltable_pgserver
 import sqlalchemy as sql
-import toml
 from tqdm import TqdmWarning
 
-import pixeltable.exceptions as excs
+from pixeltable import exceptions as excs
+from pixeltable.config import Config
 from pixeltable.utils.console_output import ConsoleLogger, ConsoleMessageFilter, ConsoleOutputHandler, map_level
 from pixeltable.utils.http_server import make_server
 
@@ -49,7 +49,6 @@ class Env:
     _instance: Optional[Env] = None
     _log_fmt_str = '%(asctime)s %(levelname)s %(name)s %(filename)s:%(lineno)d: %(message)s'
 
-    _home: Optional[Path]
     _media_dir: Optional[Path]
     _file_cache_dir: Optional[Path]  # cached media files with external URL
     _dataset_cache_dir: Optional[Path]  # cached datasets (eg, pytorch or COCO)
@@ -74,8 +73,6 @@ class Env:
     _logfilename: Optional[str]
     _log_to_stdout: bool
     _module_log_level: dict[str, int]  # module name -> log level
-    _config_file: Optional[Path]
-    _config: Optional[Config]
     _file_cache_size_g: float
     _pxt_api_key: Optional[str]
     _stdout_handler: logging.StreamHandler
@@ -101,7 +98,6 @@ class Env:
     def __init__(self):
         assert self._instance is None, 'Env is a singleton; use Env.get() to access the instance'
 
-        self._home = None
         self._media_dir = None  # computed media files
         self._file_cache_dir = None  # cached media files with external URL
         self._dataset_cache_dir = None  # cached datasets (eg, pytorch or COCO)
@@ -129,10 +125,6 @@ class Env:
         self._log_to_stdout = False
         self._module_log_level = {}  # module name -> log level
 
-        # config
-        self._config_file = None
-        self._config = None
-
         # create logging handler to also log to stdout
         self._stdout_handler = logging.StreamHandler(stream=sys.stdout)
         self._stdout_handler.setFormatter(logging.Formatter(self._log_fmt_str))
@@ -141,11 +133,6 @@ class Env:
         self._resource_pool_info = {}
         self._current_conn = None
         self._current_session = None
-
-    @property
-    def config(self) -> Config:
-        assert self._config is not None
-        return self._config
 
     @property
     def db_url(self) -> str:
@@ -276,28 +263,14 @@ class Env:
 
         os.environ['TOKENIZERS_PARALLELISM'] = 'false'
 
+        config = Config.get()
+
         self._initialized = True
-        home = Path(os.environ.get('PIXELTABLE_HOME', str(Path.home() / '.pixeltable')))
-        assert self._home is None or self._home == home
-        self._home = home
-        self._config_file = Path(os.environ.get('PIXELTABLE_CONFIG', str(self._home / 'config.toml')))
-        self._media_dir = self._home / 'media'
-        self._file_cache_dir = self._home / 'file_cache'
-        self._dataset_cache_dir = self._home / 'dataset_cache'
-        self._log_dir = self._home / 'logs'
-        self._tmp_dir = self._home / 'tmp'
-
-        if self._home.exists() and not self._home.is_dir():
-            raise RuntimeError(f'{self._home} is not a directory')
-
-        if not self._home.exists():
-            # we don't have our logger set up yet, so print to stdout
-            print(f'Creating a Pixeltable instance at: {self._home}')
-            self._home.mkdir()
-            # TODO (aaron-siegel) This is the existing behavior, but it seems scary. If something happens to
-            # self._home, it will cause the DB to be destroyed even if pgdata is in an alternate location.
-            # PROPOSAL: require `reinit_db` to be set explicitly to destroy the DB.
-            reinit_db = True
+        self._media_dir = Config.get().home / 'media'
+        self._file_cache_dir = Config.get().home / 'file_cache'
+        self._dataset_cache_dir = Config.get().home / 'dataset_cache'
+        self._log_dir = Config.get().home / 'logs'
+        self._tmp_dir = Config.get().home / 'tmp'
 
         if not self._media_dir.exists():
             self._media_dir.mkdir()
@@ -310,26 +283,24 @@ class Env:
         if not self._tmp_dir.exists():
             self._tmp_dir.mkdir()
 
-        # Read in the config
-        self._config = Config.from_file(self._config_file)
-        self._file_cache_size_g = self._config.get_float_value('file_cache_size_g')
+        self._file_cache_size_g = config.get_float_value('file_cache_size_g')
         if self._file_cache_size_g is None:
             raise excs.Error(
                 'pixeltable/file_cache_size_g is missing from configuration\n'
-                f'(either add a `file_cache_size_g` entry to the `pixeltable` section of {self._config_file},\n'
+                f'(either add a `file_cache_size_g` entry to the `pixeltable` section of {Config.get().config_file},\n'
                 'or set the PIXELTABLE_FILE_CACHE_SIZE_G environment variable)'
             )
-        self._pxt_api_key = self._config.get_string_value('api_key')
+        self._pxt_api_key = config.get_string_value('api_key')
 
         # Disable spurious warnings
         warnings.simplefilter('ignore', category=TqdmWarning)
-        if self._config.get_bool_value('hide_warnings'):
+        if config.get_bool_value('hide_warnings'):
             # Disable more warnings
             warnings.simplefilter('ignore', category=UserWarning)
             warnings.simplefilter('ignore', category=FutureWarning)
 
         # Set verbose level for user visible console messages
-        verbosity = map_level(self._config.get_int_value('verbosity'))
+        verbosity = map_level(config.get_int_value('verbosity'))
         stdout_handler = ConsoleOutputHandler(stream=stdout)
         stdout_handler.setLevel(verbosity)
         stdout_handler.addFilter(ConsoleMessageFilter())
@@ -367,7 +338,7 @@ class Env:
         self.clear_tmp_dir()
 
         self._db_name = os.environ.get('PIXELTABLE_DB', 'pixeltable')
-        self._pgdata_dir = Path(os.environ.get('PIXELTABLE_PGDATA', str(self._home / 'pgdata')))
+        self._pgdata_dir = Path(os.environ.get('PIXELTABLE_PGDATA', str(Config.get().home / 'pgdata')))
 
         # cleanup_mode=None will leave the postgres process running after Python exits
         # cleanup_mode='stop' will terminate the postgres process when Python exits
@@ -377,7 +348,7 @@ class Env:
         self._db_server = pixeltable_pgserver.get_server(self._pgdata_dir, cleanup_mode=cleanup_mode)
         self._db_url = self._db_server.get_uri(database=self._db_name, driver='psycopg')
 
-        tz_name = self.config.get_string_value('time_zone')
+        tz_name = config.get_string_value('time_zone')
         if tz_name is not None:
             # Validate tzname
             if not isinstance(tz_name, str):
@@ -516,7 +487,7 @@ class Env:
 
         init_kwargs: dict[str, str] = {}
         for param in cl.param_names:
-            arg = self._config.get_string_value(param, section=name)
+            arg = Config.get().get_string_value(param, section=name)
             if arg is not None and len(arg) > 0:
                 init_kwargs[param] = arg
             else:
@@ -694,11 +665,6 @@ class Env:
         return info
 
     @property
-    def home(self) -> Path:
-        assert self._home is not None
-        return self._home
-
-    @property
     def media_dir(self) -> Path:
         assert self._media_dir is not None
         return self._media_dir
@@ -761,73 +727,6 @@ def register_client(name: str) -> Callable:
         _registered_clients[name] = ApiClient(init_fn=fn, param_names=param_names)
 
     return decorator
-
-
-class Config:
-    """
-    The (global) Pixeltable configuration, as loaded from `config.toml`. Provides methods for retrieving
-    configuration values, which can be set in the config file or as environment variables.
-    """
-
-    __config: dict[str, Any]
-
-    @classmethod
-    def from_file(cls, path: Path) -> Config:
-        """
-        Loads configuration from the specified TOML file. If the file does not exist, it will be
-        created and populated with the default configuration.
-        """
-        if os.path.isfile(path):
-            with open(path, 'r', encoding='utf-8') as stream:
-                try:
-                    config_dict = toml.load(stream)
-                except Exception as exc:
-                    raise excs.Error(f'Could not read config file: {path}') from exc
-        else:
-            config_dict = cls.__create_default_config(path)
-            with open(path, 'w', encoding='utf-8') as stream:
-                try:
-                    toml.dump(config_dict, stream)
-                except Exception as exc:
-                    raise excs.Error(f'Could not write config file: {path}') from exc
-            _logger.info(f'Created default config file at: {path}')
-        return cls(config_dict)
-
-    @classmethod
-    def __create_default_config(cls, config_path: Path) -> dict[str, Any]:
-        free_disk_space_bytes = shutil.disk_usage(config_path.parent).free
-        # Default cache size is 1/5 of free disk space
-        file_cache_size_g = free_disk_space_bytes / 5 / (1 << 30)
-        return {'pixeltable': {'file_cache_size_g': round(file_cache_size_g, 1), 'hide_warnings': False}}
-
-    def __init__(self, config: dict[str, Any]) -> None:
-        self.__config = config
-
-    def get_value(self, key: str, expected_type: type[T], section: str = 'pixeltable') -> Optional[T]:
-        env_var = f'{section.upper()}_{key.upper()}'
-        if env_var in os.environ:
-            value = os.environ[env_var]
-        elif section in self.__config and key in self.__config[section]:
-            value = self.__config[section][key]
-        else:
-            return None
-
-        try:
-            return expected_type(value)  # type: ignore[call-arg]
-        except ValueError as exc:
-            raise excs.Error(f'Invalid value for configuration parameter {section}.{key}: {value}') from exc
-
-    def get_string_value(self, key: str, section: str = 'pixeltable') -> Optional[str]:
-        return self.get_value(key, str, section)
-
-    def get_int_value(self, key: str, section: str = 'pixeltable') -> Optional[int]:
-        return self.get_value(key, int, section)
-
-    def get_float_value(self, key: str, section: str = 'pixeltable') -> Optional[float]:
-        return self.get_value(key, float, section)
-
-    def get_bool_value(self, key: str, section: str = 'pixeltable') -> Optional[bool]:
-        return self.get_value(key, bool, section)
 
 
 _registered_clients: dict[str, ApiClient] = {}
