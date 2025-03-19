@@ -24,6 +24,10 @@ if not api_key:
     raise ValueError('MISTRAL_API_KEY not found in environment variables')
 logger.info('API key retrieved successfully')
 
+@pxt.udf()
+def json_to_str(json: dict) -> str:
+    return json
+
 def setup_pixeltable():
     # Initialize Pixeltable
     logger.info('Initializing Pixeltable directory')
@@ -58,9 +62,8 @@ def setup_pixeltable():
         ).choices[0].message.content
     )
     documents.add_computed_column(
-        document_summary=pxt.String(documents.api_response)
-    )    
-    
+        document_summary=json_to_str(documents.api_response)
+    )
     logger.info('Computed column added successfully')
 
     # Add embedding index
