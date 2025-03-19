@@ -22,18 +22,8 @@ pdf_links = scrape_jfk_pdf_links('https://www.archives.gov/research/jfk/release-
 logger.info(f'Scraped {len(pdf_links)} PDF links in total')
 
 logger.info('Inserting documents into the table')
-pdf_links = [{'document_url': pdf['url']} for pdf in pdf_links][:2]
+pdf_links = [{'document_url': pdf['url']} for pdf in pdf_links]
 documents.insert(pdf_links)
-
-try:
-    result = documents.collect()
-    logger.info(f'Successfully collected {len(result)} documents')
-    print(result)
-except Exception as e:
-    logger.error(f'Error collecting documents: {e}')
-
-logger.info('JFK documents loading script completed')
-
 
 @mcp.tool()
 def query_document(query_text: str, top_n: int = 5) -> str:
