@@ -8,6 +8,8 @@ We examined the PDF files and noticed these were not simple to parse. We are usi
 
 Checkout more details on our [MCP Servers](https://docs.pixeltable.com/docs/cookbooks/mcp/overview) documentation.
 
+Checkout more Pixeltable MCP servers [here](https://github.com/pixeltable/mcp-server-pixeltable).
+
 Steps to use:
 
 Add a .env file to this path:
