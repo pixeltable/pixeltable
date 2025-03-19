@@ -57,7 +57,7 @@ class TestMigration:
             # SQLAlchemy, but command-line Postgres won't know how to interpret it.)
             db_url = env._db_server.get_uri(env._db_name)
             _logger.info(f'DB URL: {db_url}')
-            clean_db(restore_tables=False)
+            clean_db(restore_md_tables=False)
             with open(dump_file, 'rb') as dump:
                 gunzip_process = subprocess.Popen(['gunzip', '-c'], stdin=dump, stdout=subprocess.PIPE)
                 subprocess.run(
