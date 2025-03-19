@@ -131,5 +131,5 @@ Pixeltable automatically handles the entire workflow from data ingest to search,
 ## Learn More
 
 - [MCP Servers Documentation](https://docs.pixeltable.com/docs/cookbooks/mcp/overview)
-- [More Pixeltable MCP servers](https://github.com/pixeltable/mcp-server-pixeltable)
+- [More Pixeltable MCP servers](https://github.com/pixeltable/pixeltable-mcp-server)
 - [Pixeltable Documentation](https://docs.pixeltable.com/)
