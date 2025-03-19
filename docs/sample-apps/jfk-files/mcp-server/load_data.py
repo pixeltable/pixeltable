@@ -6,7 +6,6 @@ import requests
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 
-
 import pixeltable as pxt
 from pixeltable.functions.mistralai import chat_completions
 
@@ -24,9 +23,11 @@ if not api_key:
     raise ValueError('MISTRAL_API_KEY not found in environment variables')
 logger.info('API key retrieved successfully')
 
+
 @pxt.udf()
 def json_to_str(json: dict) -> str:
     return json
+
 
 def setup_pixeltable():
     # Initialize Pixeltable
@@ -56,14 +57,9 @@ def setup_pixeltable():
         }
     ]
     documents.add_computed_column(
-        api_response=chat_completions(
-            model='mistral-small-latest',
-            messages=messages,
-        ).choices[0].message.content
+        api_response=chat_completions(model='mistral-small-latest', messages=messages).choices[0].message.content
     )
-    documents.add_computed_column(
-        document_summary=json_to_str(documents.api_response)
-    )
+    documents.add_computed_column(document_summary=json_to_str(documents.api_response))
     logger.info('Computed column added successfully')
 
     # Add embedding index

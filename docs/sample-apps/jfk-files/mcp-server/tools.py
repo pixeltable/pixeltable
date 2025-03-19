@@ -25,6 +25,7 @@ logger.info('Inserting documents into the table')
 pdf_links = [{'document_url': pdf['url']} for pdf in pdf_links]
 documents.insert(pdf_links)
 
+
 @mcp.tool()
 def query_document(query_text: str, top_n: int = 5) -> str:
     """Query the specified document index with a text question.
