@@ -1,0 +1,12 @@
+beautifulsoup4
+requests
+mistralai
+pixeltable
+sentence-transformers
+tiktoken
+spacy
+mcp
+httpx
+uvicorn
+starlette
+python-dotenv
