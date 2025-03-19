@@ -69,7 +69,7 @@ class MediaStore:
                 assert matched is not None
                 tbl_id, col_id = UUID(hex=matched[1]), int(matched[2])
                 file_info = os.stat(p)
-                t = d[(tbl_id, col_id)]
+                t = d[tbl_id, col_id]
                 t[0] += 1
                 t[1] += file_info.st_size
         result = [(tbl_id, col_id, num_files, size) for (tbl_id, col_id), (num_files, size) in d.items()]
