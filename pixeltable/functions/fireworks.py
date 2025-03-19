@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Optional
 
 import pixeltable as pxt
 from pixeltable import env
+from pixeltable.config import Config
 from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
@@ -77,7 +78,7 @@ async def chat_completions(
     # res_sync_dict = res_sync.dict()
 
     if request_timeout is None:
-        request_timeout = env.Env.get().config.get_int_value('timeout', section='fireworks') or 600
+        request_timeout = Config.get().get_int_value('timeout', section='fireworks') or 600
     # TODO: this timeout doesn't really work, I think it only applies to returning the stream, but not to the timing
     # of the chunks; addressing this would require a timeout for the task running this udf
     stream = _fireworks_client().chat.completions.acreate(

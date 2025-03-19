@@ -9,6 +9,7 @@ import time
 from typing import Awaitable, Collection, Optional
 
 from pixeltable import env, func
+from pixeltable.config import Config
 
 from .globals import Dispatcher, FnCallArgs, Scheduler
 
@@ -276,7 +277,7 @@ class RequestRateScheduler(Scheduler):
             _, endpoint, model = elems
             section = f'{endpoint}.rate_limits'
             key = model
-        requests_per_min = env.Env.get().config.get_int_value(key, section=section)
+        requests_per_min = Config.get().get_int_value(key, section=section)
         requests_per_min = requests_per_min or self.DEFAULT_RATE_LIMIT
         self.secs_per_request = 1 / (requests_per_min / 60)
 
