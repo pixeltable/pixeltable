@@ -13,6 +13,7 @@ from typing import Optional
 from uuid import UUID
 
 import pixeltable.exceptions as excs
+from pixeltable.config import Config
 from pixeltable.env import Env
 
 _logger = logging.getLogger('pixeltable')
@@ -153,7 +154,7 @@ class FileCache:
                 f'of the evicted file(s) is {round(extra_capacity_needed / (1 << 30), 1)} GiB.\n'
                 f'Consider increasing the cache size to at least {round(suggested_cache_size / (1 << 30), 1)} GiB '
                 f'(it is currently {round(self.capacity_bytes / (1 << 30), 1)} GiB).\n'
-                f'You can do this by setting the value of `file_cache_size_g` in: {str(Env.get()._config_file)}',
+                f'You can do this by setting the value of `file_cache_size_g` in: {Config.get().config_file}',
                 excs.PixeltableWarning,
             )
             self.new_redownload_witnessed = False
