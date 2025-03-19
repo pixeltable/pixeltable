@@ -17,7 +17,7 @@ import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.functions as pxtf
 from pixeltable import catalog, exprs
-from pixeltable.exprs import RELATIVE_PATH_ROOT as R, ColumnRef, Expr, Literal
+from pixeltable.exprs import ColumnRef, Expr, Literal
 from pixeltable.functions.globals import cast
 from pixeltable.iterators import FrameIterator
 
@@ -639,7 +639,9 @@ class TestExprs:
             assert row['output'] == [x + 1 for x in row['input']]
 
         # top-level is list of dicts; subsequent json path element references the dicts
-        res = reload_tester.run_query(t.select(input=t.c7, output=pxtf.map(t.c7['*'].f5, lambda x: [x[3], x[2], x[1], x[0]])))
+        res = reload_tester.run_query(
+            t.select(input=t.c7, output=pxtf.map(t.c7['*'].f5, lambda x: [x[3], x[2], x[1], x[0]]))
+        )
         for row in res:
             assert row['output'] == [[d['f5'][3], d['f5'][2], d['f5'][1], d['f5'][0]] for d in row['input']]
 
