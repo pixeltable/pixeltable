@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import abc
 import inspect
-from typing import TYPE_CHECKING, Any, Callable, Optional, Sequence, overload
+from typing import TYPE_CHECKING, Any, Callable, ClassVar, Optional, Sequence, overload
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
@@ -16,11 +16,12 @@ if TYPE_CHECKING:
 
 
 class Aggregator(abc.ABC):
-    def update(self, *args: Any, **kwargs: Any) -> None:
-        pass
 
-    def value(self) -> Any:
-        pass
+    @abc.abstractmethod
+    def update(self, *args: Any, **kwargs: Any) -> None: ...
+
+    @abc.abstractmethod
+    def value(self) -> Any: ...
 
 
 class AggregateFunction(Function):
@@ -32,9 +33,9 @@ class AggregateFunction(Function):
     allows_window: if True, the aggregate function can be used with a window
     """
 
-    ORDER_BY_PARAM = 'order_by'
-    GROUP_BY_PARAM = 'group_by'
-    RESERVED_PARAMS = {ORDER_BY_PARAM, GROUP_BY_PARAM}
+    ORDER_BY_PARAM: ClassVar[str] = 'order_by'
+    GROUP_BY_PARAM: ClassVar[str] = 'group_by'
+    RESERVED_PARAMS: ClassVar[set[str]] = {ORDER_BY_PARAM, GROUP_BY_PARAM}
 
     agg_classes: list[type[Aggregator]]  # classes for each signature, in signature order
     init_param_names: list[list[str]]  # names of the __init__ parameters for each signature
@@ -124,7 +125,7 @@ class AggregateFunction(Function):
             )
             for i, p in enumerate(py_init_params)
         ]
-        duplicate_params = set(p.name for p in init_params) & set(p.name for p in update_params)
+        duplicate_params = {p.name for p in init_params} & {p.name for p in update_params}
         if len(duplicate_params) > 0:
             raise excs.Error(
                 f'__init__() and update() cannot have parameters with the same name: {", ".join(duplicate_params)}'
