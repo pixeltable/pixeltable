@@ -33,6 +33,10 @@ This tutorial demonstrates how to:
 - **tools.py**: Defines the MCP tools available to clients, including:
   - `query_document`: Performs semantic search on document summaries
 
+- **config.py**: Contains configuration parameters for the application:
+  - `DIRECTORY`: Specifies the name ('JFK') of the Pixeltable database directory where all data is stored 
+  - `MISTRAL_MODEL`: Defines the Mistral AI model ('mistral-small-latest') used for OCR text extraction and document summarization
+
 - **Dockerfile**: Containerizes the application for easy deployment
 
 ## Getting Started
@@ -43,7 +47,7 @@ You'll need a Mistral API key for OCR and text processing. Please visit [Mistral
 
 ### Setup
 
-1. Create a `.env` file in the project directory with your API key:
+Create a `.env` file in the project directory with your API key:
 ```
 MISTRAL_API_KEY=your-mistral-api-key
 ```

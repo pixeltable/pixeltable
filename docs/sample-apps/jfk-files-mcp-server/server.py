@@ -1,6 +1,7 @@
 import argparse
 
 import uvicorn
+from config import DIRECTORY
 from load_data import populate_pixeltable
 from mcp.server import Server
 from mcp.server.sse import SseServerTransport
@@ -32,7 +33,7 @@ if __name__ == '__main__':
     # populate_pixeltable("jfk_files", load_all=True)
 
     # Load a specific number of documents (e.g., 5)
-    populate_pixeltable("jfk_files", num_docs=5)
+    populate_pixeltable(DIRECTORY, num_docs=5)
 
     mcp_server = mcp._mcp_server  # noqa: WPS437
 

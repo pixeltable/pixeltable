@@ -3,6 +3,7 @@ from urllib.parse import urljoin
 
 import requests
 from bs4 import BeautifulSoup
+from config import MISTRAL_MODEL
 
 import pixeltable as pxt
 from pixeltable.functions.mistralai import chat_completions
@@ -34,11 +35,11 @@ def setup_pixeltable_table(directory: str):
             ],
         }
     ]
-    documents.add_computed_column(api_response=chat_completions(model='mistral-small-latest', messages=messages))
+    documents.add_computed_column(api_response=chat_completions(model=MISTRAL_MODEL, messages=messages))
     documents.add_computed_column(document_summary=documents.api_response.choices[0].message.content.astype(pxt.String))
     documents.add_embedding_index(
         column=documents.document_summary,
-        embed=pxt.functions.huggingface.sentence_transformer.using(model_id='intfloat/e5-large-v2'),
+        string_embed=pxt.functions.huggingface.sentence_transformer.using(model_id='intfloat/e5-large-v2'),
     )
     return documents
 
@@ -72,10 +73,10 @@ def scrape_jfk_pdf_links() -> list:
 def populate_pixeltable(directory: str, num_docs: int = 2, load_all: bool = False):
     documents = setup_pixeltable_table(directory)
     pdf_links = scrape_jfk_pdf_links()
-    
+
     # Apply num_docs limit if not loading all
     if not load_all:
         pdf_links = pdf_links[:num_docs]
-    
+
     # Insert the documents
-    documents.insert({'document_url': pdf_link for pdf_link in pdf_links})
+    documents.insert({'document_url': pdf} for pdf in pdf_links)
