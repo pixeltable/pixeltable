@@ -1,6 +1,6 @@
 # JFK MCP Server
 
-On March 28th, 2025, the JFK files were released by Executive Order from President Donald Trump.
+On March 18th, 2025, the JFK files were released by Executive Order from President Donald Trump.
 
 There were approximately 80,000 pages of documents released. Naturally, this inspired us to build a JFK MCP server that preforms search and analysis on this data.
 

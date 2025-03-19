@@ -5,9 +5,10 @@ from urllib.parse import urljoin
 import requests
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
-from mistralai import Mistral
+
 
 import pixeltable as pxt
+from pixeltable.functions.mistralai import chat_completions
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
@@ -23,38 +24,6 @@ if not api_key:
     raise ValueError('MISTRAL_API_KEY not found in environment variables')
 logger.info('API key retrieved successfully')
 
-
-@pxt.udf
-async def extract_summary(document_url: str) -> str:
-    logger.info(f'Extracting summary for document: {document_url}')
-    # Define the messages for the chat
-    messages = [
-        {
-            'role': 'user',
-            'content': [
-                {
-                    'type': 'text',
-                    'text': 'Create a detailed summary of the PDF. Extract the key points for the user. Dont Skip out.',
-                },
-                {'type': 'document_url', 'document_url': document_url},
-            ],
-        }
-    ]
-
-    try:
-        # Get the chat response
-        client = Mistral(api_key=api_key)
-        chat_response = client.chat.complete(model='mistral-small-latest', messages=messages)
-
-        # Print the content of the response
-        summary = chat_response.choices[0].message.content
-        logger.info(f'Summary extracted successfully ({len(summary)} chars)')
-        return summary
-    except Exception as e:
-        logger.error(f'Error extracting summary: {e}')
-        return f'Error extracting summary: {str(e)}'
-
-
 def setup_pixeltable():
     # Initialize Pixeltable
     logger.info('Initializing Pixeltable directory')
@@ -68,9 +37,30 @@ def setup_pixeltable():
     logger.info('Table created successfully')
 
     logger.info('Adding computed column for document summaries')
+
+    # Define the messages for the chat
+    messages = [
+        {
+            'role': 'user',
+            'content': [
+                {
+                    'type': 'text',
+                    'text': 'Create a detailed summary of the PDF. Extract the key points for the user. Dont Skip out.',
+                },
+                {'type': 'document_url', 'document_url': documents.document_url},
+            ],
+        }
+    ]
     documents.add_computed_column(
-        document_summary=extract_summary(document_url=documents.document_url), if_exists='ignore'
+        api_response=chat_completions(
+            model='mistral-small-latest',
+            messages=messages,
+        ).choices[0].message.content
     )
+    documents.add_computed_column(
+        document_summary=pxt.String(documents.api_response)
+    )    
+    
     logger.info('Computed column added successfully')
 
     # Add embedding index
