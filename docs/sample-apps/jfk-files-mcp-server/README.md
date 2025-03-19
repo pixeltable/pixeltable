@@ -112,7 +112,7 @@ Pixeltable is a declarative data infrastructure for multimodal AI applications t
 
 ### Powerful Data Management
 - **Persistent Storage**: All data and computed results are automatically stored and versioned without extra effort
-- **Computed Columns**: Define processing pipelines that automatically execute on new data
+- **Computed Columns**: Define processing workflows that automatically execute on new data
 - **Multimodal Support**: Handle images, PDFs, videos, and text seamlessly in one unified interface
 - **Incremental Processing**: Documents are uploaded and processed asynchronously
 
