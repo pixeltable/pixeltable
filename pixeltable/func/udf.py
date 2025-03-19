@@ -146,7 +146,8 @@ def make_function(
             raise excs.Error(f'Cannot specify both `is_method` and `is_property` (in function `{function_name}`)')
         if is_property and len(sig.parameters) != 1:
             raise excs.Error(
-                f'`is_property=True` expects a UDF with exactly 1 parameter, but `{function_name}` has {len(sig.parameters)}'
+                '`is_property=True` expects a UDF with exactly 1 parameter, but '
+                f'`{function_name}` has {len(sig.parameters)}'
             )
         if (is_method or is_property) and function_path is None:
             raise excs.Error('Stored functions cannot be declared using `is_method` or `is_property`')
@@ -205,6 +206,8 @@ def expr_udf(*, param_types: Optional[list[ts.ColumnType]] = None) -> Callable[[
 
 def expr_udf(*args: Any, **kwargs: Any) -> Any:
     def make_expr_template(py_fn: Callable, param_types: Optional[list[ts.ColumnType]]) -> ExprTemplateFunction:
+        from pixeltable import exprs
+
         if py_fn.__module__ != '__main__' and py_fn.__name__.isidentifier():
             # this is a named function in a module
             function_path = f'{py_fn.__module__}.{py_fn.__qualname__}'
@@ -216,7 +219,6 @@ def expr_udf(*args: Any, **kwargs: Any) -> Any:
 
         # construct Signature from the function signature
         sig = Signature.create(py_fn=py_fn, param_types=param_types, return_type=ts.InvalidType())
-        import pixeltable.exprs as exprs
 
         var_exprs = [exprs.Variable(param.name, param.col_type) for param in sig.parameters.values()]
         # call the function with the parameter expressions to construct an Expr with parameters
@@ -260,7 +262,7 @@ def from_table(
     """
     from pixeltable import exprs
 
-    ancestors = [tbl] + tbl._bases
+    ancestors = [tbl, *tbl._bases]
     ancestors.reverse()  # We must traverse the ancestors in order from base to derived
 
     subst: dict[exprs.Expr, exprs.Expr] = {}

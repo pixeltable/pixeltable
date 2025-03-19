@@ -16,7 +16,6 @@ if TYPE_CHECKING:
 
 
 class Aggregator(abc.ABC):
-
     @abc.abstractmethod
     def update(self, *args: Any, **kwargs: Any) -> None: ...
 

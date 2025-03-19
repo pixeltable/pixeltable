@@ -9,9 +9,7 @@ from uuid import UUID
 
 import sqlalchemy as sql
 
-import pixeltable.env as env
-import pixeltable.exceptions as excs
-import pixeltable.type_system as ts
+from pixeltable import env, exceptions as excs, type_system as ts
 from pixeltable.metadata import schema
 
 from .function import Function
