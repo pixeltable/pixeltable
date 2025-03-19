@@ -1,4 +1,7 @@
+import argparse
+
 import uvicorn
+from load_data import populate_pixeltable
 from mcp.server import Server
 from mcp.server.sse import SseServerTransport
 from starlette.applications import Starlette
@@ -25,9 +28,9 @@ def create_starlette_app(mcp_server: Server, *, debug: bool = False) -> Starlett
 
 
 if __name__ == '__main__':
-    mcp_server = mcp._mcp_server  # noqa: WPS437
+    populate_pixeltable(directory='JFK')
 
-    import argparse
+    mcp_server = mcp._mcp_server  # noqa: WPS437
 
     parser = argparse.ArgumentParser(description='Run MCP SSE-based server')
     parser.add_argument('--host', default='0.0.0.0', help='Host to bind to')
