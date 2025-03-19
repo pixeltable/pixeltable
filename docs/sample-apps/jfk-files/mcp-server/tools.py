@@ -21,13 +21,13 @@ logger.info('Starting PDF link scraping')
 pdf_links = scrape_jfk_pdf_links('https://www.archives.gov/research/jfk/release-2025')
 logger.info(f'Scraped {len(pdf_links)} PDF links in total')
 
-logger.info('Inserting documents into the table (first 10 only)')
+logger.info('Inserting documents into the table')
 count = 0
-for pdf in pdf_links[:10]:
+for pdf in pdf_links:
     try:
         documents.insert([{'document_url': pdf['url']}])
         count += 1
-        logger.info(f'Inserted document {count}/10: {pdf["filename"]}')
+        logger.info(f'Inserted document {count}: {pdf["filename"]}')
     except Exception as e:
         logger.error(f'Error inserting document {pdf["url"]}: {e}')
 
