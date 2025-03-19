@@ -1037,6 +1037,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../functions/deepseek/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    deepseek
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../functions/fireworks/" class="md-nav__link">
         
   
@@ -1697,7 +1718,7 @@ below.</p>
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">create_dir</span><span class="p">(</span>
-    <span class="n">path_str</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span>
+    <span class="n">path</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span>
     <span class="n">if_exists</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;error&quot;</span><span class="p">,</span> <span class="s2">&quot;ignore&quot;</span><span class="p">,</span> <span class="s2">&quot;replace&quot;</span><span class="p">,</span> <span class="s2">&quot;replace_force&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;error&quot;</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n"><span title="pixeltable.catalog.Dir">Dir</span></span><span class="p">]</span>
 </code></pre></div>
@@ -1710,7 +1731,7 @@ below.</p>
 <p><span class="doc-section-title">Parameters:</span></p>
     <ul>
         <li class="doc-section-item field-body">
-          <b><code>path_str</code></b>
+          <b><code>path</code></b>
               (<code>str</code>)
           –
           <div class="doc-md-description">
@@ -1743,8 +1764,8 @@ Must be one of the following:</p>
               <code><span title="typing.Optional">Optional</span>[<span title="pixeltable.catalog.Dir">Dir</span>]</code>
           –
           <div class="doc-md-description">
-            <p>A handle to the newly created directory, or to an already existing directory at the path when <code>if_exists='ignore'</code>.
-Please note the existing directory may not be empty.</p>
+            <p>A handle to the newly created directory, or to an already existing directory at the path when
+<code>if_exists='ignore'</code>. Please note the existing directory may not be empty.</p>
           </div>
         </li>
     </ul>
@@ -1947,7 +1968,9 @@ Please note the schema or base of the existing snapshot may not match those prov
     <p>Create a snapshot <code>my_snapshot</code> of a view <code>my_view</code> with additional int column <code>col3</code>,
 if <code>my_snapshot</code> does not already exist:</p>
     <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">view</span> <span class="o">=</span> <span class="n">pxt</span><span class="o">.</span><span class="n">get_table</span><span class="p">(</span><span class="s1">&#39;my_view&#39;</span><span class="p">)</span>
-<span class="gp">... </span><span class="n">snapshot</span> <span class="o">=</span> <span class="n">pxt</span><span class="o">.</span><span class="n">create_snapshot</span><span class="p">(</span><span class="s1">&#39;my_snapshot&#39;</span><span class="p">,</span> <span class="n">view</span><span class="p">,</span> <span class="n">additional_columns</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;col3&#39;</span><span class="p">:</span> <span class="n">pxt</span><span class="o">.</span><span class="n">Int</span><span class="p">},</span> <span class="n">if_exists</span><span class="o">=</span><span class="s1">&#39;ignore&#39;</span><span class="p">)</span>
+<span class="gp">... </span><span class="n">snapshot</span> <span class="o">=</span> <span class="n">pxt</span><span class="o">.</span><span class="n">create_snapshot</span><span class="p">(</span>
+<span class="gp">... </span>    <span class="s1">&#39;my_snapshot&#39;</span><span class="p">,</span> <span class="n">view</span><span class="p">,</span> <span class="n">additional_columns</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;col3&#39;</span><span class="p">:</span> <span class="n">pxt</span><span class="o">.</span><span class="n">Int</span><span class="p">},</span> <span class="n">if_exists</span><span class="o">=</span><span class="s1">&#39;ignore&#39;</span>
+<span class="gp">... </span><span class="p">)</span>
 </code></pre></div>
     <p>Create a snapshot <code>my_snapshot</code> on a table <code>my_table</code>, and replace any existing snapshot named <code>my_snapshot</code>:</p>
     <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span> <span class="o">=</span> <span class="n">pxt</span><span class="o">.</span><span class="n">get_table</span><span class="p">(</span><span class="s1">&#39;my_table&#39;</span><span class="p">)</span>
@@ -2709,7 +2732,7 @@ Must be one of the following:</p>
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">drop_dir</span><span class="p">(</span>
-    <span class="n">path_str</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span>
+    <span class="n">path</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span>
     <span class="n">force</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
     <span class="n">if_not_exists</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;error&quot;</span><span class="p">,</span> <span class="s2">&quot;ignore&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;error&quot;</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
@@ -2723,7 +2746,7 @@ Must be one of the following:</p>
 <p><span class="doc-section-title">Parameters:</span></p>
     <ul>
         <li class="doc-section-item field-body">
-          <b><code>path_str</code></b>
+          <b><code>path</code></b>
               (<code>str</code>)
           –
           <div class="doc-md-description">
