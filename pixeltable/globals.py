@@ -1,6 +1,6 @@
 import logging
 import urllib.parse
-from typing import Any, Iterable, Literal, Optional, Union, cast
+from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, Optional, Union, cast
 from uuid import UUID
 
 import pandas as pd
@@ -56,11 +56,34 @@ def _handle_path_collision(
     return None
 
 
+if TYPE_CHECKING:
+    import os
+    from pathlib import Path
+
+    #    import datasets  # type: ignore[import-untyped]
+    import datasets  # type: ignore[import-untyped]
+
+    RowData = list[dict[str, Any]]
+    TableDataSourceType = Union[
+        str,
+        os.PathLike,
+        Path,  # OS paths, filenames, URLs
+        Iterator[dict[str, Any]],  # iterator producing dictionaries of values
+        RowData,  # list of dictionaries
+        DataFrame,  # Pixeltable DataFrame
+        pd.DataFrame,  # pandas DataFrame
+        'datasets.Dataset',
+        'datasets.DatasetDict',  # Huggingface datasets
+    ]
+else:
+    TableDataSourceType = Any
+
+
 def create_table(
     path_str: str,
     schema: Union[dict[str, Any], None] = None,
     *,
-    source: Optional[Any] = None,
+    source: Optional[TableDataSourceType] = None,
     source_format: Optional[Literal['csv', 'excel', 'parquet', 'json']] = None,
     schema_overrides: Optional[dict[str, Any]] = None,
     on_error: Literal['abort', 'ignore'] = 'abort',

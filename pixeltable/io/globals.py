@@ -3,7 +3,6 @@ from __future__ import annotations
 import enum
 import json
 import math
-import os
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field, fields
@@ -252,18 +251,7 @@ def export_images_as_fo_dataset(
 if TYPE_CHECKING:
     import datasets  # type: ignore[import-untyped]
 
-    RowData = list[dict[str, Any]]
-    TableDataSourceType = Union[
-        str,
-        os.PathLike,
-        Path,  # OS paths, filenames, URLs
-        Iterator[dict[str, Any]],  # iterator producing dictionaries of values
-        RowData,  # list of dictionaries
-        pxt.DataFrame,  # Pixeltable DataFrame
-        pd.DataFrame,  # pandas DataFrame
-        'datasets.Dataset',
-        'datasets.DatasetDict',  # Huggingface datasets
-    ]
+    from pixeltable.globals import RowData, TableDataSourceType
 
 
 class TableDataSourceFormat(str, enum.Enum):
