@@ -39,7 +39,7 @@ This tutorial demonstrates how to:
 
 ### Prerequisites
 
-You'll need a Mistral API key for OCR and text processing.
+You'll need a Mistral API key for OCR and text processing. Please visit [Mistral docs](https://docs.mistral.ai/getting-started/quickstart/).
 
 ### Setup
 
@@ -57,12 +57,17 @@ source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-2. Run the server:
+2. Install Spacy Model:
+```bash
+python -m spacy download en_core_web_sm
+```
+
+3. Run the server:
 ```bash
 python server.py
 ```
 
-3. Connect to your favorite MCP client by adding the following URL:
+4. Connect to your favorite MCP client by adding the following URL:
 ```
 http://localhost:8083/sse
 ```

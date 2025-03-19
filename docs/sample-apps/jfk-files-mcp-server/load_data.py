@@ -69,7 +69,13 @@ def scrape_jfk_pdf_links() -> list:
         raise ValueError(f'Error scraping PDF links: {e}')
 
 
-def populate_pixeltable(directory: str):
+def populate_pixeltable(directory: str, num_docs: int = 2, load_all: bool = False):
     documents = setup_pixeltable_table(directory)
-    pdf_links = scrape_jfk_pdf_links()[:2]
+    pdf_links = scrape_jfk_pdf_links()
+    
+    # Apply num_docs limit if not loading all
+    if not load_all:
+        pdf_links = pdf_links[:num_docs]
+    
+    # Insert the documents
     documents.insert({'document_url': pdf_link for pdf_link in pdf_links})

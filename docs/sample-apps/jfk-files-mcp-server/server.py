@@ -28,7 +28,11 @@ def create_starlette_app(mcp_server: Server, *, debug: bool = False) -> Starlett
 
 
 if __name__ == '__main__':
-    populate_pixeltable(directory='JFK')
+    # Load all available documents
+    # populate_pixeltable("jfk_files", load_all=True)
+
+    # Load a specific number of documents (e.g., 5)
+    populate_pixeltable("jfk_files", num_docs=5)
 
     mcp_server = mcp._mcp_server  # noqa: WPS437
 
