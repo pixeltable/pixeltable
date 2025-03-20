@@ -29,7 +29,7 @@ api_key = os.environ.get('MISTRAL_API_KEY')
 if not api_key:
     raise ValueError('MISTRAL_API_KEY not found in environment variables')
 
-# This function gets called in server.py so that it intializes sets up Pixeltable and loads the data
+# This function gets called in server.py so that it creates a Pixeltable table and data processing pipeline
 def setup_pixeltable_table(directory: str):
     """
     Sets up a Pixeltable table for storing and orchestrating JFK documents.
@@ -88,8 +88,7 @@ def setup_pixeltable_table(directory: str):
     # Important: this entire workflow is managed for you upon insert. Now all we have to do is add documents.
     # Pixeltable handles the orchestration, storage, and updates for you!
     return documents
-
-
+    
 def scrape_jfk_pdf_links() -> list:
     """
     Scrapes PDF links from the National Archives JFK document release page.
@@ -125,7 +124,6 @@ def scrape_jfk_pdf_links() -> list:
         return pdf_data
     except Exception as e:
         raise ValueError(f'Error scraping PDF links: {e}')
-
 
 def populate_pixeltable(directory: str, num_docs: int = 2, load_all: bool = False):
     """

@@ -1,19 +1,10 @@
-"""
-This module implements the semantic search functionality for the JFK Files demo using FastMCP and Pixeltable.
-It allows users to perform natural language queries against a database of JFK document summaries,
-leveraging Pixeltable's vector similarity search capabilities.
-"""
-
 from config import DIRECTORY
 from mcp.server.fastmcp import FastMCP
-import pixeltable as pxt
 
-# Initialize FastMCP with our application name
 mcp = FastMCP('JFK_Files')
 
-
 @mcp.tool()
-def query_document(query_text: str, top_n: int = 5) -> str:
+def pxt_query_document(query_text: str, top_n: int = 5) -> str:
     """
     Perform semantic search over JFK document summaries using natural language queries.
     
@@ -30,9 +21,9 @@ def query_document(query_text: str, top_n: int = 5) -> str:
         A formatted string containing the search results with similarity scores
     """
     try:
-        # Access our documents table in Pixeltable
+        # Load the document summaries table       
         documents = pxt.get_table(f'{DIRECTORY}.documents')
-        
+
         # Calculate similarity between query and document summaries
         sim = documents.document_summary.similarity(query_text)
         
@@ -48,3 +39,4 @@ def query_document(query_text: str, top_n: int = 5) -> str:
         return result_str if result_str else 'No results found.'
     except Exception as e:
         return f"Error querying document index '{DIRECTORY}.documents': {str(e)}"
+

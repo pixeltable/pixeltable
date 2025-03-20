@@ -1,4 +1,4 @@
-# This is a FastAPI-based server that provides an interface to query JFK files using SSE (Server-Sent Events)
+# This is a MCP-based server that provides an interface to query JFK files using SSE (Server-Sent Events)
 # It demonstrates how to set up a real-time communication channel between the client and server
 
 import argparse
@@ -35,7 +35,7 @@ def create_starlette_app(mcp_server: Server, *, debug: bool = False) -> Starlett
 
 
 if __name__ == '__main__':
-    # Tutorial: You can load either all documents or a subset for testing
+    # You can load either all documents or a subset for testing
     # Uncomment the following line to load all JFK files (may take longer)
     # populate_pixeltable("jfk_files", load_all=True)
 
@@ -48,7 +48,7 @@ if __name__ == '__main__':
     # Set up command-line arguments for server configuration
     parser = argparse.ArgumentParser(description='Run MCP SSE-based server')
     
-    # Add custom Host and Port arguments
+    # Add custom Host and Port arguments (e.g. python server.py --host 0.0.0.0 --port 8083)
     parser.add_argument('--host', default='0.0.0.0', help='Host to bind to')
     parser.add_argument('--port', type=int, default=8083, help='Port to listen on')
     args = parser.parse_args()
