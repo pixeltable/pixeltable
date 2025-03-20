@@ -1,5 +1,6 @@
 from config import DIRECTORY
 from mcp.server.fastmcp import FastMCP
+
 import pixeltable as pxt
 
 mcp = FastMCP('JFK_Files')
@@ -40,4 +41,4 @@ def pxt_query_document(query_text: str, top_n: int = 5) -> str:
 
         return result_str if result_str else 'No results found.'
     except Exception as e:
-        return f"Error querying document index '{DIRECTORY}.documents': {str(e)}"
+        return f"Error querying document index '{DIRECTORY}.documents': {e!s}"
