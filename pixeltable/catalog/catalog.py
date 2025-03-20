@@ -13,14 +13,15 @@ import sqlalchemy as sql
 import pixeltable.exceptions as excs
 import pixeltable.metadata.schema as schema
 from pixeltable.env import Env
-
 from .dir import Dir
+from .globals import IfExistsParam, IfNotExistsParam
 from .path import Path
 from .schema_object import SchemaObject
 from .table import Table
 from .table_version import TableVersion
 from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
+from .view import View
 
 _logger = logging.getLogger('pixeltable')
 
@@ -28,6 +29,15 @@ _logger = logging.getLogger('pixeltable')
 def _join_path(path: str, name: str) -> str:
     """Append name to path, if path is not empty."""
     return name if path == '' else f'{path}.{name}'
+
+
+def _lock_str(for_update: bool) -> str:
+    return 'X' if for_update else 'S'
+
+
+def _debug_print(for_update: bool, msg: str) -> None:
+    return
+    print(f'{datetime.datetime.now()}: {_lock_str(for_update)}: {msg}')
 
 
 def _unpack_row(
@@ -330,6 +340,96 @@ class Catalog:
         """Explicitly add a Table"""
         self._tbls[tbl._id] = tbl
 
+    def drop_tbl(self, path: Path, if_not_exists: IfNotExistsParam, force: bool) -> None:
+        self._retry_loop(lambda: self._drop_tbl_aux(path, if_not_exists, force))
+
+    def _drop_tbl_aux(self, path: Path, if_not_exists: IfNotExistsParam, force: bool) -> None:
+        with Env.get().begin_xact():
+            _, _, src_obj = self.prepare_dir_op(
+                drop_dir_path=str(path.parent),
+                drop_name=path.name,
+                drop_expected=Table,
+                raise_if_not_exists=if_not_exists == IfNotExistsParam.ERROR and not force,
+            )
+            if src_obj is None:
+                _logger.info(f'Skipped table {str(path)!r} (does not exist).')
+                return
+            assert isinstance(src_obj, Table)
+            self._drop_table(src_obj, force=force, is_replace=False)
+
+    def _drop_table(self, tbl: Table, force: bool, is_replace: bool) -> None:
+        cat = Catalog.get()
+        view_ids = cat.get_views(tbl._id)
+        if len(view_ids) > 0:
+            view_paths = [cat.get_tbl_path(id) for id in view_ids]
+            if force:
+                for view_path in view_paths:
+                    drop_table(view_path, force=True)
+            else:
+                is_snapshot = tbl._tbl_version_path.is_snapshot()
+                obj_type_str = 'Snapshot' if is_snapshot else tbl._display_name().capitalize()
+                msg: str
+                if is_replace:
+                    msg = (
+                        f'{obj_type_str} {tbl._path()} already exists and has dependents: {", ".join(view_paths)}. '
+                        "Use `if_exists='replace_force'` to replace it."
+                    )
+                else:
+                    msg = f'{obj_type_str} {tbl._path()} has dependents: {", ".join(view_paths)}'
+                raise excs.Error(msg)
+        tbl._drop()
+        _logger.info(f'Dropped table `{tbl._path()}`.')
+
+    def create_dir(self, path: Path, if_exists: IfExistsParam) -> Dir:
+        self._retry_loop(lambda: self._create_dir(path, if_exists))
+
+    def _create_dir(self, path: Path, if_exists: IfExistsParam) -> Dir:
+        with Env.get().begin_xact():
+            existing = self._handle_path_collision(path, Dir, False, if_exists)
+            if existing is not None:
+                assert isinstance(existing, Dir)
+                return existing
+
+            parent = self.get_schema_object(str(path.parent))
+            assert parent is not None
+            dir = Dir._create(parent._id, path.name)
+            Env.get().console_logger.info(f'Created directory {path!r}.')
+            return dir
+
+    def drop_dir(self, path: Path, if_not_exists: IfNotExistsParam, force: bool) -> None:
+        self._retry_loop(lambda: self._drop_dir_aux(path, if_not_exists, force))
+
+    def _drop_dir_aux(self, path: Path, if_not_exists: IfNotExistsParam, force: bool) -> None:
+        with Env.get().begin_xact():
+            _, _, schema_obj = self.prepare_dir_op(
+                drop_dir_path=str(path.parent),
+                drop_name=path.name,
+                drop_expected=Dir,
+                raise_if_not_exists=if_not_exists == IfNotExistsParam.ERROR and not force,
+            )
+            if schema_obj is None:
+                _logger.info(f'Directory {path!r} does not exist, skipped drop_dir().')
+                return
+            self._drop_dir(schema_obj._id, path, force=force)
+
+    def _drop_dir(self, dir_id: UUID, path: str, force: bool = False) -> None:
+        dir_entries = self.get_dir_contents(dir_id, recursive=False)
+        if len(dir_entries) > 0 and not force:
+            raise excs.Error(f'Directory {path!r} is not empty.')
+        tbl_paths = [
+            _join_path(path, entry.table.md['name']) for entry in dir_entries.values() if entry.table is not None
+        ]
+        dir_paths = [_join_path(path, entry.dir.md['name']) for entry in dir_entries.values() if entry.dir is not None]
+
+        for tbl_path in tbl_paths:
+            # check if the table still exists, it might be a view that already got force-deleted
+            if self.get_schema_object(tbl_path, expected=Table, for_update=True) is not None:
+                self.drop_table(tbl_path, force=True)
+        for dir_path in dir_paths:
+            self.drop_dir(dir_path, force=True)
+        self.drop_dir(dir_id)
+        _logger.info(f'Removed directory {path!r}.')
+
     def get_views(self, tbl_id: UUID) -> list[UUID]:
         """Return the ids of views that directly reference the given table"""
         conn = Env.get().conn
@@ -563,11 +663,37 @@ class Catalog:
             session.flush()
             _logger.info(f'Initialized catalog')
 
+    def _handle_path_collision(
+        self, path: Path, expected_obj_type: type[SchemaObject], expected_snapshot: bool, if_exists: IfExistsParam
+    ) -> Optional[SchemaObject]:
+        obj, _, _ = self.prepare_dir_op(add_dir_path=str(path.parent), add_name=path.name)
 
-def _lock_str(for_update: bool) -> str:
-    return 'X' if for_update else 'S'
+        if if_exists == IfExistsParam.ERROR and obj is not None:
+            raise excs.Error(f'Path {path!r} is an existing {type(obj)._display_name()}')
+        else:
+            is_snapshot = isinstance(obj, View) and obj._tbl_version_path.is_snapshot()
+            if obj is not None and (not isinstance(obj, expected_obj_type) or (expected_snapshot and not is_snapshot)):
+                obj_type_str = 'snapshot' if expected_snapshot else expected_obj_type._display_name()
+                raise excs.Error(
+                    f'Path {path!r} already exists but is not a {obj_type_str}. Cannot {if_exists.name.lower()} it.'
+                )
+
+        if obj is None:
+            return None
+        if if_exists == IfExistsParam.IGNORE:
+            return obj
+
+        # drop the existing schema object
+        if isinstance(obj, Dir):
+            dir_contents = self.get_dir_contents(obj._id)
+            if len(dir_contents) > 0 and if_exists == IfExistsParam.REPLACE:
+                raise excs.Error(
+                    f'Directory {path!r} already exists and is not empty. Use `if_exists="replace_force"` to replace it.'
+                )
+            self._drop_dir(obj._id, path, force=True)
+        else:
+            assert isinstance(obj, Table)
+            self._drop_table(obj, force=if_exists == IfExistsParam.REPLACE_FORCE, is_replace=True)
+        return None
 
 
-def _debug_print(for_update: bool, msg: str) -> None:
-    return
-    print(f'{datetime.datetime.now()}: {_lock_str(for_update)}: {msg}')

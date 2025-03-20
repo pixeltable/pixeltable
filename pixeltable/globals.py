@@ -492,9 +492,10 @@ def drop_table(
         assert isinstance(table, str)
         tbl_path = table
 
+    path_obj = catalog.Path(tbl_path)
+    if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
+    cat.drop_tbl(path_obj)
     with Env.get().begin_xact():
-        path_obj = catalog.Path(tbl_path)  # validate path
-        if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
         _, _, src_obj = cat.prepare_dir_op(
             drop_dir_path=str(path_obj.parent),
             drop_name=path_obj.name,
@@ -606,20 +607,8 @@ def create_dir(
         >>> pxt.create_dir('my_dir', if_exists='replace_force')
     """
     path_obj = catalog.Path(path)
-    cat = Catalog.get()
-
-    with env.Env.get().begin_xact():
-        if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
-        existing = _handle_path_collision(path, catalog.Dir, False, if_exists_)
-        if existing is not None:
-            assert isinstance(existing, catalog.Dir)
-            return existing
-
-        parent = cat.get_schema_object(str(path_obj.parent))
-        assert parent is not None
-        dir = catalog.Dir._create(parent._id, path_obj.name)
-        Env.get().console_logger.info(f'Created directory {path!r}.')
-        return dir
+    if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
+    return Catalog.get().create_dir(path_obj, if_exists=if_exists_)
 
 
 def drop_dir(path: str, force: bool = False, if_not_exists: Literal['error', 'ignore'] = 'error') -> None:
@@ -659,44 +648,9 @@ def drop_dir(path: str, force: bool = False, if_not_exists: Literal['error', 'ig
 
         >>> pxt.drop_dir('my_dir', force=True)
     """
-    _ = catalog.Path(path)  # validate format
-    cat = Catalog.get()
+    path_obj = catalog.Path(path)  # validate format
     if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
-    path_obj = catalog.Path(path)
-    with Env.get().begin_xact():
-        _, _, schema_obj = cat.prepare_dir_op(
-            drop_dir_path=str(path_obj.parent),
-            drop_name=path_obj.name,
-            drop_expected=catalog.Dir,
-            raise_if_not_exists=if_not_exists_ == catalog.IfNotExistsParam.ERROR and not force,
-        )
-        if schema_obj is None:
-            _logger.info(f'Directory {path!r} does not exist, skipped drop_dir().')
-            return
-        _drop_dir(schema_obj._id, path, force=force)
-
-
-def _drop_dir(dir_id: UUID, path: str, force: bool = False) -> None:
-    cat = Catalog.get()
-    dir_entries = cat.get_dir_contents(dir_id, recursive=False)
-    if len(dir_entries) > 0 and not force:
-        raise excs.Error(f'Directory {path!r} is not empty.')
-    tbl_paths = [_join_path(path, entry.table.md['name']) for entry in dir_entries.values() if entry.table is not None]
-    dir_paths = [_join_path(path, entry.dir.md['name']) for entry in dir_entries.values() if entry.dir is not None]
-
-    for tbl_path in tbl_paths:
-        # check if the table still exists, it might be a view that already got force-deleted
-        if cat.get_schema_object(tbl_path, expected=catalog.Table, for_update=True) is not None:
-            drop_table(tbl_path, force=True)
-    for dir_path in dir_paths:
-        drop_dir(dir_path, force=True)
-    cat.drop_dir(dir_id)
-    _logger.info(f'Removed directory {path!r}.')
-
-
-def _join_path(path: str, name: str) -> str:
-    """Append name to path, if path is not empty."""
-    return f'{path}.{name}' if path else name
+    Catalog.get().drop_dir(path_obj, if_not_exists=if_not_exists_, force=force)
 
 
 def _extract_paths(
