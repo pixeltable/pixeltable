@@ -75,6 +75,28 @@ films = pxt.create_table('example.films', {
   </Tab>
 </Tabs>
 
+## Column Casting
+
+Pixeltable allows you to explicitly cast column values to ensure they conform to the expected type. This is particularly useful when working with computed columns or transforming data from external sources.
+
+```python
+# Cast columns to different types
+table.update({
+    'int_score': table.score.astype(pxt.Int),        # Cast float to integer
+    'string_count': table.count.astype(pxt.String),  # Cast integer to string
+})
+
+# Using casting in computed columns
+films.add_computed_column(
+    budget_category=films.budget.astype(pxt.String) + ' million'
+)
+
+# Casting in expressions
+films.where(films.revenue.astype(pxt.Int) > 100).collect()
+```
+
+Column casting helps maintain data consistency and prevents type errors when processing your data.
+
 ## Data Operations
 
 <CardGroup cols={1}>
