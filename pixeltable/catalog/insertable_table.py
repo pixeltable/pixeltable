@@ -146,7 +146,7 @@ class InsertableTable(Table):
     def insert_table_data_source(
         self, data_source: TableDataSource, fail_on_exception: bool, print_stats: bool = False
     ) -> pxt.UpdateStatus:
-        '''Insert row batches into this table from a `TableDataSource`.'''
+        """Insert row batches into this table from a `TableDataSource`."""
         from pixeltable.io.globals import TableDataSource, TableDataSourceDF
 
         status = pxt.UpdateStatus()
