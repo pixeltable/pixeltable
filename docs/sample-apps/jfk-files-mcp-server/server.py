@@ -1,3 +1,6 @@
+# This is a FastAPI-based server that provides an interface to query JFK files using SSE (Server-Sent Events)
+# It demonstrates how to set up a real-time communication channel between the client and server
+
 import argparse
 
 import uvicorn
@@ -13,9 +16,11 @@ from tools import mcp
 
 def create_starlette_app(mcp_server: Server, *, debug: bool = False) -> Starlette:
     """Create a Starlette application that can server the provied mcp server with SSE."""
+    # Set up SSE endpoint for real-time messaging
     sse = SseServerTransport('/messages/')
 
     async def handle_sse(request: Request) -> None:
+        # Establish SSE connection and handle bi-directional communication
         async with sse.connect_sse(
             request.scope,
             request.receive,
@@ -23,24 +28,31 @@ def create_starlette_app(mcp_server: Server, *, debug: bool = False) -> Starlett
         ) as (read_stream, write_stream):
             await mcp_server.run(read_stream, write_stream, mcp_server.create_initialization_options())
 
+    # Define routes: /sse for establishing connections, /messages/ for handling message posts
     return Starlette(
         debug=debug, routes=[Route('/sse', endpoint=handle_sse), Mount('/messages/', app=sse.handle_post_message)]
     )
 
 
 if __name__ == '__main__':
-    # Load all available documents
+    # Tutorial: You can load either all documents or a subset for testing
+    # Uncomment the following line to load all JFK files (may take longer)
     # populate_pixeltable("jfk_files", load_all=True)
 
-    # Load a specific number of documents (e.g., 5)
+    # Load a smaller set of documents for quick testing and development
     populate_pixeltable(DIRECTORY, num_docs=5)
 
+    # Initialize the MCP server for handling queries
     mcp_server = mcp._mcp_server  # noqa: WPS437
 
+    # Set up command-line arguments for server configuration
     parser = argparse.ArgumentParser(description='Run MCP SSE-based server')
+    
+    # Add custom Host and Port arguments
     parser.add_argument('--host', default='0.0.0.0', help='Host to bind to')
     parser.add_argument('--port', type=int, default=8083, help='Port to listen on')
     args = parser.parse_args()
 
+    # Start the server with the specified configuration
     starlette_app = create_starlette_app(mcp_server, debug=True)
     uvicorn.run(starlette_app, host=args.host, port=args.port)
