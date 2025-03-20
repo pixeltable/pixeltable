@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable, Literal, Optional, Union, overload
 
 from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
+from keyword import iskeyword as is_python_keyword
 from uuid import UUID
 
 import pandas as pd
@@ -732,7 +733,7 @@ class Table(SchemaObject):
     @classmethod
     def _verify_column(cls, col: Column) -> None:
         """Check integrity of user-supplied Column and supply defaults"""
-        if is_system_column_name(col.name):
+        if is_system_column_name(col.name) or is_python_keyword(col.name):
             raise excs.Error(f'{col.name!r} is a reserved name in Pixeltable; please choose a different column name.')
         if not is_valid_identifier(col.name):
             raise excs.Error(f'Invalid column name: {col.name!r}')
