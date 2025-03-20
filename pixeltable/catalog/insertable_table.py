@@ -83,29 +83,34 @@ class InsertableTable(Table):
         md['is_snapshot'] = False
         return md
 
-    """
+    if TYPE_CHECKING:
+        import datasets  # type: ignore[import-untyped]
+
+        from pixeltable.globals import RowData, TableDataSourceType
+
     @overload
     def insert(
         self,
-        rows: Any,  # Iterable[dict[str, Any]]
+        source: Optional[TableDataSourceType] = None,
         /,
         *,
-        print_stats: bool = False,
+        source_format: Optional[Literal['csv', 'excel', 'parquet', 'json']] = None,
+        schema_overrides: Optional[dict[str, ts.ColumnType]] = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
+        print_stats: bool = False,
+        **kwargs: Any,
     ) -> UpdateStatus: ...
 
     @overload
     def insert(
-        self, *, print_stats: bool = False, on_error: Literal['abort', 'ignore'] = 'abort', **kwargs: Any
+        self, /, *, on_error: Literal['abort', 'ignore'] = 'abort', print_stats: bool = False, **kwargs: Any
     ) -> UpdateStatus: ...
-    """
 
     def insert(
         self,
-        rows: Optional[Any] = None,
+        source: Optional[TableDataSourceType] = None,
         /,
         *,
-        source: Optional[Any] = None,
         source_format: Optional[Literal['csv', 'excel', 'parquet', 'json']] = None,
         schema_overrides: Optional[dict[str, ts.ColumnType]] = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
@@ -115,7 +120,6 @@ class InsertableTable(Table):
         from pixeltable.io.globals import OnErrorParameter, TableDataSourceUnk
 
         table = self
-        source = rows
         if source is None:
             source = [kwargs]
             kwargs = None
@@ -142,6 +146,7 @@ class InsertableTable(Table):
     def insert_table_data_source(
         self, data_source: TableDataSource, fail_on_exception: bool, print_stats: bool = False
     ) -> pxt.UpdateStatus:
+        '''Insert row batches into this table from a `TableDataSource`.'''
         from pixeltable.io.globals import TableDataSource, TableDataSourceDF
 
         status = pxt.UpdateStatus()

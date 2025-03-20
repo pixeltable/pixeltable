@@ -1174,32 +1174,39 @@ class Table(SchemaObject):
             idx_id = idx_info[0].id
         self._tbl_version.get().drop_index(idx_id)
 
-    """
+    if TYPE_CHECKING:
+        import datasets  # type: ignore[import-untyped]
+
+        from pixeltable.globals import RowData, TableDataSourceType
+
     @overload
     def insert(
         self,
-        rows: Any,  # Iterable[dict[str, Any]],
+        source: TableDataSourceType,
         /,
         *,
-        print_stats: bool = False,
+        source_format: Optional[Literal['csv', 'excel', 'parquet', 'json']] = None,
+        schema_overrides: Optional[dict[str, ts.ColumnType]] = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
+        print_stats: bool = False,
+        **kwargs: Any,
     ) -> UpdateStatus: ...
 
     @overload
     def insert(
-        self, *, print_stats: bool = False, on_error: Literal['abort', 'ignore'] = 'abort', **kwargs: Any
+        self, /, *, on_error: Literal['abort', 'ignore'] = 'abort', print_stats: bool = False, **kwargs: Any
     ) -> UpdateStatus: ...
-    """
 
     @abc.abstractmethod
     def insert(
         self,
-        rows: Any = None,  # Optional[Iterable[dict[str, Any]]] = None,
+        source: Optional[TableDataSourceType] = None,
         /,
         *,
-        schema_override: Optional[dict[str, ts.ColumnType]] = None,
-        print_stats: bool = False,
+        source_format: Optional[Literal['csv', 'excel', 'parquet', 'json']] = None,
+        schema_overrides: Optional[dict[str, ts.ColumnType]] = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
+        print_stats: bool = False,
         **kwargs: Any,
     ) -> UpdateStatus:
         """Inserts rows into this table. There are two mutually exclusive call patterns:
@@ -1208,11 +1215,12 @@ class Table(SchemaObject):
 
         ```python
         insert(
-            rows: Iterable[dict[str, Any]],
+            source: TableSourceDataType,
             /,
             *,
+            on_error: Literal['abort', 'ignore'] = 'abort',
             print_stats: bool = False,
-            on_error: Literal['abort', 'ignore'] = 'abort'
+            **kwargs: Any,
         )```
 
         To insert just a single row, you can use the more concise syntax:
@@ -1220,23 +1228,25 @@ class Table(SchemaObject):
         ```python
         insert(
             *,
-            print_stats: bool = False,
             on_error: Literal['abort', 'ignore'] = 'abort',
+            print_stats: bool = False,
             **kwargs: Any
         )```
 
         Args:
-            rows: (if inserting multiple rows) A list of rows to insert, each of which is a dictionary mapping column
-                names to values.
+            source: A data source from which data can be imported.
             kwargs: (if inserting a single row) Keyword-argument pairs representing column names and values.
-            print_stats: If `True`, print statistics about the cost of computed columns.
+                (if inserting multiple rows) Additional keyword arguments are passed to the data source.
+            source_format: A hint about the format of the source data
+            schema_overrides: If specified, then columns in `schema_overrides` will be given the specified types
             on_error: Determines the behavior if an error occurs while evaluating a computed column or detecting an
                 invalid media file (such as a corrupt image) for one of the inserted rows.
 
                 - If `on_error='abort'`, then an exception will be raised and the rows will not be inserted.
                 - If `on_error='ignore'`, then execution will continue and the rows will be inserted. Any cells
-                  with errors will have a `None` value for that cell, with information about the error stored in the
-                  corresponding `tbl.col_name.errortype` and `tbl.col_name.errormsg` fields.
+                    with errors will have a `None` value for that cell, with information about the error stored in the
+                    corresponding `tbl.col_name.errortype` and `tbl.col_name.errormsg` fields.
+            print_stats: If `True`, print statistics about the cost of computed columns.
 
         Returns:
             An [`UpdateStatus`][pixeltable.UpdateStatus] object containing information about the update.
@@ -1248,6 +1258,7 @@ class Table(SchemaObject):
                 - The table has been dropped.
                 - One of the rows being inserted does not conform to the table schema.
                 - An error occurs during processing of computed columns, and `on_error='ignore'`.
+                - An error occurs while importing data from a source, and `on_error='abort'`.
 
         Examples:
             Insert two rows into the table `my_table` with three int columns ``a``, ``b``, and ``c``.
@@ -1259,6 +1270,10 @@ class Table(SchemaObject):
             Insert a single row using the alternative syntax:
 
             >>> tbl.insert(a=3, b=3, c=3)
+
+            Insert rows from a CSV file:
+
+            >>> tbl.insert(source='path/to/file.csv')
         """
         raise NotImplementedError
 

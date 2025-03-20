@@ -3,10 +3,7 @@ from __future__ import annotations
 from typing import Any, Iterable, Optional, Union
 
 import pixeltable as pxt
-import pixeltable.type_system as ts
 from pixeltable import exceptions as excs
-
-from .utils import normalize_import_parameters, normalize_schema_names
 
 
 def _infer_schema_from_rows(

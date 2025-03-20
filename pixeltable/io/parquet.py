@@ -13,7 +13,7 @@ import numpy as np
 import PIL.Image
 
 import pixeltable as pxt
-import pixeltable.exceptions as exc
+import pixeltable.exceptions as excs
 from pixeltable.env import Env
 from pixeltable.utils.transactional_directory import transactional_directory
 
@@ -75,7 +75,7 @@ def export_parquet(
     arrow_schema = to_arrow_schema(df.schema)
 
     if not inline_images and any(col_type.is_image_type() for col_type in df.schema.values()):
-        raise exc.Error('Cannot export Dataframe with image columns when inline_images is False')
+        raise excs.Error('Cannot export Dataframe with image columns when inline_images is False')
 
     # store the changes atomically
     with transactional_directory(parquet_path) as temp_path:
@@ -108,7 +108,7 @@ def export_parquet(
                             val.save(buf, format='PNG')
                             val = buf.getvalue()
                         else:
-                            assert False, f'unknown image type {type(val)}'
+                            raise excs.Error(f'unknown image type {type(val)}')
                         length = len(val)
                     elif col_type.is_string_type():
                         length = len(val)
@@ -116,7 +116,7 @@ def export_parquet(
                         if data_row.file_paths is not None and data_row.file_paths[e.slot_idx] is not None:
                             val = data_row.file_paths[e.slot_idx]
                         else:
-                            assert False, f'unknown video type {type(val)}'
+                            raise excs.Error(f'unknown video type {type(val)}')
                         length = len(val)
                     elif col_type.is_json_type():
                         val = json.dumps(val)
@@ -131,7 +131,7 @@ def export_parquet(
                         val = val.astimezone(datetime.timezone.utc)
                         length = 8
                     else:
-                        assert False, f'unknown type {col_type} for {col_name}'
+                        raise excs.Error(f'unknown type {col_type} for {col_name}')
 
                     current_value_batch[col_name].append(val)
                     current_byte_estimate += length

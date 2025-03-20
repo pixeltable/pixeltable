@@ -7,7 +7,6 @@ from pandas.api.types import is_datetime64_any_dtype, is_extension_array_dtype
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
-from pixeltable import Table
 
 
 def import_pandas(
@@ -148,7 +147,8 @@ def __pd_dtype_to_pxt_type(pd_dtype: DtypeObj, nullable: bool) -> Optional[pxt.C
     Returns:
         pxt.ColumnType: A pixeltable ColumnType
     """
-    # Pandas extension arrays / types (Int64, boolean, string[pyarrow], etc.) are not directly compatible with NumPy dtypes
+    # Pandas extension arrays / types (Int64, boolean, string[pyarrow], etc.) are not directly
+    # compatible with NumPy dtypes
     # The timezone-aware datetime64[ns, tz=] dtype is a pandas extension dtype
     if is_datetime64_any_dtype(pd_dtype):
         return pxt.TimestampType(nullable=nullable)
@@ -193,26 +193,29 @@ def _df_row_to_pxt_row(
     """Convert a row to insertable format"""
     pxt_row: dict[str, Any] = {}
     for val, (col_name, pxt_type) in zip(row[1:], schema.items()):
+        pxt_name = col_mapping.get(col_name, col_name)
+        nval: Any
         if pxt_type.is_float_type():
-            val = float(val)
+            nval = float(val)
         elif isinstance(val, float) and np.isnan(val):
             # pandas uses NaN for empty cells, even for types other than float;
             # for any type but a float, convert these to None
-            val = None
+            nval = None
         elif pxt_type.is_int_type():
-            val = int(val)
+            nval = int(val)
         elif pxt_type.is_bool_type():
-            val = bool(val)
+            nval = bool(val)
         elif pxt_type.is_string_type():
-            val = str(val)
+            nval = str(val)
         elif pxt_type.is_timestamp_type():
             if pd.isnull(val):
                 # pandas has the bespoke 'NaT' type for a missing timestamp; postgres is very
                 # much not-ok with it. (But if we convert it to None and then load out the
                 # table contents as a pandas DataFrame, it will correctly restore the 'NaT'!)
-                val = None
+                nval = None
             else:
-                val = pd.Timestamp(val).to_pydatetime()
-        pxt_name = col_mapping.get(col_name, col_name)
-        pxt_row[pxt_name] = val
+                nval = pd.Timestamp(val).to_pydatetime()
+        else:
+            nval = val
+        pxt_row[pxt_name] = nval
     return pxt_row

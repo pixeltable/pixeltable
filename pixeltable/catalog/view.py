@@ -255,13 +255,20 @@ class View(Table):
         md['is_snapshot'] = self._tbl_version_path.is_snapshot()
         return md
 
+    if TYPE_CHECKING:
+        import datasets  # type: ignore[import-untyped]
+
+        from pixeltable.globals import RowData, TableDataSourceType
+
     def insert(
         self,
-        rows: Optional[Iterable[dict[str, Any]]] = None,
+        source: Optional[TableDataSourceType] = None,
         /,
         *,
-        print_stats: bool = False,
+        source_format: Optional[Literal['csv', 'excel', 'parquet', 'json']] = None,
+        schema_overrides: Optional[dict[str, ts.ColumnType]] = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
+        print_stats: bool = False,
         **kwargs: Any,
     ) -> UpdateStatus:
         raise excs.Error(f'{self._display_name()} {self._name!r}: cannot insert into view')

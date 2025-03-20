@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 import urllib.parse
 from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, Optional, Union, cast
@@ -60,7 +62,6 @@ if TYPE_CHECKING:
     import os
     from pathlib import Path
 
-    #    import datasets  # type: ignore[import-untyped]
     import datasets  # type: ignore[import-untyped]
 
     RowData = list[dict[str, Any]]
@@ -75,8 +76,6 @@ if TYPE_CHECKING:
         'datasets.Dataset',
         'datasets.DatasetDict',  # Huggingface datasets
     ]
-else:
-    TableDataSourceType = Any
 
 
 def create_table(
@@ -98,8 +97,17 @@ def create_table(
 
     Args:
         path_str: Path to the table.
-        schema_or_df: Either a dictionary that maps column names to column types, or a
-            [`DataFrame`][pixeltable.DataFrame] whose contents and schema will be used to pre-populate the table.
+        schema: A dictionary that maps column names to column types
+        source: A data source from which a table schema can be inferred and data imported
+        source_format: A hint to the format of the source data
+        schema_overrides: If specified, then columns in `schema_overrides` will be given the specified types
+        on_error: Determines the behavior if an error occurs while evaluating a computed column or detecting an
+            invalid media file (such as a corrupt image) for one of the inserted rows.
+
+            - If `on_error='abort'`, then an exception will be raised and the rows will not be inserted.
+            - If `on_error='ignore'`, then execution will continue and the rows will be inserted. Any cells
+                with errors will have a `None` value for that cell, with information about the error stored in the
+                corresponding `tbl.col_name.errortype` and `tbl.col_name.errormsg` fields.
         primary_key: An optional column name or list of column names to use as the primary key(s) of the
             table.
         num_retained_versions: Number of versions of the table to retain.
@@ -115,6 +123,7 @@ def create_table(
             - `'ignore'`: do nothing and return the existing table handle
             - `'replace'`: if the existing table has no views, drop and replace it with a new one
             - `'replace_force'`: drop the existing table and all its views, and create a new one
+        kwargs: Additional arguments to pass to the source data provider
 
     Returns:
         A handle to the newly created table, or to an already existing table at the path when `if_exists='ignore'`.
@@ -126,7 +135,8 @@ def create_table(
             - the path is invalid, or
             - the path already exists and `if_exists='error'`, or
             - the path already exists and is not a table, or
-            - an error occurs while attempting to create the table.
+            - an error occurs while attempting to create the table, or
+            - an error occurs while attempting to import data from the source.
 
     Examples:
         Create a table with an int and a string column:
@@ -146,6 +156,10 @@ def create_table(
         Create a table with an int and a float column, and replace any existing table:
 
         >>> tbl = pxt.create_table('my_table', schema={'col1': pxt.Int, 'col2': pxt.Float}, if_exists='replace')
+
+        Create a table from a CSV file:
+
+        >>> tbl = pxt.create_table('my_table', source='data.csv')
     """
     if schema is not None:
         assert source is None

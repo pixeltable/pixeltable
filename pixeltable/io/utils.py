@@ -31,15 +31,6 @@ def normalize_primary_key_parameter(primary_key: Optional[Union[str, list[str]]]
     return primary_key
 
 
-def normalize_import_parameters(
-    schema_overrides: Optional[dict[str, Any]] = None, primary_key: Optional[Union[str, list[str]]] = None
-) -> tuple[dict[str, Any], list[str]]:
-    if schema_overrides is None:
-        schema_overrides = {}
-    primary_key = normalize_primary_key_parameter(primary_key)
-    return schema_overrides, primary_key
-
-
 def _is_usable_as_column_name(name: str, destination_schema: dict[str, Any]) -> bool:
     return not (is_system_column_name(name) or is_python_keyword(name) or name in destination_schema)
 

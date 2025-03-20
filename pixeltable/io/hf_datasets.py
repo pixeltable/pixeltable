@@ -5,20 +5,12 @@ from typing import Any, Optional, Union
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
-from pixeltable import exceptions as excs
-
-from .utils import normalize_import_parameters, normalize_schema_names
 
 if typing.TYPE_CHECKING:
     import datasets  # type: ignore[import-untyped]
 
 
-# use 100MB as the batch size limit for loading a huggingface dataset into pixeltable.
-# The primary goal is to bound memory use, regardless of dataset size.
-# Second goal is to limit overhead. 100MB is presumed to be reasonable for a lot of storage systems.
-_K_BATCH_SIZE_BYTES = 100_000_000
-
-# note, there are many more types. we allow overrides in the schema_override parameter
+# note, there are many more types. we allow overrides in the schema_overrides parameter
 # to handle cases where the appropriate type is not yet mapped, or to override this mapping.
 # https://huggingface.co/docs/datasets/v2.17.0/en/package_reference/main_classes#datasets.Value
 _hf_to_pxt: dict[str, ts.ColumnType] = {
@@ -108,9 +100,9 @@ def import_huggingface_dataset(
             to insert into the table.
         column_name_for_split: column name to use for split information. If None, no split information will be stored.
         schema_overrides: If specified, then for each (name, type) pair in `schema_overrides`, the column with
-            name `name` will be given type `type`, instead of being inferred from the `Dataset` or `DatasetDict`. The keys in
-            `schema_overrides` should be the column names of the `Dataset` or `DatasetDict` (whether or not they are valid
-            Pixeltable identifiers).
+            name `name` will be given type `type`, instead of being inferred from the `Dataset` or `DatasetDict`.
+            The keys in `schema_overrides` should be the column names of the `Dataset` or `DatasetDict` (whether or not
+            they are valid Pixeltable identifiers).
         primary_key: The primary key of the table (see [`create_table()`][pixeltable.create_table]).
         kwargs: Additional arguments to pass to `create_table`.
 
