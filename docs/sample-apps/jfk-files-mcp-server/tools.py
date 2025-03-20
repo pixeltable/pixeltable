@@ -1,5 +1,6 @@
 from config import DIRECTORY
 from mcp.server.fastmcp import FastMCP
+import pixeltable as pxt
 
 mcp = FastMCP('JFK_Files')
 
