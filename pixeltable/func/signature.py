@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import dataclasses
 import inspect
-import json
 import logging
 import typing
-from typing import TYPE_CHECKING, Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, ClassVar, Optional
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
@@ -69,6 +68,9 @@ class Parameter:
         py_default = self.default.val if self.default is not None else inspect.Parameter.empty
         return inspect.Parameter(self.name, self.kind, default=py_default)
 
+    def __hash__(self) -> int:
+        return hash((self.name, self.col_type, self.kind, self.default, self.is_batched))
+
 
 T = typing.TypeVar('T')
 Batch = typing.Annotated[list[T], 'pxt-batch']
@@ -81,7 +83,7 @@ class Signature:
     - self.is_batched: return type is a Batch[...] type
     """
 
-    SPECIAL_PARAM_NAMES = ['group_by', 'order_by']
+    SPECIAL_PARAM_NAMES: ClassVar[list[str]] = ['group_by', 'order_by']
 
     def __init__(self, return_type: ts.ColumnType, parameters: list[Parameter], is_batched: bool = False):
         assert isinstance(return_type, ts.ColumnType)
@@ -135,26 +137,28 @@ class Signature:
             if (
                 param.kind != other_param.kind
                 or (param.col_type is None) != (other_param.col_type is None)  # this can happen if they are varargs
-                or param.col_type is not None
-                and not other_param.col_type.is_supertype_of(param.col_type, ignore_nullable=True)
+                or (
+                    param.col_type is not None
+                    and not other_param.col_type.is_supertype_of(param.col_type, ignore_nullable=True)
+                )
             ):
                 return False
 
         # Check (iii)
-        for other_param in other.required_parameters:
+        for other_param in other.required_parameters:  # noqa: SIM110
             if other_param.name not in self.parameters:
                 return False
 
         return True
 
     def validate_args(self, bound_args: dict[str, Optional['exprs.Expr']], context: str = '') -> None:
-        if context != '':
+        if context:
             context = f' ({context})'
 
         for param_name, arg in bound_args.items():
             assert param_name in self.parameters
             param = self.parameters[param_name]
-            is_var_param = param.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
+            is_var_param = param.kind in {inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD}
             if is_var_param:
                 continue
             assert param.col_type is not None
@@ -191,6 +195,9 @@ class Signature:
                 return False
         return True
 
+    def __hash__(self) -> int:
+        return hash((self.return_type, self.parameters))
+
     def __str__(self) -> str:
         param_strs: list[str] = []
         for p in self.parameters.values():
@@ -199,8 +206,8 @@ class Signature:
             elif p.kind == inspect.Parameter.VAR_KEYWORD:
                 param_strs.append(f'**{p.name}')
             else:
-                param_strs.append(f'{p.name}: {str(p.col_type)}')
-        return f'({", ".join(param_strs)}) -> {str(self.get_return_type())}'
+                param_strs.append(f'{p.name}: {p.col_type}')
+        return f'({", ".join(param_strs)}) -> {self.get_return_type()}'
 
     @classmethod
     def _infer_type(cls, annotation: Optional[type]) -> tuple[Optional[ts.ColumnType], Optional[bool]]:
@@ -213,7 +220,7 @@ class Signature:
             type_args = typing.get_args(annotation)
             if len(type_args) == 2 and type_args[1] == 'pxt-batch':
                 # this is our Batch
-                assert typing.get_origin(type_args[0]) == list
+                assert typing.get_origin(type_args[0]) is list
                 is_batched = True
                 py_type = typing.get_args(type_args[0])[0]
         if py_type is None:
@@ -246,7 +253,7 @@ class Signature:
                 continue  # skip 'self' or 'cls' parameter
             if param.name in cls.SPECIAL_PARAM_NAMES:
                 raise excs.Error(f'{param.name!r} is a reserved parameter name')
-            if param.kind == inspect.Parameter.VAR_POSITIONAL or param.kind == inspect.Parameter.VAR_KEYWORD:
+            if param.kind in {inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD}:
                 parameters.append(Parameter(param.name, col_type=None, kind=param.kind))
                 continue
 
@@ -257,11 +264,8 @@ class Signature:
                 param_type = param_types[idx]
                 is_batched = False
             else:
-                py_type: Optional[type]
-                if param.annotation in type_substitutions:
-                    py_type = type_substitutions[param.annotation]
-                else:
-                    py_type = param.annotation
+                # Look up the substitution for param.annotation, defaulting to param.annotation if there is none
+                py_type = type_substitutions.get(param.annotation, param.annotation)
                 param_type, is_batched = cls._infer_type(py_type)
                 if param_type is None:
                     raise excs.Error(f'Cannot infer pixeltable type for parameter {param.name!r}')
@@ -297,11 +301,8 @@ class Signature:
         )
         sig = inspect.signature(py_fn)
         if return_type is None:
-            py_type: Optional[type]
-            if sig.return_annotation in type_substitutions:
-                py_type = type_substitutions[sig.return_annotation]
-            else:
-                py_type = sig.return_annotation
+            # Look up the substitution for sig.return_annotation, defaulting to return_annotation if there is none
+            py_type = type_substitutions.get(sig.return_annotation, sig.return_annotation)
             return_type, return_is_batched = cls._infer_type(py_type)
             if return_type is None:
                 raise excs.Error('Cannot infer pixeltable return type')

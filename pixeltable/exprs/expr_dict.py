@@ -1,8 +1,8 @@
 from typing import Generic, Iterable, Iterator, Optional, TypeVar
 
-T = TypeVar('T')
-
 from .expr import Expr
+
+T = TypeVar('T')
 
 
 class ExprDict(Generic[T]):
@@ -47,7 +47,7 @@ class ExprDict(Generic[T]):
         self._data.clear()
 
     def keys(self) -> Iterator[Expr]:
-        return self.__iter__()
+        return iter(self)
 
     def values(self) -> Iterator[T]:
         return (value for _, value in self._data.values())

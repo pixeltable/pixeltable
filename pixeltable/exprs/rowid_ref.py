@@ -1,20 +1,16 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Optional, cast
+from typing import Any, Optional, cast
 from uuid import UUID
 
 import sqlalchemy as sql
 
-import pixeltable.catalog as catalog
-import pixeltable.type_system as ts
+from pixeltable import catalog, type_system as ts
 
 from .data_row import DataRow
 from .expr import Expr
 from .row_builder import RowBuilder
 from .sql_element_cache import SqlElementCache
-
-if TYPE_CHECKING:
-    from pixeltable import store
 
 
 class RowidRef(Expr):
@@ -68,7 +64,8 @@ class RowidRef(Expr):
         )
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
-        return super()._id_attrs() + [
+        return [
+            *super()._id_attrs(),
             ('normalized_base_id', self.normalized_base_id),
             ('idx', self.rowid_component_idx),
         ]

@@ -5,11 +5,11 @@ import hashlib
 import logging
 import os
 import warnings
-from collections import OrderedDict, defaultdict, namedtuple
+from collections import OrderedDict, defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import NamedTuple, Optional
 from uuid import UUID
 
 import pixeltable.exceptions as excs
@@ -79,10 +79,18 @@ class FileCache:
     evicted_working_set_keys: set[str]
     new_redownload_witnessed: bool  # whether a new re-download has occurred since the last time a warning was issued
 
-    FileCacheColumnStats = namedtuple('FileCacheColumnStats', ('tbl_id', 'col_id', 'num_files', 'total_size'))
-    FileCacheStats = namedtuple(
-        'FileCacheStats', ('total_size', 'num_requests', 'num_hits', 'num_evictions', 'column_stats')
-    )
+    class FileCacheColumnStats(NamedTuple):
+        tbl_id: UUID
+        col_id: int
+        num_files: int
+        total_size: int
+
+    class FileCacheStats(NamedTuple):
+        total_size: int
+        num_requests: int
+        num_hits: int
+        num_evictions: int
+        column_stats: list[FileCache.FileCacheColumnStats]
 
     @classmethod
     def get(cls) -> FileCache:
@@ -128,7 +136,8 @@ class FileCache:
         For testing purposes: allow resetting capacity and stats.
         """
         if tbl_id is None:
-            # We need to store the entries to remove in a list, because we can't remove items from a dict while iterating
+            # We need to store the entries to remove in a list, because we can't remove items from a dict
+            # while iterating
             entries_to_remove = list(self.cache.values())
             _logger.debug(f'clearing {self.num_files()} entries from file cache')
             self.num_requests, self.num_hits, self.num_evictions = 0, 0, 0
@@ -156,6 +165,7 @@ class FileCache:
                 f'(it is currently {round(self.capacity_bytes / (1 << 30), 1)} GiB).\n'
                 f'You can do this by setting the value of `file_cache_size_g` in: {Config.get().config_file}',
                 excs.PixeltableWarning,
+                stacklevel=2,
             )
             self.new_redownload_witnessed = False
 
@@ -233,7 +243,7 @@ class FileCache:
         # (tbl_id, col_id) -> (num_files, total_size)
         d: dict[tuple[UUID, int], list[int]] = defaultdict(lambda: [0, 0])
         for entry in self.cache.values():
-            t = d[(entry.tbl_id, entry.col_id)]
+            t = d[entry.tbl_id, entry.col_id]
             t[0] += 1
             t[1] += entry.size
         col_stats = [

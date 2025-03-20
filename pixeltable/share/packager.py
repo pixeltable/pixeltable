@@ -66,8 +66,8 @@ class TablePackager:
                 'tables': [
                     {
                         'table_id': str(t._tbl_version.id),
-                        # These are temporary; will replace with a better solution once the concurrency changes to catalog have
-                        # been merged
+                        # These are temporary; will replace with a better solution once the concurrency
+                        # changes to catalog have been merged
                         'table_md': dataclasses.asdict(t._tbl_version.get()._create_tbl_md()),
                         'table_version_md': dataclasses.asdict(
                             t._tbl_version.get()._create_version_md(datetime.now().timestamp())
@@ -98,7 +98,7 @@ class TablePackager:
             for t in ancestors:
                 _logger.info(f"Exporting table '{t._path}'.")
                 self.__export_table(t)
-        _logger.info(f'Building archive.')
+        _logger.info('Building archive.')
         bundle_path = self.__build_tarball()
         _logger.info(f'Packaging complete: {bundle_path}')
         return bundle_path

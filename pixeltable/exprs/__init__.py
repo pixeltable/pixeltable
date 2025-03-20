@@ -1,3 +1,5 @@
+# ruff: noqa: F401
+
 from .arithmetic_expr import ArithmeticExpr
 from .array_slice import ArraySlice
 from .column_property_ref import ColumnPropertyRef

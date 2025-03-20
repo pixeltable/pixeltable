@@ -129,7 +129,7 @@ class Expr(abc.ABC):
         """
         Subclass-specific comparison. Implemented as a function because __eq__() is needed to construct Comparisons.
         """
-        if type(self) != type(other):
+        if type(self) is not type(other):
             return False
         if len(self.components) != len(other.components):
             return False
@@ -171,10 +171,7 @@ class Expr(abc.ABC):
     def list_equals(cls, a: list[Expr], b: list[Expr]) -> bool:
         if len(a) != len(b):
             return False
-        for i in range(len(a)):
-            if not a[i].equals(b[i]):
-                return False
-        return True
+        return all(a[i].equals(b[i]) for i in range(len(a)))
 
     def copy(self) -> Expr:
         """
@@ -216,9 +213,9 @@ class Expr(abc.ABC):
                 return new.copy()
         for i in range(len(self.components)):
             self.components[i] = self.components[i].substitute(spec)
-        self = self.maybe_literal()
-        self.id = self._create_id()
-        return self
+        result = self.maybe_literal()
+        result.id = result._create_id()
+        return result
 
     @classmethod
     def list_substitute(cls, expr_list: list[Expr], spec: dict[Expr, Expr]) -> None:
@@ -253,10 +250,7 @@ class Expr(abc.ABC):
         from .column_ref import ColumnRef
 
         col_refs = self.subexprs(ColumnRef)
-        for col_ref in col_refs:
-            if not any(tbl.has_column(col_ref.col) for tbl in tbls):
-                return False
-        return True
+        return all(any(tbl.has_column(col_ref.col) for tbl in tbls) for col_ref in col_refs)
 
     def retarget(self, tbl: catalog.TableVersionPath) -> Self:
         """Retarget ColumnRefs in this expr to the specific TableVersions in tbl."""
@@ -370,7 +364,7 @@ class Expr(abc.ABC):
 
     @classmethod
     def all_tbl_ids(cls, exprs_: Iterable[Expr]) -> set[UUID]:
-        return set(tbl_id for e in exprs_ for tbl_id in e.tbl_ids())
+        return {tbl_id for e in exprs_ for tbl_id in e.tbl_ids()}
 
     @classmethod
     def get_refd_columns(cls, expr_dict: dict[str, Any]) -> list[catalog.Column]:
@@ -489,7 +483,7 @@ class Expr(abc.ABC):
         return {'_classname': self.__class__.__name__, **self._as_dict()}
 
     @classmethod
-    def as_dict_list(self, expr_list: list[Expr]) -> list[dict]:
+    def as_dict_list(cls, expr_list: list[Expr]) -> list[dict]:
         return [e.as_dict() for e in expr_list]
 
     def _as_dict(self) -> dict:
@@ -520,7 +514,7 @@ class Expr(abc.ABC):
 
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr]) -> Self:
-        assert False, 'not implemented'
+        raise AssertionError('not implemented')
 
     def isin(self, value_set: Any) -> 'exprs.InPredicate':
         from .in_predicate import InPredicate
@@ -792,13 +786,13 @@ class Expr(abc.ABC):
             first_param = next(params_iter) if len(params) >= 1 else None
             second_param = next(params_iter) if len(params) >= 2 else None
             # Check that fn has at least one positional parameter
-            if len(params) == 0 or first_param.kind in (inspect.Parameter.KEYWORD_ONLY, inspect.Parameter.VAR_KEYWORD):
+            if len(params) == 0 or first_param.kind in {inspect.Parameter.KEYWORD_ONLY, inspect.Parameter.VAR_KEYWORD}:
                 raise excs.Error(f'Function `{fn.__name__}` has no positional parameters.')
             # Check that fn has at most one required parameter, i.e., its second parameter
             # has no default and is not a varargs
             if (
                 len(params) >= 2
-                and second_param.kind not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
+                and second_param.kind not in {inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD}
                 and second_param.default is inspect.Parameter.empty
             ):
                 raise excs.Error(f'Function `{fn.__name__}` has multiple required parameters.')

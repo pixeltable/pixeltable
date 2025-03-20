@@ -62,7 +62,7 @@ class Literal(Expr):
         return self.val == other.val
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
-        return super()._id_attrs() + [('val', self.val)]
+        return [*super()._id_attrs(), ('val', self.val)]
 
     def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
         # Return a sql object so that constants can participate in SQL expressions

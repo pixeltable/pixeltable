@@ -95,8 +95,8 @@ def get_markdown_handle(path: str) -> Optional[dict]:
 
 def get_txt(path: str) -> Optional[str]:
     try:
-        with open(path, 'r') as f:
-            doc = f.read()
-        return doc if doc != '' else None
+        with open(path, 'r', encoding='utf-8') as fp:
+            doc = fp.read()
+        return doc or None  # replace '' with None
     except Exception:
         return None

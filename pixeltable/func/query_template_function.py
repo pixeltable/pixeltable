@@ -1,13 +1,9 @@
 from __future__ import annotations
 
 import inspect
-from typing import TYPE_CHECKING, Any, Callable, Optional, Sequence, overload
+from typing import TYPE_CHECKING, Any, Callable, Optional, overload
 
-import sqlalchemy as sql
-
-import pixeltable.exceptions as excs
-import pixeltable.type_system as ts
-from pixeltable import exprs
+from pixeltable import exprs, type_system as ts
 
 from .function import Function
 from .signature import Signature

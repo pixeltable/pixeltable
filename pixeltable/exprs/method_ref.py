@@ -53,13 +53,13 @@ class MethodRef(Expr):
         return self.base_expr.id == other.base_expr.id and self.method_name == other.method_name
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
-        return super()._id_attrs() + [('method_name', self.method_name)]
+        return [*super()._id_attrs(), ('method_name', self.method_name)]
 
     def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
         return None
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
-        assert False, 'MethodRef cannot be evaluated directly'
+        raise AssertionError('MethodRef cannot be evaluated directly')
 
     def __repr__(self) -> str:
         return f'{self.base_expr}.{self.method_name}'

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Optional
+from typing import Any, Optional
 
 import sqlalchemy as sql
 
@@ -14,9 +14,6 @@ from .globals import ComparisonOperator
 from .literal import Literal
 from .row_builder import RowBuilder
 from .sql_element_cache import SqlElementCache
-
-if TYPE_CHECKING:
-    from pixeltable import index
 
 
 class Comparison(Expr):
@@ -62,7 +59,7 @@ class Comparison(Expr):
         return self.operator == other.operator
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
-        return super()._id_attrs() + [('operator', self.operator.value)]
+        return [*super()._id_attrs(), ('operator', self.operator.value)]
 
     @property
     def _op1(self) -> Expr:

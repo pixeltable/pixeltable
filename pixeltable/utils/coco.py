@@ -103,7 +103,7 @@ def write_coco_dataset(df: pxt.DataFrame, dest_path: Path) -> Path:
         # create annotation records for this image
         for annotation in input_dict['annotations']:
             ann_id += 1
-            x, y, w, h = annotation['bbox']
+            _, _, w, h = annotation['bbox']
             category = annotation['category']
             categories.add(category)
             annotations.append(
@@ -119,7 +119,7 @@ def write_coco_dataset(df: pxt.DataFrame, dest_path: Path) -> Path:
             )
 
     # replace category names with ids
-    category_ids = {category: id for id, category in enumerate(sorted(list(categories)))}
+    category_ids = {category: id for id, category in enumerate(sorted(categories))}
     for annotation in annotations:
         annotation['category_id'] = category_ids[annotation['category_id']]
 
@@ -129,8 +129,8 @@ def write_coco_dataset(df: pxt.DataFrame, dest_path: Path) -> Path:
         'categories': [{'id': id, 'name': category} for category, id in category_ids.items()],
     }
     output_path = dest_path / 'data.json'
-    with open(output_path, 'w') as f:
-        json.dump(result, f)
+    with open(output_path, 'w', encoding='utf-8') as fp:
+        json.dump(result, fp)
     return output_path
 
 

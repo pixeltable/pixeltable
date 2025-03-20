@@ -1,8 +1,6 @@
-import inspect
 from typing import Any, Optional, Sequence
 
-import pixeltable
-import pixeltable.exceptions as excs
+from pixeltable import exceptions as excs, exprs
 
 from .function import Function
 from .signature import Signature
@@ -15,13 +13,11 @@ class ExprTemplate:
     `CallableFunction`.)
     """
 
-    expr: 'pixeltable.exprs.Expr'
+    expr: 'exprs.Expr'
     signature: Signature
-    param_exprs: dict[str, 'pixeltable.exprs.Variable']
+    param_exprs: dict[str, 'exprs.Variable']
 
-    def __init__(self, expr: 'pixeltable.exprs.Expr', signature: Signature):
-        from pixeltable import exprs
-
+    def __init__(self, expr: 'exprs.Expr', signature: Signature):
         self.expr = expr
         self.signature = signature
 
@@ -59,9 +55,7 @@ class ExprTemplateFunction(Function):
         assert not self.is_polymorphic
         return self.templates[0]
 
-    def instantiate(self, args: Sequence[Any], kwargs: dict[str, Any]) -> 'pixeltable.exprs.Expr':
-        from pixeltable import exprs
-
+    def instantiate(self, args: Sequence[Any], kwargs: dict[str, Any]) -> 'exprs.Expr':
         assert not self.is_polymorphic
         template = self.template
         bound_args = self.signature.py_signature.bind(*args, **kwargs).arguments
@@ -86,14 +80,12 @@ class ExprTemplateFunction(Function):
         return result
 
     def _docstring(self) -> Optional[str]:
-        from pixeltable import exprs
-
         if isinstance(self.templates[0].expr, exprs.FunctionCall):
             return self.templates[0].expr.fn._docstring()
         return None
 
     def exec(self, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:
-        from pixeltable import exec, exprs
+        from pixeltable import exec
 
         assert not self.is_polymorphic
         expr = self.instantiate(args, kwargs)
@@ -130,7 +122,5 @@ class ExprTemplateFunction(Function):
         if 'expr' not in d:
             return super()._from_dict(d)
         assert 'signature' in d and 'name' in d
-        import pixeltable.exprs as exprs
-
         template = ExprTemplate(exprs.Expr.from_dict(d['expr']), Signature.from_dict(d['signature']))
         return cls([template], name=d['name'])

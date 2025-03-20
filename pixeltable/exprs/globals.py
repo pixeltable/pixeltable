@@ -36,7 +36,7 @@ class ComparisonOperator(enum.Enum):
             return '>'
         if self == self.GE:
             return '>='
-        assert False
+        raise AssertionError()
 
     def reverse(self) -> ComparisonOperator:
         if self == self.LT:
@@ -62,7 +62,7 @@ class LogicalOperator(enum.Enum):
             return '|'
         if self == self.NOT:
             return '~'
-        assert False
+        raise AssertionError()
 
 
 class ArithmeticOperator(enum.Enum):
@@ -86,4 +86,4 @@ class ArithmeticOperator(enum.Enum):
             return '%'
         if self == self.FLOORDIV:
             return '//'
-        assert False
+        raise AssertionError()

@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, Callable, Literal, Optional, TypeVar, Union
+from typing import TYPE_CHECKING, Any, Callable, Optional, TypeVar, Union
 
 import pydantic
 
@@ -69,7 +69,7 @@ class Tool(pydantic.BaseModel):
             return _extract_float_tool_arg(kwargs, param_name=param.name)
         if param.col_type.is_bool_type():
             return _extract_bool_tool_arg(kwargs, param_name=param.name)
-        assert False
+        raise AssertionError()
 
 
 class ToolChoice(pydantic.BaseModel):
@@ -113,7 +113,7 @@ class Tools(pydantic.BaseModel):
                 )
                 tool_name = tool_obj.name or tool_obj.fn.name
             except StopIteration:
-                raise excs.Error(f'That tool is not in the specified list of tools: {tool}')
+                raise excs.Error(f'That tool is not in the specified list of tools: {tool}') from None
         return ToolChoice(auto=auto, required=required, tool=tool_name, parallel_tool_calls=parallel_tool_calls)
 
 

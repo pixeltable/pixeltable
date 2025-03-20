@@ -34,9 +34,7 @@ class ConsoleOutputHandler(logging.StreamHandler):
 
 class ConsoleMessageFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
-        if hasattr(record, 'user_visible') and record.user_visible:
-            return True
-        return False
+        return getattr(record, 'user_visible', False)
 
 
 class ConsoleLogger(logging.LoggerAdapter):

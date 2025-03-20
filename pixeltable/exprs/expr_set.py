@@ -46,7 +46,7 @@ class ExprSet(Generic[T]):
 
     def __getitem__(self, index: object) -> Optional[T]:
         """Indexed lookup by slot_idx or Expr.id."""
-        assert isinstance(index, int) or isinstance(index, Expr)
+        assert isinstance(index, (int, Expr))
         if isinstance(index, int):
             # return expr with matching slot_idx
             return self.exprs_by_idx.get(index)
