@@ -47,7 +47,7 @@ if __name__ == '__main__':
 
     # Set up command-line arguments for server configuration
     parser = argparse.ArgumentParser(description='Run MCP SSE-based server')
-    
+
     # Add custom Host and Port arguments (e.g. python server.py --host 0.0.0.0 --port 8083)
     parser.add_argument('--host', default='0.0.0.0', help='Host to bind to')
     parser.add_argument('--port', type=int, default=8083, help='Port to listen on')

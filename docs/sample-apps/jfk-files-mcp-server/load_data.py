@@ -29,19 +29,20 @@ api_key = os.environ.get('MISTRAL_API_KEY')
 if not api_key:
     raise ValueError('MISTRAL_API_KEY not found in environment variables')
 
+
 # This function gets called in server.py so that it creates a Pixeltable table and data processing pipeline
 def setup_pixeltable_table(directory: str):
     """
     Sets up a Pixeltable table for storing and orchestrating JFK documents.
-    
+
     This function demonstrates several key Pixeltable features:
     1. Table creation with computed columns
     2. Integration with Mistral AI for PDF OCR summarization
     3. Creation of embedding indices for semantic search
-    
+
     Args:
         directory: The Pixeltable directory where the table will be stored
-    
+
     Returns:
         A Pixeltable table configured for document storage and semantic search
     """
@@ -67,13 +68,13 @@ def setup_pixeltable_table(directory: str):
             ],
         }
     ]
-    
+
     # Add computed columns that will automatically:
     # 1. Generate AI summaries for each document
     # 2. Extract the summary text from the API response
     documents.add_computed_column(api_response=chat_completions(model=MISTRAL_MODEL, messages=messages))
     documents.add_computed_column(document_summary=documents.api_response.choices[0].message.content.astype(pxt.String))
-    
+
     # Create an embedding index for semantic search using the E5 model
     # This enables natural language queries over the document summaries
     documents.add_embedding_index(
@@ -88,16 +89,17 @@ def setup_pixeltable_table(directory: str):
     # Important: this entire workflow is managed for you upon insert. Now all we have to do is add documents.
     # Pixeltable handles the orchestration, storage, and updates for you!
     return documents
-    
+
+
 def scrape_jfk_pdf_links() -> list:
     """
     Scrapes PDF links from the National Archives JFK document release page.
-    
+
     This function demonstrates web scraping best practices:
     1. Error handling for HTTP requests
     2. HTML parsing with BeautifulSoup
     3. URL manipulation for converting relative to absolute URLs
-    
+
     Returns:
         list: A list of absolute URLs to JFK document PDFs
     """
@@ -125,15 +127,16 @@ def scrape_jfk_pdf_links() -> list:
     except Exception as e:
         raise ValueError(f'Error scraping PDF links: {e}')
 
+
 def populate_pixeltable(directory: str, num_docs: int = 2, load_all: bool = False):
     """
     Populates the Pixeltable with JFK documents and generates their summaries.
-    
+
     This function ties everything together:
     1. Sets up the table structure
     2. Scrapes the document URLs
     3. Loads documents into Pixeltable
-    
+
     Args:
         directory: The Pixeltable directory to use
         num_docs: Number of documents to load (for testing/demo purposes)
