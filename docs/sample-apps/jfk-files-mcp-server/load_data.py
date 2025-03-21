@@ -153,3 +153,4 @@ def populate_pixeltable(directory: str, num_docs: int = 2, load_all: bool = Fals
     # 1. Generate summaries using Mistral AI
     # 2. Create embeddings for semantic search
     documents.insert({'document_url': pdf} for pdf in pdf_links)
+    return documents
