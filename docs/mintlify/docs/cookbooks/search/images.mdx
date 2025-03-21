@@ -96,7 +96,7 @@ Pixeltable image search works in two phases:
 
     # Search images
     @pxt.query
-    def find_images(query: str, top_k: int = 3):
+    def find_images(query: str, top_k: int):
         sim = img_t.image_description.similarity(query)
         return (
             img_t.order_by(sim, asc=False)

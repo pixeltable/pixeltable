@@ -214,7 +214,7 @@ The query phase allows you to search your indexed content using the `similarity(
   <Tab title="Basic Search">
     ```python
     @pxt.query
-    def semantic_search(query: str, k: int = 5):
+    def semantic_search(query: str, k: int):
         # Calculate similarity scores
         sim = docs.content.similarity(query)
         
