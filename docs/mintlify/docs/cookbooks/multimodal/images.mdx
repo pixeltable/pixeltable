@@ -56,7 +56,7 @@ Pixeltable image search works in two phases:
 
     # Define search query
     @pxt.query
-    def search_images(query_text: str, limit: int = 10):
+    def search_images(query_text: str, limit: int):
         sim = img_t.image_description.similarity(query_text)
         return (
             img_t.order_by(sim, asc=False)
@@ -189,7 +189,7 @@ Create specialized search functions:
 
 ```python
 @pxt.query
-def search_with_threshold(query: str, min_similarity: float = 0.7):
+def search_with_threshold(query: str, min_similarity: float):
     sim = img_t.image_description.similarity(query)
     return (
         img_t.where(sim >= min_similarity)

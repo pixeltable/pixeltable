@@ -187,7 +187,7 @@ You can create custom search functions with different parameters:
 
 ```python
 @pxt.query
-def search_with_threshold(query_text: str, min_similarity: float = 0.7):
+def search_with_threshold(query_text: str, min_similarity: float):
     sim = sentences_view.text.similarity(query_text)
     return (
         sentences_view.where(sim >= min_similarity)

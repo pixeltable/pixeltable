@@ -247,8 +247,8 @@ Create specialized search functions:
 @pxt.query
 def search_with_metadata(
     query: str,
-    min_similarity: float = 0.7,
-    limit: int = 5
+    min_similarity: float,
+    limit: int
 ):
     sim = websites_chunks.text.similarity(query)
     return (
