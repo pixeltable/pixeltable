@@ -2,7 +2,7 @@ import builtins
 import typing
 
 from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
-from typing import Optional, Union
+from typing import Any, Callable, Optional, Union
 
 import sqlalchemy as sql
 
@@ -166,6 +166,11 @@ class mean(func.Aggregator, typing.Generic[T]):
 @mean.to_sql
 def _(val: sql.ColumnElement) -> Optional[sql.ColumnElement]:
     return sql.sql.func.avg(val)
+
+
+def map(expr: exprs.Expr, fn: Callable[[exprs.Expr], Any]) -> exprs.Expr:
+    target_expr = exprs.Expr.from_object(fn(exprs.json_path.RELATIVE_PATH_ROOT))
+    return exprs.JsonMapper(expr, target_expr)
 
 
 __all__ = local_public_names(__name__)
