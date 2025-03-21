@@ -215,7 +215,7 @@ class DocumentSplitter(ComponentIterator):
 
         # check dependencies at the end
         if Separator.SENTENCE in separators:
-            Env.get().require_package('spacy')
+            _ = Env.get().spacy_nlp
         if Separator.TOKEN_LIMIT in separators:
             Env.get().require_package('tiktoken')
 
