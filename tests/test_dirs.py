@@ -221,3 +221,39 @@ class TestDirs:
         # new client: force loading from store
         reload_catalog()
         assert pxt.list_tables('dir2') == ['dir2.dir1.sub1.t2']
+
+    def test_create_with_parents(self, reset_db) -> None:
+        all_dirs_3 = ['dir1', 'dir1.dir2', 'dir1.dir2.dir3']
+
+        dir3 = pxt.create_dir('dir1.dir2.dir3', create_parents=True)
+        md = dir3.get_metadata()
+        assert md['path'] == 'dir1.dir2.dir3'
+        assert md['name'] == 'dir3'
+        listing = pxt.list_dirs(recursive=True)
+        assert listing == all_dirs_3
+
+        pxt.drop_dir('dir1.dir2.dir3')
+        pxt.drop_dir('dir1.dir2')
+
+        dir3 = pxt.create_dir('dir1.dir2.dir3', create_parents=True)
+        md = dir3.get_metadata()
+        assert md['path'] == 'dir1.dir2.dir3'
+        assert md['name'] == 'dir3'
+        listing = pxt.list_dirs(recursive=True)
+        assert listing == all_dirs_3
+
+        pxt.drop_dir('dir1.dir2.dir3')
+        all_dirs_6 = [
+            'dir1',
+            'dir1.dir2',
+            'dir1.dir2.dir3',
+            'dir1.dir2.dir3.dir4',
+            'dir1.dir2.dir3.dir4.dir5',
+            'dir1.dir2.dir3.dir4.dir5.dir6',
+        ]
+        dir6 = pxt.create_dir('dir1.dir2.dir3.dir4.dir5.dir6', create_parents=True)
+        md = dir6.get_metadata()
+        assert md['path'] == 'dir1.dir2.dir3.dir4.dir5.dir6'
+        assert md['name'] == 'dir6'
+        listing = pxt.list_dirs(recursive=True)
+        assert listing == all_dirs_6
