@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable, Literal, Optional, Union, overload
 
 from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
+from keyword import iskeyword as is_python_keyword
 from uuid import UUID
 
 import pandas as pd
@@ -730,12 +731,17 @@ class Table(SchemaObject):
         return columns
 
     @classmethod
+    def validate_column_name(cls, name: str) -> None:
+        '''Check that a name is usable as a pixeltalbe column name'''
+        if is_system_column_name(name) or is_python_keyword(name):
+            raise excs.Error(f'{name!r} is a reserved name in Pixeltable; please choose a different column name.')
+        if not is_valid_identifier(name):
+            raise excs.Error(f'Invalid column name: {name!r}')
+
+    @classmethod
     def _verify_column(cls, col: Column) -> None:
         """Check integrity of user-supplied Column and supply defaults"""
-        if is_system_column_name(col.name):
-            raise excs.Error(f'{col.name!r} is a reserved name in Pixeltable; please choose a different column name.')
-        if not is_valid_identifier(col.name):
-            raise excs.Error(f'Invalid column name: {col.name!r}')
+        cls.validate_column_name(col.name)
         if col.stored is False and not col.is_computed:
             raise excs.Error(f'Column {col.name!r}: stored={col.stored} only applies to computed columns')
         if col.stored is False and col.has_window_fn_call():
@@ -916,7 +922,7 @@ class Table(SchemaObject):
         Args:
             column: The name of, or reference to, the column to be indexed; must be a `String` or `Image` column.
             idx_name: An optional name for the index. If not specified, a name such as `'idx0'` will be generated
-                automatically. If specified, the name must be unique for this table.
+                automatically. If specified, the name must be unique for this table and a valid pixeltable column name.
             embedding: The UDF to use for the embedding. Must be a UDF that accepts a single argument of type `String`
                 or `Image` (as appropriate for the column being indexed) and returns a fixed-size 1-dimensional
                 array of floats.
@@ -994,6 +1000,10 @@ class Table(SchemaObject):
                 self.drop_index(idx_name=idx_name)
                 assert idx_name not in self._tbl_version.get().idxs_by_name
             from pixeltable.index import EmbeddingIndex
+
+            # idx_name must be a valid pixeltable column name
+            if idx_name is not None:
+                Table.validate_column_name(idx_name)
 
             # create the EmbeddingIndex instance to verify args
             idx = EmbeddingIndex(

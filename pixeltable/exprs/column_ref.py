@@ -131,6 +131,15 @@ class ColumnRef(Expr):
 
         return SimilarityExpr(self, item, idx_name=idx)
 
+    def embedding(self, idx: Optional[str] = None) -> Expr:
+        import copy
+
+        idx_info = catalog.Column.find_embedding_index(self.col, idx, 'embedding')
+        assert len(idx_info) == 1
+        col = next(iter(idx_info.values())).val_col
+        col.name = f'{self.col.name}_embedding_{idx if idx is not None else ""}'
+        return ColumnRef(col)
+
     def default_column_name(self) -> Optional[str]:
         return str(self)
 
