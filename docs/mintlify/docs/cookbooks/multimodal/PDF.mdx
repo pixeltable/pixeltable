@@ -58,7 +58,7 @@ Pixeltable PDF search works in two phases:
 
     # Define search query
     @pxt.query
-    def search_documents(query_text: str, limit: int = 5):
+    def search_documents(query_text: str, limit: int):
         sim = documents_chunks.text.similarity(query_text)
         return (
             documents_chunks.order_by(sim, asc=False)

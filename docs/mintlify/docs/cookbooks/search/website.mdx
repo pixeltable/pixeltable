@@ -58,7 +58,7 @@ Pixeltable website search works in two phases:
 
     # Define search query
     @pxt.query
-    def search_content(query_text: str, limit: int = 5):
+    def search_content(query_text: str, limit: int):
         sim = websites_chunks.text.similarity(query_text)
         return (
             websites_chunks.order_by(sim, asc=False)
