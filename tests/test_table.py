@@ -366,7 +366,7 @@ class TestTable:
     def test_create_from_df(self, test_tbl: pxt.Table) -> None:
         t = pxt.get_table('test_tbl')
         df1 = t.where(t.c2 >= 50).order_by(t.c2, asc=False).select(t.c2, t.c3, t.c7, t.c2 + 26, t.c1.contains('19'))
-        t1 = pxt.create_table('test1', df1)
+        t1 = pxt.create_table('test1', source=df1)
         assert t1._schema == df1.schema
         assert t1.collect() == df1.collect()
 
@@ -374,13 +374,23 @@ class TestTable:
 
         t.add_computed_column(c2mod=t.c2 % 5)
         df2 = t.group_by(t.c2mod).select(t.c2mod, sum(t.c2))
-        t2 = pxt.create_table('test2', df2)
+        t2 = pxt.create_table('test2', source=df2)
         assert t2._schema == df2.schema
         assert t2.collect() == df2.collect()
 
         with pytest.raises(excs.Error) as exc_info:
             _ = pxt.create_table('test3', ['I am a string.'])  # type: ignore[arg-type]
-        assert '`schema_or_df` must be either a schema dictionary or a Pixeltable DataFrame' in str(exc_info.value)
+        assert 'Unable to create a proper schema' in str(exc_info.value)
+
+    def test_insert_df(self, test_tbl: pxt.Table) -> None:
+        t = pxt.get_table('test_tbl')
+        df1 = t.where(t.c2 >= 50).order_by(t.c2, asc=False).select(t.c2, t.c3, t.c7, t.c2 + 26, t.c1.contains('19'))
+        t1 = pxt.create_table('test1', source=df1)
+        assert t1._schema == df1.schema
+        assert t1.collect() == df1.collect()
+
+        t1.insert(df1)
+        assert len(t1.collect()) == 2 * len(df1.collect())
 
     # Test the various combinations of type hints available in schema definitions and validate that they map to the
     # correct ColumnType instances.
@@ -492,7 +502,7 @@ class TestTable:
     def test_empty_table(self, reset_db: None) -> None:
         with pytest.raises(excs.Error) as exc_info:
             pxt.create_table('empty_table', {})
-        assert 'Table schema is empty' in str(exc_info.value)
+        assert 'Unable to create a proper schema' in str(exc_info.value)
 
     def test_drop_table(self, test_tbl: pxt.Table) -> None:
         t = pxt.get_table('test_tbl')
@@ -1010,6 +1020,7 @@ class TestTable:
         t = pxt.create_table(tbl_name, schema)
         rows = create_table_data(t)
         status = t.insert(rows)
+        assert t.count() == len(rows)
         assert status.num_rows == len(rows)
         assert status.num_excs == 0
 
@@ -1039,7 +1050,7 @@ class TestTable:
         # empty input
         with pytest.raises(excs.Error) as exc_info:
             t.insert([])
-        assert 'empty' in str(exc_info.value)
+        assert 'Unsupported data source type' in str(exc_info.value)
 
         # missing column
         with pytest.raises(excs.Error) as exc_info:
@@ -1062,8 +1073,8 @@ class TestTable:
         pxt.drop_table(tbl_name, if_not_exists='ignore')
         t = pxt.create_table(tbl_name, {'c1': pxt.String})
         with pytest.raises(excs.Error) as exc_info:
-            t.insert(['1'])  # type: ignore[list-item]
-        assert 'list of dictionaries' in str(exc_info.value)
+            t.insert(['1'])  # xtype: ignore[list-item]
+        assert 'Unsupported data source type' in str(exc_info.value)
 
         # bad null value
         pxt.drop_table(tbl_name, if_not_exists='ignore')

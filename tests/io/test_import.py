@@ -62,6 +62,20 @@ class TestImport:
             pxt.io.import_rows('example7', [{'__unusable_name': 'abc'}])
         assert 'Column names must be valid pixeltable identifiers' in str(exc_info.value)
 
+    def test_insert_rows(self, reset_db) -> None:
+        example = Path(__file__).parent.parent / 'data' / 'json' / 'example.json'
+        with open(example) as fp:
+            data = json.loads(fp.read())
+        t1 = pxt.io.import_rows('example1', data)
+        assert t1.count() == 4
+        t1.insert(data)
+        assert t1.count() == 8
+
+        t2 = pxt.io.import_rows('example2', data, schema_overrides={'children': pxt.FloatType(nullable=True)})
+        assert t2.count() == 4
+        t2.insert(data)
+        assert t2.count() == 8
+
     def test_import_json(self, reset_db) -> None:
         example = Path(__file__).parent.parent / 'data' / 'json' / 'example.json'
         jeopardy = 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests/data/json/jeopardy.json'
@@ -77,6 +91,23 @@ class TestImport:
             'metadata': pxt.JsonType(nullable=True),
             'children': pxt.IntType(nullable=True),
         }
+
         # `jeopardy.json` is a larger dataset; we try loading it as a URL to test both file and URL loading
         t2 = pxt.io.import_json('jeopardy', jeopardy)
         assert t2.count() == 10000
+
+    def test_insert_json(self, reset_db) -> None:
+        example = Path(__file__).parent.parent / 'data' / 'json' / 'example.json'
+        jeopardy = 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests/data/json/jeopardy.json'
+
+        # `example.json` has a variety of datatypes and tests both nullable and non-nullable columns
+        t1 = pxt.io.import_json('example', str(example))
+        assert t1.count() == 4
+        t1.insert(str(example))
+        assert t1.count() == 8
+
+        # `jeopardy.json` is a larger dataset; we try loading it as a URL to test both file and URL loading
+        t2 = pxt.io.import_json('jeopardy', jeopardy)
+        assert t2.count() == 10000
+        t2.insert(jeopardy)
+        assert t2.count() == 20000
