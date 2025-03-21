@@ -218,6 +218,13 @@ class TestDirs:
         pxt.move('dir1', 'dir2.dir1')
         assert pxt.list_tables('dir2') == ['dir2.dir1.sub1.t2']
 
+        pxt.create_dir('dir2.sub1')
+        with pytest.raises(excs.Error, match='cannot be identical') as exc_info:
+            pxt.move('dir2.sub1', 'dir2.sub1')
+        with pytest.raises(excs.Error, match='into its own subdirectory') as exc_info:
+            pxt.create_dir('dir2.sub1.subsub1')
+            pxt.move('dir2.sub1', 'dir2.sub1.subsub1')
+
         # new client: force loading from store
         reload_catalog()
         assert pxt.list_tables('dir2') == ['dir2.dir1.sub1.t2']
