@@ -4,12 +4,12 @@
 import argparse
 
 import uvicorn
+from initialize import mcp
 from mcp.server import Server
 from mcp.server.sse import SseServerTransport
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.routing import Mount, Route
-from initialize import mcp
 
 
 def create_starlette_app(mcp_server: Server, *, debug: bool = False) -> Starlette:

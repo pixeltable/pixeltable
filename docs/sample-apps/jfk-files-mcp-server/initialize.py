@@ -1,7 +1,6 @@
 from config import DIRECTORY
-from mcp.server.fastmcp import FastMCP
-
 from load_data import populate_pixeltable
+from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP('JFK_Files')
 
