@@ -12,6 +12,7 @@ mcp = FastMCP('JFK_Files')
 # Load a smaller set of documents for quick testing and development
 documents = populate_pixeltable(DIRECTORY, num_docs=5)
 
+
 @mcp.tool()
 def pxt_query_document(query_text: str, top_n: int = 5) -> str:
     """
