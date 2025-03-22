@@ -1,0 +1,11 @@
+beautifulsoup4
+httpx
+mistralai
+mcp
+pixeltable
+requests
+sentence-transformers
+spacy
+starlette
+tiktoken
+uvicorn

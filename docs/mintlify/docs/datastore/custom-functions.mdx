@@ -10,12 +10,12 @@ User-Defined Functions (UDFs) in Pixeltable allow you to extend the platform wit
 
 Pixeltable UDFs offer several key advantages:
 - **Reusability**: Define a function once and use it across multiple tables and operations
-- **Type Safety**: Strong typing ensures data compatibility throughout your pipelines
+- **Type Safety**: Strong typing ensures data compatibility throughout your workflows
 - **Performance**: Batch processing and caching capabilities optimize execution
 - **Integration**: Seamlessly combine custom code with Pixeltable's query system
 - **Flexibility**: Process any data type including text, images, videos, and embeddings
 
-UDFs can be as simple as a basic transformation or as complex as a multi-stage ML pipeline. Pixeltable offers three types of custom functions to handle different scenarios:
+UDFs can be as simple as a basic transformation or as complex as a multi-stage ML workflow. Pixeltable offers three types of custom functions to handle different scenarios:
 
 ```python
 import pixeltable as pxt
@@ -62,7 +62,7 @@ All UDFs require type hints for parameters and return values. This enables Pixel
 <CodeGroup>
 ```python Basic
 @pxt.udf
-def add_tax(price: float, rate: float = 0.1) -> float:
+def add_tax(price: float, rate: float) -> float:
     return price * (1 + rate)
 
 # Use in computed column
@@ -202,6 +202,49 @@ table.add_computed_column(
             expensive_operation.model = load_model()
         return expensive_operation.model(text)
     ```
+  </Card>
+  
+  <Card title="Async Support" icon="bolt">
+    ```python
+    from typing import Optional, Literal, Union, Any
+    import json
+    
+    @pxt.udf
+    async def chat_completions(
+        messages: list,
+        *,
+        model: str,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        timeout: Optional[float] = None,
+    ) -> dict:
+
+        # Setup API request with proper context management
+        result = await openai_client.chat.completions.with_raw_response.create(
+            messages=messages,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            timeout=timeout
+        )
+        
+        # Process response
+        return json.loads(result.text)
+    
+    # Example usage in a computed column
+    table.add_computed_column(
+        response=chat_completions(
+            [
+                {'role': 'system', 'content': 'You are a helpful assistant.'},
+                {'role': 'user', 'content': table.prompt}
+            ],
+            model='gpt-4o-mini'
+        )
+    )
+    ```
+    <Note>
+    Async UDFs are specifically designed for handling external API calls, such as LLM calls, database queries, or web service interactions. They should not be used for general computation or data processing. They keep your Pixeltable workflows responsive by allowing background execution of time-consuming operations.
+    </Note>
   </Card>
 </CardGroup>
 
@@ -496,7 +539,7 @@ graph TD
 
 <AccordionGroup>
   <Accordion title="Chaining Multiple Table UDFs" icon="link">
-    You can create a pipeline of table UDFs to handle complex multi-stage processing:
+    You can create a workflow of table UDFs to handle complex multi-stage processing:
     
     ```python
     # Create a chain of specialized agents
