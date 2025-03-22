@@ -55,5 +55,12 @@ class Path:
         is_prefix = self.components == other.components[: self.len]
         return is_prefix and (self.len == (other.len - 1) or not is_parent)
 
+    def ancestors(self):
+        """
+        Return all non-root ancestors of this path.
+        """
+        for i in range(1, len(self.components)):
+            yield Path('.'.join(self.components[0:i]))
+
     def __str__(self) -> str:
         return '.'.join(self.components)
