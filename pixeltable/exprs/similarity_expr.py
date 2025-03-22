@@ -4,6 +4,7 @@ import sqlalchemy as sql
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
+from pixeltable import catalog
 
 from .column_ref import ColumnRef
 from .data_row import DataRow
@@ -23,26 +24,12 @@ class SimilarityExpr(Expr):
 
         self.components = [col_ref, item_expr]
 
-        # determine index to use
-        idx_info = col_ref.col.get_idx_info()
         from pixeltable import index
 
-        embedding_idx_info = {
-            info.name: info for info in idx_info.values() if isinstance(info.idx, index.EmbeddingIndex)
-        }
-        if len(embedding_idx_info) == 0:
-            raise excs.Error(f'No index found for column {col_ref.col!r}')
-        if idx_name is not None and idx_name not in embedding_idx_info:
-            raise excs.Error(f'Index {idx_name!r} not found for column {col_ref.col.name!r}')
-        if len(embedding_idx_info) > 1:
-            if idx_name is None:
-                raise excs.Error(
-                    f'Column {col_ref.col.name!r} has multiple indices; use the index name to disambiguate: '
-                    f'`{col_ref.col.name}.similarity(..., idx=<name>)`'
-                )
-            self.idx_info = embedding_idx_info[idx_name]
-        else:
-            self.idx_info = next(iter(embedding_idx_info.values()))
+        # determine index to use
+        idx_dict = catalog.Column.find_embedding_index(col_ref.col, idx_name, 'similarity')
+        assert len(idx_dict) == 1
+        self.idx_info = next(iter(idx_dict.values()))
         idx = self.idx_info.idx
         assert isinstance(idx, index.EmbeddingIndex)
 

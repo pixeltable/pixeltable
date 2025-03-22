@@ -521,6 +521,48 @@ class TestIndex:
 
         reload_tester.run_reload_test()
 
+    def test_embedding_access(
+        self,
+        img_tbl: pxt.Table,
+        test_tbl: pxt.Table,
+        clip_embed: func.Function,
+        e5_embed: func.Function,
+        all_mpnet_embed: func.Function,
+        reload_tester: ReloadTester,
+    ) -> None:
+        skip_test_if_not_installed('transformers')
+        img_t = img_tbl
+        rows = list(img_t.select(img=img_t.img.fileurl, category=img_t.category, split=img_t.split).collect())
+        # create table with fewer rows to speed up testing
+        schema = {'img': pxt.Image, 'category': pxt.String, 'split': pxt.String}
+        tbl_name = 'index_test'
+        img_t = pxt.create_table(tbl_name, schema)
+        img_t.insert(rows[:30])
+        dummy_img_t = pxt.create_table('dummy', schema)
+        dummy_img_t.insert(rows[:10])
+
+        img_t.add_embedding_index('img', embedding=clip_embed)
+
+        r = img_t.select(img_t.img.embedding()).limit(2).collect()
+        assert len(r) == 2
+        assert isinstance(r[0, 'img_embedding_'], np.ndarray)
+
+        # multiple indices
+        img_t.add_embedding_index(img_t.img, idx_name='other_idx', embedding=clip_embed)
+        r = img_t.select(img_t.img.embedding('other_idx')).limit(2).collect()
+        assert len(r) == 2
+        assert isinstance(r[0, 'img_embedding_other_idx'], np.ndarray)
+
+        r = img_t.select(img_t.img.embedding(idx='other_idx')).limit(2).collect()
+        assert len(r) == 2
+        assert isinstance(r[0, 'img_embedding_other_idx'], np.ndarray)
+
+        with pytest.raises(pxt.Error, match='has multiple indices'):
+            _ = img_t.select(img_t.img.embedding()).collect()
+
+        with pytest.raises(pxt.Error, match='Invalid column name'):
+            img_t.add_embedding_index(img_t.img, idx_name='BOGUS COL NAME', embedding=clip_embed)
+
     def test_embedding_errors(self, small_img_tbl: pxt.Table, test_tbl: pxt.Table, clip_embed: func.Function) -> None:
         skip_test_if_not_installed('transformers')
         img_t = small_img_tbl
