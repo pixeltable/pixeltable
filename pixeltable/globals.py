@@ -7,7 +7,7 @@ import pandas as pd
 from pandas.io.formats.style import Styler
 
 from pixeltable import DataFrame, catalog, env, exceptions as excs, exprs, func, share
-from pixeltable.catalog import Catalog, IfExistsParam, IfNotExistsParam
+from pixeltable.catalog import Catalog, IfExistsParam, IfNotExistsParam, SchemaObject
 from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
@@ -608,19 +608,19 @@ def create_dir(
     """
     path_obj = catalog.Path(path)
     cat = Catalog.get()
-
     with env.Env.get().begin_xact():
         if create_parents:
-            # start walking from the root
+            # start walking down from the root
             ancestors = path_obj.ancestors()
-            root_path = catalog.Path('', empty_is_valid=True)
-            last_parent = cat.get_schema_object(str(root_path))
+            last_parent: Optional[SchemaObject] = None
             for ancestor in ancestors:
                 ancestor_obj = cat.get_schema_object(str(ancestor), expected=catalog.Dir)
+                assert ancestor_obj is not None or last_parent is not None
                 last_parent = (
                     catalog.Dir._create(last_parent._id, ancestor.name) if ancestor_obj is None else ancestor_obj
                 )
-            # get parent again
+            parent = last_parent
+        else:
             parent = cat.get_schema_object(str(path_obj.parent))
         if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
         existing = _handle_path_collision(path, catalog.Dir, False, if_exists_)

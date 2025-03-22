@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Generator
 
 from pixeltable import exceptions as excs
 
@@ -55,12 +56,16 @@ class Path:
         is_prefix = self.components == other.components[: self.len]
         return is_prefix and (self.len == (other.len - 1) or not is_parent)
 
-    def ancestors(self):
+    def ancestors(self) -> Generator[Path, None, None]:
         """
-        Return all non-root ancestors of this path.
+        Return all ancestors of this path in top-down order including root.
+        If this path is for the root directory, which has no parent, then None is returned.
         """
-        for i in range(1, len(self.components)):
-            yield Path('.'.join(self.components[0:i]))
+        if self.is_root:
+            yield None
+        else:
+            for i in range(0, len(self.components)):
+                yield Path('.'.join(self.components[0:i]), empty_is_valid=True)
 
     def __str__(self) -> str:
         return '.'.join(self.components)
