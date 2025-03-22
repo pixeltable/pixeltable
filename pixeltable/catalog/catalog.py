@@ -114,12 +114,11 @@ class Catalog:
         expected: Optional[Type[SchemaObject]] = None,
         raise_if_exists: bool = False,
         raise_if_not_exists: bool = False,
-        raise_if_parent_missing: bool = True,
     ) -> Optional[SchemaObject]:
         """Return the schema object at the given path, or None if it doesn't exist.
 
         Raises Error if
-        - raise_if_parent_missing is True and the parent directory doesn't exist'
+        - the parent directory doesn't exist'
         - raise_if_exists is True and the path exists
         - raise_if_not_exists is True and the path does not exist
         - expected is not None and the existing object has a different type
@@ -136,9 +135,7 @@ class Catalog:
         parent_path = '.'.join(components[:-1])
         parent_dir = self._get_dir('.'.join(components[:-1]))
         if parent_dir is None:
-            if raise_if_parent_missing:
-                raise excs.Error(f'Directory {parent_path!r} does not exist')
-            return None
+            raise excs.Error(f'Directory {parent_path!r} does not exist')
         name = components[-1]
 
         # check if path points to a directory

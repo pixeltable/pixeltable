@@ -573,7 +573,7 @@ def create_dir(
             - `'ignore'`: do nothing and return the existing directory handle
             - `'replace'`: if the existing directory is empty, drop it and create a new one
             - `'replace_force'`: drop the existing directory and all its children, and create a new one
-        create_parents: Create missing parent directories (defaults to `False`).
+        create_parents: Create missing parent directories.
 
     Returns:
         A handle to the newly created directory, or to an already existing directory at the path when
@@ -602,7 +602,7 @@ def create_dir(
 
         >>> pxt.create_dir('my_dir', if_exists='replace_force')
 
-        Create a sub directory along with its ancestors:
+        Create a subdirectory along with its ancestors:
 
         >>> pxt.create_dir('parent1.parent2.sub_dir', create_parents=True)
     """
@@ -610,18 +610,16 @@ def create_dir(
     cat = Catalog.get()
 
     with env.Env.get().begin_xact():
-        parent = cat.get_schema_object(str(path_obj.parent), raise_if_parent_missing=(not create_parents))
-        if parent is None and create_parents:
+        if create_parents:
             # start walking from the root
-            current_dir_path = catalog.Path('', empty_is_valid=True)
-            current_dir_object = cat.get_schema_object(str(current_dir_path))
-            for component in path_obj.components[:-1]:
-                current_dir_path = current_dir_path.append(component)
-                ancestor = cat.get_schema_object(str(current_dir_path))
-                if ancestor is None:
-                    current_dir_object = catalog.Dir._create(current_dir_object._id, component)
-                else:
-                    current_dir_object = ancestor
+            ancestors = path_obj.ancestors()
+            root_path = catalog.Path('', empty_is_valid=True)
+            last_parent = cat.get_schema_object(str(root_path))
+            for ancestor in ancestors:
+                ancestor_obj = cat.get_schema_object(str(ancestor), expected=catalog.Dir)
+                last_parent = (
+                    catalog.Dir._create(last_parent._id, ancestor.name) if ancestor_obj is None else ancestor_obj
+                )
             # get parent again
             parent = cat.get_schema_object(str(path_obj.parent))
         if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
