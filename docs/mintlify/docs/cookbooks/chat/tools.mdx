@@ -30,7 +30,7 @@ Pixeltable tool-calling apps work in two phases:
 
     # Define tools
     @pxt.udf
-    def search_news(keywords: str, max_results: int = 20) -> str:
+    def search_news(keywords: str, max_results: int) -> str:
         """Search news using DuckDuckGo and return results."""
         try:
             with DDGS() as ddgs:
