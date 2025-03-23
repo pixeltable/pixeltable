@@ -50,6 +50,5 @@ class TestCatalog:
         # root
         path = Path('', empty_is_valid=True)
         ancestors = path.ancestors()
-        assert next(ancestors) is None
         with pytest.raises(StopIteration):
             next(ancestors)
