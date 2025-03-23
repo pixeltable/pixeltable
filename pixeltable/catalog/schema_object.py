@@ -35,17 +35,11 @@ class SchemaObject:
 
     def _path(self) -> str:
         """Returns the path to this schema object."""
-        with env.Env.get().begin_xact():
-            from .catalog import Catalog
+        from .catalog import Catalog
 
-            cat = Catalog.get()
-            dir_path = cat.get_dir_path(self._dir_id)
-            if dir_path == '':
-                # Either this is the root directory, with empty path, or its parent is the
-                # root directory. Either way, we return just the name.
-                return self._name
-            else:
-                return f'{dir_path}.{self._name}'
+        assert self._dir_id is not None
+        path = Catalog.get().get_dir_path(self._dir_id)
+        return str(path.append(self._name))
 
     def get_metadata(self) -> dict[str, Any]:
         """Returns metadata associated with this schema object."""

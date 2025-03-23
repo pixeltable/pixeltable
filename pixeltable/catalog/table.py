@@ -171,7 +171,7 @@ class Table(SchemaObject):
 
     def _get_views(self, *, recursive: bool = True) -> list['Table']:
         cat = catalog.Catalog.get()
-        view_ids = cat.get_views(self._id)
+        view_ids = cat.get_view_ids(self._id)
         views = [cat.get_tbl(id) for id in view_ids]
         if recursive:
             views.extend([t for view in views for t in view._get_views(recursive=True)])

@@ -57,3 +57,6 @@ class Path:
 
     def __str__(self) -> str:
         return '.'.join(self.components)
+
+    def __lt__(self, other: Path) -> bool:
+        return str(self) < str(other)
