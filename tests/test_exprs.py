@@ -1463,11 +1463,21 @@ class TestExprs:
         t = pxt.create_table('test_str_concat', schema)
         t.add_computed_column(s3=t.s1 + '-' + t.s2)
         t.add_computed_column(s4=t.s1 * 3)
+<<<<<<< Updated upstream
 
+=======
+        t.add_computed_column(s5=(t.s1 + t.s2) * 2)
+        t.add_computed_column(s6=t.s1 + t.s2 * 2)
+>>>>>>> Stashed changes
         t.insert([{'s1': 'left', 's2': 'right'}, {'s1': 'A', 's2': 'B'}])
         result = t.collect()
         assert result['s3'] == ['left-right', 'A-B']
         assert result['s4'] == ['leftleftleft', 'AAA']
+<<<<<<< Updated upstream
+=======
+        assert result['s5'] == ['leftrightleftright', 'ABAB']
+        assert result['s6'] == ['leftrightright', 'ABB']
+>>>>>>> Stashed changes
 
         with pytest.raises(excs.Error) as exc_info:
             _ = t.add_computed_column(invalid_op=t.s1 * 's1')
@@ -1479,7 +1489,11 @@ class TestExprs:
 
         with pytest.raises(excs.Error) as exc_info:
             _ = t.add_computed_column(invalid_op=t.s1 / t.s2)
+<<<<<<< Updated upstream
         assert 'invalid operation / on strings, only operators + and * are supported' in str(exc_info.value)
+=======
+        assert 'requires numeric types, but s1 has type Optional[String]' in str(exc_info.value)
+>>>>>>> Stashed changes
 
 
 @pxt.udf

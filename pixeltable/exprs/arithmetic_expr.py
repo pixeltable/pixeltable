@@ -25,34 +25,17 @@ class ArithmeticExpr(Expr):
         if op1.col_type.is_json_type() or op2.col_type.is_json_type() or operator == ArithmeticOperator.DIV:
             # we assume it's a float
             super().__init__(ts.FloatType(nullable=(op1.col_type.nullable or op2.col_type.nullable)))
-        elif op1.col_type.is_string_type() and operator in (ArithmeticOperator.ADD, ArithmeticOperator.MUL):
-            # Assume column type is string
-            super().__init__(ts.StringType(nullable=op1.col_type.nullable))
         else:
             super().__init__(op1.col_type.supertype(op2.col_type))
         self.operator = operator
         self.components = [op1, op2]
 
         # do typechecking after initialization in order for __str__() to work
-        if op1.col_type.is_string_type():
-            if operator in (ArithmeticOperator.ADD, ArithmeticOperator.MUL):
-                if operator == ArithmeticOperator.ADD and not op2.col_type.is_string_type():
-                    raise excs.Error(
-                        f'{self}: {operator} on strings requires string type, but {op2} has type {op2.col_type}'
-                    )
-                if operator == ArithmeticOperator.MUL and not op2.col_type.is_int_type():
-                    raise excs.Error(
-                        f'{self}: {operator} on strings requires int type, but {op2} has type {op2.col_type}'
-                    )
-            else:
-                raise excs.Error(
-                    f'{self}: invalid operation {operator} on strings, only operators {ArithmeticOperator.ADD} and {ArithmeticOperator.MUL} are supported'
-                )
-        else:
-            if not op1.col_type.is_numeric_type() and not op1.col_type.is_json_type():
-                raise excs.Error(f'{self}: {operator} requires numeric types, but {op1} has type {op1.col_type}')
-            if not op2.col_type.is_numeric_type() and not op2.col_type.is_json_type():
-                raise excs.Error(f'{self}: {operator} requires numeric types, but {op2} has type {op2.col_type}')
+        if not op1.col_type.is_numeric_type() and not op1.col_type.is_json_type():
+            raise excs.Error(f'{self}: {operator} requires numeric types, but {op1} has type {op1.col_type}')
+        if not op2.col_type.is_numeric_type() and not op2.col_type.is_json_type():
+            raise excs.Error(f'{self}: {operator} requires numeric types, but {op2} has type {op2.col_type}')
+
         self.id = self._create_id()
 
     @property
@@ -76,12 +59,7 @@ class ArithmeticExpr(Expr):
         return super()._id_attrs() + [('operator', self.operator.value)]
 
     def sql_expr(self, sql_elements: SqlElementCache) -> Optional[sql.ColumnElement]:
-        assert (
-            self.col_type.is_int_type()
-            or self.col_type.is_float_type()
-            or self.col_type.is_json_type()
-            or self.col_type.is_string_type()
-        )
+        assert self.col_type.is_int_type() or self.col_type.is_float_type() or self.col_type.is_json_type()
         left = sql_elements.get(self._op1)
         right = sql_elements.get(self._op2)
         if left is None or right is None:
@@ -136,8 +114,8 @@ class ArithmeticExpr(Expr):
         data_row[self.slot_idx] = self.eval_nullable(op1_val, op2_val)
 
     def eval_nullable(
-        self, op1_val: Union[int, float, str, None], op2_val: Union[int, float, str, None]
-    ) -> Union[int, float, str, None]:
+        self, op1_val: Union[int, float, None], op2_val: Union[int, float, None]
+    ) -> Union[int, float, None]:
         """
         Return the result of evaluating the expression on two nullable int/float operands,
         None is interpreted as SQL NULL
@@ -146,23 +124,10 @@ class ArithmeticExpr(Expr):
             return None
         return self.eval_non_null(op1_val, op2_val)
 
-    def eval_non_null(self, op1_val: Union[int, float, str], op2_val: Union[int, float, str]) -> Union[int, float, str]:
+    def eval_non_null(self, op1_val: Union[int, float], op2_val: Union[int, float]) -> Union[int, float]:
         """
         Return the result of evaluating the expression on two int/float operands
         """
-        # Handle string operations earlier to make typecheck happy
-        if isinstance(op1_val, str):
-            assert self.operator in (ArithmeticOperator.ADD, ArithmeticOperator.MUL)
-            if self.operator == ArithmeticOperator.ADD:
-                assert isinstance(op2_val, str)
-                return op1_val + op2_val
-            else:
-                assert isinstance(op2_val, int)
-                return op1_val * op2_val
-        # We don't expect any string operation from this point onwards
-        assert not isinstance(op1_val, str)
-        assert not isinstance(op2_val, str)
-
         if self.operator == ArithmeticOperator.ADD:
             return op1_val + op2_val
         elif self.operator == ArithmeticOperator.SUB:

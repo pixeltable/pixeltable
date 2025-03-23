@@ -87,3 +87,15 @@ class ArithmeticOperator(enum.Enum):
         if self == self.FLOORDIV:
             return '//'
         assert False
+
+
+class StringOperator(enum.Enum):
+    ADD = 0
+    MUL = 1
+
+    def __str__(self) -> str:
+        if self == self.ADD:
+            return '+'
+        if self == self.MUL:
+            return '*'
+        assert False

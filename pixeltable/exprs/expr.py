@@ -17,7 +17,7 @@ from typing_extensions import Self, _AnnotatedAlias
 from pixeltable import catalog, exceptions as excs, func, type_system as ts
 
 from .data_row import DataRow
-from .globals import ArithmeticOperator, ComparisonOperator, LiteralPythonTypes, LogicalOperator
+from .globals import ArithmeticOperator, ComparisonOperator, LiteralPythonTypes, LogicalOperator, StringOperator
 
 if TYPE_CHECKING:
     from pixeltable import exprs
@@ -645,13 +645,17 @@ class Expr(abc.ABC):
     def __neg__(self) -> 'exprs.ArithmeticExpr':
         return self._make_arithmetic_expr(ArithmeticOperator.MUL, -1)
 
-    def __add__(self, other: object) -> 'exprs.ArithmeticExpr':
+    def __add__(self, other: object) -> Union[exprs.ArithmeticExpr, exprs.StringExpr]:
+        if self.col_type.is_string_type():
+            return self._make_string_expr(StringOperator.ADD, other)
         return self._make_arithmetic_expr(ArithmeticOperator.ADD, other)
 
     def __sub__(self, other: object) -> 'exprs.ArithmeticExpr':
         return self._make_arithmetic_expr(ArithmeticOperator.SUB, other)
 
-    def __mul__(self, other: object) -> 'exprs.ArithmeticExpr':
+    def __mul__(self, other: object) -> Union['exprs.ArithmeticExpr', 'exprs.StringExpr']:
+        if self.col_type.is_string_type():
+            return self._make_string_expr(StringOperator.MUL, other)
         return self._make_arithmetic_expr(ArithmeticOperator.MUL, other)
 
     def __truediv__(self, other: object) -> 'exprs.ArithmeticExpr':
@@ -680,6 +684,19 @@ class Expr(abc.ABC):
 
     def __rfloordiv__(self, other: object) -> 'exprs.ArithmeticExpr':
         return self._rmake_arithmetic_expr(ArithmeticOperator.FLOORDIV, other)
+
+    def _make_string_expr(self, op: StringOperator, other: object) -> 'exprs.StringExpr':
+        """
+        other: Union[Expr, LiteralPythonTypes]
+        """
+        from .literal import Literal
+        from .string_expr import StringExpr
+
+        if isinstance(other, Expr):
+            return StringExpr(op, self, other)
+        if isinstance(other, typing.get_args(LiteralPythonTypes)):
+            return StringExpr(op, self, Literal(other))
+        raise TypeError(f'Other must be Expr or literal: {type(other)}')
 
     def _make_arithmetic_expr(self, op: ArithmeticOperator, other: object) -> 'exprs.ArithmeticExpr':
         """
