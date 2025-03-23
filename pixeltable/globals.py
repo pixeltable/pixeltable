@@ -374,7 +374,7 @@ def move(path: str, new_path: str) -> None:
     if path_obj.is_ancestor(new_path_obj):
         raise excs.Error(f'move(): cannot move {path!r} into its own subdirectory')
     cat = Catalog.get()
-    cat.move(path, new_path)
+    cat.move(path_obj, new_path_obj)
 
 
 def drop_table(
@@ -425,7 +425,7 @@ def drop_table(
 
     path_obj = catalog.Path(tbl_path)
     if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
-    Catalog.get().drop_tbl(path_obj, force=force, if_not_exists=if_not_exists_)
+    Catalog.get().drop_table(path_obj, force=force, if_not_exists=if_not_exists_)
 
 
 def list_tables(dir_path: str = '', recursive: bool = True) -> list[str]:

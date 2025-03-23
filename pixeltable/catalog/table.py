@@ -172,7 +172,7 @@ class Table(SchemaObject):
     def _get_views(self, *, recursive: bool = True) -> list['Table']:
         cat = catalog.Catalog.get()
         view_ids = cat.get_view_ids(self._id)
-        views = [cat.get_tbl(id) for id in view_ids]
+        views = [cat.get_table_by_id(id) for id in view_ids]
         if recursive:
             views.extend([t for view in views for t in view._get_views(recursive=True)])
         return views
@@ -265,7 +265,7 @@ class Table(SchemaObject):
         if self._tbl_version_path.base is None:
             return None
         base_id = self._tbl_version_path.base.tbl_version.id
-        return catalog.Catalog.get().get_tbl(base_id)
+        return catalog.Catalog.get().get_table_by_id(base_id)
 
     @property
     def _bases(self) -> list['Table']:
@@ -387,13 +387,9 @@ class Table(SchemaObject):
             print(repr(self))
 
     def _drop(self) -> None:
-        cat = catalog.Catalog.get()
         self._check_is_dropped()
         self._tbl_version.get().drop()
         self._is_dropped = True
-        # update catalog
-        cat = catalog.Catalog.get()
-        cat.remove_tbl(self._id)
 
     # TODO Factor this out into a separate module.
     # The return type is unresolvable, but torch can't be imported since it's an optional dependency.

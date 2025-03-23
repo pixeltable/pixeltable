@@ -99,6 +99,20 @@ class Catalog:
         self._tbls = {}  # don't use a defaultdict here, it doesn't cooperate with the debugger
         self._init_store()
 
+    def _retry_loop(self, op: Callable[[], Any]) -> Any:
+        num_remaining_retries = self.MAX_RETRIES
+        while True:
+            try:
+                return op()
+            except sql.exc.DBAPIError as e:
+                if isinstance(e.orig, psycopg.errors.SerializationFailure) and num_remaining_retries > 0:
+                    num_remaining_retries -= 1
+                    print(f'serialization failure:\n{e}')
+                    print('retrying ************************************************************')
+                    time.sleep(1)
+                else:
+                    raise
+
     def get_dir_path(self, dir_id: UUID) -> Path:
         """Return path for directory with given id"""
 
@@ -129,7 +143,7 @@ class Catalog:
     def get_dir_contents(self, dir_path: Path, recursive: bool = False) -> dict[str, DirEntry]:
         def op() -> dict[str, Catalog.DirEntry]:
             with Env.get().begin_xact():
-                dir = self.get_schema_object(dir_path, expected=Dir, raise_if_not_exists=True)
+                dir = self._get_schema_object(dir_path, expected=Dir, raise_if_not_exists=True)
                 return self._get_dir_contents(dir._id, recursive=recursive)
 
         return self._retry_loop(op)
@@ -158,42 +172,20 @@ class Catalog:
 
         return result
 
-    # def drop_dir(self, dir_id: UUID) -> None:
-    #     """Delete the directory with the given id"""
-    #     conn = Env.get().conn
-    #     _debug_print(for_update=True, msg=f'drop dir id={dir_id}')
-    #     conn.execute(sql.delete(schema.Dir.__table__).where(schema.Dir.id == dir_id))
+    def move(self, path: Path, new_path: Path) -> None:
+        def op() -> None:
+            with Env.get().begin_xact():
+                _, dest_dir, src_obj = self._prepare_dir_op(
+                    add_dir_path=new_path.parent,
+                    add_name=new_path.name,
+                    drop_dir_path=path.parent,
+                    drop_name=path.name,
+                    raise_if_exists=True,
+                    raise_if_not_exists=True,
+                )
+                src_obj._move(new_path.name, dest_dir._id)
 
-    def _retry_loop(self, op: Callable[[], Any]) -> Any:
-        num_remaining_retries = self.MAX_RETRIES
-        while True:
-            try:
-                return op()
-            except sql.exc.DBAPIError as e:
-                if isinstance(e.orig, psycopg.errors.SerializationFailure) and num_remaining_retries > 0:
-                    num_remaining_retries -= 1
-                    print(f'serialization failure:\n{e}')
-                    print('retrying ************************************************************')
-                    time.sleep(1)
-                else:
-                    raise
-
-    def move(self, path: str, new_path: str) -> None:
-        self._retry_loop(lambda: self._move(path, new_path))
-
-    def _move(self, path: str, new_path: str) -> None:
-        with Env.get().begin_xact():
-            path_obj = Path(path)
-            new_path_obj = Path(new_path)
-            _, dest_dir, src_obj = self._prepare_dir_op(
-                add_dir_path=new_path_obj.parent,
-                add_name=new_path_obj.name,
-                drop_dir_path=path_obj.parent,
-                drop_name=path_obj.name,
-                raise_if_exists=True,
-                raise_if_not_exists=True,
-            )
-            src_obj._move(new_path_obj.name, dest_dir._id)
+        self._retry_loop(op)
 
     def _prepare_dir_op(
         self,
@@ -295,7 +287,7 @@ class Catalog:
 
         return None
 
-    def get_schema_object(
+    def _get_schema_object(
         self,
         path: Path,
         expected: Optional[type[SchemaObject]] = None,
@@ -332,7 +324,7 @@ class Catalog:
             raise excs.Error(f'{path!r} needs to be a {expected._display_name()} but is a {type(obj)._display_name()}')
         return obj
 
-    def get_tbl(self, tbl_id: UUID) -> Optional[Table]:
+    def get_table_by_id(self, tbl_id: UUID) -> Optional[Table]:
         if not tbl_id in self._tbls:
             tbl = self._load_tbl(tbl_id)
             if tbl is None:
@@ -358,7 +350,7 @@ class Catalog:
                     assert isinstance(existing, Table)
                     return existing
 
-                dir = self.get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
+                dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
                 assert dir is not None
 
                 tbl = InsertableTable._create(
@@ -399,7 +391,7 @@ class Catalog:
                     assert isinstance(existing, View)
                     return existing
 
-                dir = self.get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
+                dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
                 assert dir is not None
                 if iterator is None:
                     iterator_class, iterator_args = None, None
@@ -428,14 +420,14 @@ class Catalog:
     def get_table(self, path: Path) -> Optional[Table]:
         def op() -> Table:
             with Env.get().begin_xact():
-                obj = Catalog.get().get_schema_object(path, expected=Table, raise_if_not_exists=True)
+                obj = Catalog.get()._get_schema_object(path, expected=Table, raise_if_not_exists=True)
                 assert isinstance(obj, Table)
                 obj.ensure_md_loaded()
                 return obj
 
         return self._retry_loop(op)
 
-    def drop_tbl(self, path: Path, if_not_exists: IfNotExistsParam, force: bool) -> None:
+    def drop_table(self, path: Path, if_not_exists: IfNotExistsParam, force: bool) -> None:
         def op() -> None:
             with Env.get().begin_xact():
                 _, _, src_obj = self._prepare_dir_op(
@@ -478,11 +470,13 @@ class Catalog:
                 raise excs.Error(msg)
 
             for view_id in view_ids:
-                view = self.get_tbl(view_id)
+                view = self.get_table_by_id(view_id)
                 self._drop_tbl(view, force=force, is_replace=is_replace)
 
         _ = self.get_dir(tbl._dir_id, for_update=True)  # X-lock the parent directory
         tbl._drop()
+        assert tbl._id in self._tbls
+        del self._tbls[tbl._id]
         _logger.info(f'Dropped table `{tbl._path()}`.')
 
     def create_dir(self, path: Path, if_exists: IfExistsParam) -> Dir:
@@ -493,7 +487,7 @@ class Catalog:
                     assert isinstance(existing, Dir)
                     return existing
 
-                parent = self.get_schema_object(path.parent)
+                parent = self._get_schema_object(path.parent)
                 assert parent is not None
                 dir = Dir._create(parent._id, path.name)
                 Env.get().console_logger.info(f'Created directory {path!r}.')
@@ -536,7 +530,7 @@ class Catalog:
         # drop existing tables
         tbl_q = sql.select(schema.Table).where(schema.Table.dir_id == dir_id).with_for_update()
         for row in conn.execute(tbl_q).all():
-            tbl = self.get_tbl(row.id)
+            tbl = self.get_table_by_id(row.id)
             # this table would have been dropped already if it's a view of a base we dropped earlier
             if tbl is not None:
                 self._drop_tbl(tbl, force=True, is_replace=False)
@@ -555,10 +549,6 @@ class Catalog:
         _debug_print(for_update=False, msg=f'views of tbl id={tbl_id}')
         result = [r[0] for r in conn.execute(q).all()]
         return result
-
-    def remove_tbl(self, tbl_id: UUID) -> None:
-        assert tbl_id in self._tbls
-        del self._tbls[tbl_id]
 
     def get_tbl_version(self, tbl_id: UUID, effective_version: Optional[int]) -> Optional[TableVersion]:
         if (tbl_id, effective_version) not in self._tbl_versions:
