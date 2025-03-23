@@ -1457,6 +1457,30 @@ class TestExprs:
         for e, expected_repr in instances:
             assert repr(e) == expected_repr
 
+    def test_string_concat_exprs(self, test_tbl: catalog.Table) -> None:
+        # create table with two columns
+        schema = {'s1': pxt.String, 's2': pxt.String}
+        t = pxt.create_table('test_str_concat', schema)
+        t.add_computed_column(s3=t.s1 + '-' + t.s2)
+        t.add_computed_column(s4=t.s1 * 3)
+
+        t.insert([{'s1': 'left', 's2': 'right'}, {'s1': 'A', 's2': 'B'}])
+        result = t.collect()
+        assert result['s3'] == ['left-right', 'A-B']
+        assert result['s4'] == ['leftleftleft', 'AAA']
+
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.add_computed_column(invalid_op=t.s1 * 's1')
+        assert '* on strings requires int type,' in str(exc_info.value)
+
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.add_computed_column(invalid_op=t.s1 + 3)
+        assert '+ on strings requires string type,' in str(exc_info.value)
+
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.add_computed_column(invalid_op=t.s1 / t.s2)
+        assert 'invalid operation / on strings, only operators + and * are supported' in str(exc_info.value)
+
 
 @pxt.udf
 def udf1(x: int, y: str) -> str:
