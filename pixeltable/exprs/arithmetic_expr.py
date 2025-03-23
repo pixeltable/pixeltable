@@ -5,7 +5,6 @@ from typing import Any, Optional, Union
 import sqlalchemy as sql
 
 import pixeltable.exceptions as excs
-import pixeltable.exprs as exprs
 import pixeltable.type_system as ts
 
 from .data_row import DataRow

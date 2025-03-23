@@ -314,21 +314,24 @@ class TestExprs:
 
         # non-numeric types
         for op1, op2 in [
-            (t.c1, t.c2),
-            (t.c1, 1),
-            (t.c2, t.c1),
-            (t.c2, 'a'),
-            (t.c1, t.c3),
-            (t.c1, 1.0),
-            (t.c3, t.c1),
-            (t.c3, 'a'),
+            (t.c1, t.c2),  # string, int
+            (t.c1, 1),  # string, int
+            (t.c2, t.c1),  # int, string
+            (t.c2, 'a'),  # int, string
+            (t.c1, t.c3),  # string, float
+            (t.c1, 1.0),  # string, float
+            (t.c3, t.c1),  # float, string
+            (t.c3, 'a'),  # float, string
         ]:
             with pytest.raises(excs.Error):
                 _ = t.select(op1 + op2).collect()
             with pytest.raises(excs.Error):
                 _ = t.select(op1 - op2).collect()
-            with pytest.raises(excs.Error):
+            if Expr.is_str(op1) and Expr.is_int(op2):
                 _ = t.select(op1 * op2).collect()
+            else:
+                with pytest.raises(excs.Error):
+                    _ = t.select(op1 * op2).collect()
             with pytest.raises(excs.Error):
                 _ = t.select(op1 / op2).collect()
             with pytest.raises(excs.Error):
@@ -1459,19 +1462,22 @@ class TestExprs:
 
     def test_string_concat_exprs(self, test_tbl: catalog.Table) -> None:
         # create table with two columns
-        schema = {'s1': pxt.String, 's2': pxt.String}
+        schema = {'s1': pxt.String, 's2': pxt.String, 'i1': pxt.Int}
         t = pxt.create_table('test_str_concat', schema)
         t.add_computed_column(s3=t.s1 + '-' + t.s2)
         t.add_computed_column(s4=t.s1 * 3)
         t.add_computed_column(s5=(t.s1 + t.s2) * 2)
         t.add_computed_column(s6=t.s1 + t.s2 * 2)
-
-        t.insert([{'s1': 'left', 's2': 'right'}, {'s1': 'A', 's2': 'B'}])
+        t.add_computed_column(s7='a' * t.i1)
+        t.add_computed_column(s8=t.s2 * t.i1)
+        t.insert([{'s1': 'left', 's2': 'right', 'i1': 2}, {'s1': 'A', 's2': 'B', 'i1': 3}])
         result = t.collect()
         assert result['s3'] == ['left-right', 'A-B']
         assert result['s4'] == ['leftleftleft', 'AAA']
         assert result['s5'] == ['leftrightleftright', 'ABAB']
         assert result['s6'] == ['leftrightright', 'ABB']
+        assert result['s7'] == ['aa', 'aaa']
+        assert result['s8'] == ['rightright', 'BBB']
 
         with pytest.raises(excs.Error) as exc_info:
             _ = t.add_computed_column(invalid_op=t.s1 * 's1')

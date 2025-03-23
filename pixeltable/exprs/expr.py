@@ -646,7 +646,7 @@ class Expr(abc.ABC):
         return self._make_arithmetic_expr(ArithmeticOperator.MUL, -1)
 
     def __add__(self, other: object) -> Union[exprs.ArithmeticExpr, exprs.StringExpr]:
-        if self.col_type.is_string_type():
+        if self.is_str(self):
             return self._make_string_expr(StringOperator.ADD, other)
         return self._make_arithmetic_expr(ArithmeticOperator.ADD, other)
 
@@ -654,7 +654,7 @@ class Expr(abc.ABC):
         return self._make_arithmetic_expr(ArithmeticOperator.SUB, other)
 
     def __mul__(self, other: object) -> Union['exprs.ArithmeticExpr', 'exprs.StringExpr']:
-        if self.col_type.is_string_type():
+        if self.is_str(self):
             return self._make_string_expr(StringOperator.MUL, other)
         return self._make_arithmetic_expr(ArithmeticOperator.MUL, other)
 
@@ -667,13 +667,17 @@ class Expr(abc.ABC):
     def __floordiv__(self, other: object) -> 'exprs.ArithmeticExpr':
         return self._make_arithmetic_expr(ArithmeticOperator.FLOORDIV, other)
 
-    def __radd__(self, other: object) -> 'exprs.ArithmeticExpr':
+    def __radd__(self, other: object) -> Union['exprs.ArithmeticExpr', 'exprs.StringExpr']:
+        if self.is_str(other):
+            return self._rmake_string_expr(StringOperator.ADD, other)
         return self._rmake_arithmetic_expr(ArithmeticOperator.ADD, other)
 
     def __rsub__(self, other: object) -> 'exprs.ArithmeticExpr':
         return self._rmake_arithmetic_expr(ArithmeticOperator.SUB, other)
 
-    def __rmul__(self, other: object) -> 'exprs.ArithmeticExpr':
+    def __rmul__(self, other: object) -> Union['exprs.ArithmeticExpr', 'exprs.StringExpr']:
+        if self.is_str(other):
+            return self._rmake_string_expr(StringOperator.MUL, other)
         return self._rmake_arithmetic_expr(ArithmeticOperator.MUL, other)
 
     def __rtruediv__(self, other: object) -> 'exprs.ArithmeticExpr':
@@ -685,9 +689,30 @@ class Expr(abc.ABC):
     def __rfloordiv__(self, other: object) -> 'exprs.ArithmeticExpr':
         return self._rmake_arithmetic_expr(ArithmeticOperator.FLOORDIV, other)
 
+    @classmethod
+    def is_str(cls, object: Any) -> bool:
+        from . import StringExpr
+        from .column_ref import ColumnRef
+
+        if isinstance(object, str) or isinstance(object, StringExpr):
+            return True
+        if isinstance(object, ColumnRef) and object.col_type.is_string_type():
+            return True
+        return False
+
+    @classmethod
+    def is_int(cls, object: Any) -> bool:
+        from .column_ref import ColumnRef
+
+        if isinstance(object, int):
+            return True
+        if isinstance(object, ColumnRef) and object.col_type.is_int_type():
+            return True
+        return False
+
     def _make_string_expr(self, op: StringOperator, other: object) -> 'exprs.StringExpr':
         """
-        other: Union[Expr, LiteralPythonTypes]
+        Make left-handed version fo string expression.
         """
         from .literal import Literal
         from .string_expr import StringExpr
@@ -696,6 +721,19 @@ class Expr(abc.ABC):
             return StringExpr(op, self, other)
         if isinstance(other, typing.get_args(LiteralPythonTypes)):
             return StringExpr(op, self, Literal(other))
+        raise TypeError(f'Other must be Expr or literal: {type(other)}')
+
+    def _rmake_string_expr(self, op: StringOperator, other: object) -> 'exprs.StringExpr':
+        """
+        Right-handed version of _make_string_expr. other must be a literal; if it were an Expr,
+        the operation would have already been evaluated in its left-handed form.
+        """
+        from .literal import Literal
+        from .string_expr import StringExpr
+
+        assert not isinstance(other, Expr)  # Else the left-handed form would have evaluated first
+        if isinstance(other, typing.get_args(LiteralPythonTypes)):
+            return StringExpr(op, Literal(other), self)
         raise TypeError(f'Other must be Expr or literal: {type(other)}')
 
     def _make_arithmetic_expr(self, op: ArithmeticOperator, other: object) -> 'exprs.ArithmeticExpr':
