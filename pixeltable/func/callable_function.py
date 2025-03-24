@@ -98,11 +98,10 @@ class CallableFunction(Function):
                 result = self.py_fn(*batched_args, **constant_kwargs, **batched_kwargs)
             assert len(result) == 1
             return result[0]
+        elif inspect.iscoroutinefunction(self.py_fn):
+            return asyncio.run(self.py_fn(*args, **kwargs))
         else:
-            if inspect.iscoroutinefunction(self.py_fn):
-                return asyncio.run(self.py_fn(*args, **kwargs))
-            else:
-                return self.py_fn(*args, **kwargs)
+            return self.py_fn(*args, **kwargs)
 
     async def aexec_batch(self, *args: Any, **kwargs: Any) -> list:
         """Execute the function with the given arguments and return the result.

@@ -111,10 +111,10 @@ def _images_to_tensors(images: Iterable[PIL.Image.Image], exp: 'Exp') -> Iterato
     import torch
     from yolox.data import ValTransform  # type: ignore[import-untyped]
 
-    _val_transform = ValTransform(legacy=False)
+    val_transform = ValTransform(legacy=False)
     for image in images:
-        image = normalize_image_mode(image)
-        image_transform, _ = _val_transform(np.array(image), None, exp.test_size)
+        normalized_image = normalize_image_mode(image)
+        image_transform, _ = val_transform(np.array(normalized_image), None, exp.test_size)
         yield torch.from_numpy(image_transform)
 
 
