@@ -27,7 +27,7 @@ class SimilarityExpr(Expr):
         from pixeltable import index
 
         # determine index to use
-        idx_dict = catalog.Column.find_embedding_index(col_ref.col, idx_name, 'similarity')
+        idx_dict = ColumnRef.find_embedding_index(col_ref.col, idx_name, 'similarity')
         assert len(idx_dict) == 1
         self.idx_info = next(iter(idx_dict.values()))
         idx = self.idx_info.idx

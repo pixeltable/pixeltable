@@ -732,7 +732,7 @@ class Table(SchemaObject):
 
     @classmethod
     def validate_column_name(cls, name: str) -> None:
-        '''Check that a name is usable as a pixeltalbe column name'''
+        """Check that a name is usable as a pixeltalbe column name"""
         if is_system_column_name(name) or is_python_keyword(name):
             raise excs.Error(f'{name!r} is a reserved name in Pixeltable; please choose a different column name.')
         if not is_valid_identifier(name):

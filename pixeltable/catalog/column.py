@@ -171,33 +171,6 @@ class Column:
         assert self.tbl is not None
         return {name: info for name, info in self.tbl.get().idxs_by_name.items() if info.col == self}
 
-    @classmethod
-    def find_embedding_index(
-        cls, col: Column, idx_name: Optional[str], method_name: str
-    ) -> dict[str, TableVersion.IndexInfo]:
-        """Return IndexInfo for a column, with an optional given name"""
-        # determine index to use
-        idx_info_dict = col.get_idx_info()
-        from pixeltable import index
-
-        embedding_idx_info = {
-            info: value for info, value in idx_info_dict.items() if isinstance(value.idx, index.EmbeddingIndex)
-        }
-        if len(embedding_idx_info) == 0:
-            raise excs.Error(f'No index found for column {col!r}')
-        if idx_name is not None and idx_name not in embedding_idx_info:
-            raise excs.Error(f'Index {idx_name!r} not found for column {col.name!r}')
-        if len(embedding_idx_info) > 1:
-            if idx_name is None:
-                raise excs.Error(
-                    f'Column {col.name!r} has multiple indices; use the index name to disambiguate: '
-                    f'`{method_name}(..., idx=<index_name>)`'
-                )
-            idx_info = {idx_name: embedding_idx_info[idx_name]}
-        else:
-            idx_info = embedding_idx_info
-        return idx_info
-
     @property
     def is_computed(self) -> bool:
         return self._value_expr is not None or self.value_expr_dict is not None
