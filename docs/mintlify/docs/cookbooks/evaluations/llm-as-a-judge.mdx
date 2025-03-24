@@ -30,7 +30,7 @@ Learn how to add automated quality assessment to your AI applications using LLM-
     # Define data schema with evaluation criteria
     conversations = pxt.create_table(
         path_str="evaluations.conversations", 
-        {
+        schema_or_df={
             "prompt": pxt.String,
             "expected_criteria": pxt.String
         }, 

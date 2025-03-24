@@ -31,7 +31,7 @@ pxt.create_dir('documents')
 # Define your base table first
 documents = pxt.create_table(
     path_str="documents.collection",
-    {"document": pxt.Document}
+    schema_or_df={"document": pxt.Document}
 )
 
 # Create a view that splits documents into chunks

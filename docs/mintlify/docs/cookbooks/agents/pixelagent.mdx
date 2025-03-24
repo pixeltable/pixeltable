@@ -122,11 +122,11 @@ def create_chat(name: str, openai_model: str, tools: Optional[pxt.tools] = None)
     # Table to store conversation history between AI and User.
     message_table = pxt.create_table(
         path_str=f'{name}.messages',
-        {'role': pxt.String, 'content': pxt.String}
+        schema_or_df={'role': pxt.String, 'content': pxt.String}
     )
 
     # Chat interaction table
-    chat = pxt.create_table(path_str=f'{name}.chat', {'system_prompt': pxt.String})
+    chat = pxt.create_table(path_str=f'{name}.chat', schema_or_df={'system_prompt': pxt.String})
 
     @pxt.query
     def _get_messages():
