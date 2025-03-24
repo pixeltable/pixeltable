@@ -25,13 +25,15 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pixeltable_pgserver
 import sqlalchemy as sql
-
 from tqdm import TqdmWarning
 
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
+from pixeltable.utils.cockroachdb_helper import CockroachDbHelper
 from pixeltable.utils.console_output import ConsoleLogger, ConsoleMessageFilter, ConsoleOutputHandler, map_level
+from pixeltable.utils.dbms_helper import DbmsHelperBase
 from pixeltable.utils.http_server import make_server
+from pixeltable.utils.postgresql_helper import PostgresqlHelper
 
 if TYPE_CHECKING:
     import spacy
@@ -82,6 +84,7 @@ class Env:
     _resource_pool_info: dict[str, Any]
     _current_conn: Optional[sql.Connection]
     _current_session: Optional[sql.orm.Session]
+    _dbms_helper: Optional[DbmsHelperBase]
 
     @classmethod
     def get(cls) -> Env:
@@ -112,9 +115,8 @@ class Env:
         self._db_name = None
         self._db_server = None
         self._db_url = None
-        self._connect_str_defaultdb = None
+        self._default_db_url = None
         self._default_time_zone = None
-
         self.__optional_packages = {}
         self._spacy_nlp = None
         self._httpd = None
@@ -138,6 +140,7 @@ class Env:
         self._resource_pool_info = {}
         self._current_conn = None
         self._current_session = None
+        self._dbms_helper = None
 
     @property
     def db_url(self) -> str:
@@ -171,6 +174,11 @@ class Env:
     def session(self) -> Optional[sql.orm.Session]:
         assert self._current_session is not None
         return self._current_session
+
+    @property
+    def dbms_helper(self) -> Optional[DbmsHelperBase]:
+        assert self._dbms_helper is not None
+        return self._dbms_helper
 
     @contextmanager
     def begin_xact(self) -> Iterator[sql.Connection]:
@@ -341,15 +349,28 @@ class Env:
         http_logger.propagate = False
 
         self.clear_tmp_dir()
-
         self._db_name = os.environ.get('PIXELTABLE_DB', 'pixeltable')
-        self._pgdata_dir = Path(os.environ.get('PIXELTABLE_PGDATA', str(Config.get().home / 'pgdata')))
-        db_connect_str = os.environ.get('PIXELTABLE_DB_CONNECT_STR')
-        db_default_connect_str = os.environ.get('PIXELTABLE_DEFAULT_DB_CONNECT_STR')
 
-        if db_default_connect_str is None and db_connect_str is None:
-            self._db_name = os.environ.get('PIXELTABLE_DB', 'pixeltable')
-            self._pgdata_dir = Path(os.environ.get('PIXELTABLE_PGDATA', str(self._home / 'pgdata')))
+        db_connect_str = config.get_string_value('DB_CONNECT_STR')
+        db_default_connect_str = config.get_string_value('DEFAULT_DB_CONNECT_STR')
+        if db_default_connect_str is not None:
+            default_db_url = sql.make_url(db_default_connect_str)
+            self._default_db_url = default_db_url.render_as_string(hide_password=False)
+            if db_connect_str is not None:
+                db_url = sql.make_url(db_connect_str)
+                self._db_url = db_url.render_as_string(hide_password=False)
+                self._db_name = db_url.database  # use the dbname given in connect string
+            else:
+                # create db_url from default db url and dbname from configuration
+                self._db_url = default_db_url.set(database=self._db_name).render_as_string(hide_password=False)
+            if default_db_url.get_dialect().name == 'cockroachdb':
+                self._dbms_helper = CockroachDbHelper()
+            elif default_db_url.get_dialect().name == 'postgresql':
+                self._dbms_helper = PostgresqlHelper()
+            else:
+                raise excs.Error("Unsupported DBMS dialet '%s'" % default_db_url.get_dialect().name)
+        else:
+            self._pgdata_dir = Path(os.environ.get('PIXELTABLE_PGDATA', str(Config.get().home / 'pgdata')))
             # cleanup_mode=None will leave the postgres process running after Python exits
             # cleanup_mode='stop' will terminate the postgres process when Python exits
             # On Windows, we need cleanup_mode='stop' because child processes are killed automatically when the parent
@@ -357,12 +378,7 @@ class Env:
             cleanup_mode = 'stop' if platform.system() == 'Windows' else None
             self._db_server = pixeltable_pgserver.get_server(self._pgdata_dir, cleanup_mode=cleanup_mode)
             self._db_url = self._db_server.get_uri(database=self._db_name, driver='psycopg')
-        else:
-            # TODO: validate connect string
-            # connection string to defaultdb
-            self._connect_str_defaultdb = db_default_connect_str
-            self._db_url = db_connect_str
-            self._db_name = os.environ.get('PIXELTABLE_DB', 'pixeltable')
+            self._dbms_helper = PostgresqlHelper()
 
         tz_name = config.get_string_value('time_zone')
         if tz_name is not None:
@@ -403,22 +419,21 @@ class Env:
 
     def get_defaultdb_url(self):
         if self._db_server is None:
-            return self._connect_str_defaultdb
+            return self._default_db_url
         else:
             return self._db_server.get_uri(database='postgres', driver='psycopg')
-
-    def set_max_heap_table_size(session, transaction, connection):
-        session.execute('SET max_heap_table_size = 1024 * 1024 * 64')
 
     def _create_engine(self, time_zone_name: Optional[str], echo: bool = False) -> None:
         connect_args = {} if time_zone_name is None else {'options': f'-c timezone={time_zone_name}'}
         self._sa_engine = sql.create_engine(
-            self.db_url, echo=True, future=True, isolation_level='SERIALIZABLE', connect_args=connect_args,
+            self.db_url,
+            echo=True,
+            future=True,
+            isolation_level=self._dbms_helper.transaction_isolation_level,
+            connect_args=connect_args,
         )
 
         self._logger.info(f'Created SQLAlchemy engine at: {self.db_url}')
-        with self.engine.begin() as conn:
-            conn.execute(sql.text(f'ALTER DATABASE {self._db_name} set experimental_enable_temp_tables=on'))
 
         with self.engine.begin() as conn:
             tz_name = conn.execute(sql.text('SHOW TIME ZONE')).scalar()
@@ -449,16 +464,13 @@ class Env:
         try:
             with engine.begin() as conn:
                 # use C collation to get standard C/Python-style sorting
-                stmt = (
-                    f'CREATE DATABASE {preparer.quote(self._db_name)} '
-                    "TEMPLATE template0 ENCODING 'utf-8' LC_COLLATE 'C' LC_CTYPE 'C'"
-                )
+                stmt = self._dbms_helper.build_create_db_stmt(preparer.quote(self._db_name))
                 conn.execute(sql.text(stmt))
         finally:
             engine.dispose()
 
         # enable pgvector
-        store_db_url = self.get_defaultdb_url()
+        store_db_url = self.db_url
         engine = sql.create_engine(store_db_url, future=True, isolation_level='AUTOCOMMIT')
         try:
             with engine.begin() as conn:
@@ -483,7 +495,7 @@ class Env:
                     """
                     conn.execute(sql.text(stmt))
                 # drop db
-                stmt = f'DROP DATABASE {preparer.quote(self._db_name)} CASCADE'
+                stmt = self._dbms_helper.build_drop_db_stmt(preparer.quote(self._db_name))
                 conn.execute(sql.text(stmt))
         finally:
             engine.dispose()
