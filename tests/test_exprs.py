@@ -96,6 +96,14 @@ class TestExprs:
         def value(self) -> float:
             return 1 / self.sum
 
+    @classmethod
+    def is_str(cls, object: Any) -> bool:
+        return isinstance(object, str) or (isinstance(object, Expr) and object.col_type.is_string_type())
+
+    @classmethod
+    def is_int(cls, object: Any) -> bool:
+        return isinstance(object, int) or (isinstance(object, Expr) and object.col_type.is_int_type())
+
     def test_basic(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         assert t['c1'].equals(t.c1)
@@ -328,7 +336,7 @@ class TestExprs:
                 _ = t.select(op1 + op2).collect()
             with pytest.raises(excs.Error):
                 _ = t.select(op1 - op2).collect()
-            if Expr.is_str(op1) and Expr.is_int(op2):
+            if self.is_str(op1) and self.is_int(op2):
                 _ = t.select(op1 * op2).collect()
             else:
                 with pytest.raises(excs.Error):

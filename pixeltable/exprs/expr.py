@@ -646,7 +646,7 @@ class Expr(abc.ABC):
         return self._make_arithmetic_expr(ArithmeticOperator.MUL, -1)
 
     def __add__(self, other: object) -> Union[exprs.ArithmeticExpr, exprs.StringExpr]:
-        if self.is_str(self):
+        if isinstance(self, str) or (isinstance(self, Expr) and self.col_type.is_string_type()):
             return self._make_string_expr(StringOperator.ADD, other)
         return self._make_arithmetic_expr(ArithmeticOperator.ADD, other)
 
@@ -654,7 +654,7 @@ class Expr(abc.ABC):
         return self._make_arithmetic_expr(ArithmeticOperator.SUB, other)
 
     def __mul__(self, other: object) -> Union['exprs.ArithmeticExpr', 'exprs.StringExpr']:
-        if self.is_str(self):
+        if isinstance(self, str) or (isinstance(self, Expr) and self.col_type.is_string_type()):
             return self._make_string_expr(StringOperator.MUL, other)
         return self._make_arithmetic_expr(ArithmeticOperator.MUL, other)
 
@@ -668,7 +668,7 @@ class Expr(abc.ABC):
         return self._make_arithmetic_expr(ArithmeticOperator.FLOORDIV, other)
 
     def __radd__(self, other: object) -> Union['exprs.ArithmeticExpr', 'exprs.StringExpr']:
-        if self.is_str(other):
+        if isinstance(other, str) or (isinstance(other, Expr) and other.col_type.is_string_type()):
             return self._rmake_string_expr(StringOperator.ADD, other)
         return self._rmake_arithmetic_expr(ArithmeticOperator.ADD, other)
 
@@ -676,7 +676,7 @@ class Expr(abc.ABC):
         return self._rmake_arithmetic_expr(ArithmeticOperator.SUB, other)
 
     def __rmul__(self, other: object) -> Union['exprs.ArithmeticExpr', 'exprs.StringExpr']:
-        if self.is_str(other):
+        if isinstance(other, str) or (isinstance(other, Expr) and other.col_type.is_string_type()):
             return self._rmake_string_expr(StringOperator.MUL, other)
         return self._rmake_arithmetic_expr(ArithmeticOperator.MUL, other)
 
@@ -688,22 +688,6 @@ class Expr(abc.ABC):
 
     def __rfloordiv__(self, other: object) -> 'exprs.ArithmeticExpr':
         return self._rmake_arithmetic_expr(ArithmeticOperator.FLOORDIV, other)
-
-    @classmethod
-    def is_str(cls, object: Any) -> bool:
-        if isinstance(object, str):
-            return True
-        if isinstance(object, Expr) and object.col_type.is_string_type():
-            return True
-        return False
-
-    @classmethod
-    def is_int(cls, object: Any) -> bool:
-        if isinstance(object, int):
-            return True
-        if isinstance(object, Expr) and object.col_type.is_int_type():
-            return True
-        return False
 
     def _make_string_expr(self, op: StringOperator, other: object) -> 'exprs.StringExpr':
         """
