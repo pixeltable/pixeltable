@@ -6,9 +6,7 @@ from uuid import UUID
 import sqlalchemy as sql
 
 import pixeltable as pxt
-import pixeltable.catalog as catalog
-import pixeltable.exceptions as excs
-import pixeltable.iterators as iters
+from pixeltable import catalog, exceptions as excs, iterators as iters
 
 from ..utils.description_helper import DescriptionHelper
 from .data_row import DataRow
@@ -84,7 +82,8 @@ class ColumnRef(Expr):
         assert len(self.iter_arg_ctx.target_slot_idxs) == 1  # a single inline dict
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
-        return super()._id_attrs() + [
+        return [
+            *super()._id_attrs(),
             ('tbl_id', self.col.tbl.id),
             ('col_id', self.col.id),
             ('perform_validation', self.perform_validation),

@@ -1,3 +1,5 @@
+# ruff: noqa: F401
+
 from .aggregate_function import AggregateFunction, Aggregator, uda
 from .callable_function import CallableFunction
 from .expr_template_function import ExprTemplateFunction

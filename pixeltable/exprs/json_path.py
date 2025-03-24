@@ -6,9 +6,7 @@ import jmespath
 import sqlalchemy as sql
 
 import pixeltable as pxt
-import pixeltable.catalog as catalog
-import pixeltable.exceptions as excs
-import pixeltable.type_system as ts
+from pixeltable import catalog, exceptions as excs, type_system as ts
 
 from .data_row import DataRow
 from .expr import Expr
@@ -84,18 +82,18 @@ class JsonPath(Expr):
         Construct a relative path that references an ancestor of the immediately enclosing JsonMapper.
         """
         if not self.is_relative_path():
-            raise excs.Error(f'() for an absolute path is invalid')
+            raise excs.Error('() for an absolute path is invalid')
         if len(args) != 1 or not isinstance(args[0], int) or args[0] >= 0:
-            raise excs.Error(f'R() requires a negative index')
+            raise excs.Error('R() requires a negative index')
         return JsonPath(None, [], args[0])
 
     def __getattr__(self, name: str) -> 'JsonPath':
         assert isinstance(name, str)
-        return JsonPath(self._anchor, self.path_elements + [name])
+        return JsonPath(self._anchor, [*self.path_elements, name])
 
     def __getitem__(self, index: object) -> 'JsonPath':
         if isinstance(index, (int, slice, str)):
-            return JsonPath(self._anchor, self.path_elements + [index])
+            return JsonPath(self._anchor, [*self.path_elements, index])
         raise excs.Error(f'Invalid json list index: {index}')
 
     def __rshift__(self, other: object) -> 'JsonMapper':
@@ -120,7 +118,7 @@ class JsonPath(Expr):
 
         clean_name = ''.join(map(cleanup_char, ret_name))
         clean_name = clean_name.lstrip('_')  # remove leading underscore
-        if clean_name == '':
+        if not clean_name:  # Replace '' with None
             clean_name = None
 
         assert clean_name is None or catalog.is_valid_identifier(clean_name)
@@ -130,7 +128,7 @@ class JsonPath(Expr):
         return self.path_elements == other.path_elements
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
-        return super()._id_attrs() + [('path_elements', self.path_elements)]
+        return [*super()._id_attrs(), ('path_elements', self.path_elements)]
 
     def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
         """

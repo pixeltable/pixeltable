@@ -4,14 +4,12 @@
 import argparse
 
 import uvicorn
-from config import DIRECTORY
-from load_data import populate_pixeltable
+from initialize import mcp
 from mcp.server import Server
 from mcp.server.sse import SseServerTransport
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.routing import Mount, Route
-from tools import mcp
 
 
 def create_starlette_app(mcp_server: Server, *, debug: bool = False) -> Starlette:
@@ -31,13 +29,6 @@ def create_starlette_app(mcp_server: Server, *, debug: bool = False) -> Starlett
 
 
 if __name__ == '__main__':
-    # You can load either all documents or a subset for testing
-    # Uncomment the following line to load all JFK files (may take longer)
-    # populate_pixeltable("jfk_files", load_all=True)
-
-    # Load a smaller set of documents for quick testing and development
-    populate_pixeltable(DIRECTORY, num_docs=5)
-
     # Initialize the MCP server for handling queries
     mcp_server = mcp._mcp_server
 

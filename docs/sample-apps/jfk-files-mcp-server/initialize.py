@@ -1,9 +1,15 @@
 from config import DIRECTORY
+from load_data import populate_pixeltable
 from mcp.server.fastmcp import FastMCP
 
-import pixeltable as pxt
-
 mcp = FastMCP('JFK_Files')
+
+# You can load either all documents or a subset for testing
+# Uncomment the following line to load all JFK files (may take longer)
+# populate_pixeltable("jfk_files", load_all=True)
+
+# Load a smaller set of documents for quick testing and development
+documents = populate_pixeltable(DIRECTORY, num_docs=5)
 
 
 @mcp.tool()
@@ -24,9 +30,6 @@ def pxt_query_document(query_text: str, top_n: int = 5) -> str:
         A formatted string containing the search results with similarity scores
     """
     try:
-        # Load the document summaries table
-        documents = pxt.get_table(f'{DIRECTORY}.documents')
-
         # Calculate similarity between query and document summaries
         sim = documents.document_summary.similarity(query_text)
 

@@ -8,8 +8,7 @@ from typing import Any, Callable, Optional
 
 import av
 import numpy as np
-import PIL
-import PIL.Image as Image
+from PIL import Image
 
 import pixeltable.type_system as ts
 from pixeltable.utils.http_server import get_file_uri
@@ -213,7 +212,7 @@ class Formatter:
                 inner_element = f"""
                     <img style="object-fit: contain; border: 1px solid black;" src="{img_src}" />
                 """
-            except:
+            except Exception:
                 logging.warning(f'Failed to produce PDF thumbnail {file_path}. Make sure you have PyMuPDF installed.')
 
         return f"""
