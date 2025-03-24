@@ -4,7 +4,6 @@ import sqlalchemy as sql
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
-from pixeltable import catalog
 
 from .column_ref import ColumnRef
 from .data_row import DataRow
