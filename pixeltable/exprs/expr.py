@@ -15,6 +15,7 @@ import sqlalchemy as sql
 from typing_extensions import Self, _AnnotatedAlias
 
 from pixeltable import catalog, exceptions as excs, func, type_system as ts
+
 from .data_row import DataRow
 from .globals import ArithmeticOperator, ComparisonOperator, LiteralPythonTypes, LogicalOperator, StringOperator
 

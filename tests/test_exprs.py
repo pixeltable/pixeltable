@@ -20,8 +20,8 @@ from pixeltable import catalog, exprs
 from pixeltable.exprs import RELATIVE_PATH_ROOT as R, ColumnRef, Expr, Literal
 from pixeltable.functions.globals import cast
 from pixeltable.iterators import FrameIterator
-from .conftest import test_tbl
 
+from .conftest import test_tbl
 from .utils import (
     ReloadTester,
     create_all_datatypes_tbl,
