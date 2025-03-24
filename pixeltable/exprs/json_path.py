@@ -12,6 +12,7 @@ from .data_row import DataRow
 from .expr import Expr
 from .globals import print_slice
 from .json_mapper import JsonMapper
+from .object_ref import ObjectRef
 from .row_builder import RowBuilder
 from .sql_element_cache import SqlElementCache
 
@@ -48,8 +49,16 @@ class JsonPath(Expr):
         return f'{anchor_str}{"." if isinstance(self.path_elements[0], str) else ""}{self._json_path()}'
 
     def _as_dict(self) -> dict:
+        assert len(self.components) <= 1
+        components_dict: dict[str, Any]
+        if len(self.components) == 0 or isinstance(self.components[0], ObjectRef):
+            # If the anchor is an ObjectRef, it means this JsonPath is a bound relative path. We store it as a relative
+            # path, *not* a bound path (which has no meaning in the dict).
+            components_dict = {}
+        else:
+            components_dict = super()._as_dict()
         path_elements = [[el.start, el.stop, el.step] if isinstance(el, slice) else el for el in self.path_elements]
-        return {'path_elements': path_elements, 'scope_idx': self.scope_idx, **super()._as_dict()}
+        return {'path_elements': path_elements, 'scope_idx': self.scope_idx, **components_dict}
 
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr]) -> JsonPath:
