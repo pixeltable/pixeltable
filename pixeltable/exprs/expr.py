@@ -15,7 +15,6 @@ import sqlalchemy as sql
 from typing_extensions import Self, _AnnotatedAlias
 
 from pixeltable import catalog, exceptions as excs, func, type_system as ts
-
 from .data_row import DataRow
 from .globals import ArithmeticOperator, ComparisonOperator, LiteralPythonTypes, LogicalOperator, StringOperator
 
@@ -691,22 +690,17 @@ class Expr(abc.ABC):
 
     @classmethod
     def is_str(cls, object: Any) -> bool:
-        from . import StringExpr
-        from .column_ref import ColumnRef
-
-        if isinstance(object, str) or isinstance(object, StringExpr):
+        if isinstance(object, str):
             return True
-        if isinstance(object, ColumnRef) and object.col_type.is_string_type():
+        if isinstance(object, Expr) and object.col_type.is_string_type():
             return True
         return False
 
     @classmethod
     def is_int(cls, object: Any) -> bool:
-        from .column_ref import ColumnRef
-
         if isinstance(object, int):
             return True
-        if isinstance(object, ColumnRef) and object.col_type.is_int_type():
+        if isinstance(object, Expr) and object.col_type.is_int_type():
             return True
         return False
 
