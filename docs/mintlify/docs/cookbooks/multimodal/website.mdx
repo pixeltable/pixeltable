@@ -80,7 +80,7 @@ Pixeltable website search works in two phases:
 
     # Connect to your tables
     websites_t = pxt.get_table("web_search.websites")
-    websites_chunks = pxt.get_view("web_search.website_chunks")
+    websites_chunks = pxt.get_table("web_search.website_chunks")
 
     # Add websites with rate limiting
     urls = [
