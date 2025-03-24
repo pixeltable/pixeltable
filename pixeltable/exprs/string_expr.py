@@ -60,7 +60,6 @@ class StringExpr(Expr):
         if left is None or right is None:
             return None
         if self.operator == StringOperator.ADD:
-            assert right.col_type.is_string_type()
             return left.concat(right)
         return None
 

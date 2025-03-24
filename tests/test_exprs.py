@@ -20,6 +20,7 @@ from pixeltable import catalog, exprs
 from pixeltable.exprs import RELATIVE_PATH_ROOT as R, ColumnRef, Expr, Literal
 from pixeltable.functions.globals import cast
 from pixeltable.iterators import FrameIterator
+from .conftest import test_tbl
 
 from .utils import (
     ReloadTester,
@@ -1460,7 +1461,7 @@ class TestExprs:
         for e, expected_repr in instances:
             assert repr(e) == expected_repr
 
-    def test_string_concat_exprs(self, test_tbl: catalog.Table) -> None:
+    def test_string_concat_exprs(self, test_tbl: catalog.Table, reset_db, reload_tester: ReloadTester) -> None:
         # create table with two columns
         schema = {'s1': pxt.String, 's2': pxt.String, 'i1': pxt.Int}
         t = pxt.create_table('test_str_concat', schema)
@@ -1490,6 +1491,12 @@ class TestExprs:
         with pytest.raises(excs.Error) as exc_info:
             _ = t.add_computed_column(invalid_op=t.s1 / t.s2)
         assert 'requires numeric types, but s1 has type Optional[String]' in str(exc_info.value)
+
+        results = reload_tester.run_query(t.select(a=t.s1 + t.s2, b=t.s1 * 3, c=t.s2 * t.i1, d=(t.s1 + '/' + t.s2) * 2))
+        assert list(results[0].values()) == ['leftright', 'leftleftleft', 'rightright', 'left/rightleft/right']
+        assert list(results[1].values()) == ['AB', 'AAA', 'BBB', 'A/BA/B']
+
+        reload_tester.run_reload_test()
 
 
 @pxt.udf
