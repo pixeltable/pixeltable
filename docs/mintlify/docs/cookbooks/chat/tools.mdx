@@ -112,7 +112,7 @@ Pixeltable tool-calling apps work in two phases:
                     "role": "system",
                     "content": "You are a helpful AI assistant that can use various tools. Analyze the tool results and provide a clear, concise response."
                 },
-                {"role": "user", "content": tool_agent.response_prompt},
+                {"role": "user", "content": tool_agent.tool_response_prompt},
             ]
         )
     )
