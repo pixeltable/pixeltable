@@ -99,9 +99,9 @@ class StoreBase:
 
         # v_min/v_max indices: speeds up base table scans needed to propagate a base table insert or delete
         idx_name = f'vmin_idx_{self.tbl_version.id.hex}'
-        idxs.append(sql.Index(idx_name, self.v_min_col, postgresql_using=Env.get().dbms_helper.vmin_vmax_index_type))
+        idxs.append(sql.Index(idx_name, self.v_min_col, postgresql_using=Env.get().dbms_helper.version_index_type))
         idx_name = f'vmax_idx_{self.tbl_version.id.hex}'
-        idxs.append(sql.Index(idx_name, self.v_max_col, postgresql_using=Env.get().dbms_helper.vmin_vmax_index_type))
+        idxs.append(sql.Index(idx_name, self.v_max_col, postgresql_using=Env.get().dbms_helper.version_index_type))
 
         self.sa_tbl = sql.Table(self._storage_name(), self.sa_md, *all_cols, *idxs)
 

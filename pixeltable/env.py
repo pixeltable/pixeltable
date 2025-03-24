@@ -29,11 +29,9 @@ from tqdm import TqdmWarning
 
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
-from pixeltable.utils.cockroachdb_helper import CockroachDbHelper
 from pixeltable.utils.console_output import ConsoleLogger, ConsoleMessageFilter, ConsoleOutputHandler, map_level
-from pixeltable.utils.dbms_helper import DbmsHelperBase
+from pixeltable.utils.dbms import CockroachDbms, Dbms, PostgresqlDbms
 from pixeltable.utils.http_server import make_server
-from pixeltable.utils.postgresql_helper import PostgresqlHelper
 
 if TYPE_CHECKING:
     import spacy
@@ -84,7 +82,7 @@ class Env:
     _resource_pool_info: dict[str, Any]
     _current_conn: Optional[sql.Connection]
     _current_session: Optional[sql.orm.Session]
-    _dbms_helper: Optional[DbmsHelperBase]
+    _dbms_helper: Optional[Dbms]
 
     @classmethod
     def get(cls) -> Env:
@@ -176,7 +174,7 @@ class Env:
         return self._current_session
 
     @property
-    def dbms_helper(self) -> Optional[DbmsHelperBase]:
+    def dbms_helper(self) -> Optional[Dbms]:
         assert self._dbms_helper is not None
         return self._dbms_helper
 
@@ -351,6 +349,11 @@ class Env:
         self.clear_tmp_dir()
         self._db_name = os.environ.get('PIXELTABLE_DB', 'pixeltable')
 
+        # Load external dbms configuration
+        # DEFAULT_DB_CONNECT_STR is a required parameter used to manage the pixeltable catalog db.
+        # DB_CONNECT_STR is an optional parameter used when a specific database is required for the catalog db.
+        # If DB_CONNECT_STR is not provided, pixeltable will use DEFAULT_DB_CONNECT_STR to create the database
+        # specified in PIXELTABLE_DB.
         db_connect_str = config.get_string_value('DB_CONNECT_STR')
         db_default_connect_str = config.get_string_value('DEFAULT_DB_CONNECT_STR')
         if db_default_connect_str is not None:
@@ -364,9 +367,9 @@ class Env:
                 # create db_url from default db url and dbname from configuration
                 self._db_url = default_db_url.set(database=self._db_name).render_as_string(hide_password=False)
             if default_db_url.get_dialect().name == 'cockroachdb':
-                self._dbms_helper = CockroachDbHelper()
+                self._dbms_helper = CockroachDbms()
             elif default_db_url.get_dialect().name == 'postgresql':
-                self._dbms_helper = PostgresqlHelper()
+                self._dbms_helper = PostgresqlDbms()
             else:
                 raise excs.Error("Unsupported DBMS dialet '%s'" % default_db_url.get_dialect().name)
         else:
@@ -378,7 +381,7 @@ class Env:
             cleanup_mode = 'stop' if platform.system() == 'Windows' else None
             self._db_server = pixeltable_pgserver.get_server(self._pgdata_dir, cleanup_mode=cleanup_mode)
             self._db_url = self._db_server.get_uri(database=self._db_name, driver='psycopg')
-            self._dbms_helper = PostgresqlHelper()
+            self._dbms_helper = PostgresqlDbms()
 
         tz_name = config.get_string_value('time_zone')
         if tz_name is not None:
@@ -417,7 +420,8 @@ class Env:
         self._set_up_runtime()
         self.log_to_stdout(False)
 
-    def get_defaultdb_url(self):
+    @property
+    def default_db_url(self):
         if self._db_server is None:
             return self._default_db_url
         else:
@@ -444,7 +448,7 @@ class Env:
     def _store_db_exists(self) -> bool:
         assert self._db_name is not None
         # don't try to connect to self.db_name, it may not exist
-        db_url = self.get_defaultdb_url()
+        db_url = self.default_db_url
         engine = sql.create_engine(db_url, future=True)
         try:
             with engine.begin() as conn:
@@ -458,7 +462,7 @@ class Env:
     def _create_store_db(self) -> None:
         assert self._db_name is not None
         # create the db
-        pg_db_url = self.get_defaultdb_url()
+        pg_db_url = self.default_db_url
         engine = sql.create_engine(pg_db_url, future=True, isolation_level='AUTOCOMMIT')
         preparer = engine.dialect.identifier_preparer
         try:
@@ -480,7 +484,7 @@ class Env:
 
     def _drop_store_db(self) -> None:
         assert self._db_name is not None
-        db_url = self.get_defaultdb_url()
+        db_url = self.default_db_url
         engine = sql.create_engine(db_url, future=True, isolation_level='AUTOCOMMIT')
         preparer = engine.dialect.identifier_preparer
         try:
