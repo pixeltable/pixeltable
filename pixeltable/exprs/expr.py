@@ -514,7 +514,7 @@ class Expr(abc.ABC):
 
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr]) -> Self:
-        raise AssertionError('not implemented')
+        raise AssertionError(f'not implemented: {cls.__name__}')
 
     def isin(self, value_set: Any) -> 'exprs.InPredicate':
         from .in_predicate import InPredicate
