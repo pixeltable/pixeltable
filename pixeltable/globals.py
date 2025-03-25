@@ -7,7 +7,7 @@ import pandas as pd
 from pandas.io.formats.style import Styler
 
 from pixeltable import DataFrame, catalog, env, exceptions as excs, exprs, func, share
-from pixeltable.catalog import Catalog, IfExistsParam, IfNotExistsParam
+from pixeltable.catalog import Catalog, IfExistsParam, IfNotExistsParam, SchemaObject
 from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
@@ -560,7 +560,7 @@ def list_tables(dir_path: str = '', recursive: bool = True) -> list[str]:
 
 
 def create_dir(
-    path: str, if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error'
+    path: str, if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error', parents: bool = False
 ) -> Optional[catalog.Dir]:
     """Create a directory.
 
@@ -573,6 +573,7 @@ def create_dir(
             - `'ignore'`: do nothing and return the existing directory handle
             - `'replace'`: if the existing directory is empty, drop it and create a new one
             - `'replace_force'`: drop the existing directory and all its children, and create a new one
+        parents: Create missing parent directories.
 
     Returns:
         A handle to the newly created directory, or to an already existing directory at the path when
@@ -600,18 +601,32 @@ def create_dir(
         Create a directory and replace if it already exists:
 
         >>> pxt.create_dir('my_dir', if_exists='replace_force')
+
+        Create a subdirectory along with its ancestors:
+
+        >>> pxt.create_dir('parent1.parent2.sub_dir', parents=True)
     """
     path_obj = catalog.Path(path)
     cat = Catalog.get()
-
     with env.Env.get().begin_xact():
+        if parents:
+            # start walking down from the root
+            ancestors = path_obj.ancestors()
+            last_parent: Optional[SchemaObject] = None
+            for ancestor in ancestors:
+                ancestor_obj = cat.get_schema_object(str(ancestor), expected=catalog.Dir)
+                assert ancestor_obj is not None or last_parent is not None
+                last_parent = (
+                    catalog.Dir._create(last_parent._id, ancestor.name) if ancestor_obj is None else ancestor_obj
+                )
+            parent = last_parent
+        else:
+            parent = cat.get_schema_object(str(path_obj.parent))
         if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
         existing = _handle_path_collision(path, catalog.Dir, False, if_exists_)
         if existing is not None:
             assert isinstance(existing, catalog.Dir)
             return existing
-
-        parent = cat.get_schema_object(str(path_obj.parent))
         assert parent is not None
         dir = catalog.Dir._create(parent._id, path_obj.name)
         Env.get().console_logger.info(f'Created directory {path!r}.')
