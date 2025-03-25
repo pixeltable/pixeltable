@@ -65,7 +65,7 @@ if TYPE_CHECKING:
     import datasets  # type: ignore[import-untyped]
 
     RowData = list[dict[str, Any]]
-    TableDataSourceType = Union[
+    TableDataSource = Union[
         str,
         os.PathLike,
         Path,  # OS paths, filenames, URLs
@@ -82,7 +82,7 @@ def create_table(
     path_str: str,
     schema: Union[dict[str, Any], None] = None,
     *,
-    source: Optional[TableDataSourceType] = None,
+    source: Optional[TableDataSource] = None,
     source_format: Optional[Literal['csv', 'excel', 'parquet', 'json']] = None,
     schema_overrides: Optional[dict[str, Any]] = None,
     on_error: Literal['abort', 'ignore'] = 'abort',
@@ -170,7 +170,7 @@ def create_table(
         assert schema is None
     assert schema is not None or source is not None
 
-    from pixeltable.io.globals import OnErrorParameter, TableDataSourceDF, TableDataSourceUnk
+    from pixeltable.io.globals import OnErrorParameter, DFTableDataConduit, UnkTableDataConduit
     from pixeltable.io.utils import normalize_primary_key_parameter
 
     path = catalog.Path(path_str)
@@ -191,7 +191,7 @@ def create_table(
         tds = None
         data_source = None
         if source is not None:
-            tds = TableDataSourceUnk(source, source_format=source_format, extra_fields=kwargs)
+            tds = UnkTableDataConduit(source, source_format=source_format, extra_fields=kwargs)
             tds.check_source_format()
             data_source = tds.specialize()
             data_source.src_schema_overrides = schema_overrides
@@ -214,7 +214,7 @@ def create_table(
                 dest_dir._id,
                 path.name,
                 schema,
-                data_source.pxt_df if isinstance(data_source, TableDataSourceDF) else None,
+                data_source.pxt_df if isinstance(data_source, DFTableDataConduit) else None,
                 primary_key=primary_key,
                 num_retained_versions=num_retained_versions,
                 comment=comment,

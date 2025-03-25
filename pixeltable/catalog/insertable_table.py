@@ -86,12 +86,12 @@ class InsertableTable(Table):
     if TYPE_CHECKING:
         import datasets  # type: ignore[import-untyped]
 
-        from pixeltable.globals import RowData, TableDataSourceType
+        from pixeltable.globals import RowData, TableDataSource
 
     @overload
     def insert(
         self,
-        source: Optional[TableDataSourceType] = None,
+        source: Optional[TableDataSource] = None,
         /,
         *,
         source_format: Optional[Literal['csv', 'excel', 'parquet', 'json']] = None,
@@ -108,7 +108,7 @@ class InsertableTable(Table):
 
     def insert(
         self,
-        source: Optional[TableDataSourceType] = None,
+        source: Optional[TableDataSource] = None,
         /,
         *,
         source_format: Optional[Literal['csv', 'excel', 'parquet', 'json']] = None,
@@ -117,14 +117,14 @@ class InsertableTable(Table):
         print_stats: bool = False,
         **kwargs: Any,
     ) -> UpdateStatus:
-        from pixeltable.io.globals import OnErrorParameter, TableDataSourceUnk
+        from pixeltable.io.globals import OnErrorParameter, UnkTableDataConduit
 
         table = self
         if source is None:
             source = [kwargs]
             kwargs = None
 
-        tds = TableDataSourceUnk(
+        tds = UnkTableDataConduit(
             source, source_format=source_format, src_schema_overrides=schema_overrides, extra_fields=kwargs
         )
         data_source = tds.specialize()
@@ -141,17 +141,17 @@ class InsertableTable(Table):
         )
 
     if TYPE_CHECKING:
-        from pixeltable.io.globals import TableDataSource
+        from pixeltable.io.globals import TableDataConduit
 
     def insert_table_data_source(
-        self, data_source: TableDataSource, fail_on_exception: bool, print_stats: bool = False
+        self, data_source: TableDataConduit, fail_on_exception: bool, print_stats: bool = False
     ) -> pxt.UpdateStatus:
-        """Insert row batches into this table from a `TableDataSource`."""
-        from pixeltable.io.globals import TableDataSource, TableDataSourceDF
+        """Insert row batches into this table from a `TableDataConduit`."""
+        from pixeltable.io.globals import TableDataConduit, DFTableDataConduit
 
         status = pxt.UpdateStatus()
         with Env.get().begin_xact():
-            if isinstance(data_source, TableDataSourceDF):
+            if isinstance(data_source, DFTableDataConduit):
                 status += self._tbl_version.get().insert(
                     rows=None, df=data_source.pxt_df, print_stats=print_stats, fail_on_exception=fail_on_exception
                 )

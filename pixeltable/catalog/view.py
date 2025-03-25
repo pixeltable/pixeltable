@@ -258,11 +258,11 @@ class View(Table):
     if TYPE_CHECKING:
         import datasets  # type: ignore[import-untyped]
 
-        from pixeltable.globals import RowData, TableDataSourceType
+        from pixeltable.globals import RowData, TableDataSource
 
     def insert(
         self,
-        source: Optional[TableDataSourceType] = None,
+        source: Optional[TableDataSource] = None,
         /,
         *,
         source_format: Optional[Literal['csv', 'excel', 'parquet', 'json']] = None,

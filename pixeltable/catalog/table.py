@@ -1178,12 +1178,12 @@ class Table(SchemaObject):
     if TYPE_CHECKING:
         import datasets  # type: ignore[import-untyped]
 
-        from pixeltable.globals import RowData, TableDataSourceType
+        from pixeltable.globals import RowData, TableDataSource
 
     @overload
     def insert(
         self,
-        source: TableDataSourceType,
+        source: TableDataSource,
         /,
         *,
         source_format: Optional[Literal['csv', 'excel', 'parquet', 'json']] = None,
@@ -1201,7 +1201,7 @@ class Table(SchemaObject):
     @abc.abstractmethod
     def insert(
         self,
-        source: Optional[TableDataSourceType] = None,
+        source: Optional[TableDataSource] = None,
         /,
         *,
         source_format: Optional[Literal['csv', 'excel', 'parquet', 'json']] = None,

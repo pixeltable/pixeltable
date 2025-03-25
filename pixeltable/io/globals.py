@@ -251,11 +251,11 @@ def export_images_as_fo_dataset(
 if TYPE_CHECKING:
     import datasets  # type: ignore[import-untyped]
 
-    from pixeltable.globals import RowData, TableDataSourceType
+    from pixeltable.globals import RowData, TableDataSource
 
 
-class TableDataSourceFormat(str, enum.Enum):
-    """Supported formats for TableDataSource"""
+class TableDataConduitFormat(str, enum.Enum):
+    """Supported formats for TableDataConduit"""
 
     JSON = 'json'
     CSV = 'csv'
@@ -294,8 +294,8 @@ class OnErrorParameter(enum.Enum):
 
 
 @dataclass
-class TableDataSource:
-    source: TableDataSourceType
+class TableDataConduit:
+    source: TableDataSource
     source_format: Optional[str] = None
     source_column_map: Optional[dict[str, str]] = None
     if_row_exists: Literal['update', 'ignore', 'error'] = 'error'
@@ -315,10 +315,10 @@ class TableDataSource:
     _K_BATCH_SIZE_BYTES = 100_000_000  # 100 MB
 
     def check_source_format(self) -> None:
-        assert self.source_format is None or TableDataSourceFormat.is_valid(self.source_format)
+        assert self.source_format is None or TableDataConduitFormat.is_valid(self.source_format)
 
     @classmethod
-    def is_rowdata_structure(cls, d: TableDataSourceType) -> bool:
+    def is_rowdata_structure(cls, d: TableDataSource) -> bool:
         if not isinstance(d, list) or len(d) == 0:
             return False
         return all(isinstance(row, dict) for row in d)
@@ -371,13 +371,13 @@ class TableDataSource:
 # ---------------------------------------------------------------------------------------------------------
 
 
-class TableDataSourceDF(TableDataSource):
+class DFTableDataConduit(TableDataConduit):
     pxt_df: pxt.DataFrame = None
 
     @classmethod
-    def from_tds(cls, tds: TableDataSource) -> 'TableDataSourceDF':
-        foo_fields = {f.name for f in fields(tds)}
-        kwargs = {k: v for k, v in tds.__dict__.items() if k in foo_fields}
+    def from_tds(cls, tds: TableDataConduit) -> 'DFTableDataConduit':
+        tds_fields = {f.name for f in fields(tds)}
+        kwargs = {k: v for k, v in tds.__dict__.items() if k in tds_fields}
         t = cls(**kwargs)
         assert isinstance(tds.source, pxt.DataFrame)
         t.pxt_df = tds.source
@@ -397,15 +397,15 @@ class TableDataSourceDF(TableDataSource):
 # ---------------------------------------------------------------------------------------------------------
 
 
-class TableDataSourceRowData(TableDataSource):
+class RowDataTableDataConduit(TableDataConduit):
     raw_rows: Optional[RowData] = None
     disable_mapping: bool = True
     batch_count: int = 0
 
     @classmethod
-    def from_tds(cls, tds: TableDataSource) -> 'TableDataSourceRowData':
-        foo_fields = {f.name for f in fields(tds)}
-        kwargs = {k: v for k, v in tds.__dict__.items() if k in foo_fields}
+    def from_tds(cls, tds: TableDataConduit) -> 'RowDataTableDataConduit':
+        tds_fields = {f.name for f in fields(tds)}
+        kwargs = {k: v for k, v in tds.__dict__.items() if k in tds_fields}
         t = cls(**kwargs)
         if isinstance(tds.source, Iterator):
             # Instantiate the iterator to get the raw rows here
@@ -477,14 +477,14 @@ class TableDataSourceRowData(TableDataSource):
 # ---------------------------------------------------------------------------------------------------------
 
 
-class TableDataSourcePandas(TableDataSource):
+class PandasTableDataConduit(TableDataConduit):
     pd_df: pd.DataFrame = None
     batch_count: int = 0
 
     @classmethod
-    def from_tds(cls, tds: TableDataSource) -> TableDataSourcePandas:
-        foo_fields = {f.name for f in fields(tds)}
-        kwargs = {k: v for k, v in tds.__dict__.items() if k in foo_fields}
+    def from_tds(cls, tds: TableDataConduit) -> PandasTableDataConduit:
+        tds_fields = {f.name for f in fields(tds)}
+        kwargs = {k: v for k, v in tds.__dict__.items() if k in tds_fields}
         t = cls(**kwargs)
         assert isinstance(tds.source, pd.DataFrame)
         t.pd_df = tds.source
@@ -535,39 +535,39 @@ class TableDataSourcePandas(TableDataSource):
 # ---------------------------------------------------------------------------------------------------------
 
 
-class TableDataSourceCSV(TableDataSource):
+class CSVTableDataConduit(TableDataConduit):
     @classmethod
-    def from_tds(cls, tds: TableDataSource) -> 'TableDataSourcePandas':
-        foo_fields = {f.name for f in fields(tds)}
-        kwargs = {k: v for k, v in tds.__dict__.items() if k in foo_fields}
+    def from_tds(cls, tds: TableDataConduit) -> 'PandasTableDataConduit':
+        tds_fields = {f.name for f in fields(tds)}
+        kwargs = {k: v for k, v in tds.__dict__.items() if k in tds_fields}
         t = cls(**kwargs)
         assert isinstance(t.source, str)
         t.source = pd.read_csv(t.source, **t.extra_fields)
-        return TableDataSourcePandas.from_tds(t)
+        return PandasTableDataConduit.from_tds(t)
 
 
 # ---------------------------------------------------------------------------------------------------------
 
 
-class TableDataSourceExcel(TableDataSource):
+class ExcelTableDataConduit(TableDataConduit):
     @classmethod
-    def from_tds(cls, tds: TableDataSource) -> 'TableDataSourcePandas':
-        foo_fields = {f.name for f in fields(tds)}
-        kwargs = {k: v for k, v in tds.__dict__.items() if k in foo_fields}
+    def from_tds(cls, tds: TableDataConduit) -> 'PandasTableDataConduit':
+        tds_fields = {f.name for f in fields(tds)}
+        kwargs = {k: v for k, v in tds.__dict__.items() if k in tds_fields}
         t = cls(**kwargs)
         assert isinstance(t.source, str)
         t.source = pd.read_excel(t.source, **t.extra_fields)
-        return TableDataSourcePandas.from_tds(t)
+        return PandasTableDataConduit.from_tds(t)
 
 
 # ---------------------------------------------------------------------------------------------------------
 
 
-class TableDataSourceJson(TableDataSource):
+class JsonTableDataConduit(TableDataConduit):
     @classmethod
-    def from_tds(cls, tds: TableDataSource) -> TableDataSourceRowData:
-        foo_fields = {f.name for f in fields(tds)}
-        kwargs = {k: v for k, v in tds.__dict__.items() if k in foo_fields}
+    def from_tds(cls, tds: TableDataConduit) -> RowDataTableDataConduit:
+        tds_fields = {f.name for f in fields(tds)}
+        kwargs = {k: v for k, v in tds.__dict__.items() if k in tds_fields}
         t = cls(**kwargs)
         assert isinstance(t.source, str)
 
@@ -580,7 +580,7 @@ class TableDataSourceJson(TableDataSource):
                 contents = fp.read()
         rows = json.loads(contents, **t.extra_fields)
         t.source = rows
-        t2 = TableDataSourceRowData.from_tds(t)
+        t2 = RowDataTableDataConduit.from_tds(t)
         t2.disable_mapping = False
         return t2
 
@@ -588,7 +588,7 @@ class TableDataSourceJson(TableDataSource):
 # ---------------------------------------------------------------------------------------------------------
 
 
-class TableDataSourceHF(TableDataSource):
+class HFTableDataConduit(TableDataConduit):
     hf_ds: Optional[Union[datasets.Dataset, datasets.DatasetDict]] = None
     column_name_for_split: Optional[str] = None
     categorical_features: dict[str, dict[int, str]]
@@ -597,9 +597,9 @@ class TableDataSourceHF(TableDataSource):
     hf_schema_source: dict[str, Any] = None
 
     @classmethod
-    def from_tds(cls, tds: TableDataSource) -> 'TableDataSourceHF':
-        foo_fields = {f.name for f in fields(tds)}
-        kwargs = {k: v for k, v in tds.__dict__.items() if k in foo_fields}
+    def from_tds(cls, tds: TableDataConduit) -> 'HFTableDataConduit':
+        tds_fields = {f.name for f in fields(tds)}
+        kwargs = {k: v for k, v in tds.__dict__.items() if k in tds_fields}
         t = cls(**kwargs)
         if TYPE_CHECKING:
             assert isinstance(tds.source, (datasets.Dataset, datasets.DatasetDict))
@@ -609,7 +609,7 @@ class TableDataSourceHF(TableDataSource):
         return t
 
     @classmethod
-    def is_applicable(cls, tds: TableDataSource) -> bool:
+    def is_applicable(cls, tds: TableDataConduit) -> bool:
         try:
             import datasets
 
@@ -719,13 +719,13 @@ class TableDataSourceHF(TableDataSource):
 # ---------------------------------------------------------------------------------------------------------
 
 
-class TableDataSourceParquet(TableDataSource):
+class ParquetTableDataConduit(TableDataConduit):
     pq_ds: Optional[ParquetDataset] = None
 
     @classmethod
-    def from_tds(cls, tds: TableDataSource) -> 'TableDataSourceParquet':
-        foo_fields = {f.name for f in fields(tds)}
-        kwargs = {k: v for k, v in tds.__dict__.items() if k in foo_fields}
+    def from_tds(cls, tds: TableDataConduit) -> 'ParquetTableDataConduit':
+        tds_fields = {f.name for f in fields(tds)}
+        kwargs = {k: v for k, v in tds.__dict__.items() if k in tds_fields}
         t = cls(**kwargs)
 
         from pyarrow import parquet
@@ -783,31 +783,31 @@ class TableDataSourceParquet(TableDataSource):
 # ---------------------------------------------------------------------------------------------------------
 
 
-class TableDataSourceUnk(TableDataSource):
+class UnkTableDataConduit(TableDataConduit):
     """Source type is not known at the time of creation"""
 
-    def specialize(self) -> TableDataSource:
+    def specialize(self) -> TableDataConduit:
         if isinstance(self.source, pxt.DataFrame):
-            return TableDataSourceDF.from_tds(self)
+            return DFTableDataConduit.from_tds(self)
         if isinstance(self.source, pd.DataFrame):
-            return TableDataSourcePandas.from_tds(self)
-        if TableDataSourceHF.is_applicable(self):
-            return TableDataSourceHF.from_tds(self)
+            return PandasTableDataConduit.from_tds(self)
+        if HFTableDataConduit.is_applicable(self):
+            return HFTableDataConduit.from_tds(self)
         if self.source_format == 'csv' or (isinstance(self.source, str) and '.csv' in self.source.lower()):
-            return TableDataSourceCSV.from_tds(self)
+            return CSVTableDataConduit.from_tds(self)
         if self.source_format == 'excel' or (isinstance(self.source, str) and '.xls' in self.source.lower()):
-            return TableDataSourceExcel.from_tds(self)
+            return ExcelTableDataConduit.from_tds(self)
         if self.source_format == 'json' or (isinstance(self.source, str) and '.json' in self.source.lower()):
-            return TableDataSourceJson.from_tds(self)
+            return JsonTableDataConduit.from_tds(self)
         if self.source_format == 'parquet' or (
             isinstance(self.source, str) and any(s in self.source.lower() for s in ['.parquet', '.pq', '.parq'])
         ):
-            return TableDataSourceParquet.from_tds(self)
+            return ParquetTableDataConduit.from_tds(self)
         if (
             self.is_rowdata_structure(self.source)
             # An Iterator as a source is assumed to produce rows
             or isinstance(self.source, Iterator)
         ):
-            return TableDataSourceRowData.from_tds(self)
+            return RowDataTableDataConduit.from_tds(self)
 
         raise excs.Error(f'Unsupported data source type: {type(self.source)}')
