@@ -117,7 +117,7 @@ class InsertableTable(Table):
         print_stats: bool = False,
         **kwargs: Any,
     ) -> UpdateStatus:
-        from pixeltable.io.globals import OnErrorParameter, UnkTableDataConduit
+        from pixeltable.io.table_data_conduit import OnErrorParameter, UnkTableDataConduit
 
         table = self
         if source is None:
@@ -141,13 +141,13 @@ class InsertableTable(Table):
         )
 
     if TYPE_CHECKING:
-        from pixeltable.io.globals import TableDataConduit
+        from pixeltable.io.table_data_conduit import TableDataConduit
 
     def insert_table_data_source(
         self, data_source: TableDataConduit, fail_on_exception: bool, print_stats: bool = False
     ) -> pxt.UpdateStatus:
         """Insert row batches into this table from a `TableDataConduit`."""
-        from pixeltable.io.globals import TableDataConduit, DFTableDataConduit
+        from pixeltable.io.table_data_conduit import DFTableDataConduit, TableDataConduit
 
         status = pxt.UpdateStatus()
         with Env.get().begin_xact():

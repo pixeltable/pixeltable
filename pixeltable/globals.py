@@ -170,7 +170,7 @@ def create_table(
         assert schema is None
     assert schema is not None or source is not None
 
-    from pixeltable.io.globals import OnErrorParameter, DFTableDataConduit, UnkTableDataConduit
+    from pixeltable.io.table_data_conduit import DFTableDataConduit, OnErrorParameter, UnkTableDataConduit
     from pixeltable.io.utils import normalize_primary_key_parameter
 
     path = catalog.Path(path_str)
