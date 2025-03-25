@@ -560,7 +560,7 @@ def list_tables(dir_path: str = '', recursive: bool = True) -> list[str]:
 
 
 def create_dir(
-    path: str, if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error', create_parents: bool = False
+    path: str, if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error', parents: bool = False
 ) -> Optional[catalog.Dir]:
     """Create a directory.
 
@@ -573,7 +573,7 @@ def create_dir(
             - `'ignore'`: do nothing and return the existing directory handle
             - `'replace'`: if the existing directory is empty, drop it and create a new one
             - `'replace_force'`: drop the existing directory and all its children, and create a new one
-        create_parents: Create missing parent directories.
+        parents: Create missing parent directories.
 
     Returns:
         A handle to the newly created directory, or to an already existing directory at the path when
@@ -604,12 +604,12 @@ def create_dir(
 
         Create a subdirectory along with its ancestors:
 
-        >>> pxt.create_dir('parent1.parent2.sub_dir', create_parents=True)
+        >>> pxt.create_dir('parent1.parent2.sub_dir', parents=True)
     """
     path_obj = catalog.Path(path)
     cat = Catalog.get()
     with env.Env.get().begin_xact():
-        if create_parents:
+        if parents:
             # start walking down from the root
             ancestors = path_obj.ancestors()
             last_parent: Optional[SchemaObject] = None

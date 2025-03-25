@@ -224,7 +224,7 @@ class TestDirs:
 
     def test_create_with_parents(self, reset_db) -> None:
         all_dirs = ['dir1', 'dir1.dir2', 'dir1.dir2.dir3']
-        dir3 = pxt.create_dir('dir1.dir2.dir3', create_parents=True)
+        dir3 = pxt.create_dir('dir1.dir2.dir3', parents=True)
         md = dir3.get_metadata()
         assert md['path'] == 'dir1.dir2.dir3'
         assert md['name'] == 'dir3'
@@ -234,7 +234,7 @@ class TestDirs:
         # create a subdirectory where couple of intermediate parents are missing
         pxt.drop_dir('dir1.dir2.dir3')
         pxt.drop_dir('dir1.dir2')
-        dir4 = pxt.create_dir('dir1.dir2.dir3.dir4', create_parents=True)
+        dir4 = pxt.create_dir('dir1.dir2.dir3.dir4', parents=True)
         md = dir4.get_metadata()
         assert md['path'] == 'dir1.dir2.dir3.dir4'
         assert md['name'] == 'dir4'
