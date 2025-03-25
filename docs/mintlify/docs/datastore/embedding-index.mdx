@@ -74,8 +74,8 @@ The setup phase defines your schema and creates embedding indexes.
     
     # Create table
     docs = pxt.create_table(
-        path_str="knowledge_base.documents",
-        schema_or_df={
+        "knowledge_base.documents",
+        {
             "content": pxt.String,
             "metadata": pxt.Json
         }

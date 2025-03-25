@@ -73,8 +73,8 @@ Pixeltable tool-calling apps work in two phases:
 
     # Create base table
     tool_agent = pxt.create_table(
-        path_str="agents.tools", 
-        schema_or_df={"prompt": pxt.String}, 
+        "agents.tools", 
+        {"prompt": pxt.String}, 
         if_exists="ignore"
     )
 
