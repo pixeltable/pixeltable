@@ -2,7 +2,7 @@ from abc import abstractmethod
 from typing import TYPE_CHECKING, Any, Optional
 from uuid import UUID
 
-import pixeltable.env as env
+from pixeltable.env import Env
 
 if TYPE_CHECKING:
     from pixeltable import catalog
@@ -28,7 +28,7 @@ class SchemaObject:
         """Returns the parent directory of this schema object."""
         from .catalog import Catalog
 
-        with env.Env.get().begin_xact():
+        with Env.get().begin_xact():
             if self._dir_id is None:
                 return None
             return Catalog.get().get_dir(self._dir_id)
@@ -38,8 +38,9 @@ class SchemaObject:
         from .catalog import Catalog
 
         assert self._dir_id is not None
-        path = Catalog.get().get_dir_path(self._dir_id)
-        return str(path.append(self._name))
+        with Env.get().begin_xact():
+            path = Catalog.get().get_dir_path(self._dir_id)
+            return str(path.append(self._name))
 
     def get_metadata(self) -> dict[str, Any]:
         """Returns metadata associated with this schema object."""

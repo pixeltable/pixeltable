@@ -170,6 +170,9 @@ class Env:
         assert self._current_session is not None
         return self._current_session
 
+    def in_xact(self) -> bool:
+        return self._current_conn is not None
+
     @contextmanager
     def begin_xact(self) -> Iterator[sql.Connection]:
         """Return a context manager that yields a connection to the database. Idempotent."""
@@ -177,14 +180,15 @@ class Env:
             assert self._current_session is None
             try:
                 with self.engine.begin() as conn, sql.orm.Session(conn) as session:
-                    print(f'{datetime.datetime.now()}: start xact')
+                    # TODO: remove print() once we're done with debugging the concurrent update behavior
+                    # print(f'{datetime.datetime.now()}: start xact')
                     self._current_conn = conn
                     self._current_session = session
                     yield conn
             finally:
                 self._current_session = None
                 self._current_conn = None
-                print(f'{datetime.datetime.now()}: end xact')
+                # print(f'{datetime.datetime.now()}: end xact')
         else:
             assert self._current_session is not None
             yield self._current_conn

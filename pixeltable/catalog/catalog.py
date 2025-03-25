@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import dataclasses
-import datetime
+import functools
 import logging
 import time
-from typing import TYPE_CHECKING, Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional, TypeVar
 from uuid import UUID
 
 import psycopg
@@ -14,9 +14,6 @@ import pixeltable.exceptions as excs
 import pixeltable.metadata.schema as schema
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
-
-# from .. import DataFrame
-# from . import MediaValidation
 from .dir import Dir
 from .globals import IfExistsParam, IfNotExistsParam, MediaValidation
 from .insertable_table import InsertableTable
@@ -39,9 +36,10 @@ def _lock_str(for_update: bool) -> str:
     return 'X' if for_update else 'S'
 
 
-def _debug_print(for_update: bool, msg: str) -> None:
-    return
-    print(f'{datetime.datetime.now()}: {_lock_str(for_update)}: {msg}')
+# TODO: remove once the concurrent update behavior has been debugged
+# def _debug_print(for_update: bool, msg: str) -> None:
+#     return
+#     print(f'{datetime.datetime.now()}: {_lock_str(for_update)}: {msg}')
 
 
 def _unpack_row(
@@ -67,13 +65,38 @@ def _unpack_row(
     return result
 
 
+_MAX_RETRIES = 3
+T = TypeVar('T')
+
+
+def _retry_loop(op: Callable[..., T]) -> Callable[..., T]:
+    @functools.wraps(op)
+    def loop(*args: Any, **kwargs: Any) -> T:
+        num_remaining_retries = _MAX_RETRIES
+        while True:
+            try:
+                # in order for retry to work, we need to make sure that there aren't any prior db updates
+                # that are part of an ongoing transaction
+                assert not Env.get().in_xact()
+                with Env.get().begin_xact() as conn:
+                    return op(*args, **kwargs)
+            except sql.exc.DBAPIError as e:
+                if isinstance(e.orig, psycopg.errors.SerializationFailure) and num_remaining_retries > 0:
+                    num_remaining_retries -= 1
+                    print(f'serialization failure:\n{e}')
+                    print('retrying ************************************************************')
+                    time.sleep(1)
+                else:
+                    raise
+
+    return loop
+
+
 class Catalog:
     """The functional interface to getting access to catalog objects
 
     All interface functions must be called in the context of a transaction, started with Env.begin().
     """
-
-    MAX_RETRIES = 3
 
     _instance: Optional[Catalog] = None
 
@@ -99,40 +122,22 @@ class Catalog:
         self._tbls = {}  # don't use a defaultdict here, it doesn't cooperate with the debugger
         self._init_store()
 
-    def _retry_loop(self, op: Callable[[], Any]) -> Any:
-        num_remaining_retries = self.MAX_RETRIES
-        while True:
-            try:
-                return op()
-            except sql.exc.DBAPIError as e:
-                if isinstance(e.orig, psycopg.errors.SerializationFailure) and num_remaining_retries > 0:
-                    num_remaining_retries -= 1
-                    print(f'serialization failure:\n{e}')
-                    print('retrying ************************************************************')
-                    time.sleep(1)
-                else:
-                    raise
-
     def get_dir_path(self, dir_id: UUID) -> Path:
         """Return path for directory with given id"""
-
-        def op() -> Path:
-            dir_id_ = dir_id
-            with Env.get().begin_xact() as conn:
-                names: list[str] = []
-                while True:
-                    q = sql.select(schema.Dir).where(schema.Dir.id == dir_id_)
-                    _debug_print(for_update=False, msg=f'dir id={dir_id}')
-                    row = conn.execute(q).one()
-                    dir = schema.Dir(**row._mapping)
-                    if dir.md['name'] == '':
-                        break
-                    names.insert(0, dir.md['name'])
-                    dir_id_ = dir.parent_id
-                    assert dir_id is not None
-                return Path('.'.join(names), empty_is_valid=True)
-
-        return self._retry_loop(op)
+        dir_id_ = dir_id
+        conn = Env.get().conn
+        names: list[str] = []
+        while True:
+            q = sql.select(schema.Dir).where(schema.Dir.id == dir_id_)
+            # _debug_print(for_update=False, msg=f'dir id={dir_id}')
+            row = conn.execute(q).one()
+            dir = schema.Dir(**row._mapping)
+            if dir.md['name'] == '':
+                break
+            names.insert(0, dir.md['name'])
+            dir_id_ = dir.parent_id
+            assert dir_id is not None
+        return Path('.'.join(names), empty_is_valid=True)
 
     @dataclasses.dataclass
     class DirEntry:
@@ -140,13 +145,10 @@ class Catalog:
         dir_entries: dict[str, Catalog.DirEntry]
         table: Optional[schema.Table]
 
+    @_retry_loop
     def get_dir_contents(self, dir_path: Path, recursive: bool = False) -> dict[str, DirEntry]:
-        def op() -> dict[str, Catalog.DirEntry]:
-            with Env.get().begin_xact():
-                dir = self._get_schema_object(dir_path, expected=Dir, raise_if_not_exists=True)
-                return self._get_dir_contents(dir._id, recursive=recursive)
-
-        return self._retry_loop(op)
+        dir = self._get_schema_object(dir_path, expected=Dir, raise_if_not_exists=True)
+        return self._get_dir_contents(dir._id, recursive=recursive)
 
     def _get_dir_contents(self, dir_id: UUID, recursive: bool = False) -> dict[str, DirEntry]:
         """Returns a dict mapping the entry names to DirEntry objects"""
@@ -154,7 +156,7 @@ class Catalog:
         result: dict[str, Catalog.DirEntry] = {}
 
         q = sql.select(schema.Dir).where(schema.Dir.parent_id == dir_id)
-        _debug_print(for_update=False, msg=f'dirs parent_id={dir_id}')
+        # _debug_print(for_update=False, msg=f'dirs parent_id={dir_id}')
         rows = conn.execute(q).all()
         for row in rows:
             dir = schema.Dir(**row._mapping)
@@ -164,7 +166,7 @@ class Catalog:
             result[dir.md['name']] = self.DirEntry(dir=dir, dir_entries=dir_contents, table=None)
 
         q = sql.select(schema.Table).where(schema.Table.dir_id == dir_id)
-        _debug_print(for_update=False, msg=f'tbls parent_id={dir_id}')
+        # _debug_print(for_update=False, msg=f'tbls parent_id={dir_id}')
         rows = conn.execute(q).all()
         for row in rows:
             tbl = schema.Table(**row._mapping)
@@ -172,20 +174,17 @@ class Catalog:
 
         return result
 
+    @_retry_loop
     def move(self, path: Path, new_path: Path) -> None:
-        def op() -> None:
-            with Env.get().begin_xact():
-                _, dest_dir, src_obj = self._prepare_dir_op(
-                    add_dir_path=new_path.parent,
-                    add_name=new_path.name,
-                    drop_dir_path=path.parent,
-                    drop_name=path.name,
-                    raise_if_exists=True,
-                    raise_if_not_exists=True,
-                )
-                src_obj._move(new_path.name, dest_dir._id)
-
-        self._retry_loop(op)
+        _, dest_dir, src_obj = self._prepare_dir_op(
+            add_dir_path=new_path.parent,
+            add_name=new_path.name,
+            drop_dir_path=path.parent,
+            drop_name=path.name,
+            raise_if_exists=True,
+            raise_if_not_exists=True,
+        )
+        src_obj._move(new_path.name, dest_dir._id)
 
     def _prepare_dir_op(
         self,
@@ -262,7 +261,7 @@ class Catalog:
         q = sql.select(schema.Dir).where(schema.Dir.parent_id == dir_id, schema.Dir.md['name'].astext == name)
         if for_update:
             q = q.with_for_update()
-        _debug_print(for_update, f'dir name={name!r} parent={dir_id}')
+        # _debug_print(for_update, f'dir name={name!r} parent={dir_id}')
         # row = conn.execute(q).one_or_none()
         # if row is not None:
         #     dir_record = schema.Dir(**row._mapping)
@@ -278,7 +277,7 @@ class Catalog:
         q = sql.select(schema.Table.id).where(schema.Table.dir_id == dir_id, schema.Table.md['name'].astext == name)
         if for_update:
             q = q.with_for_update()
-        _debug_print(for_update, f'table name={name!r} parent={dir_id}')
+        # _debug_print(for_update, f'table name={name!r} parent={dir_id}')
         tbl_id = conn.execute(q).scalar_one_or_none()
         if tbl_id is not None:
             if not tbl_id in self._tbls:
@@ -332,6 +331,7 @@ class Catalog:
             self._tbls[tbl_id] = tbl
         return self._tbls[tbl_id]
 
+    @_retry_loop
     def create_table(
         self,
         path: Path,
@@ -343,31 +343,28 @@ class Catalog:
         comment: str,
         media_validation: MediaValidation,
     ) -> Table:
-        def op() -> Table:
-            with Env.get().begin_xact():
-                existing = self._handle_path_collision(path, InsertableTable, False, if_exists)
-                if existing is not None:
-                    assert isinstance(existing, Table)
-                    return existing
+        existing = self._handle_path_collision(path, InsertableTable, False, if_exists)
+        if existing is not None:
+            assert isinstance(existing, Table)
+            return existing
 
-                dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
-                assert dir is not None
+        dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
+        assert dir is not None
 
-                tbl = InsertableTable._create(
-                    dir._id,
-                    path.name,
-                    schema,
-                    df,
-                    primary_key=primary_key,
-                    num_retained_versions=num_retained_versions,
-                    comment=comment,
-                    media_validation=media_validation,
-                )
-                self._tbls[tbl._id] = tbl
-                return tbl
+        tbl = InsertableTable._create(
+            dir._id,
+            path.name,
+            schema,
+            df,
+            primary_key=primary_key,
+            num_retained_versions=num_retained_versions,
+            comment=comment,
+            media_validation=media_validation,
+        )
+        self._tbls[tbl._id] = tbl
+        return tbl
 
-        return self._retry_loop(op)
-
+    @_retry_loop
     def create_view(
         self,
         path: Path,
@@ -382,67 +379,57 @@ class Catalog:
         media_validation: MediaValidation,
         if_exists: IfExistsParam,
     ) -> Table:
-        def op() -> Table:
-            from pixeltable.utils.filecache import FileCache
+        from pixeltable.utils.filecache import FileCache
 
-            with Env.get().begin_xact():
-                existing = self._handle_path_collision(path, View, is_snapshot, if_exists)
-                if existing is not None:
-                    assert isinstance(existing, View)
-                    return existing
+        existing = self._handle_path_collision(path, View, is_snapshot, if_exists)
+        if existing is not None:
+            assert isinstance(existing, View)
+            return existing
 
-                dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
-                assert dir is not None
-                if iterator is None:
-                    iterator_class, iterator_args = None, None
-                else:
-                    iterator_class, iterator_args = iterator
-                view = View._create(
-                    dir._id,
-                    path.name,
-                    base=base,
-                    select_list=select_list,
-                    additional_columns=additional_columns,
-                    predicate=where,
-                    is_snapshot=is_snapshot,
-                    iterator_cls=iterator_class,
-                    iterator_args=iterator_args,
-                    num_retained_versions=num_retained_versions,
-                    comment=comment,
-                    media_validation=media_validation,
-                )
-                FileCache.get().emit_eviction_warnings()
-                self._tbls[view._id] = view
-                return view
+        dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
+        assert dir is not None
+        if iterator is None:
+            iterator_class, iterator_args = None, None
+        else:
+            iterator_class, iterator_args = iterator
+        view = View._create(
+            dir._id,
+            path.name,
+            base=base,
+            select_list=select_list,
+            additional_columns=additional_columns,
+            predicate=where,
+            is_snapshot=is_snapshot,
+            iterator_cls=iterator_class,
+            iterator_args=iterator_args,
+            num_retained_versions=num_retained_versions,
+            comment=comment,
+            media_validation=media_validation,
+        )
+        FileCache.get().emit_eviction_warnings()
+        self._tbls[view._id] = view
+        return view
 
-        return self._retry_loop(op)
+    @_retry_loop
+    def get_table(self, path: Path) -> Table:
+        obj = Catalog.get()._get_schema_object(path, expected=Table, raise_if_not_exists=True)
+        assert isinstance(obj, Table)
+        obj.ensure_md_loaded()
+        return obj
 
-    def get_table(self, path: Path) -> Optional[Table]:
-        def op() -> Table:
-            with Env.get().begin_xact():
-                obj = Catalog.get()._get_schema_object(path, expected=Table, raise_if_not_exists=True)
-                assert isinstance(obj, Table)
-                obj.ensure_md_loaded()
-                return obj
-
-        return self._retry_loop(op)
-
+    @_retry_loop
     def drop_table(self, path: Path, if_not_exists: IfNotExistsParam, force: bool) -> None:
-        def op() -> None:
-            with Env.get().begin_xact():
-                _, _, src_obj = self._prepare_dir_op(
-                    drop_dir_path=path.parent,
-                    drop_name=path.name,
-                    drop_expected=Table,
-                    raise_if_not_exists=if_not_exists == IfNotExistsParam.ERROR and not force,
-                )
-                if src_obj is None:
-                    _logger.info(f'Skipped table {str(path)!r} (does not exist).')
-                    return
-                assert isinstance(src_obj, Table)
-                self._drop_tbl(src_obj, force=force, is_replace=False)
-
-        self._retry_loop(op)
+        _, _, src_obj = self._prepare_dir_op(
+            drop_dir_path=path.parent,
+            drop_name=path.name,
+            drop_expected=Table,
+            raise_if_not_exists=if_not_exists == IfNotExistsParam.ERROR and not force,
+        )
+        if src_obj is None:
+            _logger.info(f'Skipped table {str(path)!r} (does not exist).')
+            return
+        assert isinstance(src_obj, Table)
+        self._drop_tbl(src_obj, force=force, is_replace=False)
 
     def _drop_tbl(self, tbl: Table, force: bool, is_replace: bool) -> None:
         """
@@ -479,37 +466,31 @@ class Catalog:
         del self._tbls[tbl._id]
         _logger.info(f'Dropped table `{tbl._path()}`.')
 
+    @_retry_loop
     def create_dir(self, path: Path, if_exists: IfExistsParam) -> Dir:
-        def op() -> Dir:
-            with Env.get().begin_xact():
-                existing = self._handle_path_collision(path, Dir, False, if_exists)
-                if existing is not None:
-                    assert isinstance(existing, Dir)
-                    return existing
+        existing = self._handle_path_collision(path, Dir, False, if_exists)
+        if existing is not None:
+            assert isinstance(existing, Dir)
+            return existing
 
-                parent = self._get_schema_object(path.parent)
-                assert parent is not None
-                dir = Dir._create(parent._id, path.name)
-                Env.get().console_logger.info(f'Created directory {path!r}.')
-                return dir
+        parent = self._get_schema_object(path.parent)
+        assert parent is not None
+        dir = Dir._create(parent._id, path.name)
+        Env.get().console_logger.info(f'Created directory {path!r}.')
+        return dir
 
-        return self._retry_loop(op)
-
+    @_retry_loop
     def drop_dir(self, path: Path, if_not_exists: IfNotExistsParam, force: bool) -> None:
-        def op() -> None:
-            with Env.get().begin_xact():
-                _, _, schema_obj = self._prepare_dir_op(
-                    drop_dir_path=path.parent,
-                    drop_name=path.name,
-                    drop_expected=Dir,
-                    raise_if_not_exists=if_not_exists == IfNotExistsParam.ERROR and not force,
-                )
-                if schema_obj is None:
-                    _logger.info(f'Directory {path!r} does not exist, skipped drop_dir().')
-                    return
-                self._drop_dir(schema_obj._id, path, force=force)
-
-        self._retry_loop(op)
+        _, _, schema_obj = self._prepare_dir_op(
+            drop_dir_path=path.parent,
+            drop_name=path.name,
+            drop_expected=Dir,
+            raise_if_not_exists=if_not_exists == IfNotExistsParam.ERROR and not force,
+        )
+        if schema_obj is None:
+            _logger.info(f'Directory {path!r} does not exist, skipped drop_dir().')
+            return
+        self._drop_dir(schema_obj._id, path, force=force)
 
     def _drop_dir(self, dir_id: UUID, dir_path: Path, force: bool = False) -> None:
         conn = Env.get().conn
@@ -536,7 +517,7 @@ class Catalog:
                 self._drop_tbl(tbl, force=True, is_replace=False)
 
         # self.drop_dir(dir_id)
-        _debug_print(for_update=True, msg=f'drop dir id={dir_id}')
+        # _debug_print(for_update=True, msg=f'drop dir id={dir_id}')
         conn.execute(sql.delete(schema.Dir).where(schema.Dir.id == dir_id))
         _logger.info(f'Removed directory {dir_path!r}.')
 
@@ -546,7 +527,7 @@ class Catalog:
         q = sql.select(schema.Table.id).where(sql.text(f"md->'view_md'->'base_versions'->0->>0 = {tbl_id.hex!r}"))
         if for_update:
             q = q.with_for_update()
-        _debug_print(for_update=False, msg=f'views of tbl id={tbl_id}')
+        # _debug_print(for_update=False, msg=f'views of tbl id={tbl_id}')
         result = [r[0] for r in conn.execute(q).all()]
         return result
 
@@ -573,7 +554,7 @@ class Catalog:
         q = sql.select(schema.Dir).where(schema.Dir.id == dir_id)
         if for_update:
             q = q.with_for_update()
-        _debug_print(for_update=False, msg=f'dir id={dir_id!r}')
+        # _debug_print(for_update=False, msg=f'dir id={dir_id!r}')
         row = conn.execute(q).one_or_none()
         if row is None:
             return None
@@ -591,7 +572,7 @@ class Catalog:
             q = sql.select(schema.Dir).where(schema.Dir.parent_id.is_(None))
             if for_update:
                 q = q.with_for_update()
-            _debug_print(for_update, 'root dir')
+            # _debug_print(for_update, 'root dir')
             row = conn.execute(q).one()
             return schema.Dir(**row._mapping)
         else:
@@ -603,7 +584,7 @@ class Catalog:
             )
             if for_update:
                 q = q.with_for_update()
-            _debug_print(for_update, f'dir {str(path)}')
+            # _debug_print(for_update, f'dir {str(path)}')
             row = conn.execute(q).one_or_none()
             return schema.Dir(**row._mapping) if row is not None else None
 
@@ -626,7 +607,7 @@ class Catalog:
             )
             .where(schema.Table.id == tbl_id)
         )
-        _debug_print(for_update=False, msg=f'load table id={tbl_id!r}')
+        # _debug_print(for_update=False, msg=f'load table id={tbl_id!r}')
         row = conn.execute(q).one_or_none()
         if row is None:
             return None
