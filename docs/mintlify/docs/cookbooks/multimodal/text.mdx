@@ -88,7 +88,7 @@ Pixeltable lets you build text search workflows in two phases:
     
     # Connect to your tables and views
     audio_t = pxt.get_table("audio_search.audio")
-    sentences_view = pxt.get_view("audio_search.audio_sentence_chunks")
+    sentences_view = pxt.get_table("audio_search.audio_sentence_chunks")
 
     # Add audio files to the knowledge base
     audio_t.insert([{
