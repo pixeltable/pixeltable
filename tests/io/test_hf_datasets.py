@@ -61,8 +61,8 @@ class TestHfDatasets:
             tab = pxt.io.import_huggingface_dataset(
                 dataset_name,
                 hf_dataset,
-                column_name_for_split=split_column_name,
                 schema_overrides=rec.get('schema_override', None),
+                column_name_for_split=split_column_name,
             )
             if isinstance(hf_dataset, datasets.Dataset):
                 self._assert_hf_dataset_equal(hf_dataset, tab.select(), split_column_name)
@@ -117,8 +117,8 @@ class TestHfDatasets:
             tab = pxt.io.import_huggingface_dataset(
                 dataset_name,
                 hf_dataset,
-                column_name_for_split=split_column_name,
                 schema_overrides=rec.get('schema_override', None),
+                column_name_for_split=split_column_name,
             )
             if isinstance(hf_dataset, datasets.Dataset):
                 self._assert_hf_dataset_equal(hf_dataset, tab.select(), split_column_name)

@@ -204,7 +204,7 @@ class Column:
     @property
     def is_required_for_insert(self) -> bool:
         """Returns True if column is required when inserting rows."""
-        return not self.col_type.nullable and self.is_stored and not self.is_computed
+        return not self.col_type.nullable and not self.is_computed
 
     def source(self) -> None:
         """

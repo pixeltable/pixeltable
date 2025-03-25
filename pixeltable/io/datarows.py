@@ -134,5 +134,5 @@ def import_json(
         primary_key=primary_key,
         num_retained_versions=num_retained_versions,
         comment=comment,
-        **kwargs,
+        extra_args=kwargs,
     )

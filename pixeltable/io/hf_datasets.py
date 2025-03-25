@@ -85,7 +85,6 @@ def import_huggingface_dataset(
     table_path: str,
     dataset: Union[datasets.Dataset, datasets.DatasetDict],
     *,
-    column_name_for_split: Optional[str] = None,
     schema_overrides: Optional[dict[str, Any]] = None,
     primary_key: Optional[Union[str, list[str]]] = None,
     **kwargs: Any,
@@ -98,22 +97,18 @@ def import_huggingface_dataset(
         dataset: Huggingface [`datasets.Dataset`](https://huggingface.co/docs/datasets/en/package_reference/main_classes#datasets.Dataset)
             or [`datasets.DatasetDict`](https://huggingface.co/docs/datasets/en/package_reference/main_classes#datasets.DatasetDict)
             to insert into the table.
-        column_name_for_split: column name to use for split information. If None, no split information will be stored.
         schema_overrides: If specified, then for each (name, type) pair in `schema_overrides`, the column with
             name `name` will be given type `type`, instead of being inferred from the `Dataset` or `DatasetDict`.
             The keys in `schema_overrides` should be the column names of the `Dataset` or `DatasetDict` (whether or not
             they are valid Pixeltable identifiers).
         primary_key: The primary key of the table (see [`create_table()`][pixeltable.create_table]).
         kwargs: Additional arguments to pass to `create_table`.
+        An argument of `column_name_for_split` must be provided if the source is a DatasetDict.
+            This column name will contain the split information. If None, no split information will be stored.
 
     Returns:
         A handle to the newly created [`Table`][pixeltable.Table].
     """
     return pxt.create_table(
-        table_path,
-        source=dataset,
-        column_name_for_split=column_name_for_split,
-        schema_overrides=schema_overrides,
-        primary_key=primary_key,
-        **kwargs,
+        table_path, source=dataset, schema_overrides=schema_overrides, primary_key=primary_key, extra_args=kwargs
     )

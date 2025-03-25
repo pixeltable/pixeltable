@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import logging
+import os
 import urllib.parse
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, Optional, Union, cast
 from uuid import UUID
 
@@ -59,9 +61,6 @@ def _handle_path_collision(
 
 
 if TYPE_CHECKING:
-    import os
-    from pathlib import Path
-
     import datasets  # type: ignore[import-untyped]
 
     RowData = list[dict[str, Any]]
@@ -80,7 +79,7 @@ if TYPE_CHECKING:
 
 def create_table(
     path_str: str,
-    schema: Union[dict[str, Any], None] = None,
+    schema: Optional[dict[str, Any]] = None,
     *,
     source: Optional[TableDataSource] = None,
     source_format: Optional[Literal['csv', 'excel', 'parquet', 'json']] = None,
@@ -91,7 +90,7 @@ def create_table(
     comment: str = '',
     media_validation: Literal['on_read', 'on_write'] = 'on_write',
     if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
-    **kwargs: Any,  # Explicit arguments to source data provider
+    extra_args: Optional[dict[str, Any]] = None,  # Additional arguments to data source provider
 ) -> catalog.Table:
     """Create a new base table.
 
@@ -123,7 +122,7 @@ def create_table(
             - `'ignore'`: do nothing and return the existing table handle
             - `'replace'`: if the existing table has no views, drop and replace it with a new one
             - `'replace_force'`: drop the existing table and all its views, and create a new one
-        kwargs: Additional arguments to pass to the source data provider
+        extra_args: Additional arguments to pass to the source data provider
 
     Returns:
         A handle to the newly created table, or to an already existing table at the path when `if_exists='ignore'`.
@@ -191,7 +190,7 @@ def create_table(
         tds = None
         data_source = None
         if source is not None:
-            tds = UnkTableDataConduit(source, source_format=source_format, extra_fields=kwargs)
+            tds = UnkTableDataConduit(source, source_format=source_format, extra_fields=extra_args)
             tds.check_source_format()
             data_source = tds.specialize()
             data_source.src_schema_overrides = schema_overrides
@@ -221,7 +220,6 @@ def create_table(
                 media_validation=catalog.MediaValidation.validated(media_validation, 'media_validation'),
             )
 
-        assert table is not None
         assert isinstance(table, catalog.Table)
 
         cat.add_tbl(table)
