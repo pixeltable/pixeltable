@@ -228,3 +228,23 @@ class TestDirs:
         # new client: force loading from store
         reload_catalog()
         assert pxt.list_tables('dir2') == ['dir2.dir1.sub1.t2']
+
+    def test_create_with_parents(self, reset_db) -> None:
+        all_dirs = ['dir1', 'dir1.dir2', 'dir1.dir2.dir3']
+        dir3 = pxt.create_dir('dir1.dir2.dir3', parents=True)
+        md = dir3.get_metadata()
+        assert md['path'] == 'dir1.dir2.dir3'
+        assert md['name'] == 'dir3'
+        listing = pxt.list_dirs(recursive=True)
+        assert listing == all_dirs
+
+        # create a subdirectory where couple of intermediate parents are missing
+        pxt.drop_dir('dir1.dir2.dir3')
+        pxt.drop_dir('dir1.dir2')
+        dir4 = pxt.create_dir('dir1.dir2.dir3.dir4', parents=True)
+        md = dir4.get_metadata()
+        assert md['path'] == 'dir1.dir2.dir3.dir4'
+        assert md['name'] == 'dir4'
+        listing = pxt.list_dirs(recursive=True)
+        all_dirs.append('dir1.dir2.dir3.dir4')
+        assert listing == all_dirs

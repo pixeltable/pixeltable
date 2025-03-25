@@ -458,7 +458,7 @@ def list_tables(dir_path: str = '', recursive: bool = True) -> list[str]:
 
 
 def create_dir(
-    path: str, if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error'
+    path: str, if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error', parents: bool = False
 ) -> Optional[catalog.Dir]:
     """Create a directory.
 
@@ -471,6 +471,7 @@ def create_dir(
             - `'ignore'`: do nothing and return the existing directory handle
             - `'replace'`: if the existing directory is empty, drop it and create a new one
             - `'replace_force'`: drop the existing directory and all its children, and create a new one
+        parents: Create missing parent directories.
 
     Returns:
         A handle to the newly created directory, or to an already existing directory at the path when
@@ -498,10 +499,14 @@ def create_dir(
         Create a directory and replace if it already exists:
 
         >>> pxt.create_dir('my_dir', if_exists='replace_force')
+
+        Create a subdirectory along with its ancestors:
+
+        >>> pxt.create_dir('parent1.parent2.sub_dir', parents=True)
     """
     path_obj = catalog.Path(path)
     if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
-    return Catalog.get().create_dir(path_obj, if_exists=if_exists_)
+    return Catalog.get().create_dir(path_obj, if_exists=if_exists_, parents=parents)
 
 
 def drop_dir(path: str, force: bool = False, if_not_exists: Literal['error', 'ignore'] = 'error') -> None:
