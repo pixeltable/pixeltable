@@ -601,8 +601,9 @@ class HFTableDataConduit(TableDataConduit):
         tds_fields = {f.name for f in fields(tds)}
         kwargs = {k: v for k, v in tds.__dict__.items() if k in tds_fields}
         t = cls(**kwargs)
-        if TYPE_CHECKING:
-            assert isinstance(tds.source, (datasets.Dataset, datasets.DatasetDict))
+        import datasets
+
+        assert isinstance(tds.source, (datasets.Dataset, datasets.DatasetDict))
         t.hf_ds = tds.source
         if 'column_name_for_split' in t.extra_fields:
             t.column_name_for_split = t.extra_fields['column_name_for_split']
