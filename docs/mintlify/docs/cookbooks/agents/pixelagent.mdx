@@ -1,7 +1,7 @@
 ---
-title: 'Pixelagent'
-description: 'Understanding and implementing AI agents with Pixeltable'
-mode: 'wide'
+title: "Pixelagent"
+description: "Understanding and implementing AI agents with Pixeltable"
+mode: "wide"
 ---
 
 ## What is Pixelagent?
@@ -30,7 +30,7 @@ An agent is not simply a zero-shot call to a large language model. Proper agents
     External functions and APIs that the model can use to interact with the world and gather information.
   </Card>
   <Card title="Memory" icon="database">
-    The agent's ability to maintain and track state across multiple interactions.
+    The agent"s ability to maintain and track state across multiple interactions.
   </Card>
   <Card title="Loop" icon="rotate">
     The capability to execute multiple steps and iterations to complete a task.
@@ -66,7 +66,7 @@ An agent is not simply a zero-shot call to a large language model. Proper agents
         model="gpt-4o-mini",
         system_prompt="You are a financial research assistant.",
         tools=yfinance_tools,
-        # reset=True  # Uncomment to reset the agent's memory
+        # reset=True  # Uncomment to reset the agent"s memory
     )
     ```
   </Step>
@@ -101,10 +101,10 @@ from pixeltable.functions import openai
 @pxt.udf
 def _create_messages(past_context: List[Dict], system_prompt: str, tool_output: Optional[str] = None) -> List[Dict]:
     """Create messages list with system prompt, memory context and new message"""
-    messages = [{'role': 'system', 'content': system_prompt}]
-    messages.extend([{'role': msg['role'], 'content': msg['content']} for msg in past_context])
+    messages = [{"role": "system", "content": system_prompt}]
+    messages.extend([{"role": msg["role"], "content": msg["content"]} for msg in past_context])
     if tool_output:
-        messages.append({'role': 'user', 'content': str(tool_output)})
+        messages.append({"role": "user", "content": str(tool_output)})
     return messages
     
 def create_chat(name: str, openai_model: str, tools: Optional[pxt.tools] = None):
@@ -121,12 +121,12 @@ def create_chat(name: str, openai_model: str, tools: Optional[pxt.tools] = None)
 
     # Table to store conversation history between AI and User.
     message_table = pxt.create_table(
-        path_str=f'{name}.messages',
-        schema_or_df={'role': pxt.String, 'content': pxt.String}
+        path_str=f"{name}.messages",
+        schema_or_df={"role": pxt.String, "content": pxt.String}
     )
 
     # Chat interaction table
-    chat = pxt.create_table(path_str=f'{name}.chat', schema_or_df={'system_prompt': pxt.String})
+    chat = pxt.create_table(path_str=f"{name}.chat", schema_or_df={"system_prompt": pxt.String})
 
     @pxt.query
     def _get_messages():
@@ -171,16 +171,16 @@ def create_chat(name: str, openai_model: str, tools: Optional[pxt.tools] = None)
 
 def run(name: str, instructions: str, content: str) -> str:
     # Log the user message
-    message_table = pxt.get_table(f'{name}.messages')
-    message_table.insert([{'role': 'user', 'content': content}])
+    message_table = pxt.get_table(f"{name}.messages")
+    message_table.insert([{"role": "user", "content": content}])
 
     # Invoke the LLM
-    chat = pxt.get_table(f'{name}.chat')
-    chat.insert([{'system_prompt': instructions}])
+    chat = pxt.get_table(f"{name}.chat")
+    chat.insert([{"system_prompt": instructions}])
 
     # Log the agent response
-    response = chat.select(chat.response).tail(1)['response'][0]
-    message_table.insert([{'role': 'assistant', 'content': response}])
+    response = chat.select(chat.response).tail(1)["response"][0]
+    message_table.insert([{"role": "assistant", "content": response}])
     
     return response
 
@@ -202,7 +202,7 @@ class Agent:
 
 <CardGroup cols={2}>
   <Card title="Persistence" icon="database">
-    Agents maintain state and conversation history across sessions using Pixeltable's storage capabilities.
+    Agents maintain state and conversation history across sessions using Pixeltable"s storage capabilities.
   </Card>
   <Card title="Tool Integration" icon="plug">
     Seamlessly incorporate external tools and APIs into agent workflows with the tools parameter.
