@@ -12,6 +12,7 @@ from pixeltable import catalog, exceptions as excs, func, type_system as ts
 
 from .data_row import DataRow
 from .expr import Expr
+from .json_mapper import JsonMapper
 from .literal import Literal
 from .row_builder import RowBuilder
 from .rowid_ref import RowidRef
