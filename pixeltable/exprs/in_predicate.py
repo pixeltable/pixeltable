@@ -71,7 +71,7 @@ class InPredicate(Expr):
         return self.value_list == other.value_list
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
-        return super()._id_attrs() + [('value_list', self.value_list)]
+        return [*super()._id_attrs(), ('value_list', self.value_list)]
 
     def sql_expr(self, sql_elements: SqlElementCache) -> Optional[sql.ColumnElement]:
         lhs_sql_exprs = sql_elements.get(self.components[0])

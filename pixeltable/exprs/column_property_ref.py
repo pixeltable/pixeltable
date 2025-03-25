@@ -40,7 +40,7 @@ class ColumnPropertyRef(Expr):
         return self.prop == other.prop
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
-        return super()._id_attrs() + [('prop', self.prop.value)]
+        return [*super()._id_attrs(), ('prop', self.prop.value)]
 
     @property
     def _col_ref(self) -> ColumnRef:
@@ -52,7 +52,7 @@ class ColumnPropertyRef(Expr):
         return f'{self._col_ref}.{self.prop.name.lower()}'
 
     def is_error_prop(self) -> bool:
-        return self.prop == self.Property.ERRORTYPE or self.prop == self.Property.ERRORMSG
+        return self.prop in {self.Property.ERRORTYPE, self.Property.ERRORMSG}
 
     def sql_expr(self, sql_elements: SqlElementCache) -> Optional[sql.ColumnElement]:
         if not self._col_ref.col.is_stored:
@@ -95,7 +95,7 @@ class ColumnPropertyRef(Expr):
             else:
                 data_row[self.slot_idx] = str(exc)
         else:
-            assert False
+            raise AssertionError()
 
     def _as_dict(self) -> dict:
         return {'prop': self.prop.value, **super()._as_dict()}

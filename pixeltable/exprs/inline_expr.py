@@ -131,7 +131,7 @@ class InlineList(Expr):
     def as_literal(self) -> Optional[Literal]:
         if not all(isinstance(comp, Literal) for comp in self.components):
             return None
-        return Literal(list(c.as_literal().val for c in self.components), self.col_type)
+        return Literal([c.as_literal().val for c in self.components], self.col_type)
 
 
 class InlineDict(Expr):
@@ -166,7 +166,7 @@ class InlineDict(Expr):
         self.id = self._create_id()
 
     def __repr__(self) -> str:
-        item_strs = list(f"'{key}': {str(expr)}" for key, expr in zip(self.keys, self.components))
+        item_strs = [f"'{key}': {expr}" for key, expr in zip(self.keys, self.components)]
         return '{' + ', '.join(item_strs) + '}'
 
     def _equals(self, other: InlineDict) -> bool:
@@ -174,7 +174,7 @@ class InlineDict(Expr):
         return self.keys == other.keys
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
-        return super()._id_attrs() + [('keys', self.keys)]
+        return [*super()._id_attrs(), ('keys', self.keys)]
 
     def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
         return None
