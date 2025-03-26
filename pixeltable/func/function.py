@@ -246,7 +246,7 @@ class Function(ABC):
         # `None` when any of its non-nullable inputs are `None`.
         for arg_name, arg in bound_args.items():
             param = self.signature.parameters[arg_name]
-            if param.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD):
+            if param.kind in {inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD}:
                 continue
             if arg.col_type.nullable and not param.col_type.nullable:
                 return_type = return_type.copy(nullable=True)
@@ -304,13 +304,12 @@ class Function(ABC):
                     callable_args[param.name] = arg
                 else:
                     return None
-            else:
+            elif isinstance(arg, exprs.Literal):
                 # The callable is expecting `param.name` to be a constant Python value. Unpack a Literal if we find
                 # one; otherwise return None.
-                if isinstance(arg, exprs.Literal):
-                    callable_args[param.name] = arg.val
-                else:
-                    return None
+                callable_args[param.name] = arg.val
+            else:
+                return None
 
         return callable_args
 
@@ -386,10 +385,10 @@ class Function(ABC):
             else:
                 var = exprs.Variable(name, param.col_type)
                 bindings[name] = var
-                if args_ok and param.kind in (
+                if args_ok and param.kind in {
                     inspect.Parameter.POSITIONAL_ONLY,
                     inspect.Parameter.POSITIONAL_OR_KEYWORD,
-                ):
+                }:
                     template_args.append(var)
                 else:
                     template_kwargs[name] = var
@@ -435,6 +434,9 @@ class Function(ABC):
         if not isinstance(other, self.__class__):
             return False
         return self.self_path == other.self_path
+
+    def __hash__(self) -> int:
+        return hash(self.self_path)
 
     def source(self) -> None:
         """Print source code"""

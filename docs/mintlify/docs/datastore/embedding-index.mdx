@@ -74,7 +74,7 @@ The setup phase defines your schema and creates embedding indexes.
     
     # Create table
     docs = pxt.create_table(
-        path_str="knowledge_base.documents",
+        "knowledge_base.documents",
         {
             "content": pxt.String,
             "metadata": pxt.Json
@@ -214,7 +214,7 @@ The query phase allows you to search your indexed content using the `similarity(
   <Tab title="Basic Search">
     ```python
     @pxt.query
-    def semantic_search(query: str, k: int = 5):
+    def semantic_search(query: str, k: int):
         # Calculate similarity scores
         sim = docs.content.similarity(query)
         

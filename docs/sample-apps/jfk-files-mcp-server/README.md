@@ -111,8 +111,8 @@ Pixeltable is a declarative data infrastructure for multimodal AI applications t
 - **Minimal Code**: Achieve complex workflows with significantly less code than traditional approaches
 
 ### Powerful Data Management
-- **Persistent Storage**: All data and computed results are automatically stored and versioned without extra effort
-- **Computed Columns**: Define processing workflows that automatically execute on new data
+- **Persistent Storage**: All data and computed results are stored and versioned without extra effort
+- **Computed Columns**: Define processing workflows that execute on new data
 - **Multimodal Support**: Handle images, PDFs, videos, and text seamlessly in one unified interface
 - **Incremental Processing**: Documents are uploaded and processed asynchronously
 
@@ -122,11 +122,11 @@ Pixeltable is a declarative data infrastructure for multimodal AI applications t
 - **Automatic Orchestration**: Pixeltable handles model execution, ensuring results are stored, indexed, and accessible
 
 ### Enterprise-Ready
-- **Scalability**: Automatically scales to handle the complexity of processing and indexing large document collections
+- **Scalability**: Auto=scales to handle the complexity of processing and indexing large document collections
 - **Production-Ready**: Built to handle real-world data volumes
 - **MCP Integration**: Seamlessly connects with Model Context Protocol clients
 
-Pixeltable automatically handles the entire workflow from data ingest to search, allowing you to focus on building your application rather than managing infrastructure.
+Pixeltable handles the entire workflow from data ingest to search, allowing you to focus on building your application rather than managing infrastructure.
 
 ## Learn More
 

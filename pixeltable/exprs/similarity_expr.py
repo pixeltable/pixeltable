@@ -62,14 +62,14 @@ class SimilarityExpr(Expr):
         return f'{self.components[0]}.similarity({self.components[1]})'
 
     def _id_attrs(self):
-        return super()._id_attrs() + [('idx_name', self.idx_info.name)]
+        return [*super()._id_attrs(), ('idx_name', self.idx_info.name)]
 
     def default_column_name(self) -> str:
         return 'similarity'
 
     def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
         if not isinstance(self.components[1], Literal):
-            raise excs.Error(f'similarity(): requires a string or a PIL.Image.Image object, not an expression')
+            raise excs.Error('similarity(): requires a string or a PIL.Image.Image object, not an expression')
         item = self.components[1].val
         from pixeltable import index
 
@@ -78,7 +78,7 @@ class SimilarityExpr(Expr):
 
     def as_order_by_clause(self, is_asc: bool) -> Optional[sql.ColumnElement]:
         if not isinstance(self.components[1], Literal):
-            raise excs.Error(f'similarity(): requires a string or a PIL.Image.Image object, not an expression')
+            raise excs.Error('similarity(): requires a string or a PIL.Image.Image object, not an expression')
         item = self.components[1].val
         from pixeltable import index
 
@@ -87,14 +87,14 @@ class SimilarityExpr(Expr):
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         # this should never get called
-        assert False
+        raise AssertionError()
 
     def _as_dict(self) -> dict:
         return {'idx_name': self.idx_info.name, **super()._as_dict()}
 
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr]) -> 'SimilarityExpr':
-        iname = d['idx_name'] if 'idx_name' in d else None
+        iname = d.get('idx_name')
         assert len(components) == 2
         assert isinstance(components[0], ColumnRef)
         return cls(components[0], components[1], idx_name=iname)

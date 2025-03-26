@@ -30,7 +30,7 @@ pxt.create_dir('documents')
 
 # Define your base table first
 documents = pxt.create_table(
-    path_str="documents.collection",
+    "documents.collection",
     {"document": pxt.Document}
 )
 
@@ -53,7 +53,7 @@ import pixeltable as pxt
 
 # Connect to your base table and view
 documents = pxt.get_table("documents.collection")
-chunks = pxt.get_view("documents.chunks")
+chunks = pxt.get_table("documents.chunks")
 
 # Insert data into base table - view updates automatically
 documents.insert([{

@@ -3,16 +3,12 @@ from __future__ import annotations
 import inspect
 import logging
 import sys
-import warnings
 from textwrap import dedent
 from typing import Any, Optional, Sequence, Union
 
 import sqlalchemy as sql
 
-import pixeltable.catalog as catalog
-import pixeltable.exceptions as excs
-import pixeltable.func as func
-import pixeltable.type_system as ts
+from pixeltable import catalog, exceptions as excs, func, type_system as ts
 
 from .data_row import DataRow
 from .expr import Expr
@@ -156,22 +152,18 @@ class FunctionCall(Expr):
         return self.fn.name
 
     def _equals(self, other: FunctionCall) -> bool:
-        if self.fn != other.fn:
-            return False
-        if self.arg_idxs != other.arg_idxs:
-            return False
-        if self.kwarg_idxs != other.kwarg_idxs:
-            return False
-        if self.group_by_start_idx != other.group_by_start_idx:
-            return False
-        if self.group_by_stop_idx != other.group_by_stop_idx:
-            return False
-        if self.order_by_start_idx != other.order_by_start_idx:
-            return False
-        return True
+        return (
+            self.fn == other.fn
+            and self.arg_idxs == other.arg_idxs
+            and self.kwarg_idxs == other.kwarg_idxs
+            and self.group_by_start_idx == other.group_by_start_idx
+            and self.group_by_stop_idx == other.group_by_stop_idx
+            and self.order_by_start_idx == other.order_by_start_idx
+        )
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
-        return super()._id_attrs() + [
+        return [
+            *super()._id_attrs(),
             ('fn', id(self.fn)),  # use the function pointer, not the fqn, which isn't set for lambdas
             ('args', self.arg_idxs),
             ('kwargs', self.kwarg_idxs),
@@ -192,12 +184,12 @@ class FunctionCall(Expr):
         if self.is_method_call:
             return f'{self.components[0]}.{self.fn.name}({self._print_args(1, inline)})'
         else:
-            fn_name = self.fn.display_name if self.fn.display_name != '' else 'anonymous_fn'
+            fn_name = self.fn.display_name or 'anonymous_fn'
             return f'{fn_name}({self._print_args()})'
 
     def _print_args(self, start_idx: int = 0, inline: bool = True) -> str:
         arg_strs = [str(self.components[idx]) for idx in self.arg_idxs[start_idx:]]
-        arg_strs.extend([f'{param_name}={str(self.components[idx])}' for param_name, idx in self.kwarg_idxs.items()])
+        arg_strs.extend([f'{param_name}={self.components[idx]}' for param_name, idx in self.kwarg_idxs.items()])
         if len(self.order_by) > 0:
             assert isinstance(self.fn, func.AggregateFunction)
             if self.fn.requires_order_by:
@@ -297,7 +289,7 @@ class FunctionCall(Expr):
             if (
                 val is None
                 and parameters_by_pos[idx].kind
-                in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+                in {inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD}
                 and not parameters_by_pos[idx].col_type.nullable
             ):
                 return None
@@ -310,7 +302,7 @@ class FunctionCall(Expr):
             if (
                 val is None
                 and parameters[param_name].kind
-                in (inspect.Parameter.KEYWORD_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+                in {inspect.Parameter.KEYWORD_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD}
                 and not parameters[param_name].col_type.nullable
             ):
                 return None
@@ -466,20 +458,18 @@ class FunctionCall(Expr):
                 # the call_return_type that we just inferred (which matches the deserialization behavior prior to
                 # version 25).
                 return_type = call_return_type
-            else:
-                # There is a return_type stored in metadata (schema version >= 25).
-                # Check that the stored return_type of the UDF call matches the column type of the FunctionCall, and
-                # fail-fast if it doesn't (otherwise we risk getting downstream database errors).
-                if not return_type.is_supertype_of(call_return_type, ignore_nullable=True):
-                    validation_error = dedent(
-                        f"""
-                        The return type stored in the database for a UDF call to {fn.self_path!r} no longer
-                        matches its return type as currently defined in the code. This probably means that the
-                        code for {fn.self_path!r} has changed in a backward-incompatible way.
-                        Return type of UDF call in the database: {return_type}
-                        Return type of UDF as currently defined in code: {call_return_type}
-                        """
-                    ).strip()
+            elif not return_type.is_supertype_of(call_return_type, ignore_nullable=True):
+                # There is a return_type stored in metadata (schema version >= 25),
+                # and the stored return_type of the UDF call doesn't match the column type of the FunctionCall.
+                validation_error = dedent(
+                    f"""
+                    The return type stored in the database for a UDF call to {fn.self_path!r} no longer
+                    matches its return type as currently defined in the code. This probably means that the
+                    code for {fn.self_path!r} has changed in a backward-incompatible way.
+                    Return type of UDF call in the database: {return_type}
+                    Return type of UDF as currently defined in code: {call_return_type}
+                    """
+                ).strip()
 
         fn_call = cls(
             resolved_fn,

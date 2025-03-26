@@ -8,9 +8,7 @@ from uuid import UUID
 
 import numpy as np
 
-import pixeltable.catalog as catalog
-import pixeltable.exceptions as excs
-import pixeltable.utils as utils
+from pixeltable import catalog, exceptions as excs, utils
 from pixeltable.env import Env
 from pixeltable.utils.media_store import MediaStore
 
@@ -366,8 +364,8 @@ class RowBuilder:
     def set_exc(self, data_row: DataRow, slot_idx: int, exc: Exception) -> None:
         """Record an exception in data_row and propagate it to dependents"""
         data_row.set_exc(slot_idx, exc)
-        for slot_idx in self._exc_dependents[slot_idx]:
-            data_row.set_exc(slot_idx, exc)
+        for idx in self._exc_dependents[slot_idx]:
+            data_row.set_exc(idx, exc)
 
     def eval(
         self,

@@ -4,6 +4,8 @@ are not intended for production use. Long-term support cannot be guaranteed, usu
 have dependencies whose future support is unclear.
 """
 
+# ruff: noqa: F401
+
 from pixeltable.utils.code import local_public_names
 
 from . import functions
