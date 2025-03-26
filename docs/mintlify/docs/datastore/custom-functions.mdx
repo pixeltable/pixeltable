@@ -62,7 +62,7 @@ All UDFs require type hints for parameters and return values. This enables Pixel
 <CodeGroup>
 ```python Basic
 @pxt.udf
-def add_tax(price: float, rate: float = 0.1) -> float:
+def add_tax(price: float, rate: float) -> float:
     return price * (1 + rate)
 
 # Use in computed column

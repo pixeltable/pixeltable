@@ -58,7 +58,7 @@ Pixeltable PDF search works in two phases:
 
     # Define search query
     @pxt.query
-    def search_documents(query_text: str, limit: int = 5):
+    def search_documents(query_text: str, limit: int):
         sim = documents_chunks.text.similarity(query_text)
         return (
             documents_chunks.order_by(sim, asc=False)
@@ -78,7 +78,7 @@ Pixeltable PDF search works in two phases:
 
     # Connect to your tables
     documents_t = pxt.get_table("pdf_search.documents")
-    documents_chunks = pxt.get_view("pdf_search.document_chunks")
+    documents_chunks = pxt.get_table("pdf_search.document_chunks")
 
     # Sample document URLs
     DOCUMENT_URL = (
@@ -98,7 +98,7 @@ Pixeltable PDF search works in two phases:
 
     # Search documents
     @pxt.query
-    def find_relevant_text(query: str, top_k: int = 5):
+    def find_relevant_text(query: str, top_k: int):
         sim = documents_chunks.text.similarity(query)
         return (
             documents_chunks.order_by(sim, asc=False)
@@ -235,8 +235,8 @@ Create specialized search functions:
 @pxt.query
 def search_with_metadata(
     query: str,
-    min_similarity: float = 0.7,
-    limit: int = 5
+    min_similarity: float,
+    limit: int
 ):
     sim = documents_chunks.text.similarity(query)
     return (
