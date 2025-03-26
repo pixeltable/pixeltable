@@ -639,7 +639,9 @@ class TestExprs:
             assert row['output'] == [x + 1 for x in row['input']]
 
         # top-level is list of dicts; subsequent json path element references the dicts
-        res2 = reload_tester.run_query(t.select(input=t.c7, output=t.c7['*'].f5 >> [R[3], R[2], R[1], R[0]]).order_by(t.c2))
+        res2 = reload_tester.run_query(
+            t.select(input=t.c7, output=t.c7['*'].f5 >> [R[3], R[2], R[1], R[0]]).order_by(t.c2)
+        )
         for row in res2:
             assert row['output'] == [[d['f5'][3], d['f5'][2], d['f5'][1], d['f5'][0]] for d in row['input']]
 
