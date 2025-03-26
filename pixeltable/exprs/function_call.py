@@ -12,7 +12,6 @@ from pixeltable import catalog, exceptions as excs, func, type_system as ts
 
 from .data_row import DataRow
 from .expr import Expr
-from .json_mapper import JsonMapper
 from .literal import Literal
 from .row_builder import RowBuilder
 from .rowid_ref import RowidRef
@@ -361,10 +360,7 @@ class FunctionCall(Expr):
             return
         args, kwargs = args_kwargs
 
-        if isinstance(self.fn, func.CallableFunction) and not self.fn.is_batched:
-            # optimization: avoid additional level of indirection we'd get from calling Function.exec()
-            data_row[self.slot_idx] = self.fn.py_fn(*args, **kwargs)
-        elif self.is_window_fn_call:
+        if self.is_window_fn_call:
             assert isinstance(self.fn, func.AggregateFunction)
             agg_cls = self.fn.agg_class
             if self.has_group_by():
