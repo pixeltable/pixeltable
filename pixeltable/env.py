@@ -25,6 +25,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pixeltable_pgserver
 import sqlalchemy as sql
+from sqlalchemy.exc import ArgumentError
 from tqdm import TqdmWarning
 
 from pixeltable import exceptions as excs
@@ -82,7 +83,7 @@ class Env:
     _resource_pool_info: dict[str, Any]
     _current_conn: Optional[sql.Connection]
     _current_session: Optional[sql.orm.Session]
-    _dbms_helper: Optional[Dbms]
+    _dbms: Optional[Dbms]
 
     @classmethod
     def get(cls) -> Env:
@@ -113,7 +114,6 @@ class Env:
         self._db_name = None
         self._db_server = None
         self._db_url = None
-        self._default_db_url = None
         self._default_time_zone = None
         self.__optional_packages = {}
         self._spacy_nlp = None
@@ -138,7 +138,7 @@ class Env:
         self._resource_pool_info = {}
         self._current_conn = None
         self._current_session = None
-        self._dbms_helper = None
+        self._dbms = None
 
     @property
     def db_url(self) -> str:
@@ -175,8 +175,8 @@ class Env:
 
     @property
     def dbms_helper(self) -> Optional[Dbms]:
-        assert self._dbms_helper is not None
-        return self._dbms_helper
+        assert self._dbms is not None
+        return self._dbms
 
     @contextmanager
     def begin_xact(self) -> Iterator[sql.Connection]:
@@ -347,32 +347,31 @@ class Env:
         http_logger.propagate = False
 
         self.clear_tmp_dir()
-        self._db_name = os.environ.get('PIXELTABLE_DB', 'pixeltable')
 
-        # Load external dbms configuration
-        # DEFAULT_DB_CONNECT_STR is a required parameter used to manage the pixeltable catalog db.
-        # DB_CONNECT_STR is an optional parameter used when a specific database is required for the catalog db.
-        # If DB_CONNECT_STR is not provided, pixeltable will use DEFAULT_DB_CONNECT_STR to create the database
-        # specified in PIXELTABLE_DB.
         db_connect_str = config.get_string_value('DB_CONNECT_STR')
-        db_default_connect_str = config.get_string_value('DEFAULT_DB_CONNECT_STR')
-        if db_default_connect_str is not None:
-            default_db_url = sql.make_url(db_default_connect_str)
-            self._default_db_url = default_db_url.render_as_string(hide_password=False)
-            if db_connect_str is not None:
+        if db_connect_str is not None:
+            try:
                 db_url = sql.make_url(db_connect_str)
                 self._db_url = db_url.render_as_string(hide_password=False)
                 self._db_name = db_url.database  # use the dbname given in connect string
-            else:
-                # create db_url from default db url and dbname from configuration
-                self._db_url = default_db_url.set(database=self._db_name).render_as_string(hide_password=False)
-            if default_db_url.get_dialect().name == 'cockroachdb':
-                self._dbms_helper = CockroachDbms()
-            elif default_db_url.get_dialect().name == 'postgresql':
-                self._dbms_helper = PostgresqlDbms()
-            else:
-                raise excs.Error("Unsupported DBMS dialet '%s'" % default_db_url.get_dialect().name)
+                dialect = db_url.get_dialect().name
+                if dialect == 'cockroachdb':
+                    self._dbms = CockroachDbms(db_url)
+                elif dialect == 'postgresql':
+                    self._dbms = PostgresqlDbms(db_url)
+                else:
+                    raise excs.Error("Unsupported DBMS '%s'" % dialect)
+                if not self._store_db_exists():
+                    error = f'Database "{self._db_name}" does not exist'
+                    self._logger.error(error)
+                    raise excs.Error(error)
+                self._logger.info(f'found database at: {self.db_url}')
+            except ArgumentError as e:
+                error = f'Invalid db connection string {db_connect_str}: {e}'
+                self._logger.error(error)
+                raise excs.Error(error)
         else:
+            self._db_name = os.environ.get('PIXELTABLE_DB', 'pixeltable')
             self._pgdata_dir = Path(os.environ.get('PIXELTABLE_PGDATA', str(Config.get().home / 'pgdata')))
             # cleanup_mode=None will leave the postgres process running after Python exits
             # cleanup_mode='stop' will terminate the postgres process when Python exits
@@ -381,7 +380,7 @@ class Env:
             cleanup_mode = 'stop' if platform.system() == 'Windows' else None
             self._db_server = pixeltable_pgserver.get_server(self._pgdata_dir, cleanup_mode=cleanup_mode)
             self._db_url = self._db_server.get_uri(database=self._db_name, driver='psycopg')
-            self._dbms_helper = PostgresqlDbms()
+            self._dbms = PostgresqlDbms(sql.make_url(self._db_url))
 
         tz_name = config.get_string_value('time_zone')
         if tz_name is not None:
@@ -398,7 +397,6 @@ class Env:
             self._drop_store_db()
 
         create_db = not self._store_db_exists()
-
         if create_db:
             self._logger.info(f'creating database at: {self.db_url}')
             self._create_store_db()
@@ -408,6 +406,7 @@ class Env:
         # Create the SQLAlchemy engine. This will also set the default time zone.
         self._create_engine(time_zone_name=tz_name, echo=echo)
 
+        # Create tables and system metadata record after a new database is created or when external database is used
         if create_db:
             from pixeltable import metadata
 
@@ -423,7 +422,7 @@ class Env:
     @property
     def default_db_url(self):
         if self._db_server is None:
-            return self._default_db_url
+            return self._db_url
         else:
             return self._db_server.get_uri(database='postgres', driver='psycopg')
 
@@ -433,7 +432,7 @@ class Env:
             self.db_url,
             echo=True,
             future=True,
-            isolation_level=self._dbms_helper.transaction_isolation_level,
+            isolation_level=self._dbms.transaction_isolation_level,
             connect_args=connect_args,
         )
 
@@ -468,7 +467,7 @@ class Env:
         try:
             with engine.begin() as conn:
                 # use C collation to get standard C/Python-style sorting
-                stmt = self._dbms_helper.build_create_db_stmt(preparer.quote(self._db_name))
+                stmt = self._dbms.build_create_db_stmt(preparer.quote(self._db_name))
                 conn.execute(sql.text(stmt))
         finally:
             engine.dispose()
@@ -499,7 +498,7 @@ class Env:
                     """
                     conn.execute(sql.text(stmt))
                 # drop db
-                stmt = self._dbms_helper.build_drop_db_stmt(preparer.quote(self._db_name))
+                stmt = self._dbms.build_drop_db_stmt(preparer.quote(self._db_name))
                 conn.execute(sql.text(stmt))
         finally:
             engine.dispose()

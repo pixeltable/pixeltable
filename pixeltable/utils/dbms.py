@@ -1,11 +1,12 @@
 import abc
-
+from sqlalchemy import URL
 
 class Dbms(abc.ABC):
-    def __init__(self, name: str, transaction_isolation_level: str, version_index_type: str) -> None:
+    def __init__(self, name: str, transaction_isolation_level: str, version_index_type: str, db_url: URL) -> None:
         self.name = name
         self.transaction_isolation_level = transaction_isolation_level
         self.version_index_type = version_index_type
+        self.db_url = db_url
 
     @abc.abstractmethod
     def build_drop_db_stmt(self, database: str) -> str: ...
@@ -15,8 +16,8 @@ class Dbms(abc.ABC):
 
 
 class PostgresqlDbms(Dbms):
-    def __init__(self):
-        super().__init__('postgresql', 'REPEATABLE READ', 'brin')
+    def __init__(self, db_url: URL):
+        super().__init__('postgresql', 'REPEATABLE READ', 'brin', db_url)
 
     def build_drop_db_stmt(self, database: str) -> str:
         return f'DROP DATABASE {database}'
@@ -26,8 +27,8 @@ class PostgresqlDbms(Dbms):
 
 
 class CockroachDbms(Dbms):
-    def __init__(self):
-        super().__init__('cockroachdb', 'SERIALIZABLE', 'btree')
+    def __init__(self, db_url: URL):
+        super().__init__('cockroachdb', 'SERIALIZABLE', 'btree', db_url)
 
     def build_drop_db_stmt(self, database: str) -> str:
         return f'DROP DATABASE {database} CASCADE'
