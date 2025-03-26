@@ -65,9 +65,8 @@ class TestSnapshot:
         assert 'version is needed' in str(excinfo.value)
 
         # can't drop a table with snapshots
-        with pytest.raises(excs.Error) as excinfo:
+        with pytest.raises(excs.Error, match='has dependents'):
             pxt.drop_table(tbl_path)
-        assert snap_path in str(excinfo.value)
 
         pxt.drop_table(snap_path)
         pxt.drop_table(tbl_path)

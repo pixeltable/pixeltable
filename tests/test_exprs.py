@@ -1192,6 +1192,7 @@ class TestExprs:
             return [int(x) if pd.notna(x) else None for x in series]
 
         int_sum: Expr = pxtf.sum(t.c_int)
+        _ = t.group_by(t.c_int).select(t.c_int).collect()
         _ = t.group_by(t.c_int).select(t.c_int, out=int_sum).order_by(int_sum, asc=False).limit(5).collect()
 
         for pxt_fn, pd_fn in [

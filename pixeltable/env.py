@@ -170,19 +170,25 @@ class Env:
         assert self._current_session is not None
         return self._current_session
 
+    def in_xact(self) -> bool:
+        return self._current_conn is not None
+
     @contextmanager
     def begin_xact(self) -> Iterator[sql.Connection]:
         """Return a context manager that yields a connection to the database. Idempotent."""
         if self._current_conn is None:
             assert self._current_session is None
-            with self.engine.begin() as conn, sql.orm.Session(conn) as session:
-                self._current_conn = conn
-                self._current_session = session
-                try:
+            try:
+                with self.engine.begin() as conn, sql.orm.Session(conn) as session:
+                    # TODO: remove print() once we're done with debugging the concurrent update behavior
+                    # print(f'{datetime.datetime.now()}: start xact')
+                    self._current_conn = conn
+                    self._current_session = session
                     yield conn
-                finally:
-                    self._current_session = None
-                    self._current_conn = None
+            finally:
+                self._current_session = None
+                self._current_conn = None
+                # print(f'{datetime.datetime.now()}: end xact')
         else:
             assert self._current_session is not None
             yield self._current_conn
@@ -391,7 +397,7 @@ class Env:
     def _create_engine(self, time_zone_name: Optional[str], echo: bool = False) -> None:
         connect_args = {} if time_zone_name is None else {'options': f'-c timezone={time_zone_name}'}
         self._sa_engine = sql.create_engine(
-            self.db_url, echo=echo, future=True, isolation_level='REPEATABLE READ', connect_args=connect_args
+            self.db_url, echo=echo, isolation_level='REPEATABLE READ', connect_args=connect_args
         )
         self._logger.info(f'Created SQLAlchemy engine at: {self.db_url}')
         with self.engine.begin() as conn:
