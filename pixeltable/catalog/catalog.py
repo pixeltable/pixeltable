@@ -14,6 +14,7 @@ import pixeltable.exceptions as excs
 import pixeltable.metadata.schema as schema
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
+
 from .dir import Dir
 from .globals import IfExistsParam, IfNotExistsParam, MediaValidation
 from .insertable_table import InsertableTable
@@ -124,19 +125,17 @@ class Catalog:
 
     def get_dir_path(self, dir_id: UUID) -> Path:
         """Return path for directory with given id"""
-        dir_id_ = dir_id
         conn = Env.get().conn
         names: list[str] = []
         while True:
-            q = sql.select(schema.Dir).where(schema.Dir.id == dir_id_)
+            q = sql.select(schema.Dir).where(schema.Dir.id == dir_id)
             # _debug_print(for_update=False, msg=f'dir id={dir_id}')
             row = conn.execute(q).one()
             dir = schema.Dir(**row._mapping)
             if dir.md['name'] == '':
                 break
             names.insert(0, dir.md['name'])
-            dir_id_ = dir.parent_id
-            assert dir_id is not None
+            dir_id = dir.parent_id
         return Path('.'.join(names), empty_is_valid=True)
 
     @dataclasses.dataclass
@@ -485,7 +484,7 @@ class Catalog:
             for ancestor in path.ancestors():
                 ancestor_obj = self._get_schema_object(ancestor, expected=Dir)
                 assert ancestor_obj is not None or last_parent is not None
-                last_parent =  Dir._create(last_parent._id, ancestor.name) if ancestor_obj is None else ancestor_obj
+                last_parent = Dir._create(last_parent._id, ancestor.name) if ancestor_obj is None else ancestor_obj
             parent = last_parent
         else:
             parent = self._get_schema_object(path.parent)
