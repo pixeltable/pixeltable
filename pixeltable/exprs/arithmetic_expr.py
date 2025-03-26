@@ -4,8 +4,7 @@ from typing import Any, Optional
 
 import sqlalchemy as sql
 
-import pixeltable.exceptions as excs
-import pixeltable.type_system as ts
+from pixeltable import exceptions as excs, type_system as ts
 
 from .data_row import DataRow
 from .expr import Expr
