@@ -14,7 +14,7 @@ from .row_builder import RowBuilder
 from .sql_element_cache import SqlElementCache
 
 
-class StringExpr(Expr):
+class StringOpExpr(Expr):
     """
     Allows expressions on strings
     """
@@ -24,16 +24,16 @@ class StringExpr(Expr):
         self.operator = operator
         self.components = [op1, op2]
         assert op1.col_type.is_string_type()
-        if operator in (StringOperator.ADD, StringOperator.MUL):
-            if operator == StringOperator.ADD and not op2.col_type.is_string_type():
+        if operator in (StringOperator.CONCAT, StringOperator.REPEAT):
+            if operator == StringOperator.CONCAT and not op2.col_type.is_string_type():
                 raise excs.Error(
                     f'{self}: {operator} on strings requires string type, but {op2} has type {op2.col_type}'
                 )
-            if operator == StringOperator.MUL and not op2.col_type.is_int_type():
+            if operator == StringOperator.REPEAT and not op2.col_type.is_int_type():
                 raise excs.Error(f'{self}: {operator} on strings requires int type, but {op2} has type {op2.col_type}')
         else:
             raise excs.Error(
-                f'{self}: invalid operation {operator} on strings, only operators {StringOperator.ADD} and {StringOperator.MUL} are supported'
+                f'{self}: invalid operation {operator} on strings; only operators {StringOperator.CONCAT} and {StringOperator.REPEAT} are supported'
             )
         self.id = self._create_id()
 
@@ -48,7 +48,7 @@ class StringExpr(Expr):
     def __repr__(self) -> str:
         return f'{self._op1} {str(self.operator)} {str(self._op1)}'
 
-    def _equals(self, other: StringExpr) -> bool:
+    def _equals(self, other: StringOpExpr) -> bool:
         return self.operator == other.operator
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
@@ -59,8 +59,10 @@ class StringExpr(Expr):
         right = sql_elements.get(self._op2)
         if left is None or right is None:
             return None
-        if self.operator == StringOperator.ADD:
+        if self.operator == StringOperator.CONCAT:
             return left.concat(right)
+        if self.operator == StringOperator.REPEAT:
+            return sql.func.REPEAT(sql.cast(left, sql.String), sql.cast(right, sql.Integer))
         return None
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
@@ -82,8 +84,8 @@ class StringExpr(Expr):
         Return the result of evaluating the expression on two int/float operands
         """
         # Handle string operations earlier to make typecheck happy
-        assert self.operator in (StringOperator.ADD, StringOperator.MUL)
-        if self.operator == StringOperator.ADD:
+        assert self.operator in (StringOperator.CONCAT, StringOperator.REPEAT)
+        if self.operator == StringOperator.CONCAT:
             assert isinstance(op2_val, str)
             return op1_val + op2_val
         else:
@@ -94,7 +96,7 @@ class StringExpr(Expr):
         return {'operator': self.operator.value, **super()._as_dict()}
 
     @classmethod
-    def _from_dict(cls, d: dict, components: list[Expr]) -> StringExpr:
+    def _from_dict(cls, d: dict, components: list[Expr]) -> StringOpExpr:
         assert 'operator' in d
         assert len(components) == 2
         return cls(StringOperator(d['operator']), components[0], components[1])

@@ -645,17 +645,17 @@ class Expr(abc.ABC):
     def __neg__(self) -> 'exprs.ArithmeticExpr':
         return self._make_arithmetic_expr(ArithmeticOperator.MUL, -1)
 
-    def __add__(self, other: object) -> Union[exprs.ArithmeticExpr, exprs.StringExpr]:
+    def __add__(self, other: object) -> Union[exprs.ArithmeticExpr, exprs.StringOpExpr]:
         if isinstance(self, str) or (isinstance(self, Expr) and self.col_type.is_string_type()):
-            return self._make_string_expr(StringOperator.ADD, other)
+            return self._make_string_expr(StringOperator.CONCAT, other)
         return self._make_arithmetic_expr(ArithmeticOperator.ADD, other)
 
     def __sub__(self, other: object) -> 'exprs.ArithmeticExpr':
         return self._make_arithmetic_expr(ArithmeticOperator.SUB, other)
 
-    def __mul__(self, other: object) -> Union['exprs.ArithmeticExpr', 'exprs.StringExpr']:
+    def __mul__(self, other: object) -> Union['exprs.ArithmeticExpr', 'exprs.StringOpExpr']:
         if isinstance(self, str) or (isinstance(self, Expr) and self.col_type.is_string_type()):
-            return self._make_string_expr(StringOperator.MUL, other)
+            return self._make_string_expr(StringOperator.REPEAT, other)
         return self._make_arithmetic_expr(ArithmeticOperator.MUL, other)
 
     def __truediv__(self, other: object) -> 'exprs.ArithmeticExpr':
@@ -667,17 +667,17 @@ class Expr(abc.ABC):
     def __floordiv__(self, other: object) -> 'exprs.ArithmeticExpr':
         return self._make_arithmetic_expr(ArithmeticOperator.FLOORDIV, other)
 
-    def __radd__(self, other: object) -> Union['exprs.ArithmeticExpr', 'exprs.StringExpr']:
+    def __radd__(self, other: object) -> Union['exprs.ArithmeticExpr', 'exprs.StringOpExpr']:
         if isinstance(other, str) or (isinstance(other, Expr) and other.col_type.is_string_type()):
-            return self._rmake_string_expr(StringOperator.ADD, other)
+            return self._rmake_string_expr(StringOperator.CONCAT, other)
         return self._rmake_arithmetic_expr(ArithmeticOperator.ADD, other)
 
     def __rsub__(self, other: object) -> 'exprs.ArithmeticExpr':
         return self._rmake_arithmetic_expr(ArithmeticOperator.SUB, other)
 
-    def __rmul__(self, other: object) -> Union['exprs.ArithmeticExpr', 'exprs.StringExpr']:
+    def __rmul__(self, other: object) -> Union['exprs.ArithmeticExpr', 'exprs.StringOpExpr']:
         if isinstance(other, str) or (isinstance(other, Expr) and other.col_type.is_string_type()):
-            return self._rmake_string_expr(StringOperator.MUL, other)
+            return self._rmake_string_expr(StringOperator.REPEAT, other)
         return self._rmake_arithmetic_expr(ArithmeticOperator.MUL, other)
 
     def __rtruediv__(self, other: object) -> 'exprs.ArithmeticExpr':
@@ -689,30 +689,30 @@ class Expr(abc.ABC):
     def __rfloordiv__(self, other: object) -> 'exprs.ArithmeticExpr':
         return self._rmake_arithmetic_expr(ArithmeticOperator.FLOORDIV, other)
 
-    def _make_string_expr(self, op: StringOperator, other: object) -> 'exprs.StringExpr':
+    def _make_string_expr(self, op: StringOperator, other: object) -> 'exprs.StringOpExpr':
         """
         Make left-handed version fo string expression.
         """
         from .literal import Literal
-        from .string_expr import StringExpr
+        from .string_expr import StringOpExpr
 
         if isinstance(other, Expr):
-            return StringExpr(op, self, other)
+            return StringOpExpr(op, self, other)
         if isinstance(other, typing.get_args(LiteralPythonTypes)):
-            return StringExpr(op, self, Literal(other))
+            return StringOpExpr(op, self, Literal(other))
         raise TypeError(f'Other must be Expr or literal: {type(other)}')
 
-    def _rmake_string_expr(self, op: StringOperator, other: object) -> 'exprs.StringExpr':
+    def _rmake_string_expr(self, op: StringOperator, other: object) -> 'exprs.StringOpExpr':
         """
         Right-handed version of _make_string_expr. other must be a literal; if it were an Expr,
         the operation would have already been evaluated in its left-handed form.
         """
         from .literal import Literal
-        from .string_expr import StringExpr
+        from .string_expr import StringOpExpr
 
         assert not isinstance(other, Expr)  # Else the left-handed form would have evaluated first
         if isinstance(other, typing.get_args(LiteralPythonTypes)):
-            return StringExpr(op, Literal(other), self)
+            return StringOpExpr(op, Literal(other), self)
         raise TypeError(f'Other must be Expr or literal: {type(other)}')
 
     def _make_arithmetic_expr(self, op: ArithmeticOperator, other: object) -> 'exprs.ArithmeticExpr':

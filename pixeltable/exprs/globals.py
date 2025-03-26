@@ -90,12 +90,12 @@ class ArithmeticOperator(enum.Enum):
 
 
 class StringOperator(enum.Enum):
-    ADD = 0
-    MUL = 1
+    CONCAT = 0
+    REPEAT = 1
 
     def __str__(self) -> str:
-        if self == self.ADD:
+        if self == self.CONCAT:
             return '+'
-        if self == self.MUL:
+        if self == self.REPEAT:
             return '*'
         assert False
