@@ -467,13 +467,32 @@ class Catalog:
         _logger.info(f'Dropped table `{tbl._path()}`.')
 
     @_retry_loop
-    def create_dir(self, path: Path, if_exists: IfExistsParam) -> Dir:
+    def create_dir(self, path: Path, if_exists: IfExistsParam, parents: bool) -> Dir:
+        # existing = self._handle_path_collision(path, Dir, False, if_exists)
+        # if existing is not None:
+        #     assert isinstance(existing, Dir)
+        #     return existing
+        #
+        # parent = self._get_schema_object(path.parent)
+        # assert parent is not None
+        # dir = Dir._create(parent._id, path.name)
+        # Env.get().console_logger.info(f'Created directory {path!r}.')
+        # return dir
+
+        if parents:
+            # start walking down from the root
+            last_parent: Optional[SchemaObject] = None
+            for ancestor in path.ancestors():
+                ancestor_obj = self._get_schema_object(ancestor, expected=Dir)
+                assert ancestor_obj is not None or last_parent is not None
+                last_parent =  Dir._create(last_parent._id, ancestor.name) if ancestor_obj is None else ancestor_obj
+            parent = last_parent
+        else:
+            parent = self._get_schema_object(path.parent)
         existing = self._handle_path_collision(path, Dir, False, if_exists)
         if existing is not None:
             assert isinstance(existing, Dir)
             return existing
-
-        parent = self._get_schema_object(path.parent)
         assert parent is not None
         dir = Dir._create(parent._id, path.name)
         Env.get().console_logger.info(f'Created directory {path!r}.')
