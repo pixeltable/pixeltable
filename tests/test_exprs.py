@@ -634,29 +634,40 @@ class TestExprs:
         t = test_tbl
 
         # top-level is dict
-        res1 = reload_tester.run_query(t.select(input=t.c6.f5, output=t.c6.f5['*'] >> (R + 1)))
+        res1 = reload_tester.run_query(t.select(input=t.c6.f5, output=t.c6.f5['*'] >> (R + 1)).order_by(t.c2))
         for row in res1:
             assert row['output'] == [x + 1 for x in row['input']]
 
         # top-level is list of dicts; subsequent json path element references the dicts
-        res2 = reload_tester.run_query(t.select(input=t.c7, output=t.c7['*'].f5 >> [R[3], R[2], R[1], R[0]]))
+        res2 = reload_tester.run_query(
+            t.select(input=t.c7, output=t.c7['*'].f5 >> [R[3], R[2], R[1], R[0]]).order_by(t.c2)
+        )
         for row in res2:
             assert row['output'] == [[d['f5'][3], d['f5'][2], d['f5'][1], d['f5'][0]] for d in row['input']]
 
         # target expr contains global-scope dependency
-        res3 = reload_tester.run_query(t.select(input=t.c6, output=t.c6.f5['*'] >> (R * t.c6.f5[1])))
+        res3 = reload_tester.run_query(t.select(input=t.c6, output=t.c6.f5['*'] >> (R * t.c6.f5[1])).order_by(t.c2))
         for row in res3:
             assert row['output'] == [x * row['input']['f5'][1] for x in row['input']['f5']]
+
+        # mapper appears inside the anchor of a JsonPath
+        res4 = reload_tester.run_query(t.select(input=t.c6, output=(t.c6.f5['*'] >> (R + 1))[0]).order_by(t.c2))
+        for row in res4:
+            assert row['output'] == row['input']['f5'][0] + 1
 
         # test it as a computed column
         validate_update_status(t.add_computed_column(out1=t.c6.f5['*'] >> (R + 1)), 100)
         validate_update_status(t.add_computed_column(out2=t.c7['*'].f5 >> [R[3], R[2], R[1], R[0]]), 100)
         validate_update_status(t.add_computed_column(out3=t.c6.f5['*'] >> (R * t.c6.f5[1])), 100)
-        res_col = reload_tester.run_query(t.select(t.out1, t.out2, t.out3))
-        for row1, row2, row3, row_col in zip(res1, res2, res3, res_col):
+        validate_update_status(t.add_computed_column(out4=(t.c6.f5['*'] >> (R + 1))[0]), 100)
+
+        res_col = reload_tester.run_query(t.select(t.out1, t.out2, t.out3, t.out4).order_by(t.c2))
+
+        for row1, row2, row3, row4, row_col in zip(res1, res2, res3, res4, res_col):
             assert row1['output'] == row_col['out1']
             assert row2['output'] == row_col['out2']
             assert row3['output'] == row_col['out3']
+            assert row4['output'] == row_col['out4']
 
         reload_tester.run_reload_test()
 
