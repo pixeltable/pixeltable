@@ -132,6 +132,7 @@ class Column:
             from pixeltable import exprs
 
             self._value_expr = exprs.Expr.from_dict(self.value_expr_dict)
+            self._value_expr.bind_rel_paths()
             if not self._value_expr.is_valid:
                 message = (
                     dedent(

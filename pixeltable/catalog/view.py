@@ -237,15 +237,11 @@ class View(Table):
         )
 
     def _drop(self) -> None:
-        cat = catalog.Catalog.get()
         if self._snapshot_only:
             # there is not TableVersion to drop
             self._check_is_dropped()
             self.is_dropped = True
             TableVersion.delete_md(self._id)
-            # update catalog
-            cat = catalog.Catalog.get()
-            cat.remove_tbl(self._id)
         else:
             super()._drop()
 

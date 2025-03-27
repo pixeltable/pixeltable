@@ -950,9 +950,8 @@ class TestTable:
 
         # drop() clears stored images and the cache
         tbl.insert(payload=1, video=get_video_files()[0])
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(excs.Error, match='has dependents'):
             pxt.drop_table('test_tbl')
-        assert 'has dependents: test_view' in str(exc_info.value)
         pxt.drop_table('test_view')
         pxt.drop_table('test_tbl')
         assert MediaStore.count(view._id) == 0

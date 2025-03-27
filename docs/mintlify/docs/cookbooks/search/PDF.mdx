@@ -78,7 +78,7 @@ Pixeltable PDF search works in two phases:
 
     # Connect to your tables
     documents_t = pxt.get_table("pdf_search.documents")
-    documents_chunks = pxt.get_view("pdf_search.document_chunks")
+    documents_chunks = pxt.get_table("pdf_search.document_chunks")
 
     # Sample document URLs
     DOCUMENT_URL = (

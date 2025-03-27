@@ -180,7 +180,7 @@ pxt.create_dir("chatbot")
 
 # Create memory table
 memory = pxt.create_table(
-    path_str="chatbot.memory",
+    "chatbot.memory",
     {
         "role": pxt.String,
         "content": pxt.String,
@@ -191,7 +191,7 @@ memory = pxt.create_table(
 
 # Create chat session table
 chat_session = pxt.create_table(
-    path_str="chatbot.chat_session",
+    "chatbot.chat_session",
     {"user_message": pxt.String, "timestamp": pxt.Timestamp},
     if_exists="ignore",
 )
