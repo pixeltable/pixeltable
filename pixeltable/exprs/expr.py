@@ -104,6 +104,7 @@ class Expr(abc.ABC):
             c._bind_rel_paths(mapper)
 
     def _expr_tree(self) -> str:
+        """Returns a string representation of this expression as a multi-line tree. Useful for debugging."""
         buf: list[str] = []
         self._expr_tree_r(0, buf)
         return '\n'.join(buf)
