@@ -1,216 +1,239 @@
 ---
-title: "Pixelagent"
-description: "Understanding and implementing AI agents with Pixeltable"
-mode: "wide"
+title: 'Pixelagent'
+description: 'An Agent Engineering Blueprint powered by Pixeltable'
+mode: 'wide'
 ---
 
-## What is Pixelagent?
+# Agent Engineering
 
-Pixelagent is a tool-calling agent framework built on Pixeltable. It allows you to create and use agents to automate tasks and workflows.
+We see agents as the intersection of an LLM, storage, and orchestration. Pixelagent unifies this interface into a single declarative framework, making it the de-facto choice for engineers to build custom agentic applications with build-your-own functionality for memory, tool-calling, and advanced patterns.
 
-## What is an Agent?
+<CardGroup cols={3}>
+  <Card title="Data-First" icon="database">
+    Built-in persistence and state management across sessions
+  </Card>
+  <Card title="Tool Integration" icon="wrench">
+    Seamless integration with external APIs and services
+  </Card>
+  <Card title="Multimodal" icon="photo-film">
+    Native support for text, images, and beyond
+  </Card>
+</CardGroup>
 
 <Note>
-As defined by [Anthropic](https://www.anthropic.com/research/building-effective-agents), agents are AI systems where large language models (LLMs) dynamically direct their own processes and tool usage, maintaining control over how they accomplish tasks.
+Choose Pixelagent when you need robust data management and persistence in your agent systems. The framework is particularly powerful when building agents that need to maintain context, use tools, or handle multiple types of data.
 </Note>
 
-This differs from workflows, which are systems where LLMs and tools are orchestrated through predefined code paths.
+## Installation and Setup
 
-<Warning>
-An agent is not simply a zero-shot call to a large language model. Proper agents require multiple components working together.
-</Warning>
+```bash
+pip install pixelagent anthropic
+```
+
+```python
+from pixelagent.anthropic import Agent
+
+agent = Agent(
+    agent_name="financial_analyst",
+    system_prompt="You are a CFA working at a top-tier investment bank.",
+    model="claude-3-7-sonnet-latest"
+)
+
+agent.chat("Explain EPS and how it is calculated.")
+
+agent.chat("What was my first question?")
+```
+
+## Building Your Agent
+
+<AccordionGroup>
+  <Accordion title="Define Tools" icon="wrench">
+    First, create and register your tools with Pixeltable:
+    ```python
+    import pixeltable as pxt
+    from pixelagent.anthropic import Agent
+    import yfinance as yf
+
+    @pxt.udf
+    def stock_price(ticker: str) -> dict:
+        """
+        Retrieve the current stock price for a given ticker symbol.
+        
+        Args:
+            ticker (str): Stock ticker symbol (e.g., 'AAPL' for Apple)
+            
+        Returns:
+            dict: Dictionary containing stock information and metrics
+        """
+        stock = yf.Ticker(ticker)
+        return stock.info
+
+    # Register the tool with Pixeltable
+    tools = pxt.tools(stock_price)
+    ```
+  </Accordion>
+
+  <Accordion title="Create Agent" icon="robot">
+    Initialize your agent with the desired configuration:
+    ```python
+    agent = Agent(
+        agent_name="financial_analyst",  # Unique identifier for this agent
+        system_prompt="You are a CFA working at a top-tier investment bank.",  # Agent personality
+        tools=tools,  # Register tools with the agent
+        reset=True,  # Start with a fresh conversation history,
+        n_latest_messages=10,  # Set the last N messages otherwise defaults to infinite memory
+    )
+    ```
+  </Accordion>
+
+  <Accordion title="Interact with Agent" icon="comments">
+    Start interacting with your agent:
+    ```python
+    # Basic conversation
+    res = agent.chat("Hi, how are you?")
+    print(res)
+
+    # Tool calling
+    tool_result = agent.tool_call("Get NVIDIA and Apple stock price")
+    print(tool_result)
+
+    # Persistant memory
+    print(agent.chat("What was my last question?"))
+    ```
+  </Accordion>
+
+  <Accordion title="Declarative Agent Observability" icon="magnifying-glass">
+    Query the agent's conversation and tool history:
+    ```python
+    # Access the agent's conversation history
+    memory = pxt.get_table("financial_analyst.memory")
+    print("Conversation Memory:")
+    print(memory.collect())
+
+    # Access the agent's tool call history
+    tools_log = pxt.get_table("financial_analyst.tools")
+    print("Tool Call History:")
+    print(tools_log.collect())
+    ```
+  </Accordion>
+</AccordionGroup>
 
 ## Core Components
 
 <CardGroup cols={2}>
-  <Card title="Model" icon="brain">
-    The foundation of an agent is a large language model capable of understanding and generating human-like text.
+  <Card title="Data Orchestration" icon="database">
+    Built on Pixeltable's infrastructure for seamless data management and persistence
   </Card>
-  <Card title="Tools" icon="screwdriver-wrench">
-    External functions and APIs that the model can use to interact with the world and gather information.
+  <Card title="Multimodal Support" icon="photo-film">
+    Built-in support for text, images, and beyond
   </Card>
-  <Card title="Memory" icon="database">
-    The agent"s ability to maintain and track state across multiple interactions.
+  <Card title="Declarative Model" icon="code">
+    Define tables and columns; Pixeltable handles the rest
   </Card>
-  <Card title="Loop" icon="rotate">
-    The capability to execute multiple steps and iterations to complete a task.
+  <Card title="LLM Integration" icon="message">
+    Handles OpenAI and Anthropic message protocols
   </Card>
 </CardGroup>
 
-## Getting Started
-
-<Steps>
-  <Step title="Installation">
-    Install the required packages:
-    ```bash
-    pip install pixeltable pixelagent openai yfinance
-    ```
-  </Step>
-
-  <Step title="High-Level Implementation">
-    Using Pixelagent for quick agent creation:
-    ```python
-    import pixeltable as pxt
-    from pixelagent.openai import Agent
-    import yfinance as yf
-
-    @pxt.udf
-    def get_stock_data(ticker: str) -> dict:
-        """Get up-to-date stock data for a given ticker"""
-        return yf.Ticker(ticker).info
-
-    yfinance_tools = pxt.tools(get_stock_data)
-
-    agent = Agent(
-        name="Financial Research Agent",
-        model="gpt-4o-mini",
-        system_prompt="You are a financial research assistant.",
-        tools=yfinance_tools,
-        # reset=True  # Uncomment to reset the agent"s memory
-    )
-    ```
-  </Step>
-
-  <Step title="Using the Agent">
-    Example of agent interaction:
-    ```python
-    # Create a financial research template
-    template = agent.run("Create a template for a detailed financial research report")
-    print(template)
-
-    # Use the template (maintains context from previous interaction)
-    analysis = agent.run("Using the template you created, perform a detailed analysis of Apple.")
-    print(analysis)
-    ```
-  </Step>
-</Steps>
-
-## Low-Level Implementation
-
-If you want to build your own tool-calling agent, you can directly use the Pixeltable SDK.
-
-Slightly more verbose, but gives you the ability to modify the agent's tables and orchestration.
-
-<Accordion title="Complete Low-Level Implementation with Pixeltable SDK">
-```python
-from typing import Dict, List, Optional
-from datetime import datetime
-import pixeltable as pxt
-from pixeltable.functions import openai
-
-@pxt.udf
-def _create_messages(past_context: List[Dict], system_prompt: str, tool_output: Optional[str] = None) -> List[Dict]:
-    """Create messages list with system prompt, memory context and new message"""
-    messages = [{"role": "system", "content": system_prompt}]
-    messages.extend([{"role": msg["role"], "content": msg["content"]} for msg in past_context])
-    if tool_output:
-        messages.append({"role": "user", "content": str(tool_output)})
-    return messages
-    
-def create_chat(name: str, openai_model: str, tools: Optional[pxt.tools] = None):
-    """Create a chat table with optional tool support.
-    
-    Args:
-        name: Name of the chat
-        openai_model: OpenAI model to use
-        tools: Optional tools to make available to the agent
-    """
-    # Create directory for chat
-    pxt.drop_dir(name, force=True)
-    pxt.create_dir(name)
-
-    # Table to store conversation history between AI and User.
-    message_table = pxt.create_table(
-        f"{name}.messages",
-        {"role": pxt.String, "content": pxt.String}
-    )
-
-    # Chat interaction table
-    chat = pxt.create_table(f"{name}.chat", {"system_prompt": pxt.String})
-
-    @pxt.query
-    def _get_messages():
-        return message_table.select(role=message_table.role, content=message_table.content)
-
-    # Response sequence
-    chat.add_computed_column(get_messages=_get_messages())
-    chat.add_computed_column(
-        messages=_create_messages(chat.get_messages, chat.system_prompt)
-    )
-    
-    if tools:
-        # Add tool-enabled response sequence
-        chat.add_computed_column(
-            initial_tool_response=openai.chat_completions(
-                messages=chat.messages,
-                model=openai_model,
-                tools=tools,
-            )
-        )
-        
-        chat.add_computed_column(
-            invoke_tools=openai.invoke_tools(tools, chat.initial_tool_response)
-        )
-        
-        chat.add_computed_column(
-            tool_messages=_create_messages(chat.get_messages, chat.system_prompt, chat.invoke_tools)
-        )
-    
-        
-        chat.add_computed_column(
-            tool_response=openai.chat_completions(model=openai_model, messages=chat.tool_messages)
-        )
-        
-        chat.add_computed_column(response=chat.tool_response.choices[0].message.content)
-    else:
-        # Standard response sequence without tools
-        chat.add_computed_column(
-            invoke_llm=openai.chat_completions(messages=chat.messages, model=openai_model)
-        )
-        chat.add_computed_column(response=chat.invoke_llm.choices[0].message.content)
-
-def run(name: str, instructions: str, content: str) -> str:
-    # Log the user message
-    message_table = pxt.get_table(f"{name}.messages")
-    message_table.insert([{"role": "user", "content": content}])
-
-    # Invoke the LLM
-    chat = pxt.get_table(f"{name}.chat")
-    chat.insert([{"system_prompt": instructions}])
-
-    # Log the agent response
-    response = chat.select(chat.response).tail(1)["response"][0]
-    message_table.insert([{"role": "assistant", "content": response}])
-    
-    return response
-
-class Agent:
-    """Base agent class that can be composed into workflows"""
-    def __init__(self, name: str, system_prompt: str, model: str = "gpt-4o-mini", tools: Optional[pxt.tools] = None):
-        self.name = name
-        self.system_prompt = system_prompt
-        self.model = model
-        self.tools = tools
-        create_chat(name, model, tools)
-        
-    def run(self, content: str) -> str:
-        return run(self.name, self.system_prompt, content)
-```
-</Accordion>
-
-## Key Features
+## Build your own agent
 
 <CardGroup cols={2}>
-  <Card title="Persistence" icon="database">
-    Agents maintain state and conversation history across sessions using Pixeltable"s storage capabilities.
+  <Card 
+    title="See how we build an Agent with Anthropic" 
+    icon="brain"
+    href="https://github.com/pixeltable/pixelagent/tree/main/examples/build-your-own-agent/anthropic"
+  >
+    Learn how we craft an agent using Claude, with cost-saving tricks like skipping chat history in tool calls
   </Card>
-  <Card title="Tool Integration" icon="plug">
-    Seamlessly incorporate external tools and APIs into agent workflows with the tools parameter.
-  </Card>
-  <Card title="Flexible Architecture" icon="shuffle">
-    Choose between high-level Pixelagent API or low-level Pixeltable SDK implementation.
-  </Card>
-  <Card title="State Management" icon="layer-group">
-    Built-in conversation history and state tracking through message tables.
+  <Card 
+    title="See how we build an Agent with OpenAI" 
+    icon="sparkles"
+    href="https://github.com/pixeltable/pixelagent/tree/main/examples/build-your-own-agent/openai"
+  >
+    See how we use GPT models to create a lean, powerful agent with Pixeltable-driven efficiency
   </Card>
 </CardGroup>
+
+## Extensions and Features
+
+<CardGroup cols={3}>
+  <Card 
+    title="Getting Started" 
+    icon="book"
+    href="https://github.com/pixeltable/pixelagent/tree/main/examples/getting-started"
+  >
+    Step-by-step introduction to core concepts
+  </Card>
+  <Card 
+    title="Tool Calling" 
+    icon="wrench"
+    href="https://github.com/pixeltable/pixelagent/tree/main/examples/tool-calling"
+  >
+    Learn to integrate external tools and APIs
+  </Card>
+  <Card 
+    title="Reflection" 
+    icon="rotate"
+    href="https://github.com/pixeltable/pixelagent/tree/main/examples/reflection"
+  >
+    Implement self-improvement loops
+  </Card>
+  <Card 
+    title="Memory Systems" 
+    icon="database"
+    href="https://github.com/pixeltable/pixelagent/tree/main/examples/memory"
+  >
+    Build long-term memory with semantic search capabilities
+  </Card>
+  <Card 
+    title="Planning" 
+    icon="list-check"
+    href="https://github.com/pixeltable/pixelagent/tree/main/examples/planning"
+  >
+    Add sophisticated planning and reasoning loops
+  </Card>
+  <Card 
+    title="Team workflows" 
+    icon="users"
+    href="https://github.com/pixeltable/pixelagent/tree/main/examples/team-workflows"
+  >
+    Build teams of agents to handle complex tasks
+  </Card>   
+</CardGroup>
+
+## Why Choose Pixelagent?
+
+<CardGroup cols={3}>
+  <Card title="Data-First" icon="database">
+    Focus on robust data management and persistence
+  </Card>
+  <Card title="Engineering Freedom" icon="code">
+    Build exactly what you need without framework constraints
+  </Card>
+  <Card title="Simplified Workflow" icon="gears">
+    Automated handling of persistence, protocols, and integrations
+  </Card>
+</CardGroup>
+
+Ready to start building? Dive into the blueprints, tweak them to your needs, and let Pixelagent handle the infrastructure while you focus on innovation!
+
+## Getting Help
+
+<CardGroup cols={4}>
+  <Card title="GitHub" icon="github" href="https://github.com/pixeltable/pixelagent">
+    Explore the source code and examples
+  </Card>
+  <Card title="Issues" icon="bug" href="https://github.com/pixeltable/pixelagent/issues">
+    Report bugs and request features
+  </Card>
+  <Card title="Discussions" icon="comments" href="https://github.com/pixeltable/pixelagent/discussions">
+    Join the community discussions
+  </Card>
+  <Card title="Examples" icon="code" href="https://github.com/pixeltable/pixelagent/tree/main/examples">
+    Browse example implementations
+  </Card>
+</CardGroup>
+
+<Note>
+We welcome contributions! Whether it's adding new features, improving documentation, or sharing example implementations, check out our [contribution guidelines](https://github.com/pixeltable/pixelagent/blob/main/CONTRIBUTING.md) to get started.
+</Note>
