@@ -7,7 +7,6 @@ from typing import Callable
 
 import sqlalchemy as sql
 from sqlalchemy import orm
-from sqlalchemy.exc import IntegrityError
 
 from pixeltable.utils.console_output import ConsoleLogger
 
@@ -25,13 +24,12 @@ def create_system_info(engine: sql.engine.Engine) -> None:
     system_md = SystemInfoMd(schema_version=VERSION)
     record = SystemInfo(md=dataclasses.asdict(system_md))
     with orm.Session(engine, future=True) as session:
-        try:
-            session,(record)
+        if session.query(SystemInfo).count() == 0:
+            session.add(record)
             session.flush()
             session.commit()
-        except IntegrityError:
-            logging.info("System metadata record already exists")
-            session.rollback()
+
+
 
 # conversion functions for upgrading the metadata schema from one version to the following
 # key: old schema version

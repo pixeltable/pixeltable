@@ -174,7 +174,7 @@ class Env:
         return self._current_session
 
     @property
-    def dbms_helper(self) -> Optional[Dbms]:
+    def dbms(self) -> Optional[Dbms]:
         assert self._dbms is not None
         return self._dbms
 
@@ -375,7 +375,7 @@ class Env:
             except ArgumentError as e:
                 error = f'Invalid db connection string {db_connect_str}: {e}'
                 self._logger.error(error)
-                raise excs.Error(error)
+                raise excs.Error(error) from e
         else:
             self._db_name = os.environ.get('PIXELTABLE_DB', 'pixeltable')
             self._pgdata_dir = Path(os.environ.get('PIXELTABLE_PGDATA', str(Config.get().home / 'pgdata')))
@@ -403,6 +403,7 @@ class Env:
             self._drop_store_db()
 
         create_db = not self._store_db_exists()
+
         if create_db:
             self._logger.info(f'creating database at: {self.db_url}')
             self._create_store_db()
@@ -413,7 +414,7 @@ class Env:
         self._create_engine(time_zone_name=tz_name, echo=echo)
 
         # Create tables and system metadata record after a new database is created or when external database is used
-        if create_db:
+        if create_db or db_connect_str is not None:
             from pixeltable import metadata
 
             metadata.schema.base_metadata.create_all(self._sa_engine)
@@ -426,16 +427,16 @@ class Env:
         self.log_to_stdout(False)
 
     @property
-    def default_db_url(self):
+    def default_system_db_url(self):
         if self._db_server is None:
-            return self._db_url
+            return self._dbms.default_system_db_url()
         else:
             return self._db_server.get_uri(database='postgres', driver='psycopg')
 
     def _create_engine(self, time_zone_name: Optional[str], echo: bool = False) -> None:
         connect_args = {} if time_zone_name is None else {'options': f'-c timezone={time_zone_name}'}
         self._sa_engine = sql.create_engine(
-            self.db_url, echo=echo, self._dbms.transaction_isolation_level, connect_args=connect_args
+            self.db_url, echo=echo, isolation_level=self._dbms.transaction_isolation_level, connect_args=connect_args
         )
 
         self._logger.info(f'Created SQLAlchemy engine at: {self.db_url}')
@@ -449,7 +450,7 @@ class Env:
     def _store_db_exists(self) -> bool:
         assert self._db_name is not None
         # don't try to connect to self.db_name, it may not exist
-        db_url = self.default_db_url
+        db_url = self.default_system_db_url
         engine = sql.create_engine(db_url, future=True)
         try:
             with engine.begin() as conn:
@@ -463,7 +464,7 @@ class Env:
     def _create_store_db(self) -> None:
         assert self._db_name is not None
         # create the db
-        pg_db_url = self.default_db_url
+        pg_db_url = self.default_system_db_url
         engine = sql.create_engine(pg_db_url, future=True, isolation_level='AUTOCOMMIT')
         preparer = engine.dialect.identifier_preparer
         try:
@@ -485,7 +486,7 @@ class Env:
 
     def _drop_store_db(self) -> None:
         assert self._db_name is not None
-        db_url = self.default_db_url
+        db_url = self.default_system_db_url
         engine = sql.create_engine(db_url, future=True, isolation_level='AUTOCOMMIT')
         preparer = engine.dialect.identifier_preparer
         try:
