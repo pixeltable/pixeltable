@@ -102,6 +102,7 @@
         "docs/tutorials/fundamentals",
         "docs/tutorials/feature-guide",
         "docs/cookbooks/mcp/overview",
+        "docs/cookbooks/agents/pixelagent",
         {
           "group": "Cookbooks",
           "pages": [
