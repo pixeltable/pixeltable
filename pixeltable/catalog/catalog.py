@@ -506,7 +506,7 @@ class Catalog:
             raise_if_not_exists=if_not_exists == IfNotExistsParam.ERROR and not force,
         )
         if schema_obj is None:
-            _logger.info(f'Directory {str(path)!r} does not exist, skipped drop_dir().')
+            _logger.info(f'Directory {str(path)!r} does not exist; skipped drop_dir().')
             return
         self._drop_dir(schema_obj._id, path, force=force)
 
