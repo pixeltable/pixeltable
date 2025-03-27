@@ -18,7 +18,6 @@ class QueryTemplateFunction(Function):
     template_df: Optional['DataFrame']
     self_name: Optional[str]
     # conn: Optional[sql.engine.Connection]
-    defaults: dict[str, exprs.Literal]
 
     @classmethod
     def create(
@@ -50,8 +49,6 @@ class QueryTemplateFunction(Function):
         # we end up with a deadlock
         # TODO: figure out a more general way to make execution state available
         # self.conn = None
-
-        self.defaults = {param.name: param.default for param in sig.parameters.values() if param.has_default()}
 
     def _update_as_overload_resolution(self, signature_idx: int) -> None:
         pass  # only one signature supported for QueryTemplateFunction
