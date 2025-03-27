@@ -154,41 +154,9 @@ def create_table(
     else:
         is_direct_df = False
 
-    #    if table is None and schema is None and data_source is None:
-    #        raise excs.Error('Table does not exist, at least one of `schema` or `source` must be provided')
     if len(schema) == 0 or not isinstance(schema, dict):
         raise excs.Error('Unable to create a proper schema, please supply one')
 
-    """
-
-    path = catalog.Path(path_str)
-    cat = Catalog.get()
-
-    with env.Env.get().begin_xact():
-        dest_dir = cat.get_schema_object(str(path.parent), expected=catalog.Dir, raise_if_not_exists=True)
-        assert dest_dir is not None
-
-        if table is None:
-            # Create the table with the specified or inferred schema
-            table = catalog.InsertableTable._create(
-                dest_dir._id,
-                path.name,
-                schema,
-                data_source.pxt_df if isinstance(data_source, DFTableDataConduit) else None,
-                primary_key=primary_key,
-                num_retained_versions=num_retained_versions,
-                comment=comment,
-                media_validation=catalog.MediaValidation.validated(media_validation, 'media_validation'),
-            )
-
-        assert isinstance(table, catalog.Table)
-
-        cat.add_tbl(table)
-        if source is None or is_direct_df:
-            return table
-
-    return table
-    """
     table = Catalog.get().create_table(
         path_obj,
         schema,
