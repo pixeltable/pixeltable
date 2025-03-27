@@ -634,27 +634,31 @@ class TestExprs:
         t = test_tbl
 
         # top-level is dict
-        res = reload_tester.run_query(t.select(input=t.c6.f5, output=pxtf.map(t.c6.f5['*'], lambda x: x + 1)))
-        for row in res:
+        res1 = reload_tester.run_query(t.select(input=t.c6.f5, output=pxtf.map(t.c6.f5['*'], lambda x: x + 1)))
+        for row in res1:
             assert row['output'] == [x + 1 for x in row['input']]
 
         # top-level is list of dicts; subsequent json path element references the dicts
-        res = reload_tester.run_query(
+        res2 = reload_tester.run_query(
             t.select(input=t.c7, output=pxtf.map(t.c7['*'].f5, lambda x: [x[3], x[2], x[1], x[0]]))
         )
-        for row in res:
+        for row in res2:
             assert row['output'] == [[d['f5'][3], d['f5'][2], d['f5'][1], d['f5'][0]] for d in row['input']]
 
         # target expr contains global-scope dependency
-        res = reload_tester.run_query(t.select(input=t.c6, output=pxtf.map(t.c6.f5['*'], lambda x: x * t.c6.f5[1])))
-        for row in res:
+        res3 = reload_tester.run_query(t.select(input=t.c6, output=pxtf.map(t.c6.f5['*'], lambda x: x * t.c6.f5[1])))
+        for row in res3:
             assert row['output'] == [x * row['input']['f5'][1] for x in row['input']['f5']]
 
         # test it as a computed column
-        validate_update_status(t.add_computed_column(output=pxtf.map(t.c6.f5['*'], lambda x: x * t.c6.f5[1])), 100)
-        res2 = reload_tester.run_query(t.select(t.output))
-        for row, row2 in zip(res, res2):
-            assert row['output'] == row2['output']
+        validate_update_status(t.add_computed_column(out1=pxtf.map(t.c6.f5['*'], lambda x: x + 1)), 100)
+        validate_update_status(t.add_computed_column(out2=pxtf.map(t.c7['*'].f5, lambda x: [x[3], x[2], x[1], x[0]])), 100)
+        validate_update_status(t.add_computed_column(out3=pxtf.map(t.c6.f5['*'], lambda x: x * t.c6.f5[1])), 100)
+        res_col = reload_tester.run_query(t.select(t.out1, t.out2, t.out3))
+        for row1, row2, row3, row_col in zip(res1, res2, res3, res_col):
+            assert row1['output'] == row_col['out1']
+            assert row2['output'] == row_col['out2']
+            assert row3['output'] == row_col['out3']
 
         reload_tester.run_reload_test()
 
@@ -1190,6 +1194,7 @@ class TestExprs:
             return [int(x) if pd.notna(x) else None for x in series]
 
         int_sum: Expr = pxtf.sum(t.c_int)
+        _ = t.group_by(t.c_int).select(t.c_int).collect()
         _ = t.group_by(t.c_int).select(t.c_int, out=int_sum).order_by(int_sum, asc=False).limit(5).collect()
 
         for pxt_fn, pd_fn in [

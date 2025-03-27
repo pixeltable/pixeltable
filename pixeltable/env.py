@@ -47,6 +47,7 @@ class Env:
     """
 
     _instance: Optional[Env] = None
+    __initializing: bool = False
     _log_fmt_str = '%(asctime)s %(levelname)s %(name)s %(filename)s:%(lineno)d: %(message)s'
 
     _media_dir: Optional[Path]
@@ -68,7 +69,6 @@ class Env:
     _httpd: Optional[http.server.HTTPServer]
     _http_address: Optional[str]
     _logger: logging.Logger
-    _console_logger: ConsoleLogger
     _default_log_level: int
     _logfilename: Optional[str]
     _log_to_stdout: bool
@@ -90,10 +90,13 @@ class Env:
 
     @classmethod
     def _init_env(cls, reinit_db: bool = False) -> None:
+        assert not cls.__initializing, 'Circular env initialization detected.'
+        cls.__initializing = True
         env = Env()
         env._set_up(reinit_db=reinit_db)
         env._upgrade_metadata()
         cls._instance = env
+        cls.__initializing = False
 
     def __init__(self):
         assert self._instance is None, 'Env is a singleton; use Env.get() to access the instance'
@@ -167,19 +170,25 @@ class Env:
         assert self._current_session is not None
         return self._current_session
 
+    def in_xact(self) -> bool:
+        return self._current_conn is not None
+
     @contextmanager
     def begin_xact(self) -> Iterator[sql.Connection]:
         """Return a context manager that yields a connection to the database. Idempotent."""
         if self._current_conn is None:
             assert self._current_session is None
-            with self.engine.begin() as conn, sql.orm.Session(conn) as session:
-                self._current_conn = conn
-                self._current_session = session
-                try:
+            try:
+                with self.engine.begin() as conn, sql.orm.Session(conn) as session:
+                    # TODO: remove print() once we're done with debugging the concurrent update behavior
+                    # print(f'{datetime.datetime.now()}: start xact')
+                    self._current_conn = conn
+                    self._current_session = session
                     yield conn
-                finally:
-                    self._current_session = None
-                    self._current_conn = None
+            finally:
+                self._current_session = None
+                self._current_conn = None
+                # print(f'{datetime.datetime.now()}: end xact')
         else:
             assert self._current_session is not None
             yield self._current_conn
@@ -388,7 +397,7 @@ class Env:
     def _create_engine(self, time_zone_name: Optional[str], echo: bool = False) -> None:
         connect_args = {} if time_zone_name is None else {'options': f'-c timezone={time_zone_name}'}
         self._sa_engine = sql.create_engine(
-            self.db_url, echo=echo, future=True, isolation_level='REPEATABLE READ', connect_args=connect_args
+            self.db_url, echo=echo, isolation_level='REPEATABLE READ', connect_args=connect_args
         )
         self._logger.info(f'Created SQLAlchemy engine at: {self.db_url}')
         with self.engine.begin() as conn:
@@ -527,8 +536,6 @@ class Env:
         """Check for and start runtime services"""
         self._start_web_server()
         self.__register_packages()
-        if self.is_installed_package('spacy'):
-            self.__init_spacy()
 
     def __register_packages(self) -> None:
         """Declare optional packages that are utilized by some parts of the code."""
@@ -611,37 +618,6 @@ class Env:
                 f'To fix this, run: `pip install -U {package_info.library_name}`'
             )
 
-    def __init_spacy(self) -> None:
-        """
-        spaCy relies on a pip-installed model to operate. In order to avoid requiring the model as a separate
-        dependency, we install it programmatically here. This should cause no problems, since the model packages
-        have no sub-dependencies (in fact, this is how spaCy normally manages its model resources).
-        """
-        import spacy
-        from spacy.cli.download import get_model_filename
-
-        spacy_model = 'en_core_web_sm'
-        spacy_model_version = '3.7.1'
-        filename = get_model_filename(spacy_model, spacy_model_version, sdist=False)
-        url = f'{spacy.about.__download_url__}/{filename}'
-        # Try to `pip install` the model. We set check=False; if the pip command fails, it's not necessarily
-        # a problem, because the model have been installed on a previous attempt.
-        self._logger.info(f'Ensuring spaCy model is installed: {filename}')
-        ret = subprocess.run([sys.executable, '-m', 'pip', 'install', '-qU', url], check=False)
-        if ret.returncode != 0:
-            self._logger.warning(f'pip install failed for spaCy model: {filename}')
-        try:
-            self._logger.info(f'Loading spaCy model: {spacy_model}')
-            self._spacy_nlp = spacy.load(spacy_model)
-        except Exception as exc:
-            self._logger.warning(f'Failed to load spaCy model: {spacy_model}', exc_info=exc)
-            warnings.warn(
-                f"Failed to load spaCy model '{spacy_model}'. spaCy features will not be available.",
-                excs.PixeltableWarning,
-                stacklevel=1,
-            )
-            self.__optional_packages['spacy'].is_installed = False
-
     def clear_tmp_dir(self) -> None:
         for path in glob.glob(f'{self._tmp_dir}/*'):
             if os.path.isdir(path):
@@ -692,8 +668,35 @@ class Env:
     @property
     def spacy_nlp(self) -> spacy.Language:
         Env.get().require_package('spacy')
+        if self._spacy_nlp is None:
+            self.__init_spacy()
         assert self._spacy_nlp is not None
         return self._spacy_nlp
+
+    def __init_spacy(self) -> None:
+        """
+        spaCy relies on a pip-installed model to operate. In order to avoid requiring the model as a separate
+        dependency, we install it programmatically here. This should cause no problems, since the model packages
+        have no sub-dependencies (in fact, this is how spaCy normally manages its model resources).
+        """
+        import spacy
+        from spacy.cli.download import get_model_filename
+
+        spacy_model = 'en_core_web_sm'
+        spacy_model_version = '3.7.1'
+        filename = get_model_filename(spacy_model, spacy_model_version, sdist=False)
+        url = f'{spacy.about.__download_url__}/{filename}'
+        # Try to `pip install` the model. We set check=False; if the pip command fails, it's not necessarily
+        # a problem, because the model might have been installed on a previous attempt.
+        self._logger.info(f'Ensuring spaCy model is installed: {filename}')
+        ret = subprocess.run([sys.executable, '-m', 'pip', 'install', '-qU', url], check=False)
+        if ret.returncode != 0:
+            self._logger.warning(f'pip install failed for spaCy model: {filename}')
+        self._logger.info(f'Loading spaCy model: {spacy_model}')
+        try:
+            self._spacy_nlp = spacy.load(spacy_model)
+        except Exception as exc:
+            raise excs.Error(f'Failed to load spaCy model: {spacy_model}') from exc
 
 
 def register_client(name: str) -> Callable:

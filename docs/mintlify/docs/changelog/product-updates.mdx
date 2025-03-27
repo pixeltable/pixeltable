@@ -4,6 +4,51 @@ description: 'Keep track of changes'
 icon: 'newspaper'
 ---
 
+<Update label="2024-03-19" description="v0.3.7">
+### Highlights
+* Introduced linting for improved code quality
+* Added just-in-time initialization for spaCy, improving pxt.init() performance
+* Made catalog changes to prepare for concurrency support
+
+### Enhancements
+* Added video index to cookbook
+* Updated configurations page to match API reference
+* Added MCP to documentation
+* Improved documentation with updated vision search examples
+
+### Fixes
+* Implemented graceful failure handling for backwards incompatibility in computed column UDF calls
+* Various bugfixes and improvements
+* Updated Label Studio job to Python 3.10 in nightly CI
+</Update>
+
+<Update label="2024-03-12" description="v0.3.6">
+### Highlights
+* Enhanced OpenAI/Anthropic integration with support for multiple invocations of the same tool in tool calling logic
+</Update>
+
+<Update label="2024-03-05" description="v0.3.5">
+### Highlights
+* Added Deepseek integration
+* Implemented data sharing logic for publishing snapshots
+* Enhanced UDF handling in computed columns
+* Migrated to Mintlify documentation
+
+### Enhancements
+* Improved test suite with pytest fixtures for Hugging Face embedding models
+* Enabled view creation from dataframes with select clause
+* Updated PyAV to 14.2 and WhisperX to 3.3.1
+* Improved handling of relative pathnames and filenames with unusual characters
+
+### Documentation
+* Fixed documentation for stored attribute on computed columns
+* Added audio file examples
+
+### Development & Infrastructure
+* Updated llama_cpp version (disabled in non-Linux CI)
+* Implemented release script fixes for Poetry 2.0
+</Update>
+
 <Update label="2025-02-25" description="v0.3.1-v0.3.4">
 ### Highlights
 * Added support for OpenAI reasoning models

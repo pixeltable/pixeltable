@@ -14,7 +14,8 @@ def transactional_directory(folder_path: Path) -> Generator[Path, Any, Any]:
 
     Yields:
         A pathlib.Path to a hidden temporary folder, which can be used to accumulate changes.
-        If everything succeeds, the changes are committed via an atomic move operation upon exiting the 'with' block (os.replace)
+        If everything succeeds, the changes are committed via an atomic move operation upon
+        exiting the 'with' block (os.replace)
         If an exception occurred, no changes are visible in the original folder.
 
     Example:

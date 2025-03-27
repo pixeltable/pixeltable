@@ -6,9 +6,7 @@ from uuid import UUID
 import sqlalchemy as sql
 
 import pixeltable as pxt
-import pixeltable.catalog as catalog
-import pixeltable.exceptions as excs
-import pixeltable.iterators as iters
+from pixeltable import catalog, exceptions as excs, iterators as iters
 
 from ..utils.description_helper import DescriptionHelper
 from .data_row import DataRow
@@ -84,7 +82,8 @@ class ColumnRef(Expr):
         assert len(self.iter_arg_ctx.target_slot_idxs) == 1  # a single inline dict
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
-        return super()._id_attrs() + [
+        return [
+            *super()._id_attrs(),
             ('tbl_id', self.col.tbl.id),
             ('col_id', self.col.id),
             ('perform_validation', self.perform_validation),
@@ -138,7 +137,7 @@ class ColumnRef(Expr):
         return self.col == other.col and self.perform_validation == other.perform_validation
 
     def _df(self) -> 'pxt.dataframe.DataFrame':
-        tbl = catalog.Catalog.get().get_tbl(self.col.tbl.id)
+        tbl = catalog.Catalog.get().get_table_by_id(self.col.tbl.id)
         return tbl.select(self)
 
     def show(self, *args, **kwargs) -> 'pxt.dataframe.DataFrameResultSet':
@@ -166,7 +165,7 @@ class ColumnRef(Expr):
         return self._descriptors().to_html()
 
     def _descriptors(self) -> DescriptionHelper:
-        tbl = catalog.Catalog.get().get_tbl(self.col.tbl.id)
+        tbl = catalog.Catalog.get().get_table_by_id(self.col.tbl.id)
         helper = DescriptionHelper()
         helper.append(f'Column\n{self.col.name!r}\n(of table {tbl._path()!r})')
         helper.append(tbl._col_descriptor([self.col.name]))

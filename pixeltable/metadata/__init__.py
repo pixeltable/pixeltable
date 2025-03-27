@@ -1,5 +1,6 @@
 import dataclasses
 import importlib
+import logging
 import os
 import pkgutil
 from typing import Callable
@@ -7,7 +8,12 @@ from typing import Callable
 import sqlalchemy as sql
 from sqlalchemy import orm
 
+from pixeltable.utils.console_output import ConsoleLogger
+
 from .schema import SystemInfo, SystemInfoMd
+
+_console_logger = ConsoleLogger(logging.getLogger('pixeltable'))
+
 
 # current version of the metadata; this is incremented whenever the metadata schema changes
 VERSION = 30
@@ -52,9 +58,8 @@ def upgrade_md(engine: sql.engine.Engine) -> None:
         while md_version < VERSION:
             if md_version not in converter_cbs:
                 raise RuntimeError(f'No metadata converter for version {md_version}')
-            from pixeltable.env import Env
-
-            Env.get().console_logger.info(f'Converting metadata from version {md_version} to {md_version + 1}')
+            # We can't use the console logger in Env, because Env might not have been initialized yet.
+            _console_logger.info(f'Converting metadata from version {md_version} to {md_version + 1}')
             converter_cbs[md_version](engine)
             md_version += 1
         # update system info

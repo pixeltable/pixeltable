@@ -1,9 +1,8 @@
-from typing import Any, Optional, Union
+from typing import Optional
 
 import sqlalchemy as sql
 
-import pixeltable.exprs as exprs
-import pixeltable.type_system as ts
+from pixeltable import type_system as ts
 
 from .expr import DataRow, Expr
 from .literal import Literal

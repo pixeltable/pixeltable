@@ -1,4 +1,6 @@
-from pixeltable.catalog import is_valid_identifier, is_valid_path
+import pytest
+
+from pixeltable.catalog import Path, is_valid_identifier, is_valid_path
 
 
 class TestCatalog:
@@ -27,3 +29,26 @@ class TestCatalog:
         for invalid_path in invalid_paths:
             assert not is_valid_path(invalid_path, empty_is_valid=False), invalid_path
             assert not is_valid_path(invalid_path, empty_is_valid=True), invalid_path
+
+    def test_path_ancestors(self) -> None:
+        # multiple ancestors in path
+        path = Path('a.b.c')
+        ancestors = path.ancestors()
+        assert '' == str(next(ancestors))
+        assert 'a' == str(next(ancestors))
+        assert 'a.b' == str(next(ancestors))
+        with pytest.raises(StopIteration):
+            next(ancestors)
+
+        # single element in path
+        path = Path('a')
+        ancestors = path.ancestors()
+        assert '' == str(next(ancestors))
+        with pytest.raises(StopIteration):
+            next(ancestors)
+
+        # root
+        path = Path('', empty_is_valid=True)
+        ancestors = path.ancestors()
+        with pytest.raises(StopIteration):
+            next(ancestors)

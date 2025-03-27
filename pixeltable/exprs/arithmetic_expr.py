@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-from typing import Any, Optional, Union
+from typing import Any, Optional
 
 import sqlalchemy as sql
 
-import pixeltable.exceptions as excs
-import pixeltable.exprs as exprs
-import pixeltable.type_system as ts
+from pixeltable import exceptions as excs, type_system as ts
 
 from .data_row import DataRow
 from .expr import Expr
@@ -50,13 +48,13 @@ class ArithmeticExpr(Expr):
         # add parentheses around operands that are ArithmeticExprs to express precedence
         op1_str = f'({self._op1})' if isinstance(self._op1, ArithmeticExpr) else str(self._op1)
         op2_str = f'({self._op2})' if isinstance(self._op2, ArithmeticExpr) else str(self._op2)
-        return f'{op1_str} {str(self.operator)} {op2_str}'
+        return f'{op1_str} {self.operator} {op2_str}'
 
     def _equals(self, other: ArithmeticExpr) -> bool:
         return self.operator == other.operator
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
-        return super()._id_attrs() + [('operator', self.operator.value)]
+        return [*super()._id_attrs(), ('operator', self.operator.value)]
 
     def sql_expr(self, sql_elements: SqlElementCache) -> Optional[sql.ColumnElement]:
         assert self.col_type.is_int_type() or self.col_type.is_float_type() or self.col_type.is_json_type()
@@ -95,7 +93,7 @@ class ArithmeticExpr(Expr):
                 return sql.sql.expression.cast(sql.func.floor(left / nullif), self.col_type.to_sa_type())
             if self.col_type.is_float_type():
                 return sql.sql.expression.cast(sql.func.floor(left / nullif), self.col_type.to_sa_type())
-        assert False
+        raise AssertionError()
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         op1_val = data_row[self._op1.slot_idx]
@@ -113,9 +111,7 @@ class ArithmeticExpr(Expr):
 
         data_row[self.slot_idx] = self.eval_nullable(op1_val, op2_val)
 
-    def eval_nullable(
-        self, op1_val: Union[int, float, None], op2_val: Union[int, float, None]
-    ) -> Union[int, float, None]:
+    def eval_nullable(self, op1_val: Optional[float], op2_val: Optional[float]) -> Optional[float]:
         """
         Return the result of evaluating the expression on two nullable int/float operands,
         None is interpreted as SQL NULL
@@ -124,7 +120,7 @@ class ArithmeticExpr(Expr):
             return None
         return self.eval_non_null(op1_val, op2_val)
 
-    def eval_non_null(self, op1_val: Union[int, float], op2_val: Union[int, float]) -> Union[int, float]:
+    def eval_non_null(self, op1_val: float, op2_val: float) -> float:
         """
         Return the result of evaluating the expression on two int/float operands
         """

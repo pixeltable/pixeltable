@@ -41,7 +41,7 @@ class ArraySlice(Expr):
         return self.index == other.index
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
-        return super()._id_attrs() + [('index', self.index)]
+        return [*super()._id_attrs(), ('index', self.index)]
 
     def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
         return None
