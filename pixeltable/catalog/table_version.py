@@ -177,6 +177,10 @@ class TableVersion:
         # Init external stores (this needs to happen after the schema is created)
         self._init_external_stores(tbl_md)
 
+        # Force column metadata to load, in order to surface any invalid metadata now (as warnings)
+        for col in self.cols_by_id.values():
+            _ = col.value_expr
+
     def __hash__(self) -> int:
         return hash(self.id)
 

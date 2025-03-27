@@ -21,6 +21,7 @@ Pixeltable tool-calling apps work in two phases:
     Create `database.py`:
     ```python
     import pixeltable as pxt
+    import pixeltable.functions as pxtf
     from pixeltable.functions.openai import chat_completions, invoke_tools
     from duckduckgo_search import DDGS
 
@@ -30,7 +31,7 @@ Pixeltable tool-calling apps work in two phases:
 
     # Define tools
     @pxt.udf
-    def search_news(keywords: str, max_results: int = 20) -> str:
+    def search_news(keywords: str, max_results: int) -> str:
         """Search news using DuckDuckGo and return results."""
         try:
             with DDGS() as ddgs:
@@ -72,7 +73,7 @@ Pixeltable tool-calling apps work in two phases:
 
     # Create base table
     tool_agent = pxt.create_table(
-        path_str="agents.tools", 
+        "agents.tools", 
         {"prompt": pxt.String}, 
         if_exists="ignore"
     )
@@ -87,23 +88,19 @@ Pixeltable tool-calling apps work in two phases:
         )
     )
 
+    # Add tool execution
     tool_agent.add_computed_column(
         tool_output=invoke_tools(tools, tool_agent.initial_response)
     )
 
     # Add response formatting
-    @pxt.udf
-    def create_prompt(question: str, tool_outputs: list[dict]) -> str:
-        return f"""
-        QUESTION:
-        {question}
-
-        TOOL RESULTS:
-        {tool_outputs}
-        """
-
     tool_agent.add_computed_column(
-        response_prompt=create_prompt(tool_agent.prompt, tool_agent.tool_output)
+        tool_response_prompt=pxtf.string.format(
+            "Orginal Prompt\n{0}: Tool Output\n{1}", 
+            tool_agent.prompt, 
+            tool_agent.tool_output
+        ),
+        if_exists="ignore",
     )
 
     # Add final response generation
@@ -115,7 +112,7 @@ Pixeltable tool-calling apps work in two phases:
                     "role": "system",
                     "content": "You are a helpful AI assistant that can use various tools. Analyze the tool results and provide a clear, concise response."
                 },
-                {"role": "user", "content": tool_agent.response_prompt},
+                {"role": "user", "content": tool_agent.tool_response_prompt},
             ]
         )
     )
@@ -147,7 +144,7 @@ Pixeltable tool-calling apps work in two phases:
         result = tool_agent.select(
             tool_agent.tool_output,
             tool_agent.answer
-        ).collect()
+        ).tail(1)
         print(f"\nQuery: {query}")
         print(f"Answer: {result['answer'][0]}")
     ```

@@ -5,7 +5,7 @@ from typing import Any, Callable, Optional
 
 import sqlalchemy as sql
 
-import pixeltable.type_system as ts
+from pixeltable import type_system as ts
 
 from .data_row import DataRow
 from .expr import Expr
@@ -58,10 +58,10 @@ class CompoundPredicate(Expr):
         return self.operator == other.operator
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
-        return super()._id_attrs() + [('operator', self.operator.value)]
+        return [*super()._id_attrs(), ('operator', self.operator.value)]
 
     def split_conjuncts(self, condition: Callable[[Expr], bool]) -> tuple[list[Expr], Optional[Expr]]:
-        if self.operator == LogicalOperator.OR or self.operator == LogicalOperator.NOT:
+        if self.operator in {LogicalOperator.OR, LogicalOperator.NOT}:
             return super().split_conjuncts(condition)
         matches = [op for op in self.components if condition(op)]
         non_matches = [op for op in self.components if not condition(op)]
@@ -83,7 +83,7 @@ class CompoundPredicate(Expr):
         if self.operator == LogicalOperator.NOT:
             data_row[self.slot_idx] = not data_row[self.components[0].slot_idx]
         else:
-            val = True if self.operator == LogicalOperator.AND else False
+            val = self.operator == LogicalOperator.AND
             op_function = operator.and_ if self.operator == LogicalOperator.AND else operator.or_
             for op in self.components:
                 val = op_function(val, data_row[op.slot_idx])

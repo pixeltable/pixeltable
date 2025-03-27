@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import dataclasses
+import datetime
+import json
 import logging
 from uuid import UUID
 
 import sqlalchemy as sql
+from sqlalchemy.dialects.postgresql import JSONB
 
 from pixeltable.env import Env
 from pixeltable.metadata import schema
@@ -26,6 +29,7 @@ class Dir(SchemaObject):
         dir_record = schema.Dir(parent_id=parent_id, md=dataclasses.asdict(dir_md))
         session.add(dir_record)
         session.flush()
+        print(f'{datetime.datetime.now()} create dir {dir_record}')
         assert dir_record.id is not None
         assert isinstance(dir_record.id, UUID)
         dir = cls(dir_record.id, parent_id, name)
@@ -43,11 +47,16 @@ class Dir(SchemaObject):
         return super()._path()
 
     def _move(self, new_name: str, new_dir_id: UUID) -> None:
+        print(
+            f'{datetime.datetime.now()} move dir name={self._name} parent={self._dir_id} new_name={new_name} new_dir_id={new_dir_id}'
+        )
         super()._move(new_name, new_dir_id)
-        with Env.get().engine.begin() as conn:
-            dir_md = schema.DirMd(name=new_name, user=None, additional_md={})
-            conn.execute(
-                sql.update(schema.Dir.__table__)
-                .values({schema.Dir.parent_id: self._dir_id, schema.Dir.md: dataclasses.asdict(dir_md)})
-                .where(schema.Dir.id == self._id)
+        stmt = sql.text(
+            (
+                f'UPDATE {schema.Dir.__table__} '
+                f'SET {schema.Dir.parent_id.name} = :new_dir_id, '
+                f"    {schema.Dir.md.name}['name'] = :new_name "
+                f'WHERE {schema.Dir.id.name} = :id'
             )
+        )
+        Env.get().conn.execute(stmt, {'new_dir_id': new_dir_id, 'new_name': json.dumps(new_name), 'id': self._id})

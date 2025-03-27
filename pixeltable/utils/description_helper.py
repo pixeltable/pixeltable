@@ -80,7 +80,7 @@ class DescriptionHelper:
             if styler is None:
                 styler = descriptor.body.style
             styler = styler.set_properties(None, **{'white-space': 'pre-wrap', 'text-align': 'left'}).set_table_styles(
-                [dict(selector='th', props=[('text-align', 'left')])]
+                [{'selector': 'th', 'props': [('text-align', 'left')]}]
             )
             if not descriptor.show_header:
                 styler = styler.hide(axis='columns')
