@@ -292,15 +292,15 @@ class TestFunction:
 
     def test_query_over_view(self, reset_db) -> None:
         pxt.create_dir('test')
-        docs = pxt.create_table('test.docs', {'document': pxt.Document})
-        chunks = pxt.create_view('test.chunks', docs, additional_columns={'text': pxt.String})
+        t = pxt.create_table('test.tbl', {'a': pxt.String})
+        v = pxt.create_view('test.view', t, additional_columns={'text': pxt.String})
 
         @pxt.query
-        def search_documents(text: str):
-            return chunks.select(chunks.text).limit(20)
+        def retrieve():
+            return v.select(v.text).limit(20)
 
-        t = pxt.create_table('test.retrieval', {'text': pxt.String})
-        t.add_computed_column(result=search_documents(t.text))
+        t = pxt.create_table('test.retrieval', {'n': pxt.Int})
+        t.add_computed_column(result=retrieve())
 
         # This tests a specific edge case where calling drop_dir() as the first action after a catalog reload can lead
         # to a circular initialization failure.
