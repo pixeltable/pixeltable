@@ -249,8 +249,7 @@ class TestFunction:
 
     def test_query2(self, reset_db) -> None:
         schema = {'query_text': pxt.String, 'i': pxt.Int}
-        pxt.create_dir('test')
-        queries = pxt.create_table('test.queries', schema)
+        queries = pxt.create_table('queries', schema)
         query_rows = [
             {'query_text': 'how much is the stock of AI companies up?', 'i': 1},
             {'query_text': 'what happened to the term machine learning?', 'i': 2},
@@ -284,7 +283,7 @@ class TestFunction:
         assert all(len(c) == 2 for c in res['chunks'])
 
         reload_catalog()
-        queries = pxt.get_table('test.queries')
+        queries = pxt.get_table('queries')
         res = queries.select(queries.chunks).collect()
         assert all(len(c) == 2 for c in res['chunks'])
         validate_update_status(queries.insert(query_rows), expected_rows=len(query_rows))
