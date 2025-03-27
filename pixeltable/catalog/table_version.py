@@ -177,10 +177,6 @@ class TableVersion:
         # Init external stores (this needs to happen after the schema is created)
         self._init_external_stores(tbl_md)
 
-        # Force column metadata to load, in order to surface any invalid metadata now (as warnings)
-        for col in self.cols_by_id.values():
-            _ = col.value_expr
-
     def __hash__(self) -> int:
         return hash(self.id)
 
@@ -457,6 +453,11 @@ class TableVersion:
                     tbl_id=self.id, schema_version=self.schema_version, md=dataclasses.asdict(schema_version_md)
                 )
             )
+
+    def ensure_md_loaded(self) -> None:
+        """Ensure that table metadata is loaded."""
+        for col in self.cols_by_id.values():
+            _ = col.value_expr
 
     def _store_idx_name(self, idx_id: int) -> str:
         """Return name of index in the store, which needs to be globally unique"""

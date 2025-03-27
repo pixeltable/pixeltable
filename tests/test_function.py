@@ -12,6 +12,7 @@ import pixeltable.exceptions as excs
 import pixeltable.functions as pxtf
 from pixeltable import catalog, func
 from pixeltable.func import Batch, Function, FunctionRegistry
+from pixeltable.iterators.document import DocumentSplitter
 
 from .utils import SAMPLE_IMAGE_URL, ReloadTester, assert_resultset_eq, reload_catalog, validate_update_status
 
@@ -249,14 +250,15 @@ class TestFunction:
 
     def test_query2(self, reset_db) -> None:
         schema = {'query_text': pxt.String, 'i': pxt.Int}
-        queries = pxt.create_table('queries', schema)
+        pxt.create_dir('test')
+        queries = pxt.create_table('test.queries', schema)
         query_rows = [
             {'query_text': 'how much is the stock of AI companies up?', 'i': 1},
             {'query_text': 'what happened to the term machine learning?', 'i': 2},
         ]
         validate_update_status(queries.insert(query_rows), expected_rows=len(query_rows))
 
-        chunks = pxt.create_table('test_doc_chunks', {'text': pxt.StringType()})
+        chunks = pxt.create_table('test_doc_chunks', {'text': pxt.String})
         chunks.insert(
             [
                 {'text': 'the stock of artificial intelligence companies is up 1000%'},
@@ -283,12 +285,31 @@ class TestFunction:
         assert all(len(c) == 2 for c in res['chunks'])
 
         reload_catalog()
-        queries = pxt.get_table('queries')
+        queries = pxt.get_table('test.queries')
         res = queries.select(queries.chunks).collect()
         assert all(len(c) == 2 for c in res['chunks'])
         validate_update_status(queries.insert(query_rows), expected_rows=len(query_rows))
         res = queries.select(queries.chunks).collect()
         assert all(len(c) == 2 for c in res['chunks'])
+
+    def test_query_over_view(self, reset_db) -> None:
+        pxt.create_dir('test')
+        docs = pxt.create_table('test.docs', {'document': pxt.Document})
+        chunks = pxt.create_view(
+            'test.chunks', docs, iterator=DocumentSplitter.create(document=docs.document, separators='sentence')
+        )
+
+        @pxt.query
+        def search_documents(text: str):
+            return chunks.select(chunks.text).limit(20)
+
+        t = pxt.create_table('test.retrieval', {'text': pxt.String})
+        t.add_computed_column(result=search_documents(t.text))
+
+        # This tests a specific edge case where calling drop_dir() as the first action after a catalog reload can lead
+        # to a circular initialization failure.
+        reload_catalog()
+        pxt.drop_dir('test', force=True)
 
     def test_query_errors(self, reset_db) -> None:
         schema = {'a': pxt.Int, 'b': pxt.Int}
