@@ -227,7 +227,7 @@ class TestFunction:
 
         assert 'Stored functions cannot be declared using `is_method` or `is_property`' in str(exc_info.value)
 
-    def test_query(self, reset_db) -> None:
+    def test_query(self, reset_db, reload_tester: ReloadTester) -> None:
         t = pxt.create_table('test', {'c1': pxt.Int, 'c2': pxt.Float})
         name = t._name
         rows = [{'c1': i, 'c2': i + 0.5} for i in range(100)]
@@ -235,16 +235,25 @@ class TestFunction:
 
         @pxt.query
         def lt_x(x: int) -> pxt.DataFrame:
-            return t.where(t.c2 < x).select(t.c2, t.c1)
+            return t.where(t.c2 < x).select(t.c2, t.c1).order_by(t.c1)
 
-        res1 = t.select(out=lt_x(t.c1)).order_by(t.c2).collect()
+        @pxt.query
+        def lt_x_with_default(x: int, mult: int = 1) -> pxt.DataFrame:
+            return t.where(t.c2 < x * mult).select(t.c2, t.c1).order_by(t.c1)
+
+        @pxt.query
+        def lt_x_with_unused_default(x: int, mult: int = 1) -> pxt.DataFrame:
+            return t.where(t.c2 < x).select(t.c2, t.c1).order_by(t.c1)
+
+        reload_tester.run_query(t.select(out=lt_x(t.c1)).order_by(t.c1))
+
         validate_update_status(t.add_computed_column(query1=lt_x(t.c1)))
-        _ = t.select(t.query1).collect()
+        reload_tester.run_query(t.select(t.query1).order_by(t.c1))
 
-        reload_catalog()
-        t = pxt.get_table(name)
-        _ = t.select(t.query1).collect()
+        reload_tester.run_reload_test()
+
         # insert more rows in order to verify that lt_x() is still executable after catalog reload
+        t = pxt.get_table(name)
         validate_update_status(t.insert(rows))
 
     def test_query2(self, reset_db) -> None:
