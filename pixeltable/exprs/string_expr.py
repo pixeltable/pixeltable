@@ -16,7 +16,7 @@ from .sql_element_cache import SqlElementCache
 
 class StringOpExpr(Expr):
     """
-    Allows expressions on strings
+    Allows operations on strings
     """
 
     def __init__(self, operator: StringOperator, op1: Expr, op2: Expr):
@@ -24,7 +24,7 @@ class StringOpExpr(Expr):
         self.operator = operator
         self.components = [op1, op2]
         assert op1.col_type.is_string_type()
-        if operator in (StringOperator.CONCAT, StringOperator.REPEAT):
+        if operator in {StringOperator.CONCAT, StringOperator.REPEAT}:
             if operator == StringOperator.CONCAT and not op2.col_type.is_string_type():
                 raise excs.Error(
                     f'{self}: {operator} on strings requires string type, but {op2} has type {op2.col_type}'
@@ -33,7 +33,8 @@ class StringOpExpr(Expr):
                 raise excs.Error(f'{self}: {operator} on strings requires int type, but {op2} has type {op2.col_type}')
         else:
             raise excs.Error(
-                f'{self}: invalid operation {operator} on strings; only operators {StringOperator.CONCAT} and {StringOperator.REPEAT} are supported'
+                f'{self}: invalid operation {operator} on strings; '
+                f'only operators {StringOperator.CONCAT} and {StringOperator.REPEAT} are supported'
             )
         self.id = self._create_id()
 
@@ -46,13 +47,16 @@ class StringOpExpr(Expr):
         return self.components[1]
 
     def __repr__(self) -> str:
-        return f'{self._op1} {str(self.operator)} {str(self._op1)}'
+        # add parentheses around operands that are StringOpExpr to express precedence
+        op1_str = f'({self._op1})' if isinstance(self._op1, StringOpExpr) else str(self._op1)
+        op2_str = f'({self._op2})' if isinstance(self._op2, StringOpExpr) else str(self._op2)
+        return f'{op1_str} {self.operator} {op2_str}'
 
     def _equals(self, other: StringOpExpr) -> bool:
         return self.operator == other.operator
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
-        return super()._id_attrs() + [('operator', self.operator.value)]
+        return [*super()._id_attrs(), ('operator', self.operator.value)]
 
     def sql_expr(self, sql_elements: SqlElementCache) -> Optional[sql.ColumnElement]:
         left = sql_elements.get(self._op1)
@@ -83,8 +87,7 @@ class StringOpExpr(Expr):
         """
         Return the result of evaluating the expression on two int/float operands
         """
-        # Handle string operations earlier to make typecheck happy
-        assert self.operator in (StringOperator.CONCAT, StringOperator.REPEAT)
+        assert self.operator in {StringOperator.CONCAT, StringOperator.REPEAT}
         if self.operator == StringOperator.CONCAT:
             assert isinstance(op2_val, str)
             return op1_val + op2_val
