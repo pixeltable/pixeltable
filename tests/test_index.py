@@ -353,6 +353,41 @@ class TestIndex:
         # sanity check persistence
         reload_tester.run_reload_test()
 
+    def test_embedding_access(
+        self,
+        img_tbl: pxt.Table,
+        test_tbl: pxt.Table,
+        clip_embed: func.Function,
+        e5_embed: func.Function,
+        all_mpnet_embed: func.Function,
+        reload_tester: ReloadTester,
+    ) -> None:
+        skip_test_if_not_installed('transformers')
+        img_t = img_tbl
+        rows = list(img_t.select(img=img_t.img.fileurl, category=img_t.category, split=img_t.split).collect())
+        # create table with fewer rows to speed up testing
+        schema = {'img': pxt.Image, 'category': pxt.String, 'split': pxt.String}
+        tbl_name = 'access_test'
+        img_t = pxt.create_table(tbl_name, schema)
+        img_t.insert(rows[:5])
+
+        # Add computed column based on the other_idx embedding index
+        img_t.add_embedding_index(img_t.category, idx_name='cat_idx', string_embed=e5_embed)
+        img_t.add_computed_column(ebd_copy=img_t.category.embedding(idx='cat_idx'))
+        img_t.insert([rows[6]])
+
+        # Attempt to drop the embedding index
+        with pytest.raises(pxt.Error, match='Cannot drop index because the following columns depend on it'):
+            img_t.drop_embedding_index(column=img_t.category)
+
+        img_t.add_computed_column(simmy=img_t.category.similarity('red_truck', idx='cat_idx'))
+        with pytest.raises(pxt.ExprEvalError, match='cannot be used in a computed column'):
+            img_t.insert([rows[7]])
+
+        img_t.drop_column('simmy')
+        img_t.drop_column('ebd_copy')
+        img_t.drop_embedding_index(column=img_t.category)
+
     def test_embedding_basic(
         self,
         img_tbl: pxt.Table,

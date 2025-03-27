@@ -72,8 +72,7 @@ class SimilarityExpr(Expr):
         return self.idx_info.idx.order_by_clause(self.idx_info.val_col, item, is_asc)
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
-        # this should never get called
-        raise AssertionError()
+        raise excs.Error('similarity(): cannot be used in a computed column')
 
     def _as_dict(self) -> dict:
         return {'idx_name': self.idx_info.name, **super()._as_dict()}
