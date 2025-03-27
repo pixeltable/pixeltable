@@ -238,17 +238,30 @@ class TestFunction:
             return t.where(t.c2 < x).select(t.c2, t.c1).order_by(t.c1)
 
         @pxt.query
-        def lt_x_with_default(x: int, mult: int = 1) -> pxt.DataFrame:
+        def lt_x_with_default(x: int, mult: int = 2) -> pxt.DataFrame:
             return t.where(t.c2 < x * mult).select(t.c2, t.c1).order_by(t.c1)
 
         @pxt.query
-        def lt_x_with_unused_default(x: int, mult: int = 1) -> pxt.DataFrame:
+        def lt_x_with_unused_default(x: int, mult: int = 2) -> pxt.DataFrame:
             return t.where(t.c2 < x).select(t.c2, t.c1).order_by(t.c1)
 
-        reload_tester.run_query(t.select(out=lt_x(t.c1)).order_by(t.c1))
+        res1 = reload_tester.run_query(t.select(out=lt_x(t.c1)).order_by(t.c1))
+        for i in range(100):
+            assert res1[i] == {'out': [{'c2': j + 0.5, 'c1': j} for j in range(i)]}
 
+        res2 = reload_tester.run_query(t.select(out=lt_x_with_default(t.c1)).order_by(t.c1))
+        for i in range(100):
+            assert res2[i] == {'out': [{'c2': j + 0.5, 'c1': j} for j in range(min(i * 2, 100))]}
+
+        res3 = reload_tester.run_query(t.select(out=lt_x_with_unused_default(t.c1)).order_by(t.c1))
+        for i in range(100):
+            assert res3[i] == {'out': [{'c2': j + 0.5, 'c1': j} for j in range(i)]}
+
+        # As computed columns
         validate_update_status(t.add_computed_column(query1=lt_x(t.c1)))
-        reload_tester.run_query(t.select(t.query1).order_by(t.c1))
+        validate_update_status(t.add_computed_column(query2=lt_x_with_default(t.c1)))
+        validate_update_status(t.add_computed_column(query3=lt_x_with_unused_default(t.c1)))
+        reload_tester.run_query(t.select(t.query1, t.query2, t.query3).order_by(t.c1))
 
         reload_tester.run_reload_test()
 
