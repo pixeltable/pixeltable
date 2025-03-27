@@ -17,7 +17,6 @@ class QueryTemplateFunction(Function):
 
     template_df: Optional['DataFrame']
     self_name: Optional[str]
-    # conn: Optional[sql.engine.Connection]
 
     @classmethod
     def create(
@@ -44,11 +43,6 @@ class QueryTemplateFunction(Function):
         super().__init__([sig], self_path=path)
         self.self_name = name
         self.template_df = template_df
-
-        # if we're running as part of an ongoing update operation, we need to use the same connection, otherwise
-        # we end up with a deadlock
-        # TODO: figure out a more general way to make execution state available
-        # self.conn = None
 
     def _update_as_overload_resolution(self, signature_idx: int) -> None:
         pass  # only one signature supported for QueryTemplateFunction
