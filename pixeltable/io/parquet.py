@@ -168,6 +168,12 @@ def import_parquet(
     Returns:
         A handle to the newly created table.
     """
+    value = kwargs.pop('source_format', None)
     return pxt.create_table(
-        table, source=parquet_path, schema_overrides=schema_overrides, primary_key=primary_key, extra_args=kwargs
+        table,
+        source=parquet_path,
+        source_format=value,
+        schema_overrides=schema_overrides,
+        primary_key=primary_key,
+        extra_args=kwargs,
     )

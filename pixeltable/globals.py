@@ -4,14 +4,13 @@ import logging
 import os
 import urllib.parse
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, Optional, Union, cast
-from uuid import UUID
+from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, Optional, Union
 
 import pandas as pd
 from pandas.io.formats.style import Styler
 
-from pixeltable import DataFrame, catalog, env, exceptions as excs, exprs, func, share
-from pixeltable.catalog import Catalog, IfExistsParam, IfNotExistsParam
+from pixeltable import DataFrame, catalog, exceptions as excs, exprs, func, share
+from pixeltable.catalog import Catalog, TableVersionPath
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
 
@@ -41,8 +40,8 @@ if TYPE_CHECKING:
 
 
 def create_table(
-    path: str,
-    schema_or_df: Union[dict[str, Any], DataFrame],
+    path_str: str,
+    schema: Optional[dict[str, Any]] = None,
     *,
     source: Optional[TableDataSource] = None,
     source_format: Optional[Literal['csv', 'excel', 'parquet', 'json']] = None,
@@ -123,7 +122,6 @@ def create_table(
 
         >>> tbl = pxt.create_table('my_table', source='data.csv')
     """
-'''
     if schema is not None:
         assert source is None
         if isinstance(schema, DataFrame):
@@ -136,40 +134,39 @@ def create_table(
     from pixeltable.io.table_data_conduit import DFTableDataConduit, OnErrorParameter, UnkTableDataConduit
     from pixeltable.io.utils import normalize_primary_key_parameter
 
+    path_obj = catalog.Path(path_str)
+    if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
+    media_validation_ = catalog.MediaValidation.validated(media_validation, 'media_validation')
+    primary_key = normalize_primary_key_parameter(primary_key)
+    table = None
+    tds = None
+    data_source = None
+    if source is not None:
+        tds = UnkTableDataConduit(source, source_format=source_format, extra_fields=extra_args)
+        tds.check_source_format()
+        data_source = tds.specialize()
+        data_source.src_schema_overrides = schema_overrides
+        data_source.src_pk = primary_key
+        data_source.infer_schema()
+        schema = data_source.pxt_schema
+        primary_key = data_source.pxt_pk
+        is_direct_df = data_source.is_direct_df()
+    else:
+        is_direct_df = False
+
+    #    if table is None and schema is None and data_source is None:
+    #        raise excs.Error('Table does not exist, at least one of `schema` or `source` must be provided')
+    if len(schema) == 0 or not isinstance(schema, dict):
+        raise excs.Error('Unable to create a proper schema, please supply one')
+
+    """
+
     path = catalog.Path(path_str)
     cat = Catalog.get()
 
     with env.Env.get().begin_xact():
-        if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
-        existing = _handle_path_collision(path_str, catalog.InsertableTable, False, if_exists_)
-        if existing is not None:
-            assert isinstance(existing, catalog.Table)
-            return existing
-
         dest_dir = cat.get_schema_object(str(path.parent), expected=catalog.Dir, raise_if_not_exists=True)
         assert dest_dir is not None
-
-        primary_key = normalize_primary_key_parameter(primary_key)
-        table = None
-        tds = None
-        data_source = None
-        if source is not None:
-            tds = UnkTableDataConduit(source, source_format=source_format, extra_fields=extra_args)
-            tds.check_source_format()
-            data_source = tds.specialize()
-            data_source.src_schema_overrides = schema_overrides
-            data_source.src_pk = primary_key
-            data_source.infer_schema()
-            schema = data_source.pxt_schema
-            primary_key = data_source.pxt_pk
-            is_direct_df = data_source.is_direct_df()
-        else:
-            is_direct_df = False
-
-        if table is None and schema is None and data_source is None:
-            raise excs.Error('Table does not exist, at least one of `schema` or `source` must be provided')
-        if table is None and (len(schema) == 0 or not isinstance(schema, dict)):
-            raise excs.Error('Unable to create a proper schema, please supply one')
 
         if table is None:
             # Create the table with the specified or inferred schema
@@ -190,48 +187,23 @@ def create_table(
         if source is None or is_direct_df:
             return table
 
-    fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
-    table.insert_table_data_source(data_source=data_source, fail_on_exception=fail_on_exception)
     return table
-'''
-    path_obj = catalog.Path(path)
-    if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
-
-    df: Optional[DataFrame] = None
-    if isinstance(schema_or_df, dict):
-        schema = schema_or_df
-    elif isinstance(schema_or_df, DataFrame):
-        df = schema_or_df
-        schema = df.schema
-    elif isinstance(schema_or_df, DataFrameResultSet):
-        raise excs.Error(
-            '`schema_or_df` must be either a schema dictionary or a Pixeltable DataFrame. '
-            '(Is there an extraneous call to `collect()`?)'
-        )
-    else:
-        raise excs.Error('`schema_or_df` must be either a schema dictionary or a Pixeltable DataFrame.')
-
-    if len(schema) == 0:
-        raise excs.Error(f'Table schema is empty: {path!r}')
-
-    if primary_key is None:
-        primary_key = []
-    elif isinstance(primary_key, str):
-        primary_key = [primary_key]
-    elif not isinstance(primary_key, list) or not all(isinstance(pk, str) for pk in primary_key):
-        raise excs.Error('primary_key must be a single column name or a list of column names')
-
-    media_validation_ = catalog.MediaValidation.validated(media_validation, 'media_validation')
-    return Catalog.get().create_table(
+    """
+    table = Catalog.get().create_table(
         path_obj,
         schema,
-        df,
+        data_source.pxt_df if isinstance(data_source, DFTableDataConduit) else None,
         if_exists=if_exists_,
         primary_key=primary_key,
         comment=comment,
         media_validation=media_validation_,
         num_retained_versions=num_retained_versions,
     )
+    if data_source is not None and not is_direct_df:
+        fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
+        table.insert_table_data_source(data_source=data_source, fail_on_exception=fail_on_exception)
+
+    return table
 
 
 def create_view(

@@ -118,7 +118,6 @@ def iter_tuples(batch: Union[pa.Table, pa.RecordBatch]) -> Iterator[dict[str, An
 
 def _ar_val_to_pxt_val(val: Any, pxt_type: ts.ColumnType) -> Any:
     """Convert a value to insertable format"""
-    pxt_val: dict[str, Any] = {}
     if val is None:
         return None
     if pxt_type.is_float_type():
