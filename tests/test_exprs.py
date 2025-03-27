@@ -662,6 +662,9 @@ class TestExprs:
             assert row2['output'] == row_col['out2']
             assert row3['output'] == row_col['out3']
 
+        with pytest.raises(excs.Error, match='Failed to evaluate map function.'):
+            pxtf.map(t.c6.f5['*'], lambda x: x and False)
+
         reload_tester.run_reload_test()
 
     def test_multi_json_mapper(self, reset_db, reload_tester: ReloadTester) -> None:
