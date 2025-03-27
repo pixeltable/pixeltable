@@ -256,7 +256,7 @@ class TestFunction:
         ]
         validate_update_status(queries.insert(query_rows), expected_rows=len(query_rows))
 
-        chunks = pxt.create_table('test_doc_chunks', {'text': pxt.StringType()})
+        chunks = pxt.create_table('test_doc_chunks', {'text': pxt.String})
         chunks.insert(
             [
                 {'text': 'the stock of artificial intelligence companies is up 1000%'},
@@ -289,6 +289,23 @@ class TestFunction:
         validate_update_status(queries.insert(query_rows), expected_rows=len(query_rows))
         res = queries.select(queries.chunks).collect()
         assert all(len(c) == 2 for c in res['chunks'])
+
+    def test_query_over_view(self, reset_db) -> None:
+        pxt.create_dir('test')
+        t = pxt.create_table('test.tbl', {'a': pxt.String})
+        v = pxt.create_view('test.view', t, additional_columns={'text': pxt.String})
+
+        @pxt.query
+        def retrieve():
+            return v.select(v.text).limit(20)
+
+        t = pxt.create_table('test.retrieval', {'n': pxt.Int})
+        t.add_computed_column(result=retrieve())
+
+        # This tests a specific edge case where calling drop_dir() as the first action after a catalog reload can lead
+        # to a circular initialization failure.
+        reload_catalog()
+        pxt.drop_dir('test', force=True)
 
     def test_query_errors(self, reset_db) -> None:
         schema = {'a': pxt.Int, 'b': pxt.Int}

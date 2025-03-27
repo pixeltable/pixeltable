@@ -413,7 +413,7 @@ class Catalog:
     def get_table(self, path: Path) -> Table:
         obj = Catalog.get()._get_schema_object(path, expected=Table, raise_if_not_exists=True)
         assert isinstance(obj, Table)
-        obj.ensure_md_loaded()
+        obj._tbl_version.get().ensure_md_loaded()
         return obj
 
     @_retry_loop
