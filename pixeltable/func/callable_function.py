@@ -94,12 +94,14 @@ class CallableFunction(Function):
             batched_kwargs = {k: [v] for k, v in kwargs.items() if k not in constant_param_names}
             result: list[Any]
             if inspect.iscoroutinefunction(self.py_fn):
+                # TODO: This is temporary (see note in utils/coroutine.py)
                 result = run_coroutine_synchronously(self.py_fn(*batched_args, **constant_kwargs, **batched_kwargs))
             else:
                 result = self.py_fn(*batched_args, **constant_kwargs, **batched_kwargs)
             assert len(result) == 1
             return result[0]
         elif inspect.iscoroutinefunction(self.py_fn):
+            # TODO: This is temporary (see note in utils/coroutine.py)
             return run_coroutine_synchronously(self.py_fn(*args, **kwargs))
         else:
             return self.py_fn(*args, **kwargs)

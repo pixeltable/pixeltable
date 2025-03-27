@@ -6,6 +6,11 @@ from typing import Any, Coroutine, TypeVar
 T = TypeVar('T')
 
 
+# TODO This is a temporary hack to be able to run async UDFs in contexts that are not properly handled by the existing
+#   scheduler logic (e.g., inside the eval loop of a JsonMapper). Once the scheduler is fully general, it can be
+#   removed.
+
+
 def run_coroutine_synchronously(coroutine: Coroutine[Any, Any, T], timeout: float = 30) -> T:
     """
     Runs the given coroutine synchronously, even if called in the context of a running event loop.
