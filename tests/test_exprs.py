@@ -1474,7 +1474,7 @@ class TestExprs:
         for e, expected_repr in instances:
             assert repr(e) == expected_repr
 
-    def test_string_concat_exprs(self, test_tbl: catalog.Table, reset_db, reload_tester: ReloadTester) -> None:
+    def test_string_operations(self, test_tbl: catalog.Table, reset_db, reload_tester: ReloadTester) -> None:
         # create table with two columns
         schema = {'s1': pxt.String, 's2': pxt.String, 'i1': pxt.Int}
         t = pxt.create_table('test_str_concat', schema)

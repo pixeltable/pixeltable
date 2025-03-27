@@ -14,10 +14,12 @@ from .row_builder import RowBuilder
 from .sql_element_cache import SqlElementCache
 
 
-class StringOpExpr(Expr):
+class StringOp(Expr):
     """
     Allows operations on strings
     """
+
+    operator: StringOperator
 
     def __init__(self, operator: StringOperator, op1: Expr, op2: Expr):
         super().__init__(ts.StringType(nullable=op1.col_type.nullable))
@@ -48,11 +50,11 @@ class StringOpExpr(Expr):
 
     def __repr__(self) -> str:
         # add parentheses around operands that are StringOpExpr to express precedence
-        op1_str = f'({self._op1})' if isinstance(self._op1, StringOpExpr) else str(self._op1)
-        op2_str = f'({self._op2})' if isinstance(self._op2, StringOpExpr) else str(self._op2)
+        op1_str = f'({self._op1})' if isinstance(self._op1, StringOp) else str(self._op1)
+        op2_str = f'({self._op2})' if isinstance(self._op2, StringOp) else str(self._op2)
         return f'{op1_str} {self.operator} {op2_str}'
 
-    def _equals(self, other: StringOpExpr) -> bool:
+    def _equals(self, other: StringOp) -> bool:
         return self.operator == other.operator
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
@@ -99,7 +101,7 @@ class StringOpExpr(Expr):
         return {'operator': self.operator.value, **super()._as_dict()}
 
     @classmethod
-    def _from_dict(cls, d: dict, components: list[Expr]) -> StringOpExpr:
+    def _from_dict(cls, d: dict, components: list[Expr]) -> StringOp:
         assert 'operator' in d
         assert len(components) == 2
         return cls(StringOperator(d['operator']), components[0], components[1])
