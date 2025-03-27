@@ -29,7 +29,7 @@ class Dir(SchemaObject):
         dir_record = schema.Dir(parent_id=parent_id, md=dataclasses.asdict(dir_md))
         session.add(dir_record)
         session.flush()
-        #print(f'{datetime.datetime.now()} create dir {dir_record}')
+        # print(f'{datetime.datetime.now()} create dir {dir_record}')
         assert dir_record.id is not None
         assert isinstance(dir_record.id, UUID)
         dir = cls(dir_record.id, parent_id, name)
