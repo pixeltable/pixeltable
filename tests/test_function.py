@@ -12,7 +12,6 @@ import pixeltable.exceptions as excs
 import pixeltable.functions as pxtf
 from pixeltable import catalog, func
 from pixeltable.func import Batch, Function, FunctionRegistry
-from pixeltable.iterators.document import DocumentSplitter
 
 from .utils import SAMPLE_IMAGE_URL, ReloadTester, assert_resultset_eq, reload_catalog, validate_update_status
 
@@ -295,9 +294,7 @@ class TestFunction:
     def test_query_over_view(self, reset_db) -> None:
         pxt.create_dir('test')
         docs = pxt.create_table('test.docs', {'document': pxt.Document})
-        chunks = pxt.create_view(
-            'test.chunks', docs, iterator=DocumentSplitter.create(document=docs.document, separators='sentence')
-        )
+        chunks = pxt.create_view('test.chunks', docs, additional_columns={'text': pxt.String})
 
         @pxt.query
         def search_documents(text: str):

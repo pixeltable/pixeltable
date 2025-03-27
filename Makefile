@@ -145,16 +145,16 @@ lint: install
 .PHONY: formattest
 formattest: install
 	@echo "Running ruff format --check ..."
-	@ruff format --check
+	@ruff format --check pixeltable tests tool
 	@echo "Running ruff check --select I ..."
-	@ruff check --select I
+	@ruff check --select I pixeltable tests tool
 
 .PHONY: format
 format: install
 	@echo "Running ruff format ..."
-	@ruff format
+	@ruff format pixeltable tests tool
 	@echo "Running ruff check --select I --fix ..."
-	@ruff check --select I --fix
+	@ruff check --select I --fix pixeltable tests tool
 
 .PHONY: release
 release: install
