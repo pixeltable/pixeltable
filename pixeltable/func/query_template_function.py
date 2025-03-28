@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import inspect
-from typing import TYPE_CHECKING, Any, Callable, Optional, overload
+from typing import TYPE_CHECKING, Any, Callable, Optional, Sequence, overload
 
 from pixeltable import exprs, type_system as ts
 
@@ -51,10 +51,21 @@ class QueryTemplateFunction(Function):
     def is_async(self) -> bool:
         return True
 
+    def exec(self, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:
+        # TODO This is still needed in order to work with JsonMapper, until we get a proper fix for JsonMapper
+        # execution.
+        bound_df = self.__bind_as_dataframe(args, kwargs)
+        result = bound_df.collect()
+        return list(result)
+
     async def aexec(self, *args: Any, **kwargs: Any) -> Any:
-        # assert not self.is_polymorphic
+        bound_df = self.__bind_as_dataframe(args, kwargs)
+        result = await bound_df._acollect()
+        return list(result)
+
+    def __bind_as_dataframe(self, args: Sequence[Any], kwargs: dict[str, Any]) -> 'DataFrame':
         bound_args = self.signature.py_signature.bind(*args, **kwargs).arguments
-        # apply defaults, otherwise we might have Parameters left over
+        # apply defaults; otherwise we might have Parameters left over
         bound_args.update(
             {
                 param.name: param.default
@@ -62,9 +73,7 @@ class QueryTemplateFunction(Function):
                 if param.has_default() and param.name not in bound_args
             }
         )
-        bound_df = self.template_df.bind(bound_args)
-        result = await bound_df._acollect()
-        return list(result)
+        return self.template_df.bind(bound_args)
 
     @property
     def display_name(self) -> str:
