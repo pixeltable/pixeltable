@@ -110,12 +110,6 @@ class JsonPath(Expr):
             return JsonPath(self._anchor, [*self.path_elements, index])
         raise excs.Error(f'Invalid json list index: {index}')
 
-    def __rshift__(self, other: object) -> 'JsonMapper':
-        rhs_expr = Expr.from_object(other)
-        if rhs_expr is None:
-            raise excs.Error(f'>> requires an expression on the right-hand side, found {type(other)}')
-        return JsonMapper(self, rhs_expr)
-
     def default_column_name(self) -> Optional[str]:
         anchor_name = self._anchor.default_column_name() if self._anchor is not None else ''
         ret_name = f'{anchor_name}.{self._json_path()}'

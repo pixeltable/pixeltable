@@ -86,7 +86,7 @@ class JsonMapper(Expr):
         return self._src_expr.equals(other._src_expr) and self._target_expr.equals(other._target_expr)
 
     def __repr__(self) -> str:
-        return f'{self._src_expr} >> {self._target_expr}'
+        return f'map({self._src_expr}, lambda R: {self._target_expr})'
 
     @property
     def _src_expr(self) -> Expr:

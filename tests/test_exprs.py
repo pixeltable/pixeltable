@@ -17,7 +17,7 @@ import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.functions as pxtf
 from pixeltable import catalog, exprs
-from pixeltable.exprs import RELATIVE_PATH_ROOT as R, ColumnRef, Expr, Literal
+from pixeltable.exprs import ColumnRef, Expr, Literal
 from pixeltable.functions.globals import cast
 from pixeltable.iterators import FrameIterator
 
@@ -634,33 +634,40 @@ class TestExprs:
         t = test_tbl
 
         # top-level is dict
-        res1 = reload_tester.run_query(t.select(input=t.c6.f5, output=t.c6.f5['*'] >> (R + 1)).order_by(t.c2))
+        res1 = reload_tester.run_query(
+            t.select(input=t.c6.f5, output=pxtf.map(t.c6.f5['*'], lambda x: x + 1)).order_by(t.c2)
+        )
         for row in res1:
             assert row['output'] == [x + 1 for x in row['input']]
 
         # top-level is list of dicts; subsequent json path element references the dicts
         res2 = reload_tester.run_query(
-            t.select(input=t.c7, output=t.c7['*'].f5 >> [R[3], R[2], R[1], R[0]]).order_by(t.c2)
+            t.select(input=t.c7, output=pxtf.map(t.c7['*'].f5, lambda x: [x[3], x[2], x[1], x[0]])).order_by(t.c2)
         )
         for row in res2:
             assert row['output'] == [[d['f5'][3], d['f5'][2], d['f5'][1], d['f5'][0]] for d in row['input']]
 
         # target expr contains global-scope dependency
-        res3 = reload_tester.run_query(t.select(input=t.c6, output=t.c6.f5['*'] >> (R * t.c6.f5[1])).order_by(t.c2))
+        res3 = reload_tester.run_query(
+            t.select(input=t.c6, output=pxtf.map(t.c6.f5['*'], lambda x: x * t.c6.f5[1])).order_by(t.c2)
+        )
         for row in res3:
             assert row['output'] == [x * row['input']['f5'][1] for x in row['input']['f5']]
 
         # mapper appears inside the anchor of a JsonPath
-        res4 = reload_tester.run_query(t.select(input=t.c6, output=(t.c6.f5['*'] >> (R + 1))[0]).order_by(t.c2))
+        res4 = reload_tester.run_query(
+            t.select(input=t.c6, output=pxtf.map(t.c6.f5['*'], lambda x: x + 1)[0]).order_by(t.c2)
+        )
         for row in res4:
             assert row['output'] == row['input']['f5'][0] + 1
 
         # test it as a computed column
-        validate_update_status(t.add_computed_column(out1=t.c6.f5['*'] >> (R + 1)), 100)
-        validate_update_status(t.add_computed_column(out2=t.c7['*'].f5 >> [R[3], R[2], R[1], R[0]]), 100)
-        validate_update_status(t.add_computed_column(out3=t.c6.f5['*'] >> (R * t.c6.f5[1])), 100)
-        validate_update_status(t.add_computed_column(out4=(t.c6.f5['*'] >> (R + 1))[0]), 100)
-
+        validate_update_status(t.add_computed_column(out1=pxtf.map(t.c6.f5['*'], lambda x: x + 1)), 100)
+        validate_update_status(
+            t.add_computed_column(out2=pxtf.map(t.c7['*'].f5, lambda x: [x[3], x[2], x[1], x[0]])), 100
+        )
+        validate_update_status(t.add_computed_column(out3=pxtf.map(t.c6.f5['*'], lambda x: x * t.c6.f5[1])), 100)
+        validate_update_status(t.add_computed_column(out4=pxtf.map(t.c6.f5['*'], lambda x: x + 1)[0]), 100)
         res_col = reload_tester.run_query(t.select(t.out1, t.out2, t.out3, t.out4).order_by(t.c2))
 
         for row1, row2, row3, row4, row_col in zip(res1, res2, res3, res4, res_col):
@@ -669,14 +676,17 @@ class TestExprs:
             assert row3['output'] == row_col['out3']
             assert row4['output'] == row_col['out4']
 
+        with pytest.raises(excs.Error, match='Failed to evaluate map function.'):
+            pxtf.map(t.c6.f5['*'], lambda x: x and False)
+
         reload_tester.run_reload_test()
 
     def test_multi_json_mapper(self, reset_db, reload_tester: ReloadTester) -> None:
         # Workflow with multiple JsonMapper instances
         t = pxt.create_table('test', {'jcol': pxt.Json})
-        t.add_computed_column(outputx=t.jcol.x['*'] >> (R + 1))
-        t.add_computed_column(outputy=t.jcol.y['*'] >> (R + 2))
-        t.add_computed_column(outputz=t.jcol.z['*'] >> (R + 3))
+        t.add_computed_column(outputx=pxtf.map(t.jcol.x['*'], lambda x: x + 1))
+        t.add_computed_column(outputy=pxtf.map(t.jcol.y['*'], lambda x: x + 2))
+        t.add_computed_column(outputz=pxtf.map(t.jcol.z['*'], lambda x: x + 3))
         for i in range(8):
             data = {}
             if (i & 1) != 0:
@@ -1463,8 +1473,8 @@ class TestExprs:
             # JsonPath
             (t.c_json.f2.f5[2:4][3], 'c_json.f2.f5[2:4][3]'),
             # JsonPath with relative root (with and without a succeeding path)
-            (t.c_json.f2.f5['*'] >> R, 'c_json.f2.f5[*] >> R'),
-            (t.c_json.f2.f5['*'] >> R.abcd, 'c_json.f2.f5[*] >> R.abcd'),
+            (pxtf.map(t.c_json.f2.f5['*'], lambda x: x), 'map(c_json.f2.f5[*], lambda R: R)'),
+            (pxtf.map(t.c_json.f2.f5['*'], lambda x: x.abcd), 'map(c_json.f2.f5[*], lambda R: R.abcd)'),
             # MethodRef
             (t.c_image.resize((100, 100)), 'c_image.resize([100, 100])'),
             # TypeCast

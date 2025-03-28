@@ -16,7 +16,7 @@ from .in_predicate import InPredicate
 from .inline_expr import InlineArray, InlineDict, InlineList
 from .is_null import IsNull
 from .json_mapper import JsonMapper
-from .json_path import RELATIVE_PATH_ROOT, JsonPath
+from .json_path import JsonPath
 from .literal import Literal
 from .method_ref import MethodRef
 from .object_ref import ObjectRef
