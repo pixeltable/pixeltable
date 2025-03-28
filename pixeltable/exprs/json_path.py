@@ -80,11 +80,16 @@ class JsonPath(Expr):
     def is_relative_path(self) -> bool:
         return self._anchor is None
 
-    def bind_rel_paths(self, mapper: Optional['JsonMapper'] = None) -> None:
-        if not self.is_relative_path():
-            return
-        # TODO: take scope_idx into account
-        self.set_anchor(mapper.scope_anchor)
+    @property
+    def _has_relative_path(self) -> bool:
+        return self.is_relative_path() or super()._has_relative_path
+
+    def _bind_rel_paths(self, mapper: Optional['JsonMapper'] = None) -> None:
+        if self.is_relative_path():
+            # TODO: take scope_idx into account
+            self.set_anchor(mapper.scope_anchor)
+        else:
+            self._anchor._bind_rel_paths(mapper)
 
     def __call__(self, *args: object, **kwargs: object) -> 'JsonPath':
         """

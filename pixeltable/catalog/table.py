@@ -369,11 +369,6 @@ class Table(SchemaObject):
             pd_rows.append(row)
         return pd.DataFrame(pd_rows)
 
-    def ensure_md_loaded(self) -> None:
-        """Ensure that table metadata is loaded."""
-        for col in self._tbl_version.get().cols_by_id.values():
-            _ = col.value_expr
-
     def describe(self) -> None:
         """
         Print the table schema.

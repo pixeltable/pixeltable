@@ -90,14 +90,29 @@ class Expr(abc.ABC):
                 result = c_scope
         return result
 
-    def bind_rel_paths(self, mapper: Optional['exprs.JsonMapper'] = None) -> None:
+    def bind_rel_paths(self) -> None:
         """
         Binds relative JsonPaths to mapper.
         This needs to be done in a separate phase after __init__(), because RelativeJsonPath()(-1) cannot be resolved
         by the immediately containing JsonMapper during initialization.
         """
+        self._bind_rel_paths()
+        assert not self._has_relative_path, self._expr_tree()
+
+    def _bind_rel_paths(self, mapper: Optional['exprs.JsonMapper'] = None) -> None:
         for c in self.components:
-            c.bind_rel_paths(mapper)
+            c._bind_rel_paths(mapper)
+
+    def _expr_tree(self) -> str:
+        """Returns a string representation of this expression as a multi-line tree. Useful for debugging."""
+        buf: list[str] = []
+        self._expr_tree_r(0, buf)
+        return '\n'.join(buf)
+
+    def _expr_tree_r(self, indent: int, buf: list[str]) -> None:
+        buf.append(f'{" " * indent}{type(self).__name__}: {self}'.replace('\n', '\\n'))
+        for c in self.components:
+            c._expr_tree_r(indent + 2, buf)
 
     def default_column_name(self) -> Optional[str]:
         """
@@ -355,6 +370,10 @@ class Expr(abc.ABC):
         except StopIteration:
             return False
 
+    @property
+    def _has_relative_path(self) -> bool:
+        return any(c._has_relative_path for c in self.components)
+
     def tbl_ids(self) -> set[UUID]:
         """Returns table ids referenced by this expr."""
         from .column_ref import ColumnRef
@@ -514,7 +533,7 @@ class Expr(abc.ABC):
 
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr]) -> Self:
-        raise AssertionError('not implemented')
+        raise AssertionError(f'not implemented: {cls.__name__}')
 
     def isin(self, value_set: Any) -> 'exprs.InPredicate':
         from .in_predicate import InPredicate
