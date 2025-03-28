@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import copy
 from typing import Any, Optional, Sequence
 from uuid import UUID
-import copy
 
 import sqlalchemy as sql
 
