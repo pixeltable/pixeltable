@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import enum
 import logging
 from typing import TYPE_CHECKING, Any, Iterable, Literal, Optional, overload
 from uuid import UUID
@@ -16,7 +17,34 @@ from .table_version import TableVersion
 from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
 
+if TYPE_CHECKING:
+    import datasets  # type: ignore[import-untyped]
+
+    from pixeltable.globals import RowData, TableDataSource
+    from pixeltable.io.table_data_conduit import TableDataConduit
+
 _logger = logging.getLogger('pixeltable')
+
+
+class OnErrorParameter(enum.Enum):
+    """Supported values for the on_error parameter"""
+
+    ABORT = 'abort'
+    IGNORE = 'ignore'
+
+    @classmethod
+    def is_valid(cls, v: Any) -> bool:
+        if isinstance(v, str):
+            return v.lower() in [c.value for c in cls]
+        return False
+
+    @classmethod
+    def fail_on_exception(cls, v: Any) -> bool:
+        if not cls.is_valid(v):
+            raise ValueError(f'Invalid value for on_error: {v}')
+        if isinstance(v, str):
+            return v.lower() != cls.IGNORE.value
+        return True
 
 
 class InsertableTable(Table):
@@ -83,11 +111,6 @@ class InsertableTable(Table):
         md['is_snapshot'] = False
         return md
 
-    if TYPE_CHECKING:
-        import datasets  # type: ignore[import-untyped]
-
-        from pixeltable.globals import RowData, TableDataSource
-
     @overload
     def insert(
         self,
@@ -117,7 +140,7 @@ class InsertableTable(Table):
         print_stats: bool = False,
         **kwargs: Any,
     ) -> UpdateStatus:
-        from pixeltable.io.table_data_conduit import OnErrorParameter, UnkTableDataConduit
+        from pixeltable.io.table_data_conduit import UnkTableDataConduit
 
         table = self
         if source is None:
@@ -140,9 +163,6 @@ class InsertableTable(Table):
             data_source=data_source, fail_on_exception=fail_on_exception, print_stats=print_stats
         )
 
-    if TYPE_CHECKING:
-        from pixeltable.io.table_data_conduit import TableDataConduit
-
     def insert_table_data_source(
         self, data_source: TableDataConduit, fail_on_exception: bool, print_stats: bool = False
     ) -> pxt.UpdateStatus:
@@ -161,7 +181,7 @@ class InsertableTable(Table):
                         rows=row_batch, df=None, print_stats=print_stats, fail_on_exception=fail_on_exception
                     )
 
-        Env.get().console_logger.info(status.build_insert_msg())
+        Env.get().console_logger.info(status.insert_msg)
 
         FileCache.get().emit_eviction_warnings()
         return status

@@ -45,27 +45,6 @@ class TableDataConduitFormat(str, enum.Enum):
         return False
 
 
-class OnErrorParameter(enum.Enum):
-    """Supported values for the on_error parameter"""
-
-    ABORT = 'abort'
-    IGNORE = 'ignore'
-
-    @classmethod
-    def is_valid(cls, v: Any) -> bool:
-        if isinstance(v, str):
-            return v.lower() in [c.value for c in cls]
-        return False
-
-    @classmethod
-    def fail_on_exception(cls, v: Any) -> bool:
-        if not cls.is_valid(v):
-            raise ValueError(f'Invalid value for on_error: {v}')
-        if isinstance(v, str):
-            return v.lower() != cls.IGNORE.value
-        return True
-
-
 # ---------------------------------------------------------------------------------------------------------
 
 
@@ -121,7 +100,7 @@ class TableDataConduit:
         """Add information about the table into which we are inserting data"""
         assert isinstance(table, pxt.Table)
         self.pxt_schema = table._schema
-        self.pxt_pk = table._tbl_version.get().primary_key()
+        self.pxt_pk = table._tbl_version.get().primary_key
         for col in table._tbl_version_path.columns():
             if col.is_required_for_insert:
                 self.reqd_col_names.add(col.name)
@@ -205,7 +184,7 @@ class RowDataTableDataConduit(TableDataConduit):
             )
             self.normalize_pxt_schema_types()
         else:
-            raise AssertionError()
+            raise NotImplementedError()
 
         self.prepare_for_insert_into_table()
         return self.pxt_schema
@@ -278,7 +257,7 @@ class PandasTableDataConduit(TableDataConduit):
             )
             return inferred_schema, inferred_pk
         else:
-            raise AssertionError()
+            raise NotImplementedError()
 
     def infer_schema(self) -> dict[str, Any]:
         self.pxt_schema, self.pxt_pk = self.infer_schema_part1()
@@ -421,7 +400,7 @@ class HFTableDataConduit(TableDataConduit):
             )
             return inferred_schema, inferred_pk
         else:
-            raise AssertionError()
+            raise NotImplementedError()
 
     def infer_schema(self) -> dict[str, Any]:
         self.pxt_schema, self.pxt_pk = self.infer_schema_part1()
@@ -524,7 +503,7 @@ class ParquetTableDataConduit(TableDataConduit):
             )
             return inferred_schema, inferred_pk
         else:
-            raise AssertionError()
+            raise NotImplementedError()
 
     def infer_schema(self) -> dict[str, Any]:
         self.pxt_schema, self.pxt_pk = self.infer_schema_part1()

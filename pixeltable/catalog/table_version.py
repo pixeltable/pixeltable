@@ -1239,6 +1239,7 @@ class TableVersion:
         """Return all non-system columns"""
         return [c for c in self.cols if c.is_pk]
 
+    @property
     def primary_key(self) -> list[str]:
         """Return the names of the primary key columns"""
         return [c.name for c in self.cols if c.is_pk]

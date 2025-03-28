@@ -40,7 +40,8 @@ class UpdateStatus:
         self.cols_with_excs = list(dict.fromkeys(self.cols_with_excs + other.cols_with_excs))
         return self
 
-    def build_insert_msg(self) -> str:
+    @property
+    def insert_msg(self) -> str:
         """Return a message describing the results of an insert operation."""
         if self.num_excs == 0:
             cols_with_excs_str = ''

@@ -11,16 +11,9 @@ from pandas.io.formats.style import Styler
 
 from pixeltable import DataFrame, catalog, exceptions as excs, exprs, func, share
 from pixeltable.catalog import Catalog, TableVersionPath
+from pixeltable.catalog.insertable_table import OnErrorParameter
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
-
-_logger = logging.getLogger('pixeltable')
-
-
-def init() -> None:
-    """Initializes the Pixeltable environment."""
-    _ = Catalog.get()
-
 
 if TYPE_CHECKING:
     import datasets  # type: ignore[import-untyped]
@@ -37,6 +30,14 @@ if TYPE_CHECKING:
         'datasets.Dataset',
         'datasets.DatasetDict',  # Huggingface datasets
     ]
+
+
+_logger = logging.getLogger('pixeltable')
+
+
+def init() -> None:
+    """Initializes the Pixeltable environment."""
+    _ = Catalog.get()
 
 
 def create_table(
@@ -122,23 +123,20 @@ def create_table(
 
         >>> tbl = pxt.create_table('my_table', source='data.csv')
     """
-    if schema is not None:
-        assert source is None
-        if isinstance(schema, DataFrame):
-            source = schema
-            schema = None
-    if source is not None:
-        assert schema is None
-    assert schema is not None or source is not None
-
-    from pixeltable.io.table_data_conduit import DFTableDataConduit, OnErrorParameter, UnkTableDataConduit
     from pixeltable.io.utils import normalize_primary_key_parameter
+    from pixeltable.io.table_data_conduit import DFTableDataConduit, UnkTableDataConduit
+
+    if (schema is None) == (source is None):
+        raise excs.Error('Must provide either a `schema` or a `source`')
+
+    if schema is not None and (len(schema) == 0 or not isinstance(schema, dict)):
+        raise excs.Error('`schema` must be a non-empty dictionary')
 
     path_obj = catalog.Path(path_str)
     if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
     media_validation_ = catalog.MediaValidation.validated(media_validation, 'media_validation')
-    primary_key = normalize_primary_key_parameter(primary_key)
-    table = None
+    primary_key: Optional[list[str]] = normalize_primary_key_parameter(primary_key)
+    table: catalog.Table = None
     tds = None
     data_source = None
     if source is not None:
@@ -155,7 +153,9 @@ def create_table(
         is_direct_df = False
 
     if len(schema) == 0 or not isinstance(schema, dict):
-        raise excs.Error('Unable to create a proper schema, please supply one')
+        raise excs.Error(
+            'Unable to create a proper schema from supplied `source`. Please use appropriate `schema_overrides`.'
+        )
 
     table = Catalog.get().create_table(
         path_obj,

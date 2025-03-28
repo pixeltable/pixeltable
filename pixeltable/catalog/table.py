@@ -43,9 +43,11 @@ from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
 
 if TYPE_CHECKING:
+    import datasets  # type: ignore[import-untyped]
     import torch.utils.data
 
     import pixeltable.plan
+    from pixeltable.globals import RowData, TableDataSource
 
 _logger = logging.getLogger('pixeltable')
 
@@ -1170,11 +1172,6 @@ class Table(SchemaObject):
                 raise excs.Error(f"Column {col.name!r} has multiple indices; specify 'idx_name' instead")
             idx_id = idx_info[0].id
         self._tbl_version.get().drop_index(idx_id)
-
-    if TYPE_CHECKING:
-        import datasets  # type: ignore[import-untyped]
-
-        from pixeltable.globals import RowData, TableDataSource
 
     @overload
     def insert(
