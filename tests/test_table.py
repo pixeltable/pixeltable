@@ -378,9 +378,8 @@ class TestTable:
         assert t2._schema == df2.schema
         assert t2.collect() == df2.collect()
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(excs.Error, match='must be a non-empty dictionary'):
             _ = pxt.create_table('test3', ['I am a string.'])  # type: ignore[arg-type]
-        assert 'Unable to create a proper schema' in str(exc_info.value)
 
     def test_insert_df(self, test_tbl: pxt.Table) -> None:
         t = pxt.get_table('test_tbl')
@@ -500,9 +499,8 @@ class TestTable:
         assert list(df['Type']) == expected_strings + expected_strings
 
     def test_empty_table(self, reset_db: None) -> None:
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(excs.Error, match='must be a non-empty dictionary'):
             pxt.create_table('empty_table', {})
-        assert 'Unable to create a proper schema' in str(exc_info.value)
 
     def test_drop_table(self, test_tbl: pxt.Table) -> None:
         t = pxt.get_table('test_tbl')

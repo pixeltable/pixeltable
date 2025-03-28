@@ -123,8 +123,8 @@ def create_table(
 
         >>> tbl = pxt.create_table('my_table', source='data.csv')
     """
-    from pixeltable.io.utils import normalize_primary_key_parameter
     from pixeltable.io.table_data_conduit import DFTableDataConduit, UnkTableDataConduit
+    from pixeltable.io.utils import normalize_primary_key_parameter
 
     if (schema is None) == (source is None):
         raise excs.Error('Must provide either a `schema` or a `source`')
