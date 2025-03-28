@@ -9,5 +9,6 @@
 *.iml
 dist
 docs/local
+local
 site
 target

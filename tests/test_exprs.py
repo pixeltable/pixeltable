@@ -17,10 +17,11 @@ import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.functions as pxtf
 from pixeltable import catalog, exprs
-from pixeltable.exprs import RELATIVE_PATH_ROOT as R, ColumnRef, Expr, Literal
+from pixeltable.exprs import ColumnRef, Expr, Literal
 from pixeltable.functions.globals import cast
 from pixeltable.iterators import FrameIterator
 
+from .conftest import test_tbl
 from .utils import (
     ReloadTester,
     create_all_datatypes_tbl,
@@ -94,6 +95,14 @@ class TestExprs:
 
         def value(self) -> float:
             return 1 / self.sum
+
+    @classmethod
+    def is_str(cls, object: Any) -> bool:
+        return isinstance(object, str) or (isinstance(object, Expr) and object.col_type.is_string_type())
+
+    @classmethod
+    def is_int(cls, object: Any) -> bool:
+        return isinstance(object, int) or (isinstance(object, Expr) and object.col_type.is_int_type())
 
     def test_basic(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
@@ -314,21 +323,24 @@ class TestExprs:
 
         # non-numeric types
         for op1, op2 in [
-            (t.c1, t.c2),
-            (t.c1, 1),
-            (t.c2, t.c1),
-            (t.c2, 'a'),
-            (t.c1, t.c3),
-            (t.c1, 1.0),
-            (t.c3, t.c1),
-            (t.c3, 'a'),
+            (t.c1, t.c2),  # string, int
+            (t.c1, 1),  # string, int
+            (t.c2, t.c1),  # int, string
+            (t.c2, 'a'),  # int, string
+            (t.c1, t.c3),  # string, float
+            (t.c1, 1.0),  # string, float
+            (t.c3, t.c1),  # float, string
+            (t.c3, 'a'),  # float, string
         ]:
             with pytest.raises(excs.Error):
                 _ = t.select(op1 + op2).collect()
             with pytest.raises(excs.Error):
                 _ = t.select(op1 - op2).collect()
-            with pytest.raises(excs.Error):
+            if self.is_str(op1) and self.is_int(op2):
                 _ = t.select(op1 * op2).collect()
+            else:
+                with pytest.raises(excs.Error):
+                    _ = t.select(op1 * op2).collect()
             with pytest.raises(excs.Error):
                 _ = t.select(op1 / op2).collect()
             with pytest.raises(excs.Error):
@@ -634,38 +646,59 @@ class TestExprs:
         t = test_tbl
 
         # top-level is dict
-        res1 = reload_tester.run_query(t.select(input=t.c6.f5, output=t.c6.f5['*'] >> (R + 1)))
+        res1 = reload_tester.run_query(
+            t.select(input=t.c6.f5, output=pxtf.map(t.c6.f5['*'], lambda x: x + 1)).order_by(t.c2)
+        )
         for row in res1:
             assert row['output'] == [x + 1 for x in row['input']]
 
         # top-level is list of dicts; subsequent json path element references the dicts
-        res2 = reload_tester.run_query(t.select(input=t.c7, output=t.c7['*'].f5 >> [R[3], R[2], R[1], R[0]]))
+        res2 = reload_tester.run_query(
+            t.select(input=t.c7, output=pxtf.map(t.c7['*'].f5, lambda x: [x[3], x[2], x[1], x[0]])).order_by(t.c2)
+        )
         for row in res2:
             assert row['output'] == [[d['f5'][3], d['f5'][2], d['f5'][1], d['f5'][0]] for d in row['input']]
 
         # target expr contains global-scope dependency
-        res3 = reload_tester.run_query(t.select(input=t.c6, output=t.c6.f5['*'] >> (R * t.c6.f5[1])))
+        res3 = reload_tester.run_query(
+            t.select(input=t.c6, output=pxtf.map(t.c6.f5['*'], lambda x: x * t.c6.f5[1])).order_by(t.c2)
+        )
         for row in res3:
             assert row['output'] == [x * row['input']['f5'][1] for x in row['input']['f5']]
 
+        # mapper appears inside the anchor of a JsonPath
+        res4 = reload_tester.run_query(
+            t.select(input=t.c6, output=pxtf.map(t.c6.f5['*'], lambda x: x + 1)[0]).order_by(t.c2)
+        )
+        for row in res4:
+            assert row['output'] == row['input']['f5'][0] + 1
+
         # test it as a computed column
-        validate_update_status(t.add_computed_column(out1=t.c6.f5['*'] >> (R + 1)), 100)
-        validate_update_status(t.add_computed_column(out2=t.c7['*'].f5 >> [R[3], R[2], R[1], R[0]]), 100)
-        validate_update_status(t.add_computed_column(out3=t.c6.f5['*'] >> (R * t.c6.f5[1])), 100)
-        res_col = reload_tester.run_query(t.select(t.out1, t.out2, t.out3))
-        for row1, row2, row3, row_col in zip(res1, res2, res3, res_col):
+        validate_update_status(t.add_computed_column(out1=pxtf.map(t.c6.f5['*'], lambda x: x + 1)), 100)
+        validate_update_status(
+            t.add_computed_column(out2=pxtf.map(t.c7['*'].f5, lambda x: [x[3], x[2], x[1], x[0]])), 100
+        )
+        validate_update_status(t.add_computed_column(out3=pxtf.map(t.c6.f5['*'], lambda x: x * t.c6.f5[1])), 100)
+        validate_update_status(t.add_computed_column(out4=pxtf.map(t.c6.f5['*'], lambda x: x + 1)[0]), 100)
+        res_col = reload_tester.run_query(t.select(t.out1, t.out2, t.out3, t.out4).order_by(t.c2))
+
+        for row1, row2, row3, row4, row_col in zip(res1, res2, res3, res4, res_col):
             assert row1['output'] == row_col['out1']
             assert row2['output'] == row_col['out2']
             assert row3['output'] == row_col['out3']
+            assert row4['output'] == row_col['out4']
+
+        with pytest.raises(excs.Error, match='Failed to evaluate map function.'):
+            pxtf.map(t.c6.f5['*'], lambda x: x and False)
 
         reload_tester.run_reload_test()
 
     def test_multi_json_mapper(self, reset_db, reload_tester: ReloadTester) -> None:
         # Workflow with multiple JsonMapper instances
         t = pxt.create_table('test', {'jcol': pxt.Json})
-        t.add_computed_column(outputx=t.jcol.x['*'] >> (R + 1))
-        t.add_computed_column(outputy=t.jcol.y['*'] >> (R + 2))
-        t.add_computed_column(outputz=t.jcol.z['*'] >> (R + 3))
+        t.add_computed_column(outputx=pxtf.map(t.jcol.x['*'], lambda x: x + 1))
+        t.add_computed_column(outputy=pxtf.map(t.jcol.y['*'], lambda x: x + 2))
+        t.add_computed_column(outputz=pxtf.map(t.jcol.z['*'], lambda x: x + 3))
         for i in range(8):
             data = {}
             if (i & 1) != 0:
@@ -1452,8 +1485,8 @@ class TestExprs:
             # JsonPath
             (t.c_json.f2.f5[2:4][3], 'c_json.f2.f5[2:4][3]'),
             # JsonPath with relative root (with and without a succeeding path)
-            (t.c_json.f2.f5['*'] >> R, 'c_json.f2.f5[*] >> R'),
-            (t.c_json.f2.f5['*'] >> R.abcd, 'c_json.f2.f5[*] >> R.abcd'),
+            (pxtf.map(t.c_json.f2.f5['*'], lambda x: x), 'map(c_json.f2.f5[*], lambda R: R)'),
+            (pxtf.map(t.c_json.f2.f5['*'], lambda x: x.abcd), 'map(c_json.f2.f5[*], lambda R: R.abcd)'),
             # MethodRef
             (t.c_image.resize((100, 100)), 'c_image.resize([100, 100])'),
             # TypeCast
@@ -1461,6 +1494,43 @@ class TestExprs:
         ]
         for e, expected_repr in instances:
             assert repr(e) == expected_repr
+
+    def test_string_operations(self, test_tbl: catalog.Table, reset_db, reload_tester: ReloadTester) -> None:
+        # create table with two columns
+        schema = {'s1': pxt.String, 's2': pxt.String, 'i1': pxt.Int}
+        t = pxt.create_table('test_str_concat', schema)
+        t.add_computed_column(s3=t.s1 + '-' + t.s2)
+        t.add_computed_column(s4=t.s1 * 3)
+        t.add_computed_column(s5=(t.s1 + t.s2) * 2)
+        t.add_computed_column(s6=t.s1 + t.s2 * 2)
+        t.add_computed_column(s7='a' * t.i1)
+        t.add_computed_column(s8=t.s2 * t.i1)
+        t.insert([{'s1': 'left', 's2': 'right', 'i1': 2}, {'s1': 'A', 's2': 'B', 'i1': 3}])
+        result = t.collect()
+        assert result['s3'] == ['left-right', 'A-B']
+        assert result['s4'] == ['leftleftleft', 'AAA']
+        assert result['s5'] == ['leftrightleftright', 'ABAB']
+        assert result['s6'] == ['leftrightright', 'ABB']
+        assert result['s7'] == ['aa', 'aaa']
+        assert result['s8'] == ['rightright', 'BBB']
+
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.add_computed_column(invalid_op=t.s1 * 's1')
+        assert '* on strings requires int type,' in str(exc_info.value)
+
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.add_computed_column(invalid_op=t.s1 + 3)
+        assert '+ on strings requires string type,' in str(exc_info.value)
+
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.add_computed_column(invalid_op=t.s1 / t.s2)
+        assert 'requires numeric types, but s1 has type Optional[String]' in str(exc_info.value)
+
+        results = reload_tester.run_query(t.select(a=t.s1 + t.s2, b=t.s1 * 3, c=t.s2 * t.i1, d=(t.s1 + '/' + t.s2) * 2))
+        assert list(results[0].values()) == ['leftright', 'leftleftleft', 'rightright', 'left/rightleft/right']
+        assert list(results[1].values()) == ['AB', 'AAA', 'BBB', 'A/BA/B']
+
+        reload_tester.run_reload_test()
 
 
 @pxt.udf

@@ -71,10 +71,11 @@ documentation = "https://docs.pixeltable.com/"
 
 [tool.poetry]
 exclude = [
-    ".pytype",
     ".pytest_cache",
-    "tests",
+    ".pytype",
     "docs",
+    "local",
+    "tests",
     "tool",
 ]
 requires-poetry = ">=2.0"
