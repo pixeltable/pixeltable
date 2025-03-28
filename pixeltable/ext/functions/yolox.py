@@ -1,21 +1,15 @@
 import logging
-from pathlib import Path
-from typing import TYPE_CHECKING, Iterable, Iterator
-from urllib.request import urlretrieve
+from typing import TYPE_CHECKING
 
-import numpy as np
 import PIL.Image
 
 import pixeltable as pxt
-from pixeltable import env
 from pixeltable.func import Batch
 from pixeltable.functions.util import normalize_image_mode
 from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
-    import torch
-    from yolox.exp import Exp  # type: ignore[import-untyped]
-    from yolox.models import YOLOX  # type: ignore[import-untyped]
+    from yolox.models import Yolox
 
 _logger = logging.getLogger('pixeltable')
 
@@ -46,31 +40,15 @@ def yolox(images: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0
         >>> tbl.add_computed_column(detections=yolox(tbl.image, model_id='yolox_m', threshold=0.8))
     """
     import torch
-    from yolox.utils import postprocess  # type: ignore[import-untyped]
+    from yolox.models import YoloxProcessor
 
-    model, exp = _lookup_model(model_id, 'cpu')
-    image_tensors = list(_images_to_tensors(images, exp))
-    batch_tensor = torch.stack(image_tensors)
-
+    model = _lookup_model(model_id, 'cpu')
+    processor = YoloxProcessor(model_id)
+    normalized_images = [normalize_image_mode(image) for image in images]
     with torch.no_grad():
-        output_tensor = model(batch_tensor)
-
-    outputs = postprocess(output_tensor, 80, threshold, exp.nmsthre, class_agnostic=False)
-
-    results: list[dict] = []
-    for image in images:
-        ratio = min(exp.test_size[0] / image.height, exp.test_size[1] / image.width)
-        if outputs[0] is None:
-            results.append({'bboxes': [], 'scores': [], 'labels': []})
-        else:
-            results.append(
-                {
-                    'bboxes': [(output[:4] / ratio).tolist() for output in outputs[0]],
-                    'scores': [output[4].item() * output[5].item() for output in outputs[0]],
-                    'labels': [int(output[6]) for output in outputs[0]],
-                }
-            )
-    return results
+        tensor = processor(normalized_images)
+        output = model(tensor)
+        return processor.postprocess(normalized_images, output)
 
 
 @pxt.udf
@@ -107,47 +85,17 @@ def yolo_to_coco(detections: dict) -> list:
     return result
 
 
-def _images_to_tensors(images: Iterable[PIL.Image.Image], exp: 'Exp') -> Iterator['torch.Tensor']:
-    import torch
-    from yolox.data import ValTransform  # type: ignore[import-untyped]
-
-    val_transform = ValTransform(legacy=False)
-    for image in images:
-        normalized_image = normalize_image_mode(image)
-        image_transform, _ = val_transform(np.array(normalized_image), None, exp.test_size)
-        yield torch.from_numpy(image_transform)
-
-
-def _lookup_model(model_id: str, device: str) -> tuple['YOLOX', 'Exp']:
-    import torch
-    from yolox.exp import get_exp
+def _lookup_model(model_id: str, device: str) -> 'Yolox':
+    from yolox.models import Yolox
 
     key = (model_id, device)
-    if key in _model_cache:
-        return _model_cache[key]
+    if key not in _model_cache:
+        _model_cache[key] = Yolox.from_pretrained(model_id, device=device)
 
-    weights_url = f'https://github.com/Megvii-BaseDetection/YOLOX/releases/download/0.1.1rc0/{model_id}.pth'
-    weights_file = Path(f'{env.Env.get().tmp_dir}/{model_id}.pth')
-    if not weights_file.exists():
-        _logger.info(f'Downloading weights for YOLOX model {model_id}: from {weights_url} -> {weights_file}')
-        urlretrieve(weights_url, weights_file)
-
-    exp = get_exp(exp_name=model_id)
-    model = exp.get_model().to(device)
-
-    model.eval()
-    model.head.training = False
-    model.training = False
-
-    # Load in the weights from training
-    weights = torch.load(weights_file, map_location=torch.device(device))
-    model.load_state_dict(weights['model'])
-
-    _model_cache[key] = (model, exp)
-    return model, exp
+    return _model_cache[key]
 
 
-_model_cache: dict[tuple[str, str], tuple['YOLOX', 'Exp']] = {}
+_model_cache: dict[tuple[str, str], 'Yolox'] = {}
 
 
 __all__ = local_public_names(__name__)
