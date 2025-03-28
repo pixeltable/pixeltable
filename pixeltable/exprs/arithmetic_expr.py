@@ -19,6 +19,8 @@ class ArithmeticExpr(Expr):
     Allows arithmetic exprs on json paths
     """
 
+    operator: ArithmeticOperator
+
     def __init__(self, operator: ArithmeticOperator, op1: Expr, op2: Expr):
         if op1.col_type.is_json_type() or op2.col_type.is_json_type() or operator == ArithmeticOperator.DIV:
             # we assume it's a float

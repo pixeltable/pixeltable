@@ -21,6 +21,7 @@ from pixeltable.exprs import ColumnRef, Expr, Literal
 from pixeltable.functions.globals import cast
 from pixeltable.iterators import FrameIterator
 
+from .conftest import test_tbl
 from .utils import (
     ReloadTester,
     create_all_datatypes_tbl,
@@ -94,6 +95,14 @@ class TestExprs:
 
         def value(self) -> float:
             return 1 / self.sum
+
+    @classmethod
+    def is_str(cls, object: Any) -> bool:
+        return isinstance(object, str) or (isinstance(object, Expr) and object.col_type.is_string_type())
+
+    @classmethod
+    def is_int(cls, object: Any) -> bool:
+        return isinstance(object, int) or (isinstance(object, Expr) and object.col_type.is_int_type())
 
     def test_basic(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
@@ -314,21 +323,24 @@ class TestExprs:
 
         # non-numeric types
         for op1, op2 in [
-            (t.c1, t.c2),
-            (t.c1, 1),
-            (t.c2, t.c1),
-            (t.c2, 'a'),
-            (t.c1, t.c3),
-            (t.c1, 1.0),
-            (t.c3, t.c1),
-            (t.c3, 'a'),
+            (t.c1, t.c2),  # string, int
+            (t.c1, 1),  # string, int
+            (t.c2, t.c1),  # int, string
+            (t.c2, 'a'),  # int, string
+            (t.c1, t.c3),  # string, float
+            (t.c1, 1.0),  # string, float
+            (t.c3, t.c1),  # float, string
+            (t.c3, 'a'),  # float, string
         ]:
             with pytest.raises(excs.Error):
                 _ = t.select(op1 + op2).collect()
             with pytest.raises(excs.Error):
                 _ = t.select(op1 - op2).collect()
-            with pytest.raises(excs.Error):
+            if self.is_str(op1) and self.is_int(op2):
                 _ = t.select(op1 * op2).collect()
+            else:
+                with pytest.raises(excs.Error):
+                    _ = t.select(op1 * op2).collect()
             with pytest.raises(excs.Error):
                 _ = t.select(op1 / op2).collect()
             with pytest.raises(excs.Error):
@@ -1482,6 +1494,43 @@ class TestExprs:
         ]
         for e, expected_repr in instances:
             assert repr(e) == expected_repr
+
+    def test_string_operations(self, test_tbl: catalog.Table, reset_db, reload_tester: ReloadTester) -> None:
+        # create table with two columns
+        schema = {'s1': pxt.String, 's2': pxt.String, 'i1': pxt.Int}
+        t = pxt.create_table('test_str_concat', schema)
+        t.add_computed_column(s3=t.s1 + '-' + t.s2)
+        t.add_computed_column(s4=t.s1 * 3)
+        t.add_computed_column(s5=(t.s1 + t.s2) * 2)
+        t.add_computed_column(s6=t.s1 + t.s2 * 2)
+        t.add_computed_column(s7='a' * t.i1)
+        t.add_computed_column(s8=t.s2 * t.i1)
+        t.insert([{'s1': 'left', 's2': 'right', 'i1': 2}, {'s1': 'A', 's2': 'B', 'i1': 3}])
+        result = t.collect()
+        assert result['s3'] == ['left-right', 'A-B']
+        assert result['s4'] == ['leftleftleft', 'AAA']
+        assert result['s5'] == ['leftrightleftright', 'ABAB']
+        assert result['s6'] == ['leftrightright', 'ABB']
+        assert result['s7'] == ['aa', 'aaa']
+        assert result['s8'] == ['rightright', 'BBB']
+
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.add_computed_column(invalid_op=t.s1 * 's1')
+        assert '* on strings requires int type,' in str(exc_info.value)
+
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.add_computed_column(invalid_op=t.s1 + 3)
+        assert '+ on strings requires string type,' in str(exc_info.value)
+
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.add_computed_column(invalid_op=t.s1 / t.s2)
+        assert 'requires numeric types, but s1 has type Optional[String]' in str(exc_info.value)
+
+        results = reload_tester.run_query(t.select(a=t.s1 + t.s2, b=t.s1 * 3, c=t.s2 * t.i1, d=(t.s1 + '/' + t.s2) * 2))
+        assert list(results[0].values()) == ['leftright', 'leftleftleft', 'rightright', 'left/rightleft/right']
+        assert list(results[1].values()) == ['AB', 'AAA', 'BBB', 'A/BA/B']
+
+        reload_tester.run_reload_test()
 
 
 @pxt.udf
