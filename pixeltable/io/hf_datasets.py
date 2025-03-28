@@ -103,7 +103,7 @@ def import_huggingface_dataset(
             they are valid Pixeltable identifiers).
         primary_key: The primary key of the table (see [`create_table()`][pixeltable.create_table]).
         kwargs: Additional arguments to pass to `create_table`.
-        An argument of `column_name_for_split` must be provided if the source is a DatasetDict.
+            An argument of `column_name_for_split` must be provided if the source is a DatasetDict.
             This column name will contain the split information. If None, no split information will be stored.
 
     Returns:
