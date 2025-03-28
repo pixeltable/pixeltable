@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Optional, Sequence
 from uuid import UUID
+import copy
 
 import sqlalchemy as sql
 
@@ -138,9 +139,9 @@ class ColumnRef(Expr):
             info: value for info, value in idx_info_dict.items() if isinstance(value.idx, index.EmbeddingIndex)
         }
         if len(embedding_idx_info) == 0:
-            raise excs.Error(f'No indices found for {method_name} on column {col.name!r}')
+            raise excs.Error(f'No indices found for {method_name!r} on column {col.name!r}')
         if idx_name is not None and idx_name not in embedding_idx_info:
-            raise excs.Error(f'Index {idx_name!r} not found for {method_name} on column {col.name!r}')
+            raise excs.Error(f'Index {idx_name!r} not found for {method_name!r} on column {col.name!r}')
         if len(embedding_idx_info) > 1:
             if idx_name is None:
                 raise excs.Error(
@@ -158,8 +159,6 @@ class ColumnRef(Expr):
         return SimilarityExpr(self, item, idx_name=idx)
 
     def embedding(self, *, idx: Optional[str] = None) -> ColumnRef:
-        import copy
-
         idx_info = ColumnRef.find_embedding_index(self.col, idx, 'embedding')
         assert len(idx_info) == 1
         col = copy.copy(next(iter(idx_info.values())).val_col)
