@@ -97,7 +97,7 @@ class Project(ExternalStore, abc.ABC):
         # This ensures that the media in those columns resides in the media store.
         # First determine which columns (if any) need stored proxies, but don't have one yet.
         stored_proxies_needed: list[Column] = []
-        for col in self.col_mapping.keys():
+        for col in self.col_mapping:
             if col.col_type.is_media_type() and not (col.is_stored and col.is_computed):
                 # If this column is already proxied in some other Project, use the existing proxy to avoid
                 # duplication. Otherwise, we'll create a new one.
@@ -234,7 +234,8 @@ class Project(ExternalStore, abc.ABC):
                 else:
                     raise excs.Error(
                         f'Column `{t_col}` does not exist in Table `{table._name}`. Either add a column `{t_col}`, '
-                        f'or specify a `col_mapping` to associate a different column with the external field `{ext_col}`.'
+                        f'or specify a `col_mapping` to associate a different column with '
+                        f'the external field `{ext_col}`.'
                     )
             if ext_col not in export_cols and ext_col not in import_cols:
                 raise excs.Error(
@@ -253,7 +254,8 @@ class Project(ExternalStore, abc.ABC):
                 ext_col_type = export_cols[ext_col]
                 if not ext_col_type.is_supertype_of(t_col_type, ignore_nullable=True):
                     raise excs.Error(
-                        f'Column `{t_col}` cannot be exported to external column `{ext_col}` (incompatible types; expecting `{ext_col_type}`)'
+                        f'Column `{t_col}` cannot be exported to external column `{ext_col}` '
+                        f'(incompatible types; expecting `{ext_col_type}`)'
                     )
             if ext_col in import_cols:
                 # Validate that the external column can be assigned to the table column
@@ -264,7 +266,8 @@ class Project(ExternalStore, abc.ABC):
                 ext_col_type = import_cols[ext_col]
                 if not t_col_type.is_supertype_of(ext_col_type, ignore_nullable=True):
                     raise excs.Error(
-                        f'Column `{t_col}` cannot be imported from external column `{ext_col}` (incompatible types; expecting `{ext_col_type}`)'
+                        f'Column `{t_col}` cannot be imported from external column `{ext_col}` '
+                        f'(incompatible types; expecting `{ext_col_type}`)'
                     )
         return resolved_col_mapping
 
@@ -368,7 +371,7 @@ class MockProject(Project):
             {cls._column_from_dict(entry[0]): cls._column_from_dict(entry[1]) for entry in md['stored_proxies']},
         )
 
-    def __eq__(self, other: Any) -> bool:
+    def __eq__(self, other: object) -> bool:
         if not isinstance(other, MockProject):
             return False
         return self.name == other.name

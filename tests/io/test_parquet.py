@@ -25,10 +25,10 @@ class TestParquet:
         pqts = []
         test_path = 'tests/data/datasets/'
         file_list = [
-            #            'bank_failures.parquet',
-            #            'gold_vs_bitcoin.parquet',
+            'bank_failures.parquet',
+            'gold_vs_bitcoin.parquet',
             'iris.parquet',
-            #            'search_trends.parquet',
+            'search_trends.parquet',
             'table.parquet',
             'taq.parquet',
             'titanic.parquet',
@@ -49,13 +49,19 @@ class TestParquet:
             pdts.append(pxt.io.import_pandas(pdname, pddf))
             pqname = 'pqtable_' + str(i)
             pqts.append(pxt.io.import_parquet(pqname, parquet_path=xfile))
-        i = 0
+
         for fn, pdt, pqt in zip(file_list, pdts, pqts):
             print(fn, 'row count: ', pqt.count())
             if not pdt.columns == pqt.columns:
                 print(pdt.columns)
                 print(pqt.columns)
             assert pdt.count() == pqt.count()
+
+        for fn, pqt in zip(file_list, pqts):
+            len1 = pqt.count()
+            xfile = test_path + fn
+            pqt.insert(xfile)
+            assert pqt.count() == len1 * 2
 
     def test_import_parquet(self, reset_db, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('pyarrow')
@@ -68,7 +74,8 @@ class TestParquet:
         parquet_dir.mkdir()
         _ = make_test_arrow_table(parquet_dir)
 
-        tab = pxt.io.import_parquet('test_parquet', parquet_path=str(parquet_dir))
+        # This test passes only a directory to the parquet reader. The source_format must be explicit in this case.
+        tab = pxt.io.import_parquet('test_parquet', parquet_path=str(parquet_dir), source_format='parquet')
         assert 'test_parquet' in pxt.list_tables()
         assert tab is not None
         num_elts = tab.count()
@@ -92,6 +99,21 @@ class TestParquet:
                     assert val == arrow_tup[col].astimezone(None)
                 else:
                     assert val == arrow_tup[col]
+
+    def test_insert_parquet(self, reset_db, tmp_path: pathlib.Path) -> None:
+        skip_test_if_not_installed('pyarrow')
+        import pyarrow as pa
+        from pyarrow import parquet
+
+        parquet_dir = tmp_path / 'test_data'
+        parquet_dir.mkdir()
+        _ = make_test_arrow_table(parquet_dir)
+
+        # This test passes only a directory to the parquet reader. The source_format must be explicit in this case.
+        tab = pxt.io.import_parquet('test_parquet', parquet_path=str(parquet_dir), source_format='parquet')
+        len1 = tab.count()
+        tab.insert(str(parquet_dir), source_format='parquet')
+        assert tab.count() == len1 * 2
 
     def test_export_parquet_simple(self, reset_db, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('pyarrow')
@@ -183,7 +205,7 @@ class TestParquet:
         parquet_dir.mkdir()
         orig_file_path = make_test_arrow_table(parquet_dir)
 
-        tab = pxt.io.import_parquet('test_parquet', parquet_path=str(parquet_dir))
+        tab = pxt.io.import_parquet('test_parquet', parquet_path=str(parquet_dir), source_format='parquet')
         assert 'test_parquet' in pxt.list_tables()
         assert tab is not None
         result_before = tab.order_by(tab.c_id).collect()

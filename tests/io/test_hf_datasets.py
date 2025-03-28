@@ -61,8 +61,8 @@ class TestHfDatasets:
             tab = pxt.io.import_huggingface_dataset(
                 dataset_name,
                 hf_dataset,
-                column_name_for_split=split_column_name,
                 schema_overrides=rec.get('schema_override', None),
+                column_name_for_split=split_column_name,
             )
             if isinstance(hf_dataset, datasets.Dataset):
                 self._assert_hf_dataset_equal(hf_dataset, tab.select(), split_column_name)
@@ -75,6 +75,67 @@ class TestHfDatasets:
                     self._assert_hf_dataset_equal(hf_dataset[dataset_name], df, split_column_name)
             else:
                 assert False
+
+    def test_insert_hf_dataset(self, reset_db, tmp_path: pathlib.Path) -> None:
+        skip_test_if_not_installed('datasets')
+        import datasets
+
+        test_cases = [
+            # { # includes a timestamp. 20MB for specific slice
+            # Disbled this test case because download is failing, and its not critical.
+            #     'dataset_name': 'c4',
+            #     # see https://huggingface.co/datasets/allenai/c4/blob/main/realnewslike/c4-train.00000-of-00512.json.gz
+            #     'dataset': datasets.load_dataset(
+            #         "allenai/c4",
+            #         data_dir="realnewslike",
+            #         data_files="c4-train.00000-of-00512.json.gz",
+            #         split='train[:1000]',
+            #         cache_dir=tmp_path
+            #     ),
+            # },
+            {  # includes an embedding (array type), common in a few RAG datasets.
+                'dataset_name': 'cohere_wikipedia',
+                'dataset': datasets.load_dataset(
+                    'Cohere/wikipedia-2023-11-embed-multilingual-v3', data_dir='cr'
+                ).select_columns(['url', 'title', 'text', 'emb']),
+                # column with name `_id`` is not currently allowed by pixeltable rules,
+                # so filter out that column.
+                # cr subdir has a small number of rows, avoid running out of space in CI runner
+                # see https://huggingface.co/datasets/Cohere/wikipedia-2023-11-embed-multilingual-v3/tree/main/cr
+                'schema_override': {'emb': pxt.Array[(1024,), pxt.Float]},  # type: ignore[misc]
+            },
+            # example of dataset dictionary with multiple splits
+            {'dataset_name': 'rotten_tomatoes', 'dataset': datasets.load_dataset('rotten_tomatoes')},
+        ]
+
+        # test a column name for splits other than the default of 'split'
+        split_column_name = 'my_split_col'
+        for rec in test_cases:
+            dataset_name = rec['dataset_name']
+            hf_dataset = rec['dataset']
+
+            tab = pxt.io.import_huggingface_dataset(
+                dataset_name,
+                hf_dataset,
+                schema_overrides=rec.get('schema_override', None),
+                column_name_for_split=split_column_name,
+            )
+            if isinstance(hf_dataset, datasets.Dataset):
+                self._assert_hf_dataset_equal(hf_dataset, tab.select(), split_column_name)
+            elif isinstance(hf_dataset, datasets.DatasetDict):
+                assert tab.count() == sum(hf_dataset.num_rows.values())
+                assert split_column_name in tab._schema.keys()
+
+                for dataset_name in hf_dataset:
+                    df = tab.where(tab.my_split_col == dataset_name)
+                    self._assert_hf_dataset_equal(hf_dataset[dataset_name], df, split_column_name)
+            else:
+                assert False
+            len1 = tab.count()
+            tab.insert(
+                hf_dataset, schema_overrides=rec.get('schema_override', None), column_name_for_split=split_column_name
+            )
+            assert tab.count() == len1 * 2
 
     @classmethod
     def _assert_hf_dataset_equal(
@@ -135,4 +196,4 @@ class TestHfDatasets:
         skip_test_if_not_installed('datasets')
         with pytest.raises(excs.Error) as exc_info:
             pxt.io.import_huggingface_dataset('test', {})
-        assert 'type(dataset)' in str(exc_info.value)
+        assert 'Unsupported data source type' in str(exc_info.value)
