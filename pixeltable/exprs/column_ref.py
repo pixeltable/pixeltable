@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from typing import Any, Optional, Sequence
 from uuid import UUID
 
@@ -125,10 +126,45 @@ class ColumnRef(Expr):
 
         return super().__getattr__(name)
 
+    @classmethod
+    def find_embedding_index(
+        cls, col: catalog.Column, idx_name: Optional[str], method_name: str
+    ) -> dict[str, catalog.TableVersion.IndexInfo]:
+        """Return IndexInfo for a column, with an optional given name"""
+        # determine index to use
+        idx_info_dict = col.get_idx_info()
+        from pixeltable import index
+
+        embedding_idx_info = {
+            info: value for info, value in idx_info_dict.items() if isinstance(value.idx, index.EmbeddingIndex)
+        }
+        if len(embedding_idx_info) == 0:
+            raise excs.Error(f'No indices found for {method_name!r} on column {col.name!r}')
+        if idx_name is not None and idx_name not in embedding_idx_info:
+            raise excs.Error(f'Index {idx_name!r} not found for {method_name!r} on column {col.name!r}')
+        if len(embedding_idx_info) > 1:
+            if idx_name is None:
+                raise excs.Error(
+                    f'Column {col.name!r} has multiple indices; use the index name to disambiguate: '
+                    f'`{method_name}(..., idx=<index_name>)`'
+                )
+            idx_info = {idx_name: embedding_idx_info[idx_name]}
+        else:
+            idx_info = embedding_idx_info
+        return idx_info
+
     def similarity(self, item: Any, *, idx: Optional[str] = None) -> Expr:
         from .similarity_expr import SimilarityExpr
 
         return SimilarityExpr(self, item, idx_name=idx)
+
+    def embedding(self, *, idx: Optional[str] = None) -> ColumnRef:
+        idx_info = ColumnRef.find_embedding_index(self.col, idx, 'embedding')
+        assert len(idx_info) == 1
+        col = copy.copy(next(iter(idx_info.values())).val_col)
+        col.name = f'{self.col.name}_embedding_{idx if idx is not None else ""}'
+        col.create_sa_cols()
+        return ColumnRef(col)
 
     def default_column_name(self) -> Optional[str]:
         return str(self)
