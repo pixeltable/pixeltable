@@ -9,7 +9,7 @@ from pixeltable.functions.util import normalize_image_mode
 from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
-    from yolox.models import Yolox
+    from yolox.models import Yolox, YoloxProcessor
 
 _logger = logging.getLogger('pixeltable')
 
@@ -40,15 +40,14 @@ def yolox(images: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0
         >>> tbl.add_computed_column(detections=yolox(tbl.image, model_id='yolox_m', threshold=0.8))
     """
     import torch
-    from yolox.models import YoloxProcessor
 
     model = _lookup_model(model_id, 'cpu')
-    processor = YoloxProcessor(model_id)
+    processor = _lookup_processor(model_id)
     normalized_images = [normalize_image_mode(image) for image in images]
     with torch.no_grad():
         tensor = processor(normalized_images)
         output = model(tensor)
-        return processor.postprocess(normalized_images, output)
+        return processor.postprocess(normalized_images, output, threshold=threshold)
 
 
 @pxt.udf
@@ -95,7 +94,17 @@ def _lookup_model(model_id: str, device: str) -> 'Yolox':
     return _model_cache[key]
 
 
+def _lookup_processor(model_id: str) -> 'YoloxProcessor':
+    from yolox.models import YoloxProcessor
+
+    if model_id not in _processor_cache:
+        _processor_cache[model_id] = YoloxProcessor(model_id)
+
+    return _processor_cache[model_id]
+
+
 _model_cache: dict[tuple[str, str], 'Yolox'] = {}
+_processor_cache: dict[tuple[str, str], 'YoloxProcessor'] = {}
 
 
 __all__ = local_public_names(__name__)
