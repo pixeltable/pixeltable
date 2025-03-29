@@ -366,7 +366,7 @@ class Env:
                 elif dialect == 'postgresql':
                     self._dbms = PostgresqlDbms(db_url)
                 else:
-                    raise excs.Error(f"Unsupported DBMS {dialect}")
+                    raise excs.Error(f'Unsupported DBMS {dialect}')
                 if not self._store_db_exists():
                     error = f'Database {self._db_name!r} does not exist'
                     self._logger.error(error)
