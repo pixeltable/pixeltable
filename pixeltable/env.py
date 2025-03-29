@@ -366,9 +366,9 @@ class Env:
                 elif dialect == 'postgresql':
                     self._dbms = PostgresqlDbms(db_url)
                 else:
-                    raise excs.Error("Unsupported DBMS '%s'" % dialect)
+                    raise excs.Error(f"Unsupported DBMS {dialect}")
                 if not self._store_db_exists():
-                    error = f'Database "{self._db_name}" does not exist'
+                    error = f'Database {self._db_name!r} does not exist'
                     self._logger.error(error)
                     raise excs.Error(error)
                 self._logger.info(f'found database at: {self.db_url}')
@@ -400,7 +400,10 @@ class Env:
                     self._logger.error(f'Invalid time zone specified in configuration: {tz_name}')
 
         if reinit_db and self._store_db_exists():
-            self._drop_store_db()
+            if db_connect_str is not None:
+                self._delete_all_tables()
+            else:
+                self._drop_store_db()
 
         create_db = not self._store_db_exists()
 
@@ -483,6 +486,12 @@ class Env:
                 conn.execute(sql.text('CREATE EXTENSION vector'))
         finally:
             engine.dispose()
+
+    def _delete_all_tables(self) -> None:
+        engine = sql.create_engine(self.db_url, future=True, isolation_level='AUTOCOMMIT')
+        sql_md = sql.orm.declarative_base().metadata
+        sql_md.reflect(engine)
+        sql_md.drop_all(bind=engine)
 
     def _drop_store_db(self) -> None:
         assert self._db_name is not None
