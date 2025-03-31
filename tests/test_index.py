@@ -2,7 +2,7 @@ import random
 import string
 import sys
 from datetime import datetime, timedelta
-from typing import Union, _GenericAlias  # type: ignore[attr-defined]
+from typing import Any, Union, _GenericAlias  # type: ignore[attr-defined]
 
 import numpy as np
 import PIL.Image
@@ -344,6 +344,40 @@ class TestIndex:
 
         # sanity check persistence
         reload_tester.run_reload_test()
+
+    def test_update_img(
+        self,
+        img_tbl: pxt.Table,
+        test_tbl: pxt.Table,
+        clip_embed: func.Function,
+        e5_embed: func.Function,
+        all_mpnet_embed: func.Function,
+        reload_tester: ReloadTester,
+    ) -> None:
+        img_t = img_tbl
+        rows = list(img_t.select(img=img_t.img.fileurl, category=img_t.category, split=img_t.split).collect())
+        short_rows = rows[:5]
+        new_rows: list[dict[str, Any]] = []
+        for n, row in enumerate(short_rows):
+            row['pkey'] = n
+            new_rows.append(row)
+
+        # create table with fewer rows to speed up testing
+        schema = {'pkey': pxt.IntType(nullable=False), 'img': pxt.Image, 'category': pxt.String, 'split': pxt.String}
+        tbl_name = 'update_test'
+        img_t = pxt.create_table(tbl_name, schema, primary_key='pkey')
+        img_t.insert(new_rows)
+        print(img_t.head())
+
+        # Update the first row with a new image
+        repl_row = rows[6]
+        repl_row['pkey'] = 0
+
+        with pytest.raises(pxt.Error, match='is a media column and cannot be updated'):
+            img_t.update(repl_row, where=img_t.pkey == 0, cascade=True)
+
+        with pytest.raises(pxt.Error, match='is a media column and cannot be updated'):
+            img_t.batch_update([repl_row], cascade=True)
 
     def test_embedding_basic(
         self,
