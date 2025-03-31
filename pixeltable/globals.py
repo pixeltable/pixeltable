@@ -1,15 +1,36 @@
+from __future__ import annotations
+
 import logging
+import os
 import urllib.parse
-from typing import Any, Iterable, Literal, Optional, Union
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, Optional, Union
 
 import pandas as pd
 from pandas.io.formats.style import Styler
 
 from pixeltable import DataFrame, catalog, exceptions as excs, exprs, func, share
 from pixeltable.catalog import Catalog, TableVersionPath
-from pixeltable.dataframe import DataFrameResultSet
+from pixeltable.catalog.insertable_table import OnErrorParameter
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
+
+if TYPE_CHECKING:
+    import datasets  # type: ignore[import-untyped]
+
+    RowData = list[dict[str, Any]]
+    TableDataSource = Union[
+        str,
+        os.PathLike,
+        Path,  # OS paths, filenames, URLs
+        Iterator[dict[str, Any]],  # iterator producing dictionaries of values
+        RowData,  # list of dictionaries
+        DataFrame,  # Pixeltable DataFrame
+        pd.DataFrame,  # pandas DataFrame
+        'datasets.Dataset',
+        'datasets.DatasetDict',  # Huggingface datasets
+    ]
+
 
 _logger = logging.getLogger('pixeltable')
 
@@ -20,21 +41,35 @@ def init() -> None:
 
 
 def create_table(
-    path: str,
-    schema_or_df: Union[dict[str, Any], DataFrame],
+    path_str: str,
+    schema: Optional[dict[str, Any]] = None,
     *,
+    source: Optional[TableDataSource] = None,
+    source_format: Optional[Literal['csv', 'excel', 'parquet', 'json']] = None,
+    schema_overrides: Optional[dict[str, Any]] = None,
+    on_error: Literal['abort', 'ignore'] = 'abort',
     primary_key: Optional[Union[str, list[str]]] = None,
     num_retained_versions: int = 10,
     comment: str = '',
     media_validation: Literal['on_read', 'on_write'] = 'on_write',
     if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
+    extra_args: Optional[dict[str, Any]] = None,  # Additional arguments to data source provider
 ) -> catalog.Table:
     """Create a new base table.
 
     Args:
-        path: Path to the table.
-        schema_or_df: Either a dictionary that maps column names to column types, or a
-            [`DataFrame`][pixeltable.DataFrame] whose contents and schema will be used to pre-populate the table.
+        path_str: Path to the table.
+        schema: A dictionary that maps column names to column types
+        source: A data source from which a table schema can be inferred and data imported
+        source_format: A hint to the format of the source data
+        schema_overrides: If specified, then columns in `schema_overrides` will be given the specified types
+        on_error: Determines the behavior if an error occurs while evaluating a computed column or detecting an
+            invalid media file (such as a corrupt image) for one of the inserted rows.
+
+            - If `on_error='abort'`, then an exception will be raised and the rows will not be inserted.
+            - If `on_error='ignore'`, then execution will continue and the rows will be inserted. Any cells
+                with errors will have a `None` value for that cell, with information about the error stored in the
+                corresponding `tbl.col_name.errortype` and `tbl.col_name.errormsg` fields.
         primary_key: An optional column name or list of column names to use as the primary key(s) of the
             table.
         num_retained_versions: Number of versions of the table to retain.
@@ -50,6 +85,7 @@ def create_table(
             - `'ignore'`: do nothing and return the existing table handle
             - `'replace'`: if the existing table has no views, drop and replace it with a new one
             - `'replace_force'`: drop the existing table and all its views, and create a new one
+        extra_args: Additional arguments to pass to the source data provider
 
     Returns:
         A handle to the newly created table, or to an already existing table at the path when `if_exists='ignore'`.
@@ -61,7 +97,8 @@ def create_table(
             - the path is invalid, or
             - the path already exists and `if_exists='error'`, or
             - the path already exists and is not a table, or
-            - an error occurs while attempting to create the table.
+            - an error occurs while attempting to create the table, or
+            - an error occurs while attempting to import data from the source.
 
     Examples:
         Create a table with an int and a string column:
@@ -81,45 +118,60 @@ def create_table(
         Create a table with an int and a float column, and replace any existing table:
 
         >>> tbl = pxt.create_table('my_table', schema={'col1': pxt.Int, 'col2': pxt.Float}, if_exists='replace')
+
+        Create a table from a CSV file:
+
+        >>> tbl = pxt.create_table('my_table', source='data.csv')
     """
-    path_obj = catalog.Path(path)
+    from pixeltable.io.table_data_conduit import DFTableDataConduit, UnkTableDataConduit
+    from pixeltable.io.utils import normalize_primary_key_parameter
+
+    if (schema is None) == (source is None):
+        raise excs.Error('Must provide either a `schema` or a `source`')
+
+    if schema is not None and (len(schema) == 0 or not isinstance(schema, dict)):
+        raise excs.Error('`schema` must be a non-empty dictionary')
+
+    path_obj = catalog.Path(path_str)
     if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
-
-    df: Optional[DataFrame] = None
-    if isinstance(schema_or_df, dict):
-        schema = schema_or_df
-    elif isinstance(schema_or_df, DataFrame):
-        df = schema_or_df
-        schema = df.schema
-    elif isinstance(schema_or_df, DataFrameResultSet):
-        raise excs.Error(
-            '`schema_or_df` must be either a schema dictionary or a Pixeltable DataFrame. '
-            '(Is there an extraneous call to `collect()`?)'
-        )
-    else:
-        raise excs.Error('`schema_or_df` must be either a schema dictionary or a Pixeltable DataFrame.')
-
-    if len(schema) == 0:
-        raise excs.Error(f'Table schema is empty: {path!r}')
-
-    if primary_key is None:
-        primary_key = []
-    elif isinstance(primary_key, str):
-        primary_key = [primary_key]
-    elif not isinstance(primary_key, list) or not all(isinstance(pk, str) for pk in primary_key):
-        raise excs.Error('primary_key must be a single column name or a list of column names')
-
     media_validation_ = catalog.MediaValidation.validated(media_validation, 'media_validation')
-    return Catalog.get().create_table(
+    primary_key: Optional[list[str]] = normalize_primary_key_parameter(primary_key)
+    table: catalog.Table = None
+    tds = None
+    data_source = None
+    if source is not None:
+        tds = UnkTableDataConduit(source, source_format=source_format, extra_fields=extra_args)
+        tds.check_source_format()
+        data_source = tds.specialize()
+        data_source.src_schema_overrides = schema_overrides
+        data_source.src_pk = primary_key
+        data_source.infer_schema()
+        schema = data_source.pxt_schema
+        primary_key = data_source.pxt_pk
+        is_direct_df = data_source.is_direct_df()
+    else:
+        is_direct_df = False
+
+    if len(schema) == 0 or not isinstance(schema, dict):
+        raise excs.Error(
+            'Unable to create a proper schema from supplied `source`. Please use appropriate `schema_overrides`.'
+        )
+
+    table = Catalog.get().create_table(
         path_obj,
         schema,
-        df,
+        data_source.pxt_df if isinstance(data_source, DFTableDataConduit) else None,
         if_exists=if_exists_,
         primary_key=primary_key,
         comment=comment,
         media_validation=media_validation_,
         num_retained_versions=num_retained_versions,
     )
+    if data_source is not None and not is_direct_df:
+        fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
+        table.insert_table_data_source(data_source=data_source, fail_on_exception=fail_on_exception)
+
+    return table
 
 
 def create_view(

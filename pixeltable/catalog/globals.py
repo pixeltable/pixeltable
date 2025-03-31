@@ -40,6 +40,22 @@ class UpdateStatus:
         self.cols_with_excs = list(dict.fromkeys(self.cols_with_excs + other.cols_with_excs))
         return self
 
+    @property
+    def insert_msg(self) -> str:
+        """Return a message describing the results of an insert operation."""
+        if self.num_excs == 0:
+            cols_with_excs_str = ''
+        else:
+            cols_with_excs_str = (
+                f' across {len(self.cols_with_excs)} column{"" if len(self.cols_with_excs) == 1 else "s"}'
+            )
+            cols_with_excs_str += f' ({", ".join(self.cols_with_excs)})'
+        msg = (
+            f'Inserted {self.num_rows} row{"" if self.num_rows == 1 else "s"} '
+            f'with {self.num_excs} error{"" if self.num_excs == 1 else "s"}{cols_with_excs_str}.'
+        )
+        return msg
+
 
 class MediaValidation(enum.Enum):
     ON_READ = 0

@@ -3,7 +3,6 @@ from typing import Any, Optional, Union
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
-from pixeltable import Table
 from pixeltable.catalog.globals import is_system_column_name
 
 
@@ -22,16 +21,14 @@ def normalize_pxt_col_name(name: str) -> str:
     return id
 
 
-def normalize_import_parameters(
-    schema_overrides: Optional[dict[str, Any]] = None, primary_key: Optional[Union[str, list[str]]] = None
-) -> tuple[dict[str, Any], list[str]]:
-    if schema_overrides is None:
-        schema_overrides = {}
+def normalize_primary_key_parameter(primary_key: Optional[Union[str, list[str]]] = None) -> list[str]:
     if primary_key is None:
         primary_key = []
     elif isinstance(primary_key, str):
         primary_key = [primary_key]
-    return schema_overrides, primary_key
+    elif not isinstance(primary_key, list) or not all(isinstance(pk, str) for pk in primary_key):
+        raise excs.Error('primary_key must be a single column name or a list of column names')
+    return primary_key
 
 
 def _is_usable_as_column_name(name: str, destination_schema: dict[str, Any]) -> bool:
@@ -65,7 +62,8 @@ def normalize_schema_names(
     extraneous_overrides = schema_overrides.keys() - in_schema.keys()
     if len(extraneous_overrides) > 0:
         raise excs.Error(
-            f'Some column(s) specified in `schema_overrides` are not present in the source: {", ".join(extraneous_overrides)}'
+            f'Some column(s) specified in `schema_overrides` are not present '
+            f'in the source: {", ".join(extraneous_overrides)}'
         )
 
     schema: dict[str, Any] = {}
@@ -100,16 +98,3 @@ def normalize_schema_names(
     pxt_pk = [col_mapping[pk] for pk in primary_key] if col_mapping is not None else primary_key
 
     return schema, pxt_pk, col_mapping
-
-
-def find_or_create_table(
-    tbl_path: str,
-    schema: dict[str, Any],
-    *,
-    primary_key: Optional[Union[str, list[str]]],
-    num_retained_versions: int,
-    comment: str,
-) -> Table:
-    return pxt.create_table(
-        tbl_path, schema, primary_key=primary_key, num_retained_versions=num_retained_versions, comment=comment
-    )
