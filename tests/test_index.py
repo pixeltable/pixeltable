@@ -369,15 +369,33 @@ class TestIndex:
         img_t.insert(new_rows)
         print(img_t.head())
 
+        with pytest.raises(pxt.Error, match='computed column may not reference the errortype or errormsg'):
+            img_t.add_computed_column(emsg=img_t.img.errormsg)
+
+        with pytest.raises(pxt.Error, match='computed column may not reference the errortype or errormsg'):
+            img_t.add_computed_column(etype=img_t.img.errortype)
+
         # Update the first row with a new image
         repl_row = rows[6]
+        img_t.update(repl_row, where=img_t.pkey == 0, cascade=True)
+        print(img_t.select(img_t.pkey, img_t.img).collect())
+
+        # Update the row, removing the image
+        repl_row['img'] = None
+        img_t.update(repl_row, where=img_t.pkey == 0, cascade=True)
+        print(img_t.select(img_t.pkey, img_t.img).collect())
+
+        # Update the row with a new image
+        repl_row = rows[7]
         repl_row['pkey'] = 0
-
-        with pytest.raises(pxt.Error, match='is a media column and cannot be updated'):
-            img_t.update(repl_row, where=img_t.pkey == 0, cascade=True)
-
         with pytest.raises(pxt.Error, match='is a media column and cannot be updated'):
             img_t.batch_update([repl_row], cascade=True)
+        print(img_t.select(img_t.pkey, img_t.img).collect())
+
+        # Update the row again, looking for an error
+        with pytest.raises(pxt.Error, match='is a media column and cannot be updated'):
+            img_t.batch_update([repl_row], cascade=True)
+        print(img_t.select(img_t.pkey, img_t.img).collect())
 
     def test_embedding_basic(
         self,

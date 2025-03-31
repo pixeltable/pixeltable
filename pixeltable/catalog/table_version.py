@@ -854,7 +854,7 @@ class TableVersion:
 
         from pixeltable.plan import Planner
 
-        update_spec = self._validate_update_spec(value_spec, allow_pk=False, allow_exprs=True)
+        update_spec = self._validate_update_spec(value_spec, allow_pk=False, allow_exprs=True, allow_media=True)
         if where is not None:
             if not isinstance(where, exprs.Expr):
                 raise excs.Error(f"'where' argument must be a predicate, got {type(where)}")
@@ -915,7 +915,7 @@ class TableVersion:
         return result
 
     def _validate_update_spec(
-        self, value_spec: dict[str, Any], allow_pk: bool, allow_exprs: bool
+        self, value_spec: dict[str, Any], allow_pk: bool, allow_exprs: bool, allow_media: bool
     ) -> dict[Column, exprs.Expr]:
         update_targets: dict[Column, exprs.Expr] = {}
         for col_name, val in value_spec.items():
@@ -935,7 +935,7 @@ class TableVersion:
                 raise excs.Error(f'Column {col_name} is computed and cannot be updated')
             if col.is_pk and not allow_pk:
                 raise excs.Error(f'Column {col_name} is a primary key column and cannot be updated')
-            if col.col_type.is_media_type():
+            if col.col_type.is_media_type() and not allow_media:
                 raise excs.Error(f'Column {col_name} is a media column and cannot be updated')
 
             # make sure that the value is compatible with the column type

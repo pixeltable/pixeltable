@@ -625,6 +625,12 @@ class Table(SchemaObject):
         if stored is not None:
             col_schema['stored'] = stored
 
+        # Raise an error if the column expression refers to a column error property
+        if isinstance(spec, exprs.Expr):
+            for e in spec.subexprs(expr_class=exprs.ColumnPropertyRef, traverse_matches=False):
+                if e.is_error_prop():
+                    raise excs.Error('A computed column may not reference the errortype or errormsg of another column')
+
         with Env.get().begin_xact():
             # handle existing columns based on if_exists parameter
             cols_to_ignore = self._ignore_or_drop_existing_columns(
@@ -1344,7 +1350,7 @@ class Table(SchemaObject):
 
         for row_spec in rows:
             col_vals = self._tbl_version.get()._validate_update_spec(
-                row_spec, allow_pk=not has_rowid, allow_exprs=False
+                row_spec, allow_pk=not has_rowid, allow_exprs=False, allow_media=False
             )
             if has_rowid:
                 # we expect the _rowid column to be present for each row
