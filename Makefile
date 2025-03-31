@@ -71,8 +71,6 @@ else
 	$(error Pixeltable must be installed from a conda environment)
 endif
 
-YOLOX_OK := $(shell python -c "import sys; sys.stdout.write(str(sys.version_info[1] <= 10))")
-
 .make-install/poetry:
 	@echo "Installing poetry ..."
 	@python -m pip install -qU pip
@@ -87,14 +85,6 @@ YOLOX_OK := $(shell python -c "import sys; sys.stdout.write(str(sys.version_info
 	@$(TOUCH) .make-install/deps
 
 .make-install/others:
-ifeq ($(YOLOX_OK), True)
-	# YOLOX only works on python <= 3.10 and cannot be installed via poetry
-	@echo "Installing YOLOX ..."
-	# We have to include protobuf in the `pip install` or else YOLOX will downgrade it
-	@python -m pip install -q git+https://github.com/Megvii-BaseDetection/YOLOX@ac58e0a protobuf==5.28.3
-else
-	@echo "Python version is >= 3.11; skipping YOLOX installation."
-endif
 	@echo "Installing Jupyter kernel ..."
 	@python -m ipykernel install --user --name=$(KERNEL_NAME)
 	@$(TOUCH) .make-install/others

@@ -9,7 +9,7 @@ from pixeltable.functions.util import normalize_image_mode
 from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
-    from yolox.models import Yolox, YoloxProcessor
+    from yolox.models import Yolox, YoloxProcessor  # type: ignore[import-untyped]
 
 _logger = logging.getLogger('pixeltable')
 
@@ -104,7 +104,7 @@ def _lookup_processor(model_id: str) -> 'YoloxProcessor':
 
 
 _model_cache: dict[tuple[str, str], 'Yolox'] = {}
-_processor_cache: dict[tuple[str, str], 'YoloxProcessor'] = {}
+_processor_cache: dict[str, 'YoloxProcessor'] = {}
 
 
 __all__ = local_public_names(__name__)
