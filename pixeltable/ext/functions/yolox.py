@@ -24,7 +24,7 @@ def yolox(images: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0
 
     __Requirements__:
 
-    - `pip install git+https://github.com/Megvii-BaseDetection/YOLOX`
+    - `pip install pixeltable-yolox`
 
     Args:
         model_id: one of: `yolox_nano`, `yolox_tiny`, `yolox_s`, `yolox_m`, `yolox_l`, `yolox_x`
