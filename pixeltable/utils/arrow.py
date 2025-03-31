@@ -11,14 +11,19 @@ PA_TO_PXT_TYPES: dict[pa.DataType, ts.ColumnType] = {
     pa.large_string(): ts.StringType(nullable=True),
     pa.timestamp('us', tz=datetime.timezone.utc): ts.TimestampType(nullable=True),
     pa.bool_(): ts.BoolType(nullable=True),
-    pa.uint8(): ts.IntType(nullable=True),
     pa.int8(): ts.IntType(nullable=True),
-    pa.uint32(): ts.IntType(nullable=True),
-    pa.uint64(): ts.IntType(nullable=True),
+    pa.int16(): ts.IntType(nullable=True),
     pa.int32(): ts.IntType(nullable=True),
     pa.int64(): ts.IntType(nullable=True),
+    pa.uint8(): ts.IntType(nullable=True),
+    pa.uint16(): ts.IntType(nullable=True),
+    pa.uint32(): ts.IntType(nullable=True),
+    pa.uint64(): ts.IntType(nullable=True),
     pa.float32(): ts.FloatType(nullable=True),
     pa.float64(): ts.FloatType(nullable=True),
+    pa.date32(): ts.StringType(nullable=True),  # date32 is not supported in pixeltable, use string
+    pa.date64(): ts.StringType(nullable=True),  # date64 is not supported in pixeltable, use string
+    pa.binary(): None,  # cannot import binary (inline image)
 }
 
 PXT_TO_PA_TYPES: dict[type[ts.ColumnType], pa.DataType] = {
@@ -43,7 +48,7 @@ def to_pixeltable_type(arrow_type: pa.DataType, nullable: bool) -> Optional[ts.C
         return ts.TimestampType(nullable=nullable)
     elif arrow_type in PA_TO_PXT_TYPES:
         pt = PA_TO_PXT_TYPES[arrow_type]
-        return pt.copy(nullable=nullable)
+        return pt.copy(nullable=nullable) if pt is not None else None
     elif isinstance(arrow_type, pa.FixedShapeTensorType):
         dtype = to_pixeltable_type(arrow_type.value_type, nullable)
         if dtype is None:
@@ -111,6 +116,28 @@ def iter_tuples(batch: Union[pa.Table, pa.RecordBatch]) -> Iterator[dict[str, An
         yield {col_name: values[i] for col_name, values in pydict.items()}
 
 
+def _ar_val_to_pxt_val(val: Any, pxt_type: ts.ColumnType) -> Any:
+    """Convert a value to insertable format"""
+    if val is None:
+        return None
+    if pxt_type.is_float_type():
+        return float(val)
+    elif pxt_type.is_int_type():
+        return int(val)
+    elif pxt_type.is_bool_type():
+        return bool(val)
+    elif pxt_type.is_string_type():
+        return str(val)
+    elif pxt_type.is_timestamp_type():
+        if isinstance(val, str):
+            return datetime.datetime.fromisoformat(val)
+        if isinstance(val, datetime.datetime):
+            return val
+    elif pxt_type.is_array_type():
+        return pxt_type.create_literal(val)
+    raise ValueError(f'Unsupported type {pxt_type} for value {val}')
+
+
 def iter_tuples2(
     batch: Union[pa.Table, pa.RecordBatch], col_mapping: Optional[dict[str, str]], schema: dict[str, ts.ColumnType]
 ) -> Iterator[dict[str, Any]]:
@@ -124,8 +151,6 @@ def iter_tuples2(
     for i in range(batch_size):
         # Convert a row to insertable format
         yield {
-            (pxt_name := col_name if col_mapping is None else col_mapping[col_name]): schema[pxt_name].create_literal(
-                values[i]
-            )
+            (pxt_name := col_mapping.get(col_name, col_name)): _ar_val_to_pxt_val(values[i], schema[pxt_name])
             for col_name, values in pydict.items()
         }
