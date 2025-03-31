@@ -13,7 +13,7 @@ Pixeltable lets you build audio search workflows in two phases:
 <Steps>
   <Step title="Install Dependencies">
     ```bash
-    pip install boto3 pixeltable tiktoken openai openai-whisper spacy sentence-transformers
+    pip install pixeltable tiktoken openai openai-whisper spacy sentence-transformers
     python -m spacy download en_core_web_sm
     ```
   </Step>
@@ -92,7 +92,7 @@ Pixeltable lets you build audio search workflows in two phases:
 
     # Add audio files to the knowledge base
     audio_t.insert([{
-        "audio_file": "s3://pixeltable-public/audio/10-minute tour of Pixeltable.mp3"
+        "audio_file": "https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/10-minute%20tour%20of%20Pixeltable.mp3"
     }])
 
     # Perform search
