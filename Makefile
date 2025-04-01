@@ -140,21 +140,22 @@ docstest: install
 .PHONY: lint
 lint: install
 	@echo "Running ruff check ..."
-	@ruff check pixeltable/*.py pixeltable/exprs pixeltable/ext pixeltable/func pixeltable/functions pixeltable/index pixeltable/iterators pixeltable/metadata pixeltable/share pixeltable/utils
+	@ruff check pixeltable/*.py pixeltable/exprs pixeltable/ext pixeltable/func pixeltable/functions pixeltable/index pixeltable/iterators pixeltable/metadata pixeltable/share pixeltable/utils pixeltable/io/globals.py pixeltable/io/hf_datasets.py pixeltable/io/datarows.py pixeltable/io/pandas.py pixeltable/io/parquet.py pixeltable/io/utils.py pixeltable/io/external_store.py pixeltable/io/table_data_conduit.py
+
 
 .PHONY: formattest
 formattest: install
 	@echo "Running ruff format --check ..."
-	@ruff format --check
+	@ruff format --check pixeltable tests tool
 	@echo "Running ruff check --select I ..."
-	@ruff check --select I
+	@ruff check --select I pixeltable tests tool
 
 .PHONY: format
 format: install
 	@echo "Running ruff format ..."
-	@ruff format
+	@ruff format pixeltable tests tool
 	@echo "Running ruff check --select I --fix ..."
-	@ruff check --select I --fix
+	@ruff check --select I --fix pixeltable tests tool
 
 .PHONY: release
 release: install

@@ -413,7 +413,7 @@ class Catalog:
     def get_table(self, path: Path) -> Table:
         obj = Catalog.get()._get_schema_object(path, expected=Table, raise_if_not_exists=True)
         assert isinstance(obj, Table)
-        obj.ensure_md_loaded()
+        obj._tbl_version.get().ensure_md_loaded()
         return obj
 
     @_retry_loop
@@ -494,7 +494,7 @@ class Catalog:
             return existing
         assert parent is not None
         dir = Dir._create(parent._id, path.name)
-        Env.get().console_logger.info(f'Created directory {path!r}.')
+        Env.get().console_logger.info(f'Created directory {str(path)!r}.')
         return dir
 
     @_retry_loop
@@ -506,7 +506,7 @@ class Catalog:
             raise_if_not_exists=if_not_exists == IfNotExistsParam.ERROR and not force,
         )
         if schema_obj is None:
-            _logger.info(f'Directory {path!r} does not exist, skipped drop_dir().')
+            _logger.info(f'Directory {str(path)!r} does not exist; skipped drop_dir().')
             return
         self._drop_dir(schema_obj._id, path, force=force)
 
@@ -537,7 +537,7 @@ class Catalog:
         # self.drop_dir(dir_id)
         # _debug_print(for_update=True, msg=f'drop dir id={dir_id}')
         conn.execute(sql.delete(schema.Dir).where(schema.Dir.id == dir_id))
-        _logger.info(f'Removed directory {dir_path!r}.')
+        _logger.info(f'Removed directory {str(dir_path)!r}.')
 
     def get_view_ids(self, tbl_id: UUID, for_update: bool = False) -> list[UUID]:
         """Return the ids of views that directly reference the given table"""

@@ -87,3 +87,15 @@ class ArithmeticOperator(enum.Enum):
         if self == self.FLOORDIV:
             return '//'
         raise AssertionError()
+
+
+class StringOperator(enum.Enum):
+    CONCAT = 0
+    REPEAT = 1
+
+    def __str__(self) -> str:
+        if self == self.CONCAT:
+            return '+'
+        if self == self.REPEAT:
+            return '*'
+        raise AssertionError()

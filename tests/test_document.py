@@ -56,7 +56,7 @@ class TestDocument:
         assert set(stored_paths) == set(file_paths)
 
         file_paths = self.invalid_doc_paths()
-        status = doc_t.insert(({'doc': p} for p in file_paths), on_error='ignore')
+        status = doc_t.insert([{'doc': p} for p in file_paths], on_error='ignore')
         assert status.num_rows == len(file_paths)
         assert status.num_excs >= len(file_paths)
 

@@ -52,9 +52,6 @@
     "prompt": "Search Pixeltable docs...",
     "placeholder": "Try 'getting started' or 'computed columns'"
   },
-  "versions": [
-    "v0.3.4"
-  ],
   "tabs": [
     {
       "name": "Examples",
@@ -71,6 +68,10 @@
     {
       "name": "Changelog",
       "url": "/docs/changelog"
+    },
+    {
+      "name": "Support",
+      "url": "/docs/support"
     }
   ],
   "navigation": [
@@ -93,51 +94,23 @@
         "docs/datastore/filtering-and-selecting",
         "docs/datastore/computed-columns",
         "docs/datastore/embedding-index",
-        "docs/datastore/custom-functions"
+        "docs/datastore/custom-functions"       
       ]
-    },
+    },    
     {
       "group": "Tutorials",
       "pages": [
         "docs/tutorials/fundamentals",
-        "docs/tutorials/feature-guide",
-        "docs/cookbooks/mcp/overview",
-        "docs/cookbooks/agents/pixelagent",
-        {
-          "group": "Cookbooks",
-          "pages": [
-            "docs/cookbooks/overview",
-            {
-              "group": "Chatbot",
-              "pages": [
-                "docs/cookbooks/chat/multimodal",
-                "docs/cookbooks/chat/memory",
-                "docs/cookbooks/chat/tools",
-                "docs/cookbooks/evaluations/llm-as-a-judge"
-              ]
-            },
-            {
-              "group": "Computer Vision",
-              "pages": [
-                "docs/cookbooks/vision/label-studio",
-                "docs/cookbooks/vision/voxel51",
-                "docs/cookbooks/vision/yolox"
-              ]
-            },
-            {
-              "group": "Multimodal Vector Database",
-              "pages": [
-                "docs/cookbooks/search/audio",
-                "docs/cookbooks/search/images",
-                "docs/cookbooks/search/PDF",
-                "docs/cookbooks/search/website",
-                "docs/cookbooks/search/video"
-              ]
-            }      
-          ]
-        }
+        "docs/tutorials/feature-guide"
       ]
-    },       
+    },
+    {
+      "group": "Extensions",
+      "pages": [
+        "docs/extensions/pixelagent",
+        "docs/extensions/mcp"
+      ]
+    },    
     {
       "group": "Support",
       "pages": [
@@ -156,7 +129,34 @@
       "pages": [
         "docs/examples/use-cases",
         "docs/examples/interactive-demos",
-        "docs/examples/sample-apps"
+        "docs/examples/sample-apps",
+        {
+          "group": "Chatbot",
+          "pages": [
+            "docs/examples/chat/multimodal",
+            "docs/examples/chat/memory",
+            "docs/examples/chat/tools",
+            "docs/examples/chat/evals"
+          ]
+        },
+        {
+          "group": "Computer Vision",
+          "pages": [
+            "docs/examples/vision/label-studio",
+            "docs/examples/vision/voxel51",
+            "docs/examples/vision/yolox"
+          ]
+        },
+        {
+          "group": "Semantic Search",
+          "pages": [
+            "docs/examples/search/audio",
+            "docs/examples/search/images",
+            "docs/examples/search/PDF",
+            "docs/examples/search/website",
+            "docs/examples/search/video"
+          ]
+        }                             
       ]
     },
     {

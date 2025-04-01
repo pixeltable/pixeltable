@@ -202,6 +202,11 @@ class Column:
         assert self.tbl is not None
         return self.tbl.get().media_validation
 
+    @property
+    def is_required_for_insert(self) -> bool:
+        """Returns True if column is required when inserting rows."""
+        return not self.col_type.nullable and not self.is_computed
+
     def source(self) -> None:
         """
         If this is a computed col and the top-level expr is a function call, print the source, if possible.
