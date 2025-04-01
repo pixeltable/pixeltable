@@ -729,7 +729,12 @@ class Catalog:
         if view_md is None:
             # this is a base table
             tbl_version = TableVersion(
-                tbl_record.id, tbl_md, effective_version, schema_version_md, mutable_views=mutable_views
+                tbl_record.id,
+                tbl_record.dir_id,
+                tbl_md,
+                effective_version,
+                schema_version_md,
+                mutable_views=mutable_views,
             )
             return tbl_version
 
@@ -747,6 +752,7 @@ class Catalog:
 
         tbl_version = TableVersion(
             tbl_record.id,
+            tbl_record.dir_id,
             tbl_md,
             effective_version,
             schema_version_md,

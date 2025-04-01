@@ -9,6 +9,7 @@ from typing import Any, Optional
 
 import pixeltable_pgserver
 import pytest
+import sqlalchemy as sql
 import sqlalchemy.orm as orm
 
 import pixeltable as pxt
@@ -18,6 +19,7 @@ from pixeltable.func import CallableFunction
 from pixeltable.metadata import VERSION, SystemInfo
 from pixeltable.metadata.converters.util import convert_table_md
 from pixeltable.metadata.notes import VERSION_NOTES
+from pixeltable.metadata.schema import Table, TableSchemaVersion, TableVersion
 
 from .conftest import clean_db
 from .utils import reload_catalog, skip_test_if_not_installed, validate_update_status
@@ -96,6 +98,8 @@ class TestMigration:
                 self._run_v17_tests()
             if old_version >= 19:
                 self._run_v19_tests()
+            if old_version >= 30:
+                self._run_v30_tests()
 
             self._verify_v24(old_version)
 
@@ -252,3 +256,25 @@ class TestMigration:
         if k == 'path' and v == 'pixeltable.tool.embed_udf.clip_text_embed':
             return 'path', 'tool.embed_udf.clip_text_embed'
         return None
+
+    @classmethod
+    def _run_v30_tests(cls) -> None:
+        with Env.get().engine.begin() as conn:
+            for row in conn.execute(sql.select(Table)):
+                tbl_id = str(row[0])
+                dir_id = str(row[1])
+                table_md = row[2]
+                assert table_md['tbl_id'] == tbl_id
+                assert table_md['dir_id'] == dir_id
+            for row in conn.execute(sql.select(TableVersion)):
+                tbl_id = str(row[0])
+                version = row[1]
+                table_version_md = row[2]
+                assert table_version_md['tbl_id'] == tbl_id
+                assert table_version_md['version'] == version
+            for row in conn.execute(sql.select(TableSchemaVersion)):
+                tbl_id = str(row[0])
+                schema_version = row[1]
+                table_schema_version_md = row[2]
+                assert table_schema_version_md['tbl_id'] == tbl_id
+                assert table_schema_version_md['schema_version'] == schema_version

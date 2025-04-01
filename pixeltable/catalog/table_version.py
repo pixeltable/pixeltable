@@ -53,6 +53,7 @@ class TableVersion:
     """
 
     id: UUID
+    dir_id: UUID
     name: str
     effective_version: Optional[int]
     version: int
@@ -98,6 +99,7 @@ class TableVersion:
     def __init__(
         self,
         id: UUID,
+        dir_id: UUID,
         tbl_md: schema.TableMd,
         effective_version: Optional[int],
         schema_version_md: schema.TableSchemaVersionMd,
@@ -107,6 +109,7 @@ class TableVersion:
         # base_store_tbl: Optional['store.StoreBase'] = None,
     ):
         self.id = id
+        self.dir_id = dir_id
         self.name = tbl_md.name
         self.effective_version = effective_version
         self.version = tbl_md.current_version if effective_version is None else effective_version
@@ -190,6 +193,7 @@ class TableVersion:
         base = self.path.base.tbl_version if self.is_view else None
         return TableVersion(
             self.id,
+            self.dir_id,
             self._create_tbl_md(),
             self.version,
             self._create_schema_version_md(preceding_schema_version=0),  # preceding_schema_version: dummy value
@@ -229,7 +233,10 @@ class TableVersion:
         # create schema.Table
         # Column.dependent_cols for existing cols is wrong at this point, but init() will set it correctly
         column_md = cls._create_column_md(cols)
+        tbl_id = uuid.uuid4()
         table_md = schema.TableMd(
+            tbl_id=str(tbl_id),
+            dir_id=str(dir_id),
             name=name,
             user=None,
             current_version=0,
@@ -245,11 +252,12 @@ class TableVersion:
         )
         # create a schema.Table here, we need it to call our c'tor;
         # don't add it to the session yet, we might add index metadata
-        tbl_id = uuid.uuid4()
         tbl_record = schema.Table(id=tbl_id, dir_id=dir_id, md=dataclasses.asdict(table_md))
 
         # create schema.TableVersion
-        table_version_md = schema.TableVersionMd(created_at=timestamp, version=0, schema_version=0, additional_md={})
+        table_version_md = schema.TableVersionMd(
+            tbl_id=str(tbl_record.id), created_at=timestamp, version=0, schema_version=0, additional_md={}
+        )
         tbl_version_record = schema.TableVersion(
             tbl_id=tbl_record.id, version=0, md=dataclasses.asdict(table_version_md)
         )
@@ -265,6 +273,7 @@ class TableVersion:
             schema_col_md[col.id] = md
 
         schema_version_md = schema.TableSchemaVersionMd(
+            tbl_id=str(tbl_record.id),
             schema_version=0,
             preceding_schema_version=None,
             columns=schema_col_md,
@@ -291,7 +300,14 @@ class TableVersion:
         base_path = pxt.catalog.TableVersionPath.from_md(view_md.base_versions) if view_md is not None else None
         base = base_path.tbl_version if base_path is not None else None
         tbl_version = cls(
-            tbl_record.id, table_md, effective_version, schema_version_md, [], base_path=base_path, base=base
+            tbl_record.id,
+            tbl_record.dir_id,
+            table_md,
+            effective_version,
+            schema_version_md,
+            [],
+            base_path=base_path,
+            base=base,
         )
 
         tbl_version.store_tbl.create()
@@ -1305,6 +1321,8 @@ class TableVersion:
 
     def _create_tbl_md(self) -> schema.TableMd:
         return schema.TableMd(
+            tbl_id=str(self.id),
+            dir_id=str(self.dir_id),
             name=self.name,
             user=None,
             current_version=self.version,
@@ -1321,7 +1339,11 @@ class TableVersion:
 
     def _create_version_md(self, timestamp: float) -> schema.TableVersionMd:
         return schema.TableVersionMd(
-            created_at=timestamp, version=self.version, schema_version=self.schema_version, additional_md={}
+            tbl_id=str(self.id),
+            created_at=timestamp,
+            version=self.version,
+            schema_version=self.schema_version,
+            additional_md={},
         )
 
     def _create_schema_version_md(self, preceding_schema_version: int) -> schema.TableSchemaVersionMd:
@@ -1334,6 +1356,7 @@ class TableVersion:
             )
         # preceding_schema_version to be set by the caller
         return schema.TableSchemaVersionMd(
+            tbl_id=str(self.id),
             schema_version=self.schema_version,
             preceding_schema_version=preceding_schema_version,
             columns=column_md,
