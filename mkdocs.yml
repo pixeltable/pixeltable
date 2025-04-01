@@ -19,7 +19,7 @@ extra_css:
 nav:
   - Home: index.md
   - 'API Cheat Sheet': api-cheat-sheet.md
-  - 'Configuration Options': config.md
+  - 'Configuration Options': https://docs.pixeltable.com/docs/overview/configuration
   - 'API Reference':
     - pixeltable: pixeltable/pixeltable.md
     - pixeltable.io: pixeltable/io.md
