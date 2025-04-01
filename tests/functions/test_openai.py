@@ -9,7 +9,7 @@ from ..utils import SAMPLE_IMAGE_URL, skip_test_if_not_installed, stock_price, v
 
 
 @pytest.mark.remote_api
-#@pytest.mark.flaky(reruns=3, reruns_delay=8)
+# @pytest.mark.flaky(reruns=3, reruns_delay=8)
 class TestOpenai:
     @pytest.mark.expensive
     def test_audio(self, reset_db) -> None:
@@ -278,10 +278,7 @@ class TestOpenai:
 
         t = pxt.create_table('customer_tbl', {'customer_id': pxt.String, 'name': pxt.String})
         t.insert(
-            [
-                {'customer_id': 'Q371A', 'name': 'Aaron Siegel'},
-                {'customer_id': 'B117F', 'name': 'Marcel Kornacker'},
-            ]
+            [{'customer_id': 'Q371A', 'name': 'Aaron Siegel'}, {'customer_id': 'B117F', 'name': 'Marcel Kornacker'}]
         )
 
         @pxt.query
@@ -298,9 +295,7 @@ class TestOpenai:
 
         messages = [{'role': 'user', 'content': u.prompt}]
         tools = pxt.tools(get_customer_name)
-        u.add_computed_column(
-            response=chat_completions(model='gpt-4o-mini', messages=messages, tools=tools)
-        )
+        u.add_computed_column(response=chat_completions(model='gpt-4o-mini', messages=messages, tools=tools))
         u.add_computed_column(output=u.response.choices[0].message.content)
         u.add_computed_column(tool_calls=invoke_tools(tools, u.response))
         u.insert(prompt='What is the name of the customer with customer ID Q371A?')
