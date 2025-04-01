@@ -291,13 +291,7 @@ class TableVersion:
         base_path = pxt.catalog.TableVersionPath.from_md(view_md.base_versions) if view_md is not None else None
         base = base_path.tbl_version if base_path is not None else None
         tbl_version = cls(
-            tbl_record.id,
-            table_md,
-            effective_version,
-            schema_version_md,
-            [],
-            base_path=base_path,
-            base=base,
+            tbl_record.id, table_md, effective_version, schema_version_md, [], base_path=base_path, base=base
         )
 
         tbl_version.store_tbl.create()
