@@ -416,7 +416,8 @@ class Env:
         # Create the SQLAlchemy engine. This will also set the default time zone.
         self._create_engine(time_zone_name=tz_name, echo=echo)
 
-        # Create tables and system metadata record after a new database is created or when external database is used
+        # Create tables and system metadata records after a new database is created,
+        # or when an external database is passed.
         if create_db or db_connect_str is not None:
             from pixeltable import metadata
 
