@@ -11,8 +11,8 @@
     iterators for data transformation
 - [pixeltable.functions](https://pixeltable.github.io/pixeltable/pixeltable/functions/audio/): Pre-built functions for
     common operations
-- [Configuration Options](https://pixeltable.github.io/pixeltable/config/): Most options can be specified either as an
-    environment variable or in `config.toml`
+- [Configuration Options](https://docs.pixeltable.com/docs/overview/configuration): Most options can be specified either
+    as an environment variable or in `config.toml`
 
 ## Resources
 
