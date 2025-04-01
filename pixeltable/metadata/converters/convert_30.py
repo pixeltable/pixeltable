@@ -22,12 +22,11 @@ def _(engine: sql.engine.Engine) -> None:
 
 def __update_table_record(record: Table) -> None:
     """
-    Update TableMd with table_id and dir_id.
+    Update TableMd with table_id
     """
     assert isinstance(record.md, dict)
     md = copy.copy(record.md)
     md['tbl_id'] = str(record.id)
-    md['dir_id'] = str(record.dir_id)
     record.md = md
 
 

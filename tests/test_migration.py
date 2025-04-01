@@ -262,10 +262,8 @@ class TestMigration:
         with Env.get().engine.begin() as conn:
             for row in conn.execute(sql.select(Table)):
                 tbl_id = str(row[0])
-                dir_id = str(row[1])
                 table_md = row[2]
                 assert table_md['tbl_id'] == tbl_id
-                assert table_md['dir_id'] == dir_id
             for row in conn.execute(sql.select(TableVersion)):
                 tbl_id = str(row[0])
                 version = row[1]
