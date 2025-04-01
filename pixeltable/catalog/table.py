@@ -80,19 +80,10 @@ class Table(SchemaObject):
                 f'UPDATE {schema.Table.__table__} '
                 f'SET {schema.Table.dir_id.name} = :new_dir_id, '
                 f"    {schema.Table.md.name}['name'] = :new_name, "
-                f"    {schema.Table.md.name}['dir_id'] = :json_dir_id "
                 f'WHERE {schema.Table.id.name} = :id'
             )
         )
-        conn.execute(
-            stmt,
-            {
-                'new_dir_id': new_dir_id,
-                'new_name': json.dumps(new_name),
-                'id': self._id,
-                'json_dir_id': json.dumps(str(new_dir_id)),
-            },
-        )
+        conn.execute(stmt, {'new_dir_id': new_dir_id, 'new_name': json.dumps(new_name), 'id': self._id})
 
     def get_metadata(self) -> dict[str, Any]:
         """

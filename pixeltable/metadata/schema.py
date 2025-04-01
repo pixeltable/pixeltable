@@ -155,7 +155,6 @@ class ViewMd:
 class TableMd:
     name: str
     tbl_id: str  # uuid.UUID
-    dir_id: str  # uuid.UUID
 
     user: Optional[str]
 

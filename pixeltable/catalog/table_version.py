@@ -53,7 +53,6 @@ class TableVersion:
     """
 
     id: UUID
-    dir_id: UUID
     name: str
     effective_version: Optional[int]
     version: int
@@ -99,7 +98,6 @@ class TableVersion:
     def __init__(
         self,
         id: UUID,
-        dir_id: UUID,
         tbl_md: schema.TableMd,
         effective_version: Optional[int],
         schema_version_md: schema.TableSchemaVersionMd,
@@ -109,7 +107,6 @@ class TableVersion:
         # base_store_tbl: Optional['store.StoreBase'] = None,
     ):
         self.id = id
-        self.dir_id = dir_id
         self.name = tbl_md.name
         self.effective_version = effective_version
         self.version = tbl_md.current_version if effective_version is None else effective_version
@@ -193,7 +190,6 @@ class TableVersion:
         base = self.path.base.tbl_version if self.is_view else None
         return TableVersion(
             self.id,
-            self.dir_id,
             self._create_tbl_md(),
             self.version,
             self._create_schema_version_md(preceding_schema_version=0),  # preceding_schema_version: dummy value
@@ -236,7 +232,6 @@ class TableVersion:
         tbl_id = uuid.uuid4()
         table_md = schema.TableMd(
             tbl_id=str(tbl_id),
-            dir_id=str(dir_id),
             name=name,
             user=None,
             current_version=0,
@@ -301,7 +296,6 @@ class TableVersion:
         base = base_path.tbl_version if base_path is not None else None
         tbl_version = cls(
             tbl_record.id,
-            tbl_record.dir_id,
             table_md,
             effective_version,
             schema_version_md,
@@ -1322,7 +1316,6 @@ class TableVersion:
     def _create_tbl_md(self) -> schema.TableMd:
         return schema.TableMd(
             tbl_id=str(self.id),
-            dir_id=str(self.dir_id),
             name=self.name,
             user=None,
             current_version=self.version,
