@@ -724,12 +724,17 @@ class Table(SchemaObject):
         return columns
 
     @classmethod
+    def validate_column_name(cls, name: str) -> None:
+        """Check that a name is usable as a pixeltalbe column name"""
+        if is_system_column_name(name) or is_python_keyword(name):
+            raise excs.Error(f'{name!r} is a reserved name in Pixeltable; please choose a different column name.')
+        if not is_valid_identifier(name):
+            raise excs.Error(f'Invalid column name: {name!r}')
+
+    @classmethod
     def _verify_column(cls, col: Column) -> None:
         """Check integrity of user-supplied Column and supply defaults"""
-        if is_system_column_name(col.name) or is_python_keyword(col.name):
-            raise excs.Error(f'{col.name!r} is a reserved name in Pixeltable; please choose a different column name.')
-        if not is_valid_identifier(col.name):
-            raise excs.Error(f'Invalid column name: {col.name!r}')
+        cls.validate_column_name(col.name)
         if col.stored is False and not col.is_computed:
             raise excs.Error(f'Column {col.name!r}: stored={col.stored} only applies to computed columns')
         if col.stored is False and col.has_window_fn_call():
@@ -747,16 +752,6 @@ class Table(SchemaObject):
         for col in schema:
             cls._verify_column(col)
             column_names.add(col.name)
-
-    def __check_column_name_exists(self, column_name: str, include_bases: bool = False) -> None:
-        col = self._tbl_version_path.get_column(column_name, include_bases)
-        if col is None:
-            raise excs.Error(f'Column {column_name!r} unknown')
-
-    def __check_column_ref_exists(self, col_ref: ColumnRef, include_bases: bool = False) -> None:
-        exists = self._tbl_version_path.has_column(col_ref.col, include_bases)
-        if not exists:
-            raise excs.Error(f'Unknown column: {col_ref.col.qualified_name}')
 
     def drop_column(self, column: Union[str, ColumnRef], if_not_exists: Literal['error', 'ignore'] = 'error') -> None:
         """Drop a column from the table.
@@ -910,7 +905,7 @@ class Table(SchemaObject):
         Args:
             column: The name of, or reference to, the column to be indexed; must be a `String` or `Image` column.
             idx_name: An optional name for the index. If not specified, a name such as `'idx0'` will be generated
-                automatically. If specified, the name must be unique for this table.
+                automatically. If specified, the name must be unique for this table and a valid pixeltable column name.
             embedding: The UDF to use for the embedding. Must be a UDF that accepts a single argument of type `String`
                 or `Image` (as appropriate for the column being indexed) and returns a fixed-size 1-dimensional
                 array of floats.
@@ -963,13 +958,7 @@ class Table(SchemaObject):
         """
         if self._tbl_version_path.is_snapshot():
             raise excs.Error('Cannot add an index to a snapshot')
-        col: Column
-        if isinstance(column, str):
-            self.__check_column_name_exists(column, include_bases=True)
-            col = self._tbl_version_path.get_column(column, include_bases=True)
-        else:
-            self.__check_column_ref_exists(column, include_bases=True)
-            col = column.col
+        col = self._resolve_column_parameter(column)
 
         with Env.get().begin_xact():
             if idx_name is not None and idx_name in self._tbl_version.get().idxs_by_name:
@@ -988,6 +977,10 @@ class Table(SchemaObject):
                 self.drop_index(idx_name=idx_name)
                 assert idx_name not in self._tbl_version.get().idxs_by_name
             from pixeltable.index import EmbeddingIndex
+
+            # idx_name must be a valid pixeltable column name
+            if idx_name is not None:
+                Table.validate_column_name(idx_name)
 
             # create the EmbeddingIndex instance to verify args
             idx = EmbeddingIndex(
@@ -1052,16 +1045,27 @@ class Table(SchemaObject):
 
         col: Column = None
         if idx_name is None:
-            if isinstance(column, str):
-                self.__check_column_name_exists(column, include_bases=True)
-                col = self._tbl_version_path.get_column(column, include_bases=True)
-            else:
-                self.__check_column_ref_exists(column, include_bases=True)
-                col = column.col
+            col = self._resolve_column_parameter(column)
             assert col is not None
 
         with Env.get().begin_xact():
             self._drop_index(col=col, idx_name=idx_name, _idx_class=index.EmbeddingIndex, if_not_exists=if_not_exists)
+
+    def _resolve_column_parameter(self, column: Union[str, ColumnRef]) -> Column:
+        """Resolve a column parameter to a Column object"""
+        col: Column = None
+        if isinstance(column, str):
+            col = self._tbl_version_path.get_column(column, include_bases=True)
+            if col is None:
+                raise excs.Error(f'Column {column!r} unknown')
+        elif isinstance(column, ColumnRef):
+            exists = self._tbl_version_path.has_column(column.col, include_bases=True)
+            if not exists:
+                raise excs.Error(f'Unknown column: {column.col.qualified_name}')
+            col = column.col
+        else:
+            raise excs.Error(f'Invalid column parameter type: {type(column)}')
+        return col
 
     def drop_index(
         self,
@@ -1118,12 +1122,7 @@ class Table(SchemaObject):
 
         col: Column = None
         if idx_name is None:
-            if isinstance(column, str):
-                self.__check_column_name_exists(column, include_bases=True)
-                col = self._tbl_version_path.get_column(column, include_bases=True)
-            else:
-                self.__check_column_ref_exists(column, include_bases=True)
-                col = column.col
+            col = self._resolve_column_parameter(column)
             assert col is not None
 
         with Env.get().begin_xact():
@@ -1148,25 +1147,33 @@ class Table(SchemaObject):
                     raise excs.Error(f'Index {idx_name!r} does not exist')
                 assert _if_not_exists == IfNotExistsParam.IGNORE
                 return
-            idx_id = self._tbl_version.get().idxs_by_name[idx_name].id
+            idx_info = self._tbl_version.get().idxs_by_name[idx_name]
         else:
             if col.tbl.id != self._tbl_version.id:
                 raise excs.Error(
                     f'Column {col.name!r}: cannot drop index from column that belongs to base ({col.tbl.get().name}!r)'
                 )
-            idx_info = [info for info in self._tbl_version.get().idxs_by_name.values() if info.col.id == col.id]
+            idx_info_list = [info for info in self._tbl_version.get().idxs_by_name.values() if info.col.id == col.id]
             if _idx_class is not None:
-                idx_info = [info for info in idx_info if isinstance(info.idx, _idx_class)]
-            if len(idx_info) == 0:
+                idx_info_list = [info for info in idx_info_list if isinstance(info.idx, _idx_class)]
+            if len(idx_info_list) == 0:
                 _if_not_exists = IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
                 if _if_not_exists == IfNotExistsParam.ERROR:
                     raise excs.Error(f'Column {col.name!r} does not have an index')
                 assert _if_not_exists == IfNotExistsParam.IGNORE
                 return
-            if len(idx_info) > 1:
+            if len(idx_info_list) > 1:
                 raise excs.Error(f"Column {col.name!r} has multiple indices; specify 'idx_name' instead")
-            idx_id = idx_info[0].id
-        self._tbl_version.get().drop_index(idx_id)
+            idx_info = idx_info_list[0]
+
+        # Find out if anything depends on this index
+        dependent_user_cols = [c for c in idx_info.val_col.dependent_cols if c.name is not None]
+        if len(dependent_user_cols) > 0:
+            raise excs.Error(
+                f'Cannot drop index because the following columns depend on it:\n'
+                f'{", ".join(c.name for c in dependent_user_cols)}'
+            )
+        self._tbl_version.get().drop_index(idx_info.id)
 
     @overload
     def insert(
