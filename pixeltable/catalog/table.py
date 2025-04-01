@@ -82,7 +82,7 @@ class Table(SchemaObject):
             (
                 f'UPDATE {schema.Table.__table__} '
                 f'SET {schema.Table.dir_id.name} = :new_dir_id, '
-                f"    {schema.Table.md.name}['name'] = :new_name, "
+                f"    {schema.Table.md.name}['name'] = :new_name "
                 f'WHERE {schema.Table.id.name} = :id'
             )
         )
