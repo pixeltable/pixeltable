@@ -329,7 +329,7 @@ class TestFunction:
         reload_catalog()
         pxt.drop_dir('test', force=True)
 
-    @pytest.mark.skip('Currently causes Pixeltable to hang')
+    @pytest.mark.skip('Requires support for async JsonMapper execution')
     def test_query_json_mapper(self, reset_db, reload_tester: ReloadTester) -> None:
         t = pxt.create_table('test', {'c1': pxt.Int, 'c2': pxt.Float})
         rows = [{'c1': i, 'c2': i + 0.5} for i in range(100)]

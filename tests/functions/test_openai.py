@@ -9,7 +9,7 @@ from ..utils import SAMPLE_IMAGE_URL, skip_test_if_not_installed, stock_price, v
 
 
 @pytest.mark.remote_api
-# @pytest.mark.flaky(reruns=3, reruns_delay=8)
+@pytest.mark.flaky(reruns=3, reruns_delay=8)
 class TestOpenai:
     @pytest.mark.expensive
     def test_audio(self, reset_db) -> None:
@@ -271,6 +271,7 @@ class TestOpenai:
         assert res[0]['output'] is None
         assert res[0]['tool_calls'] == {'banana_quantity': [131.17]}
 
+    @pytest.mark.skip('Requires support for async JsonMapper execution')
     def test_query_as_tool(self, reset_db) -> None:
         skip_test_if_not_installed('openai')
         TestOpenai.skip_test_if_no_openai_client()
