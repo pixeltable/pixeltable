@@ -153,8 +153,8 @@ class ViewMd:
 
 @dataclasses.dataclass
 class TableMd:
-    name: str
     tbl_id: str  # uuid.UUID
+    name: str
 
     user: Optional[str]
 
