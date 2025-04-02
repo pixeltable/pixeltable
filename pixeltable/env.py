@@ -184,7 +184,7 @@ class Env:
 
     @property
     def is_local(self) -> bool:
-        assert self._db_url is not None  # local_database should be called only after db initialization
+        assert self._db_url is not None  # is_local should be called only after db initialization
         return self._db_server is not None
 
     @contextmanager
