@@ -259,9 +259,7 @@ class Catalog:
 
         # check for subdirectory
         q = sql.select(schema.Dir).where(
-            schema.Dir.parent_id == dir_id,
-            schema.Dir.md['name'].astext == name,
-            schema.Dir.md['user'] == sql.JSON.NULL if user is None else schema.Dir.md['user'].astext == user
+            schema.Dir.parent_id == dir_id, schema.Dir.md['name'].astext == name, schema.Dir.md['user'].astext == user
         )
         if for_update:
             q = q.with_for_update()
@@ -281,7 +279,7 @@ class Catalog:
         q = sql.select(schema.Table.id).where(
             schema.Table.dir_id == dir_id,
             schema.Table.md['name'].astext == name,
-            schema.Table.md['user'] == sql.JSON.NULL if user is None else schema.Table.md['user'].astext == user
+            schema.Table.md['user'].astext == user,
         )
         if for_update:
             q = q.with_for_update()
@@ -313,7 +311,9 @@ class Catalog:
         if path.is_root:
             # the root dir
             if expected is not None and expected is not Dir:
-                raise excs.Error(f'{str(path)!r} needs to be a {expected._display_name()} but is a {Dir._display_name()}')
+                raise excs.Error(
+                    f'{str(path)!r} needs to be a {expected._display_name()} but is a {Dir._display_name()}'
+                )
             dir = self._get_dir(path, for_update=for_update)
             if dir is None:
                 raise excs.Error(f'Unknown user: {Env.get().user}')
@@ -330,7 +330,9 @@ class Catalog:
         elif obj is not None and raise_if_exists:
             raise excs.Error(f'Path {str(path)!r} is an existing {type(obj)._display_name()}.')
         elif obj is not None and expected is not None and not isinstance(obj, expected):
-            raise excs.Error(f'{str(path)!r} needs to be a {expected._display_name()} but is a {type(obj)._display_name()}.')
+            raise excs.Error(
+                f'{str(path)!r} needs to be a {expected._display_name()} but is a {type(obj)._display_name()}.'
+            )
         return obj
 
     def get_table_by_id(self, tbl_id: UUID) -> Optional[Table]:
@@ -610,7 +612,9 @@ class Catalog:
             if parent_dir is None:
                 return None
             q = sql.select(schema.Dir).where(
-                schema.Dir.parent_id == parent_dir.id, schema.Dir.md['name'].astext == path.name, schema.Dir.md['user'].astext == user
+                schema.Dir.parent_id == parent_dir.id,
+                schema.Dir.md['name'].astext == path.name,
+                schema.Dir.md['user'].astext == user,
             )
             if for_update:
                 q = q.with_for_update()
@@ -780,11 +784,7 @@ class Catalog:
         with Env.get().begin_xact():
             session = Env.get().session
             # See if there are any directories in the catalog matching the specified user.
-            user_clause = (
-                schema.Dir.md['user'] == sql.JSON.NULL if user is None
-                else schema.Dir.md['user'].astext == user
-            )
-            if session.query(schema.Dir).where(user_clause).count() > 0:
+            if session.query(schema.Dir).where(schema.Dir.md['user'].astext == user).count() > 0:
                 # At least one such directory exists; no need to create a new one.
                 return
 
