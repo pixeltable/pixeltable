@@ -148,6 +148,10 @@ class Env:
         return self._http_address
 
     @property
+    def user(self) -> Optional[str]:
+        return Config.get().get_string_value('user')
+
+    @property
     def default_time_zone(self) -> Optional[ZoneInfo]:
         return self._default_time_zone
 

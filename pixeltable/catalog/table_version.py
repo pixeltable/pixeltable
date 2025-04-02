@@ -12,7 +12,6 @@ import jsonschema.exceptions
 import sqlalchemy as sql
 
 import pixeltable as pxt
-from pixeltable.config import Config
 import pixeltable.exceptions as excs
 import pixeltable.exprs as exprs
 import pixeltable.index as index
@@ -214,7 +213,7 @@ class TableVersion:
         view_md: Optional[schema.ViewMd] = None,
     ) -> tuple[UUID, Optional[TableVersion]]:
         session = Env.get().session
-        user = Config.get().get_string_value('user')
+        user = Env.get().user
 
         # assign ids
         cols_by_name: dict[str, Column] = {}

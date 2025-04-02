@@ -254,10 +254,15 @@ class Catalog:
         return add_obj, add_dir_obj, drop_obj
 
     def _get_dir_entry(self, dir_id: UUID, name: str, for_update: bool = False) -> Optional[SchemaObject]:
+        user = Env.get().user
         conn = Env.get().conn
 
         # check for subdirectory
-        q = sql.select(schema.Dir).where(schema.Dir.parent_id == dir_id, schema.Dir.md['name'].astext == name)
+        q = sql.select(schema.Dir).where(
+            schema.Dir.parent_id == dir_id,
+            schema.Dir.md['name'].astext == name,
+            schema.Dir.md['user'] == sql.JSON.NULL if user is None else schema.Dir.md['user'].astext == user
+        )
         if for_update:
             q = q.with_for_update()
         # _debug_print(for_update, f'dir name={name!r} parent={dir_id}')
@@ -273,7 +278,11 @@ class Catalog:
             return Dir(dir_record.id, dir_record.parent_id, name)
 
         # check for table
-        q = sql.select(schema.Table.id).where(schema.Table.dir_id == dir_id, schema.Table.md['name'].astext == name)
+        q = sql.select(schema.Table.id).where(
+            schema.Table.dir_id == dir_id,
+            schema.Table.md['name'].astext == name,
+            schema.Table.md['user'] == sql.JSON.NULL if user is None else schema.Table.md['user'].astext == user
+        )
         if for_update:
             q = q.with_for_update()
         # _debug_print(for_update, f'table name={name!r} parent={dir_id}')
@@ -585,9 +594,10 @@ class Catalog:
         - S locks on all ancestors
         - X lock on dir if for_update == True, otherwise also an S lock
         """
+        user = Env.get().user
         conn = Env.get().conn
         if path.is_root:
-            q = sql.select(schema.Dir).where(schema.Dir.parent_id.is_(None))
+            q = sql.select(schema.Dir).where(schema.Dir.parent_id.is_(None), schema.Dir.md['user'].astext == user)
             if for_update:
                 q = q.with_for_update()
             # _debug_print(for_update, 'root dir')
@@ -598,7 +608,7 @@ class Catalog:
             if parent_dir is None:
                 return None
             q = sql.select(schema.Dir).where(
-                schema.Dir.parent_id == parent_dir.id, schema.Dir.md['name'].astext == path.name
+                schema.Dir.parent_id == parent_dir.id, schema.Dir.md['name'].astext == path.name, schema.Dir.md['user'].astext == user
             )
             if for_update:
                 q = q.with_for_update()
