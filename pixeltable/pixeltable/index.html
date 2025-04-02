@@ -11,7 +11,7 @@
       
       
       
-        <link rel="prev" href="../../config/">
+        <link rel="prev" href="../../api-cheat-sheet/">
       
       
         <link rel="next" href="../io/">
@@ -261,7 +261,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../config/" class="md-nav__link">
+      <a href="https://docs.pixeltable.com/docs/overview/configuration" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -2004,14 +2004,19 @@ if <code>my_snapshot</code> does not already exist:</p>
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">create_table</span><span class="p">(</span>
-    <span class="n">path</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span>
-    <span class="n">schema_or_df</span><span class="p">:</span> <span class="n"><span title="typing.Union">Union</span></span><span class="p">[</span><span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">],</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.DataFrame" href="../data-frame/#pixeltable.DataFrame">DataFrame</a></span><span class="p">],</span>
+    <span class="n">path_str</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span>
+    <span class="n">schema</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
+    <span class="n">source</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n"><span title="pixeltable.globals.TableDataSource">TableDataSource</span></span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">source_format</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;csv&quot;</span><span class="p">,</span> <span class="s2">&quot;excel&quot;</span><span class="p">,</span> <span class="s2">&quot;parquet&quot;</span><span class="p">,</span> <span class="s2">&quot;json&quot;</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">schema_overrides</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">on_error</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;abort&quot;</span><span class="p">,</span> <span class="s2">&quot;ignore&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;abort&quot;</span><span class="p">,</span>
     <span class="n">primary_key</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n"><span title="typing.Union">Union</span></span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n">list</span><span class="p">[</span><span class="n">str</span><span class="p">]]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">num_retained_versions</span><span class="p">:</span> <span class="n">int</span> <span class="o">=</span> <span class="mi">10</span><span class="p">,</span>
     <span class="n">comment</span><span class="p">:</span> <span class="n">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span><span class="p">,</span>
     <span class="n">media_validation</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;on_read&quot;</span><span class="p">,</span> <span class="s2">&quot;on_write&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;on_write&quot;</span><span class="p">,</span>
-    <span class="n">if_exists</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;error&quot;</span><span class="p">,</span> <span class="s2">&quot;ignore&quot;</span><span class="p">,</span> <span class="s2">&quot;replace&quot;</span><span class="p">,</span> <span class="s2">&quot;replace_force&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;error&quot;</span>
+    <span class="n">if_exists</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;error&quot;</span><span class="p">,</span> <span class="s2">&quot;ignore&quot;</span><span class="p">,</span> <span class="s2">&quot;replace&quot;</span><span class="p">,</span> <span class="s2">&quot;replace_force&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;error&quot;</span><span class="p">,</span>
+    <span class="n">extra_args</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.Table" href="../table/#pixeltable.Table">Table</a></span>
 </code></pre></div>
 
@@ -2023,7 +2028,7 @@ if <code>my_snapshot</code> does not already exist:</p>
 <p><span class="doc-section-title">Parameters:</span></p>
     <ul>
         <li class="doc-section-item field-body">
-          <b><code>path</code></b>
+          <b><code>path_str</code></b>
               (<code>str</code>)
           –
           <div class="doc-md-description">
@@ -2031,12 +2036,60 @@ if <code>my_snapshot</code> does not already exist:</p>
           </div>
         </li>
         <li class="doc-section-item field-body">
-          <b><code>schema_or_df</code></b>
-              (<code><span title="typing.Union">Union</span>[dict[str, <span title="typing.Any">Any</span>], <a class="autorefs autorefs-internal" title="pixeltable.DataFrame" href="../data-frame/#pixeltable.DataFrame">DataFrame</a>]</code>)
+          <b><code>schema</code></b>
+              (<code><span title="typing.Optional">Optional</span>[dict[str, <span title="typing.Any">Any</span>]]</code>, default:
+                  <code>None</code>
+)
           –
           <div class="doc-md-description">
-            <p>Either a dictionary that maps column names to column types, or a
-<a class="autorefs autorefs-internal" href="../data-frame/#pixeltable.DataFrame"><code>DataFrame</code></a> whose contents and schema will be used to pre-populate the table.</p>
+            <p>A dictionary that maps column names to column types</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>source</code></b>
+              (<code><span title="typing.Optional">Optional</span>[<span title="pixeltable.globals.TableDataSource">TableDataSource</span>]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>A data source from which a table schema can be inferred and data imported</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>source_format</code></b>
+              (<code><span title="typing.Optional">Optional</span>[<span title="typing.Literal">Literal</span>[&#39;csv&#39;, &#39;excel&#39;, &#39;parquet&#39;, &#39;json&#39;]]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>A hint to the format of the source data</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>schema_overrides</code></b>
+              (<code><span title="typing.Optional">Optional</span>[dict[str, <span title="typing.Any">Any</span>]]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>If specified, then columns in <code>schema_overrides</code> will be given the specified types</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>on_error</code></b>
+              (<code><span title="typing.Literal">Literal</span>[&#39;abort&#39;, &#39;ignore&#39;]</code>, default:
+                  <code>&#39;abort&#39;</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Determines the behavior if an error occurs while evaluating a computed column or detecting an
+invalid media file (such as a corrupt image) for one of the inserted rows.</p>
+<ul>
+<li>If <code>on_error='abort'</code>, then an exception will be raised and the rows will not be inserted.</li>
+<li>If <code>on_error='ignore'</code>, then execution will continue and the rows will be inserted. Any cells
+    with errors will have a <code>None</code> value for that cell, with information about the error stored in the
+    corresponding <code>tbl.col_name.errortype</code> and <code>tbl.col_name.errormsg</code> fields.</li>
+</ul>
           </div>
         </li>
         <li class="doc-section-item field-body">
@@ -2101,6 +2154,16 @@ Must be one of the following:</p>
 </ul>
           </div>
         </li>
+        <li class="doc-section-item field-body">
+          <b><code>extra_args</code></b>
+              (<code><span title="typing.Optional">Optional</span>[dict[str, <span title="typing.Any">Any</span>]]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Additional arguments to pass to the source data provider</p>
+          </div>
+        </li>
     </ul>
 
 
@@ -2128,7 +2191,8 @@ Please note the schema of the existing table may not match the schema provided i
 <li>the path is invalid, or</li>
 <li>the path already exists and <code>if_exists='error'</code>, or</li>
 <li>the path already exists and is not a table, or</li>
-<li>an error occurs while attempting to create the table.</li>
+<li>an error occurs while attempting to create the table, or</li>
+<li>an error occurs while attempting to import data from the source.</li>
 </ul>
           </div>
         </li>
@@ -2149,6 +2213,9 @@ containing the exact contents of the query):</p>
 </code></pre></div>
     <p>Create a table with an int and a float column, and replace any existing table:</p>
     <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span> <span class="o">=</span> <span class="n">pxt</span><span class="o">.</span><span class="n">create_table</span><span class="p">(</span><span class="s1">&#39;my_table&#39;</span><span class="p">,</span> <span class="n">schema</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;col1&#39;</span><span class="p">:</span> <span class="n">pxt</span><span class="o">.</span><span class="n">Int</span><span class="p">,</span> <span class="s1">&#39;col2&#39;</span><span class="p">:</span> <span class="n">pxt</span><span class="o">.</span><span class="n">Float</span><span class="p">},</span> <span class="n">if_exists</span><span class="o">=</span><span class="s1">&#39;replace&#39;</span><span class="p">)</span>
+</code></pre></div>
+    <p>Create a table from a CSV file:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span> <span class="o">=</span> <span class="n">pxt</span><span class="o">.</span><span class="n">create_table</span><span class="p">(</span><span class="s1">&#39;my_table&#39;</span><span class="p">,</span> <span class="n">source</span><span class="o">=</span><span class="s1">&#39;data.csv&#39;</span><span class="p">)</span>
 </code></pre></div>
 
     </div>

@@ -261,7 +261,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../config/" class="md-nav__link">
+      <a href="https://docs.pixeltable.com/docs/overview/configuration" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -858,6 +858,15 @@
   <a href="#pixeltable.Table.update" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;update
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.Table.validate_column_name" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;validate_column_name
     </span>
   </a>
   
@@ -1839,6 +1848,15 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#pixeltable.Table.validate_column_name" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;validate_column_name
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#pixeltable.Table.where" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;where
@@ -2397,7 +2415,7 @@ also search for images using a text description:</p>
           –
           <div class="doc-md-description">
             <p>An optional name for the index. If not specified, a name such as <code>'idx0'</code> will be generated
-automatically. If specified, the name must be unique for this table.</p>
+automatically. If specified, the name must be unique for this table and a valid pixeltable column name.</p>
           </div>
         </li>
         <li class="doc-section-item field-body">
@@ -3075,11 +3093,13 @@ indices or multiple indices.</p>
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">insert</span><span class="p">(</span>
-    <span class="n">rows</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n"><span title="typing.Iterable">Iterable</span></span><span class="p">[</span><span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">source</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n"><span title="pixeltable.globals.TableDataSource">TableDataSource</span></span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="o">/</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">print_stats</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="n">source_format</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;csv&quot;</span><span class="p">,</span> <span class="s2">&quot;excel&quot;</span><span class="p">,</span> <span class="s2">&quot;parquet&quot;</span><span class="p">,</span> <span class="s2">&quot;json&quot;</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">schema_overrides</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="pixeltable.type_system.ColumnType">ColumnType</span></span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">on_error</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;abort&quot;</span><span class="p">,</span> <span class="s2">&quot;ignore&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;abort&quot;</span><span class="p">,</span>
+    <span class="n">print_stats</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
     <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.globals.UpdateStatus" href="../update-status/#pixeltable.UpdateStatus">UpdateStatus</a></span>
 </code></pre></div>
@@ -3090,18 +3110,19 @@ indices or multiple indices.</p>
 <p>To insert multiple rows at a time:</p>
 <p><code>python
 insert(
-    rows: Iterable[dict[str, Any]],
+    source: TableSourceDataType,
     /,
     *,
+    on_error: Literal['abort', 'ignore'] = 'abort',
     print_stats: bool = False,
-    on_error: Literal['abort', 'ignore'] = 'abort'
+    **kwargs: Any,
 )</code></p>
 <p>To insert just a single row, you can use the more concise syntax:</p>
 <p><code>python
 insert(
     *,
-    print_stats: bool = False,
     on_error: Literal['abort', 'ignore'] = 'abort',
+    print_stats: bool = False,
     **kwargs: Any
 )</code></p>
 
@@ -3109,14 +3130,13 @@ insert(
 <p><span class="doc-section-title">Parameters:</span></p>
     <ul>
         <li class="doc-section-item field-body">
-          <b><code>rows</code></b>
-              (<code><span title="typing.Optional">Optional</span>[<span title="typing.Iterable">Iterable</span>[dict[str, <span title="typing.Any">Any</span>]]]</code>, default:
+          <b><code>source</code></b>
+              (<code><span title="typing.Optional">Optional</span>[<span title="pixeltable.globals.TableDataSource">TableDataSource</span>]</code>, default:
                   <code>None</code>
 )
           –
           <div class="doc-md-description">
-            <p>(if inserting multiple rows) A list of rows to insert, each of which is a dictionary mapping column
-names to values.</p>
+            <p>A data source from which data can be imported.</p>
           </div>
         </li>
         <li class="doc-section-item field-body">
@@ -3126,17 +3146,28 @@ names to values.</p>
 )
           –
           <div class="doc-md-description">
-            <p>(if inserting a single row) Keyword-argument pairs representing column names and values.</p>
+            <p>(if inserting a single row) Keyword-argument pairs representing column names and values.
+(if inserting multiple rows) Additional keyword arguments are passed to the data source.</p>
           </div>
         </li>
         <li class="doc-section-item field-body">
-          <b><code>print_stats</code></b>
-              (<code>bool</code>, default:
-                  <code>False</code>
+          <b><code>source_format</code></b>
+              (<code><span title="typing.Optional">Optional</span>[<span title="typing.Literal">Literal</span>[&#39;csv&#39;, &#39;excel&#39;, &#39;parquet&#39;, &#39;json&#39;]]</code>, default:
+                  <code>None</code>
 )
           –
           <div class="doc-md-description">
-            <p>If <code>True</code>, print statistics about the cost of computed columns.</p>
+            <p>A hint about the format of the source data</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>schema_overrides</code></b>
+              (<code><span title="typing.Optional">Optional</span>[dict[str, <span title="pixeltable.type_system.ColumnType">ColumnType</span>]]</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>If specified, then columns in <code>schema_overrides</code> will be given the specified types</p>
           </div>
         </li>
         <li class="doc-section-item field-body">
@@ -3151,9 +3182,19 @@ invalid media file (such as a corrupt image) for one of the inserted rows.</p>
 <ul>
 <li>If <code>on_error='abort'</code>, then an exception will be raised and the rows will not be inserted.</li>
 <li>If <code>on_error='ignore'</code>, then execution will continue and the rows will be inserted. Any cells
-  with errors will have a <code>None</code> value for that cell, with information about the error stored in the
-  corresponding <code>tbl.col_name.errortype</code> and <code>tbl.col_name.errormsg</code> fields.</li>
+    with errors will have a <code>None</code> value for that cell, with information about the error stored in the
+    corresponding <code>tbl.col_name.errortype</code> and <code>tbl.col_name.errormsg</code> fields.</li>
 </ul>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>print_stats</code></b>
+              (<code>bool</code>, default:
+                  <code>False</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>If <code>True</code>, print statistics about the cost of computed columns.</p>
           </div>
         </li>
     </ul>
@@ -3183,6 +3224,7 @@ invalid media file (such as a corrupt image) for one of the inserted rows.</p>
 <li>The table has been dropped.</li>
 <li>One of the rows being inserted does not conform to the table schema.</li>
 <li>An error occurs during processing of computed columns, and <code>on_error='ignore'</code>.</li>
+<li>An error occurs while importing data from a source, and <code>on_error='abort'</code>.</li>
 </ul>
           </div>
         </li>
@@ -3197,6 +3239,9 @@ Column <code>c</code> is nullable:</p>
 </code></pre></div>
     <p>Insert a single row using the alternative syntax:</p>
     <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="n">a</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">b</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">c</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
+</code></pre></div>
+    <p>Insert rows from a CSV file:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="n">source</span><span class="o">=</span><span class="s1">&#39;path/to/file.csv&#39;</span><span class="p">)</span>
 </code></pre></div>
 
     </div>
@@ -3662,6 +3707,29 @@ is a destructive operation that will delete data outside Pixeltable, and cannot 
     <p>Increment <code>int_col</code> by 1 for all rows where <code>int_col</code> is 0:</p>
     <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="s1">&#39;int_col&#39;</span><span class="p">:</span> <span class="n">tbl</span><span class="o">.</span><span class="n">int_col</span> <span class="o">+</span> <span class="mi">1</span><span class="p">},</span> <span class="n">where</span><span class="o">=</span><span class="n">tbl</span><span class="o">.</span><span class="n">int_col</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span>
 </code></pre></div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.Table.validate_column_name" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">validate_column_name</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-classmethod"><code>classmethod</code></small>
+  </span>
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">validate_column_name</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="n">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Check that a name is usable as a pixeltalbe column name</p>
 
     </div>
 
