@@ -105,11 +105,12 @@
       ]
     },
     {
-      "group": "Extensions",
+      "group": "Libraries",
       "pages": [
-        "docs/extensions/pixelagent",
-        "docs/extensions/mcp"
-      ]
+        "docs/libraries/pixelagent",
+        "docs/libraries/mcp",
+        "docs/libraries/yolox"
+    ]
     },    
     {
       "group": "Support",
