@@ -25,7 +25,6 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pixeltable_pgserver
 import sqlalchemy as sql
-from sqlalchemy.exc import ArgumentError
 from tqdm import TqdmWarning
 
 from pixeltable import exceptions as excs
@@ -45,7 +44,9 @@ T = TypeVar('T')
 
 class Env:
     """
-    Store for runtime globals.
+    Store runtime globals for both local and non-local environments.
+    For a local environment, Pixeltable uses an embedded PostgreSQL server that runs locally in a separate process.
+    For a non-local environment, Pixeltable uses a connection string to the externally managed database.
     """
 
     _instance: Optional[Env] = None
@@ -60,7 +61,7 @@ class Env:
     _sa_engine: Optional[sql.engine.base.Engine]
     _pgdata_dir: Optional[Path]
     _db_name: Optional[str]
-    _db_server: Optional[pixeltable_pgserver.PostgresServer]
+    _db_server: Optional[pixeltable_pgserver.PostgresServer]  # set only when running in local environment
     _db_url: Optional[str]
     _default_time_zone: Optional[ZoneInfo]
 
@@ -180,6 +181,11 @@ class Env:
 
     def in_xact(self) -> bool:
         return self._current_conn is not None
+
+    @property
+    def is_local(self) -> bool:
+        assert self._db_url is not None  # local_database should be called only after db initialization
+        return self._db_server is not None
 
     @contextmanager
     def begin_xact(self) -> Iterator[sql.Connection]:
@@ -354,39 +360,13 @@ class Env:
 
         self.clear_tmp_dir()
 
-        db_connect_str = config.get_string_value('DB_CONNECT_STR')
-        if db_connect_str is not None:
-            try:
-                db_url = sql.make_url(db_connect_str)
-                self._db_url = db_url.render_as_string(hide_password=False)
-                self._db_name = db_url.database  # use the dbname given in connect string
-                dialect = db_url.get_dialect().name
-                if dialect == 'cockroachdb':
-                    self._dbms = CockroachDbms(db_url)
-                elif dialect == 'postgresql':
-                    self._dbms = PostgresqlDbms(db_url)
-                else:
-                    raise excs.Error(f'Unsupported DBMS {dialect}')
-                if not self._store_db_exists():
-                    error = f'Database {self._db_name!r} does not exist'
-                    self._logger.error(error)
-                    raise excs.Error(error)
-                self._logger.info(f'found database at: {self.db_url}')
-            except ArgumentError as e:
-                error = f'Invalid db connection string {db_connect_str}: {e}'
-                self._logger.error(error)
-                raise excs.Error(error) from e
-        else:
-            self._db_name = os.environ.get('PIXELTABLE_DB', 'pixeltable')
-            self._pgdata_dir = Path(os.environ.get('PIXELTABLE_PGDATA', str(Config.get().home / 'pgdata')))
-            # cleanup_mode=None will leave the postgres process running after Python exits
-            # cleanup_mode='stop' will terminate the postgres process when Python exits
-            # On Windows, we need cleanup_mode='stop' because child processes are killed automatically when the parent
-            # process (such as Terminal or VSCode) exits, potentially leaving it in an unusable state.
-            cleanup_mode = 'stop' if platform.system() == 'Windows' else None
-            self._db_server = pixeltable_pgserver.get_server(self._pgdata_dir, cleanup_mode=cleanup_mode)
-            self._db_url = self._db_server.get_uri(database=self._db_name, driver='psycopg')
-            self._dbms = PostgresqlDbms(sql.make_url(self._db_url))
+        # configure pixeltable database
+        self._init_db(config)
+
+        if reinit_db and not self.is_local:
+            raise excs.Error(
+                'Reinitializing pixeltable database is not supported when running in non local environment'
+            )
 
         tz_name = config.get_string_value('time_zone')
         if tz_name is not None:
@@ -400,10 +380,7 @@ class Env:
                     self._logger.error(f'Invalid time zone specified in configuration: {tz_name}')
 
         if reinit_db and self._store_db_exists():
-            if db_connect_str is not None:
-                self._delete_all_tables()
-            else:
-                self._drop_store_db()
+            self._drop_store_db()
 
         create_db = not self._store_db_exists()
 
@@ -416,13 +393,8 @@ class Env:
         # Create the SQLAlchemy engine. This will also set the default time zone.
         self._create_engine(time_zone_name=tz_name, echo=echo)
 
-        # Create tables and system metadata records after a new database is created,
-        # or when an external database is passed.
-        if create_db or db_connect_str is not None:
-            from pixeltable import metadata
-
-            metadata.schema.base_metadata.create_all(self._sa_engine)
-            metadata.create_system_info(self._sa_engine)
+        # Create catalog tables and system metadata
+        self._init_metadata()
 
         self.console_logger.info(f'Connected to Pixeltable database at: {self.db_url}')
 
@@ -430,12 +402,53 @@ class Env:
         self._set_up_runtime()
         self.log_to_stdout(False)
 
-    @property
-    def default_system_db_url(self):
-        if self._db_server is None:
-            return self._dbms.default_system_db_url()
+    def _init_db(self, config: Config) -> None:
+        """
+        Initialize the pixeltable database along with its associated DBMS.
+        """
+        db_connect_str = config.get_string_value('DB_CONNECT_STR')
+        if db_connect_str is not None:
+            try:
+                db_url = sql.make_url(db_connect_str)
+            except sql.exc.ArgumentError as e:
+                error = f'Invalid db connection string {db_connect_str}: {e}'
+                self._logger.error(error)
+                raise excs.Error(error) from e
+            self._db_url = db_url.render_as_string(hide_password=False)
+            self._db_name = db_url.database  # use the dbname given in connect string
+            dialect = db_url.get_dialect().name
+            if dialect == 'cockroachdb':
+                self._dbms = CockroachDbms(db_url)
+            else:
+                raise excs.Error(f'Unsupported DBMS {dialect}')
+            # Check if database exists
+            if not self._store_db_exists():
+                error = f'Database {self._db_name!r} does not exist'
+                self._logger.error(error)
+                raise excs.Error(error)
+            self._logger.info(f'Using database at: {self.db_url}')
         else:
-            return self._db_server.get_uri(database='postgres', driver='psycopg')
+            self._db_name = os.environ.get('PIXELTABLE_DB', 'pixeltable')
+            self._pgdata_dir = Path(os.environ.get('PIXELTABLE_PGDATA', str(Config.get().home / 'pgdata')))
+            # cleanup_mode=None will leave the postgres process running after Python exits
+            # cleanup_mode='stop' will terminate the postgres process when Python exits
+            # On Windows, we need cleanup_mode='stop' because child processes are killed automatically when the parent
+            # process (such as Terminal or VSCode) exits, potentially leaving it in an unusable state.
+            cleanup_mode = 'stop' if platform.system() == 'Windows' else None
+            self._db_server = pixeltable_pgserver.get_server(self._pgdata_dir, cleanup_mode=cleanup_mode)
+            self._db_url = self._db_server.get_uri(database=self._db_name, driver='psycopg')
+            self._dbms = PostgresqlDbms(sql.make_url(self._db_url))
+
+    def _init_metadata(self) -> None:
+        """
+        Create pixeltable metadata tables and system metadata.
+        This is an idempotent operation.
+        """
+        assert self._sa_engine is not None
+        from pixeltable import metadata
+
+        metadata.schema.base_metadata.create_all(self._sa_engine, checkfirst=True)
+        metadata.create_system_info(self._sa_engine)
 
     def _create_engine(self, time_zone_name: Optional[str], echo: bool = False) -> None:
         connect_args = {} if time_zone_name is None else {'options': f'-c timezone={time_zone_name}'}
@@ -454,8 +467,7 @@ class Env:
     def _store_db_exists(self) -> bool:
         assert self._db_name is not None
         # don't try to connect to self.db_name, it may not exist
-        db_url = self.default_system_db_url
-        engine = sql.create_engine(db_url, future=True)
+        engine = sql.create_engine(self._dbms.default_system_db_url(), future=True)
         try:
             with engine.begin() as conn:
                 stmt = f"SELECT COUNT(*) FROM pg_database WHERE datname = '{self._db_name}'"
@@ -468,36 +480,27 @@ class Env:
     def _create_store_db(self) -> None:
         assert self._db_name is not None
         # create the db
-        pg_db_url = self.default_system_db_url
-        engine = sql.create_engine(pg_db_url, future=True, isolation_level='AUTOCOMMIT')
+        engine = sql.create_engine(self._dbms.default_system_db_url(), future=True, isolation_level='AUTOCOMMIT')
         preparer = engine.dialect.identifier_preparer
         try:
             with engine.begin() as conn:
                 # use C collation to get standard C/Python-style sorting
-                stmt = self._dbms.build_create_db_stmt(preparer.quote(self._db_name))
+                stmt = self._dbms.create_db_stmt(preparer.quote(self._db_name))
                 conn.execute(sql.text(stmt))
         finally:
             engine.dispose()
 
         # enable pgvector
-        store_db_url = self.db_url
-        engine = sql.create_engine(store_db_url, future=True, isolation_level='AUTOCOMMIT')
+        engine = sql.create_engine(self.db_url, future=True, isolation_level='AUTOCOMMIT')
         try:
             with engine.begin() as conn:
                 conn.execute(sql.text('CREATE EXTENSION vector'))
         finally:
             engine.dispose()
 
-    def _delete_all_tables(self) -> None:
-        engine = sql.create_engine(self.db_url, future=True, isolation_level='AUTOCOMMIT')
-        sql_md = sql.orm.declarative_base().metadata
-        sql_md.reflect(engine)
-        sql_md.drop_all(bind=engine)
-
     def _drop_store_db(self) -> None:
         assert self._db_name is not None
-        db_url = self.default_system_db_url
-        engine = sql.create_engine(db_url, future=True, isolation_level='AUTOCOMMIT')
+        engine = sql.create_engine(self._dbms.default_system_db_url(), future=True, isolation_level='AUTOCOMMIT')
         preparer = engine.dialect.identifier_preparer
         try:
             with engine.begin() as conn:
@@ -511,7 +514,7 @@ class Env:
                     """
                     conn.execute(sql.text(stmt))
                 # drop db
-                stmt = self._dbms.build_drop_db_stmt(preparer.quote(self._db_name))
+                stmt = self._dbms.drop_db_stmt(preparer.quote(self._db_name))
                 conn.execute(sql.text(stmt))
         finally:
             engine.dispose()
