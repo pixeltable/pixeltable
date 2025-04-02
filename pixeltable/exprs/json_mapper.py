@@ -90,9 +90,9 @@ class JsonMapper(Expr):
     def __repr__(self) -> str:
         return f'map({self._src_expr}, lambda R: {self._target_expr})'
 
-    # @property
-    # def _src_expr(self) -> Expr:
-    #     return self.components[0]._src_expr
+    @property
+    def _src_expr(self) -> Expr:
+        return self.components[0]._src_expr
 
     @property
     def _target_expr(self) -> Expr:
