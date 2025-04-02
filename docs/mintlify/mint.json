@@ -108,7 +108,8 @@
       "group": "Libraries",
       "pages": [
         "docs/libraries/pixelagent",
-        "docs/libraries/mcp"
+        "docs/libraries/mcp",
+        "docs/libraries/yolox"
     ]
     },    
     {
