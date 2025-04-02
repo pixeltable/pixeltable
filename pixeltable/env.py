@@ -365,7 +365,7 @@ class Env:
 
         if reinit_db and not self.is_local:
             raise excs.Error(
-                'Reinitializing pixeltable database is not supported when running in non local environment'
+                'Reinitializing pixeltable database is not supported when running in non-local environment'
             )
 
         tz_name = config.get_string_value('time_zone')
@@ -438,6 +438,9 @@ class Env:
             self._db_server = pixeltable_pgserver.get_server(self._pgdata_dir, cleanup_mode=cleanup_mode)
             self._db_url = self._db_server.get_uri(database=self._db_name, driver='psycopg')
             self._dbms = PostgresqlDbms(sql.make_url(self._db_url))
+        assert self._dbms is not None
+        assert self._db_url is not None
+        assert self._db_name is not None
 
     def _init_metadata(self) -> None:
         """
@@ -484,7 +487,6 @@ class Env:
         preparer = engine.dialect.identifier_preparer
         try:
             with engine.begin() as conn:
-                # use C collation to get standard C/Python-style sorting
                 stmt = self._dbms.create_db_stmt(preparer.quote(self._db_name))
                 conn.execute(sql.text(stmt))
         finally:
