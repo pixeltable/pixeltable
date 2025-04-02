@@ -5,7 +5,7 @@ from uuid import UUID
 
 import sqlalchemy as sql
 
-from pixeltable.metadata.schema import Function, Table, TableSchemaVersion
+from pixeltable.metadata.schema import Function, Table, TableSchemaVersion, TableVersion
 
 __logger = logging.getLogger('pixeltable')
 
@@ -143,3 +143,28 @@ def __update_schema_column(table_schema_version_md: dict, schema_column_updater:
     assert isinstance(cols, dict)
     for schema_col in cols.values():
         schema_column_updater(schema_col)
+
+
+def convert_table_record(engine: sql.engine.Engine, table_record_updater: Optional[Callable[[Table], None]]) -> None:
+    with sql.orm.Session(engine, future=True) as session:
+        for record in session.query(Table).all():
+            table_record_updater(record)
+        session.commit()
+
+
+def convert_table_version_record(
+    engine: sql.engine.Engine, table_version_record_updater: Optional[Callable[[TableVersion], None]]
+) -> None:
+    with sql.orm.Session(engine, future=True) as session:
+        for record in session.query(TableVersion).all():
+            table_version_record_updater(record)
+        session.commit()
+
+
+def convert_table_schema_version_record(
+    engine: sql.engine.Engine, table_schema_version_record_updater: Optional[Callable[[TableSchemaVersion], None]]
+) -> None:
+    with sql.orm.Session(engine, future=True) as session:
+        for record in session.query(TableSchemaVersion).all():
+            table_schema_version_record_updater(record)
+        session.commit()
