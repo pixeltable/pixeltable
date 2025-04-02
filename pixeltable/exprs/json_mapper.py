@@ -48,9 +48,9 @@ class JsonMapper(Expr):
         scope_anchor = ObjectRef(self.target_expr_scope, self)
         self.components.append(scope_anchor)
 
-    def bind_rel_paths(self, mapper: Optional[JsonMapper] = None) -> None:
-        self._src_expr.bind_rel_paths(mapper)
-        self._target_expr.bind_rel_paths(self)
+    def _bind_rel_paths(self, mapper: Optional[JsonMapper] = None) -> None:
+        self._src_expr._bind_rel_paths(mapper)
+        self._target_expr._bind_rel_paths(self)
         self.parent_mapper = mapper
         parent_scope = _GLOBAL_SCOPE if mapper is None else mapper.target_expr_scope
         self.target_expr_scope.parent = parent_scope
@@ -86,7 +86,7 @@ class JsonMapper(Expr):
         return self._src_expr.equals(other._src_expr) and self._target_expr.equals(other._target_expr)
 
     def __repr__(self) -> str:
-        return f'{self._src_expr} >> {self._target_expr}'
+        return f'map({self._src_expr}, lambda R: {self._target_expr})'
 
     @property
     def _src_expr(self) -> Expr:

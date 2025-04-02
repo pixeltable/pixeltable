@@ -177,10 +177,6 @@ class TableVersion:
         # Init external stores (this needs to happen after the schema is created)
         self._init_external_stores(tbl_md)
 
-        # Force column metadata to load, in order to surface any invalid metadata now (as warnings)
-        for col in self.cols_by_id.values():
-            _ = col.value_expr
-
     def __hash__(self) -> int:
         return hash(self.id)
 
@@ -229,7 +225,9 @@ class TableVersion:
         # create schema.Table
         # Column.dependent_cols for existing cols is wrong at this point, but init() will set it correctly
         column_md = cls._create_column_md(cols)
+        tbl_id = uuid.uuid4()
         table_md = schema.TableMd(
+            tbl_id=str(tbl_id),
             name=name,
             user=None,
             current_version=0,
@@ -245,11 +243,12 @@ class TableVersion:
         )
         # create a schema.Table here, we need it to call our c'tor;
         # don't add it to the session yet, we might add index metadata
-        tbl_id = uuid.uuid4()
         tbl_record = schema.Table(id=tbl_id, dir_id=dir_id, md=dataclasses.asdict(table_md))
 
         # create schema.TableVersion
-        table_version_md = schema.TableVersionMd(created_at=timestamp, version=0, schema_version=0, additional_md={})
+        table_version_md = schema.TableVersionMd(
+            tbl_id=str(tbl_record.id), created_at=timestamp, version=0, schema_version=0, additional_md={}
+        )
         tbl_version_record = schema.TableVersion(
             tbl_id=tbl_record.id, version=0, md=dataclasses.asdict(table_version_md)
         )
@@ -265,6 +264,7 @@ class TableVersion:
             schema_col_md[col.id] = md
 
         schema_version_md = schema.TableSchemaVersionMd(
+            tbl_id=str(tbl_record.id),
             schema_version=0,
             preceding_schema_version=None,
             columns=schema_col_md,
@@ -459,6 +459,11 @@ class TableVersion:
                     tbl_id=self.id, schema_version=self.schema_version, md=dataclasses.asdict(schema_version_md)
                 )
             )
+
+    def ensure_md_loaded(self) -> None:
+        """Ensure that table metadata is loaded."""
+        for col in self.cols_by_id.values():
+            _ = col.value_expr
 
     def _store_idx_name(self, idx_id: int) -> str:
         """Return name of index in the store, which needs to be globally unique"""
@@ -1241,6 +1246,11 @@ class TableVersion:
         """Return all non-system columns"""
         return [c for c in self.cols if c.is_pk]
 
+    @property
+    def primary_key(self) -> list[str]:
+        """Return the names of the primary key columns"""
+        return [c.name for c in self.cols if c.is_pk]
+
     def get_required_col_names(self) -> list[str]:
         """Return the names of all columns for which values must be specified in insert()"""
         assert not self.is_view
@@ -1307,6 +1317,7 @@ class TableVersion:
 
     def _create_tbl_md(self) -> schema.TableMd:
         return schema.TableMd(
+            tbl_id=str(self.id),
             name=self.name,
             user=None,
             current_version=self.version,
@@ -1323,7 +1334,11 @@ class TableVersion:
 
     def _create_version_md(self, timestamp: float) -> schema.TableVersionMd:
         return schema.TableVersionMd(
-            created_at=timestamp, version=self.version, schema_version=self.schema_version, additional_md={}
+            tbl_id=str(self.id),
+            created_at=timestamp,
+            version=self.version,
+            schema_version=self.schema_version,
+            additional_md={},
         )
 
     def _create_schema_version_md(self, preceding_schema_version: int) -> schema.TableSchemaVersionMd:
@@ -1336,6 +1351,7 @@ class TableVersion:
             )
         # preceding_schema_version to be set by the caller
         return schema.TableSchemaVersionMd(
+            tbl_id=str(self.id),
             schema_version=self.schema_version,
             preceding_schema_version=preceding_schema_version,
             columns=column_md,

@@ -71,10 +71,11 @@ documentation = "https://docs.pixeltable.com/"
 
 [tool.poetry]
 exclude = [
-    ".pytype",
     ".pytest_cache",
-    "tests",
+    ".pytype",
     "docs",
+    "local",
+    "tests",
     "tool",
 ]
 requires-poetry = ">=2.0"
@@ -148,6 +149,7 @@ label-studio-sdk = "^0.0.32"
 fiftyone = "^1.0.0"
 ollama = ">=0.4.0"
 llama-cpp-python = { version = ">=0.3.7", platform = "!=win32" }  # Windows build of llama_cpp has issues in CI
+pixeltable-yolox = "==0.4.0"
 
 [tool.poetry.plugins."mkdocstrings.python.templates"]
 extension-name = "tool.doc_plugins.mkdocstrings:get_templates_path"

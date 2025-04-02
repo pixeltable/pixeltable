@@ -27,6 +27,8 @@ env:
   # functionality in CI, we'll need to investigate further (it's likely due to a missing compiler dependency).
   # We also disable Metal (GPU) support on MacOS, which doesn't seem to work properly in CI.
   CMAKE_ARGS: '-DLLAVA_BUILD=OFF -DGGML_METAL=OFF -DGGML_METAL_EMBED_LIBRARY=OFF'
+  # This is required to build onnxsim on Ubuntu / Python 3.12 configurations.
+  CMAKE_POLICY_VERSION_MINIMUM: 3.5
   # API keys for various services. In a PR, these secrets will be empty.
   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
   DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
@@ -148,10 +150,6 @@ jobs:
       - name: Install the project dependencies
         # Retry 3 times to be resilient against transient connectivity issues.
         run: ./scripts/retry.sh 3 60 poetry install ${{ matrix.poetry-options }}
-      - name: Install YOLOX
-        # Yolox cannot be installed with poetry and only seems to work with python <= 3.10 and not on ubuntu-arm64
-        if: ${{ matrix.poetry-options != '' && matrix.python-version == '3.9' && matrix.os == 'ubuntu-22.04' }}
-        run: python -m pip install git+https://github.com/Megvii-BaseDetection/YOLOX@ac58e0a protobuf==5.27.0
       - name: Ensure pytest is installed
         # This is necessary for running the tests without --with dev
         if: ${{ matrix.poetry-options == '' }}

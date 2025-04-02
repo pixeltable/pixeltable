@@ -227,7 +227,7 @@ class TestFunction:
 
         assert 'Stored functions cannot be declared using `is_method` or `is_property`' in str(exc_info.value)
 
-    def test_query(self, reset_db) -> None:
+    def test_query(self, reset_db, reload_tester: ReloadTester) -> None:
         t = pxt.create_table('test', {'c1': pxt.Int, 'c2': pxt.Float})
         name = t._name
         rows = [{'c1': i, 'c2': i + 0.5} for i in range(100)]
@@ -235,16 +235,38 @@ class TestFunction:
 
         @pxt.query
         def lt_x(x: int) -> pxt.DataFrame:
-            return t.where(t.c2 < x).select(t.c2, t.c1)
+            return t.where(t.c2 < x).select(t.c2, t.c1).order_by(t.c1)
 
-        res1 = t.select(out=lt_x(t.c1)).order_by(t.c2).collect()
+        @pxt.query
+        def lt_x_with_default(x: int, mult: int = 2) -> pxt.DataFrame:
+            return t.where(t.c2 < x * mult).select(t.c2, t.c1).order_by(t.c1)
+
+        @pxt.query
+        def lt_x_with_unused_default(x: int, mult: int = 2) -> pxt.DataFrame:
+            return t.where(t.c2 < x).select(t.c2, t.c1).order_by(t.c1)
+
+        res1 = reload_tester.run_query(t.select(out=lt_x(t.c1)).order_by(t.c1))
+        for i in range(100):
+            assert res1[i] == {'out': [{'c2': j + 0.5, 'c1': j} for j in range(i)]}
+
+        res2 = reload_tester.run_query(t.select(out=lt_x_with_default(t.c1)).order_by(t.c1))
+        for i in range(100):
+            assert res2[i] == {'out': [{'c2': j + 0.5, 'c1': j} for j in range(min(i * 2, 100))]}
+
+        res3 = reload_tester.run_query(t.select(out=lt_x_with_unused_default(t.c1)).order_by(t.c1))
+        for i in range(100):
+            assert res3[i] == {'out': [{'c2': j + 0.5, 'c1': j} for j in range(i)]}
+
+        # As computed columns
         validate_update_status(t.add_computed_column(query1=lt_x(t.c1)))
-        _ = t.select(t.query1).collect()
+        validate_update_status(t.add_computed_column(query2=lt_x_with_default(t.c1)))
+        validate_update_status(t.add_computed_column(query3=lt_x_with_unused_default(t.c1)))
+        reload_tester.run_query(t.select(t.query1, t.query2, t.query3).order_by(t.c1))
 
-        reload_catalog()
-        t = pxt.get_table(name)
-        _ = t.select(t.query1).collect()
+        reload_tester.run_reload_test()
+
         # insert more rows in order to verify that lt_x() is still executable after catalog reload
+        t = pxt.get_table(name)
         validate_update_status(t.insert(rows))
 
     def test_query2(self, reset_db) -> None:
@@ -256,7 +278,7 @@ class TestFunction:
         ]
         validate_update_status(queries.insert(query_rows), expected_rows=len(query_rows))
 
-        chunks = pxt.create_table('test_doc_chunks', {'text': pxt.StringType()})
+        chunks = pxt.create_table('test_doc_chunks', {'text': pxt.String})
         chunks.insert(
             [
                 {'text': 'the stock of artificial intelligence companies is up 1000%'},
@@ -289,6 +311,38 @@ class TestFunction:
         validate_update_status(queries.insert(query_rows), expected_rows=len(query_rows))
         res = queries.select(queries.chunks).collect()
         assert all(len(c) == 2 for c in res['chunks'])
+
+    def test_query_over_view(self, reset_db) -> None:
+        pxt.create_dir('test')
+        t = pxt.create_table('test.tbl', {'a': pxt.String})
+        v = pxt.create_view('test.view', t, additional_columns={'text': pxt.String})
+
+        @pxt.query
+        def retrieve():
+            return v.select(v.text).limit(20)
+
+        t = pxt.create_table('test.retrieval', {'n': pxt.Int})
+        t.add_computed_column(result=retrieve())
+
+        # This tests a specific edge case where calling drop_dir() as the first action after a catalog reload can lead
+        # to a circular initialization failure.
+        reload_catalog()
+        pxt.drop_dir('test', force=True)
+
+    @pytest.mark.skip('Requires support for async JsonMapper execution')
+    def test_query_json_mapper(self, reset_db, reload_tester: ReloadTester) -> None:
+        t = pxt.create_table('test', {'c1': pxt.Int, 'c2': pxt.Float})
+        rows = [{'c1': i, 'c2': i + 0.5} for i in range(100)]
+        validate_update_status(t.insert(rows), 100)
+
+        @pxt.query
+        def lt_x(x: int) -> pxt.DataFrame:
+            return t.where(t.c2 < x).select(t.c2, t.c1).order_by(t.c1)
+
+        u = pxt.create_table('test2', {'c': pxt.Json})
+        u.add_computed_column(out=pxtf.map(u.c['*'], lambda x: lt_x(x)))
+        validate_update_status(u.insert(c=[3, 4, 5]), 1)
+        _ = u.select(u.out).collect()
 
     def test_query_errors(self, reset_db) -> None:
         schema = {'a': pxt.Int, 'b': pxt.Int}

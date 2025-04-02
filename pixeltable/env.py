@@ -621,7 +621,7 @@ class Env:
         self.__register_package('transformers')
         self.__register_package('whisper', library_name='openai-whisper')
         self.__register_package('whisperx')
-        self.__register_package('yolox', library_name='git+https://github.com/Megvii-BaseDetection/YOLOX@ac58e0a')
+        self.__register_package('yolox', library_name='pixeltable-yolox')
 
     def __register_package(self, package_name: str, library_name: Optional[str] = None) -> None:
         is_installed: bool

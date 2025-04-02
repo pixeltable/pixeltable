@@ -4,7 +4,6 @@ import datetime
 import io
 import json
 import logging
-import random
 import typing
 from collections import deque
 from pathlib import Path
@@ -14,11 +13,9 @@ import numpy as np
 import PIL.Image
 
 import pixeltable as pxt
-import pixeltable.exceptions as exc
+import pixeltable.exceptions as excs
 from pixeltable.env import Env
 from pixeltable.utils.transactional_directory import transactional_directory
-
-from .utils import normalize_import_parameters, normalize_schema_names
 
 if typing.TYPE_CHECKING:
     import pyarrow as pa
@@ -78,7 +75,7 @@ def export_parquet(
     arrow_schema = to_arrow_schema(df.schema)
 
     if not inline_images and any(col_type.is_image_type() for col_type in df.schema.values()):
-        raise exc.Error('Cannot export Dataframe with image columns when inline_images is False')
+        raise excs.Error('Cannot export Dataframe with image columns when inline_images is False')
 
     # store the changes atomically
     with transactional_directory(parquet_path) as temp_path:
@@ -87,7 +84,7 @@ def export_parquet(
         json.dump(type_dict, (temp_path / '.pixeltable.column_types.json').open('w'))  # keep type metadata
 
         batch_num = 0
-        current_value_batch: dict[str, deque] = {k: deque() for k in df.schema.keys()}
+        current_value_batch: dict[str, deque] = {k: deque() for k in df.schema}
         current_byte_estimate = 0
 
         with Env.get().begin_xact():
@@ -111,7 +108,7 @@ def export_parquet(
                             val.save(buf, format='PNG')
                             val = buf.getvalue()
                         else:
-                            assert False, f'unknown image type {type(val)}'
+                            raise excs.Error(f'unknown image type {type(val)}')
                         length = len(val)
                     elif col_type.is_string_type():
                         length = len(val)
@@ -119,16 +116,14 @@ def export_parquet(
                         if data_row.file_paths is not None and data_row.file_paths[e.slot_idx] is not None:
                             val = data_row.file_paths[e.slot_idx]
                         else:
-                            assert False, f'unknown video type {type(val)}'
+                            raise excs.Error(f'unknown video type {type(val)}')
                         length = len(val)
                     elif col_type.is_json_type():
                         val = json.dumps(val)
                         length = len(val)
                     elif col_type.is_array_type():
                         length = val.nbytes
-                    elif col_type.is_int_type():
-                        length = 8
-                    elif col_type.is_float_type():
+                    elif col_type.is_int_type() or col_type.is_float_type():
                         length = 8
                     elif col_type.is_bool_type():
                         length = 1
@@ -136,7 +131,7 @@ def export_parquet(
                         val = val.astimezone(datetime.timezone.utc)
                         length = 8
                     else:
-                        assert False, f'unknown type {col_type} for {col_name}'
+                        raise excs.Error(f'unknown type {col_type} for {col_name}')
 
                     current_value_batch[col_name].append(val)
                     current_byte_estimate += length
@@ -144,7 +139,7 @@ def export_parquet(
                     assert batch_num < 100_000, 'wrote too many parquet files, unclear ordering'
                     _write_batch(current_value_batch, arrow_schema, temp_path / f'part-{batch_num:05d}.parquet')
                     batch_num += 1
-                    current_value_batch = {k: deque() for k in df.schema.keys()}
+                    current_value_batch = {k: deque() for k in df.schema}
                     current_byte_estimate = 0
 
             _write_batch(current_value_batch, arrow_schema, temp_path / f'part-{batch_num:05d}.parquet')
@@ -173,32 +168,12 @@ def import_parquet(
     Returns:
         A handle to the newly created table.
     """
-    from pyarrow import parquet
-
-    from pixeltable.utils.arrow import ar_infer_schema, iter_tuples2
-
-    input_path = Path(parquet_path).expanduser()
-    parquet_dataset = parquet.ParquetDataset(str(input_path))
-
-    schema_overrides, primary_key = normalize_import_parameters(schema_overrides, primary_key)
-    ar_schema = ar_infer_schema(parquet_dataset.schema, schema_overrides, primary_key)
-    schema, pxt_pk, col_mapping = normalize_schema_names(ar_schema, primary_key, schema_overrides, False)
-
-    if table in pxt.list_tables():
-        raise exc.Error(f'Table {table} already exists')
-
-    tmp_name = f'{table}_tmp_{random.randint(0, 100000000)}'
-    total_rows = 0
-    try:
-        tab = pxt.create_table(tmp_name, schema, primary_key=pxt_pk, **kwargs)
-        for fragment in parquet_dataset.fragments:  # type: ignore[attr-defined]
-            for batch in fragment.to_batches():
-                dict_batch = list(iter_tuples2(batch, col_mapping, schema))
-                total_rows += len(dict_batch)
-                tab.insert(dict_batch)
-    except Exception as e:
-        _logger.error(f'Error after inserting {total_rows} rows from Parquet file into table: {e}')
-        raise e
-
-    pxt.move(tmp_name, table)
-    return pxt.get_table(table)
+    value = kwargs.pop('source_format', None)
+    return pxt.create_table(
+        table,
+        source=parquet_path,
+        source_format=value,
+        schema_overrides=schema_overrides,
+        primary_key=primary_key,
+        extra_args=kwargs,
+    )

@@ -75,7 +75,7 @@ class ExecNode(abc.ABC):
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
 
-        if 'pytest' in sys.modules:
+        if _logger.isEnabledFor(logging.DEBUG):
             loop.set_debug(True)
 
         aiter = self.__aiter__()

@@ -1,41 +1,38 @@
 from __future__ import annotations
 
-import logging
-import math
-import random
 import typing
 from typing import Any, Optional, Union
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
-from pixeltable import exceptions as excs
-
-from .utils import normalize_import_parameters, normalize_schema_names
 
 if typing.TYPE_CHECKING:
     import datasets  # type: ignore[import-untyped]
 
-_logger = logging.getLogger('pixeltable')
 
-# use 100MB as the batch size limit for loading a huggingface dataset into pixeltable.
-# The primary goal is to bound memory use, regardless of dataset size.
-# Second goal is to limit overhead. 100MB is presumed to be reasonable for a lot of storage systems.
-_K_BATCH_SIZE_BYTES = 100_000_000
-
-# note, there are many more types. we allow overrides in the schema_override parameter
+# note, there are many more types. we allow overrides in the schema_overrides parameter
 # to handle cases where the appropriate type is not yet mapped, or to override this mapping.
 # https://huggingface.co/docs/datasets/v2.17.0/en/package_reference/main_classes#datasets.Value
 _hf_to_pxt: dict[str, ts.ColumnType] = {
-    'int32': ts.IntType(nullable=True),  # pixeltable widens to big int
-    'int64': ts.IntType(nullable=True),
     'bool': ts.BoolType(nullable=True),
+    'int8': ts.IntType(nullable=True),
+    'int16': ts.IntType(nullable=True),
+    'int32': ts.IntType(nullable=True),
+    'int64': ts.IntType(nullable=True),
+    'uint8': ts.IntType(nullable=True),
+    'uint16': ts.IntType(nullable=True),
+    'uint32': ts.IntType(nullable=True),
+    'uint64': ts.IntType(nullable=True),
+    'float16': ts.FloatType(nullable=True),
     'float32': ts.FloatType(nullable=True),
     'float64': ts.FloatType(nullable=True),
-    'large_string': ts.StringType(nullable=True),
     'string': ts.StringType(nullable=True),
+    'large_string': ts.StringType(nullable=True),
     'timestamp[s]': ts.TimestampType(nullable=True),
     'timestamp[ms]': ts.TimestampType(nullable=True),  # HF dataset iterator converts timestamps to datetime.datetime
     'timestamp[us]': ts.TimestampType(nullable=True),
+    'date32': ts.StringType(nullable=True),  # date32 is not supported in pixeltable, use string
+    'date64': ts.StringType(nullable=True),  # date64 is not supported in pixeltable, use string
 }
 
 
@@ -88,7 +85,6 @@ def import_huggingface_dataset(
     table_path: str,
     dataset: Union[datasets.Dataset, datasets.DatasetDict],
     *,
-    column_name_for_split: Optional[str] = None,
     schema_overrides: Optional[dict[str, Any]] = None,
     primary_key: Optional[Union[str, list[str]]] = None,
     **kwargs: Any,
@@ -101,91 +97,18 @@ def import_huggingface_dataset(
         dataset: Huggingface [`datasets.Dataset`](https://huggingface.co/docs/datasets/en/package_reference/main_classes#datasets.Dataset)
             or [`datasets.DatasetDict`](https://huggingface.co/docs/datasets/en/package_reference/main_classes#datasets.DatasetDict)
             to insert into the table.
-        column_name_for_split: column name to use for split information. If None, no split information will be stored.
         schema_overrides: If specified, then for each (name, type) pair in `schema_overrides`, the column with
-            name `name` will be given type `type`, instead of being inferred from the `Dataset` or `DatasetDict`. The keys in
-            `schema_overrides` should be the column names of the `Dataset` or `DatasetDict` (whether or not they are valid
-            Pixeltable identifiers).
+            name `name` will be given type `type`, instead of being inferred from the `Dataset` or `DatasetDict`.
+            The keys in `schema_overrides` should be the column names of the `Dataset` or `DatasetDict` (whether or not
+            they are valid Pixeltable identifiers).
         primary_key: The primary key of the table (see [`create_table()`][pixeltable.create_table]).
         kwargs: Additional arguments to pass to `create_table`.
+            An argument of `column_name_for_split` must be provided if the source is a DatasetDict.
+            This column name will contain the split information. If None, no split information will be stored.
 
     Returns:
         A handle to the newly created [`Table`][pixeltable.Table].
     """
-    import datasets
-
-    import pixeltable as pxt
-
-    if not isinstance(dataset, (datasets.Dataset, datasets.DatasetDict)):
-        raise excs.Error(f'`type(dataset)` must be `datasets.Dataset` or `datasets.DatasetDict`. Got {type(dataset)=}')
-
-    # Create the pixeltable schema from the huggingface schema
-    hf_schema_source = _get_hf_schema(dataset)
-    schema_overrides, primary_key = normalize_import_parameters(schema_overrides, primary_key)
-    hf_schema = huggingface_schema_to_pxt_schema(hf_schema_source, schema_overrides, primary_key)
-
-    # Add the split column to the schema if requested
-    if column_name_for_split is not None:
-        if column_name_for_split in hf_schema:
-            raise excs.Error(
-                f'Column name `{column_name_for_split}` already exists in dataset schema; provide a different `column_name_for_split`'
-            )
-        hf_schema[column_name_for_split] = ts.StringType(nullable=True)
-
-    schema, pxt_pk, _ = normalize_schema_names(hf_schema, primary_key, schema_overrides, True)
-
-    # Prepare to create table and insert data
-    if table_path in pxt.list_tables():
-        raise excs.Error(f'table {table_path} already exists')
-
-    if isinstance(dataset, datasets.Dataset):
-        # when loading an hf dataset partially, dataset.split._name is sometimes the form "train[0:1000]"
-        raw_name = dataset.split._name
-        split_name = raw_name.split('[')[0] if raw_name is not None else None
-        dataset_dict = {split_name: dataset}
-    else:
-        dataset_dict = dataset
-
-    # extract all class labels from the dataset to translate category ints to strings
-    categorical_features = {
-        feature_name: feature_type.names
-        for (feature_name, feature_type) in hf_schema_source.items()
-        if isinstance(feature_type, datasets.ClassLabel)
-    }
-
-    try:
-        # random tmp name
-        tmp_name = f'{table_path}_tmp_{random.randint(0, 100000000)}'
-        tab = pxt.create_table(tmp_name, schema, primary_key=pxt_pk, **kwargs)
-
-        def _translate_row(row: dict[str, Any], split_name: str) -> dict[str, Any]:
-            output_row = row.copy()
-            # map all class labels to strings
-            for field, values in categorical_features.items():
-                output_row[field] = values[row[field]]
-            # add split name to row
-            if column_name_for_split is not None:
-                output_row[column_name_for_split] = split_name
-            return output_row
-
-        for split_name, split_dataset in dataset_dict.items():
-            num_batches = split_dataset.size_in_bytes / _K_BATCH_SIZE_BYTES
-            tuples_per_batch = math.ceil(split_dataset.num_rows / num_batches)
-            assert tuples_per_batch > 0
-
-            batch = []
-            for row in split_dataset:
-                batch.append(_translate_row(row, split_name))
-                if len(batch) >= tuples_per_batch:
-                    tab.insert(batch)
-                    batch = []
-            # last batch
-            if len(batch) > 0:
-                tab.insert(batch)
-
-    except Exception as e:
-        _logger.error(f'Error while inserting dataset into table: {tmp_name}')
-        raise e
-
-    pxt.move(tmp_name, table_path)
-    return pxt.get_table(table_path)
+    return pxt.create_table(
+        table_path, source=dataset, schema_overrides=schema_overrides, primary_key=primary_key, extra_args=kwargs
+    )

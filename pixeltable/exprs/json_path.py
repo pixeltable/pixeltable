@@ -80,11 +80,16 @@ class JsonPath(Expr):
     def is_relative_path(self) -> bool:
         return self._anchor is None
 
-    def bind_rel_paths(self, mapper: Optional['JsonMapper'] = None) -> None:
-        if not self.is_relative_path():
-            return
-        # TODO: take scope_idx into account
-        self.set_anchor(mapper.scope_anchor)
+    @property
+    def _has_relative_path(self) -> bool:
+        return self.is_relative_path() or super()._has_relative_path
+
+    def _bind_rel_paths(self, mapper: Optional['JsonMapper'] = None) -> None:
+        if self.is_relative_path():
+            # TODO: take scope_idx into account
+            self.set_anchor(mapper.scope_anchor)
+        else:
+            self._anchor._bind_rel_paths(mapper)
 
     def __call__(self, *args: object, **kwargs: object) -> 'JsonPath':
         """
@@ -104,12 +109,6 @@ class JsonPath(Expr):
         if isinstance(index, (int, slice, str)):
             return JsonPath(self._anchor, [*self.path_elements, index])
         raise excs.Error(f'Invalid json list index: {index}')
-
-    def __rshift__(self, other: object) -> 'JsonMapper':
-        rhs_expr = Expr.from_object(other)
-        if rhs_expr is None:
-            raise excs.Error(f'>> requires an expression on the right-hand side, found {type(other)}')
-        return JsonMapper(self, rhs_expr)
 
     def default_column_name(self) -> Optional[str]:
         anchor_name = self._anchor.default_column_name() if self._anchor is not None else ''

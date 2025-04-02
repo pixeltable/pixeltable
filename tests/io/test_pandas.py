@@ -12,7 +12,7 @@ from ..utils import skip_test_if_not_installed
 
 
 class TestPandas:
-    def test_pandas_types(self, reset_db) -> None:
+    def test_import_pandas_types(self, reset_db) -> None:
         df = pd.DataFrame(
             {
                 'int_col': [1, 2],
@@ -48,7 +48,46 @@ class TestPandas:
             'image_col': pxt.ImageType(width=100, nullable=True),
         }
 
-    def test_pandas_csv(self, reset_db) -> None:
+    def test_insert_pandas_types(self, reset_db) -> None:
+        df = pd.DataFrame(
+            {
+                'int_col': [1, 2],
+                'float_col': [1.0, 2.0],
+                'bool_col': [True, False],
+                'str_col': ['a', 'b'],
+                'dt_col': [datetime.datetime(2024, 1, 1), datetime.datetime(2024, 1, 2)],
+                'aware_dt_col': [
+                    datetime.datetime(2024, 1, 1),
+                    datetime.datetime(2024, 1, 1, tzinfo=datetime.timezone.utc),
+                ],
+                'json_col_1': [[1, 2], [3, 4]],
+                'json_col_2': [{'a': 1}, {'b': 2}],
+                'array_col_1': [np.ndarray((1, 2), dtype=np.int64), np.ndarray((3, 2), dtype=np.int64)],
+                'array_col_2': [np.ndarray((1, 2), dtype=np.int64), np.ndarray((3, 4), dtype=np.int64)],
+                'array_col_3': [np.ndarray((1, 2), dtype=np.float32), np.ndarray((3, 4), dtype=np.float32)],
+                'image_col': [PIL.Image.new('RGB', (100, 100)), PIL.Image.new('L', (100, 200))],
+            }
+        )
+        t = pxt.io.import_pandas('test_types', df)
+        assert t._schema == {
+            'int_col': pxt.IntType(nullable=True),
+            'float_col': pxt.FloatType(nullable=True),
+            'bool_col': pxt.BoolType(nullable=True),
+            'str_col': pxt.StringType(nullable=True),
+            'dt_col': pxt.TimestampType(nullable=True),
+            'aware_dt_col': pxt.TimestampType(nullable=True),
+            'json_col_1': pxt.JsonType(nullable=True),
+            'json_col_2': pxt.JsonType(nullable=True),
+            'array_col_1': pxt.ArrayType(shape=(None, 2), dtype=pxt.IntType(), nullable=True),
+            'array_col_2': pxt.ArrayType(shape=(None, None), dtype=pxt.IntType(), nullable=True),
+            'array_col_3': pxt.ArrayType(shape=(None, None), dtype=pxt.FloatType(), nullable=True),
+            'image_col': pxt.ImageType(width=100, nullable=True),
+        }
+        assert t.count() == len(df)
+        t.insert(df)
+        assert t.count() == 2 * len(df)
+
+    def test_import_pandas_csv(self, reset_db) -> None:
         from pixeltable.io import import_csv
 
         t1 = import_csv('online_foods', 'tests/data/datasets/onlinefoods.csv')
@@ -110,6 +149,24 @@ class TestPandas:
             datetime.datetime(2024, 5, 6).astimezone(None),
         ]
 
+    def test_insert_pandas_csv(self, reset_db) -> None:
+        from pixeltable.io import import_csv
+
+        t1 = import_csv('online_foods', 'tests/data/datasets/onlinefoods.csv')
+        assert t1.count() == 388
+        t1.insert('tests/data/datasets/onlinefoods.csv')
+        assert t1.count() == 2 * 388
+
+        t2 = import_csv('ibm', 'tests/data/datasets/classeurIBM.csv', primary_key='Date')
+        assert t2.count() == 4263
+        t2.insert('tests/data/datasets/classeurIBM.csv')
+        assert t2.count() == 2 * 4263
+
+        t3 = import_csv('edge_cases', 'tests/data/datasets/edge-cases.csv', parse_dates=['ts', 'ts_n'])
+        assert t3.count() == 4
+        t3.insert('tests/data/datasets/edge-cases.csv')
+        assert t3.count() == 2 * 4
+
     def test_pandas_images(self, reset_db) -> None:
         skip_test_if_not_installed('boto3')  # This test relies on s3 URLs
         from pixeltable.io.pandas import import_csv
@@ -123,7 +180,7 @@ class TestPandas:
         result_set = t4.order_by(t4.name).select(t4.image.width).collect()
         assert result_set['width'] == [1024, None, 1024, 962]
 
-    def test_pandas_excel(self, reset_db) -> None:
+    def test_import_pandas_excel(self, reset_db) -> None:
         skip_test_if_not_installed('openpyxl')
         from pixeltable.io.pandas import import_excel
 
@@ -143,6 +200,25 @@ class TestPandas:
         assert t6.count() == 8
         # Ensure that StringType is used when the column contains mixed types
         assert t6._schema['correct_answer'] == pxt.StringType(nullable=True)
+
+    def test_insert_pandas_excel(self, reset_db) -> None:
+        skip_test_if_not_installed('openpyxl')
+        from pixeltable.io.pandas import import_excel
+
+        t4 = import_excel('fin_sample', 'tests/data/datasets/Financial Sample.xlsx')
+        assert t4.count() == 700
+        t4.insert('tests/data/datasets/Financial Sample.xlsx')
+        assert t4.count() == 2 * 700
+
+        t5 = import_excel('sale_data', 'tests/data/datasets/SaleData.xlsx')
+        assert t5.count() == 45
+        t5.insert('tests/data/datasets/SaleData.xlsx')
+        assert t5.count() == 2 * 45
+
+        t6 = import_excel('questions', 'docs/resources/rag-demo/Q-A-Rag.xlsx')
+        assert t6.count() == 8
+        t6.insert('docs/resources/rag-demo/Q-A-Rag.xlsx')
+        assert t6.count() == 2 * 8
 
     def test_pandas_errors(self, reset_db) -> None:
         from pixeltable.io import import_csv
