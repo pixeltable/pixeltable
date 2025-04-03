@@ -78,13 +78,22 @@ Pixeltable tool-calling apps work in two phases:
         if_exists="ignore"
     )
 
+    tool_choice_opts = [
+        None,
+        tools.choice(auto=True),
+        tools.choice(required=True),
+        tools.choice(tool='stock_price'),
+        tools.choice(tool=weather),
+        tools.choice(required=True, parallel_tool_calls=False),
+    ]
+
     # Add tool selection and execution workflow
     tool_agent.add_computed_column(
         initial_response=chat_completions(
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": tool_agent.prompt}],
             tools=tools,
-            tool_choice=tools.choice(required=True),
+            tool_choice=tool_choice_opts[1],
         )
     )
 
