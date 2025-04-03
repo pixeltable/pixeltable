@@ -4,7 +4,9 @@ import abc
 import asyncio
 from dataclasses import dataclass
 from types import TracebackType
-from typing import Any, Optional, Protocol
+from typing import Any, Iterable, Optional, Protocol
+
+import numpy as np
 
 from pixeltable import exprs, func
 
@@ -96,9 +98,7 @@ class Dispatcher(Protocol):
         """Dispatches row slots to the appropriate schedulers; does not block"""
         ...
 
-    def dispatch_exc(
-        self, rows: list[exprs.DataRow], slot_with_exc: int, exc_tb: TracebackType, exec_ctx: Any
-    ) -> None:
+    def dispatch_exc(self, rows: list[exprs.DataRow], slot_with_exc: int, exc_tb: TracebackType, exec_ctx: Any) -> None:
         """Propagates exception in slot_with_exc to all dependent slots and dispatches the rest; does not block"""
         ...
 
@@ -120,12 +120,12 @@ class Evaluator(abc.ABC):
 
     dispatcher: Dispatcher
     is_closed: bool
-    row_builder: exprs.RowBuilder
+    exec_ctx: 'ExecCtx'
 
-    def __init__(self, dispatcher: Dispatcher, row_builder: exprs.RowBuilder) -> None:
+    def __init__(self, dispatcher: Dispatcher, exec_ctx: 'ExecCtx') -> None:
         self.dispatcher = dispatcher
         self.is_closed = False
-        self.row_builder = row_builder
+        self.exec_ctx = exec_ctx
 
     @abc.abstractmethod
     def schedule(self, rows: list[exprs.DataRow], slot_idx: int) -> None:
@@ -140,3 +140,48 @@ class Evaluator(abc.ABC):
         """Indicates that there may not be any more rows getting scheduled"""
         self.is_closed = True
         self._close()
+
+
+class ExecCtx:
+    """Per-row execution parameters"""
+
+    row_builder: exprs.RowBuilder
+    slot_evaluators: dict[int, Evaluator]  # key: slot idx
+    gc_targets: np.ndarray  # bool per slot; True if this is an intermediate expr (ie, not part of our output)
+    eval_ctx: np.ndarray  # bool per slot; EvalCtx.slot_idxs as a mask
+
+    def __init__(
+        self,
+        dispatcher: Dispatcher,
+        row_builder: exprs.RowBuilder,
+        output_exprs: Iterable[exprs.Expr],
+        input_exprs: Iterable[exprs.Expr],
+    ):
+        self.row_builder = row_builder
+        self.slot_evaluators = {}
+        # TODO: only include output_exprs dependencies
+        self.gc_targets = np.ones(self.row_builder.num_materialized, dtype=bool)
+        # we need to retain all slots that are part of the output
+        self.gc_targets[[e.slot_idx for e in self.row_builder.output_exprs]] = False
+
+        output_ctx = self.row_builder.create_eval_ctx(output_exprs, exclude=input_exprs)
+        self.eval_ctx = np.zeros(self.row_builder.num_materialized, dtype=bool)
+        self.eval_ctx[output_ctx.slot_idxs] = True
+        self._init_slot_evaluators(dispatcher, output_ctx.slot_idxs)
+
+    def _init_slot_evaluators(self, dispatcher: Dispatcher, target_slot_idxs: list[int]) -> None:
+        from .evaluators import DefaultExprEvaluator, FnCallEvaluator, JsonMapperDispatcher
+
+        for slot_idx in target_slot_idxs:
+            expr = self.row_builder.unique_exprs[slot_idx]
+            if (
+                isinstance(expr, exprs.FunctionCall)
+                # ExprTemplateFunction and AggregateFunction calls are best handled by FunctionCall.eval()
+                and not isinstance(expr.fn, func.ExprTemplateFunction)
+                and not isinstance(expr.fn, func.AggregateFunction)
+            ):
+                self.slot_evaluators[slot_idx] = FnCallEvaluator(expr, dispatcher, self.row_builder)
+            elif isinstance(expr, exprs.JsonMapperDispatch):
+                self.slot_evaluators[slot_idx] = JsonMapperDispatcher(expr, dispatcher, self.row_builder)
+            else:
+                self.slot_evaluators[slot_idx] = DefaultExprEvaluator(expr, dispatcher, self.row_builder)

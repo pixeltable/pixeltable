@@ -15,46 +15,11 @@ from pixeltable import exprs, func
 from ..data_row_batch import DataRowBatch
 from ..exec_node import ExecNode
 from .evaluators import DefaultExprEvaluator, FnCallEvaluator, JsonMapperDispatcher, NestedRowList
-from .globals import Evaluator, Scheduler, Dispatcher
+from .globals import Dispatcher, Evaluator, ExecCtx, Scheduler
 from .row_buffer import RowBuffer
 from .schedulers import SCHEDULERS
 
 _logger = logging.getLogger('pixeltable')
-
-
-class ExecCtx:
-    """Per-row execution parameters"""
-    row_builder: exprs.RowBuilder
-    slot_evaluators: dict[int, Evaluator]  # key: slot idx
-    gc_targets: np.ndarray  # bool per slot; True if this is an intermediate expr (ie, not part of our output)
-    eval_ctx: np.ndarray  # bool per slot; EvalCtx.slot_idxs as a mask
-
-    def __init__(self, dispatcher: Dispatcher, row_builder: exprs.RowBuilder, output_exprs: Iterable[exprs.Expr], input_exprs: Iterable[exprs.Expr]):
-        self.row_builder = row_builder
-        self.slot_evaluators = {}
-        self.gc_targets = np.ones(self.row_builder.num_materialized, dtype=bool)
-        # we need to retain all slots that are part of the output
-        self.gc_targets[[e.slot_idx for e in self.row_builder.output_exprs]] = False
-
-        output_ctx = self.row_builder.create_eval_ctx(output_exprs, exclude=input_exprs)
-        self.eval_ctx = np.zeros(self.row_builder.num_materialized, dtype=bool)
-        self.eval_ctx[output_ctx.slot_idxs] = True
-        self._init_slot_evaluators(dispatcher)
-
-    def _init_slot_evaluators(self, dispatcher: Dispatcher) -> None:
-        for slot_idx in range(self.row_builder.num_materialized):
-            expr = self.row_builder.unique_exprs[slot_idx]
-            if (
-                    isinstance(expr, exprs.FunctionCall)
-                    # ExprTemplateFunction and AggregateFunction calls are best handled by FunctionCall.eval()
-                    and not isinstance(expr.fn, func.ExprTemplateFunction)
-                    and not isinstance(expr.fn, func.AggregateFunction)
-            ):
-                self.slot_evaluators[slot_idx] = FnCallEvaluator(expr, dispatcher, self.row_builder)
-            elif isinstance(expr, exprs.JsonMapperDispatch):
-                self.slot_evaluators[slot_idx] = JsonMapperDispatcher(expr, dispatcher, self.row_builder)
-            else:
-                self.slot_evaluators[slot_idx] = DefaultExprEvaluator(expr, dispatcher, self.row_builder)
 
 
 class ExprEvalNode(ExecNode):
@@ -79,10 +44,10 @@ class ExprEvalNode(ExecNode):
 
     maintain_input_order: bool  # True if we're returning rows in the order we received them from our input
     outputs: np.ndarray  # bool per slot; True if this slot is part of our output
-    #slot_evaluators: dict[int, Evaluator]  # key: slot idx
+    # slot_evaluators: dict[int, Evaluator]  # key: slot idx
     schedulers: dict[str, Scheduler]  # key: resource pool name
-    #gc_targets: np.ndarray  # bool per slot; True if this is an intermediate expr (ie, not part of our output)
-    #eval_ctx: np.ndarray  # bool per slot; EvalCtx.slot_idxs as a mask
+    # gc_targets: np.ndarray  # bool per slot; True if this is an intermediate expr (ie, not part of our output)
+    # eval_ctx: np.ndarray  # bool per slot; EvalCtx.slot_idxs as a mask
     exec_ctx: ExecCtx  # for input/output rows
 
     # execution state
@@ -123,13 +88,13 @@ class ExprEvalNode(ExecNode):
         self.outputs[output_slot_idxs] = True
         self.tasks = set()
 
-        #self.gc_targets = np.ones(row_builder.num_materialized, dtype=bool)
+        # self.gc_targets = np.ones(row_builder.num_materialized, dtype=bool)
         # we need to retain all slots that are part of the output
-        #self.gc_targets[[e.slot_idx for e in row_builder.output_exprs]] = False
+        # self.gc_targets[[e.slot_idx for e in row_builder.output_exprs]] = False
 
-        #output_ctx = self.row_builder.create_eval_ctx(output_exprs, exclude=input_exprs)
-        #self.eval_ctx = np.zeros(row_builder.num_materialized, dtype=bool)
-        #self.eval_ctx[output_ctx.slot_idxs] = True
+        # output_ctx = self.row_builder.create_eval_ctx(output_exprs, exclude=input_exprs)
+        # self.eval_ctx = np.zeros(row_builder.num_materialized, dtype=bool)
+        # self.eval_ctx[output_ctx.slot_idxs] = True
         self.error = None
 
         self.input_iter = self.input.__aiter__()
@@ -145,9 +110,9 @@ class ExprEvalNode(ExecNode):
         self.num_input_rows = 0
         self.num_output_rows = 0
 
-        #self.slot_evaluators = {}
+        # self.slot_evaluators = {}
         self.schedulers = {}
-        #self._init_slot_evaluators()
+        # self._init_slot_evaluators()
         self.exec_ctx = ExecCtx(self, self.row_builder, output_exprs, input_exprs)
 
     def set_input_order(self, maintain_input_order: bool) -> None:
@@ -250,7 +215,9 @@ class ExprEvalNode(ExecNode):
 
     def _init_schedulers(self) -> None:
         resource_pools = {
-            eval.fn_call.resource_pool for eval in self.exec_ctx.slot_evaluators.values() if isinstance(eval, FnCallEvaluator)
+            eval.fn_call.resource_pool
+            for eval in self.exec_ctx.slot_evaluators.values()
+            if isinstance(eval, FnCallEvaluator)
         }
         resource_pools = {pool for pool in resource_pools if pool is not None}
         for pool_name in resource_pools:
