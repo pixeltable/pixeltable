@@ -271,6 +271,41 @@ class TestOpenai:
         assert res[0]['output'] is None
         assert res[0]['tool_calls'] == {'banana_quantity': [131.17]}
 
+    @pytest.mark.skip('Requires support for async JsonMapper execution')
+    def test_query_as_tool(self, reset_db) -> None:
+        skip_test_if_not_installed('openai')
+        TestOpenai.skip_test_if_no_openai_client()
+        from pixeltable.functions.openai import chat_completions, invoke_tools
+
+        t = pxt.create_table('customer_tbl', {'customer_id': pxt.String, 'name': pxt.String})
+        t.insert(
+            [{'customer_id': 'Q371A', 'name': 'Aaron Siegel'}, {'customer_id': 'B117F', 'name': 'Marcel Kornacker'}]
+        )
+
+        @pxt.query
+        def get_customer_name(customer_id: str) -> pxt.DataFrame:
+            """
+            Get the customer name for a given customer ID.
+
+            Args:
+                customer_id - The ID of the customer to look up.
+            """
+            return t.where(t.customer_id == customer_id).select(t.name)
+
+        u = pxt.create_table('test_tbl', {'prompt': pxt.String})
+
+        messages = [{'role': 'user', 'content': u.prompt}]
+        tools = pxt.tools(get_customer_name)
+        u.add_computed_column(response=chat_completions(model='gpt-4o-mini', messages=messages, tools=tools))
+        u.add_computed_column(output=u.response.choices[0].message.content)
+        u.add_computed_column(tool_calls=invoke_tools(tools, u.response))
+        u.insert(prompt='What is the name of the customer with customer ID Q371A?')
+        u.insert(prompt='What is the name of the customer with customer ID B117F?')
+        res = u.select(u.output, u.tool_calls).head()
+
+        assert res[0]['output'] is None
+        assert res[0]['tool_calls'] == {'get_customer_name': [[{'name': 'Aaron Siegel'}]]}
+
     @pytest.mark.expensive
     def test_gpt_4_vision(self, reset_db) -> None:
         skip_test_if_not_installed('openai')

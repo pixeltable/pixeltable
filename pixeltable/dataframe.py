@@ -624,6 +624,8 @@ class DataFrame:
 
             >>> df = person.where(t.age > 30)
         """
+        if self.where_clause is not None:
+            raise excs.Error('Where clause already specified')
         if not isinstance(pred, exprs.Expr):
             raise excs.Error(f'Where() requires a Pixeltable expression, but instead got {type(pred)}')
         if not pred.col_type.is_bool_type():
