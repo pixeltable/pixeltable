@@ -120,6 +120,9 @@ class TestDataFrame:
             _ = t.select(t.c1, t2.c1 + t.c2).collect()
         assert 'cannot be evaluated in the context' in str(exc_info.value)
 
+        with pytest.raises(excs.Error, match='Where clause already specified'):
+            r2 = t.select(t.c2).where(t.c2 <= 10).where(t.c2 <= 20).count()
+
     def test_join(self, reset_db) -> None:
         t1, t2, t3 = self.create_join_tbls(1000)
         # inner join
