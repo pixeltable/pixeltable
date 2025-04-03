@@ -225,6 +225,7 @@ ignore = [
     "PLR6301",  # Class method (not sure what to do yet)
     "PLW0108",  # Lambda may be unnecessary (gives false positives, e.g., for an arity-reducing lambda)
     "PLW3201",  # Dunder method has no special meaning (conflicts with _repr_html_)
+    "PYI041",  # Use `float` instead of `int | float` (just seems like a questionable idea)
     "SIM108",  # Don't prefer use of ternary if/else operator
     "TD002"  # Don't require author for TODOs
 ]
