@@ -629,7 +629,8 @@ class Table(SchemaObject):
         if isinstance(spec, exprs.Expr):
             for e in spec.subexprs(expr_class=exprs.ColumnPropertyRef, traverse_matches=False):
                 if e.is_error_prop():
-                    raise excs.Error('A computed column may not reference the errortype or errormsg of another column')
+                    raise excs.Error('Use of a reference to an error property of another column is not allowed in a computed column. '
+                                     f'The specified computation for this column contains this reference: `{e!r}`')
 
         with Env.get().begin_xact():
             # handle existing columns based on if_exists parameter
