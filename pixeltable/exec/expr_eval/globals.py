@@ -61,11 +61,13 @@ class Scheduler(abc.ABC):
     resource_pool: str
     queue: asyncio.PriorityQueue[QueueItem]  # prioritizes retries
     dispatcher: Dispatcher
+    row_builder: exprs.RowBuilder
 
-    def __init__(self, resource_pool: str, dispatcher: Dispatcher):
+    def __init__(self, resource_pool: str, dispatcher: Dispatcher, row_builder: exprs.RowBuilder):
         self.resource_pool = resource_pool
         self.queue = asyncio.PriorityQueue()
         self.dispatcher = dispatcher
+        self.row_builder = row_builder
 
     def submit(self, item: FnCallArgs) -> None:
         self.queue.put_nowait(self.QueueItem(item, 0))
@@ -90,11 +92,13 @@ class Dispatcher(Protocol):
     exc_event: asyncio.Event
     schedulers: dict[str, Scheduler]  # key: resource pool id
 
-    def dispatch(self, rows: list[exprs.DataRow]) -> None:
+    def dispatch(self, rows: list[exprs.DataRow], exec_ctx: Any) -> None:
         """Dispatches row slots to the appropriate schedulers; does not block"""
         ...
 
-    def dispatch_exc(self, rows: list[exprs.DataRow], slot_with_exc: int, exc_tb: TracebackType) -> None:
+    def dispatch_exc(
+        self, rows: list[exprs.DataRow], slot_with_exc: int, exc_tb: TracebackType, exec_ctx: Any
+    ) -> None:
         """Propagates exception in slot_with_exc to all dependent slots and dispatches the rest; does not block"""
         ...
 
@@ -116,10 +120,12 @@ class Evaluator(abc.ABC):
 
     dispatcher: Dispatcher
     is_closed: bool
+    row_builder: exprs.RowBuilder
 
-    def __init__(self, dispatcher: Dispatcher):
+    def __init__(self, dispatcher: Dispatcher, row_builder: exprs.RowBuilder) -> None:
         self.dispatcher = dispatcher
         self.is_closed = False
+        self.row_builder = row_builder
 
     @abc.abstractmethod
     def schedule(self, rows: list[exprs.DataRow], slot_idx: int) -> None:

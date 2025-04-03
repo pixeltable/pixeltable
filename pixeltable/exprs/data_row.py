@@ -63,11 +63,25 @@ class DataRow:
     # - None if vals[i] is not a media type or if there is no local file yet for file_urls[i]
     file_paths: np.ndarray  # of str
 
-    def __init__(self, size: int, img_slot_idxs: list[int], media_slot_idxs: list[int], array_slot_idxs: list[int]):
+    # for nested rows
+    parent_row: Optional[DataRow]
+    parent_slot_idx: Optional[int]
+
+    def __init__(
+        self,
+        size: int,
+        img_slot_idxs: list[int],
+        media_slot_idxs: list[int],
+        array_slot_idxs: list[int],
+        parent_row: Optional[DataRow] = None,
+        parent_slot_idx: Optional[int] = None,
+    ):
         self.img_slot_idxs = img_slot_idxs
         self.media_slot_idxs = media_slot_idxs
         self.array_slot_idxs = array_slot_idxs
         self.init(size)
+        self.parent_row = parent_row
+        self.parent_slot_idx = parent_slot_idx
 
     def init(self, num_slots: int) -> None:
         self.vals = np.full(num_slots, None, dtype=object)
@@ -79,6 +93,8 @@ class DataRow:
         self.pk = None
         self.file_urls = np.full(num_slots, None, dtype=object)
         self.file_paths = np.full(num_slots, None, dtype=object)
+        self.parent_row = None
+        self.parent_slot_idx = None
 
     def clear(self, idxs: Optional[np.ndarray] = None) -> None:
         if idxs is not None:

@@ -8,7 +8,7 @@ import sys
 import time
 from typing import Awaitable, Collection, Optional
 
-from pixeltable import env, func
+from pixeltable import env, exprs, func
 from pixeltable.config import Config
 
 from .globals import Dispatcher, FnCallArgs, Scheduler
@@ -46,8 +46,8 @@ class RateLimitsScheduler(Scheduler):
     TIME_FORMAT = '%H:%M.%S %f'
     MAX_RETRIES = 10
 
-    def __init__(self, resource_pool: str, dispatcher: Dispatcher):
-        super().__init__(resource_pool, dispatcher)
+    def __init__(self, resource_pool: str, dispatcher: Dispatcher, row_builder: exprs.RowBuilder):
+        super().__init__(resource_pool, dispatcher, row_builder)
         loop_task = asyncio.create_task(self._main_loop())
         self.dispatcher.register_task(loop_task)
         self.pool_info = None  # initialized in _main_loop by the first request
@@ -199,7 +199,7 @@ class RateLimitsScheduler(Scheduler):
             # purge accumulated usage estimate, now that we have a new report
             self.est_usage = {r: 0 for r in self._resources}
 
-            self.dispatcher.dispatch(request.rows)
+            self.dispatcher.dispatch(request.rows, self.row_builder)
         except Exception as exc:
             _logger.debug(f'scheduler {self.resource_pool}: exception in slot {request.fn_call.slot_idx}: {exc}')
             if self.pool_info is None:
@@ -220,7 +220,7 @@ class RateLimitsScheduler(Scheduler):
             _, _, exc_tb = sys.exc_info()
             for row in request.rows:
                 row.set_exc(request.fn_call.slot_idx, exc)
-            self.dispatcher.dispatch_exc(request.rows, request.fn_call.slot_idx, exc_tb)
+            self.dispatcher.dispatch_exc(request.rows, request.fn_call.slot_idx, exc_tb, self.row_builder)
         finally:
             _logger.debug(f'Scheduler stats: #requests={self.total_requests}, #retried={self.total_retried}')
             if is_task:
@@ -254,8 +254,8 @@ class RequestRateScheduler(Scheduler):
     MAX_RETRIES = 10
     DEFAULT_RATE_LIMIT = 600  # requests per minute
 
-    def __init__(self, resource_pool: str, dispatcher: Dispatcher):
-        super().__init__(resource_pool, dispatcher)
+    def __init__(self, resource_pool: str, dispatcher: Dispatcher, row_builder: exprs.RowBuilder):
+        super().__init__(resource_pool, dispatcher, row_builder)
         loop_task = asyncio.create_task(self._main_loop())
         self.dispatcher.register_task(loop_task)
         self.num_in_flight = 0
@@ -333,7 +333,7 @@ class RequestRateScheduler(Scheduler):
             _logger.debug(
                 f'scheduler {self.resource_pool}: evaluated slot {request.fn_call.slot_idx} in {end_ts - start_ts}, batch_size={len(request.rows)}'
             )
-            self.dispatcher.dispatch(request.rows)
+            self.dispatcher.dispatch(request.rows, self.row_builder)
 
         except Exception as exc:
             # TODO: which exception can be retried?
@@ -348,7 +348,7 @@ class RequestRateScheduler(Scheduler):
             _, _, exc_tb = sys.exc_info()
             for row in request.rows:
                 row.set_exc(request.fn_call.slot_idx, exc)
-            self.dispatcher.dispatch_exc(request.rows, request.fn_call.slot_idx, exc_tb)
+            self.dispatcher.dispatch_exc(request.rows, request.fn_call.slot_idx, exc_tb, self.row_builder)
         finally:
             _logger.debug(
                 f'Scheduler stats: #in-flight={self.num_in_flight} #requests={self.total_requests}, #retried={self.total_retried}'

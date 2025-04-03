@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional, Any
+from typing import TYPE_CHECKING, Any, Optional
 
 import sqlalchemy as sql
 
@@ -26,7 +26,7 @@ class JsonMapper(Expr):
     parent_mapper: Optional[JsonMapper]
     target_expr_eval_ctx: Optional[RowBuilder.EvalCtx]
 
-    def __init__(self, src_expr: Expr, target_expr: Expr):
+    def __init__(self, src_expr: Optional[Expr], target_expr: Optional[Expr], dispatch: Optional[Expr] = None):
         # TODO: type spec should be list[target_expr.col_type]
         super().__init__(ts.JsonType())
 
@@ -47,8 +47,10 @@ class JsonMapper(Expr):
         #
         # scope_anchor = ObjectRef(self.target_expr_scope, self)
         # self.components.append(scope_anchor)
-        dispatch = JsonMapperDispatch(src_expr, target_expr)
+        if dispatch is None:
+            dispatch = JsonMapperDispatch(src_expr, target_expr)
         self.components.append(dispatch)
+        self.id = self._create_id()
 
     # def _bind_rel_paths(self, mapper: Optional[JsonMapper] = None) -> None:
     #     self._src_expr._bind_rel_paths(mapper)
@@ -98,15 +100,6 @@ class JsonMapper(Expr):
     def _target_expr(self) -> Expr:
         return self.components[0]._target_expr
 
-    # @property
-    # def scope_anchor(self) -> 'ObjectRef':
-    #     from .object_ref import ObjectRef
-    #
-    #     #result = self.components[2]
-    #     result = self.components[0].scope_anchor
-    #     assert isinstance(result, ObjectRef)
-    #     return result
-
     def _equals(self, _: JsonMapper) -> bool:
         return True
 
@@ -131,16 +124,10 @@ class JsonMapper(Expr):
             result[i] = data_row[self._target_expr.slot_idx]
         data_row[self.slot_idx] = result
 
-    def _as_dict(self) -> dict:
-        """
-        We need to avoid serializing component[2], which is an ObjectRef.
-        """
-        return {'components': [c.as_dict() for c in self.components[0:2]]}
-
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr]) -> JsonMapper:
-        assert len(components) == 2
-        return cls(components[0], components[1])
+        assert len(components) == 1
+        return cls(src_expr=None, target_expr=None, dispatch=components[0])
 
 
 class JsonMapperDispatch(Expr):
@@ -151,6 +138,7 @@ class JsonMapperDispatch(Expr):
     - The execution (and row dispatch) is handled by an expr_eval.Evaluator.
     - It stores NestedRowList in its slot.
     """
+
     target_expr_scope: ExprScope
     parent_mapper: Optional[JsonMapperDispatch]
     target_expr_eval_ctx: Optional[RowBuilder.EvalCtx]
@@ -177,19 +165,27 @@ class JsonMapperDispatch(Expr):
         self.components.append(scope_anchor)
 
     def _bind_rel_paths(self, mapper: Optional[JsonMapperDispatch] = None) -> None:
-        self._src_expr._bind_rel_paths(mapper)
-        self._target_expr._bind_rel_paths(self)
+        self.src_expr._bind_rel_paths(mapper)
+        self.target_expr._bind_rel_paths(self)
         self.parent_mapper = mapper
         parent_scope = _GLOBAL_SCOPE if mapper is None else mapper.target_expr_scope
         self.target_expr_scope.parent = parent_scope
 
+    def equals(self, other: Expr) -> bool:
+        """
+        We override equals() because we need to avoid comparing our scope anchor.
+        """
+        if type(self) is not type(other):
+            return False
+        return self.src_expr.equals(other._src_expr) and self.target_expr.equals(other._target_expr)
+
     def scope(self) -> ExprScope:
         # need to ignore target_expr
-        return self._src_expr.scope()
+        return self.src_expr.scope()
 
     def dependencies(self) -> list[Expr]:
-        result = [self._src_expr]
-        result.extend(self._target_dependencies(self._target_expr))
+        result = [self.src_expr]
+        result.extend(self._target_dependencies(self.target_expr))
         return result
 
     def _target_dependencies(self, e: Expr) -> list[Expr]:
@@ -206,11 +202,11 @@ class JsonMapperDispatch(Expr):
         return result
 
     @property
-    def _src_expr(self) -> Expr:
+    def src_expr(self) -> Expr:
         return self.components[0]
 
     @property
-    def _target_expr(self) -> Expr:
+    def target_expr(self) -> Expr:
         return self.components[1]
 
     @property

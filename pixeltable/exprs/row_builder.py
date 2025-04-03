@@ -77,6 +77,8 @@ class RowBuilder:
     transitive_dependents: np.ndarray  # of bool
     # dependencies[i] = direct dependencies of expr with slot idx i; transpose of dependents
     dependencies: np.ndarray  # of bool
+    # num_dependencies[i] = number of direct dependencies of expr with slot idx i
+    num_dependencies: np.ndarray  # of int
 
     # records the output_expr that a subexpr belongs to
     # (a subexpr can be shared across multiple output exprs)
@@ -209,6 +211,7 @@ class RowBuilder:
                 exc_dependencies[expr.slot_idx].add(d.slot_idx)
                 exc_dependencies[expr.slot_idx].update(exc_dependencies[d.slot_idx])
 
+        self.num_dependencies = np.sum(self.dependencies, axis=1)
         self.dependents = self.dependencies.T
         self.transitive_dependents = np.zeros((self.num_materialized, self.num_materialized), dtype=bool)
         for i in reversed(range(self.num_materialized)):

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import logging
 import traceback
 from types import TracebackType
@@ -13,12 +14,47 @@ from pixeltable import exprs, func
 
 from ..data_row_batch import DataRowBatch
 from ..exec_node import ExecNode
-from .evaluators import DefaultExprEvaluator, FnCallEvaluator
-from .globals import Evaluator, Scheduler
+from .evaluators import DefaultExprEvaluator, FnCallEvaluator, JsonMapperDispatcher, NestedRowList
+from .globals import Evaluator, Scheduler, Dispatcher
 from .row_buffer import RowBuffer
 from .schedulers import SCHEDULERS
 
 _logger = logging.getLogger('pixeltable')
+
+
+class ExecCtx:
+    """Per-row execution parameters"""
+    row_builder: exprs.RowBuilder
+    slot_evaluators: dict[int, Evaluator]  # key: slot idx
+    gc_targets: np.ndarray  # bool per slot; True if this is an intermediate expr (ie, not part of our output)
+    eval_ctx: np.ndarray  # bool per slot; EvalCtx.slot_idxs as a mask
+
+    def __init__(self, dispatcher: Dispatcher, row_builder: exprs.RowBuilder, output_exprs: Iterable[exprs.Expr], input_exprs: Iterable[exprs.Expr]):
+        self.row_builder = row_builder
+        self.slot_evaluators = {}
+        self.gc_targets = np.ones(self.row_builder.num_materialized, dtype=bool)
+        # we need to retain all slots that are part of the output
+        self.gc_targets[[e.slot_idx for e in self.row_builder.output_exprs]] = False
+
+        output_ctx = self.row_builder.create_eval_ctx(output_exprs, exclude=input_exprs)
+        self.eval_ctx = np.zeros(self.row_builder.num_materialized, dtype=bool)
+        self.eval_ctx[output_ctx.slot_idxs] = True
+        self._init_slot_evaluators(dispatcher)
+
+    def _init_slot_evaluators(self, dispatcher: Dispatcher) -> None:
+        for slot_idx in range(self.row_builder.num_materialized):
+            expr = self.row_builder.unique_exprs[slot_idx]
+            if (
+                    isinstance(expr, exprs.FunctionCall)
+                    # ExprTemplateFunction and AggregateFunction calls are best handled by FunctionCall.eval()
+                    and not isinstance(expr.fn, func.ExprTemplateFunction)
+                    and not isinstance(expr.fn, func.AggregateFunction)
+            ):
+                self.slot_evaluators[slot_idx] = FnCallEvaluator(expr, dispatcher, self.row_builder)
+            elif isinstance(expr, exprs.JsonMapperDispatch):
+                self.slot_evaluators[slot_idx] = JsonMapperDispatcher(expr, dispatcher, self.row_builder)
+            else:
+                self.slot_evaluators[slot_idx] = DefaultExprEvaluator(expr, dispatcher, self.row_builder)
 
 
 class ExprEvalNode(ExecNode):
@@ -42,12 +78,12 @@ class ExprEvalNode(ExecNode):
     """
 
     maintain_input_order: bool  # True if we're returning rows in the order we received them from our input
-    num_dependencies: np.ndarray  # number of dependencies for our output slots; indexed by slot idx
     outputs: np.ndarray  # bool per slot; True if this slot is part of our output
-    slot_evaluators: dict[int, Evaluator]  # key: slot idx
+    #slot_evaluators: dict[int, Evaluator]  # key: slot idx
     schedulers: dict[str, Scheduler]  # key: resource pool name
-    gc_targets: np.ndarray  # bool per slot; True if this is an intermediate expr (ie, not part of our output)
-    eval_ctx: np.ndarray  # bool per slot; EvalCtx.slot_idxs as a mask
+    #gc_targets: np.ndarray  # bool per slot; True if this is an intermediate expr (ie, not part of our output)
+    #eval_ctx: np.ndarray  # bool per slot; EvalCtx.slot_idxs as a mask
+    exec_ctx: ExecCtx  # for input/output rows
 
     # execution state
     tasks: set[asyncio.Task]  # collects all running tasks to prevent them from getting gc'd
@@ -82,19 +118,18 @@ class ExprEvalNode(ExecNode):
     ):
         super().__init__(row_builder, output_exprs, input_exprs, input)
         self.maintain_input_order = maintain_input_order
-        self.num_dependencies = np.sum(row_builder.dependencies, axis=1)
         self.outputs = np.zeros(row_builder.num_materialized, dtype=bool)
         output_slot_idxs = [e.slot_idx for e in output_exprs]
         self.outputs[output_slot_idxs] = True
         self.tasks = set()
 
-        self.gc_targets = np.ones(row_builder.num_materialized, dtype=bool)
+        #self.gc_targets = np.ones(row_builder.num_materialized, dtype=bool)
         # we need to retain all slots that are part of the output
-        self.gc_targets[[e.slot_idx for e in row_builder.output_exprs]] = False
+        #self.gc_targets[[e.slot_idx for e in row_builder.output_exprs]] = False
 
-        output_ctx = self.row_builder.create_eval_ctx(output_exprs, exclude=input_exprs)
-        self.eval_ctx = np.zeros(row_builder.num_materialized, dtype=bool)
-        self.eval_ctx[output_ctx.slot_idxs] = True
+        #output_ctx = self.row_builder.create_eval_ctx(output_exprs, exclude=input_exprs)
+        #self.eval_ctx = np.zeros(row_builder.num_materialized, dtype=bool)
+        #self.eval_ctx[output_ctx.slot_idxs] = True
         self.error = None
 
         self.input_iter = self.input.__aiter__()
@@ -110,29 +145,32 @@ class ExprEvalNode(ExecNode):
         self.num_input_rows = 0
         self.num_output_rows = 0
 
-        self.slot_evaluators = {}
+        #self.slot_evaluators = {}
         self.schedulers = {}
-        self._init_slot_evaluators()
+        #self._init_slot_evaluators()
+        self.exec_ctx = ExecCtx(self, self.row_builder, output_exprs, input_exprs)
 
     def set_input_order(self, maintain_input_order: bool) -> None:
         self.maintain_input_order = maintain_input_order
 
-    def _init_slot_evaluators(self) -> None:
-        """Create slot evaluators and resource pool schedulers"""
-        resource_pools: set[str] = set()
-        for slot_idx in range(self.row_builder.num_materialized):
-            expr = self.row_builder.unique_exprs[slot_idx]
-            if (
-                isinstance(expr, exprs.FunctionCall)
-                # ExprTemplateFunction and AggregateFunction calls are best handled by FunctionCall.eval()
-                and not isinstance(expr.fn, func.ExprTemplateFunction)
-                and not isinstance(expr.fn, func.AggregateFunction)
-            ):
-                if expr.resource_pool is not None:
-                    resource_pools.add(expr.resource_pool)
-                self.slot_evaluators[slot_idx] = FnCallEvaluator(expr, self)
-            else:
-                self.slot_evaluators[slot_idx] = DefaultExprEvaluator(expr, self)
+    # def _init_slot_evaluators(self) -> None:
+    #     """Create slot evaluators and resource pool schedulers"""
+    #     resource_pools: set[str] = set()
+    #     for slot_idx in range(self.row_builder.num_materialized):
+    #         expr = self.row_builder.unique_exprs[slot_idx]
+    #         if (
+    #             isinstance(expr, exprs.FunctionCall)
+    #             # ExprTemplateFunction and AggregateFunction calls are best handled by FunctionCall.eval()
+    #             and not isinstance(expr.fn, func.ExprTemplateFunction)
+    #             and not isinstance(expr.fn, func.AggregateFunction)
+    #         ):
+    #             if expr.resource_pool is not None:
+    #                 resource_pools.add(expr.resource_pool)
+    #             self.slot_evaluators[slot_idx] = FnCallEvaluator(expr, self, self.row_builder)
+    #         elif isinstance(expr, exprs.JsonMapperDispatch):
+    #             self.slot_evaluators[slot_idx] = JsonMapperDispatcher(expr, self, self.row_builder)
+    #         else:
+    #             self.slot_evaluators[slot_idx] = DefaultExprEvaluator(expr, self, self.row_builder)
 
     async def _fetch_input_batch(self) -> None:
         """
@@ -200,7 +238,7 @@ class ExprEvalNode(ExecNode):
         self._log_state(f'dispatch input ({num_rows})')
 
         self._init_input_rows(rows)
-        self.dispatch(rows)
+        self.dispatch(rows, self.exec_ctx)
 
     def _log_state(self, prefix: str) -> None:
         _logger.debug(
@@ -212,13 +250,13 @@ class ExprEvalNode(ExecNode):
 
     def _init_schedulers(self) -> None:
         resource_pools = {
-            eval.fn_call.resource_pool for eval in self.slot_evaluators.values() if isinstance(eval, FnCallEvaluator)
+            eval.fn_call.resource_pool for eval in self.exec_ctx.slot_evaluators.values() if isinstance(eval, FnCallEvaluator)
         }
         resource_pools = {pool for pool in resource_pools if pool is not None}
         for pool_name in resource_pools:
             for scheduler in SCHEDULERS:
                 if scheduler.matches(pool_name):
-                    self.schedulers[pool_name] = scheduler(pool_name, self)
+                    self.schedulers[pool_name] = scheduler(pool_name, self, self.row_builder)
                     break
             if pool_name not in self.schedulers:
                 raise RuntimeError(f'No scheduler found for resource pool {pool_name}')
@@ -287,7 +325,7 @@ class ExprEvalNode(ExecNode):
                 if self.input_complete and self.avail_input_rows == 0 and not closed_evaluators:
                     # no more input rows to dispatch, but we're still waiting for rows to finish:
                     # close  all slot evaluators to flush queued rows
-                    for evaluator in self.slot_evaluators.values():
+                    for evaluator in self.exec_ctx.slot_evaluators.values():
                         evaluator.close()
                     closed_evaluators = True
 
@@ -336,18 +374,20 @@ class ExprEvalNode(ExecNode):
         """Set execution state in DataRow"""
         for row in rows:
             row.missing_dependents = np.sum(self.row_builder.dependencies[row.has_val == False], axis=0)
-            row.missing_slots = self.eval_ctx & (row.has_val == False)
+            row.missing_slots = self.exec_ctx.eval_ctx & (row.has_val == False)
 
-    def dispatch_exc(self, rows: list[exprs.DataRow], slot_with_exc: int, exc_tb: TracebackType) -> None:
+    def dispatch_exc(
+        self, rows: list[exprs.DataRow], slot_with_exc: int, exc_tb: TracebackType, exec_ctx: ExecCtx
+    ) -> None:
         """Propagate exception to main event loop or to dependent slots, depending on ignore_errors"""
         if len(rows) == 0 or self.exc_event.is_set():
             return
 
         if not self.ctx.ignore_errors:
-            dependency_idxs = [e.slot_idx for e in self.row_builder.unique_exprs[slot_with_exc].dependencies()]
+            dependency_idxs = [e.slot_idx for e in exec_ctx.row_builder.unique_exprs[slot_with_exc].dependencies()]
             first_row = rows[0]
             input_vals = [first_row[idx] for idx in dependency_idxs]
-            e = self.row_builder.unique_exprs[slot_with_exc]
+            e = exec_ctx.row_builder.unique_exprs[slot_with_exc]
             self.error = excs.ExprEvalError(e, f'expression {e}', first_row.get_exc(e.slot_idx), exc_tb, input_vals, 0)
             self.exc_event.set()
             return
@@ -356,17 +396,17 @@ class ExprEvalNode(ExecNode):
             assert row.has_exc(slot_with_exc)
             exc = row.get_exc(slot_with_exc)
             # propagate exception
-            for slot_idx in np.nonzero(self.row_builder.transitive_dependents[slot_with_exc])[0].tolist():
+            for slot_idx in np.nonzero(exec_ctx.row_builder.transitive_dependents[slot_with_exc])[0].tolist():
                 row.set_exc(slot_idx, exc)
-        self.dispatch(rows)
+        self.dispatch(rows, exec_ctx)
 
-    def dispatch(self, rows: list[exprs.DataRow]) -> None:
+    def dispatch(self, rows: list[exprs.DataRow], exec_ctx: ExecCtx) -> None:
         """Dispatch rows to slot evaluators, based on materialized dependencies"""
         if len(rows) == 0 or self.exc_event.is_set():
             return
 
         # slots ready for evaluation; rows x slots
-        ready_slots = np.zeros((len(rows), self.row_builder.num_materialized), dtype=bool)
+        ready_slots = np.zeros((len(rows), exec_ctx.row_builder.num_materialized), dtype=bool)
         completed_rows = np.zeros(len(rows), dtype=bool)
         for i, row in enumerate(rows):
             row.missing_slots &= row.has_val == False
@@ -375,25 +415,36 @@ class ExprEvalNode(ExecNode):
                 completed_rows[i] = True
             else:
                 # dependencies of missing slots
-                missing_dependencies = self.num_dependencies * row.missing_slots
+                missing_dependencies = exec_ctx.row_builder.num_dependencies * row.missing_slots
                 # determine ready slots that are not yet materialized and not yet scheduled
-                num_mat_dependencies = np.sum(self.row_builder.dependencies * row.has_val, axis=1)
+                num_mat_dependencies = np.sum(exec_ctx.row_builder.dependencies * row.has_val, axis=1)
                 num_missing = missing_dependencies - num_mat_dependencies
                 ready_slots[i] = (num_missing == 0) & (row.is_scheduled == False) & row.missing_slots
                 row.is_scheduled = row.is_scheduled | ready_slots[i]
 
+            if row.parent_row is not None:
+                continue
+
             # clear intermediate values that are no longer needed (ie, all dependents are materialized)
-            missing_dependents = np.sum(self.row_builder.dependencies[row.has_val == False], axis=0)
-            gc_targets = (missing_dependents == 0) & (row.missing_dependents > 0) & self.gc_targets
+            missing_dependents = np.sum(exec_ctx.row_builder.dependencies[row.has_val == False], axis=0)
+            gc_targets = (missing_dependents == 0) & (row.missing_dependents > 0) & exec_ctx.gc_targets
             row.clear(gc_targets)
             row.missing_dependents = missing_dependents
 
         if np.any(completed_rows):
             completed_idxs = list(completed_rows.nonzero()[0])
-            for i in completed_idxs:
-                self.completed_rows.put_nowait(rows[i])
-            self.completed_event.set()
-            self.num_in_flight -= len(completed_idxs)
+            if rows[i].parent_row is not None:
+                # these are nested rows
+                for i in completed_idxs:
+                    row = rows[i]
+                    assert row.parent_row is not None and row.parent_slot_idx is not None
+                    assert isinstance(row.parent_row[row.parent_slot_idx], NestedRowList)
+                    row.parent_row[row.parent_slot_idx].complete_row()
+            else:
+                for i in completed_idxs:
+                    self.completed_rows.put_nowait(rows[i])
+                self.completed_event.set()
+                self.num_in_flight -= len(completed_idxs)
 
         # schedule all ready slots
         for slot_idx in np.sum(ready_slots, axis=0).nonzero()[0]:
@@ -401,7 +452,7 @@ class ExprEvalNode(ExecNode):
             _ = ready_rows_v.nonzero()
             ready_rows = [rows[i] for i in ready_rows_v.nonzero()[0]]
             _logger.debug(f'Scheduling {len(ready_rows)} rows for slot {slot_idx}')
-            self.slot_evaluators[slot_idx].schedule(ready_rows, slot_idx)
+            exec_ctx.slot_evaluators[slot_idx].schedule(ready_rows, slot_idx)
 
     def register_task(self, t: asyncio.Task) -> None:
         self.tasks.add(t)
