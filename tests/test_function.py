@@ -522,8 +522,8 @@ class TestFunction:
         assert self.func.__doc__ == 'A UDF.'
         assert self.agg.__doc__ == 'An aggregator.'
 
-    @pxt.udf  # type: ignore[misc]
-    def overloaded_udf(x: str, y: str, z: str = 'a') -> str:
+    @pxt.udf
+    def overloaded_udf(x: str, y: str, z: str = 'a') -> str:  # type: ignore[misc]
         return x + y
 
     @staticmethod
