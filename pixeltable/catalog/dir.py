@@ -54,7 +54,7 @@ class Dir(SchemaObject):
             (
                 f'UPDATE {schema.Dir.__table__} '
                 f'SET {schema.Dir.parent_id.name} = :new_dir_id, '
-                f"    {schema.Dir.md.name}['name'] = :new_name "
+                f"    {schema.Dir.md.name} = jsonb_set({schema.Dir.md.name}, '{{name}}', (:new_name)::jsonb) "
                 f'WHERE {schema.Dir.id.name} = :id'
             )
         )
