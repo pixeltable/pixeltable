@@ -82,7 +82,7 @@ class TableVersionPath:
         """Return all tbl versions"""
         if self.base is None:
             return [self.tbl_version]
-        return [self.tbl_version] + self.base.get_tbl_versions()
+        return [self.tbl_version, *self.base.get_tbl_versions()]
 
     def get_bases(self) -> list[TableVersionHandle]:
         """Return all tbl versions"""

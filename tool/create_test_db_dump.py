@@ -13,7 +13,7 @@ import pixeltable_pgserver
 import toml
 
 import pixeltable as pxt
-import pixeltable.metadata as metadata
+from pixeltable import metadata
 from pixeltable.env import Env
 from pixeltable.func import Batch
 from pixeltable.io.external_store import Project
@@ -74,7 +74,7 @@ class Dumper:
                 'user': user,
             }
         }
-        with open(info_file, 'w') as info:
+        with open(info_file, 'w', encoding='utf-8') as info:
             toml.dump(info_dict, info)
 
     # Expression types, predicate types, embedding indices, views on views
@@ -104,7 +104,7 @@ class Dumper:
         d2 = [d1, d1]
 
         c1_data = [f'test string {i}' for i in range(num_rows)]
-        c2_data = [i for i in range(num_rows)]
+        c2_data = list(range(num_rows))
         c3_data = [float(i) for i in range(num_rows)]
         c4_data = [bool(i % 2) for i in range(num_rows)]
         c5_data = [datetime.datetime.now()] * num_rows

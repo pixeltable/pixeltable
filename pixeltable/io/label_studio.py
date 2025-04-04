@@ -5,16 +5,14 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator, Literal, Optional, cast
-from xml.etree import ElementTree
+from xml.etree import ElementTree as ET
 
 import label_studio_sdk  # type: ignore[import-untyped]
 import PIL.Image
 from requests.exceptions import HTTPError
 
 import pixeltable as pxt
-import pixeltable.env as env
-import pixeltable.exceptions as excs
-from pixeltable import Column, Table
+from pixeltable import Column, Table, env, exceptions as excs
 from pixeltable.config import Config
 from pixeltable.exprs import ColumnRef, DataRow, Expr
 from pixeltable.io.external_store import Project, SyncStatus
@@ -140,7 +138,8 @@ class LabelStudioProject(Project):
             page += 1
         if unknown_task_count > 0:
             _logger.warning(
-                f'Skipped {unknown_task_count} unrecognized task(s) when syncing Label Studio project "{self.project_title}".'
+                f'Skipped {unknown_task_count} unrecognized task(s) when syncing '
+                f'Label Studio project {self.project_title!r}.'
             )
 
     def __update_tasks(self, t: Table, existing_tasks: dict[tuple, dict]) -> SyncStatus:
@@ -174,11 +173,11 @@ class LabelStudioProject(Project):
             # Send media to Label Studio by HTTP post.
             assert len(t_data_cols) == 1  # This was verified when the project was set up
             return self.__update_tasks_by_post(t, existing_tasks, t_data_cols[0], t_rl_cols, rl_info)
-        elif self.media_import_method == 'file' or self.media_import_method == 'url':
+        elif self.media_import_method in {'file', 'url'}:
             # Send media to Label Studio by file reference (local file or URL).
             return self.__update_tasks_by_files(t, existing_tasks, t_data_cols, t_rl_cols, rl_info)
         else:
-            assert False
+            raise AssertionError()
 
     def __update_tasks_by_post(
         self,
@@ -227,7 +226,7 @@ class LabelStudioProject(Project):
                     )
                     for i in range(len(coco_annotations))
                 ]
-                _logger.debug(f'`predictions`: %s', predictions)
+                _logger.debug('`predictions`: {%s}', predictions)
                 self.project.create_predictions(predictions)
                 tasks_created += 1
 
@@ -358,7 +357,7 @@ class LabelStudioProject(Project):
     def __localpath_to_lspath(cls, localpath: str) -> str:
         # Transform the local path into Label Studio's bespoke path format.
         relpath = Path(localpath).relative_to(Config.get().home)
-        return f'/data/local-files/?d={str(relpath)}'
+        return f'/data/local-files/?d={relpath}'
 
     def __delete_stale_tasks(
         self, existing_tasks: dict[tuple, dict], row_ids_in_pxt: set[tuple], tasks_created: int
@@ -405,7 +404,8 @@ class LabelStudioProject(Project):
         updates = [{'_rowid': rowid, local_annotations_col.name: ann} for rowid, ann in annotations.items()]
         if len(updates) > 0:
             _logger.info(
-                f'Updating table `{t._name}`, column `{local_annotations_col.name}` with {len(updates)} total annotations.'
+                f'Updating table {t._name!r}, column {local_annotations_col.name!r} '
+                f'with {len(updates)} total annotations.'
             )
             # batch_update currently doesn't propagate from views to base tables. As a workaround, we call
             # batch_update on the actual ancestor table that holds the annotations column.
@@ -451,7 +451,7 @@ class LabelStudioProject(Project):
         Parses a Label Studio XML config, extracting the names and Pixeltable types of
         all input variables.
         """
-        root: ElementTree.Element = ElementTree.fromstring(xml_config)
+        root: ET.Element = ET.fromstring(xml_config)
         if root.tag.lower() != 'view':
             raise excs.Error('Root of Label Studio config must be a `View`')
         config = _LabelStudioConfig(
@@ -461,7 +461,7 @@ class LabelStudioProject(Project):
         return config
 
     @classmethod
-    def __parse_data_keys_config(cls, root: ElementTree.Element) -> dict[str, '_DataKey']:
+    def __parse_data_keys_config(cls, root: ET.Element) -> dict[str, '_DataKey']:
         """Parses the data keys from a Label Studio XML config."""
         config: dict[str, '_DataKey'] = {}
         for element in root:
@@ -477,7 +477,7 @@ class LabelStudioProject(Project):
         return config
 
     @classmethod
-    def __parse_rectangle_labels_config(cls, root: ElementTree.Element) -> dict[str, '_RectangleLabel']:
+    def __parse_rectangle_labels_config(cls, root: ET.Element) -> dict[str, '_RectangleLabel']:
         """Parses the RectangleLabels from a Label Studio XML config."""
         config: dict[str, '_RectangleLabel'] = {}
         for element in root:
@@ -576,7 +576,7 @@ class LabelStudioProject(Project):
                 local_annotations_column = ANNOTATIONS_COLUMN
             else:
                 local_annotations_column = next(k for k, v in col_mapping.items() if v == ANNOTATIONS_COLUMN)
-            if local_annotations_column not in t._schema.keys():
+            if local_annotations_column not in t._schema:
                 t.add_columns({local_annotations_column: pxt.JsonType(nullable=True)})
 
         resolved_col_mapping = cls.validate_columns(
@@ -591,9 +591,9 @@ class LabelStudioProject(Project):
             if media_import_method != 'url':
                 raise excs.Error("`s3_configuration` is only valid when `media_import_method == 'url'`")
             s3_configuration = copy.copy(s3_configuration)
-            if not 'bucket' in s3_configuration:
+            if 'bucket' not in s3_configuration:
                 raise excs.Error('`s3_configuration` must contain a `bucket` field')
-            if not 'title' in s3_configuration:
+            if 'title' not in s3_configuration:
                 s3_configuration['title'] = 'Pixeltable-S3-Import-Storage'
             if (
                 'aws_access_key_id' not in s3_configuration
@@ -633,7 +633,8 @@ class LabelStudioProject(Project):
                         raise excs.Error(
                             '`media_import_method` is set to `file`, but your Label Studio server is not configured '
                             'for local file storage.\nPlease set the `LABEL_STUDIO_LOCAL_FILES_SERVING_ENABLED` '
-                            'environment variable to `true` in the environment where your Label Studio server is running.'
+                            'environment variable to `true` in the environment where your Label Studio server '
+                            'is running.'
                         ) from exc
                 raise  # Handle any other exception type normally
 
@@ -663,7 +664,7 @@ class _LabelStudioConfig:
     rectangle_labels: dict[str, _RectangleLabel]
 
     def validate(self) -> None:
-        data_key_names = set(key.name for key in self.data_keys.values() if key.name is not None)
+        data_key_names = {key.name for key in self.data_keys.values() if key.name is not None}
         for name, rl in self.rectangle_labels.items():
             if rl.to_name not in data_key_names:
                 raise excs.Error(
@@ -674,7 +675,7 @@ class _LabelStudioConfig:
     @property
     def export_columns(self) -> dict[str, pxt.ColumnType]:
         data_key_cols = {key_id: key_info.column_type for key_id, key_info in self.data_keys.items()}
-        rl_cols = {name: pxt.JsonType() for name in self.rectangle_labels.keys()}
+        rl_cols = {name: pxt.JsonType() for name in self.rectangle_labels}
         return {**data_key_cols, **rl_cols}
 
 

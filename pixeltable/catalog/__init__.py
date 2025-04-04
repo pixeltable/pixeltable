@@ -1,3 +1,5 @@
+# ruff: noqa: F401
+
 from .catalog import Catalog
 from .column import Column
 from .dir import Dir

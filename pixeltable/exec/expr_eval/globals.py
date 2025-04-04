@@ -124,7 +124,6 @@ class Evaluator(abc.ABC):
     @abc.abstractmethod
     def schedule(self, rows: list[exprs.DataRow], slot_idx: int) -> None:
         """Create tasks to evaluate the expression in the given slot for the given rows; must not block."""
-        ...
 
     def _close(self) -> None:
         """Close the evaluator; must not block"""

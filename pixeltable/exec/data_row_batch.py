@@ -3,8 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Iterator, Optional
 
-import pixeltable.catalog as catalog
-import pixeltable.exprs as exprs
+from pixeltable import catalog, exprs
 from pixeltable.utils.media_store import MediaStore
 
 _logger = logging.getLogger('pixeltable')

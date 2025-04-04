@@ -155,7 +155,8 @@ class ExprEvalNode(ExecNode):
             self.num_input_rows += len(batch)
             self.avail_input_rows += len(batch)
             _logger.debug(
-                f'adding input: batch_size={len(batch)} #input_rows={self.num_input_rows} #avail={self.avail_input_rows}'
+                f'adding input: batch_size={len(batch)} #input_rows={self.num_input_rows} '
+                f'#avail={self.avail_input_rows}'
             )
         except StopAsyncIteration:
             self.input_complete = True
@@ -303,7 +304,7 @@ class ExprEvalNode(ExecNode):
                     if completed_aw is None:
                         completed_aw = asyncio.create_task(self.completed_event.wait(), name='completed.wait()')
                     aws.add(completed_aw)
-                done, pending = await asyncio.wait(aws, return_when=asyncio.FIRST_COMPLETED)
+                done, _ = await asyncio.wait(aws, return_when=asyncio.FIRST_COMPLETED)
 
                 if self.exc_event.is_set():
                     # we got an exception that we need to propagate through __iter__()
@@ -380,7 +381,7 @@ class ExprEvalNode(ExecNode):
                 num_mat_dependencies = np.sum(self.row_builder.dependencies * row.has_val, axis=1)
                 num_missing = missing_dependencies - num_mat_dependencies
                 ready_slots[i] = (num_missing == 0) & (row.is_scheduled == False) & row.missing_slots
-                row.is_scheduled = row.is_scheduled | ready_slots[i]
+                row.is_scheduled |= ready_slots[i]
 
             # clear intermediate values that are no longer needed (ie, all dependents are materialized)
             missing_dependents = np.sum(self.row_builder.dependencies[row.has_val == False], axis=0)

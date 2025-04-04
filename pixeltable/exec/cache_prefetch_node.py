@@ -12,10 +12,7 @@ from pathlib import Path
 from typing import Any, AsyncIterator, Iterator, Optional
 from uuid import UUID
 
-import pixeltable.env as env
-import pixeltable.exceptions as excs
-import pixeltable.exprs as exprs
-from pixeltable import catalog
+from pixeltable import catalog, env, exceptions as excs, exprs
 from pixeltable.utils.filecache import FileCache
 
 from .data_row_batch import DataRowBatch
@@ -234,7 +231,7 @@ class CachePrefetchNode(ExecNode):
         assert len(parsed.scheme) > 1 and parsed.scheme != 'file'
         # preserve the file extension, if there is one
         extension = ''
-        if parsed.path != '':
+        if parsed.path:
             p = Path(urllib.parse.unquote(urllib.request.url2pathname(parsed.path)))
             extension = p.suffix
         tmp_path = env.Env.get().create_tmp_path(extension=extension)
@@ -253,12 +250,12 @@ class CachePrefetchNode(ExecNode):
                         }
                         self.boto_client = get_client(**config)
                 self.boto_client.download_file(parsed.netloc, parsed.path.lstrip('/'), str(tmp_path))
-            elif parsed.scheme == 'http' or parsed.scheme == 'https':
+            elif parsed.scheme in {'http', 'https'}:
                 with urllib.request.urlopen(url) as resp, open(tmp_path, 'wb') as f:
                     data = resp.read()
                     f.write(data)
             else:
-                assert False, f'Unsupported URL scheme: {parsed.scheme}'
+                raise AssertionError(f'Unsupported URL scheme: {parsed.scheme}')
             _logger.debug(f'Downloaded {url} to {tmp_path}')
             return tmp_path, None
         except Exception as e:

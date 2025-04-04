@@ -6,8 +6,7 @@ from uuid import UUID
 
 import sqlalchemy as sql
 
-import pixeltable.catalog as catalog
-import pixeltable.exprs as exprs
+from pixeltable import catalog, exprs
 from pixeltable.env import Env
 
 from .data_row_batch import DataRowBatch
@@ -217,31 +216,31 @@ class SqlNode(ExecNode):
         candidates = tbl.get_tbl_versions()
         assert len(candidates) > 0
         joined_tbls: list[catalog.TableVersionHandle] = [candidates[0]]
-        for tbl in candidates[1:]:
-            if tbl.id in refd_tbl_ids:
-                joined_tbls.append(tbl)
+        for t in candidates[1:]:
+            if t.id in refd_tbl_ids:
+                joined_tbls.append(t)
 
         first = True
-        prev_tbl: catalog.TableVersionHandle
-        for tbl in joined_tbls[::-1]:
+        prev_tbl: Optional[catalog.TableVersionHandle] = None
+        for t in joined_tbls[::-1]:
             if first:
-                stmt = stmt.select_from(tbl.get().store_tbl.sa_tbl)
+                stmt = stmt.select_from(t.get().store_tbl.sa_tbl)
                 first = False
             else:
                 # join tbl to prev_tbl on prev_tbl's rowid cols
                 prev_tbl_rowid_cols = prev_tbl.get().store_tbl.rowid_columns()
-                tbl_rowid_cols = tbl.get().store_tbl.rowid_columns()
+                tbl_rowid_cols = t.get().store_tbl.rowid_columns()
                 rowid_clauses = [
                     c1 == c2 for c1, c2 in zip(prev_tbl_rowid_cols, tbl_rowid_cols[: len(prev_tbl_rowid_cols)])
                 ]
-                stmt = stmt.join(tbl.get().store_tbl.sa_tbl, sql.and_(*rowid_clauses))
-            if tbl.id in exact_version_only:
-                stmt = stmt.where(tbl.get().store_tbl.v_min_col == tbl.get().version)
+                stmt = stmt.join(t.get().store_tbl.sa_tbl, sql.and_(*rowid_clauses))
+            if t.id in exact_version_only:
+                stmt = stmt.where(t.get().store_tbl.v_min_col == t.get().version)
             else:
-                stmt = stmt.where(tbl.get().store_tbl.v_min_col <= tbl.get().version).where(
-                    tbl.get().store_tbl.v_max_col > tbl.get().version
+                stmt = stmt.where(t.get().store_tbl.v_min_col <= t.get().version).where(
+                    t.get().store_tbl.v_max_col > t.get().version
                 )
-            prev_tbl = tbl
+            prev_tbl = t
         return stmt
 
     def set_where(self, where_clause: exprs.Expr) -> None:
@@ -291,7 +290,7 @@ class SqlNode(ExecNode):
 
             conn = Env.get().conn
             result_cursor = conn.execute(stmt)
-            for warning in w:
+            for _ in w:
                 pass
 
         tbl_version = self.tbl.tbl_version if self.tbl is not None else None
@@ -494,7 +493,7 @@ class SqlJoinNode(SqlNode):
                 if join_clause.join_type != plan.JoinType.CROSS
                 else sql.sql.expression.literal(True)
             )
-            is_outer = join_clause.join_type == plan.JoinType.LEFT or join_clause.join_type == plan.JoinType.FULL_OUTER
+            is_outer = join_clause.join_type in {plan.JoinType.LEFT, plan.JoinType.FULL_OUTER}
             stmt = stmt.join(
                 self.input_ctes[i + 1],
                 onclause=on_clause,

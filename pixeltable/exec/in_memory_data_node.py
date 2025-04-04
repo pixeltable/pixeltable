@@ -1,8 +1,7 @@
 import logging
-from typing import Any, AsyncIterator, Iterator, Optional
+from typing import Any, AsyncIterator, Optional
 
-import pixeltable.catalog as catalog
-import pixeltable.exprs as exprs
+from pixeltable import catalog, exprs
 from pixeltable.utils.media_store import MediaStore
 
 from .data_row_batch import DataRowBatch
@@ -68,9 +67,12 @@ class InMemoryDataNode(ExecNode):
                 if col_info.col.col_type.is_image_type() and isinstance(val, bytes):
                     # this is a literal image, ie, a sequence of bytes; we save this as a media file and store the path
                     path = str(MediaStore.prepare_media_path(self.tbl.id, col_info.col.id, self.tbl.get().version))
-                    open(path, 'wb').write(val)
-                    val = path
-                self.output_rows[row_idx][col_info.slot_idx] = val
+                    with open(path, 'wb') as fp:
+                        fp.write(val)
+                    self.output_rows[row_idx][col_info.slot_idx] = path
+                else:
+                    self.output_rows[row_idx][col_info.slot_idx] = val
+
                 input_slot_idxs.add(col_info.slot_idx)
 
             # set the remaining output slots to their default values (presently None)
