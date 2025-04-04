@@ -43,7 +43,7 @@ class Path:
         if self.is_root:
             return Path(name)
         else:
-            return Path(f'{str(self)}.{name}')
+            return Path(f'{self!s}.{name}')
 
     def is_ancestor(self, other: Path, is_parent: bool = False) -> bool:
         """

@@ -15,12 +15,12 @@ import pandas as pd
 import sqlalchemy as sql
 
 import pixeltable as pxt
-import pixeltable.catalog as catalog
-import pixeltable.env as env
+from pixeltable import catalog
+from pixeltable import env
 import pixeltable.exceptions as excs
-import pixeltable.exprs as exprs
-import pixeltable.index as index
-import pixeltable.metadata.schema as schema
+from pixeltable import exprs
+from pixeltable import index
+from pixeltable.metadata import schema
 import pixeltable.type_system as ts
 from pixeltable.env import Env
 
@@ -38,16 +38,14 @@ from .globals import (
     is_valid_identifier,
 )
 from .schema_object import SchemaObject
-from .table_version import TableVersion
 from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
 
 if TYPE_CHECKING:
-    import datasets  # type: ignore[import-untyped]
     import torch.utils.data
 
     import pixeltable.plan
-    from pixeltable.globals import RowData, TableDataSource
+    from pixeltable.globals import TableDataSource
 
 _logger = logging.getLogger('pixeltable')
 
@@ -559,7 +557,7 @@ class Table(SchemaObject):
         col_type = next(iter(kwargs.values()))
         if not isinstance(col_type, (ts.ColumnType, type, _GenericAlias)):
             raise excs.Error(
-                f'The argument to add_column() must be a type; did you intend to use add_computed_column() instead?'
+                'The argument to add_column() must be a type; did you intend to use add_computed_column() instead?'
             )
         return self.add_columns(kwargs, if_exists=if_exists)
 
@@ -651,7 +649,7 @@ class Table(SchemaObject):
         """
         assert isinstance(spec, dict)
         valid_keys = {'type', 'value', 'stored', 'media_validation'}
-        for k in spec.keys():
+        for k in spec:
             if k not in valid_keys:
                 raise excs.Error(f'Column {name}: invalid key {k!r}')
 

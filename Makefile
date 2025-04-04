@@ -130,8 +130,7 @@ docstest: install
 .PHONY: lint
 lint: install
 	@echo "Running ruff check ..."
-	@ruff check pixeltable/*.py pixeltable/exec pixeltable/exprs pixeltable/ext pixeltable/func pixeltable/functions pixeltable/index pixeltable/io pixeltable/iterators pixeltable/metadata pixeltable/share pixeltable/utils
-
+	@ruff check pixeltable
 
 .PHONY: formattest
 formattest: install

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import enum
 import logging
-from typing import TYPE_CHECKING, Any, Iterable, Literal, Optional, overload
+from typing import TYPE_CHECKING, Any, Literal, Optional, overload
 from uuid import UUID
 
 import pixeltable as pxt
@@ -18,9 +18,8 @@ from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
 
 if TYPE_CHECKING:
-    import datasets  # type: ignore[import-untyped]
 
-    from pixeltable.globals import RowData, TableDataSource
+    from pixeltable.globals import TableDataSource
     from pixeltable.io.table_data_conduit import TableDataConduit
 
 _logger = logging.getLogger('pixeltable')
@@ -167,7 +166,7 @@ class InsertableTable(Table):
         self, data_source: TableDataConduit, fail_on_exception: bool, print_stats: bool = False
     ) -> pxt.UpdateStatus:
         """Insert row batches into this table from a `TableDataConduit`."""
-        from pixeltable.io.table_data_conduit import DFTableDataConduit, TableDataConduit
+        from pixeltable.io.table_data_conduit import DFTableDataConduit
 
         status = pxt.UpdateStatus()
         with Env.get().begin_xact():

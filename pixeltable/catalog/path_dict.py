@@ -5,7 +5,7 @@ import logging
 from typing import Optional
 from uuid import UUID
 
-import sqlalchemy.orm as orm
+from sqlalchemy import orm
 
 from pixeltable import exceptions as excs
 from pixeltable.env import Env
@@ -66,7 +66,7 @@ class PathDict:
         """
         schema_obj = self.get_object(path)
         if schema_obj is None:
-            raise excs.Error(f'No such path: {str(path)}')
+            raise excs.Error(f'No such path: {path!s}')
         return schema_obj
 
     def get_object(self, path: Path) -> Optional[SchemaObject]:
@@ -147,18 +147,18 @@ class PathDict:
         obj = self.get_object(path)
         if expected is not None:
             if obj is None:
-                raise excs.Error(f'No such path: {str(path)}')
+                raise excs.Error(f'No such path: {path!s}')
             if not isinstance(obj, expected):
                 raise excs.Error(
-                    f'{str(path)} needs to be a {expected._display_name()} but is a {type(obj)._display_name()}'
+                    f'{path!s} needs to be a {expected._display_name()} but is a {type(obj)._display_name()}'
                 )
         if expected is None and obj is not None:
-            raise excs.Error(f"{type(obj)._display_name()} '{str(path)}' already exists")
+            raise excs.Error(f"{type(obj)._display_name()} '{path!s}' already exists")
 
     def get_children(self, parent: Path, child_type: Optional[type[SchemaObject]], recursive: bool) -> list[Path]:
         dir = self._resolve_path(parent)
         if not isinstance(dir, Dir):
-            raise excs.Error(f'{str(parent)} is a {type(dir)._display_name()}, not a directory')
+            raise excs.Error(f'{parent!s} is a {type(dir)._display_name()}, not a directory')
         matches = [
             obj for obj in self.dir_contents[dir._id].values() if child_type is None or isinstance(obj, child_type)
         ]

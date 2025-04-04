@@ -11,7 +11,7 @@ import psycopg
 import sqlalchemy as sql
 
 import pixeltable.exceptions as excs
-import pixeltable.metadata.schema as schema
+from pixeltable.metadata import schema
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
 
@@ -279,7 +279,7 @@ class Catalog:
         # _debug_print(for_update, f'table name={name!r} parent={dir_id}')
         tbl_id = conn.execute(q).scalar_one_or_none()
         if tbl_id is not None:
-            if not tbl_id in self._tbls:
+            if tbl_id not in self._tbls:
                 self._tbls[tbl_id] = self._load_tbl(tbl_id)
             return self._tbls[tbl_id]
 
@@ -323,7 +323,7 @@ class Catalog:
         return obj
 
     def get_table_by_id(self, tbl_id: UUID) -> Optional[Table]:
-        if not tbl_id in self._tbls:
+        if tbl_id not in self._tbls:
             tbl = self._load_tbl(tbl_id)
             if tbl is None:
                 return None
@@ -551,12 +551,12 @@ class Catalog:
 
     def get_tbl_version(self, tbl_id: UUID, effective_version: Optional[int]) -> Optional[TableVersion]:
         if (tbl_id, effective_version) not in self._tbl_versions:
-            self._tbl_versions[(tbl_id, effective_version)] = self._load_tbl_version(tbl_id, effective_version)
-        return self._tbl_versions[(tbl_id, effective_version)]
+            self._tbl_versions[tbl_id, effective_version] = self._load_tbl_version(tbl_id, effective_version)
+        return self._tbl_versions[tbl_id, effective_version]
 
     def add_tbl_version(self, tbl_version: TableVersion) -> None:
         """Explicitly add a TableVersion"""
-        self._tbl_versions[(tbl_version.id, tbl_version.effective_version)] = tbl_version
+        self._tbl_versions[tbl_version.id, tbl_version.effective_version] = tbl_version
         # if this is a mutable view, also record it in the base
         if tbl_version.is_view and tbl_version.effective_version is None:
             base = tbl_version.base.get()
@@ -564,7 +564,7 @@ class Catalog:
 
     def remove_tbl_version(self, tbl_version: TableVersion) -> None:
         assert (tbl_version.id, tbl_version.effective_version) in self._tbl_versions
-        del self._tbl_versions[(tbl_version.id, tbl_version.effective_version)]
+        del self._tbl_versions[tbl_version.id, tbl_version.effective_version]
 
     def get_dir(self, dir_id: UUID, for_update: bool = False) -> Optional[Dir]:
         """Return the Dir with the given id, or None if it doesn't exist"""
@@ -636,7 +636,7 @@ class Catalog:
         if view_md is None:
             # this is a base table
             if (tbl_id, None) not in self._tbl_versions:
-                self._tbl_versions[(tbl_id, None)] = self._load_tbl_version(tbl_id, None)
+                self._tbl_versions[tbl_id, None] = self._load_tbl_version(tbl_id, None)
             tbl = InsertableTable(tbl_record.dir_id, TableVersionHandle(tbl_id, None))
             return tbl
 
@@ -657,7 +657,7 @@ class Catalog:
         view_path: Optional[TableVersionPath] = None
         for id, effective_version in tbl_version_path[::-1]:
             if (id, effective_version) not in self._tbl_versions:
-                self._tbl_versions[(id, effective_version)] = self._load_tbl_version(id, effective_version)
+                self._tbl_versions[id, effective_version] = self._load_tbl_version(id, effective_version)
             view_path = TableVersionPath(TableVersionHandle(id, effective_version), base=base_path)
             base_path = view_path
         view = View(tbl_id, tbl_record.dir_id, tbl_md.name, view_path, snapshot_only=pure_snapshot)
@@ -767,7 +767,7 @@ class Catalog:
             dir_record = schema.Dir(parent_id=None, md=dataclasses.asdict(dir_md))
             session.add(dir_record)
             session.flush()
-            _logger.info(f'Initialized catalog')
+            _logger.info('Initialized catalog')
 
     def _handle_path_collision(
         self, path: Path, expected_obj_type: type[SchemaObject], expected_snapshot: bool, if_exists: IfExistsParam

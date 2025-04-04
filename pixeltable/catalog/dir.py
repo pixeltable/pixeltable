@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import dataclasses
-import datetime
 import json
 import logging
 from uuid import UUID
 
 import sqlalchemy as sql
-from sqlalchemy.dialects.postgresql import JSONB
 
 from pixeltable.env import Env
 from pixeltable.metadata import schema

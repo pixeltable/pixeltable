@@ -13,8 +13,8 @@ import sqlalchemy as sql
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
-import pixeltable.exprs as exprs
-import pixeltable.index as index
+from pixeltable import exprs
+from pixeltable import index
 import pixeltable.type_system as ts
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
@@ -387,8 +387,8 @@ class TableVersion:
         for md in tbl_md.index_md.values():
             if (
                 md.schema_version_add > self.schema_version
-                or md.schema_version_drop is not None
-                and md.schema_version_drop <= self.schema_version
+                or (md.schema_version_drop is not None
+                and md.schema_version_drop <= self.schema_version)
             ):
                 # index not visible in this schema version
                 continue
@@ -1048,8 +1048,6 @@ class TableVersion:
             # we're creating a new version
             self.version += 1
             self._update_md(timestamp)
-        else:
-            pass
         for view in self.mutable_views:
             num_rows += view.get().propagate_delete(
                 where=None, base_versions=[self.version] + base_versions, timestamp=timestamp
@@ -1262,7 +1260,7 @@ class TableVersion:
 
     def _record_refd_columns(self, col: Column) -> None:
         """Update Column.dependent_cols for all cols referenced in col.value_expr."""
-        import pixeltable.exprs as exprs
+        from pixeltable import exprs
 
         if col.value_expr_dict is not None:
             # if we have a value_expr_dict, use that instead of instantiating the value_expr
@@ -1364,7 +1362,7 @@ class TableVersion:
 
     @classmethod
     def from_dict(cls, d: dict) -> TableVersion:
-        import pixeltable.catalog as catalog
+        from pixeltable import catalog
 
         id = UUID(d['id'])
         effective_version = d['effective_version']
