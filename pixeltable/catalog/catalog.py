@@ -10,10 +10,10 @@ from uuid import UUID
 import psycopg
 import sqlalchemy as sql
 
-import pixeltable.exceptions as excs
-from pixeltable.metadata import schema
+from pixeltable import exceptions as excs
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
+from pixeltable.metadata import schema
 
 from .dir import Dir
 from .globals import IfExistsParam, IfNotExistsParam, MediaValidation
@@ -79,7 +79,7 @@ def _retry_loop(op: Callable[..., T]) -> Callable[..., T]:
                 # in order for retry to work, we need to make sure that there aren't any prior db updates
                 # that are part of an ongoing transaction
                 assert not Env.get().in_xact()
-                with Env.get().begin_xact() as conn:
+                with Env.get().begin_xact():
                     return op(*args, **kwargs)
             except sql.exc.DBAPIError as e:
                 if isinstance(e.orig, psycopg.errors.SerializationFailure) and num_remaining_retries > 0:
@@ -132,7 +132,7 @@ class Catalog:
             # _debug_print(for_update=False, msg=f'dir id={dir_id}')
             row = conn.execute(q).one()
             dir = schema.Dir(**row._mapping)
-            if dir.md['name'] == '':
+            if dir.md['name']:
                 break
             names.insert(0, dir.md['name'])
             dir_id = dir.parent_id
@@ -222,7 +222,7 @@ class Catalog:
 
         add_dir: Optional[schema.Dir] = None
         drop_dir: Optional[schema.Dir] = None
-        for p in sorted(list(dir_paths)):
+        for p in sorted(dir_paths):
             dir = self._get_dir(p, for_update=True)
             if dir is None:
                 raise excs.Error(f'Directory {str(p)!r} does not exist')
@@ -267,7 +267,7 @@ class Catalog:
         #     return Dir(dir_record.id, dir_record.parent_id, name)
         rows = conn.execute(q).all()
         if len(rows) > 1:
-            assert False, rows
+            raise AssertionError(rows)
         if len(rows) == 1:
             dir_record = schema.Dir(**rows[0]._mapping)
             return Dir(dir_record.id, dir_record.parent_id, name)
@@ -794,7 +794,8 @@ class Catalog:
             dir_contents = self._get_dir_contents(obj._id)
             if len(dir_contents) > 0 and if_exists == IfExistsParam.REPLACE:
                 raise excs.Error(
-                    f'Directory {path!r} already exists and is not empty. Use `if_exists="replace_force"` to replace it.'
+                    f'Directory {path!r} already exists and is not empty. '
+                    'Use `if_exists="replace_force"` to replace it.'
                 )
             self._drop_dir(obj._id, path, force=True)
         else:

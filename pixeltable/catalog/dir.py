@@ -46,7 +46,8 @@ class Dir(SchemaObject):
 
     def _move(self, new_name: str, new_dir_id: UUID) -> None:
         # print(
-        #     f'{datetime.datetime.now()} move dir name={self._name} parent={self._dir_id} new_name={new_name} new_dir_id={new_dir_id}'
+        #     f'{datetime.datetime.now()} move dir name={self._name} parent={self._dir_id} '
+        #     f'new_name={new_name} new_dir_id={new_dir_id}'
         # )
         super()._move(new_name, new_dir_id)
         stmt = sql.text(

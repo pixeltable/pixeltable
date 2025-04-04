@@ -6,8 +6,7 @@ from typing import TYPE_CHECKING, Any, Literal, Optional, overload
 from uuid import UUID
 
 import pixeltable as pxt
-import pixeltable.type_system as ts
-from pixeltable import exceptions as excs
+from pixeltable import exceptions as excs, type_system as ts
 from pixeltable.env import Env
 from pixeltable.utils.filecache import FileCache
 

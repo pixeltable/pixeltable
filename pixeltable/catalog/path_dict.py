@@ -27,7 +27,7 @@ class PathDict:
 
         # load dirs
         with orm.Session(Env.get().engine, future=True) as session:
-            _ = [dir_record for dir_record in session.query(schema.Dir).all()]
+            _ = list(session.query(schema.Dir).all())
             self.schema_objs = {
                 dir_record.id: Dir(dir_record.id, dir_record.parent_id, schema.DirMd(**dir_record.md).name)
                 for dir_record in session.query(schema.Dir).all()
@@ -164,6 +164,6 @@ class PathDict:
         ]
         result = [copy.copy(parent).append(obj._name) for obj in matches]
         if recursive:
-            for dir in [obj for obj in self.dir_contents[dir._id].values() if isinstance(obj, Dir)]:
-                result.extend(self.get_children(copy.copy(parent).append(dir._name), child_type, recursive))
+            for subdir in [obj for obj in self.dir_contents[dir._id].values() if isinstance(obj, Dir)]:
+                result.extend(self.get_children(copy.copy(parent).append(subdir._name), child_type, recursive))
         return result

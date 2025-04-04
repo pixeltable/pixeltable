@@ -342,7 +342,7 @@ class TableVersion:
         self.cols_by_name = {}
         self.cols_by_id = {}
         for col_md in tbl_md.column_md.values():
-            schema_col_md = schema_version_md.columns[col_md.id] if col_md.id in schema_version_md.columns else None
+            schema_col_md = schema_version_md.columns.get(col_md.id)
             col_name = schema_col_md.name if schema_col_md is not None else None
             media_val = (
                 MediaValidation[schema_col_md.media_validation.upper()]
@@ -619,11 +619,10 @@ class TableVersion:
         cols = list(cols)
         row_count = self.store_tbl.count()
         for col in cols:
-            if not col.col_type.nullable and not col.is_computed:
-                if row_count > 0:
-                    raise excs.Error(
-                        f'Cannot add non-nullable column "{col.name}" to table {self.name} with existing rows'
-                    )
+            if not col.col_type.nullable and not col.is_computed and row_count > 0:
+                raise excs.Error(
+                    f'Cannot add non-nullable column {col.name!r} to table {self.name!r} with existing rows'
+                )
 
         num_excs = 0
         cols_with_excs: list[Column] = []
@@ -662,13 +661,13 @@ class TableVersion:
                     cols_with_excs.append(col)
             except excs.Error as exc:
                 self.cols.pop()
-                for col in cols:
+                for c in cols:
                     # remove columns that we already added
-                    if col.id not in self.cols_by_id:
+                    if c.id not in self.cols_by_id:
                         continue
-                    if col.name is not None:
-                        del self.cols_by_name[col.name]
-                    del self.cols_by_id[col.id]
+                    if c.name is not None:
+                        del self.cols_by_name[c.name]
+                    del self.cols_by_id[c.id]
                 # we need to re-initialize the sqlalchemy schema
                 self.store_tbl.create_sa_tbl()
                 raise exc
@@ -763,7 +762,8 @@ class TableVersion:
 
     def set_num_retained_versions(self, new_num_retained_versions: int):
         _logger.info(
-            f'[{self.name}] Updating num_retained_versions: {new_num_retained_versions} (was {self.num_retained_versions})'
+            f'[{self.name}] Updating num_retained_versions: {new_num_retained_versions} '
+            f'(was {self.num_retained_versions})'
         )
         self.num_retained_versions = new_num_retained_versions
         self._create_schema_version()
@@ -897,7 +897,6 @@ class TableVersion:
         """
         # if we do lookups of rowids, we must have one for each row in the batch
         assert len(rowids) == 0 or len(rowids) == len(batch)
-        cols_with_excs: set[str] = set()
 
         from pixeltable.plan import Planner
 
@@ -945,21 +944,21 @@ class TableVersion:
             try:
                 # check if this is a literal
                 value_expr = exprs.Literal(val, col_type=col.col_type)
-            except (TypeError, jsonschema.exceptions.ValidationError):
+            except (TypeError, jsonschema.exceptions.ValidationError) as exc:
                 if not allow_exprs:
                     raise excs.Error(
                         f'Column {col_name}: value {val!r} is not a valid literal for this column '
                         f'(expected {col.col_type})'
-                    )
+                    ) from exc
                 # it's not a literal, let's try to create an expr from it
                 value_expr = exprs.Expr.from_object(val)
                 if value_expr is None:
-                    raise excs.Error(f'Column {col_name}: value {val!r} is not a recognized literal or expression')
+                    raise excs.Error(f'Column {col_name}: value {val!r} is not a recognized literal or expression') from exc
                 if not col.col_type.is_supertype_of(value_expr.col_type, ignore_nullable=True):
                     raise excs.Error(
                         f'Type of value {val!r} ({value_expr.col_type}) is not compatible with the type of column '
                         f'{col_name} ({col.col_type})'
-                    )
+                    ) from exc
             update_targets[col] = value_expr
 
         return update_targets
@@ -988,7 +987,7 @@ class TableVersion:
             self._update_md(timestamp)
 
         if cascade:
-            base_versions = [None if plan is None else self.version] + base_versions  # don't update in place
+            base_versions = [None if plan is None else self.version, *base_versions]  # don't update in place
             # propagate to views
             for view in self.mutable_views:
                 recomputed_cols = [col for col in recomputed_view_cols if col.tbl == view]
@@ -1050,7 +1049,7 @@ class TableVersion:
             self._update_md(timestamp)
         for view in self.mutable_views:
             num_rows += view.get().propagate_delete(
-                where=None, base_versions=[self.version] + base_versions, timestamp=timestamp
+                where=None, base_versions=[self.version, *base_versions], timestamp=timestamp
             )
         return num_rows
 
@@ -1230,9 +1229,7 @@ class TableVersion:
 
     def is_system_column(self, col: Column) -> bool:
         """Return True if column was created by Pixeltable"""
-        if col.name == _POS_COLUMN_NAME and self.is_component_view:
-            return True
-        return False
+        return col.name == _POS_COLUMN_NAME and self.is_component_view
 
     def user_columns(self) -> list[Column]:
         """Return all non-system columns"""
