@@ -341,7 +341,9 @@ class TableVersion:
         self.cols = []
         self.cols_by_name = {}
         self.cols_by_id = {}
-        for col_md in tbl_md.column_md.values():
+        # Sort columns in column_md by the position specified in col_md.id to guarantee that all references point backward.
+        sorted_column_md = sorted(tbl_md.column_md.values(), key=lambda item: item.id)
+        for col_md in sorted_column_md:
             schema_col_md = schema_version_md.columns[col_md.id] if col_md.id in schema_version_md.columns else None
             col_name = schema_col_md.name if schema_col_md is not None else None
             media_val = (

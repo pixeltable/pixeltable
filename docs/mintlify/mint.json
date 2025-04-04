@@ -126,40 +126,40 @@
       ]
     },
     {
-      "group": "Examples",
+      "group": "Explore",
       "pages": [
         "docs/examples/use-cases",
         "docs/examples/interactive-demos",
-        "docs/examples/sample-apps",
-        {
-          "group": "Chatbot",
-          "pages": [
-            "docs/examples/chat/multimodal",
-            "docs/examples/chat/memory",
-            "docs/examples/chat/tools",
-            "docs/examples/chat/evals"
-          ]
-        },
-        {
-          "group": "Computer Vision",
-          "pages": [
-            "docs/examples/vision/label-studio",
-            "docs/examples/vision/voxel51",
-            "docs/examples/vision/yolox"
-          ]
-        },
-        {
-          "group": "Semantic Search",
-          "pages": [
-            "docs/examples/search/audio",
-            "docs/examples/search/images",
-            "docs/examples/search/PDF",
-            "docs/examples/search/website",
-            "docs/examples/search/video"
-          ]
-        }                             
+        "docs/examples/sample-apps"                             
+      ]      
+    },
+    {
+      "group": "Chatbot",
+      "pages": [
+        "docs/examples/chat/multimodal",
+        "docs/examples/chat/memory",
+        "docs/examples/chat/tools",
+        "docs/examples/chat/evals"
       ]
     },
+    {
+      "group": "Computer Vision",
+      "pages": [
+        "docs/examples/vision/label-studio",
+        "docs/examples/vision/voxel51",
+        "docs/examples/vision/yolox"
+      ]
+    },
+    {
+      "group": "Semantic Search",
+      "pages": [
+        "docs/examples/search/audio",
+        "docs/examples/search/images",
+        "docs/examples/search/PDF",
+        "docs/examples/search/website",
+        "docs/examples/search/video"
+      ]
+    },    
     {
       "group": "Built-in Integrations",
       "pages": [

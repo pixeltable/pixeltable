@@ -120,8 +120,7 @@ Once you've set up your dev environment, you're ready to start contributing PRs.
 
 5. Code review
 
-    * We use [Reviewable](https://reviewable.io/) for code reviews. You can find a link to the Reviewable page for
-        your PR just below the description on your PR page.
+    * Once you submit your PR, a Pixeltable maintainer will review it.
     * Respond to any comments on your PR. If you need to make changes, follow the workflow in Steps 3-4 above.
     * Once your PR is approved, click the green "Squash and merge" button on your PR page to squash-commit it into
         `main`.
