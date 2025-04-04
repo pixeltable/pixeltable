@@ -3,7 +3,7 @@ import sqlalchemy as sql
 from pixeltable.metadata import register_converter
 
 
-# @register_converter(version=30+?)
+@register_converter(version=31)
 def _(engine: sql.engine.Engine) -> None:
     # Add a column "dummy: int8" to the dirs table in the store
     # This column is the target of an UPDATE operation to synchronize directory operations
