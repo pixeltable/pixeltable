@@ -107,25 +107,6 @@ class ExprEvalNode(ExecNode):
     def set_input_order(self, maintain_input_order: bool) -> None:
         self.maintain_input_order = maintain_input_order
 
-    # def _init_slot_evaluators(self) -> None:
-    #     """Create slot evaluators and resource pool schedulers"""
-    #     resource_pools: set[str] = set()
-    #     for slot_idx in range(self.row_builder.num_materialized):
-    #         expr = self.row_builder.unique_exprs[slot_idx]
-    #         if (
-    #             isinstance(expr, exprs.FunctionCall)
-    #             # ExprTemplateFunction and AggregateFunction calls are best handled by FunctionCall.eval()
-    #             and not isinstance(expr.fn, func.ExprTemplateFunction)
-    #             and not isinstance(expr.fn, func.AggregateFunction)
-    #         ):
-    #             if expr.resource_pool is not None:
-    #                 resource_pools.add(expr.resource_pool)
-    #             self.slot_evaluators[slot_idx] = FnCallEvaluator(expr, self, self.row_builder)
-    #         elif isinstance(expr, exprs.JsonMapperDispatch):
-    #             self.slot_evaluators[slot_idx] = JsonMapperDispatcher(expr, self, self.row_builder)
-    #         else:
-    #             self.slot_evaluators[slot_idx] = DefaultExprEvaluator(expr, self, self.row_builder)
-
     async def _fetch_input_batch(self) -> None:
         """
         Fetches another batch from our input or sets input_complete to True if there are no more batches.

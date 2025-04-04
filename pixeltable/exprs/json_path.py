@@ -81,8 +81,6 @@ class JsonPath(Expr):
         return self._anchor is None
 
     def _has_relative_path(self) -> bool:
-        a = self.is_relative_path()
-        b = super()._has_relative_path()
         return self.is_relative_path() or super()._has_relative_path()
 
     def _bind_rel_paths(self, mapper: Optional['JsonMapperDispatch'] = None) -> None:

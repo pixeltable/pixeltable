@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Optional
 
 import sqlalchemy as sql
 
@@ -30,64 +30,10 @@ class JsonMapper(Expr):
         # TODO: type spec should be list[target_expr.col_type]
         super().__init__(ts.JsonType())
 
-        # # we're creating a new scope, but we don't know yet whether this is nested within another JsonMapper;
-        # # this gets resolved in bind_rel_paths(); for now we assume we're in the global scope
-        # self.target_expr_scope = ExprScope(_GLOBAL_SCOPE)
-        #
-        # from .object_ref import ObjectRef
-        #
-        # self.components = [src_expr, target_expr]
-        # self.parent_mapper = None
-        # self.target_expr_eval_ctx = None
-        #
-        # # Intentionally create the id now, before adding the scope anchor; this ensures that JsonMappers will
-        # # be recognized as equal so long as they have the same src_expr and target_expr.
-        # # TODO: Might this cause problems after certain substitutions?
-        # self.id = self._create_id()
-        #
-        # scope_anchor = ObjectRef(self.target_expr_scope, self)
-        # self.components.append(scope_anchor)
         if dispatch is None:
             dispatch = JsonMapperDispatch(src_expr, target_expr)
         self.components.append(dispatch)
         self.id = self._create_id()
-
-    # def _bind_rel_paths(self, mapper: Optional[JsonMapper] = None) -> None:
-    #     self._src_expr._bind_rel_paths(mapper)
-    #     self._target_expr._bind_rel_paths(self)
-    #     self.parent_mapper = mapper
-    #     parent_scope = _GLOBAL_SCOPE if mapper is None else mapper.target_expr_scope
-    #     self.target_expr_scope.parent = parent_scope
-    #
-    # def scope(self) -> ExprScope:
-    #     # need to ignore target_expr
-    #     return self._src_expr.scope()
-    #
-    # def dependencies(self) -> list[Expr]:
-    #     result = [self._src_expr]
-    #     result.extend(self._target_dependencies(self._target_expr))
-    #     return result
-    #
-    # def _target_dependencies(self, e: Expr) -> list[Expr]:
-    #     """
-    #     Return all subexprs of e of which the scope isn't contained in target_expr_scope.
-    #     Those need to be evaluated before us.
-    #     """
-    #     expr_scope = e.scope()
-    #     if not expr_scope.is_contained_in(self.target_expr_scope):
-    #         return [e]
-    #     result: list[Expr] = []
-    #     for c in e.components:
-    #         result.extend(self._target_dependencies(c))
-    #     return result
-    #
-    # def equals(self, other: Expr) -> bool:
-    #     """
-    #     We override equals() because we need to avoid comparing our scope anchor.
-    #     """
-    #     if type(self) is not type(other):
-    #         return False
-    #     return self._src_expr.equals(other._src_expr) and self._target_expr.equals(other._target_expr)
 
     def __repr__(self) -> str:
         return f'map({self._src_expr}, lambda R: {self._target_expr})'
@@ -107,13 +53,16 @@ class JsonMapper(Expr):
         return None
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
+        from ..exec.expr_eval.evaluators import NestedRowList
+
         dispatch_slot_idx = self.components[0].slot_idx
         nested_rows = data_row.vals[dispatch_slot_idx]
         if nested_rows is None:
             data_row[self.slot_idx] = None
             return
+        assert isinstance(nested_rows, NestedRowList)
+        # TODO: get the materialized slot idx
         data_row[self.slot_idx] = [row.vals[-1] for row in nested_rows.rows]
-        pass
 
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr]) -> JsonMapper:
@@ -147,7 +96,7 @@ class JsonMapperDispatch(Expr):
         self.parent_mapper = None
         self.target_expr_eval_ctx = None
 
-        # Intentionally create the id now, before adding the scope anchor; this ensures that JsonMappers will
+        # Intentionally create the id now, before adding the scope anchor; this ensures that JsonMapperDispatch instances will
         # be recognized as equal so long as they have the same src_expr and target_expr.
         # TODO: Might this cause problems after certain substitutions?
         self.id = self._create_id()
@@ -168,7 +117,7 @@ class JsonMapperDispatch(Expr):
         """
         if type(self) is not type(other):
             return False
-        return self.src_expr.equals(other._src_expr) and self.target_expr.equals(other._target_expr)
+        return self.src_expr.equals(other.src_expr) and self.target_expr.equals(other.target_expr)
 
     def scope(self) -> ExprScope:
         # need to ignore target_expr

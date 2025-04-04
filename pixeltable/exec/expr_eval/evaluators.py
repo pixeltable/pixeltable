@@ -11,7 +11,7 @@ import numpy as np
 
 from pixeltable import exprs, func
 
-from .globals import Dispatcher, Evaluator, FnCallArgs, ExecCtx
+from .globals import Dispatcher, Evaluator, ExecCtx, FnCallArgs
 
 _logger = logging.getLogger('pixeltable')
 
@@ -284,10 +284,10 @@ class JsonMapperDispatcher(Evaluator):
         self.scope_anchor = e.scope_anchor.copy()
         nested_row_builder = exprs.RowBuilder(output_exprs=[self.target_expr], columns=[], input_exprs=[])
         nested_row_builder.set_slot_idxs([self.target_expr, self.scope_anchor])
-        target_expr_ctx = nested_row_builder.create_eval_ctx([self.target_expr])
+        target_expr_ctx = nested_row_builder.create_eval_ctx([self.target_expr], limit_scope=True)
         target_scope = self.target_expr.scope()
         parent_exprs = [e for e in target_expr_ctx.exprs if e.scope() != target_scope]
-        self.external_slot_map = { exec_ctx.row_builder.unique_exprs[e].slot_idx: e.slot_idx for e in parent_exprs }
+        self.external_slot_map = {exec_ctx.row_builder.unique_exprs[e].slot_idx: e.slot_idx for e in parent_exprs}
         self.nested_exec_ctx = ExecCtx(dispatcher, nested_row_builder, [self.target_expr], parent_exprs)
 
     def schedule(self, rows: list[exprs.DataRow], slot_idx: int) -> None:
@@ -325,10 +325,11 @@ class JsonMapperDispatcher(Evaluator):
         self.dispatcher.register_task(task)
 
     async def gather(self, rows: list[exprs.DataRow]) -> None:
-        remove_me = 1
         for row in rows:
-            assert not row.has_val[self.e.slot_idx]
-            assert isinstance(row.vals[self.e.slot_idx], NestedRowList)
+            if row.has_val[self.e.slot_idx]:
+                assert row.vals[self.e.slot_idx] is None
+                continue
+            assert row.vals[self.e.slot_idx] is not None and isinstance(row.vals[self.e.slot_idx], NestedRowList)
             await row.vals[self.e.slot_idx].completion.wait()
             row.has_val[self.e.slot_idx] = True
         self.dispatcher.dispatch(rows, self.exec_ctx)
