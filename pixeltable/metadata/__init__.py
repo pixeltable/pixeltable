@@ -24,9 +24,11 @@ def create_system_info(engine: sql.engine.Engine) -> None:
     system_md = SystemInfoMd(schema_version=VERSION)
     record = SystemInfo(md=dataclasses.asdict(system_md))
     with orm.Session(engine, future=True) as session:
-        session.add(record)
-        session.flush()
-        session.commit()
+        # Write system metadata only once for idempotency
+        if session.query(SystemInfo).count() == 0:
+            session.add(record)
+            session.flush()
+            session.commit()
 
 
 # conversion functions for upgrading the metadata schema from one version to the following
