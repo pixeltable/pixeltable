@@ -206,6 +206,10 @@ class FunctionCall(Expr):
         return self.group_by_stop_idx != 0
 
     @property
+    def is_async(self) -> bool:
+        return self.fn.is_async
+
+    @property
     def group_by(self) -> list[Expr]:
         return self.components[self.group_by_start_idx : self.group_by_stop_idx]
 

@@ -69,6 +69,8 @@ class Expr(abc.ABC):
     # - not set for subexprs that don't need to be materialized because the parent can be materialized via SQL
     slot_idx: Optional[int]
 
+    T = TypeVar('T', bound='Expr')
+
     def __init__(self, col_type: ts.ColumnType):
         self.col_type = col_type
         self.components = []
@@ -97,9 +99,11 @@ class Expr(abc.ABC):
         by the immediately containing JsonMapper during initialization.
         """
         self._bind_rel_paths()
-        assert not self._has_relative_path, self._expr_tree()
+        has_rel_path = self._has_relative_path()
+        assert not has_rel_path, self._expr_tree()
+        assert not self._has_relative_path(), self._expr_tree()
 
-    def _bind_rel_paths(self, mapper: Optional['exprs.JsonMapper'] = None) -> None:
+    def _bind_rel_paths(self, mapper: Optional['exprs.JsonMapperDispatch'] = None) -> None:
         for c in self.components:
             c._bind_rel_paths(mapper)
 
@@ -188,7 +192,7 @@ class Expr(abc.ABC):
             return False
         return all(a[i].equals(b[i]) for i in range(len(a)))
 
-    def copy(self) -> Expr:
+    def copy(self: T) -> T:
         """
         Creates a copy that can be evaluated separately: it doesn't share any eval context (slot_idx)
         but shares everything else (catalog objects, etc.)
@@ -296,8 +300,6 @@ class Expr(abc.ABC):
     # instances of that subclass; and another that returns all subexpressions that match the given filter.
     # In order for type checking to behave correctly on both forms, we provide two overloaded signatures.
 
-    T = TypeVar('T', bound='Expr')
-
     @overload
     def subexprs(
         self, *, filter: Optional[Callable[[Expr], bool]] = None, traverse_matches: bool = True
@@ -370,9 +372,8 @@ class Expr(abc.ABC):
         except StopIteration:
             return False
 
-    @property
     def _has_relative_path(self) -> bool:
-        return any(c._has_relative_path for c in self.components)
+        return any(c._has_relative_path() for c in self.components)
 
     def tbl_ids(self) -> set[UUID]:
         """Returns table ids referenced by this expr."""
@@ -459,7 +460,6 @@ class Expr(abc.ABC):
                 return Literal(o, col_type=obj_type)
         return None
 
-    @abc.abstractmethod
     def sql_expr(self, sql_elements: 'exprs.SqlElementCache') -> Optional[sql.ColumnElement]:
         """
         If this expr can be materialized directly in SQL:
@@ -469,7 +469,7 @@ class Expr(abc.ABC):
         - returns None
         - eval() will be called
         """
-        pass
+        return None
 
     @abc.abstractmethod
     def eval(self, data_row: DataRow, row_builder: 'exprs.RowBuilder') -> None:
