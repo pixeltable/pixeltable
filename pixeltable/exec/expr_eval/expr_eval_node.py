@@ -44,10 +44,7 @@ class ExprEvalNode(ExecNode):
 
     maintain_input_order: bool  # True if we're returning rows in the order we received them from our input
     outputs: np.ndarray  # bool per slot; True if this slot is part of our output
-    # slot_evaluators: dict[int, Evaluator]  # key: slot idx
     schedulers: dict[str, Scheduler]  # key: resource pool name
-    # gc_targets: np.ndarray  # bool per slot; True if this is an intermediate expr (ie, not part of our output)
-    # eval_ctx: np.ndarray  # bool per slot; EvalCtx.slot_idxs as a mask
     exec_ctx: ExecCtx  # for input/output rows
 
     # execution state
@@ -87,14 +84,6 @@ class ExprEvalNode(ExecNode):
         output_slot_idxs = [e.slot_idx for e in output_exprs]
         self.outputs[output_slot_idxs] = True
         self.tasks = set()
-
-        # self.gc_targets = np.ones(row_builder.num_materialized, dtype=bool)
-        # we need to retain all slots that are part of the output
-        # self.gc_targets[[e.slot_idx for e in row_builder.output_exprs]] = False
-
-        # output_ctx = self.row_builder.create_eval_ctx(output_exprs, exclude=input_exprs)
-        # self.eval_ctx = np.zeros(row_builder.num_materialized, dtype=bool)
-        # self.eval_ctx[output_ctx.slot_idxs] = True
         self.error = None
 
         self.input_iter = self.input.__aiter__()
@@ -389,9 +378,6 @@ class ExprEvalNode(ExecNode):
                 ready_slots[i] = (num_missing == 0) & (row.is_scheduled == False) & row.missing_slots
                 row.is_scheduled = row.is_scheduled | ready_slots[i]
 
-            if row.parent_row is not None:
-                continue
-
             # clear intermediate values that are no longer needed (ie, all dependents are materialized)
             missing_dependents = np.sum(exec_ctx.row_builder.dependencies[row.has_val == False], axis=0)
             gc_targets = (missing_dependents == 0) & (row.missing_dependents > 0) & exec_ctx.gc_targets
@@ -405,8 +391,8 @@ class ExprEvalNode(ExecNode):
                 for i in completed_idxs:
                     row = rows[i]
                     assert row.parent_row is not None and row.parent_slot_idx is not None
-                    assert isinstance(row.parent_row[row.parent_slot_idx], NestedRowList)
-                    row.parent_row[row.parent_slot_idx].complete_row()
+                    assert isinstance(row.parent_row.vals[row.parent_slot_idx], NestedRowList)
+                    row.parent_row.vals[row.parent_slot_idx].complete_row()
             else:
                 for i in completed_idxs:
                     self.completed_rows.put_nowait(rows[i])

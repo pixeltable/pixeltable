@@ -69,6 +69,8 @@ class Expr(abc.ABC):
     # - not set for subexprs that don't need to be materialized because the parent can be materialized via SQL
     slot_idx: Optional[int]
 
+    T = TypeVar('T', bound='Expr')
+
     def __init__(self, col_type: ts.ColumnType):
         self.col_type = col_type
         self.components = []
@@ -190,7 +192,7 @@ class Expr(abc.ABC):
             return False
         return all(a[i].equals(b[i]) for i in range(len(a)))
 
-    def copy(self) -> Expr:
+    def copy(self: T) -> T:
         """
         Creates a copy that can be evaluated separately: it doesn't share any eval context (slot_idx)
         but shares everything else (catalog objects, etc.)
@@ -297,8 +299,6 @@ class Expr(abc.ABC):
     # `subexprs` has two forms: one that takes an explicit subclass of `Expr` as an argument and returns only
     # instances of that subclass; and another that returns all subexpressions that match the given filter.
     # In order for type checking to behave correctly on both forms, we provide two overloaded signatures.
-
-    T = TypeVar('T', bound='Expr')
 
     @overload
     def subexprs(

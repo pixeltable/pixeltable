@@ -94,11 +94,11 @@ class JsonMapper(Expr):
 
     @property
     def _src_expr(self) -> Expr:
-        return self.components[0]._src_expr
+        return self.components[0].src_expr
 
     @property
     def _target_expr(self) -> Expr:
-        return self.components[0]._target_expr
+        return self.components[0].target_expr
 
     def _equals(self, _: JsonMapper) -> bool:
         return True
@@ -107,22 +107,13 @@ class JsonMapper(Expr):
         return None
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
-        # this will be called, but the value has already been materialized elsewhere
-        src = data_row[self._src_expr.slot_idx]
-        if not isinstance(src, list):
-            # invalid/non-list src path
+        dispatch_slot_idx = self.components[0].slot_idx
+        nested_rows = data_row.vals[dispatch_slot_idx]
+        if nested_rows is None:
             data_row[self.slot_idx] = None
             return
-
-        result = [None] * len(src)
-        if self.target_expr_eval_ctx is None:
-            self.target_expr_eval_ctx = row_builder.create_eval_ctx([self._target_expr])
-        for i, val in enumerate(src):
-            data_row[self.scope_anchor.slot_idx] = val
-            # stored target_expr
-            row_builder.eval(data_row, self.target_expr_eval_ctx, force_eval=self._target_expr.scope())
-            result[i] = data_row[self._target_expr.slot_idx]
-        data_row[self.slot_idx] = result
+        data_row[self.slot_idx] = [row.vals[-1] for row in nested_rows.rows]
+        pass
 
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr]) -> JsonMapper:

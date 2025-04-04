@@ -180,8 +180,8 @@ class ExecCtx:
                 and not isinstance(expr.fn, func.ExprTemplateFunction)
                 and not isinstance(expr.fn, func.AggregateFunction)
             ):
-                self.slot_evaluators[slot_idx] = FnCallEvaluator(expr, dispatcher, self.row_builder)
+                self.slot_evaluators[slot_idx] = FnCallEvaluator(expr, dispatcher, self)
             elif isinstance(expr, exprs.JsonMapperDispatch):
-                self.slot_evaluators[slot_idx] = JsonMapperDispatcher(expr, dispatcher, self.row_builder)
+                self.slot_evaluators[slot_idx] = JsonMapperDispatcher(expr, dispatcher, self)
             else:
-                self.slot_evaluators[slot_idx] = DefaultExprEvaluator(expr, dispatcher, self.row_builder)
+                self.slot_evaluators[slot_idx] = DefaultExprEvaluator(expr, dispatcher, self)

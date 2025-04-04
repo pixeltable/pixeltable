@@ -275,8 +275,7 @@ class JsonMapperDispatcher(Evaluator):
     target_expr: exprs.Expr
     scope_anchor: exprs.ObjectRef
     nested_exec_ctx: ExecCtx
-    #nested_row_builder: exprs.RowBuilder
-    #target_expr_eval_ctx: np.ndarray  # ExprEvalCtx.slot_idxs as an ndarray
+    external_slot_map: dict[int, int]  # slot idx in parent row -> slot idx in nested row
 
     def __init__(self, e: exprs.JsonMapperDispatch, dispatcher: Dispatcher, exec_ctx: ExecCtx):
         super().__init__(dispatcher, exec_ctx)
@@ -285,7 +284,11 @@ class JsonMapperDispatcher(Evaluator):
         self.scope_anchor = e.scope_anchor.copy()
         nested_row_builder = exprs.RowBuilder(output_exprs=[self.target_expr], columns=[], input_exprs=[])
         nested_row_builder.set_slot_idxs([self.target_expr, self.scope_anchor])
-        self.nested_exec_ctx = ExecCtx(dispatcher, nested_row_builder, [self.target_expr], [])
+        target_expr_ctx = nested_row_builder.create_eval_ctx([self.target_expr])
+        target_scope = self.target_expr.scope()
+        parent_exprs = [e for e in target_expr_ctx.exprs if e.scope() != target_scope]
+        self.external_slot_map = { exec_ctx.row_builder.unique_exprs[e].slot_idx: e.slot_idx for e in parent_exprs }
+        self.nested_exec_ctx = ExecCtx(dispatcher, nested_row_builder, [self.target_expr], parent_exprs)
 
     def schedule(self, rows: list[exprs.DataRow], slot_idx: int) -> None:
         assert self.e.slot_idx >= 0
@@ -309,6 +312,8 @@ class JsonMapperDispatcher(Evaluator):
             ]
             for nested_row, anchor_val in zip(nested_rows, src):
                 nested_row[self.scope_anchor.slot_idx] = anchor_val
+                for slot_idx, nested_slot_idx in self.external_slot_map.items():
+                    nested_row[nested_slot_idx] = row[slot_idx]
                 nested_row.missing_slots = self.nested_exec_ctx.eval_ctx & (nested_row.has_val == False)
                 nested_row.missing_dependents = np.sum(
                     self.nested_exec_ctx.row_builder.dependencies[nested_row.has_val == False], axis=0
@@ -324,6 +329,6 @@ class JsonMapperDispatcher(Evaluator):
         for row in rows:
             assert not row.has_val[self.e.slot_idx]
             assert isinstance(row.vals[self.e.slot_idx], NestedRowList)
-            await row[self.e.slot_idx].completion.wait()
+            await row.vals[self.e.slot_idx].completion.wait()
             row.has_val[self.e.slot_idx] = True
         self.dispatcher.dispatch(rows, self.exec_ctx)
