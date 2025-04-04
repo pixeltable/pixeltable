@@ -78,6 +78,7 @@ def reset_db(init_env) -> None:
     # (such as test_migration.py) may leave the DB in a broken state.
     clean_db()
     Env.get().default_time_zone = None
+    Env.get().user = None
     # It'd be best to clear the tmp dir between tests, but this fails on Windows for unclear reasons.
     # Env.get().clear_tmp_dir()
     reload_catalog()
