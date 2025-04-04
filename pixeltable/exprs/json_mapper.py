@@ -20,6 +20,11 @@ class JsonMapper(Expr):
     JsonMapper transforms the list output of a JsonPath by applying a target expr to every element of the list.
     The target expr would typically contain relative JsonPaths, which are bound to an ObjectRef, which in turn
     is populated by JsonMapper.eval(). The JsonMapper effectively creates a new scope for its target expr.
+
+    JsonMapper is executed in two phases:
+    - the first phase is handled by JsonMapperDispatch, which materializes one nested DataRow per source list element
+      (stored as a NestedRowList in the slot of JsonMapperDispatch)
+    - JsonMapper.eval() collects the slot values of the target_expr into its result list
     """
 
     target_expr_scope: ExprScope
@@ -61,7 +66,7 @@ class JsonMapper(Expr):
             data_row[self.slot_idx] = None
             return
         assert isinstance(nested_rows, NestedRowList)
-        # TODO: get the materialized slot idx
+        # TODO: get the materialized slot idx, instead of relying on the fact that the target_expr is always at the end
         data_row[self.slot_idx] = [row.vals[-1] for row in nested_rows.rows]
 
     @classmethod
@@ -96,8 +101,8 @@ class JsonMapperDispatch(Expr):
         self.parent_mapper = None
         self.target_expr_eval_ctx = None
 
-        # Intentionally create the id now, before adding the scope anchor; this ensures that JsonMapperDispatch instances will
-        # be recognized as equal so long as they have the same src_expr and target_expr.
+        # Intentionally create the id now, before adding the scope anchor; this ensures that JsonMapperDispatch
+        # instances will be recognized as equal so long as they have the same src_expr and target_expr.
         # TODO: Might this cause problems after certain substitutions?
         self.id = self._create_id()
 
@@ -158,11 +163,11 @@ class JsonMapperDispatch(Expr):
         return result
 
     def __repr__(self) -> str:
-        return f'JsonMapperDispatch()'
+        return 'JsonMapperDispatch()'
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         # eval is handled by JsonMapperDispatcher
-        assert False
+        raise AssertionError('this should never be called')
 
     def _as_dict(self) -> dict:
         """

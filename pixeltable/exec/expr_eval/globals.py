@@ -55,6 +55,7 @@ class Scheduler(abc.ABC):
 
         request: FnCallArgs
         num_retries: int
+        exec_ctx: ExecCtx
 
         def __lt__(self, other: Scheduler.QueueItem) -> bool:
             # prioritize by number of retries (more retries = higher priority)
@@ -63,16 +64,14 @@ class Scheduler(abc.ABC):
     resource_pool: str
     queue: asyncio.PriorityQueue[QueueItem]  # prioritizes retries
     dispatcher: Dispatcher
-    row_builder: exprs.RowBuilder
 
-    def __init__(self, resource_pool: str, dispatcher: Dispatcher, row_builder: exprs.RowBuilder):
+    def __init__(self, resource_pool: str, dispatcher: Dispatcher):
         self.resource_pool = resource_pool
         self.queue = asyncio.PriorityQueue()
         self.dispatcher = dispatcher
-        self.row_builder = row_builder
 
-    def submit(self, item: FnCallArgs) -> None:
-        self.queue.put_nowait(self.QueueItem(item, 0))
+    def submit(self, item: FnCallArgs, exec_ctx: ExecCtx) -> None:
+        self.queue.put_nowait(self.QueueItem(item, 0, exec_ctx))
 
     @classmethod
     @abc.abstractmethod
@@ -143,7 +142,7 @@ class Evaluator(abc.ABC):
 
 
 class ExecCtx:
-    """Per-row execution parameters"""
+    """DataRow-specific state needed by ExprEvalNode"""
 
     row_builder: exprs.RowBuilder
     slot_evaluators: dict[int, Evaluator]  # key: slot idx

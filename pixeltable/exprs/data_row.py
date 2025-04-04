@@ -63,7 +63,7 @@ class DataRow:
     # - None if vals[i] is not a media type or if there is no local file yet for file_urls[i]
     file_paths: np.ndarray  # of str
 
-    # for nested rows
+    # for nested rows (ie, those produced by JsonMapperDispatcher)
     parent_row: Optional[DataRow]
     parent_slot_idx: Optional[int]
 

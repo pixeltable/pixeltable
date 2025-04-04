@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import dataclasses
 import logging
 import traceback
 from types import TracebackType
@@ -10,12 +9,12 @@ from typing import AsyncIterator, Iterable, Optional, Union
 import numpy as np
 
 import pixeltable.exceptions as excs
-from pixeltable import exprs, func
+from pixeltable import exprs
 
 from ..data_row_batch import DataRowBatch
 from ..exec_node import ExecNode
-from .evaluators import DefaultExprEvaluator, FnCallEvaluator, JsonMapperDispatcher, NestedRowList
-from .globals import Dispatcher, Evaluator, ExecCtx, Scheduler
+from .evaluators import FnCallEvaluator, NestedRowList
+from .globals import ExecCtx, Scheduler
 from .row_buffer import RowBuffer
 from .schedulers import SCHEDULERS
 
@@ -193,7 +192,7 @@ class ExprEvalNode(ExecNode):
         for pool_name in resource_pools:
             for scheduler in SCHEDULERS:
                 if scheduler.matches(pool_name):
-                    self.schedulers[pool_name] = scheduler(pool_name, self, self.row_builder)
+                    self.schedulers[pool_name] = scheduler(pool_name, self)
                     break
             if pool_name not in self.schedulers:
                 raise RuntimeError(f'No scheduler found for resource pool {pool_name}')

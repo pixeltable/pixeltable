@@ -271,7 +271,6 @@ class TestOpenai:
         assert res[0]['output'] is None
         assert res[0]['tool_calls'] == {'banana_quantity': [131.17]}
 
-    @pytest.mark.skip('Requires support for async JsonMapper execution')
     def test_query_as_tool(self, reset_db) -> None:
         skip_test_if_not_installed('openai')
         TestOpenai.skip_test_if_no_openai_client()

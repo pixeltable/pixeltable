@@ -134,7 +134,7 @@ class FnCallEvaluator(Evaluator):
                 if self.fn_call.resource_pool is not None:
                     # hand the call off to the resource pool's scheduler
                     scheduler = self.dispatcher.schedulers[self.fn_call.resource_pool]
-                    scheduler.submit(batched_call_args)
+                    scheduler.submit(batched_call_args, self.exec_ctx)
                 else:
                     task = asyncio.create_task(self.eval_batch(batched_call_args))
                     self.dispatcher.register_task(task)
@@ -144,7 +144,7 @@ class FnCallEvaluator(Evaluator):
                 # hand the call off to the resource pool's scheduler
                 scheduler = self.dispatcher.schedulers[self.fn_call.resource_pool]
                 for item in rows_call_args:
-                    scheduler.submit(item)
+                    scheduler.submit(item, self.exec_ctx)
             else:
                 # create one task per call
                 for item in rows_call_args:
@@ -251,7 +251,10 @@ class FnCallEvaluator(Evaluator):
 
 
 class NestedRowList:
-    """ """
+    """
+    A list of nested rows, used by JsonMapperDispatcher to store the rows corresponding to the elements of the
+    JsonMapper source list and make completion awaitable.
+    """
 
     rows: list[exprs.DataRow]
     num_completed: int
@@ -269,13 +272,18 @@ class NestedRowList:
 
 
 class JsonMapperDispatcher(Evaluator):
-    """ """
+    """
+    The execution logic for materializing the nested DataRows of a JsonMapper/JsonMapperDispatch.
+
+    The rows are stored in a NestedRowList, which itself is stored in the JsonMapperDispatch instance's slot.
+    """
 
     e: exprs.JsonMapperDispatch
     target_expr: exprs.Expr
     scope_anchor: exprs.ObjectRef
-    nested_exec_ctx: ExecCtx
+    nested_exec_ctx: ExecCtx  # ExecCtx needed to evaluate the nested rows
     external_slot_map: dict[int, int]  # slot idx in parent row -> slot idx in nested row
+    has_async_calls: bool  # True if target_expr contains any async FunctionCalls
 
     def __init__(self, e: exprs.JsonMapperDispatch, dispatcher: Dispatcher, exec_ctx: ExecCtx):
         super().__init__(dispatcher, exec_ctx)
@@ -285,13 +293,17 @@ class JsonMapperDispatcher(Evaluator):
         nested_row_builder = exprs.RowBuilder(output_exprs=[self.target_expr], columns=[], input_exprs=[])
         nested_row_builder.set_slot_idxs([self.target_expr, self.scope_anchor])
         target_expr_ctx = nested_row_builder.create_eval_ctx([self.target_expr], limit_scope=True)
+        self.has_async_calls = any(isinstance(e, exprs.FunctionCall) and e.is_async for e in target_expr_ctx.exprs)
         target_scope = self.target_expr.scope()
+        # we need to pre-populated nested rows with slot values that are produced in an outer scope
         parent_exprs = [e for e in target_expr_ctx.exprs if e.scope() != target_scope]
         self.external_slot_map = {exec_ctx.row_builder.unique_exprs[e].slot_idx: e.slot_idx for e in parent_exprs}
         self.nested_exec_ctx = ExecCtx(dispatcher, nested_row_builder, [self.target_expr], parent_exprs)
 
     def schedule(self, rows: list[exprs.DataRow], slot_idx: int) -> None:
+        """Create nested rows for all source list elements and dispatch them"""
         assert self.e.slot_idx >= 0
+        all_nested_rows: list[exprs.DataRow] = []
         for row in rows:
             src = row[self.e.src_expr.slot_idx]
             if not isinstance(src, list):
@@ -318,15 +330,22 @@ class JsonMapperDispatcher(Evaluator):
                 nested_row.missing_dependents = np.sum(
                     self.nested_exec_ctx.row_builder.dependencies[nested_row.has_val == False], axis=0
                 )
+            # we modify DataRow.vals here directly, rather than going through __getitem__(), because we don't have
+            # an official "value" yet (the nested rows are not yet materialized)
             row.vals[self.e.slot_idx] = NestedRowList(nested_rows)
-            self.dispatcher.dispatch(nested_rows, self.nested_exec_ctx)
+            all_nested_rows.extend(nested_rows)
 
+        self.dispatcher.dispatch(all_nested_rows, self.nested_exec_ctx)
         task = asyncio.create_task(self.gather(rows))
         self.dispatcher.register_task(task)
 
     async def gather(self, rows: list[exprs.DataRow]) -> None:
+        """Wait for nested rows to complete, then signal completion to the parent rows"""
+        # TODO: optimization: if target_expr contains async calls, we should wait(return_when=FIRST_COMPLETED) instead
+        # of waiting for each row in-order
         for row in rows:
             if row.has_val[self.e.slot_idx]:
+                # the source_expr's value is not a list
                 assert row.vals[self.e.slot_idx] is None
                 continue
             assert row.vals[self.e.slot_idx] is not None and isinstance(row.vals[self.e.slot_idx], NestedRowList)

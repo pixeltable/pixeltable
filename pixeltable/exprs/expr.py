@@ -373,7 +373,6 @@ class Expr(abc.ABC):
             return False
 
     def _has_relative_path(self) -> bool:
-        x = [c._has_relative_path() for c in self.components]
         return any(c._has_relative_path() for c in self.components)
 
     def tbl_ids(self) -> set[UUID]:
