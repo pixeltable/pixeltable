@@ -130,7 +130,7 @@ docstest: install
 .PHONY: lint
 lint: install
 	@echo "Running ruff check ..."
-	@ruff check pixeltable
+	@ruff check pixeltable tool
 
 .PHONY: formattest
 formattest: install
