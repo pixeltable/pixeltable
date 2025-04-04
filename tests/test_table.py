@@ -12,6 +12,7 @@ import pandas as pd
 import PIL
 import pytest
 from jsonschema.exceptions import ValidationError
+from psycopg import rows
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
@@ -67,6 +68,13 @@ class TestTable:
     @staticmethod
     @pxt.expr_udf
     def add1(a: int) -> int:
+        return a + 1
+
+    @staticmethod
+    @pxt.udf
+    def function_with_error(a: int, b: int) -> int:
+        if a == b:
+            raise KeyboardInterrupt
         return a + 1
 
     @pxt.uda(requires_order_by=True, allows_window=True)
@@ -1522,6 +1530,22 @@ class TestTable:
         assert t.where(t.add1.errortype != None).count() == 10
         msgs = t.select(msg=t.add1.errormsg).collect()['msg']
         assert sum('division by zero' in msg for msg in msgs if msg is not None) == 10
+
+    def test_computed_col_with_interrupts(self, reset_db: None) -> None:
+        schema = {'c1': pxt.Int}
+        t = pxt.create_table('test_interrupt', schema)
+        t.insert(({'c1': i} for i in range(0, 1000)))
+        try:
+            _ = t.add_computed_column(cc1=self.f2(self.function_with_error(t.c1, 245)), on_error='ignore')
+            assert False, 'No exception was raised'
+        except (KeyboardInterrupt, Exception) as exc:
+            print('Caught KeyboardInterrupt Successfully')
+            results = t.head(1)
+            assert results[0] == {'c1': 0}
+            results = t.tail(1)
+            assert results[0] == {'c1': 999}
+            assert len(results.schema) == 1
+            assert results.schema.get('cc1') is None
 
     def _test_computed_img_cols(self, t: catalog.Table, stores_img_col: bool) -> None:
         rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
