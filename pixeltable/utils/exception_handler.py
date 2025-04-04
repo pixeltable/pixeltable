@@ -23,9 +23,9 @@ def run_cleanup_on_exception(cleanup_func: Callable[..., R], *args, **kwargs):
 
 def run_cleanup(cleanup_func: Callable[..., R], *args, raise_error=True, **kwargs):
     """
-    Runs a cleanup function and if interrupted will try to run it again.
+    Runs a cleanup function. If interrupted, retry cleanup.
     Args:
-        cleanup_func: cleanup function to run must be idempotent.
+        cleanup_func: an idempotent cleanup function
         raise_error: raise an exception if an error occurs during cleanup.
     """
     try:

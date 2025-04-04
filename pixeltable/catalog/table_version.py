@@ -557,7 +557,7 @@ class TableVersion:
         try:
             idx.create_index(self._store_idx_name(idx_id), val_col)
         finally:
-            # Remove in memory index structure in the case of error
+            # Remove in memory index structure in the case of an error.
             def remove_index() -> None:
                 del self.idxs_by_name[idx_name]
                 del self.idx_md[idx_id]
@@ -678,7 +678,6 @@ class TableVersion:
 
             plan, value_expr_slot_idx = Planner.create_add_column_plan(self.path, col)
             plan.ctx.num_rows = row_count
-            error = None
             try:
                 plan.open()
                 try:
