@@ -15,14 +15,9 @@ import pandas as pd
 import sqlalchemy as sql
 
 import pixeltable as pxt
-from pixeltable import catalog
-from pixeltable import env
-import pixeltable.exceptions as excs
-from pixeltable import exprs
-from pixeltable import index
-from pixeltable.metadata import schema
-import pixeltable.type_system as ts
+from pixeltable import catalog, env, exceptions as excs, exprs, index, type_system as ts
 from pixeltable.env import Env
+from pixeltable.metadata import schema
 
 from ..exprs import ColumnRef
 from ..utils.description_helper import DescriptionHelper

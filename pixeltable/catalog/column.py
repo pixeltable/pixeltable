@@ -165,7 +165,9 @@ class Column:
             return False
         from pixeltable import exprs
 
-        window_fn_calls = list(self.value_expr.subexprs(filter=lambda e: isinstance(e, exprs.FunctionCall) and e.is_window_fn_call))
+        window_fn_calls = list(
+            self.value_expr.subexprs(filter=lambda e: isinstance(e, exprs.FunctionCall) and e.is_window_fn_call)
+        )
         return len(window_fn_calls) > 0
 
     def get_idx_info(self) -> dict[str, 'TableVersion.IndexInfo']:

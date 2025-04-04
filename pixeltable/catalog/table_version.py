@@ -13,9 +13,8 @@ import sqlalchemy as sql
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
-from pixeltable import exprs
-from pixeltable import index
 import pixeltable.type_system as ts
+from pixeltable import exprs, index
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
 from pixeltable.metadata import schema
@@ -385,10 +384,8 @@ class TableVersion:
         import pixeltable.index as index_module
 
         for md in tbl_md.index_md.values():
-            if (
-                md.schema_version_add > self.schema_version
-                or (md.schema_version_drop is not None
-                and md.schema_version_drop <= self.schema_version)
+            if md.schema_version_add > self.schema_version or (
+                md.schema_version_drop is not None and md.schema_version_drop <= self.schema_version
             ):
                 # index not visible in this schema version
                 continue
@@ -953,7 +950,9 @@ class TableVersion:
                 # it's not a literal, let's try to create an expr from it
                 value_expr = exprs.Expr.from_object(val)
                 if value_expr is None:
-                    raise excs.Error(f'Column {col_name}: value {val!r} is not a recognized literal or expression') from exc
+                    raise excs.Error(
+                        f'Column {col_name}: value {val!r} is not a recognized literal or expression'
+                    ) from exc
                 if not col.col_type.is_supertype_of(value_expr.col_type, ignore_nullable=True):
                     raise excs.Error(
                         f'Type of value {val!r} ({value_expr.col_type}) is not compatible with the type of column '

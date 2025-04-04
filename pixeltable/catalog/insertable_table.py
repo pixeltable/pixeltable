@@ -17,7 +17,6 @@ from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
 
 if TYPE_CHECKING:
-
     from pixeltable.globals import TableDataSource
     from pixeltable.io.table_data_conduit import TableDataConduit
 

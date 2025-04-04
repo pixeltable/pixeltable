@@ -132,7 +132,7 @@ class Catalog:
             # _debug_print(for_update=False, msg=f'dir id={dir_id}')
             row = conn.execute(q).one()
             dir = schema.Dir(**row._mapping)
-            if dir.md['name']:
+            if not dir.md['name']:
                 break
             names.insert(0, dir.md['name'])
             dir_id = dir.parent_id
