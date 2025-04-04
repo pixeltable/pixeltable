@@ -2,7 +2,7 @@ from typing import Optional
 
 import sqlalchemy as sql
 
-import pixeltable.exprs as exprs
+from pixeltable import exprs
 
 
 class ExecContext:

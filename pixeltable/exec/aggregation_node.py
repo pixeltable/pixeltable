@@ -2,11 +2,9 @@ from __future__ import annotations
 
 import logging
 import sys
-from typing import Any, AsyncIterator, Iterable, Iterator, Optional, cast
+from typing import Any, AsyncIterator, Iterable, Optional, cast
 
-import pixeltable.catalog as catalog
-import pixeltable.exceptions as excs
-import pixeltable.exprs as exprs
+from pixeltable import catalog, exceptions as excs, exprs
 
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
@@ -52,20 +50,20 @@ class AggregationNode(ExecNode):
         for fn_call in self.agg_fn_calls:
             try:
                 fn_call.reset_agg()
-            except Exception as e:
+            except Exception as exc:
                 _, _, exc_tb = sys.exc_info()
                 expr_msg = f'init() function of the aggregate {fn_call}'
-                raise excs.ExprEvalError(fn_call, expr_msg, e, exc_tb, [], row_num)
+                raise excs.ExprEvalError(fn_call, expr_msg, exc, exc_tb, [], row_num) from exc
 
     def _update_agg_state(self, row: exprs.DataRow, row_num: int) -> None:
         for fn_call in self.agg_fn_calls:
             try:
                 fn_call.update(row)
-            except Exception as e:
+            except Exception as exc:
                 _, _, exc_tb = sys.exc_info()
                 expr_msg = f'update() function of the aggregate {fn_call}'
                 input_vals = [row[d.slot_idx] for d in fn_call.dependencies()]
-                raise excs.ExprEvalError(fn_call, expr_msg, e, exc_tb, input_vals, row_num)
+                raise excs.ExprEvalError(fn_call, expr_msg, exc, exc_tb, input_vals, row_num) from exc
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
         prev_row: Optional[exprs.DataRow] = None

@@ -1,8 +1,6 @@
 from typing import AsyncIterator
 
-import pixeltable.catalog as catalog
-import pixeltable.exceptions as excs
-import pixeltable.exprs as exprs
+from pixeltable import catalog, exceptions as excs, exprs
 
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode

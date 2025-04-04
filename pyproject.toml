@@ -214,9 +214,11 @@ line-length = 120
 select = ["B", "C", "E", "F", "ICN", "N", "PL", "PYI", "RUF", "SIM", "TD002", "W"]
 ignore = [
     "B023",  # Function definition does not bind to loop variable (appears to generate false positives)
+    "B027",  # Empty method in abstract base class (I'm not sure why this should be a problem)
     # A bunch of rules that are just plain fussy about code complexity:
     "C901", "PLR0904", "PLR0911", "PLR0912", "PLR0913", "PLR0914", "PLR0915", "PLR0916", "PLR0917", "PLR1702",
     "E711",  # None comparison (x == None); needed for Pandas/Pixeltable expressions
+    "E712",  # Equality comparisons to `False` (x == False); needed for Pandas/Pixeltable expressions
     "N801",  # Class name should use CapWords convention (we intentionally violate this for aggregate functions)
     "PLC0415",  # Allow imports within functions (I don't see how this linting rule could ever work)
     "PLC2701",  # Allow private name imports
