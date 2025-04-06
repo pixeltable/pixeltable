@@ -22,21 +22,21 @@ class JsonMapper(Expr):
     is populated by JsonMapper.eval(). The JsonMapper effectively creates a new scope for its target expr.
 
     JsonMapper is executed in two phases:
-    - the first phase is handled by JsonMapperDispatch, which materializes one nested DataRow per source list element
-      (stored as a NestedRowList in the slot of JsonMapperDispatch)
-    - JsonMapper.eval() collects the slot values of the target_expr into its result list
+    - the first phase is handled by Expr subclass JsonMapperDispatch, which constructs one nested DataRow per source
+      list element and evaluates the target expr within that (the nested DataRows are stored as a NestedRowList in the
+      slot of JsonMapperDispatch)
+    - JsonMapper.eval() collects the slot values of the target expr into its result list
     """
 
     target_expr_scope: ExprScope
     parent_mapper: Optional[JsonMapper]
     target_expr_eval_ctx: Optional[RowBuilder.EvalCtx]
 
-    def __init__(self, src_expr: Optional[Expr], target_expr: Optional[Expr], dispatch: Optional[Expr] = None):
+    def __init__(self, src_expr: Optional[Expr], target_expr: Optional[Expr]):
         # TODO: type spec should be list[target_expr.col_type]
         super().__init__(ts.JsonType())
 
-        if dispatch is None:
-            dispatch = JsonMapperDispatch(src_expr, target_expr)
+        dispatch = JsonMapperDispatch(src_expr, target_expr)
         self.components.append(dispatch)
         self.id = self._create_id()
 
@@ -69,19 +69,26 @@ class JsonMapper(Expr):
         # TODO: get the materialized slot idx, instead of relying on the fact that the target_expr is always at the end
         data_row[self.slot_idx] = [row.vals[-1] for row in nested_rows.rows]
 
+    def _as_dict(self) -> dict:
+        """
+        We only serialize src and target exprs, everything else is re-created at runtime.
+        """
+        return {'components': [self._src_expr.as_dict(), self._target_expr.as_dict()]}
+
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr]) -> JsonMapper:
-        assert len(components) == 1
-        return cls(src_expr=None, target_expr=None, dispatch=components[0])
+        assert len(components) == 2
+        src_expr, target_expr = components[0], components[1]
+        return cls(src_expr, target_expr)
 
 
 class JsonMapperDispatch(Expr):
     """
     An operational Expr (ie, it doesn't represent any syntactic element) that is used by JsonMapper to materialize
-    its input DataRows. It needs to have the same dependencies as the originating JsonMapper.
+    its input DataRows. It has the same dependencies as the originating JsonMapper.
 
-    - The execution (and row dispatch) is handled by an expr_eval.Evaluator.
-    - It stores NestedRowList in its slot.
+    - The execution (= row dispatch) is handled by an expr_eval.Evaluator (JsonMapperDispatcher).
+    - It stores a NestedRowList instance in its slot.
     """
 
     target_expr_scope: ExprScope
@@ -171,11 +178,10 @@ class JsonMapperDispatch(Expr):
 
     def _as_dict(self) -> dict:
         """
-        We need to avoid serializing component[2], which is an ObjectRef.
+        JsonMapperDispatch instances are only created by the JsonMapper c'tor and never need to be serialized.
         """
-        return {'components': [c.as_dict() for c in self.components[0:2]]}
+        raise AssertionError('this should never be called')
 
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr]) -> JsonMapperDispatch:
-        assert len(components) == 2
-        return cls(components[0], components[1])
+        raise AssertionError('this should never be called')
