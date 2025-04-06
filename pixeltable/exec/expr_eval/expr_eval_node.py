@@ -171,7 +171,7 @@ class ExprEvalNode(ExecNode):
         self.num_in_flight += num_rows
         self._log_state(f'dispatch input ({num_rows})')
 
-        self._init_input_rows(rows)
+        self.exec_ctx.init_rows(rows)
         self.dispatch(rows, self.exec_ctx)
 
     def _log_state(self, prefix: str) -> None:
@@ -305,12 +305,6 @@ class ExprEvalNode(ExecNode):
                 if not task.done():
                     task.cancel()
             _ = await asyncio.gather(*active_tasks, return_exceptions=True)
-
-    def _init_input_rows(self, rows: list[exprs.DataRow]) -> None:
-        """Set execution state in DataRow"""
-        for row in rows:
-            row.missing_dependents = np.sum(self.row_builder.dependencies[row.has_val == False], axis=0)
-            row.missing_slots = self.exec_ctx.eval_ctx & (row.has_val == False)
 
     def dispatch_exc(
         self, rows: list[exprs.DataRow], slot_with_exc: int, exc_tb: TracebackType, exec_ctx: ExecCtx

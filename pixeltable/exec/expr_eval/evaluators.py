@@ -295,8 +295,10 @@ class JsonMapperDispatcher(Evaluator):
         target_expr_ctx = nested_row_builder.create_eval_ctx([self.target_expr], limit_scope=True)
         self.has_async_calls = any(isinstance(e, exprs.FunctionCall) and e.is_async for e in target_expr_ctx.exprs)
         target_scope = self.target_expr.scope()
-        # we need to pre-populated nested rows with slot values that are produced in an outer scope
-        parent_exprs = [e for e in target_expr_ctx.exprs if e.scope() != target_scope]
+        # we need to pre-populated nested rows with slot values that are produced in an outer scope (literals excluded)
+        parent_exprs = [
+            e for e in target_expr_ctx.exprs if e.scope() != target_scope and not isinstance(e, exprs.Literal)
+        ]
         self.external_slot_map = {exec_ctx.row_builder.unique_exprs[e].slot_idx: e.slot_idx for e in parent_exprs}
         self.nested_exec_ctx = ExecCtx(dispatcher, nested_row_builder, [self.target_expr], parent_exprs)
 
@@ -326,10 +328,8 @@ class JsonMapperDispatcher(Evaluator):
                 nested_row[self.scope_anchor.slot_idx] = anchor_val
                 for slot_idx, nested_slot_idx in self.external_slot_map.items():
                     nested_row[nested_slot_idx] = row[slot_idx]
-                nested_row.missing_slots = self.nested_exec_ctx.eval_ctx & (nested_row.has_val == False)
-                nested_row.missing_dependents = np.sum(
-                    self.nested_exec_ctx.row_builder.dependencies[nested_row.has_val == False], axis=0
-                )
+            self.nested_exec_ctx.init_rows(nested_rows)
+
             # we modify DataRow.vals here directly, rather than going through __getitem__(), because we don't have
             # an official "value" yet (the nested rows are not yet materialized)
             row.vals[self.e.slot_idx] = NestedRowList(nested_rows)

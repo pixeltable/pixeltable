@@ -148,6 +148,7 @@ class ExecCtx:
     slot_evaluators: dict[int, Evaluator]  # key: slot idx
     gc_targets: np.ndarray  # bool per slot; True if this is an intermediate expr (ie, not part of our output)
     eval_ctx: np.ndarray  # bool per slot; EvalCtx.slot_idxs as a mask
+    literals: dict[int, Any]  # key: slot idx; value: literal value for this slot; used to pre-populate rows
 
     def __init__(
         self,
@@ -164,9 +165,11 @@ class ExecCtx:
         self.gc_targets[[e.slot_idx for e in self.row_builder.output_exprs]] = False
 
         output_ctx = self.row_builder.create_eval_ctx(output_exprs, exclude=input_exprs)
+        self.literals = {e.slot_idx: e.val for e in output_ctx.exprs if isinstance(e, exprs.Literal)}
         self.eval_ctx = np.zeros(self.row_builder.num_materialized, dtype=bool)
-        self.eval_ctx[output_ctx.slot_idxs] = True
-        self._init_slot_evaluators(dispatcher, output_ctx.slot_idxs)
+        non_literal_slot_idxs = [e.slot_idx for e in output_ctx.exprs if not isinstance(e, exprs.Literal)]
+        self.eval_ctx[non_literal_slot_idxs] = True
+        self._init_slot_evaluators(dispatcher, non_literal_slot_idxs)
 
     def _init_slot_evaluators(self, dispatcher: Dispatcher, target_slot_idxs: list[int]) -> None:
         from .evaluators import DefaultExprEvaluator, FnCallEvaluator, JsonMapperDispatcher
@@ -184,3 +187,12 @@ class ExecCtx:
                 self.slot_evaluators[slot_idx] = JsonMapperDispatcher(expr, dispatcher, self)
             else:
                 self.slot_evaluators[slot_idx] = DefaultExprEvaluator(expr, dispatcher, self)
+
+    def init_rows(self, rows: list[exprs.DataRow]) -> None:
+        """Pre-populate rows with literals and initialize execution state"""
+        for row in rows:
+            # set literals before missing_dependents/slots
+            for slot_idx, val in self.literals.items():
+                row[slot_idx] = val
+            row.missing_dependents = np.sum(self.row_builder.dependencies[row.has_val == False], axis=0)
+            row.missing_slots = self.eval_ctx & (row.has_val == False)
