@@ -152,6 +152,18 @@ class Env:
         return self._http_address
 
     @property
+    def user(self) -> Optional[str]:
+        return Config.get().get_string_value('user')
+
+    @user.setter
+    def user(self, user: Optional[str]) -> None:
+        if user is None:
+            if 'PIXELTABLE_USER' in os.environ:
+                del os.environ['PIXELTABLE_USER']
+        else:
+            os.environ['PIXELTABLE_USER'] = user
+
+    @property
     def default_time_zone(self) -> Optional[ZoneInfo]:
         return self._default_time_zone
 
