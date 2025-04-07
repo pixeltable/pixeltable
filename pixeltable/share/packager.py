@@ -58,30 +58,25 @@ class TablePackager:
         self.tmp_dir = Path(Env.get().create_tmp_path())
         self.media_files = {}
 
-        # Generate metadata
-        self.md = {
-            'pxt_version': pxt.__version__,
-            'pxt_md_version': metadata.VERSION,
-            'md': {
-                'tables': [
-                    {
-                        'table_id': str(t._tbl_version.id),
-                        # These are temporary; will replace with a better solution once the concurrency
-                        # changes to catalog have been merged
-                        'table_md': dataclasses.asdict(t._tbl_version.get()._create_tbl_md()),
-                        'table_version_md': dataclasses.asdict(
-                            t._tbl_version.get()._create_version_md(datetime.now().timestamp())
-                        ),
-                        'table_schema_version_md': dataclasses.asdict(
-                            t._tbl_version.get()._create_schema_version_md(0)
-                        ),
-                    }
-                    for t in (table, *table._bases)
-                ]
-            },
-        }
+        # Load metadata
+        tbl_versions = table._tbl_version_path.get_tbl_versions()
+        with Env.get().begin_xact():
+            self.md = {
+                'pxt_version': pxt.__version__,
+                'pxt_md_version': metadata.VERSION,
+                'md': {'tables': [self.__tbl_version_md(tbl) for tbl in tbl_versions]},
+            }
         if additional_md is not None:
             self.md.update(additional_md)
+
+    def __tbl_version_md(self, tbl: catalog.TableVersionHandle) -> dict[str, Any]:
+        tbl_md, version_md, schema_version_md = catalog.Catalog.get()._load_tbl_md(tbl.id, tbl.effective_version)
+        return {
+            'table_id': str(tbl.id),
+            'table_md': dataclasses.asdict(tbl_md),
+            'table_version_md': dataclasses.asdict(version_md),
+            'table_schema_version_md': dataclasses.asdict(schema_version_md),
+        }
 
     def package(self) -> Path:
         """
