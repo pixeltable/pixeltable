@@ -680,13 +680,14 @@ class Catalog:
         # TODO: also load mutable views
         return view
 
-    # def _load_tbl_md(self, tbl_id: UUID, effective_version: Optional[int]) -> tuple[]
-
-    def _load_tbl_version(self, tbl_id: UUID, effective_version: Optional[int]) -> Optional[TableVersion]:
-        _logger.info(f'Loading table version: {tbl_id}:{effective_version}')
+    def _load_tbl_md(
+        self, tbl_id: UUID, effective_version: Optional[int]
+    ) -> tuple[schema.TableMd, schema.TableVersionMd, schema.TableSchemaVersionMd]:
+        _logger.info(f'Loading metadata for table version: {tbl_id}:{effective_version}')
         conn = Env.get().conn
+
         q = (
-            sql.select(schema.Table, schema.TableSchemaVersion)
+            sql.select(schema.Table, schema.TableVersion, schema.TableSchemaVersion)
             .select_from(schema.Table)
             .where(schema.Table.id == tbl_id)
             .join(schema.TableVersion)
@@ -732,10 +733,22 @@ class Catalog:
             )
 
         row = conn.execute(q).one_or_none()
-        tbl_record, schema_version_record = _unpack_row(row, [schema.Table, schema.TableSchemaVersion])
+        tbl_record, version_record, schema_version_record = _unpack_row(
+            row, [schema.Table, schema.TableVersion, schema.TableSchemaVersion]
+        )
+        assert tbl_record.id == tbl_id
         tbl_md = schema.md_from_dict(schema.TableMd, tbl_record.md)
+        version_md = schema.md_from_dict(schema.TableVersionMd, version_record.md)
         schema_version_md = schema.md_from_dict(schema.TableSchemaVersionMd, schema_version_record.md)
+
+        return tbl_md, version_md, schema_version_md
+
+    def _load_tbl_version(self, tbl_id: UUID, effective_version: Optional[int]) -> Optional[TableVersion]:
+        tbl_md, _, schema_version_md = self._load_tbl_md(tbl_id, effective_version)
         view_md = tbl_md.view_md
+
+        _logger.info(f'Loading table version: {tbl_id}:{effective_version}')
+        conn = Env.get().conn
 
         # load mutable view ids
         q = sql.select(schema.Table.id).where(
@@ -750,7 +763,7 @@ class Catalog:
         if view_md is None:
             # this is a base table
             tbl_version = TableVersion(
-                tbl_record.id, tbl_md, effective_version, schema_version_md, mutable_views=mutable_views
+                tbl_id, tbl_md, effective_version, schema_version_md, mutable_views=mutable_views
             )
             return tbl_version
 
@@ -767,7 +780,7 @@ class Catalog:
             base = base_path.tbl_version
 
         tbl_version = TableVersion(
-            tbl_record.id,
+            tbl_id,
             tbl_md,
             effective_version,
             schema_version_md,
