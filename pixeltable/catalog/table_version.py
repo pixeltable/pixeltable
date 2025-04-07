@@ -311,24 +311,16 @@ class TableVersion:
         session.add(schema_version_record)
         return tbl_record.id, tbl_version
 
-    @classmethod
-    def delete_md(cls, tbl_id: UUID) -> None:
-        conn = Env.get().conn
-        conn.execute(sql.delete(schema.TableSchemaVersion.__table__).where(schema.TableSchemaVersion.tbl_id == tbl_id))
-        conn.execute(sql.delete(schema.TableVersion.__table__).where(schema.TableVersion.tbl_id == tbl_id))
-        conn.execute(sql.delete(schema.Table.__table__).where(schema.Table.id == tbl_id))
-
     def drop(self) -> None:
-        # delete this table and all associated data
-        MediaStore.delete(self.id)
-        FileCache.get().clear(tbl_id=self.id)
-        self.delete_md(self.id)
-        self.store_tbl.drop()
-
-        # de-register table version from catalog
         from .catalog import Catalog
 
         cat = Catalog.get()
+        # delete this table and all associated data
+        MediaStore.delete(self.id)
+        FileCache.get().clear(tbl_id=self.id)
+        cat.delete_tbl_md(self.id)
+        self.store_tbl.drop()
+        # de-register table version from catalog
         cat.remove_tbl_version(self)
 
     def _init_schema(self, tbl_md: schema.TableMd, schema_version_md: schema.TableSchemaVersionMd) -> None:
@@ -439,29 +431,13 @@ class TableVersion:
                 specified preceding schema version
         """
         assert update_tbl_version or preceding_schema_version is None
+        from pixeltable.catalog import Catalog
 
-        conn = Env.get().conn
-        conn.execute(
-            sql.update(schema.Table.__table__)
-            .values({schema.Table.md: dataclasses.asdict(self._create_tbl_md())})
-            .where(schema.Table.id == self.id)
-        )
+        tbl_md = self._create_tbl_md()
+        version_md = self._create_version_md(timestamp) if update_tbl_version else None
+        schema_version_md = self._create_schema_version_md(preceding_schema_version) if preceding_schema_version is not None else None
 
-        if update_tbl_version:
-            version_md = self._create_version_md(timestamp)
-            conn.execute(
-                sql.insert(schema.TableVersion.__table__).values(
-                    tbl_id=self.id, version=self.version, md=dataclasses.asdict(version_md)
-                )
-            )
-
-        if preceding_schema_version is not None:
-            schema_version_md = self._create_schema_version_md(preceding_schema_version)
-            conn.execute(
-                sql.insert(schema.TableSchemaVersion.__table__).values(
-                    tbl_id=self.id, schema_version=self.schema_version, md=dataclasses.asdict(schema_version_md)
-                )
-            )
+        Catalog.get().save_tbl_md(self.id, tbl_md, version_md, schema_version_md)
 
     def ensure_md_loaded(self) -> None:
         """Ensure that table metadata is loaded."""

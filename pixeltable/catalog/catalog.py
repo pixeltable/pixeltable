@@ -680,9 +680,12 @@ class Catalog:
         # TODO: also load mutable views
         return view
 
-    def _load_tbl_md(
+    def load_tbl_md(
         self, tbl_id: UUID, effective_version: Optional[int]
     ) -> tuple[schema.TableMd, schema.TableVersionMd, schema.TableSchemaVersionMd]:
+        """
+        Loads metadata from the store for a given table UUID and version.
+        """
         _logger.info(f'Loading metadata for table version: {tbl_id}:{effective_version}')
         conn = Env.get().conn
 
@@ -743,8 +746,55 @@ class Catalog:
 
         return tbl_md, version_md, schema_version_md
 
+    def save_tbl_md(
+        self,
+        tbl_id: UUID,
+        tbl_md: Optional[schema.TableMd],
+        version_md: Optional[schema.TableVersionMd],
+        schema_version_md: Optional[schema.TableSchemaVersionMd],
+    ) -> None:
+        """
+        Saves metadata to the store. If specified, `tbl_md` will be updated in place (only one such record can exist
+        per UUID); `version_md` and `schema_version_md` will be inserted as new records.
+
+        If inserting `version_md` or `schema_version_md` would be a primary key violation, an exception will be raised.
+        """
+        conn = Env.get().conn
+
+        if tbl_md is not None:
+            conn.execute(
+                sql.update(schema.Table.__table__)
+                .values({schema.Table.md: dataclasses.asdict(tbl_md)})
+                .where(schema.Table.id == tbl_id)
+            )
+
+        if version_md is not None:
+            conn.execute(
+                sql.insert(schema.TableVersion.__table__).values(
+                    tbl_id=tbl_id, version=version_md.version, md=dataclasses.asdict(version_md)
+                )
+            )
+
+        if schema_version_md is not None:
+            conn.execute(
+                sql.insert(schema.TableSchemaVersion.__table__).values(
+                    tbl_id=tbl_id,
+                    schema_version=schema_version_md.schema_version,
+                    md=dataclasses.asdict(schema_version_md),
+                )
+            )
+
+    def delete_tbl_md(cls, tbl_id: UUID) -> None:
+        """
+        Deletes all table metadata from the store for the given table UUID.
+        """
+        conn = Env.get().conn
+        conn.execute(sql.delete(schema.TableSchemaVersion.__table__).where(schema.TableSchemaVersion.tbl_id == tbl_id))
+        conn.execute(sql.delete(schema.TableVersion.__table__).where(schema.TableVersion.tbl_id == tbl_id))
+        conn.execute(sql.delete(schema.Table.__table__).where(schema.Table.id == tbl_id))
+
     def _load_tbl_version(self, tbl_id: UUID, effective_version: Optional[int]) -> Optional[TableVersion]:
-        tbl_md, _, schema_version_md = self._load_tbl_md(tbl_id, effective_version)
+        tbl_md, _, schema_version_md = self.load_tbl_md(tbl_id, effective_version)
         view_md = tbl_md.view_md
 
         _logger.info(f'Loading table version: {tbl_id}:{effective_version}')

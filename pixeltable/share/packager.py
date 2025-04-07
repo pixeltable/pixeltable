@@ -6,7 +6,6 @@ import tarfile
 import urllib.parse
 import urllib.request
 import uuid
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterator, Optional
 
@@ -70,7 +69,7 @@ class TablePackager:
             self.md.update(additional_md)
 
     def __tbl_version_md(self, tbl: catalog.TableVersionHandle) -> dict[str, Any]:
-        tbl_md, version_md, schema_version_md = catalog.Catalog.get()._load_tbl_md(tbl.id, tbl.effective_version)
+        tbl_md, version_md, schema_version_md = catalog.Catalog.get().load_tbl_md(tbl.id, tbl.effective_version)
         return {
             'table_id': str(tbl.id),
             'table_md': dataclasses.asdict(tbl_md),

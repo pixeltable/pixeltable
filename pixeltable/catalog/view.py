@@ -241,7 +241,7 @@ class View(Table):
             # there is not TableVersion to drop
             self._check_is_dropped()
             self.is_dropped = True
-            TableVersion.delete_md(self._id)
+            catalog.Catalog.get().delete_tbl_md(self._id)
         else:
             super()._drop()
 
