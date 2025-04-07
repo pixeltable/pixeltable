@@ -341,14 +341,25 @@ class JsonMapperDispatcher(Evaluator):
 
     async def gather(self, rows: list[exprs.DataRow]) -> None:
         """Wait for nested rows to complete, then signal completion to the parent rows"""
-        # TODO: optimization: if target_expr contains async calls, we should wait(return_when=FIRST_COMPLETED) instead
-        # of waiting for each row in-order
-        for row in rows:
-            if row.has_val[self.e.slot_idx]:
-                # the source_expr's value is not a list
-                assert row.vals[self.e.slot_idx] is None
-                continue
-            assert row.vals[self.e.slot_idx] is not None and isinstance(row.vals[self.e.slot_idx], NestedRowList)
-            await row.vals[self.e.slot_idx].completion.wait()
-            row.has_val[self.e.slot_idx] = True
-        self.dispatcher.dispatch(rows, self.exec_ctx)
+        if self.has_async_calls:
+            # if our target expr contains async FunctionCalls, they typically get completed out-of-order, and it's
+            # more effective to dispatch them as they complete
+            remaining = {asyncio.create_task(row.vals[self.e.slot_idx].completion.wait()): row for row in rows}
+            while len(remaining) > 0:
+                done, _ = await asyncio.wait(remaining.keys(), return_when=asyncio.FIRST_COMPLETED)
+                done_rows = [remaining.pop(task) for task in done]
+                for row in done_rows:
+                    row.has_val[self.e.slot_idx] = True
+                self.dispatcher.dispatch(done_rows, self.exec_ctx)
+
+        else:
+            # our target expr doesn't contain async FunctionCalls, which means they will get completed in-order
+            for row in rows:
+                if row.has_val[self.e.slot_idx]:
+                    # the source_expr's value is not a list
+                    assert row.vals[self.e.slot_idx] is None
+                    continue
+                assert row.vals[self.e.slot_idx] is not None and isinstance(row.vals[self.e.slot_idx], NestedRowList)
+                await row.vals[self.e.slot_idx].completion.wait()
+                row.has_val[self.e.slot_idx] = True
+            self.dispatcher.dispatch(rows, self.exec_ctx)
