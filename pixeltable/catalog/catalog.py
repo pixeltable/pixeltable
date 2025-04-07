@@ -680,6 +680,8 @@ class Catalog:
         # TODO: also load mutable views
         return view
 
+    # def _load_tbl_md(self, tbl_id: UUID, effective_version: Optional[int]) -> tuple[]
+
     def _load_tbl_version(self, tbl_id: UUID, effective_version: Optional[int]) -> Optional[TableVersion]:
         _logger.info(f'Loading table version: {tbl_id}:{effective_version}')
         conn = Env.get().conn
@@ -687,6 +689,8 @@ class Catalog:
             sql.select(schema.Table, schema.TableSchemaVersion)
             .select_from(schema.Table)
             .where(schema.Table.id == tbl_id)
+            .join(schema.TableVersion)
+            .where(schema.TableVersion.tbl_id == tbl_id)
             .join(schema.TableSchemaVersion)
             .where(schema.TableSchemaVersion.tbl_id == tbl_id)
         )
@@ -698,16 +702,11 @@ class Catalog:
             # JOIN TableVersion tv ON (tv.tbl_id = tbl_id AND tv.version = effective_version)
             # JOIN TableSchemaVersion tsv ON (tsv.tbl_id = tbl_id AND tv.md.schema_version = tsv.schema_version)
             # WHERE t.id = tbl_id
-            q = (
-                q.join(schema.TableVersion)
-                .where(schema.TableVersion.tbl_id == tbl_id)
-                .where(sql.text(f"({schema.TableVersion.__table__}.md->>'version')::int = {effective_version}"))
-                .where(
-                    sql.text(
-                        (
-                            f"({schema.TableVersion.__table__}.md->>'schema_version')::int = "
-                            f'{schema.TableSchemaVersion.__table__}.{schema.TableSchemaVersion.schema_version.name}'
-                        )
+            q = q.where(sql.text(f"({schema.TableVersion.__table__}.md->>'version')::int = {effective_version}")).where(
+                sql.text(
+                    (
+                        f"({schema.TableVersion.__table__}.md->>'schema_version')::int = "
+                        f'{schema.TableSchemaVersion.__table__}.{schema.TableSchemaVersion.schema_version.name}'
                     )
                 )
             )
@@ -715,9 +714,15 @@ class Catalog:
             # we are loading the current version
             # SELECT *
             # FROM Table t
+            # JOIN TableVersion tv ON (tv.tbl_id = tbl_id AND t.current_version = tv.version)
             # JOIN TableSchemaVersion tsv ON (tsv.tbl_id = tbl_id AND t.current_schema_version = tsv.schema_version)
             # WHERE t.id = tbl_id
             q = q.where(
+                sql.text(
+                    f"({schema.Table.__table__}.md->>'current_version')::int = "
+                    f'{schema.TableVersion.__table__}.{schema.TableVersion.version.name}'
+                )
+            ).where(
                 sql.text(
                     (
                         f"({schema.Table.__table__}.md->>'current_schema_version')::int = "
