@@ -82,7 +82,7 @@ class Table(SchemaObject):
             (
                 f'UPDATE {schema.Table.__table__} '
                 f'SET {schema.Table.dir_id.name} = :new_dir_id, '
-                f"    {schema.Table.md.name}['name'] = :new_name "
+                f"    {schema.Table.md.name} = jsonb_set({schema.Table.md.name}, '{{name}}', (:new_name)::jsonb) "
                 f'WHERE {schema.Table.id.name} = :id'
             )
         )
@@ -624,6 +624,15 @@ class Table(SchemaObject):
         col_schema: dict[str, Any] = {'value': spec}
         if stored is not None:
             col_schema['stored'] = stored
+
+        # Raise an error if the column expression refers to a column error property
+        if isinstance(spec, exprs.Expr):
+            for e in spec.subexprs(expr_class=exprs.ColumnPropertyRef, traverse_matches=False):
+                if e.is_error_prop():
+                    raise excs.Error(
+                        'Use of a reference to an error property of another column is not allowed in a computed column. '
+                        f'The specified computation for this column contains this reference: `{e!r}`'
+                    )
 
         with Env.get().begin_xact():
             # handle existing columns based on if_exists parameter
@@ -1351,7 +1360,7 @@ class Table(SchemaObject):
 
         for row_spec in rows:
             col_vals = self._tbl_version.get()._validate_update_spec(
-                row_spec, allow_pk=not has_rowid, allow_exprs=False
+                row_spec, allow_pk=not has_rowid, allow_exprs=False, allow_media=False
             )
             if has_rowid:
                 # we expect the _rowid column to be present for each row

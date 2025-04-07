@@ -344,7 +344,9 @@ class TableVersion:
         self.cols = []
         self.cols_by_name = {}
         self.cols_by_id = {}
-        for col_md in tbl_md.column_md.values():
+        # Sort columns in column_md by the position specified in col_md.id to guarantee that all references point backward.
+        sorted_column_md = sorted(tbl_md.column_md.values(), key=lambda item: item.id)
+        for col_md in sorted_column_md:
             schema_col_md = schema_version_md.columns[col_md.id] if col_md.id in schema_version_md.columns else None
             col_name = schema_col_md.name if schema_col_md is not None else None
             media_val = (
@@ -861,7 +863,7 @@ class TableVersion:
 
         from pixeltable.plan import Planner
 
-        update_spec = self._validate_update_spec(value_spec, allow_pk=False, allow_exprs=True)
+        update_spec = self._validate_update_spec(value_spec, allow_pk=False, allow_exprs=True, allow_media=True)
         if where is not None:
             if not isinstance(where, exprs.Expr):
                 raise excs.Error(f"'where' argument must be a predicate, got {type(where)}")
@@ -922,7 +924,7 @@ class TableVersion:
         return result
 
     def _validate_update_spec(
-        self, value_spec: dict[str, Any], allow_pk: bool, allow_exprs: bool
+        self, value_spec: dict[str, Any], allow_pk: bool, allow_exprs: bool, allow_media: bool
     ) -> dict[Column, exprs.Expr]:
         update_targets: dict[Column, exprs.Expr] = {}
         for col_name, val in value_spec.items():
@@ -942,6 +944,8 @@ class TableVersion:
                 raise excs.Error(f'Column {col_name} is computed and cannot be updated')
             if col.is_pk and not allow_pk:
                 raise excs.Error(f'Column {col_name} is a primary key column and cannot be updated')
+            if col.col_type.is_media_type() and not allow_media:
+                raise excs.Error(f'Column {col_name} is a media column and cannot be updated')
 
             # make sure that the value is compatible with the column type
             value_expr: exprs.Expr

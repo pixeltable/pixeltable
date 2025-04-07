@@ -30,6 +30,7 @@ from tqdm import TqdmWarning
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
 from pixeltable.utils.console_output import ConsoleLogger, ConsoleMessageFilter, ConsoleOutputHandler, map_level
+from pixeltable.utils.dbms import CockroachDbms, Dbms, PostgresqlDbms
 from pixeltable.utils.http_server import make_server
 
 if TYPE_CHECKING:
@@ -43,7 +44,9 @@ T = TypeVar('T')
 
 class Env:
     """
-    Store for runtime globals.
+    Store runtime globals for both local and non-local environments.
+    For a local environment, Pixeltable uses an embedded PostgreSQL server that runs locally in a separate process.
+    For a non-local environment, Pixeltable uses a connection string to the externally managed database.
     """
 
     _instance: Optional[Env] = None
@@ -58,7 +61,7 @@ class Env:
     _sa_engine: Optional[sql.engine.base.Engine]
     _pgdata_dir: Optional[Path]
     _db_name: Optional[str]
-    _db_server: Optional[pixeltable_pgserver.PostgresServer]
+    _db_server: Optional[pixeltable_pgserver.PostgresServer]  # set only when running in local environment
     _db_url: Optional[str]
     _default_time_zone: Optional[ZoneInfo]
 
@@ -81,6 +84,7 @@ class Env:
     _resource_pool_info: dict[str, Any]
     _current_conn: Optional[sql.Connection]
     _current_session: Optional[sql.orm.Session]
+    _dbms: Optional[Dbms]
 
     @classmethod
     def get(cls) -> Env:
@@ -112,7 +116,6 @@ class Env:
         self._db_server = None
         self._db_url = None
         self._default_time_zone = None
-
         self.__optional_packages = {}
         self._spacy_nlp = None
         self._httpd = None
@@ -136,6 +139,7 @@ class Env:
         self._resource_pool_info = {}
         self._current_conn = None
         self._current_session = None
+        self._dbms = None
 
     @property
     def db_url(self) -> str:
@@ -182,8 +186,18 @@ class Env:
         assert self._current_session is not None
         return self._current_session
 
+    @property
+    def dbms(self) -> Optional[Dbms]:
+        assert self._dbms is not None
+        return self._dbms
+
     def in_xact(self) -> bool:
         return self._current_conn is not None
+
+    @property
+    def is_local(self) -> bool:
+        assert self._db_url is not None  # is_local should be called only after db initialization
+        return self._db_server is not None
 
     @contextmanager
     def begin_xact(self) -> Iterator[sql.Connection]:
@@ -358,16 +372,13 @@ class Env:
 
         self.clear_tmp_dir()
 
-        self._db_name = os.environ.get('PIXELTABLE_DB', 'pixeltable')
-        self._pgdata_dir = Path(os.environ.get('PIXELTABLE_PGDATA', str(Config.get().home / 'pgdata')))
+        # configure pixeltable database
+        self._init_db(config)
 
-        # cleanup_mode=None will leave the postgres process running after Python exits
-        # cleanup_mode='stop' will terminate the postgres process when Python exits
-        # On Windows, we need cleanup_mode='stop' because child processes are killed automatically when the parent
-        # process (such as Terminal or VSCode) exits, potentially leaving it in an unusable state.
-        cleanup_mode = 'stop' if platform.system() == 'Windows' else None
-        self._db_server = pixeltable_pgserver.get_server(self._pgdata_dir, cleanup_mode=cleanup_mode)
-        self._db_url = self._db_server.get_uri(database=self._db_name, driver='psycopg')
+        if reinit_db and not self.is_local:
+            raise excs.Error(
+                'Reinitializing pixeltable database is not supported when running in non-local environment'
+            )
 
         tz_name = config.get_string_value('time_zone')
         if tz_name is not None:
@@ -394,11 +405,8 @@ class Env:
         # Create the SQLAlchemy engine. This will also set the default time zone.
         self._create_engine(time_zone_name=tz_name, echo=echo)
 
-        if create_db:
-            from pixeltable import metadata
-
-            metadata.schema.base_metadata.create_all(self._sa_engine)
-            metadata.create_system_info(self._sa_engine)
+        # Create catalog tables and system metadata
+        self._init_metadata()
 
         self.console_logger.info(f'Connected to Pixeltable database at: {self.db_url}')
 
@@ -406,12 +414,65 @@ class Env:
         self._set_up_runtime()
         self.log_to_stdout(False)
 
+    def _init_db(self, config: Config) -> None:
+        """
+        Initialize the pixeltable database along with its associated DBMS.
+        """
+        db_connect_str = config.get_string_value('DB_CONNECT_STR')
+        if db_connect_str is not None:
+            try:
+                db_url = sql.make_url(db_connect_str)
+            except sql.exc.ArgumentError as e:
+                error = f'Invalid db connection string {db_connect_str}: {e}'
+                self._logger.error(error)
+                raise excs.Error(error) from e
+            self._db_url = db_url.render_as_string(hide_password=False)
+            self._db_name = db_url.database  # use the dbname given in connect string
+            dialect = db_url.get_dialect().name
+            if dialect == 'cockroachdb':
+                self._dbms = CockroachDbms(db_url)
+            else:
+                raise excs.Error(f'Unsupported DBMS {dialect}')
+            # Check if database exists
+            if not self._store_db_exists():
+                error = f'Database {self._db_name!r} does not exist'
+                self._logger.error(error)
+                raise excs.Error(error)
+            self._logger.info(f'Using database at: {self.db_url}')
+        else:
+            self._db_name = os.environ.get('PIXELTABLE_DB', 'pixeltable')
+            self._pgdata_dir = Path(os.environ.get('PIXELTABLE_PGDATA', str(Config.get().home / 'pgdata')))
+            # cleanup_mode=None will leave the postgres process running after Python exits
+            # cleanup_mode='stop' will terminate the postgres process when Python exits
+            # On Windows, we need cleanup_mode='stop' because child processes are killed automatically when the parent
+            # process (such as Terminal or VSCode) exits, potentially leaving it in an unusable state.
+            cleanup_mode = 'stop' if platform.system() == 'Windows' else None
+            self._db_server = pixeltable_pgserver.get_server(self._pgdata_dir, cleanup_mode=cleanup_mode)
+            self._db_url = self._db_server.get_uri(database=self._db_name, driver='psycopg')
+            self._dbms = PostgresqlDbms(sql.make_url(self._db_url))
+        assert self._dbms is not None
+        assert self._db_url is not None
+        assert self._db_name is not None
+
+    def _init_metadata(self) -> None:
+        """
+        Create pixeltable metadata tables and system metadata.
+        This is an idempotent operation.
+        """
+        assert self._sa_engine is not None
+        from pixeltable import metadata
+
+        metadata.schema.base_metadata.create_all(self._sa_engine, checkfirst=True)
+        metadata.create_system_info(self._sa_engine)
+
     def _create_engine(self, time_zone_name: Optional[str], echo: bool = False) -> None:
         connect_args = {} if time_zone_name is None else {'options': f'-c timezone={time_zone_name}'}
         self._sa_engine = sql.create_engine(
-            self.db_url, echo=echo, isolation_level='REPEATABLE READ', connect_args=connect_args
+            self.db_url, echo=echo, isolation_level=self._dbms.transaction_isolation_level, connect_args=connect_args
         )
+
         self._logger.info(f'Created SQLAlchemy engine at: {self.db_url}')
+
         with self.engine.begin() as conn:
             tz_name = conn.execute(sql.text('SHOW TIME ZONE')).scalar()
             assert isinstance(tz_name, str)
@@ -421,8 +482,7 @@ class Env:
     def _store_db_exists(self) -> bool:
         assert self._db_name is not None
         # don't try to connect to self.db_name, it may not exist
-        db_url = self._db_server.get_uri(database='postgres', driver='psycopg')
-        engine = sql.create_engine(db_url, future=True)
+        engine = sql.create_engine(self._dbms.default_system_db_url(), future=True)
         try:
             with engine.begin() as conn:
                 stmt = f"SELECT COUNT(*) FROM pg_database WHERE datname = '{self._db_name}'"
@@ -435,23 +495,17 @@ class Env:
     def _create_store_db(self) -> None:
         assert self._db_name is not None
         # create the db
-        pg_db_url = self._db_server.get_uri(database='postgres', driver='psycopg')
-        engine = sql.create_engine(pg_db_url, future=True, isolation_level='AUTOCOMMIT')
+        engine = sql.create_engine(self._dbms.default_system_db_url(), future=True, isolation_level='AUTOCOMMIT')
         preparer = engine.dialect.identifier_preparer
         try:
             with engine.begin() as conn:
-                # use C collation to get standard C/Python-style sorting
-                stmt = (
-                    f'CREATE DATABASE {preparer.quote(self._db_name)} '
-                    "ENCODING 'utf-8' LC_COLLATE 'C' LC_CTYPE 'C' TEMPLATE template0"
-                )
+                stmt = self._dbms.create_db_stmt(preparer.quote(self._db_name))
                 conn.execute(sql.text(stmt))
         finally:
             engine.dispose()
 
         # enable pgvector
-        store_db_url = self._db_server.get_uri(database=self._db_name, driver='psycopg')
-        engine = sql.create_engine(store_db_url, future=True, isolation_level='AUTOCOMMIT')
+        engine = sql.create_engine(self.db_url, future=True, isolation_level='AUTOCOMMIT')
         try:
             with engine.begin() as conn:
                 conn.execute(sql.text('CREATE EXTENSION vector'))
@@ -460,21 +514,21 @@ class Env:
 
     def _drop_store_db(self) -> None:
         assert self._db_name is not None
-        db_url = self._db_server.get_uri(database='postgres', driver='psycopg')
-        engine = sql.create_engine(db_url, future=True, isolation_level='AUTOCOMMIT')
+        engine = sql.create_engine(self._dbms.default_system_db_url(), future=True, isolation_level='AUTOCOMMIT')
         preparer = engine.dialect.identifier_preparer
         try:
             with engine.begin() as conn:
                 # terminate active connections
-                stmt = f"""
-                    SELECT pg_terminate_backend(pg_stat_activity.pid)
-                    FROM pg_stat_activity
-                    WHERE pg_stat_activity.datname = '{self._db_name}'
-                    AND pid <> pg_backend_pid()
-                """
-                conn.execute(sql.text(stmt))
+                if self._db_server is not None:
+                    stmt = f"""
+                        SELECT pg_terminate_backend(pg_stat_activity.pid)
+                        FROM pg_stat_activity
+                        WHERE pg_stat_activity.datname = '{self._db_name}'
+                        AND pid <> pg_backend_pid()
+                    """
+                    conn.execute(sql.text(stmt))
                 # drop db
-                stmt = f'DROP DATABASE {preparer.quote(self._db_name)}'
+                stmt = self._dbms.drop_db_stmt(preparer.quote(self._db_name))
                 conn.execute(sql.text(stmt))
         finally:
             engine.dispose()
