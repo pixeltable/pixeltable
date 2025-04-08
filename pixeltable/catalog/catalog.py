@@ -424,7 +424,10 @@ class Catalog:
 
     @_retry_loop
     def create_replica(self, path: Path, md: list[schema.FullTableMd], if_exists: IfExistsParam) -> Table:
-        # If this table UUID already exists, it's always an error
+        """
+        Creates table, table_version, and table_schema_version records for a replica with the given metadata.
+        """
+        # If this table UUID already exists in the catalog, it's always an error
         tbl_id = md[0].tbl_md.tbl_id
         if tbl_id in self._tbls:
             raise excs.Error(
@@ -442,8 +445,11 @@ class Catalog:
 
         self.__save_replica_md(path, md[0])
         for ancestor_md in md[1:]:
-            replica_path = Path(f'_system.replica_{ancestor_md.tbl_md.tbl_id.hex}')
+            tbl_id = UUID(ancestor_md.tbl_md.tbl_id)
+            replica_path = Path(f'_system.replica_{tbl_id.hex}', allow_system_paths=True)
             self.__save_replica_md(replica_path, ancestor_md)
+
+
 
     def __save_replica_md(self, path: Path, md: schema.FullTableMd) -> None:
         dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
@@ -471,7 +477,8 @@ class Catalog:
             )
             conn.execute(q)
         elif md.tbl_md.current_version > existing_md['current_version']:
-            # New metadata is more recent than the metadata currently stored in the DB
+            # New metadata is more recent than the metadata currently stored in the DB; we'll update the record
+            # in place in the DB
             new_tbl_md = dataclasses.replace(md.tbl_md, name=path.name, user=Env.get().user, is_replica=True)
 
         # Now see if a TableVersion record already exists in the DB for this table version. If not, insert it. If
@@ -879,7 +886,7 @@ class Catalog:
                 )
             )
 
-    def delete_tbl_md(cls, tbl_id: UUID) -> None:
+    def delete_tbl_md(self, tbl_id: UUID) -> None:
         """
         Deletes all table metadata from the store for the given table UUID.
         """
@@ -887,6 +894,13 @@ class Catalog:
         conn.execute(sql.delete(schema.TableSchemaVersion.__table__).where(schema.TableSchemaVersion.tbl_id == tbl_id))
         conn.execute(sql.delete(schema.TableVersion.__table__).where(schema.TableVersion.tbl_id == tbl_id))
         conn.execute(sql.delete(schema.Table.__table__).where(schema.Table.id == tbl_id))
+
+    def load_tbl_ancestors_md(self, tvp: TableVersionPath) -> list[schema.FullTableMd]:
+        """
+        Loads metadata for the given table version path, including all base versions.
+        """
+        # TODO: Acquire xlocks for all metadata entries
+        return [self.load_tbl_md(tbl.id, tbl.effective_version) for tbl in tvp.get_tbl_versions()]
 
     def _load_tbl_version(self, tbl_id: UUID, effective_version: Optional[int]) -> Optional[TableVersion]:
         tbl_md, _, schema_version_md = self.load_tbl_md(tbl_id, effective_version)

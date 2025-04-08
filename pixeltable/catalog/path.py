@@ -35,9 +35,9 @@ class Path:
             if self.is_root:
                 return self
             else:
-                return Path('', empty_is_valid=True)
+                return Path('', empty_is_valid=True, allow_system_paths=True)
         else:
-            return Path('.'.join(self.components[:-1]))
+            return Path('.'.join(self.components[:-1]), allow_system_paths=True)
 
     def append(self, name: str) -> Path:
         if self.is_root:
