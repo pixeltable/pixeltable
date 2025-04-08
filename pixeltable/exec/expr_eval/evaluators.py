@@ -344,7 +344,10 @@ class JsonMapperDispatcher(Evaluator):
         if self.has_async_calls:
             # if our target expr contains async FunctionCalls, they typically get completed out-of-order, and it's
             # more effective to dispatch them as they complete
-            remaining = {asyncio.create_task(row.vals[self.e.slot_idx].completion.wait()): row for row in rows}
+            remaining = {
+                asyncio.create_task(row.vals[self.e.slot_idx].completion.wait()): row
+                for row in rows if not row.has_val[self.e.slot_idx]
+            }
             while len(remaining) > 0:
                 done, _ = await asyncio.wait(remaining.keys(), return_when=asyncio.FIRST_COMPLETED)
                 done_rows = [remaining.pop(task) for task in done]
