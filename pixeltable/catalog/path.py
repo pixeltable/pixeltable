@@ -11,8 +11,8 @@ _logger = logging.getLogger('pixeltable')
 
 
 class Path:
-    def __init__(self, path: str, empty_is_valid: bool = False):
-        if not is_valid_path(path, empty_is_valid):
+    def __init__(self, path: str, empty_is_valid: bool = False, allow_system_paths: bool = False):
+        if not is_valid_path(path, empty_is_valid, allow_system_paths):
             raise excs.Error(f"Invalid path format: '{path}'")
         self.components = path.split('.')
 
