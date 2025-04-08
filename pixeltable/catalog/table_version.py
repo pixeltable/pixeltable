@@ -435,7 +435,9 @@ class TableVersion:
 
         tbl_md = self._create_tbl_md()
         version_md = self._create_version_md(timestamp) if update_tbl_version else None
-        schema_version_md = self._create_schema_version_md(preceding_schema_version) if preceding_schema_version is not None else None
+        schema_version_md = (
+            self._create_schema_version_md(preceding_schema_version) if preceding_schema_version is not None else None
+        )
 
         Catalog.get().save_tbl_md(self.id, tbl_md, version_md, schema_version_md)
 
