@@ -9,6 +9,18 @@ import pixeltable.functions as pxtf
 from ..utils import SAMPLE_IMAGE_URL, skip_test_if_not_installed, stock_price, validate_update_status
 
 
+@pxt.udf
+def stock_price_tool(ticker: str) -> str:
+    """Get current stock price."""
+    return f'Current stock price for {ticker}: $100.00'
+
+
+@pxt.udf
+def weather_tool(city: str) -> str:
+    """Get weather of city."""
+    return f'Current weather in {city}: Sunny'
+
+
 @pytest.mark.remote_api
 @pytest.mark.flaky(reruns=3, reruns_delay=8)
 class TestOpenai:
@@ -399,16 +411,6 @@ class TestOpenai:
         validate_update_status(t.insert(input='A friendly dinosaur playing tennis in a cornfield'), 1)
         assert t.collect()['img_3'][0].size == (1792, 1024)
 
-    @pxt.udf
-    def stock_price_tool(ticker: str) -> str:
-        """Get current stock price."""
-        return f'Current stock price for {ticker}: $100.00'
-
-    @pxt.udf
-    def weather_tool(city: str) -> str:
-        """Get weather of city."""
-        return f'Current weather in {city}: Sunny'
-
     @pytest.mark.expensive
     def test_table_udf_tools(self, reset_db) -> None:
         skip_test_if_not_installed('openai')
@@ -416,8 +418,8 @@ class TestOpenai:
         from pixeltable.functions.openai import chat_completions, invoke_tools
 
         # Register tools
-        finance_tools = pxt.tools(self.stock_price_tool)
-        weather_tools = pxt.tools(self.weather_tool)
+        finance_tools = pxt.tools(stock_price_tool)
+        weather_tools = pxt.tools(weather_tool)
 
         # Finance agent
         finance_agent = pxt.create_table('finance_agent', {'prompt': pxt.String})
