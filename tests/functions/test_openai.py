@@ -3,8 +3,8 @@ from typing import Optional
 import pytest
 
 import pixeltable as pxt
-import pixeltable.functions as pxtf
 import pixeltable.exceptions as excs
+import pixeltable.functions as pxtf
 
 from ..utils import SAMPLE_IMAGE_URL, skip_test_if_not_installed, stock_price, validate_update_status
 
@@ -402,12 +402,12 @@ class TestOpenai:
     @pxt.udf
     def stock_price_tool(ticker: str) -> str:
         """Get current stock price."""
-        return f"Current stock price for {ticker}: $100.00"
+        return f'Current stock price for {ticker}: $100.00'
 
     @pxt.udf
     def weather_tool(city: str) -> str:
         """Get weather of city."""
-        return f"Current weather in {city}: Sunny"
+        return f'Current weather in {city}: Sunny'
 
     @pytest.mark.expensive
     def test_table_udf_tools(self, reset_db) -> None:
@@ -418,117 +418,99 @@ class TestOpenai:
         weather_tools = pxt.tools(self.weather_tool)
 
         # Finance agent
-        finance_agent = pxt.create_table( 'finance_agent', {"prompt": pxt.String})
+        finance_agent = pxt.create_table('finance_agent', {'prompt': pxt.String})
         finance_agent.add_computed_column(
             initial_response=chat_completions(
-                model="gpt-4o-mini",
-                messages=[{"role": "user", "content": finance_agent.prompt}],
+                model='gpt-4o-mini',
+                messages=[{'role': 'user', 'content': finance_agent.prompt}],
                 tools=finance_tools,
                 tool_choice=finance_tools.choice(required=True),
             )
         )
-        finance_agent.add_computed_column(
-            tool_output=invoke_tools(finance_tools, finance_agent.initial_response)
-        )
+        finance_agent.add_computed_column(tool_output=invoke_tools(finance_tools, finance_agent.initial_response))
         finance_agent.add_computed_column(
             tool_response_prompt=pxtf.string.format(
-                "Orginal Prompt\n{0}: Tool Output\n{1}",
-                finance_agent.prompt,
-                finance_agent.tool_output
+                'Orginal Prompt\n{0}: Tool Output\n{1}', finance_agent.prompt, finance_agent.tool_output
             )
         )
         finance_agent.add_computed_column(
             final_response=chat_completions(
-                model="gpt-4o-mini",
+                model='gpt-4o-mini',
                 messages=[
                     {
-                        "role": "system",
-                        "content": "You are a helpful AI assistant that can use various tools. Analyze the tool results and provide a clear, concise response."
+                        'role': 'system',
+                        'content': 'You are a helpful AI assistant that can use various tools. Analyze the tool results and provide a clear, concise response.',
                     },
-                    {"role": "user", "content": finance_agent.tool_response_prompt},
-                ]
+                    {'role': 'user', 'content': finance_agent.tool_response_prompt},
+                ],
             )
         )
-        finance_agent.add_computed_column(
-            answer=finance_agent.final_response.choices[0].message.content
-        )
+        finance_agent.add_computed_column(answer=finance_agent.final_response.choices[0].message.content)
         finance_agent_udf = pxt.udf(finance_agent, return_value=finance_agent.answer)
 
         # Weather agent
-        weather_agent = pxt.create_table('weather_agent', {"prompt": pxt.String})
+        weather_agent = pxt.create_table('weather_agent', {'prompt': pxt.String})
         weather_agent.add_computed_column(
             initial_response=chat_completions(
-                model="gpt-4o-mini",
-                messages=[{"role": "user", "content": weather_agent.prompt}],
+                model='gpt-4o-mini',
+                messages=[{'role': 'user', 'content': weather_agent.prompt}],
                 tools=weather_tools,
                 tool_choice=weather_tools.choice(required=True),
             )
         )
-        weather_agent.add_computed_column(
-            tool_output=invoke_tools(weather_tools, weather_agent.initial_response)
-        )
+        weather_agent.add_computed_column(tool_output=invoke_tools(weather_tools, weather_agent.initial_response))
         weather_agent.add_computed_column(
             tool_response_prompt=pxtf.string.format(
-                "Orginal Prompt\n{0}: Tool Output\n{1}",
-                weather_agent.prompt,
-                weather_agent.tool_output
+                'Orginal Prompt\n{0}: Tool Output\n{1}', weather_agent.prompt, weather_agent.tool_output
             )
         )
         weather_agent.add_computed_column(
             final_response=chat_completions(
-                model="gpt-4o-mini",
+                model='gpt-4o-mini',
                 messages=[
                     {
-                        "role": "system",
-                        "content": "You are a helpful AI assistant that can use various tools. Analyze the tool results and provide a clear, concise response."
+                        'role': 'system',
+                        'content': 'You are a helpful AI assistant that can use various tools. Analyze the tool results and provide a clear, concise response.',
                     },
-                    {"role": "user", "content": weather_agent.tool_response_prompt},
-                ]
+                    {'role': 'user', 'content': weather_agent.tool_response_prompt},
+                ],
             )
         )
-        weather_agent.add_computed_column(
-            answer=weather_agent.final_response.choices[0].message.content
-        )
+        weather_agent.add_computed_column(answer=weather_agent.final_response.choices[0].message.content)
         weather_agent_udf = pxt.udf(weather_agent, return_value=weather_agent.answer)
 
         # Team tools
         team_tools = pxt.tools(finance_agent_udf, weather_agent_udf)
 
         # Manager Agent
-        manager = pxt.create_table('manager', {"prompt": pxt.String})
+        manager = pxt.create_table('manager', {'prompt': pxt.String})
         manager.add_computed_column(
             initial_response=chat_completions(
-                model="gpt-4o-mini",
-                messages=[{"role": "user", "content": manager.prompt}],
+                model='gpt-4o-mini',
+                messages=[{'role': 'user', 'content': manager.prompt}],
                 tools=team_tools,
                 tool_choice=team_tools.choice(required=True),
             )
         )
-        manager.add_computed_column(
-            tool_output=invoke_tools(team_tools, manager.initial_response)
-        )
+        manager.add_computed_column(tool_output=invoke_tools(team_tools, manager.initial_response))
         manager.add_computed_column(
             tool_response_prompt=pxtf.string.format(
-                "Orginal Prompt\n{0}: Tool Output\n{1}",
-                manager.prompt,
-                manager.tool_output
+                'Orginal Prompt\n{0}: Tool Output\n{1}', manager.prompt, manager.tool_output
             )
         )
         manager.add_computed_column(
             final_response=chat_completions(
-                model="gpt-4o-mini",
+                model='gpt-4o-mini',
                 messages=[
                     {
-                        "role": "system",
-                        "content": "You are a helpful AI assistant that can use various tools. Analyze the tool results and provide a clear, concise response."
+                        'role': 'system',
+                        'content': 'You are a helpful AI assistant that can use various tools. Analyze the tool results and provide a clear, concise response.',
                     },
-                    {"role": "user", "content": manager.tool_response_prompt},
-                ]
+                    {'role': 'user', 'content': manager.tool_response_prompt},
+                ],
             )
         )
-        manager.add_computed_column(
-            answer=manager.final_response.choices[0].message.content
-        )
+        manager.add_computed_column(answer=manager.final_response.choices[0].message.content)
 
         manager.insert([{'prompt': "what's the weather in sf"}])
         _ = manager.select(manager.answer).collect()

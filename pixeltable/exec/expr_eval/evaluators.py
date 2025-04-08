@@ -346,7 +346,8 @@ class JsonMapperDispatcher(Evaluator):
             # more effective to dispatch them as they complete
             remaining = {
                 asyncio.create_task(row.vals[self.e.slot_idx].completion.wait()): row
-                for row in rows if not row.has_val[self.e.slot_idx]
+                for row in rows
+                if not row.has_val[self.e.slot_idx]
             }
             while len(remaining) > 0:
                 done, _ = await asyncio.wait(remaining.keys(), return_when=asyncio.FIRST_COMPLETED)
