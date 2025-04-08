@@ -353,6 +353,9 @@ class TestOpenai:
         validate_update_status(t.insert(input='Say something interesting.'), 1)
         _ = t.head()
 
+        embeddings_fn = embeddings.using(model='text-embedding-3-small')
+        assert embeddings_fn.signature.return_type == pxt.Array[(1536,)]
+
     def test_moderations(self, reset_db) -> None:
         skip_test_if_not_installed('openai')
         TestOpenai.skip_test_if_no_openai_client()
