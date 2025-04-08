@@ -411,6 +411,8 @@ class TestOpenai:
 
     @pytest.mark.expensive
     def test_table_udf_tools(self, reset_db) -> None:
+        skip_test_if_not_installed('openai')
+        TestOpenai.skip_test_if_no_openai_client()
         from pixeltable.functions.openai import chat_completions, invoke_tools
 
         # Register tools
