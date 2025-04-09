@@ -4,6 +4,29 @@ description: 'Keep track of changes'
 icon: 'newspaper'
 ---
 
+<Update label="2024-04-02" description="v0.3.10">
+### Highlights
+* Introduced `pxtf.map()` as a replacement for the `>>` operator to create JsonMappers
+* Added string concatenation operations (`+` and `*`) support in arithmetic expressions
+* Incorporated import operations into table_create and insert methods
+* Added access method for embedding indices
+* Switched to pixeltable-yolox for computer vision functionality
+
+### Enhancements
+Restructured documentation for improved navigation and clarity
+Added table IDs to Pixeltable markdown documentation
+Added create_parents option to create_dir to automatically create missing parent directories
+Improved JsonMapper functionality with new unit tests for QueryTemplateFunction
+
+### Fixes
+Fixed event loop debug logging
+Resolved syntax errors in documentation
+Addressed bugs in directory operations, particularly when drop_dir() is the first operation after catalog load
+Fixed issues with chained tool calling
+Corrected bug involving @pxt.query instances with default parameter values
+Improved JsonPath serialization
+</Update>
+
 <Update label="2024-03-19" description="v0.3.7">
 ### Highlights
 * Introduced linting for improved code quality

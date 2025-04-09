@@ -54,6 +54,7 @@ class TableVersion:
 
     id: UUID
     name: str
+    user: Optional[str]
     effective_version: Optional[int]
     version: int
     comment: str
@@ -108,6 +109,7 @@ class TableVersion:
     ):
         self.id = id
         self.name = tbl_md.name
+        self.user = tbl_md.user
         self.effective_version = effective_version
         self.version = tbl_md.current_version if effective_version is None else effective_version
         self.comment = schema_version_md.comment
@@ -211,6 +213,7 @@ class TableVersion:
         view_md: Optional[schema.ViewMd] = None,
     ) -> tuple[UUID, Optional[TableVersion]]:
         session = Env.get().session
+        user = Env.get().user
 
         # assign ids
         cols_by_name: dict[str, Column] = {}
@@ -229,7 +232,7 @@ class TableVersion:
         table_md = schema.TableMd(
             tbl_id=str(tbl_id),
             name=name,
-            user=None,
+            user=user,
             current_version=0,
             current_schema_version=0,
             next_col_id=len(cols),
@@ -860,7 +863,7 @@ class TableVersion:
 
         from pixeltable.plan import Planner
 
-        update_spec = self._validate_update_spec(value_spec, allow_pk=False, allow_exprs=True)
+        update_spec = self._validate_update_spec(value_spec, allow_pk=False, allow_exprs=True, allow_media=True)
         if where is not None:
             if not isinstance(where, exprs.Expr):
                 raise excs.Error(f"'where' argument must be a predicate, got {type(where)}")
@@ -921,7 +924,7 @@ class TableVersion:
         return result
 
     def _validate_update_spec(
-        self, value_spec: dict[str, Any], allow_pk: bool, allow_exprs: bool
+        self, value_spec: dict[str, Any], allow_pk: bool, allow_exprs: bool, allow_media: bool
     ) -> dict[Column, exprs.Expr]:
         update_targets: dict[Column, exprs.Expr] = {}
         for col_name, val in value_spec.items():
@@ -941,6 +944,8 @@ class TableVersion:
                 raise excs.Error(f'Column {col_name} is computed and cannot be updated')
             if col.is_pk and not allow_pk:
                 raise excs.Error(f'Column {col_name} is a primary key column and cannot be updated')
+            if col.col_type.is_media_type() and not allow_media:
+                raise excs.Error(f'Column {col_name} is a media column and cannot be updated')
 
             # make sure that the value is compatible with the column type
             value_expr: exprs.Expr
@@ -1319,7 +1324,7 @@ class TableVersion:
         return schema.TableMd(
             tbl_id=str(self.id),
             name=self.name,
-            user=None,
+            user=self.user,
             current_version=self.version,
             current_schema_version=self.schema_version,
             next_col_id=self.next_col_id,

@@ -117,13 +117,15 @@ class Catalog:
         self._init_store()
 
     @classmethod
-    def _lock_dir(cls, parent_id: Optional[UUID], dir_name: Optional[str]) -> None:
+    def _lock_dir(cls, parent_id: Optional[UUID], dir_name: Optional[str], user_name: Optional[str]) -> None:
         """Update directory record(s) to sequentialize access by other threads. Lock is released when transaction commits."""
         conn = Env.get().conn
         q = sql.update(schema.Dir).values(lock_dummy=1).where(schema.Dir.parent_id == parent_id)
 
         if dir_name is not None:
             q = q.where(schema.Dir.md['name'].astext == dir_name)
+        if user_name is not None:
+            q = q.where(schema.Dir.md['user'].astext == user_name)
         conn.execute(q)
 
     def get_dir_path(self, dir_id: UUID) -> Path:
@@ -225,7 +227,7 @@ class Catalog:
         for p in sorted(list(dir_paths)):
             dir = self._get_dir(p, for_update=True)
             if dir is None:
-                raise excs.Error(f'Directory {str(p)!r} does not exist')
+                raise excs.Error(f'Directory {str(p)!r} does not exist.')
             if p == add_dir_path:
                 add_dir = dir
             if p == drop_dir_path:
@@ -236,14 +238,14 @@ class Catalog:
             add_obj = self._get_dir_entry(add_dir.id, add_name, for_update=True)
             if add_obj is not None and raise_if_exists:
                 add_path = add_dir_path.append(add_name)
-                raise excs.Error(f'Path {str(add_path)!r} already exists')
+                raise excs.Error(f'Path {str(add_path)!r} already exists.')
 
         drop_obj: Optional[SchemaObject] = None
         if drop_dir is not None:
             drop_path = drop_dir_path.append(drop_name)
             drop_obj = self._get_dir_entry(drop_dir.id, drop_name, for_update=True)
             if drop_obj is None and raise_if_not_exists:
-                raise excs.Error(f'Path {str(drop_path)!r} does not exist')
+                raise excs.Error(f'Path {str(drop_path)!r} does not exist.')
             if drop_obj is not None and drop_expected is not None and not isinstance(drop_obj, drop_expected):
                 raise excs.Error(
                     f'{str(drop_path)!r} needs to be a {drop_expected._display_name()} '
@@ -254,12 +256,15 @@ class Catalog:
         return add_obj, add_dir_obj, drop_obj
 
     def _get_dir_entry(self, dir_id: UUID, name: str, for_update: bool = False) -> Optional[SchemaObject]:
+        user = Env.get().user
         conn = Env.get().conn
 
         # check for subdirectory
         if for_update:
-            self._lock_dir(dir_id, name)
-        q = sql.select(schema.Dir).where(schema.Dir.parent_id == dir_id, schema.Dir.md['name'].astext == name)
+            self._lock_dir(dir_id, name, user)
+        q = sql.select(schema.Dir).where(
+            schema.Dir.parent_id == dir_id, schema.Dir.md['name'].astext == name, schema.Dir.md['user'].astext == user
+        )
         rows = conn.execute(q).all()
         # The condition below can occur if there is a synchronization failure across multiple processes
         # It indicates database inconsistency.
@@ -270,7 +275,13 @@ class Catalog:
             return Dir(dir_record.id, dir_record.parent_id, name)
 
         # check for table
-        q = sql.select(schema.Table.id).where(schema.Table.dir_id == dir_id, schema.Table.md['name'].astext == name)
+        q = sql.select(schema.Table.id).where(
+            schema.Table.dir_id == dir_id,
+            schema.Table.md['name'].astext == name,
+            schema.Table.md['user'].astext == user,
+        )
+        if for_update:
+            q = q.with_for_update()
         tbl_id = conn.execute(q).scalar_one_or_none()
         if tbl_id is not None:
             if not tbl_id in self._tbls:
@@ -298,22 +309,28 @@ class Catalog:
         if path.is_root:
             # the root dir
             if expected is not None and expected is not Dir:
-                raise excs.Error(f'{path!r} needs to be a {expected._display_name()} but is a {Dir._display_name()}')
+                raise excs.Error(
+                    f'{str(path)!r} needs to be a {expected._display_name()} but is a {Dir._display_name()}'
+                )
             dir = self._get_dir(path, for_update=for_update)
+            if dir is None:
+                raise excs.Error(f'Unknown user: {Env.get().user}')
             return Dir(dir.id, dir.parent_id, dir.md['name'])
 
         parent_path = path.parent
         parent_dir = self._get_dir(parent_path, for_update=False)
         if parent_dir is None:
-            raise excs.Error(f'Directory {parent_path!r} does not exist')
+            raise excs.Error(f'Directory {str(parent_path)!r} does not exist.')
         obj = self._get_dir_entry(parent_dir.id, path.name, for_update=for_update)
 
         if obj is None and raise_if_not_exists:
-            raise excs.Error(f'Path {path!r} does not exist')
+            raise excs.Error(f'Path {str(path)!r} does not exist.')
         elif obj is not None and raise_if_exists:
-            raise excs.Error(f'Path {path!r} is an existing {type(obj)._display_name()}')
+            raise excs.Error(f'Path {str(path)!r} is an existing {type(obj)._display_name()}.')
         elif obj is not None and expected is not None and not isinstance(obj, expected):
-            raise excs.Error(f'{path!r} needs to be a {expected._display_name()} but is a {type(obj)._display_name()}')
+            raise excs.Error(
+                f'{str(path)!r} needs to be a {expected._display_name()} but is a {type(obj)._display_name()}.'
+            )
         return obj
 
     def get_table_by_id(self, tbl_id: UUID) -> Optional[Table]:
@@ -469,7 +486,7 @@ class Catalog:
         # parent = self._get_schema_object(path.parent)
         # assert parent is not None
         # dir = Dir._create(parent._id, path.name)
-        # Env.get().console_logger.info(f'Created directory {path!r}.')
+        # Env.get().console_logger.info(f'Created directory {str(path)!r}.')
         # return dir
 
         if parents:
@@ -513,10 +530,10 @@ class Catalog:
             q = sql.select(sql.func.count()).select_from(schema.Table).where(schema.Table.dir_id == dir_id)
             num_tbls = conn.execute(q).scalar()
             if num_subdirs + num_tbls > 0:
-                raise excs.Error(f'Directory {dir_path!r} is not empty.')
+                raise excs.Error(f'Directory {str(dir_path)!r} is not empty.')
 
         # drop existing subdirs
-        self._lock_dir(dir_id, None)
+        self._lock_dir(dir_id, None, None)
         dir_q = sql.select(schema.Dir).where(schema.Dir.parent_id == dir_id)
         for row in conn.execute(dir_q).all():
             self._drop_dir(row.id, dir_path.append(row.md['name']), force=True)
@@ -574,23 +591,26 @@ class Catalog:
         """
         Locking protocol: X' locks on all ancestors
         """
+        user = Env.get().user
         conn = Env.get().conn
         if path.is_root:
             if for_update:
-                self._lock_dir(parent_id=None, dir_name='')
-            qs = sql.select(schema.Dir).where(schema.Dir.parent_id.is_(None))
-            row = conn.execute(qs).one()
-            return schema.Dir(**row._mapping)
+                self._lock_dir(parent_id=None, dir_name='', user_name=user)
+            q = sql.select(schema.Dir).where(schema.Dir.parent_id.is_(None), schema.Dir.md['user'].astext == user)
+            row = conn.execute(q).one_or_none()
+            return schema.Dir(**row._mapping) if row is not None else None
         else:
             parent_dir = self._get_dir(path.parent, for_update=False)
             if parent_dir is None:
                 return None
             if for_update:
-                self._lock_dir(parent_id=parent_dir.id, dir_name=path.name)
-            qs = sql.select(schema.Dir).where(
-                schema.Dir.parent_id == parent_dir.id, schema.Dir.md['name'].astext == path.name
+                self._lock_dir(parent_id=parent_dir.id, dir_name=path.name, user_name=user)
+            q = sql.select(schema.Dir).where(
+                schema.Dir.parent_id == parent_dir.id,
+                schema.Dir.md['name'].astext == path.name,
+                schema.Dir.md['user'].astext == user,
             )
-            row = conn.execute(qs).one_or_none()
+            row = conn.execute(q).one_or_none()
             return schema.Dir(**row._mapping) if row is not None else None
 
     def _load_tbl(self, tbl_id: UUID) -> Optional[Table]:
@@ -744,16 +764,25 @@ class Catalog:
 
     def _init_store(self) -> None:
         """One-time initialization of the stored catalog. Idempotent."""
+        self.create_user(None)
+        _logger.info(f'Initialized catalog.')
+
+    def create_user(self, user: Optional[str]) -> None:
+        """
+        Creates a catalog record (root directory) for the specified user, if one does not already exist.
+        """
         with Env.get().begin_xact():
             session = Env.get().session
-            if session.query(sql.func.count(schema.Dir.id)).scalar() > 0:
+            # See if there are any directories in the catalog matching the specified user.
+            if session.query(schema.Dir).where(schema.Dir.md['user'].astext == user).count() > 0:
+                # At least one such directory exists; no need to create a new one.
                 return
-            # create a top-level directory, so that every schema object has a directory
-            dir_md = schema.DirMd(name='', user=None, additional_md={})
+
+            dir_md = schema.DirMd(name='', user=user, additional_md={})
             dir_record = schema.Dir(parent_id=None, md=dataclasses.asdict(dir_md))
             session.add(dir_record)
             session.flush()
-            _logger.info(f'Initialized catalog')
+            _logger.info(f'Added root directory record for user: {user!r}')
 
     def _handle_path_collision(
         self, path: Path, expected_obj_type: type[SchemaObject], expected_snapshot: bool, if_exists: IfExistsParam
@@ -761,13 +790,13 @@ class Catalog:
         obj, _, _ = self._prepare_dir_op(add_dir_path=path.parent, add_name=path.name)
 
         if if_exists == IfExistsParam.ERROR and obj is not None:
-            raise excs.Error(f'Path {path!r} is an existing {type(obj)._display_name()}')
+            raise excs.Error(f'Path {str(path)!r} is an existing {type(obj)._display_name()}')
         else:
             is_snapshot = isinstance(obj, View) and obj._tbl_version_path.is_snapshot()
             if obj is not None and (not isinstance(obj, expected_obj_type) or (expected_snapshot and not is_snapshot)):
                 obj_type_str = 'snapshot' if expected_snapshot else expected_obj_type._display_name()
                 raise excs.Error(
-                    f'Path {path!r} already exists but is not a {obj_type_str}. Cannot {if_exists.name.lower()} it.'
+                    f'Path {str(path)!r} already exists but is not a {obj_type_str}. Cannot {if_exists.name.lower()} it.'
                 )
 
         if obj is None:
@@ -780,7 +809,7 @@ class Catalog:
             dir_contents = self._get_dir_contents(obj._id)
             if len(dir_contents) > 0 and if_exists == IfExistsParam.REPLACE:
                 raise excs.Error(
-                    f'Directory {path!r} already exists and is not empty. Use `if_exists="replace_force"` to replace it.'
+                    f'Directory {str(path)!r} already exists and is not empty. Use `if_exists="replace_force"` to replace it.'
                 )
             self._drop_dir(obj._id, path, force=True)
         else:
