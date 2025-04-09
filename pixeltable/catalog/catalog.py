@@ -539,7 +539,7 @@ class Catalog:
             self._drop_dir(row.id, dir_path.append(row.md['name']), force=True)
 
         # drop existing tables
-        tbl_q = sql.select(schema.Table).where(schema.Table.dir_id == dir_id)
+        tbl_q = sql.select(schema.Table).where(schema.Table.dir_id == dir_id).with_for_update()
         for row in conn.execute(tbl_q).all():
             tbl = self.get_table_by_id(row.id)
             # this table would have been dropped already if it's a view of a base we dropped earlier
@@ -554,6 +554,8 @@ class Catalog:
         """Return the ids of views that directly reference the given table"""
         conn = Env.get().conn
         q = sql.select(schema.Table.id).where(sql.text(f"md->'view_md'->'base_versions'->0->>0 = {tbl_id.hex!r}"))
+        if for_update:
+            q = q.with_for_update()
         result = [r[0] for r in conn.execute(q).all()]
         return result
 
