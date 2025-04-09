@@ -56,6 +56,7 @@ class TableVersion:
     name: str
     user: Optional[str]
     effective_version: Optional[int]
+    is_replica: bool
     version: int
     comment: str
     media_validation: MediaValidation
@@ -112,6 +113,7 @@ class TableVersion:
         self.user = tbl_md.user
         self.effective_version = effective_version
         self.version = tbl_md.current_version if effective_version is None else effective_version
+        self.is_replica = tbl_md.is_replica
         self.comment = schema_version_md.comment
         self.num_retained_versions = schema_version_md.num_retained_versions
         self.schema_version = schema_version_md.schema_version
@@ -1304,7 +1306,7 @@ class TableVersion:
             tbl_id=str(self.id),
             name=self.name,
             user=self.user,
-            is_replica=False,
+            is_replica=self.is_replica,
             current_version=self.version,
             current_schema_version=self.schema_version,
             next_col_id=self.next_col_id,

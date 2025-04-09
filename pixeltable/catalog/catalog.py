@@ -136,7 +136,7 @@ class Catalog:
                 break
             names.insert(0, dir.md['name'])
             dir_id = dir.parent_id
-        return Path('.'.join(names), empty_is_valid=True)
+        return Path('.'.join(names), empty_is_valid=True, allow_system_paths=True)
 
     @dataclasses.dataclass
     class DirEntry:
@@ -449,8 +449,6 @@ class Catalog:
             replica_path = Path(f'_system.replica_{tbl_id.hex}', allow_system_paths=True)
             self.__save_replica_md(replica_path, ancestor_md)
 
-
-
     def __save_replica_md(self, path: Path, md: schema.FullTableMd) -> None:
         dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
         assert dir is not None
@@ -466,9 +464,9 @@ class Catalog:
         # this table. (In particular, if this is a base table, then its table metadata need to be consistent
         # with the latest version of this table having a replicated view somewhere in the catalog.)
         q = sql.select(schema.Table.md).where(schema.Table.id == tbl_id)
-        existing_md = conn.execute(q).one_or_none()
+        existing_md_row = conn.execute(q).one_or_none()
 
-        if existing_md is None:
+        if existing_md_row is None:
             # No existing table, so create a new record
             q = sql.insert(schema.Table.__table__).values(
                 id=tbl_id,
@@ -476,7 +474,7 @@ class Catalog:
                 md=dataclasses.asdict(dataclasses.replace(md.tbl_md, name=path.name, user=Env.get().user, is_replica=True))
             )
             conn.execute(q)
-        elif md.tbl_md.current_version > existing_md['current_version']:
+        elif md.tbl_md.current_version > existing_md_row.md['current_version']:
             # New metadata is more recent than the metadata currently stored in the DB; we'll update the record
             # in place in the DB
             new_tbl_md = dataclasses.replace(md.tbl_md, name=path.name, user=Env.get().user, is_replica=True)
@@ -488,14 +486,16 @@ class Catalog:
             .where(schema.TableVersion.tbl_id == tbl_id)
             .where(sql.text(f"({schema.TableVersion.__table__}.md->>'version')::int = {md.version_md.version}"))
         )
-        existing_version_md = conn.execute(q).one_or_none()
-        if existing_version_md is None:
+        existing_version_md_row = conn.execute(q).one_or_none()
+        if existing_version_md_row is None:
             new_version_md = md.version_md
         else:
+            existing_version_md = schema.md_from_dict(schema.TableVersionMd, existing_version_md_row.md)
             if existing_version_md != md.version_md:
                 raise excs.Error(
-                    f'The metadata for the replica {path!r} is inconsistent with the metadata recorded from a prior '
-                    'replica. This is likely due to data corruption in the replicated table.'
+                    f'The version metadata for the replica {path!r}:{md.version_md.version} is inconsistent with '
+                    'the metadata recorded from a prior replica.\n'
+                    'This is likely due to data corruption in the replicated table.'
                 )
 
         # Do the same thing for TableSchemaVersion.
@@ -509,14 +509,16 @@ class Catalog:
                 )
             )
         )
-        existing_schema_version_md = conn.execute(q).one_or_none()
-        if existing_schema_version_md is None:
+        existing_schema_version_md_row = conn.execute(q).one_or_none()
+        if existing_schema_version_md_row is None:
             new_schema_version_md = md.schema_version_md
         else:
+            existing_schema_version_md = schema.md_from_dict(schema.TableSchemaVersionMd, existing_schema_version_md_row.md)
             if existing_schema_version_md != md.schema_version_md:
                 raise excs.Error(
-                    f'The metadata for the replica {path!r} is inconsistent with the metadata recorded from a prior '
-                    'replica. This is likely due to data corruption in the replicated table.'
+                    f'The schema version metadata for the replica {path!r}:{md.schema_version_md.schema_version} '
+                    'is inconsistent with the metadata recorded from a prior replica.\n'
+                    'This is likely due to data corruption in the replicated table.'
                 )
 
         self.save_tbl_md(tbl_id, new_tbl_md, new_version_md, new_schema_version_md)

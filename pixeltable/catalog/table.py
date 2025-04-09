@@ -102,6 +102,7 @@ class Table(SchemaObject):
                         'col1': StringType(),
                         'col2': IntType(),
                     },
+                    'is_replica': False,
                     'version': 22,
                     'schema_version': 1,
                     'comment': '',
@@ -117,6 +118,7 @@ class Table(SchemaObject):
             md = super().get_metadata()
             md['base'] = self._base._path() if self._base is not None else None
             md['schema'] = self._schema
+            md['is_replica'] = self._tbl_version.get().is_replica
             md['version'] = self._version
             md['schema_version'] = self._tbl_version.get().schema_version
             md['comment'] = self._comment

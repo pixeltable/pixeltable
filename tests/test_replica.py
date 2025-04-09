@@ -11,15 +11,24 @@ class TestReplica:
         """
         Isolated test for the replica creation functionality.
         """
-        test_snapshot = pxt.create_snapshot('test_snapshot', test_tbl)
+        pure_snapshot = pxt.create_snapshot('pure_snapshot', test_tbl)
+        snapshot_view = pxt.create_snapshot('snapshot_view', test_tbl, additional_columns={'extra': pxt.Int})
 
         with Env.get().begin_xact():
-            md = Catalog.get().load_tbl_ancestors_md(test_snapshot._tbl_version_path)
+            md1 = Catalog.get().load_tbl_ancestors_md(pure_snapshot._tbl_version_path)
+            md2 = Catalog.get().load_tbl_ancestors_md(snapshot_view._tbl_version_path)
+
+        assert len(md1) == 1
+        assert len(md2) == 2
 
         pxt.drop_table(test_tbl, force=True)
         reload_catalog()
 
-        Catalog.get().create_replica(Path('test_replica'), md, if_exists=IfExistsParam.ERROR)
+        Catalog.get().create_replica(Path('replica_1'), md1, if_exists=IfExistsParam.ERROR)
+        Catalog.get().create_replica(Path('replica_2'), md2, if_exists=IfExistsParam.ERROR)
         reload_catalog()
 
-        t = pxt.get_table('test_replica')
+        t1 = pxt.get_table('replica_1')
+        t2 = pxt.get_table('replica_2')
+        assert len(t1._tbl_version_path.get_tbl_versions()) == 1
+        assert len(t2._tbl_version_path.get_tbl_versions()) == 2

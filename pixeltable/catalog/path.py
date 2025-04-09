@@ -41,9 +41,9 @@ class Path:
 
     def append(self, name: str) -> Path:
         if self.is_root:
-            return Path(name)
+            return Path(name, allow_system_paths=True)
         else:
-            return Path(f'{str(self)}.{name}')
+            return Path(f'{str(self)}.{name}', allow_system_paths=True)
 
     def is_ancestor(self, other: Path, is_parent: bool = False) -> bool:
         """
@@ -66,6 +66,9 @@ class Path:
         else:
             for i in range(0, len(self.components)):
                 yield Path('.'.join(self.components[0:i]), empty_is_valid=True)
+
+    def __repr__(self) -> str:
+        return repr(str(self))
 
     def __str__(self) -> str:
         return '.'.join(self.components)
