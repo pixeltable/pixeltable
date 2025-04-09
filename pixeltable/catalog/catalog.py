@@ -457,13 +457,14 @@ class Catalog:
             self.__save_replica_md(replica_path, ancestor_md)
 
         # Update the catalog (as a final step, after all DB operations completed successfully)
-        for ancestor_md in md:
-            ancestor_id = UUID(ancestor_md.tbl_md.tbl_id)
-            self._tbls[ancestor_id] = self._load_tbl(ancestor_id)
-
+        # Only the table being replicated is actually visible in the catalog. The others might in fact not be
+        # valid tables on their own, since their version and/or schema_version numbers might correspond to
+        # TableVersion and/or TableSchemaVersion records that have not been replicated.
+        self._tbls[tbl_id] = self._load_tbl(tbl_id)
         return self._tbls[tbl_id]
 
     def __save_replica_md(self, path: Path, md: schema.FullTableMd) -> None:
+        _logger.info(f'Creating replica table at {path!r} with ID: {md.tbl_md.tbl_id}')
         dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
         assert dir is not None
 
@@ -856,6 +857,7 @@ class Catalog:
             )
 
         row = conn.execute(q).one_or_none()
+        assert row is not None, f'Table record not found: {tbl_id}:{effective_version}'
         tbl_record, version_record, schema_version_record = _unpack_row(
             row, [schema.Table, schema.TableVersion, schema.TableSchemaVersion]
         )
