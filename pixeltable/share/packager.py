@@ -1,4 +1,3 @@
-import dataclasses
 import io
 import json
 import logging
@@ -15,7 +14,6 @@ import pyarrow as pa
 import pyiceberg.catalog
 
 import pixeltable as pxt
-from pixeltable.metadata import schema
 import pixeltable.type_system as ts
 from pixeltable import catalog, exprs, metadata
 from pixeltable.dataframe import DataFrame
