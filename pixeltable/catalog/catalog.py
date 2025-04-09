@@ -897,12 +897,22 @@ class Catalog:
         conn.execute(sql.delete(schema.TableVersion.__table__).where(schema.TableVersion.tbl_id == tbl_id))
         conn.execute(sql.delete(schema.Table.__table__).where(schema.Table.id == tbl_id))
 
-    def load_tbl_ancestors_md(self, tvp: TableVersionPath) -> list[schema.FullTableMd]:
+    def load_tbl_hierarchy_md(self, tbl: Table) -> list[schema.FullTableMd]:
         """
-        Loads metadata for the given table version path, including all base versions.
+        Load metadata for the given table, along with metadata for all its ancestor tables.
         """
-        # TODO: Acquire xlocks for all metadata entries
-        return [self.load_tbl_md(tbl.id, tbl.effective_version) for tbl in tvp.get_tbl_versions()]
+        # TODO: First acquire xlocks for all metadata entries
+
+        # Load metadata for every table in the TableVersionPath for `tbl`.
+        md = [self.load_tbl_md(tv.id, tv.effective_version) for tv in tbl._tbl_version_path.get_tbl_versions()]
+
+        # If `tbl` is a named pure snapshot, we're not quite done, since the snapshot metadata won't appear in the
+        # TableVersionPath. We need to append it separately.
+        if tbl._id != tbl._tbl_version.id:
+            snapshot_md = self.load_tbl_md(tbl._id, 0)
+            md = [snapshot_md, *md]
+
+        return md
 
     def _load_tbl_version(self, tbl_id: UUID, effective_version: Optional[int]) -> Optional[TableVersion]:
         tbl_md, _, schema_version_md = self.load_tbl_md(tbl_id, effective_version)

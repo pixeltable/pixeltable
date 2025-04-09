@@ -15,10 +15,10 @@ class TestReplica:
         snapshot_view = pxt.create_snapshot('snapshot_view', test_tbl, additional_columns={'extra': pxt.Int})
 
         with Env.get().begin_xact():
-            md1 = Catalog.get().load_tbl_ancestors_md(pure_snapshot._tbl_version_path)
-            md2 = Catalog.get().load_tbl_ancestors_md(snapshot_view._tbl_version_path)
+            md1 = Catalog.get().load_tbl_hierarchy_md(pure_snapshot)
+            md2 = Catalog.get().load_tbl_hierarchy_md(snapshot_view)
 
-        assert len(md1) == 1
+        assert len(md1) == 2
         assert len(md2) == 2
 
         pxt.drop_table(test_tbl, force=True)
