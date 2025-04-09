@@ -32,3 +32,8 @@ class TestReplica:
         t2 = pxt.get_table('replica_2')
         assert len(t1._tbl_version_path.get_tbl_versions()) == 1
         assert len(t2._tbl_version_path.get_tbl_versions()) == 2
+
+        assert t1.get_metadata()['is_snapshot']
+        assert t1.get_metadata()['is_replica']
+        assert t2.get_metadata()['is_snapshot']
+        assert t2.get_metadata()['is_replica']

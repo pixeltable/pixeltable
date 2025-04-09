@@ -899,9 +899,9 @@ class Catalog:
 
     def load_tbl_hierarchy_md(self, tbl: Table) -> list[schema.FullTableMd]:
         """
-        Load metadata for the given table, along with metadata for all its ancestor tables.
+        Load metadata for the given table along with all its ancestors.
         """
-        # TODO: First acquire xlocks for all metadata entries
+        # TODO: First acquire X-locks for all relevant metadata entries
 
         # Load metadata for every table in the TableVersionPath for `tbl`.
         md = [self.load_tbl_md(tv.id, tv.effective_version) for tv in tbl._tbl_version_path.get_tbl_versions()]

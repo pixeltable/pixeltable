@@ -251,6 +251,7 @@ class TestTable:
                     'comment': t._comment,
                     'is_view': isinstance(t, catalog.View),
                     'is_snapshot': t._tbl_version.get().is_snapshot,
+                    'is_replica': t._tbl_version.get().is_replica,
                     'name': t._name,
                     'num_retained_versions': t._num_retained_versions,
                     'media_validation': media_val,

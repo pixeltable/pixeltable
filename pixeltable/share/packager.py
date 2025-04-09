@@ -15,6 +15,7 @@ import pyarrow as pa
 import pyiceberg.catalog
 
 import pixeltable as pxt
+from pixeltable.metadata import schema
 import pixeltable.type_system as ts
 from pixeltable import catalog, exprs, metadata
 from pixeltable.dataframe import DataFrame
@@ -58,24 +59,15 @@ class TablePackager:
         self.media_files = {}
 
         # Load metadata
-        tbl_versions = table._tbl_version_path.get_tbl_versions()
         with Env.get().begin_xact():
+            tbl_md = catalog.Catalog.get().load_tbl_hierarchy_md(table)
             self.md = {
                 'pxt_version': pxt.__version__,
                 'pxt_md_version': metadata.VERSION,
-                'md': {'tables': [self.__tbl_version_md(tbl) for tbl in tbl_versions]},
+                'md': {'tables': [md.as_dict() for md in tbl_md]},
             }
         if additional_md is not None:
             self.md.update(additional_md)
-
-    def __tbl_version_md(self, tbl: catalog.TableVersionHandle) -> dict[str, Any]:
-        tbl_md, version_md, schema_version_md = catalog.Catalog.get().load_tbl_md(tbl.id, tbl.effective_version)
-        return {
-            'table_id': str(tbl.id),
-            'table_md': dataclasses.asdict(tbl_md),
-            'table_version_md': dataclasses.asdict(version_md),
-            'table_schema_version_md': dataclasses.asdict(schema_version_md),
-        }
 
     def package(self) -> Path:
         """

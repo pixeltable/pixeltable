@@ -293,3 +293,11 @@ class FullTableMd(NamedTuple):
     tbl_md: TableMd
     version_md: TableVersionMd
     schema_version_md: TableSchemaVersionMd
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            'table_id': self.tbl_md.tbl_id,
+            'table_md': dataclasses.asdict(self.tbl_md),
+            'table_version_md': dataclasses.asdict(self.version_md),
+            'table_schema_version_md': dataclasses.asdict(self.schema_version_md),
+        }
