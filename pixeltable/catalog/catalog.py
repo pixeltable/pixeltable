@@ -426,9 +426,12 @@ class Catalog:
     def create_replica(self, path: Path, md: list[schema.FullTableMd], if_exists: IfExistsParam) -> Table:
         """
         Creates table, table_version, and table_schema_version records for a replica with the given metadata.
+        The metadata should be presented in standard "ancestor order", with the table being replicated at
+        list position 0 and the (root) base table at list position -1.
         """
-        # If this table UUID already exists in the catalog, it's always an error
-        # TODO: Handle the case where it already exists as an anonymous table
+        # If this table UUID already exists in the catalog, it's an error
+        # TODO: Handle the case where it already exists as an anonymous table (because it was an ancestor of
+        #     a different replica)
         tbl_id = UUID(md[0].tbl_md.tbl_id)
         if tbl_id in self._tbls:
             raise excs.Error(
@@ -444,8 +447,8 @@ class Catalog:
         # Ensure that the system directory exists
         self._create_dir(Path('_system', allow_system_paths=True), if_exists=IfExistsParam.IGNORE, parents=False)
 
-        # Save replica metadata to the store for the table and all its ancestors. If they do not already exist
-        # in the store, the proper ancestors will be created as anonymous system tables.
+        # Save replica metadata to the store for the table and all its ancestors. If one or more proper ancestors
+        # do not yet exist in the store, they will be created as anonymous system tables.
         self.__save_replica_md(path, md[0])
         for ancestor_md in md[1:]:
             ancestor_id = UUID(ancestor_md.tbl_md.tbl_id)
