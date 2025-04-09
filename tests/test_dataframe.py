@@ -535,6 +535,21 @@ class TestDataFrame:
             snap.where(t.c2 < 10).delete()
         assert 'Cannot delete from view' in str(exc_info.value)
 
+    def check_query(self, df: pxt.DataFrame, v: Any) -> None:
+        r = df.limit(5).collect()
+        assert len(r) == 5
+        print(r)
+        print(r[0])
+        print(r[0, 0])
+        assert r[0, 0] == v
+
+    def test_select_none(self, all_datatypes_tbl: catalog.Table) -> None:
+        t = all_datatypes_tbl
+        self.check_query(t.select(5), 5)
+        self.check_query(t.select(None), None)
+        self.check_query(t.select(foo=5), 5)
+        self.check_query(t.select(foo=None), None)
+
     def test_to_pytorch_dataset(self, all_datatypes_tbl: catalog.Table) -> None:
         """tests all types are handled correctly in this conversion"""
         skip_test_if_not_installed('torch')
