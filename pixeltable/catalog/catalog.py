@@ -117,14 +117,13 @@ class Catalog:
         self._init_store()
 
     @classmethod
-    def _lock_dir(cls, parent_id: Optional[UUID], dir_name: str) -> None:
-        """Update a directory record to sequentialize access by other threads. Lock is released when transaction commits."""
+    def _lock_dir(cls, parent_id: Optional[UUID], dir_name: Optional[str]) -> None:
+        """Update directory record(s) to sequentialize access by other threads. Lock is released when transaction commits."""
         conn = Env.get().conn
-        q = (
-            sql.update(schema.Dir)
-            .values(dummy=1)
-            .where(schema.Dir.parent_id == parent_id, schema.Dir.md['name'].astext == dir_name)
-        )
+        q = sql.update(schema.Dir).values(lock_dummy=1).where(schema.Dir.parent_id == parent_id)
+
+        if dir_name is not None:
+            q = q.where(schema.Dir.md['name'].astext == dir_name)
         conn.execute(q)
 
     def get_dir_path(self, dir_id: UUID) -> Path:
@@ -258,6 +257,8 @@ class Catalog:
         conn = Env.get().conn
 
         # check for subdirectory
+        if for_update:
+            self._lock_dir(dir_id, name)
         q = sql.select(schema.Dir).where(schema.Dir.parent_id == dir_id, schema.Dir.md['name'].astext == name)
         rows = conn.execute(q).all()
         # The condition below can occur if there is a synchronization failure across multiple processes
@@ -515,6 +516,7 @@ class Catalog:
                 raise excs.Error(f'Directory {dir_path!r} is not empty.')
 
         # drop existing subdirs
+        self._lock_dir(dir_id, None)
         dir_q = sql.select(schema.Dir).where(schema.Dir.parent_id == dir_id)
         for row in conn.execute(dir_q).all():
             self._drop_dir(row.id, dir_path.append(row.md['name']), force=True)
@@ -558,6 +560,9 @@ class Catalog:
     def get_dir(self, dir_id: UUID, for_update: bool = False) -> Optional[Dir]:
         """Return the Dir with the given id, or None if it doesn't exist"""
         conn = Env.get().conn
+        if for_update:
+            lock_q = sql.update(schema.Dir).values(lock_dummy=1).where(schema.Dir.id == dir_id)
+            conn.execute(lock_q)
         q = sql.select(schema.Dir).where(schema.Dir.id == dir_id)
         row = conn.execute(q).one_or_none()
         if row is None:
@@ -567,9 +572,7 @@ class Catalog:
 
     def _get_dir(self, path: Path, for_update: bool = False) -> Optional[schema.Dir]:
         """
-        Locking protocol:
-        - S locks on all ancestors
-        - X lock on dir if for_update == True, otherwise also an S lock
+        Locking protocol: X' locks on all ancestors
         """
         conn = Env.get().conn
         if path.is_root:
