@@ -41,6 +41,10 @@ This complex "data plumbing" slows down development, increases costs, and makes 
 
 ## ✨ What is Pixeltable?
 
+```bash
+pip install pixeltable
+```
+
 **[Pixeltable](https://docs.pixeltable.com/docs/overview/pixeltable) is the open-source, declarative data infrastructure layer designed specifically for AI.** It eliminates the need for complex plumbing by providing a unified, Python-native interface to manage, transform, index, and query your multimodal data, seamlessly integrating AI model inference into your workflow.
 
 With Pixeltable, you define your *entire* data processing and AI workflow declaratively using **[computed columns](https://docs.pixeltable.com/docs/datastore/computed-columns)** on **[tables](https://docs.pixeltable.com/docs/datastore/tables-and-operations)**. Pixeltable's engine then automatically handles:
@@ -53,6 +57,7 @@ With Pixeltable, you define your *entire* data processing and AI workflow declar
 *   **Versioning & Lineage:** Automatically tracks data and schema changes for reproducibility.
 
 **Focus on your application logic, not the infrastructure.**
+
 
 ## 🚀 Key Features
 
@@ -108,11 +113,6 @@ With Pixeltable, you define your *entire* data processing and AI workflow declar
   results = t.where(t.score > 0.8).order_by(t.timestamp).select(t.image, score=t.score).limit(10).collect()
   ```
 
-## 💾 Installation
-
-```bash
-pip install pixeltable
-```
 
 **Reminder: Pixeltable acts like a database.** It stores metadata and computed results persistently, typically in a `.pixeltable` directory in your workspace. See [configuration](https://docs.pixeltable.com/docs/overview/configuration) options for Pixeltable.
 
@@ -121,32 +121,45 @@ pip install pixeltable
 *(See the [Full Quick Start](https://docs.pixeltable.com/docs/overview/quick-start) or [Notebook Gallery](#-notebook-gallery) for more details)*
 
 **1. Basic Transformation (Computed Column):**
+```bash
+pip install pixeltable
+```
 
 ```python
 import pixeltable as pxt
 
 # Create a table
-t = pxt.create_table('films', {'name': pxt.String, 'revenue': pxt.Float, 'budget': pxt.Float})
+t = pxt.create_table(
+    'films', 
+    {'name': pxt.String, 'revenue': pxt.Float, 'budget': pxt.Float}, 
+    if_exists="replace"
+)
+
 t.insert([
   {'name': 'Inside Out', 'revenue': 800.5, 'budget': 200.0},
   {'name': 'Toy Story', 'revenue': 1073.4, 'budget': 200.0}
 ])
 
 # Add a computed column for profit - runs automatically!
-t.add_computed_column(profit=(t.revenue - t.budget))
+t.add_computed_column(profit=(t.revenue - t.budget), if_exists="replace")
 
 # Query the results
 print(t.select(t.name, t.profit).collect())
 # Output includes the automatically computed 'profit' column
 ```
 
-**2. Object Detection with Hugging Face:**
+**2. Object Detection with Yolox:**
+
+```bash
+pip install pixeltable pixeltable-yolox
+```
 
 ```python
+import PIL
 import pixeltable as pxt
-from pixeltable.functions import huggingface
+from yolox.models import Yolox
+from yolox.data.datasets import COCO_CLASSES
 
-# Create a table to store data persistently
 t = pxt.create_table('image', {'image': pxt.Image}, if_exists='replace')
 
 # Insert some images
@@ -158,19 +171,23 @@ paths = [
 ]
 t.insert({'image': prefix + p} for p in paths)
 
-# Add a computed column for image classification
-t.add_computed_column(classification=huggingface.detr_for_object_detection(
-    t.image,
-    model_id='facebook/detr-resnet-50'
-))
+@pxt.udf
+def detect(image: PIL.Image.Image) -> list[str]:
+    model = Yolox.from_pretrained("yolox_s")
+    result = model([image])
+    coco_labels = [COCO_CLASSES[label] for label in result[0]["labels"]]
+    return coco_labels
 
-# Retrieve the rows where cats have been identified
-print(t.select(animal = t.image,
-         classification = t.classification.label_text[0]) \
-.where(t.classification.label_text[0]=='cat').head())
+t.add_computed_column(classification=detect(t.image))
+
+print(t.select().collect())
 ```
 
 **3. Image Similarity Search (CLIP Embedding Index):**
+
+```bash
+pip install pixeltable sentence-transformers
+```
 
 ```python
 import pixeltable as pxt
@@ -210,13 +227,27 @@ print(results_image)
 
 **4. Multimodal/Incremental RAG Workflow (Document Chunking & LLM Call):**
 
+```bash
+pip install pixeltable openai spacy sentence-transformers
+```
+
+```bash
+python -m spacy download en_core_web_sm
+```
+
 ```python
 import pixeltable as pxt
+import pixeltable.functions as pxtf
 from pixeltable.functions import openai, huggingface
 from pixeltable.iterators import DocumentSplitter
 
+# Manage your tables by directories
+directory = "my_docs"
+pxt.drop_dir(directory, if_not_exists="ignore", force=True)
+pxt.create_dir("my_docs")
+
 # Create a document table and add a PDF
-docs = pxt.create_table('my_docs', {'doc': pxt.Document}, if_exists='replace_force')
+docs = pxt.create_table(f'{directory}.docs', {'doc': pxt.Document})
 docs.insert([{'doc': 'https://github.com/pixeltable/pixeltable/raw/release/docs/resources/rag-demo/Jefferson-Amazon.pdf'}])
 
 # Create chunks view with sentence-based splitting
@@ -238,26 +269,26 @@ def get_relevant_context(query_text: str, limit: int = 3):
     # Return a list of strings (text of relevant chunks)
     return chunks.order_by(sim, asc=False).limit(limit).select(chunks.text)
 
-# Simple UDF for formatting prompt with context
-@pxt.udf
-def format_rag_prompt(context: list[dict], question: str) -> str:
-    passages = "\n\n".join(item['text'] for item in context)
-    return f"""PASSAGES:
-
-{passages}
-
-QUESTION:
-
-{question}"""
-
 # Build a simple Q&A table
-qa = pxt.create_table('qa_system', {'prompt': pxt.String}, if_exists='replace')
+qa = pxt.create_table(f'{directory}.qa_system', {'prompt': pxt.String})
 
 # 1. Add retrieved context (now a list of strings)
 qa.add_computed_column(context=get_relevant_context(qa.prompt))
 
 # 2. Format the prompt with context
-qa.add_computed_column(final_prompt=format_rag_prompt(qa.context, qa.prompt))
+qa.add_computed_column(
+    final_prompt=pxtf.string.format(
+        """
+        PASSAGES: 
+        {0}
+        
+        QUESTION: 
+        {1}
+        """, 
+        qa.context, 
+        qa.prompt
+    )
+)
 
 # 4. Generate the answer using the well-formatted prompt column
 qa.add_computed_column(
