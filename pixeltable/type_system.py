@@ -1170,6 +1170,20 @@ class DocumentType(ColumnType):
         XML = 3
         TXT = 4
 
+        @classmethod
+        def from_extension(cls, ext: str) -> Optional['DocumentType.DocumentFormat']:
+            if ext in {'.htm', '.html'}:
+                return cls.HTML
+            if ext == '.md':
+                return cls.MD
+            if ext == '.pdf':
+                return cls.PDF
+            if ext == '.xml':
+                return cls.XML
+            if ext == '.txt':
+                return cls.TXT
+            return None
+
     def __init__(self, nullable: bool = False, doc_formats: Optional[str] = None):
         super().__init__(self.Type.DOCUMENT, nullable=nullable)
         self.doc_formats = doc_formats
@@ -1203,9 +1217,7 @@ class DocumentType(ColumnType):
         assert isinstance(val, str)
         from pixeltable.utils.documents import get_document_handle
 
-        dh = get_document_handle(val)
-        if dh is None:
-            raise excs.Error(f'Not a recognized document format: {val}')
+        _ = get_document_handle(val)
 
 
 T = typing.TypeVar('T')

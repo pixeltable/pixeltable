@@ -32,7 +32,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-    "numpy (>=1.25,<2.0)",
+    "numpy (>=1.25)",
     "pandas (>=2.0,<3.0)",
     "pillow (>=9.3.0)",
     "tqdm (>=4.64)",

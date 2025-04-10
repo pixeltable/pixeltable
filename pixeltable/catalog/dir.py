@@ -22,8 +22,9 @@ class Dir(SchemaObject):
     @classmethod
     def _create(cls, parent_id: UUID, name: str) -> Dir:
         session = Env.get().session
+        user = Env.get().user
         assert session is not None
-        dir_md = schema.DirMd(name=name, user=None, additional_md={})
+        dir_md = schema.DirMd(name=name, user=user, additional_md={})
         dir_record = schema.Dir(parent_id=parent_id, md=dataclasses.asdict(dir_md))
         session.add(dir_record)
         session.flush()
