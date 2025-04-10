@@ -177,7 +177,7 @@ jobs:
         run: mkdocs build --strict
       - name: Lint
         if: ${{ matrix.test-category == 'lint' }}
-        run: ruff check pixeltable/*.py pixeltable/exprs pixeltable/ext pixeltable/func pixeltable/functions pixeltable/index pixeltable/iterators pixeltable/metadata pixeltable/share pixeltable/utils
+        run: ruff check pixeltable tool
       - name: Validate links in notebooks
         if: ${{ matrix.test-category == 'lint' }}
         run: ./scripts/lint-notebooks.sh

@@ -32,7 +32,7 @@ class PixeltablePytorchDataset(torch.utils.data.IterableDataset):
 
         self.path = path
         self.image_format = image_format
-        assert image_format in {'np', 'pt'}
+        assert image_format in ('np', 'pt')
         column_type_path = path / '.pixeltable.column_types.json'
         assert column_type_path.exists(), f'missing {column_type_path}'
         with column_type_path.open() as f:

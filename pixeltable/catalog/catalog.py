@@ -10,10 +10,10 @@ from uuid import UUID
 import psycopg
 import sqlalchemy as sql
 
-import pixeltable.exceptions as excs
-import pixeltable.metadata.schema as schema
+from pixeltable import exceptions as excs
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
+from pixeltable.metadata import schema
 
 from .dir import Dir
 from .globals import IfExistsParam, IfNotExistsParam, MediaValidation
@@ -79,7 +79,7 @@ def _retry_loop(op: Callable[..., T]) -> Callable[..., T]:
                 # in order for retry to work, we need to make sure that there aren't any prior db updates
                 # that are part of an ongoing transaction
                 assert not Env.get().in_xact()
-                with Env.get().begin_xact() as conn:
+                with Env.get().begin_xact():
                     return op(*args, **kwargs)
             except sql.exc.DBAPIError as e:
                 if isinstance(e.orig, psycopg.errors.SerializationFailure) and num_remaining_retries > 0:
@@ -222,7 +222,7 @@ class Catalog:
 
         add_dir: Optional[schema.Dir] = None
         drop_dir: Optional[schema.Dir] = None
-        for p in sorted(list(dir_paths)):
+        for p in sorted(dir_paths):
             dir = self._get_dir(p, for_update=True)
             if dir is None:
                 raise excs.Error(f'Directory {str(p)!r} does not exist.')
@@ -270,7 +270,7 @@ class Catalog:
         #     return Dir(dir_record.id, dir_record.parent_id, name)
         rows = conn.execute(q).all()
         if len(rows) > 1:
-            assert False, rows
+            raise AssertionError(rows)
         if len(rows) == 1:
             dir_record = schema.Dir(**rows[0]._mapping)
             return Dir(dir_record.id, dir_record.parent_id, name)
@@ -286,7 +286,7 @@ class Catalog:
         # _debug_print(for_update, f'table name={name!r} parent={dir_id}')
         tbl_id = conn.execute(q).scalar_one_or_none()
         if tbl_id is not None:
-            if not tbl_id in self._tbls:
+            if tbl_id not in self._tbls:
                 self._tbls[tbl_id] = self._load_tbl(tbl_id)
             return self._tbls[tbl_id]
 
@@ -336,7 +336,7 @@ class Catalog:
         return obj
 
     def get_table_by_id(self, tbl_id: UUID) -> Optional[Table]:
-        if not tbl_id in self._tbls:
+        if tbl_id not in self._tbls:
             tbl = self._load_tbl(tbl_id)
             if tbl is None:
                 return None
@@ -564,12 +564,12 @@ class Catalog:
 
     def get_tbl_version(self, tbl_id: UUID, effective_version: Optional[int]) -> Optional[TableVersion]:
         if (tbl_id, effective_version) not in self._tbl_versions:
-            self._tbl_versions[(tbl_id, effective_version)] = self._load_tbl_version(tbl_id, effective_version)
-        return self._tbl_versions[(tbl_id, effective_version)]
+            self._tbl_versions[tbl_id, effective_version] = self._load_tbl_version(tbl_id, effective_version)
+        return self._tbl_versions[tbl_id, effective_version]
 
     def add_tbl_version(self, tbl_version: TableVersion) -> None:
         """Explicitly add a TableVersion"""
-        self._tbl_versions[(tbl_version.id, tbl_version.effective_version)] = tbl_version
+        self._tbl_versions[tbl_version.id, tbl_version.effective_version] = tbl_version
         # if this is a mutable view, also record it in the base
         if tbl_version.is_view and tbl_version.effective_version is None:
             base = tbl_version.base.get()
@@ -577,7 +577,7 @@ class Catalog:
 
     def remove_tbl_version(self, tbl_version: TableVersion) -> None:
         assert (tbl_version.id, tbl_version.effective_version) in self._tbl_versions
-        del self._tbl_versions[(tbl_version.id, tbl_version.effective_version)]
+        del self._tbl_versions[tbl_version.id, tbl_version.effective_version]
 
     def get_dir(self, dir_id: UUID, for_update: bool = False) -> Optional[Dir]:
         """Return the Dir with the given id, or None if it doesn't exist"""
@@ -652,7 +652,7 @@ class Catalog:
         if view_md is None:
             # this is a base table
             if (tbl_id, None) not in self._tbl_versions:
-                self._tbl_versions[(tbl_id, None)] = self._load_tbl_version(tbl_id, None)
+                self._tbl_versions[tbl_id, None] = self._load_tbl_version(tbl_id, None)
             tbl = InsertableTable(tbl_record.dir_id, TableVersionHandle(tbl_id, None))
             return tbl
 
@@ -673,7 +673,7 @@ class Catalog:
         view_path: Optional[TableVersionPath] = None
         for id, effective_version in tbl_version_path[::-1]:
             if (id, effective_version) not in self._tbl_versions:
-                self._tbl_versions[(id, effective_version)] = self._load_tbl_version(id, effective_version)
+                self._tbl_versions[id, effective_version] = self._load_tbl_version(id, effective_version)
             view_path = TableVersionPath(TableVersionHandle(id, effective_version), base=base_path)
             base_path = view_path
         view = View(tbl_id, tbl_record.dir_id, tbl_md.name, view_path, snapshot_only=pure_snapshot)
@@ -775,7 +775,7 @@ class Catalog:
     def _init_store(self) -> None:
         """One-time initialization of the stored catalog. Idempotent."""
         self.create_user(None)
-        _logger.info(f'Initialized catalog.')
+        _logger.info('Initialized catalog.')
 
     def create_user(self, user: Optional[str]) -> None:
         """
@@ -806,7 +806,8 @@ class Catalog:
             if obj is not None and (not isinstance(obj, expected_obj_type) or (expected_snapshot and not is_snapshot)):
                 obj_type_str = 'snapshot' if expected_snapshot else expected_obj_type._display_name()
                 raise excs.Error(
-                    f'Path {str(path)!r} already exists but is not a {obj_type_str}. Cannot {if_exists.name.lower()} it.'
+                    f'Path {str(path)!r} already exists but is not a {obj_type_str}. '
+                    f'Cannot {if_exists.name.lower()} it.'
                 )
 
         if obj is None:
@@ -819,7 +820,8 @@ class Catalog:
             dir_contents = self._get_dir_contents(obj._id)
             if len(dir_contents) > 0 and if_exists == IfExistsParam.REPLACE:
                 raise excs.Error(
-                    f'Directory {str(path)!r} already exists and is not empty. Use `if_exists="replace_force"` to replace it.'
+                    f'Directory {str(path)!r} already exists and is not empty. '
+                    'Use `if_exists="replace_force"` to replace it.'
                 )
             self._drop_dir(obj._id, path, force=True)
         else:
