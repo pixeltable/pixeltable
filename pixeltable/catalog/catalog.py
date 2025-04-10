@@ -429,6 +429,8 @@ class Catalog:
         The metadata should be presented in standard "ancestor order", with the table being replicated at
         list position 0 and the (root) base table at list position -1.
         """
+        tbl_id = UUID(md[0].tbl_md.tbl_id)
+
         existing = self._handle_path_collision(path, View, False, if_exists)
         if existing is not None:
             if existing._id != tbl_id:
@@ -442,7 +444,6 @@ class Catalog:
         # If this table UUID already exists in the catalog, it's an error
         # TODO: Handle the case where it already exists as an anonymous table (because it was an ancestor of
         #     a different replica)
-        tbl_id = UUID(md[0].tbl_md.tbl_id)
         if Catalog.get().get_table_by_id(tbl_id) is not None:
             raise excs.Error(
                 f'That table has already been replicated as {self._tbls[tbl_id]._path()!r}. \n'
