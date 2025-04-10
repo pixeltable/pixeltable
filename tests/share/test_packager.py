@@ -55,7 +55,7 @@ class TestPackager:
         self.__check_iceberg_tbl(view, catalog.load_table('pxt.iceberg_dir.subdir.test_view'), scope_tbl=subview)
         self.__check_iceberg_tbl(subview, catalog.load_table('pxt.iceberg_dir.subdir.test_subview'))
 
-    def test_media_packager(self, reset_db):
+    def test_media_packager(self, reset_db: None):
         t = pxt.create_table('media_tbl', {'image': pxt.Image, 'video': pxt.Video})
         images = get_image_files()[:10]
         videos = get_video_files()[:2]

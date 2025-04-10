@@ -281,7 +281,7 @@ class TestExprs:
             _ = img_t.select(img_t.c9.errortype).show()
         assert 'only valid for' in str(excinfo.value)
 
-    def test_null_args(self, reset_db) -> None:
+    def test_null_args(self, reset_db: None) -> None:
         # create table with two columns
         schema = {'c1': pxt.Float, 'c2': pxt.Float}
         t = pxt.create_table('test', schema)
@@ -855,7 +855,7 @@ class TestExprs:
         assert len(errormsgs) == t.count() // 2
         assert all('Expected non-None value' in msg for msg in errormsgs), errormsgs
 
-    def test_astype_str_to_img(self, reset_db) -> None:
+    def test_astype_str_to_img(self, reset_db: None) -> None:
         img_files = get_image_files()
         img_files = img_files[:5]
         # store relative paths in the table
@@ -884,7 +884,7 @@ class TestExprs:
         for orig_img, retrieved_img in zip(orig_imgs, loaded_imgs):
             assert np.array_equal(np.array(orig_img), np.array(retrieved_img))
 
-    def test_astype_str_to_img_data_url(self, reset_db) -> None:
+    def test_astype_str_to_img_data_url(self, reset_db: None) -> None:
         t = pxt.create_table('astype_test', {'url': pxt.String})
         t.add_computed_column(img=t.url.astype(pxt.Image))
         images = get_image_files(include_bad_image=True)[:5]  # bad image is at idx 0
@@ -985,7 +985,7 @@ class TestExprs:
             t.c2.apply(f4)  # No positional parameters
         assert str(exc_info.value) == 'Function `f4` has no positional parameters.'
 
-        def f5(**kwargs) -> str:
+        def f5(**kwargs: Any) -> str:
             return ''
 
         with pytest.raises(excs.Error) as exc_info:
@@ -994,17 +994,17 @@ class TestExprs:
 
         # Ensure these varargs signatures are acceptable
 
-        def f6(x, **kwargs) -> str:
+        def f6(x, **kwargs: Any) -> str:
             return x
 
         t.c2.apply(f6)
 
-        def f7(x, *args) -> str:
+        def f7(x, *args: Any) -> str:
             return x
 
         t.c2.apply(f7)
 
-        def f8(*args) -> str:
+        def f8(*args: Any) -> str:
             return ''
 
         t.c2.apply(f8)
@@ -1031,7 +1031,7 @@ class TestExprs:
         result = t.select(t.img, t.img.height, t.img.rotate(90)).show(n=100)
         _ = result._repr_html_()
 
-    def test_ext_imgs(self, reset_db) -> None:
+    def test_ext_imgs(self, reset_db: None) -> None:
         t = pxt.create_table('img_test', {'img': pxt.ImageType()})
         img_urls = [
             'https://raw.github.com/pixeltable/pixeltable/main/docs/resources/images/000000000030.jpg',
@@ -1217,7 +1217,7 @@ class TestExprs:
         # need to use frozensets because dicts are not hashable
         assert set(frozenset(d.items()) for d in val) == set(frozenset(d.items()) for d in res2)
 
-    def test_agg(self, reset_db) -> None:
+    def test_agg(self, reset_db: None) -> None:
         t = create_scalars_tbl(1000)
         df = t.select().collect().to_pandas()
 
@@ -1443,7 +1443,7 @@ class TestExprs:
 
         assert "'group_by' is a reserved parameter name" in str(exc_info.value).lower()
 
-    def test_repr(self, reset_db) -> None:
+    def test_repr(self, reset_db: None) -> None:
         t = create_all_datatypes_tbl()
         instances: list[tuple[exprs.Expr, str]] = [
             # ArithmeticExpr

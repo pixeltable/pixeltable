@@ -52,7 +52,7 @@ class TestFunction:
         # TODO: add Function.exec() and then use that
         assert deserialized.py_fn(1) == 2
 
-    def test_list(self, reset_db) -> None:
+    def test_list(self, reset_db: None) -> None:
         _ = FunctionRegistry.get().list_functions()
         print(_)
 
@@ -60,7 +60,7 @@ class TestFunction:
         _ = pxt.list_functions()
         print(_)
 
-    def test_stored_udf(self, reset_db) -> None:
+    def test_stored_udf(self, reset_db: None) -> None:
         t = pxt.create_table('test', {'c1': pxt.IntType(), 'c2': pxt.FloatType()})
         rows = [{'c1': i, 'c2': i + 0.5} for i in range(100)]
         status = t.insert(rows)
@@ -186,7 +186,7 @@ class TestFunction:
     def append(s: str, suffix: str) -> str:
         return s + suffix
 
-    def test_member_access_udf(self, reset_db) -> None:
+    def test_member_access_udf(self, reset_db: None) -> None:
         t = pxt.create_table('test', {'c1': pxt.String, 'c2': pxt.Int})
         rows = [{'c1': 'a', 'c2': 1}, {'c1': 'b', 'c2': 2}]
         validate_update_status(t.insert(rows))
@@ -269,7 +269,7 @@ class TestFunction:
         t = pxt.get_table(name)
         validate_update_status(t.insert(rows))
 
-    def test_query2(self, reset_db) -> None:
+    def test_query2(self, reset_db: None) -> None:
         schema = {'query_text': pxt.String, 'i': pxt.Int}
         queries = pxt.create_table('queries', schema)
         query_rows = [
@@ -312,7 +312,7 @@ class TestFunction:
         res = queries.select(queries.chunks).collect()
         assert all(len(c) == 2 for c in res['chunks'])
 
-    def test_query_over_view(self, reset_db) -> None:
+    def test_query_over_view(self, reset_db: None) -> None:
         pxt.create_dir('test')
         t = pxt.create_table('test.tbl', {'a': pxt.String})
         v = pxt.create_view('test.view', t, additional_columns={'text': pxt.String})
@@ -344,7 +344,7 @@ class TestFunction:
         validate_update_status(u.insert(c=[3, 4, 5]), 1)
         _ = u.select(u.out).collect()
 
-    def test_query_errors(self, reset_db) -> None:
+    def test_query_errors(self, reset_db: None) -> None:
         schema = {'a': pxt.Int, 'b': pxt.Int}
         t = pxt.create_table('test', schema)
         rows = [{'a': i, 'b': i + 1} for i in range(100)]
@@ -359,7 +359,7 @@ class TestFunction:
     def binding_test_udf(p1: str, p2: str, p3: str, p4: str = 'default') -> str:
         return f'{p1} {p2} {p3} {p4}'
 
-    def test_partial_binding(self, reset_db) -> None:
+    def test_partial_binding(self, reset_db: None) -> None:
         pb1 = self.binding_test_udf.using(p2='y')
         pb2 = self.binding_test_udf.using(p1='x', p3='z')
         pb3 = self.binding_test_udf.using(p1='x', p2='y', p3='z')
@@ -704,7 +704,7 @@ class TestFunction:
         assert len(res) == 1
         assert res[0] == {'c1': max(res_direct['c1']), 'c2': max(res_direct['c2']), 'c3': max(res_direct['c3'])}
 
-    def test_constants(self, reset_db) -> None:
+    def test_constants(self, reset_db: None) -> None:
         """
         Test UDFs with default values and/or constant arguments that are not JSON serializable.
         """
@@ -730,7 +730,7 @@ class TestFunction:
         reload_catalog()
 
     @pytest.mark.parametrize('as_kwarg', [False, True])
-    def test_udf_evolution(self, as_kwarg: bool, reset_db) -> None:
+    def test_udf_evolution(self, as_kwarg: bool, reset_db: None) -> None:
         """
         Tests that code changes to UDFs that are backward-compatible with the code pattern in a stored computed
         column are accepted by Pixeltable.
@@ -934,7 +934,7 @@ class TestFunction:
             pxt.tools(pxt.functions.sum)  # type: ignore[arg-type]
         assert 'Aggregator UDFs cannot be used as tools' in str(exc_info.value)
 
-    def test_from_table(self, reset_db):
+    def test_from_table(self, reset_db: None):
         schema = {'in1': pxt.Required[pxt.Int], 'in2': pxt.Required[pxt.String], 'in3': pxt.Float, 'in4': pxt.Image}
         t = pxt.create_table('test', schema)
         t.add_computed_column(out1=(t.in1 + 5))

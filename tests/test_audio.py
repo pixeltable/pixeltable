@@ -22,7 +22,7 @@ class TestAudio:
             if codec is not None:
                 assert codec == audio_stream.codec_context.codec.name
 
-    def test_basic(self, reset_db) -> None:
+    def test_basic(self, reset_db: None) -> None:
         audio_filepaths = get_audio_files()
         audio_t = pxt.create_table('audio', {'audio_file': pxt.Audio})
         status = audio_t.insert({'audio_file': p} for p in audio_filepaths)
@@ -31,7 +31,7 @@ class TestAudio:
         paths = audio_t.select(output=audio_t.audio_file.localpath).collect()['output']
         assert set(paths) == set(audio_filepaths)
 
-    def test_extract(self, reset_db) -> None:
+    def test_extract(self, reset_db: None) -> None:
         video_filepaths = get_video_files()
         video_t = pxt.create_table('videos', {'video': pxt.Video})
         video_t.add_computed_column(audio=video_t.video.extract_audio())
@@ -63,7 +63,7 @@ class TestAudio:
             for path in [p for p in paths if p is not None]:
                 self.check_audio_params(path, format=format)
 
-    def test_get_metadata(self, reset_db) -> None:
+    def test_get_metadata(self, reset_db: None) -> None:
         audio_filepaths = get_audio_files()
         base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio})
         base_t.add_computed_column(metadata=base_t.audio.get_metadata())
@@ -279,7 +279,7 @@ class TestAudio:
             assert result['audio'] == audio_filepath
         reload_tester.run_reload_test()
 
-    def test_create_audio_iterator(self, reset_db) -> None:
+    def test_create_audio_iterator(self, reset_db: None) -> None:
         audio_filepath = get_audio_file('jfk_1961_0109_cityuponahill-excerpt.flac')  # 60s audio file
         base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio})
         validate_update_status(base_t.insert([{'audio': audio_filepath}]))

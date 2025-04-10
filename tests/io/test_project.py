@@ -14,7 +14,7 @@ _logger = logging.getLogger('pixeltable')
 
 
 class TestProject:
-    def test_validation(self, reset_db):
+    def test_validation(self, reset_db: None):
         schema = {'col1': pxt.String, 'col2': pxt.Image, 'col3': pxt.String, 'col4': pxt.Video}
         t = pxt.create_table('test_store', schema)
         export_cols = {'export1': pxt.StringType(), 'export2': pxt.ImageType()}

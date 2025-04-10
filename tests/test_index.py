@@ -752,17 +752,17 @@ class TestIndex:
 
     BTREE_TEST_NUM_ROWS = 10001  # ~10k rows: incentivize Postgres to use the index
 
-    def test_int_btree(self, reset_db) -> None:
+    def test_int_btree(self, reset_db: None) -> None:
         random.seed(1)
         data = [random.randint(0, 2**63 - 1) for _ in range(self.BTREE_TEST_NUM_ROWS)]
         self.run_btree_test(data, pxt.Int)
 
-    def test_float_btree(self, reset_db) -> None:
+    def test_float_btree(self, reset_db: None) -> None:
         random.seed(1)
         data = [random.uniform(0, sys.float_info.max) for _ in range(self.BTREE_TEST_NUM_ROWS)]
         self.run_btree_test(data, pxt.Float)
 
-    def test_string_btree(self, reset_db) -> None:
+    def test_string_btree(self, reset_db: None) -> None:
         def create_random_str(n: int) -> str:
             chars = string.ascii_letters + string.digits
             return ''.join(random.choice(chars) for _ in range(n))
@@ -795,7 +795,7 @@ class TestIndex:
         assert t.where(t.data >= s).count() == 2
         assert t.where(t.data > s).count() == 1
 
-    def test_timestamp_btree(self, reset_db) -> None:
+    def test_timestamp_btree(self, reset_db: None) -> None:
         random.seed(1)
         start = datetime(2000, 1, 1)
         end = datetime(2020, 1, 1)

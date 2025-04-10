@@ -116,7 +116,7 @@ def clean_db(restore_md_tables: bool = True) -> None:
 
 
 @pytest.fixture(scope='function')
-def test_tbl(reset_db) -> catalog.Table:
+def test_tbl(reset_db: None) -> catalog.Table:
     return create_test_tbl()
 
 
@@ -161,12 +161,12 @@ def test_tbl_exprs(test_tbl: catalog.Table) -> list[exprs.Expr]:
 
 
 @pytest.fixture(scope='function')
-def all_datatypes_tbl(reset_db) -> catalog.Table:
+def all_datatypes_tbl(reset_db: None) -> catalog.Table:
     return create_all_datatypes_tbl()
 
 
 @pytest.fixture(scope='function')
-def img_tbl(reset_db) -> catalog.Table:
+def img_tbl(reset_db: None) -> catalog.Table:
     return create_img_tbl('test_img_tbl')
 
 
@@ -191,7 +191,7 @@ def multi_img_tbl_exprs(multi_idx_img_tbl: catalog.Table) -> list[exprs.Expr]:
 
 
 @pytest.fixture(scope='function')
-def small_img_tbl(reset_db) -> catalog.Table:
+def small_img_tbl(reset_db: None) -> catalog.Table:
     return create_img_tbl('small_img_tbl', num_rows=40)
 
 

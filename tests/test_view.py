@@ -45,7 +45,7 @@ class TestView:
         t.add_computed_column(d2=t.c3 - t.c10)
         return t
 
-    def test_errors(self, reset_db) -> None:
+    def test_errors(self, reset_db: None) -> None:
         t = self.create_tbl()
         assert t._base is None
 
@@ -66,7 +66,7 @@ class TestView:
             _ = pxt.create_view('join_view', join_df)
         assert 'cannot create a view of a join' in str(exc_info.value).lower()
 
-    def test_basic(self, reset_db) -> None:
+    def test_basic(self, reset_db: None) -> None:
         t = self.create_tbl()
         assert t._base is None
 
@@ -330,7 +330,7 @@ class TestView:
             with pytest.raises(excs.Error, match=expected_err):
                 v.add_computed_column(**{col_name: 'bbb'}, if_exists='replace')
 
-    def test_from_dataframe(self, reset_db) -> None:
+    def test_from_dataframe(self, reset_db: None) -> None:
         t = self.create_tbl()
 
         with pytest.raises(excs.Error) as exc_info:
@@ -345,7 +345,7 @@ class TestView:
             pxt.create_view('test_view', t.limit(10))
         assert 'Cannot use `create_view` after `limit`' in str(exc_info.value)
 
-    def test_parallel_views(self, reset_db) -> None:
+    def test_parallel_views(self, reset_db: None) -> None:
         """Two views over the same base table, with non-overlapping filters"""
         t = self.create_tbl()
 
@@ -392,7 +392,7 @@ class TestView:
         assert_resultset_eq(v1_query.collect(), b1_query.collect())
         assert_resultset_eq(v2_query.collect(), b2_query.collect())
 
-    def test_chained_views(self, reset_db) -> None:
+    def test_chained_views(self, reset_db: None) -> None:
         """Two views, the second one is a view over the first one"""
         t = self.create_tbl()
 
@@ -493,7 +493,7 @@ class TestView:
         assert v2._version == v2_version
         check_views()
 
-    def test_unstored_columns_non_image(self, reset_db) -> None:
+    def test_unstored_columns_non_image(self, reset_db: None) -> None:
         t = self.create_tbl()
         print(t)
 
@@ -560,7 +560,7 @@ class TestView:
         for row in v3_res:
             assert row['wc2a'] + 1000 == row['wc2b']
 
-    def test_unstored_columns(self, reset_db) -> None:
+    def test_unstored_columns(self, reset_db: None) -> None:
         """Test chained views with unstored columns"""
         # create table with image column and two updateable int columns
         schema = {'img': pxt.Image, 'int1': pxt.Int, 'int2': pxt.Int}
@@ -682,7 +682,7 @@ class TestView:
         with pytest.raises(AttributeError, match="Column 'c1' unknown"):
             _ = v1.select(v1.c1).head(5)
 
-    def test_computed_cols(self, reset_db) -> None:
+    def test_computed_cols(self, reset_db: None) -> None:
         t = self.create_tbl()
 
         # create view with computed columns
@@ -714,7 +714,7 @@ class TestView:
         assert t.count() == 190
         assert_resultset_eq(v.select(v.v1).order_by(v.c2).collect(), t.select(t.c3 * 2.0).order_by(t.c2).collect())
 
-    def test_filter(self, reset_db) -> None:
+    def test_filter(self, reset_db: None) -> None:
         t = create_test_tbl()
 
         # create view with filter
@@ -745,7 +745,7 @@ class TestView:
         # create view with filter containing datetime
         _ = pxt.create_view('test_view_2', t.where(t.c5 < datetime.datetime.now()))
 
-    def test_view_of_snapshot(self, reset_db) -> None:
+    def test_view_of_snapshot(self, reset_db: None) -> None:
         """Test view over a snapshot"""
         t = self.create_tbl()
         snap = pxt.create_snapshot('test_snap', t)
@@ -791,7 +791,7 @@ class TestView:
         assert t.count() == 110
         check_view(snap, v)
 
-    def test_snapshots(self, reset_db) -> None:
+    def test_snapshots(self, reset_db: None) -> None:
         """Test snapshot of a view of a snapshot"""
         t = self.create_tbl()
         s = pxt.create_snapshot('test_snap', t)
@@ -855,7 +855,7 @@ class TestView:
         assert t.count() == 110
         check(s, v, view_s)
 
-    def test_column_defaults(self, reset_db) -> None:
+    def test_column_defaults(self, reset_db: None) -> None:
         """
         Test that during insert() manually-supplied columns are materialized with their defaults and can be referenced
         in computed columns.

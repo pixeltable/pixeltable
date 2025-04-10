@@ -9,7 +9,7 @@ from ..utils import skip_test_if_not_installed, validate_update_status
 @pytest.mark.remote_api
 @pytest.mark.flaky(reruns=3, reruns_delay=8)
 class TestTogether:
-    def test_completions(self, reset_db) -> None:
+    def test_completions(self, reset_db: None) -> None:
         skip_test_if_not_installed('together')
         TestTogether.skip_test_if_no_together_client()
         t = pxt.create_table('test_tbl', {'input': pxt.String})
@@ -41,7 +41,7 @@ class TestTogether:
         assert len(result['output'][0]['choices'][0]['text']) > 0
         assert len(result['output_2'][0]['choices'][0]['text']) > 0
 
-    def test_chat_completions(self, reset_db) -> None:
+    def test_chat_completions(self, reset_db: None) -> None:
         skip_test_if_not_installed('together')
         TestTogether.skip_test_if_no_together_client()
         t = pxt.create_table('test_tbl', {'input': pxt.String})
@@ -73,7 +73,7 @@ class TestTogether:
         assert len(result['output'][0]['choices'][0]['message']) > 0
         assert len(result['output_2'][0]['choices'][0]['message']) > 0
 
-    def test_embeddings(self, reset_db) -> None:
+    def test_embeddings(self, reset_db: None) -> None:
         skip_test_if_not_installed('together')
         TestTogether.skip_test_if_no_together_client()
         t = pxt.create_table('test_tbl', {'input': pxt.String})
@@ -84,7 +84,7 @@ class TestTogether:
         assert len(t.collect()['embed'][0]) > 0
 
     @pytest.mark.expensive
-    def test_image_generations(self, reset_db) -> None:
+    def test_image_generations(self, reset_db: None) -> None:
         skip_test_if_not_installed('together')
         TestTogether.skip_test_if_no_together_client()
         t = pxt.create_table('test_tbl', {'input': pxt.String, 'negative_prompt': pxt.String})

@@ -123,7 +123,7 @@ class TestDataFrame:
         with pytest.raises(excs.Error, match='Where clause already specified'):
             r2 = t.select(t.c2).where(t.c2 <= 10).where(t.c2 <= 20).count()
 
-    def test_join(self, reset_db) -> None:
+    def test_join(self, reset_db: None) -> None:
         t1, t2, t3 = self.create_join_tbls(1000)
         # inner join
         df = t1.join(t2, on=t1.id, how='inner').select(t1.i, t2.f, out=t1.i + t2.f).order_by(t2.f)
@@ -177,7 +177,7 @@ class TestDataFrame:
         pd_df = res.to_pandas()
         # TODO: verify result
 
-    def test_join_errors(self, reset_db) -> None:
+    def test_join_errors(self, reset_db: None) -> None:
         t1, t2, t3 = self.create_join_tbls(1000)
 
         with pytest.raises(excs.Error) as exc_info:
@@ -409,7 +409,7 @@ class TestDataFrame:
         res = t.select(1.0).where(t.c2 < 10).collect()
         assert res[next(iter(res.schema.keys()))] == [1.0] * 10
 
-    def test_html_media_url(self, reset_db) -> None:
+    def test_html_media_url(self, reset_db: None) -> None:
         tab = pxt.create_table('test_html_repr', {'video': pxt.Video, 'audio': pxt.Audio, 'doc': pxt.Document})
 
         pdf_doc = next(f for f in get_documents() if f.endswith('.pdf'))
@@ -722,7 +722,7 @@ class TestDataFrame:
         assert isinstance(ds4, PixeltablePytorchDataset)
         assert ds4.path != ds3.path, 'different select list, hence different path should be used'
 
-    def test_to_coco(self, reset_db) -> None:
+    def test_to_coco(self, reset_db: None) -> None:
         skip_test_if_not_installed('yolox')
         from pycocotools.coco import COCO
 
