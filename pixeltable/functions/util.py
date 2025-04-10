@@ -21,7 +21,7 @@ def normalize_image_mode(image: PIL.Image.Image) -> PIL.Image.Image:
     Converts grayscale images to 3-channel for compatibility with models that only work with
     multichannel input.
     """
-    if image.mode in {'1', 'L'}:
+    if image.mode in ('1', 'L'):
         return image.convert('RGB')
     if image.mode == 'LA':
         return image.convert('RGBA')

@@ -72,7 +72,7 @@ class TestDocument:
             if extension == '.pdf':
                 assert handle.format == pxt.DocumentType.DocumentFormat.PDF, path
                 assert handle.pdf_doc is not None, path
-            elif extension in {'.html', '.htm'}:
+            elif extension in ('.html', '.htm'):
                 assert handle.format == pxt.DocumentType.DocumentFormat.HTML, path
                 assert handle.bs_doc is not None, path
             elif extension == '.md':

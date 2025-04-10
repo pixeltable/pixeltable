@@ -52,7 +52,7 @@ class ColumnPropertyRef(Expr):
         return f'{self._col_ref}.{self.prop.name.lower()}'
 
     def is_error_prop(self) -> bool:
-        return self.prop in {self.Property.ERRORTYPE, self.Property.ERRORMSG}
+        return self.prop in (self.Property.ERRORTYPE, self.Property.ERRORMSG)
 
     def sql_expr(self, sql_elements: SqlElementCache) -> Optional[sql.ColumnElement]:
         if not self._col_ref.col.is_stored:

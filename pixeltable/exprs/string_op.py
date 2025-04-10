@@ -26,7 +26,7 @@ class StringOp(Expr):
         self.operator = operator
         self.components = [op1, op2]
         assert op1.col_type.is_string_type()
-        if operator in {StringOperator.CONCAT, StringOperator.REPEAT}:
+        if operator in (StringOperator.CONCAT, StringOperator.REPEAT):
             if operator == StringOperator.CONCAT and not op2.col_type.is_string_type():
                 raise excs.Error(
                     f'{self}: {operator} on strings requires string type, but {op2} has type {op2.col_type}'
@@ -89,7 +89,7 @@ class StringOp(Expr):
         """
         Return the result of evaluating the expression on two int/float operands
         """
-        assert self.operator in {StringOperator.CONCAT, StringOperator.REPEAT}
+        assert self.operator in (StringOperator.CONCAT, StringOperator.REPEAT)
         if self.operator == StringOperator.CONCAT:
             assert isinstance(op2_val, str)
             return op1_val + op2_val

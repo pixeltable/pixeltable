@@ -768,7 +768,7 @@ class JsonType(ColumnType):
         a_type = a.get('type')
         b_type = b.get('type')
 
-        if a_type in {'string', 'integer', 'number', 'boolean', 'object', 'array'} and a_type == b_type:
+        if a_type in ('string', 'integer', 'number', 'boolean', 'object', 'array') and a_type == b_type:
             # a and b both have the same type designation, but are not identical. This can happen if
             # (for example) they have validators or other attributes that differ. In this case, we
             # generalize to {'type': t}, where t is their shared type, with no other qualifications.
@@ -1172,7 +1172,7 @@ class DocumentType(ColumnType):
 
         @classmethod
         def from_extension(cls, ext: str) -> Optional['DocumentType.DocumentFormat']:
-            if ext in {'.htm', '.html'}:
+            if ext in ('.htm', '.html'):
                 return cls.HTML
             if ext == '.md':
                 return cls.MD

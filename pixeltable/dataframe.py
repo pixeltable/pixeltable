@@ -571,7 +571,7 @@ class DataFrame:
             expr = exprs.Expr.from_object(raw_expr)
             if expr is None:
                 raise excs.Error(f'Invalid expression: {raw_expr}')
-            if expr.col_type.is_invalid_type():
+            if expr.col_type.is_invalid_type() and not (isinstance(expr, exprs.Literal) and expr.val is None):
                 raise excs.Error(f'Invalid type: {raw_expr}')
             if not expr.is_bound_by(self._from_clause.tbls):
                 raise excs.Error(
