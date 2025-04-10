@@ -2,8 +2,8 @@ import http
 import http.server
 import logging
 import pathlib
-from typing import Any
 import urllib
+from typing import Any
 
 _logger = logging.getLogger('pixeltable.http.server')
 

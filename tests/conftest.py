@@ -40,7 +40,7 @@ def pxt_test_harness() -> Iterator[None]:
 
 
 @pytest.fixture(scope='session')
-def init_env(tmp_path_factory, worker_id) -> None:
+def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None:
     os.chdir(os.path.dirname(os.path.dirname(__file__)))  # Project root directory
 
     # Set the relevant env vars for the test db.

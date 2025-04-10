@@ -463,7 +463,7 @@ class TestFunction:
 
     # Test that various invalid udf definitions generate
     # correct error messages.
-    def test_invalid_udfs(self):
+    def test_invalid_udfs(self) -> None:
         with pytest.raises(excs.Error) as exc_info:
 
             @pxt.udf
@@ -499,7 +499,7 @@ class TestFunction:
         with pytest.raises(excs.Error) as exc_info:
 
             @pxt.udf
-            def udf5(name: str, untyped) -> str:
+            def udf5(name: str, untyped) -> str:  # type: ignore[no-untyped-def]
                 return ''
 
         assert "cannot infer pixeltable type for parameter 'untyped'" in str(exc_info.value).lower()
@@ -929,12 +929,12 @@ class TestFunction:
         )
         reload_and_validate_table(validation_error=validation_error)
 
-    def test_tool_errors(self):
+    def test_tool_errors(self) -> None:
         with pytest.raises(excs.Error) as exc_info:
             pxt.tools(pxt.functions.sum)  # type: ignore[arg-type]
         assert 'Aggregator UDFs cannot be used as tools' in str(exc_info.value)
 
-    def test_from_table(self, reset_db: None):
+    def test_from_table(self, reset_db: None) -> None:
         schema = {'in1': pxt.Required[pxt.Int], 'in2': pxt.Required[pxt.String], 'in3': pxt.Float, 'in4': pxt.Image}
         t = pxt.create_table('test', schema)
         t.add_computed_column(out1=(t.in1 + 5))

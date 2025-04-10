@@ -88,7 +88,7 @@ class DataFrameResultSet:
     def __iter__(self) -> Iterator[dict[str, Any]]:
         return (self._row_to_dict(i) for i in range(len(self)))
 
-    def __eq__(self, other: Any) -> bool:
+    def __eq__(self, other: object) -> bool:
         if not isinstance(other, DataFrameResultSet):
             return False
         return self.to_pandas().equals(other.to_pandas())

@@ -14,7 +14,7 @@ from pixeltable.utils.documents import get_document_handle
 from .utils import get_audio_files, get_documents, get_image_files, get_video_files, skip_test_if_not_installed
 
 
-def _check_pdf_metadata(rec: dict, sep1: str, metadata: list[str]):
+def _check_pdf_metadata(rec: dict, sep1: str, metadata: list[str]) -> None:
     if 'page' in metadata and sep1 in ['page', 'paragraph', 'sentence']:
         assert rec.get('page') is not None
     if 'bounding_box' in metadata and sep1 in ['paragraph', 'sentence']:

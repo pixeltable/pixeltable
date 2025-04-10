@@ -300,7 +300,7 @@ class TestComponentView:
         # comuted column that indirectly references int1 and int2
         v2.add_computed_column(int7=v2.img3.width + v2.img4.width)
 
-        def check_view():
+        def check_view() -> None:
             assert_resultset_eq(
                 v1.select(v1.int3).order_by(v1.video, v1.pos).collect(),
                 v1.select(v1.int1 + 1).order_by(v1.video, v1.pos).collect(),

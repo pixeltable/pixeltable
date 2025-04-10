@@ -66,7 +66,7 @@ class TestExprs:
         def __init__(self) -> None:
             self.sum = 1 / 0
 
-        def update(self, val: int):
+        def update(self, val: int) -> None:
             pass
 
         def value(self) -> int:
@@ -78,7 +78,7 @@ class TestExprs:
         def __init__(self) -> None:
             self.sum = 0
 
-        def update(self, val: int):
+        def update(self, val: int) -> None:
             self.sum += 1 // val
 
         def value(self) -> int:
@@ -87,10 +87,10 @@ class TestExprs:
     # error in agg.value()
     @pxt.uda
     class value_exc(pxt.Aggregator):
-        def __init__(self):
+        def __init__(self) -> None:
             self.sum = 0
 
-        def update(self, val: int):
+        def update(self, val: int) -> None:
             self.sum += val
 
         def value(self) -> float:
@@ -994,12 +994,12 @@ class TestExprs:
 
         # Ensure these varargs signatures are acceptable
 
-        def f6(x, **kwargs: Any) -> str:
+        def f6(x, **kwargs: Any) -> str:  # type: ignore[no-untyped-def]
             return x
 
         t.c2.apply(f6)
 
-        def f7(x, *args: Any) -> str:
+        def f7(x, *args: Any) -> str:  # type: ignore[no-untyped-def]
             return x
 
         t.c2.apply(f7)
@@ -1221,7 +1221,7 @@ class TestExprs:
         t = create_scalars_tbl(1000)
         df = t.select().collect().to_pandas()
 
-        def series_to_list(series):
+        def series_to_list(series: pd.Series) -> list[Optional[int]]:
             return [int(x) if pd.notna(x) else None for x in series]
 
         int_sum: Expr = pxtf.sum(t.c_int)

@@ -293,7 +293,7 @@ class TestDataFrame:
         assert len(res) == nrows
 
         @pxt.query
-        def get_lim(n: int):
+        def get_lim(n: int) -> pxt.DataFrame:
             return t.select(t.c4).limit(n)
 
         res = t.select(t.c4, get_lim(2)).collect()
@@ -317,7 +317,7 @@ class TestDataFrame:
         assert len(res) == nrows
 
         @pxt.query
-        def get_lim(n: int):
+        def get_lim(n: int) -> pxt.DataFrame:
             return t.select(t.c4, folded_flt=(5.7 * n) - 4).limit((3 * (n + 1) // 2) - 1)
 
         res = t.select(t.c4, get_lim(1)).collect()
@@ -330,7 +330,7 @@ class TestDataFrame:
         t = test_tbl
 
         @pxt.query
-        def get_lim(n: float):
+        def get_lim(n: float) -> pxt.DataFrame:
             return t.select(t.c4).limit(n.astype(pxt.Int))  # type: ignore[attr-defined]
 
         res = t.select(t.c4, get_lim(2.2)).collect()
@@ -343,7 +343,7 @@ class TestDataFrame:
         assert res[0]['foo'] == [2, 3, 4]
 
         @pxt.query
-        def get_val(n: int):
+        def get_val(n: int) -> pxt.DataFrame:
             return t.select(foo=[2, 3, n]).limit(2)
 
         res = t.select(t.c4, get_val(4)).limit(2).collect()
@@ -658,7 +658,7 @@ class TestDataFrame:
         _ = pickle.loads(x)
 
         # test we get all rows
-        def check_recover_all_rows(ds, size: int, **kwargs):
+        def check_recover_all_rows(ds: 'torch.utils.data.Dataset', size: int, **kwargs: Any) -> None:
             dl = torch.utils.data.DataLoader(ds, **kwargs)
             loaded_ids = set()
             for batch in dl:
@@ -696,7 +696,7 @@ class TestDataFrame:
 
         t.drop_column('c_array')  # no support yet for null array values in the pytorch dataset
 
-        def _get_mtimes(dir: Path):
+        def _get_mtimes(dir: Path) -> dict[str, float]:
             return {p.name: p.stat().st_mtime for p in dir.iterdir()}
 
         #  check result cached

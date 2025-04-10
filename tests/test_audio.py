@@ -14,7 +14,7 @@ from .utils import ReloadTester, get_audio_file, get_audio_files, get_video_file
 
 
 class TestAudio:
-    def check_audio_params(self, path: str, format: Optional[str] = None, codec: Optional[str] = None):
+    def check_audio_params(self, path: str, format: Optional[str] = None, codec: Optional[str] = None) -> None:
         with av.open(path) as container:
             audio_stream = container.streams.audio[0]
             if format is not None:
