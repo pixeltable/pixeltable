@@ -39,7 +39,7 @@ class Tool(pydantic.BaseModel):
     def ser_model(self) -> dict[str, Any]:
         return {
             'name': self.name or self.fn.name,
-            'description': self.description or self.fn._docstring(),
+            'description': self.description or self.fn.comment(),
             'parameters': {
                 'type': 'object',
                 'properties': {param.name: param.col_type._to_json_schema() for param in self.parameters.values()},

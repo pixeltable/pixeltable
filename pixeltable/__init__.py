@@ -21,6 +21,7 @@ from .globals import (
     list_tables,
     move,
     publish_snapshot,
+    retrieval_tool,
     tool,
     tools,
 )

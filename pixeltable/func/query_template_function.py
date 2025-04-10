@@ -17,6 +17,7 @@ class QueryTemplateFunction(Function):
 
     template_df: Optional['DataFrame']
     self_name: Optional[str]
+    _comment: Optional[str]
 
     @classmethod
     def create(
@@ -34,15 +35,16 @@ class QueryTemplateFunction(Function):
         assert isinstance(template_df, DataFrame)
         # we take params and return json
         sig = Signature(return_type=ts.JsonType(), parameters=params)
-        return QueryTemplateFunction(template_df, sig, path=path, name=name)
+        return QueryTemplateFunction(template_df, sig, path=path, name=name, comment=inspect.getdoc(template_callable))
 
     def __init__(
-        self, template_df: Optional['DataFrame'], sig: Signature, path: Optional[str] = None, name: Optional[str] = None
+        self, template_df: Optional['DataFrame'], sig: Signature, path: Optional[str] = None, name: Optional[str] = None, comment: Optional[str] = None
     ):
         assert sig is not None
         super().__init__([sig], self_path=path)
         self.self_name = name
         self.template_df = template_df
+        self._comment = comment
 
     def _update_as_overload_resolution(self, signature_idx: int) -> None:
         pass  # only one signature supported for QueryTemplateFunction
@@ -73,6 +75,9 @@ class QueryTemplateFunction(Function):
     @property
     def name(self) -> str:
         return self.self_name
+
+    def comment(self) -> Optional[str]:
+        return self._comment
 
     def _as_dict(self) -> dict:
         return {'name': self.name, 'signature': self.signature.as_dict(), 'df': self.template_df.as_dict()}

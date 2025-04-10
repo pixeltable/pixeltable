@@ -146,14 +146,14 @@ class Table(SchemaObject):
         if self._is_dropped:
             raise excs.Error(f'{self._display_name()} {self._name} has been dropped')
 
-    def __getattr__(self, name: str) -> 'pxt.exprs.ColumnRef':
+    def __getattr__(self, name: str) -> 'exprs.ColumnRef':
         """Return a ColumnRef for the given name."""
         col = self._tbl_version_path.get_column(name)
         if col is None:
             raise AttributeError(f'Column {name!r} unknown')
         return ColumnRef(col)
 
-    def __getitem__(self, name: str) -> 'pxt.exprs.ColumnRef':
+    def __getitem__(self, name: str) -> 'exprs.ColumnRef':
         """Return a ColumnRef for the given name."""
         return getattr(self, name)
 

@@ -1,15 +1,18 @@
 from __future__ import annotations
 
+import inspect
 import logging
 import os
 import urllib.parse
+from functools import reduce
+from inspect import Signature
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, Optional, Union
 
 import pandas as pd
 from pandas.io.formats.style import Styler
 
-from pixeltable import DataFrame, catalog, exceptions as excs, exprs, func, share
+from pixeltable import DataFrame, catalog, exceptions as excs, exprs, func, share, type_system as ts
 from pixeltable.catalog import Catalog, TableVersionPath
 from pixeltable.catalog.insertable_table import OnErrorParameter
 from pixeltable.env import Env
@@ -736,6 +739,79 @@ def tool(fn: func.Function, name: Optional[str] = None, description: Optional[st
         raise excs.Error('Aggregator UDFs cannot be used as tools')
 
     return func.tools.Tool(fn=fn, name=name, description=description)
+
+
+def retrieval_tool(
+    table: catalog.Table,
+    name: Optional[str] = None,
+    description: Optional[str] = None,
+    parameters: Optional[Iterable[Union[str, exprs.ColumnRef]]] = None,
+    limit: Optional[int] = 10,
+) -> func.QueryTemplateFunction:
+    """
+    Constructs a retrieval tool for the given table. The retrieval tool is a function `f` whose parameters are
+    columns of the table and whose return value is a list of rows from the table. The return value of
+    ```python
+    f(col1=x, col2=y, ...)
+    ```
+    will be a list of all rows from the table that match the specified arguments.
+
+    Args:
+        table: The table to use as the dataset for the retrieval tool.
+        name: The name of the tool. If not specified, then the name of the table will be used by default.
+        description: The description of the tool. If not specified, then a default description will be generated.
+        parameters: The columns of the table to use as parameters. If not specified, all data columns
+            (non-computed columns) will be used as parameters.
+        limit: The maximum number of rows to return. If not specified, then all matching rows will be returned.
+
+    Returns:
+        A list of dictionaries containing data from the table, one per row that matches the input arguments.
+        If there are no matching rows, an empty list will be returned.
+    """
+    # Argument validation
+    if parameters is None:
+        col_refs = [table[col_name] for col_name in table.columns if not table[col_name].col.is_computed]
+    else:
+        if len(parameters) == 0:
+            raise excs.Error('Parameter list cannot be empty.')
+        for param in parameters:
+            if isinstance(param, str) and param not in table.columns:
+                raise excs.Error(f'The specified parameter {param!r} is not a column of the table {table._path!r}')
+            if isinstance(param, str) and table[param].col.is_computed:
+                raise excs.Error(
+                    f'The specified parameter {param!r} is a computed column; only data columns are allowed as parameters'
+                )
+            if isinstance(param, exprs.ColumnRef) and param.col.is_computed:
+                raise excs.Error(
+                    f'The specified parameter {param.col.name!r} is a computed column; only data columns are allowed as parameters'
+                )
+        col_refs = [table[param] if isinstance(param, str) else param for param in parameters]
+
+    # Construct the dataframe
+    predicates = [col_ref == exprs.Variable(col_ref.col.name, col_ref.col.col_type) for col_ref in col_refs]
+    where_clause = reduce(lambda c1, c2: c1 & c2, predicates)
+    df = table.select().where(where_clause)
+    if limit is not None:
+        df = df.limit(limit)
+
+    # Construct the signature
+    query_params = [
+        func.Parameter(col_ref.col.name, col_ref.col.col_type, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+        for col_ref in col_refs
+    ]
+    query_signature = func.Signature(return_type=ts.JsonType(), parameters=query_params)
+
+    # Construct a name and/or description if not provided
+    if name is None:
+        name = table.name
+    if description is None:
+        description = f'Retrieves an entry from the dataset {name!r} matching the given parameters.\n\nParameters:\n'
+        description += '\n'.join(
+            [f'- {col_ref.col.name}: {col_ref.col.col_type}' for col_ref in col_refs]
+        )
+
+    fn = func.QueryTemplateFunction(df, query_signature, name=name, comment=description)
+    return fn
 
 
 def configure_logging(

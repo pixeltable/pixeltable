@@ -159,7 +159,7 @@ class AggregateFunction(Function):
         self.init_param_names.append(init_param_names)
         return self
 
-    def _docstring(self) -> Optional[str]:
+    def comment(self) -> Optional[str]:
         return inspect.getdoc(self.agg_classes[0])
 
     def help_str(self) -> str:

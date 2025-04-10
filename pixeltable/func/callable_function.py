@@ -61,7 +61,7 @@ class CallableFunction(Function):
     def is_async(self) -> bool:
         return inspect.iscoroutinefunction(self.py_fn)
 
-    def _docstring(self) -> Optional[str]:
+    def comment(self) -> Optional[str]:
         return inspect.getdoc(self.py_fns[0])
 
     @property
