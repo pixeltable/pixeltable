@@ -429,20 +429,25 @@ class Catalog:
         The metadata should be presented in standard "ancestor order", with the table being replicated at
         list position 0 and the (root) base table at list position -1.
         """
+        existing = self._handle_path_collision(path, View, False, if_exists)
+        if existing is not None:
+            if existing._id != tbl_id:
+                raise excs.Error(
+                    f"An attempt was made to create a replica table at {path!r} with if_exists='ignore', "
+                    'but a different table already exists at that location.'
+                )
+            assert isinstance(existing, View)
+            return existing
+
         # If this table UUID already exists in the catalog, it's an error
         # TODO: Handle the case where it already exists as an anonymous table (because it was an ancestor of
         #     a different replica)
         tbl_id = UUID(md[0].tbl_md.tbl_id)
-        if tbl_id in self._tbls:
+        if Catalog.get().get_table_by_id(tbl_id) is not None:
             raise excs.Error(
                 f'That table has already been replicated as {self._tbls[tbl_id]._path()!r}. \n'
                 f'Drop the existing replica if you wish to re-create it.'
             )
-
-        existing = self._handle_path_collision(path, View, False, if_exists)
-        if existing is not None:
-            assert isinstance(existing, View)
-            return existing
 
         # Ensure that the system directory exists
         self._create_dir(Path('_system', allow_system_paths=True), if_exists=IfExistsParam.IGNORE, parents=False)
