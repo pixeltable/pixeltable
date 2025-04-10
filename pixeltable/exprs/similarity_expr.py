@@ -47,7 +47,7 @@ class SimilarityExpr(Expr):
     def __repr__(self) -> str:
         return f'{self.components[0]}.similarity({self.components[1]})'
 
-    def _id_attrs(self):
+    def _id_attrs(self) -> list[tuple[str, Any]]:
         return [*super()._id_attrs(), ('idx_name', self.idx_info.name)]
 
     def default_column_name(self) -> str:

@@ -43,7 +43,7 @@ def udf(
 ) -> ExprTemplateFunction: ...
 
 
-def udf(*args, **kwargs):
+def udf(*args, **kwargs):  # type: ignore[no-untyped-def]
     """A decorator to create a Function from a function definition.
 
     Examples:

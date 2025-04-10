@@ -206,7 +206,7 @@ class Expr(abc.ABC):
             return None
         return [e.copy() for e in expr_list]
 
-    def __deepcopy__(self, memo=None) -> Expr:
+    def __deepcopy__(self, memo: Optional[dict[int, Any]] = None) -> Expr:
         # we don't need to create an actual deep copy because all state other than execution state is read-only
         if memo is None:
             memo = {}

@@ -2,6 +2,7 @@ import http
 import http.server
 import logging
 import pathlib
+from typing import Any
 import urllib
 
 _logger = logging.getLogger('pixeltable.http.server')
@@ -38,7 +39,7 @@ class AbsolutePathHandler(http.server.SimpleHTTPRequestHandler):
         path = pathlib.Path(urllib.request.url2pathname(path))
         return str(path)
 
-    def log_message(self, format, *args) -> None:
+    def log_message(self, format: str, *args: Any) -> None:
         """override logging to stderr in http.server.BaseHTTPRequestHandler"""
         message = format % args
         _logger.info(message.translate(self._control_char_table))  # type: ignore[attr-defined]
@@ -47,8 +48,9 @@ class AbsolutePathHandler(http.server.SimpleHTTPRequestHandler):
 class LoggingHTTPServer(http.server.ThreadingHTTPServer):
     """Avoids polluting stdout and stderr"""
 
-    def handle_error(self, request, client_address) -> None:
+    def handle_error(self, request, client_address) -> None:  # type: ignore[no-untyped-def]
         """override socketserver.TCPServer.handle_error which prints directly to sys.stderr"""
+        super().handle_error(request, client_address)
         import traceback
 
         _logger.error(

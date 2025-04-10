@@ -12,5 +12,5 @@ __removed_symbols = {'base', 'document', 'video'}
 __all__ = sorted(__default_dir - __removed_symbols)
 
 
-def __dir__():
+def __dir__() -> list[str]:
     return __all__

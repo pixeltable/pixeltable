@@ -761,19 +761,19 @@ class TableVersion:
         self._update_md(time.time(), preceding_schema_version=preceding_schema_version)
         _logger.info(f'Renamed column {old_name} to {new_name} in table {self.name}, new version: {self.version}')
 
-    def set_comment(self, new_comment: Optional[str]):
+    def set_comment(self, new_comment: Optional[str]) -> None:
         _logger.info(f'[{self.name}] Updating comment: {new_comment}')
         self.comment = new_comment
         self._create_schema_version()
 
-    def set_num_retained_versions(self, new_num_retained_versions: int):
+    def set_num_retained_versions(self, new_num_retained_versions: int) -> None:
         _logger.info(
             f'[{self.name}] Updating num_retained_versions: {new_num_retained_versions} (was {self.num_retained_versions})'
         )
         self.num_retained_versions = new_num_retained_versions
         self._create_schema_version()
 
-    def _create_schema_version(self):
+    def _create_schema_version(self) -> None:
         # we're creating a new schema version
         self.version += 1
         preceding_schema_version = self.schema_version
