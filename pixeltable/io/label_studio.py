@@ -173,7 +173,7 @@ class LabelStudioProject(Project):
             # Send media to Label Studio by HTTP post.
             assert len(t_data_cols) == 1  # This was verified when the project was set up
             return self.__update_tasks_by_post(t, existing_tasks, t_data_cols[0], t_rl_cols, rl_info)
-        elif self.media_import_method in {'file', 'url'}:
+        elif self.media_import_method in ('file', 'url'):
             # Send media to Label Studio by file reference (local file or URL).
             return self.__update_tasks_by_files(t, existing_tasks, t_data_cols, t_rl_cols, rl_info)
         else:

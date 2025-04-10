@@ -493,7 +493,7 @@ class SqlJoinNode(SqlNode):
                 if join_clause.join_type != plan.JoinType.CROSS
                 else sql.sql.expression.literal(True)
             )
-            is_outer = join_clause.join_type in {plan.JoinType.LEFT, plan.JoinType.FULL_OUTER}
+            is_outer = join_clause.join_type in (plan.JoinType.LEFT, plan.JoinType.FULL_OUTER)
             stmt = stmt.join(
                 self.input_ctes[i + 1],
                 onclause=on_clause,

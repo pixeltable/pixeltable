@@ -422,7 +422,7 @@ class Table(SchemaObject):
                     raise excs.Error(f'Duplicate column name: {new_col_name!r}')
                 elif if_exists == IfExistsParam.IGNORE:
                     cols_to_ignore.append(new_col_name)
-                elif if_exists in {IfExistsParam.REPLACE, IfExistsParam.REPLACE_FORCE}:
+                elif if_exists in (IfExistsParam.REPLACE, IfExistsParam.REPLACE_FORCE):
                     if new_col_name not in self._tbl_version.get().cols_by_name:
                         # for views, it is possible that the existing column
                         # is a base table column; in that case, we should not
@@ -981,7 +981,7 @@ class Table(SchemaObject):
                     )
                 if if_exists_ == IfExistsParam.IGNORE:
                     return
-                assert if_exists_ in {IfExistsParam.REPLACE, IfExistsParam.REPLACE_FORCE}
+                assert if_exists_ in (IfExistsParam.REPLACE, IfExistsParam.REPLACE_FORCE)
                 self.drop_index(idx_name=idx_name)
                 assert idx_name not in self._tbl_version.get().idxs_by_name
             from pixeltable.index import EmbeddingIndex

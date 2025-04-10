@@ -35,7 +35,7 @@ class PxtPlugin(Plugin):
         return None
 
     def get_method_signature_hook(self, fullname: str) -> Optional[Callable[[MethodSigContext], FunctionLike]]:
-        if fullname in {self.__ADD_COLUMN_FULLNAME, self.__ADD_COMPUTED_COLUMN_FULLNAME}:
+        if fullname in (self.__ADD_COLUMN_FULLNAME, self.__ADD_COMPUTED_COLUMN_FULLNAME):
             return adjust_kwargs
         return None
 

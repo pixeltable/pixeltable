@@ -221,9 +221,11 @@ ignore = [
     "E712",  # Equality comparisons to `False` (x == False); needed for Pandas/Pixeltable expressions
     "N801",  # Class name should use CapWords convention (we intentionally violate this for aggregate functions)
     "PLC0415",  # Allow imports within functions (I don't see how this linting rule could ever work)
+    "PLC1901",  # Allow empty string comparisons
     "PLC2701",  # Allow private name imports
     "PLE0605",  # Invalid format for __all__ (appears to generate false positives)
     "PLR2004",  # Permit "magic values" (numbers that are not defined as constants)
+    "PLR6201",  # Don't require set literal for membership tests
     "PLR6301",  # Class method (not sure what to do yet)
     "PLW0108",  # Lambda may be unnecessary (gives false positives, e.g., for an arity-reducing lambda)
     "PLW3201",  # Dunder method has no special meaning (conflicts with _repr_html_)

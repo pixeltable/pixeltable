@@ -23,7 +23,7 @@ class PxtGriffeExtension(Extension):
         # Is it a function definition with a @pxt.udf decorator?
         if isinstance(obj, Function) and any(
             isinstance(dec.value, griffe.expressions.Expr)
-            and dec.value.canonical_path in {'pixeltable.func.udf', 'pixeltable.udf'}
+            and dec.value.canonical_path in ('pixeltable.func.udf', 'pixeltable.udf')
             for dec in obj.decorators
         ):
             # Update the template
