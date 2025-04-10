@@ -10,15 +10,17 @@ from ..utils import SAMPLE_IMAGE_URL, skip_test_if_not_installed, stock_price, v
 
 
 @pxt.udf
-def stock_price_tool(ticker: str) -> str:
-    """Get current stock price."""
-    return f'Current stock price for {ticker}: $100.00'
+def weather(city: str) -> Optional[str]:
+    """
+    Get today's weather forecast for a given city.
 
-
-@pxt.udf
-def weather_tool(city: str) -> str:
-    """Get weather of city."""
-    return f'Current weather in {city}: Sunny'
+    Args:
+        city - The name of the city to look up.
+    """
+    if city == 'San Francisco':
+        return 'Cloudy with a chance of meatballs'
+    else:
+        return 'Unknown city'
 
 
 @pytest.mark.remote_api
@@ -157,20 +159,6 @@ class TestOpenai:
         skip_test_if_not_installed('openai')
         TestOpenai.skip_test_if_no_openai_client()
         from pixeltable.functions.openai import chat_completions, invoke_tools
-
-        # stock_price is a module UDF and weather is a local UDF, so we test both
-        @pxt.udf(_force_stored=True)
-        def weather(city: str) -> Optional[str]:
-            """
-            Get today's weather forecast for a given city.
-
-            Args:
-                city - The name of the city to look up.
-            """
-            if city == 'San Francisco':
-                return 'Cloudy with a chance of meatballs'
-            else:
-                return 'Unknown city'
 
         tools = pxt.tools(stock_price, weather)
         tool_choice_opts: list[Optional[pxt.func.ToolChoice]] = [
@@ -418,8 +406,8 @@ class TestOpenai:
         from pixeltable.functions.openai import chat_completions, invoke_tools
 
         # Register tools
-        finance_tools = pxt.tools(stock_price_tool)
-        weather_tools = pxt.tools(weather_tool)
+        finance_tools = pxt.tools(stock_price)
+        weather_tools = pxt.tools(weather)
 
         # Finance agent
         finance_agent = pxt.create_table('finance_agent', {'prompt': pxt.String})
@@ -517,9 +505,13 @@ class TestOpenai:
         manager.add_computed_column(answer=manager.final_response.choices[0].message.content)
 
         manager.insert([{'prompt': "what's the weather in sf"}])
-        _ = manager.select(manager.answer).collect()
+        r1 = manager.select(manager.answer).collect()
+        assert len(r1) == 1
+        assert 'weather' in r1[0, 'answer'] and 'San Francisco' in r1[0, 'answer']
         manager.insert([{'prompt': 'stock price of apple'}])
-        _ = manager.select(manager.answer).collect()
+        r2 = manager.select(manager.answer).collect()
+        assert len(r2) == 2
+        assert any('Apple' in answer for answer in r2['answer'])
 
     # This ensures that the test will be skipped, rather than returning an error, when no API key is
     # available (for example, when a PR runs in CI).
