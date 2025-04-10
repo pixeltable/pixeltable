@@ -762,6 +762,9 @@ def retrieval_tool(
         description: The description of the tool. If not specified, then a default description will be generated.
         parameters: The columns of the table to use as parameters. If not specified, all data columns
             (non-computed columns) will be used as parameters.
+
+            All of the specified parameters will be required parameters of the tool, regardless of their status
+            as columns.
         limit: The maximum number of rows to return. If not specified, then all matching rows will be returned.
 
     Returns:
@@ -803,11 +806,13 @@ def retrieval_tool(
 
     # Construct a name and/or description if not provided
     if name is None:
-        name = table.name
+        name = table._name
     if description is None:
-        description = f'Retrieves an entry from the dataset {name!r} matching the given parameters.\n\nParameters:\n'
+        description = (
+            f'Retrieves an entry from the dataset {name!r} that matches the given parameters.\n\nParameters:\n'
+        )
         description += '\n'.join(
-            [f'- {col_ref.col.name}: {col_ref.col.col_type}' for col_ref in col_refs]
+            [f'    {col_ref.col.name}: of type `{col_ref.col.col_type._to_base_str()}`' for col_ref in col_refs]
         )
 
     fn = func.QueryTemplateFunction(df, query_signature, name=name, comment=description)

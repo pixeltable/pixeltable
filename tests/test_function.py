@@ -934,6 +934,64 @@ class TestFunction:
             pxt.tools(pxt.functions.sum)  # type: ignore[arg-type]
         assert 'Aggregator UDFs cannot be used as tools' in str(exc_info.value)
 
+    def test_retrieval_tool(self, reset_db) -> None:
+        t = pxt.create_table(
+            'customers', {'customer_id': pxt.Required[pxt.String], 'name': pxt.Required[pxt.String], 'sales': pxt.Int}
+        )
+        t.insert(
+            [{'customer_id': 'Q371A', 'name': 'Aaron Siegel'}, {'customer_id': 'B117F', 'name': 'Marcel Kornacker'}]
+        )
+        t.add_computed_column(ref_id=pxtf.string.format('PXT-{0}', t.customer_id))
+
+        fn1 = pxt.retrieval_tool(t)
+        assert fn1.name == 'customers'
+        assert list(fn1.signature.parameters.keys()) == ['customer_id', 'name', 'sales']
+        assert [p.col_type for p in fn1.signature.parameters.values()] == [
+            pxt.StringType(),
+            pxt.StringType(),
+            pxt.IntType(nullable=True),
+        ]
+        assert fn1.comment() == dedent(
+            """
+            Retrieves an entry from the dataset 'customers' that matches the given parameters.
+
+            Parameters:
+                customer_id: of type `String`
+                name: of type `String`
+                sales: of type `Int`
+            """
+        ).strip()  # fmt: skip
+
+        fn2 = pxt.retrieval_tool(t, parameters=['customer_id'], limit=None)
+        assert fn2.name == 'customers'
+        assert list(fn2.signature.parameters.keys()) == ['customer_id']
+        assert [p.col_type for p in fn2.signature.parameters.values()] == [pxt.StringType()]
+        assert fn2.comment() == dedent(
+            """
+            Retrieves an entry from the dataset 'customers' that matches the given parameters.
+
+            Parameters:
+                customer_id: of type `String`
+            """
+        ).strip()  # fmt: skip
+
+        res = t.select(fn2(customer_id='Q371A')).collect()
+        assert res[0]['customers'] == [
+            {'customer_id': 'Q371A', 'name': 'Aaron Siegel', 'ref_id': 'PXT-Q371A', 'sales': None}
+        ]
+
+        fn3 = pxt.retrieval_tool(
+            t,
+            name='my_customers',
+            description="I'm a tool that LLMs can use to do stuff.",
+            parameters=['customer_id'],
+            limit=1,
+        )
+        assert fn3.name == 'my_customers'
+        assert list(fn3.signature.parameters.keys()) == ['customer_id']
+        assert [p.col_type for p in fn3.signature.parameters.values()] == [pxt.StringType()]
+        assert fn3.comment() == "I'm a tool that LLMs can use to do stuff."
+
     def test_from_table(self, reset_db):
         schema = {'in1': pxt.Required[pxt.Int], 'in2': pxt.Required[pxt.String], 'in3': pxt.Float, 'in4': pxt.Image}
         t = pxt.create_table('test', schema)

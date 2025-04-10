@@ -38,7 +38,12 @@ class QueryTemplateFunction(Function):
         return QueryTemplateFunction(template_df, sig, path=path, name=name, comment=inspect.getdoc(template_callable))
 
     def __init__(
-        self, template_df: Optional['DataFrame'], sig: Signature, path: Optional[str] = None, name: Optional[str] = None, comment: Optional[str] = None
+        self,
+        template_df: Optional['DataFrame'],
+        sig: Signature,
+        path: Optional[str] = None,
+        name: Optional[str] = None,
+        comment: Optional[str] = None,
     ):
         assert sig is not None
         super().__init__([sig], self_path=path)
