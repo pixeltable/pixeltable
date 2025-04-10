@@ -1,42 +1,53 @@
 import logging
 import sys
-from typing import Callable, TypeVar
+from typing import Callable, Optional, TypeVar
 
 R = TypeVar('R')
 
 
-def _is_in_exception():
+def _is_in_exception() -> bool:
     """
-    Returns true when running in exception context.
+    Check if code is currently executing within an exception context.
     """
     current_exception = sys.exc_info()[1]
     return current_exception is not None
 
 
-def run_cleanup_on_exception(cleanup_func: Callable[..., R], *args, **kwargs):
+def run_cleanup_on_exception(cleanup_func: Callable[..., R], *args, **kwargs) -> Optional[R]:
     """
     Runs cleanup only when running in exception context.
+
+    The function `run_cleanup_on_exception()` should be used to clean up resources when an operation fails.
+    This is typically done using a try, except, and finally block, with the resource cleanup logic placed within
+    the except block. However, this pattern may not handle KeyboardInterrupt exceptions.
+    To ensure that resources are always cleaned up at least once when an exception or KeyboardInterrupt occurs,
+    create an idempotent function for cleaning up resources and pass it to the `run_cleanup_on_exception()` function
+    from the finally block.
     """
     if _is_in_exception():
-        run_cleanup(cleanup_func, *args, raise_error=False, **kwargs)
+        return run_cleanup(cleanup_func, *args, raise_error=False, **kwargs)
+    return None
 
 
-def run_cleanup(cleanup_func: Callable[..., R], *args, raise_error=True, **kwargs):
+def run_cleanup(cleanup_func: Callable[..., R], *args, raise_error=True, **kwargs) -> Optional[R]:
     """
     Runs a cleanup function. If interrupted, retry cleanup.
+    The `run_cleanup()` function ensures that the `cleanup_func()` function executes at least once.
+    If the `cleanup_func()` is interrupted during execution, it will be retried.
+
     Args:
-        cleanup_func: an idempotent cleanup function
+        cleanup_func: an idempotent function
         raise_error: raise an exception if an error occurs during cleanup.
     """
     try:
         logging.debug(f'Running cleanup function: {cleanup_func.__name__!r}')
-        cleanup_func(*args, **kwargs)
+        return cleanup_func(*args, **kwargs)
     except KeyboardInterrupt as interrupt:
         # Save original exception and re-attempt cleanup
         original_exception = interrupt
         logging.debug(f'Cleanup {cleanup_func.__name__!r} interrupted, retrying')
         try:
-            cleanup_func(*args, **kwargs)
+            return cleanup_func(*args, **kwargs)
         except Exception as e:
             # Suppress this exception
             logging.error(f'Cleanup {cleanup_func.__name__!r} failed with exception {e}')
@@ -45,3 +56,4 @@ def run_cleanup(cleanup_func: Callable[..., R], *args, raise_error=True, **kwarg
         logging.error(f'Cleanup {cleanup_func.__name__!r} failed with exception {e}')
         if raise_error:
             raise e
+    return None

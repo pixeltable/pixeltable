@@ -1535,17 +1535,14 @@ class TestTable:
         schema = {'c1': pxt.Int}
         t = pxt.create_table('test_interrupt', schema)
         t.insert(({'c1': i} for i in range(0, 1000)))
-        try:
-            _ = t.add_computed_column(cc1=self.f2(self.function_with_error(t.c1, 245)), on_error='ignore')
-            assert False, 'No exception was raised'
-        except (KeyboardInterrupt, Exception) as exc:
-            print('Caught KeyboardInterrupt Successfully')
-            results = t.head(1)
-            assert results[0] == {'c1': 0}
-            results = t.tail(1)
-            assert results[0] == {'c1': 999}
-            assert len(results.schema) == 1
-            assert results.schema.get('cc1') is None
+        with pytest.raises(KeyboardInterrupt):
+            _ = t.add_computed_column(cc1=self.function_with_error(t.c1, 245), on_error='ignore')
+        results = t.head(1)
+        assert results[0] == {'c1': 0}
+        results = t.tail(1)
+        assert results[0] == {'c1': 999}
+        assert len(results.schema) == 1
+        assert results.schema.get('cc1') is None
 
     def _test_computed_img_cols(self, t: catalog.Table, stores_img_col: bool) -> None:
         rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])

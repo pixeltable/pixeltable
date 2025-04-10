@@ -473,7 +473,7 @@ class TableVersion:
         _logger.info(f'Added index {idx_name} on column {col.name} to table {self.name}')
         return status
 
-    def _can_create_index(self, col: Column) -> bool:
+    def _is_btree_indexable(self, col: Column) -> bool:
         if not col.stored:
             # if the column is intentionally not stored, we want to avoid the overhead of an index
             return False
@@ -490,12 +490,18 @@ class TableVersion:
 
     def _add_default_index(self, col: Column) -> Optional[UpdateStatus]:
         """Add a B-tree index on this column if it has a compatible type"""
-        if not self._can_create_index(col):
+        if not self._is_btree_indexable(col):
             return None
         status = self._add_index(col, idx_name=None, idx=index.BtreeIndex(col))
         return status
 
     def _create_index_columns(self, idx: index.IndexBase) -> Tuple[Column, Column]:
+        """Create value and undo columns for the given index.
+        Args:
+            idx:  index for which columns will be created.
+        Returns:
+            A tuple containing the value column and the undo column.
+        """
         assert not self.is_snapshot
         # add the index value and undo columns (which need to be nullable)
         val_col = Column(
@@ -530,6 +536,7 @@ class TableVersion:
     def _create_index(
         self, col: Column, val_col: Column, undo_col: Column, idx_name: Optional[str], idx: index.IndexBase
     ) -> None:
+        """Create the given index along with index md"""
         idx_id = self.next_idx_id
         self.next_idx_id += 1
         if idx_name is None:
@@ -557,13 +564,15 @@ class TableVersion:
         try:
             idx.create_index(self._store_idx_name(idx_id), val_col)
         finally:
-            # Remove in memory index structure in the case of an error.
-            def remove_index() -> None:
+
+            def cleanup_index() -> None:
+                """Delete the newly added in-memory index structure"""
                 del self.idxs_by_name[idx_name]
                 del self.idx_md[idx_id]
                 self.next_idx_id = idx_id
 
-            run_cleanup_on_exception(remove_index)
+            # Run cleanup only if there has been an exception; otherwise, skip cleanup.
+            run_cleanup_on_exception(cleanup_index)
 
     def _add_index(self, col: Column, idx_name: Optional[str], idx: index.IndexBase) -> UpdateStatus:
         val_col, undo_vol = self._create_index_columns(idx)
@@ -613,12 +622,12 @@ class TableVersion:
         self.version += 1
         preceding_schema_version = self.schema_version
         self.schema_version = self.version
-        index_cols: dict[Column, tuple[index.IndexBase, Column, Column]] = {}
+        index_cols: dict[Column, tuple[index.BtreeIndex, Column, Column]] = {}
         all_cols: list[Column] = []
         for col in cols:
             all_cols.append(col)
-            if self._can_create_index(col):
-                idx: index.IndexBase = index.BtreeIndex(col)
+            if self._is_btree_indexable(col):
+                idx = index.BtreeIndex(col)
                 val_col, undo_col = self._create_index_columns(idx)
                 index_cols[col] = (idx, val_col, undo_col)
                 all_cols.append(val_col)
@@ -643,9 +652,9 @@ class TableVersion:
         self, cols: Iterable[Column], print_stats: bool, on_error: Literal['abort', 'ignore']
     ) -> UpdateStatus:
         """Add and populate columns within the current transaction"""
-        cols = list(cols)
+        cols_to_add = list(cols)
         row_count = self.store_tbl.count()
-        for col in cols:
+        for col in cols_to_add:
             if not col.col_type.nullable and not col.is_computed:
                 if row_count > 0:
                     raise excs.Error(
@@ -654,7 +663,7 @@ class TableVersion:
 
         num_excs = 0
         cols_with_excs: list[Column] = []
-        for col in cols:
+        for col in cols_to_add:
             excs_per_col = 0
             col.schema_version_add = self.schema_version
             # add the column to the lookup structures now, rather than after the store changes executed successfully,
@@ -688,22 +697,21 @@ class TableVersion:
                 if excs_per_col > 0:
                     cols_with_excs.append(col)
                     num_excs += excs_per_col
-            except Exception as exc:
-                raise exc
             finally:
-
-                def delete_columns():
-                    self.cols.pop()
-                    for col in cols:
+                # Ensure cleanup occurs if an exception or keyboard interruption happens during `load_column()`.
+                def cleanup_on_error():
+                    """Delete columns that are added as part of current add_columns operation and re-initialize the sqlalchemy schema"""
+                    self.cols = [col for col in self.cols if col not in cols_to_add]
+                    for col in cols_to_add:
                         # remove columns that we already added
-                        if col.id not in self.cols_by_id:
-                            continue
-                        if col.name is not None:
+                        if col.id in self.cols_by_id:
+                            del self.cols_by_id[col.id]
+                        if col.name is not None and col.name in self.cols_by_name:
                             del self.cols_by_name[col.name]
-                        del self.cols_by_id[col.id]
                     self.store_tbl.create_sa_tbl()
 
-                run_cleanup_on_exception(delete_columns)
+                # Run cleanup only if there has been an exception; otherwise, skip cleanup.
+                run_cleanup_on_exception(cleanup_on_error)
                 plan.close()
 
         if print_stats:
