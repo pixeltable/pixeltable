@@ -16,11 +16,11 @@
   <img src="https://img.shields.io/badge/🤗-HF%20Demos-FF7D04" alt="Visit our Hugging Face space"/>
 </a>
 
-[**Installation**](#-installation) |
+[**Installation**](https://docs.pixeltable.com/docs/overview/installation) |
 [**Quick Start**](https://docs.pixeltable.com/docs/overview/quick-start) |
 [**Documentation**](https://docs.pixeltable.com/) |
 [**API Reference**](https://pixeltable.github.io/pixeltable/) |
-[**Examples**](#-key-examples) |
+[**Examples**](https://docs.pixeltable.com/docs/examples/use-cases) |
 [**Discord Community**](https://discord.gg/QPyqFYx2UN)
 
 </div>
@@ -39,13 +39,17 @@ Building robust AI applications, especially [multimodal](https://docs.pixeltable
 
 This complex "data plumbing" slows down development, increases costs, and makes applications brittle and hard to reproduce.
 
-## ✨ What is Pixeltable?
+## 💾 Installation
 
-```bash
+```python
 pip install pixeltable
 ```
 
-**[Pixeltable](https://docs.pixeltable.com/docs/overview/pixeltable) is the open-source, declarative data infrastructure layer designed specifically for AI.** It eliminates the need for complex plumbing by providing a unified, Python-native interface to manage, transform, index, and query your multimodal data, seamlessly integrating AI model inference into your workflow.
+**Pixeltable is a database.** It stores metadata and computed results persistently, typically in a `.pixeltable` directory in your workspace. See [configuration](https://docs.pixeltable.com/docs/overview/configuration) options for your setup.
+
+## ✨ What is Pixeltable?
+
+**[Pixeltable](https://docs.pixeltable.com/docs/overview/pixeltable) is the open-source, declarative data infrastructure designed specifically for incremental AI.** It eliminates the need for complex plumbing by providing a unified, Python-native interface to manage, transform, index, and query your multimodal data, seamlessly integrating AI model inference into your workflow.
 
 With Pixeltable, you define your *entire* data processing and AI workflow declaratively using **[computed columns](https://docs.pixeltable.com/docs/datastore/computed-columns)** on **[tables](https://docs.pixeltable.com/docs/datastore/tables-and-operations)**. Pixeltable's engine then automatically handles:
 
@@ -112,9 +116,6 @@ With Pixeltable, you define your *entire* data processing and AI workflow declar
   ```python
   results = t.where(t.score > 0.8).order_by(t.timestamp).select(t.image, score=t.score).limit(10).collect()
   ```
-
-
-**Reminder: Pixeltable acts like a database.** It stores metadata and computed results persistently, typically in a `.pixeltable` directory in your workspace. See [configuration](https://docs.pixeltable.com/docs/overview/configuration) options for Pixeltable.
 
 ## 💡 Key Examples
 
@@ -306,23 +307,6 @@ qa.insert([{'prompt': 'What can you tell me about Amazon?'}])
 print("--- Final Answer ---")
 print(qa.select(qa.answer).collect())
 ```
-
-## 🤔 Why Pixeltable?
-
-*   **Develop Faster:** Abstract away data plumbing. Define your pipeline declaratively and let Pixeltable handle the execution, caching, and versioning.
-*   **Save Costs:** Incremental computation means you only process new or changed data. Avoid expensive re-runs of embedding models or LLMs.
-*   **Ensure Reproducibility:** Automatic data and code versioning provides full lineage, making experiments reproducible.
-*   **Stay Flexible:** Integrate *any* Python library or model. Pixeltable orchestrates; you choose the best tools for your task.
-*   **Handle Multimodality:** Natively manage and process text, images, video, and audio within a single framework.
-
-## 🎯 Use Cases
-
-Pixeltable is ideal for building:
-
-*   **Retrieval-Augmented Generation (RAG):** Index and search documents, audio transcripts, video content, and combine with LLMs.
-*   **Video & Image Analysis:** Extract frames, run object detection/classification, index visual content for search, transcribe audio.
-*   **AI Data Pipelines:** Feature extraction, data labeling workflows, model evaluation.
-*   **Agentic Systems:** Build complex workflows involving tool calling, memory, and multimodal understanding.
 
 ## 📚 Notebook Gallery
 
