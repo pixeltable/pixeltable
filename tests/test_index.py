@@ -117,7 +117,7 @@ class TestIndex:
 
             t.drop_embedding_index(column='img')
 
-    def test_query(self, reset_db, clip_embed: func.Function) -> None:
+    def test_query(self, reset_db: None, clip_embed: func.Function) -> None:
         skip_test_if_not_installed('transformers')
         queries = pxt.create_table('queries', {'query_text': pxt.String})
         query_rows = [
@@ -168,7 +168,7 @@ class TestIndex:
         _ = t.select(t.img.localpath).order_by(t.img.similarity(sample_img), asc=False).limit(3).collect()
 
         @pxt.query
-        def img_matches(img: PIL.Image.Image):
+        def img_matches(img: PIL.Image.Image) -> pxt.DataFrame:
             return t.select(t.img.localpath).order_by(t.img.similarity(img), asc=False).limit(3)
 
         res = list(t.select(img=t.img.localpath, matches=img_matches(t.img)).head(1))

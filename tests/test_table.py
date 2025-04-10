@@ -71,7 +71,7 @@ class TestTable:
 
     @pxt.uda(requires_order_by=True, allows_window=True)
     class window_fn(pxt.Aggregator):
-        def __init__(self):
+        def __init__(self) -> None:
             pass
 
         def update(self, i: int) -> None:

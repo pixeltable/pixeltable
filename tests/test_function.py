@@ -34,7 +34,7 @@ class TestFunction:
     class agg(pxt.Aggregator):
         """An aggregator."""
 
-        def __init__(self):
+        def __init__(self) -> None:
             self.sum = 0
 
         def update(self, val: int) -> None:
@@ -44,7 +44,7 @@ class TestFunction:
         def value(self) -> int:
             return self.sum
 
-    def test_serialize_anonymous(self, init_env) -> None:
+    def test_serialize_anonymous(self, init_env: None) -> None:
         d = self.func.as_dict()
         FunctionRegistry.get().clear_cache()
         deserialized = Function.from_dict(d)
@@ -56,7 +56,7 @@ class TestFunction:
         _ = FunctionRegistry.get().list_functions()
         print(_)
 
-    def test_list_functions(self, init_env) -> None:
+    def test_list_functions(self, init_env: None) -> None:
         _ = pxt.list_functions()
         print(_)
 
@@ -150,7 +150,7 @@ class TestFunction:
         with pytest.raises(excs.Error) as exc_info:
 
             @pxt.udf
-            def f1(a: int, b: float, c='') -> float:
+            def f1(a: int, b: float, c='') -> float:  # type: ignore[no-untyped-def]
                 return a + b + c
 
         assert "cannot infer pixeltable type for parameter 'c'" in str(exc_info.value).lower()
@@ -227,7 +227,7 @@ class TestFunction:
 
         assert 'Stored functions cannot be declared using `is_method` or `is_property`' in str(exc_info.value)
 
-    def test_query(self, reset_db, reload_tester: ReloadTester) -> None:
+    def test_query(self, reset_db: None, reload_tester: ReloadTester) -> None:
         t = pxt.create_table('test', {'c1': pxt.Int, 'c2': pxt.Float})
         name = t._name
         rows = [{'c1': i, 'c2': i + 0.5} for i in range(100)]
@@ -294,7 +294,7 @@ class TestFunction:
         )
 
         @pxt.query
-        def retrieval(s: str, n: int):
+        def retrieval(s: str, n: int) -> pxt.DataFrame:
             """simply returns 2 passages from the table"""
             return chunks.select(chunks.text).limit(2)
 
@@ -318,7 +318,7 @@ class TestFunction:
         v = pxt.create_view('test.view', t, additional_columns={'text': pxt.String})
 
         @pxt.query
-        def retrieve():
+        def retrieve() -> pxt.DataFrame:
             return v.select(v.text).limit(20)
 
         t = pxt.create_table('test.retrieval', {'n': pxt.Int})
@@ -330,7 +330,7 @@ class TestFunction:
         pxt.drop_dir('test', force=True)
 
     @pytest.mark.skip('Requires support for async JsonMapper execution')
-    def test_query_json_mapper(self, reset_db, reload_tester: ReloadTester) -> None:
+    def test_query_json_mapper(self, reset_db: None, reload_tester: ReloadTester) -> None:
         t = pxt.create_table('test', {'c1': pxt.Int, 'c2': pxt.Float})
         rows = [{'c1': i, 'c2': i + 0.5} for i in range(100)]
         validate_update_status(t.insert(rows), 100)
@@ -402,7 +402,7 @@ class TestFunction:
 
     @staticmethod
     @pxt.expr_udf
-    def add2(x: int, y: int):
+    def add2(x: int, y: int) -> int:
         return x + y
 
     @staticmethod
@@ -435,7 +435,7 @@ class TestFunction:
         with pytest.raises(excs.Error) as exc_info:
             # parameter types cannot be inferred
             @pxt.expr_udf
-            def add1(x, y) -> int:
+            def add1(x, y) -> int:  # type: ignore[no-untyped-def]
                 return x + y
 
         assert 'cannot infer pixeltable type' in str(exc_info.value).lower()
@@ -443,7 +443,7 @@ class TestFunction:
         with pytest.raises(excs.Error) as exc_info:
             # missing param types
             @pxt.expr_udf(param_types=[pxt.IntType()])
-            def add1(x, y) -> int:
+            def add1(x, y) -> int:  # type: ignore[no-untyped-def]
                 return x + y
 
         assert "missing type for parameter 'y'" in str(exc_info.value).lower()

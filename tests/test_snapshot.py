@@ -170,7 +170,7 @@ class TestSnapshot:
             assert 'already exists' in err_msg and 'is not a snapshot' in err_msg
             assert 'not_snapshot' in pxt.list_tables(), f'with if_exists={_ie}'
 
-    def test_create_if_exists(self, reset_db, reload_tester: ReloadTester) -> None:
+    def test_create_if_exists(self, reset_db: None, reload_tester: ReloadTester) -> None:
         """Test the if_exists parameter while creating a snapshot."""
         t = create_test_tbl()
         v = pxt.create_view('test_view', t)
@@ -195,7 +195,7 @@ class TestSnapshot:
         assert s1._id == id_before['test_snap_t']
         assert s2._id == id_before['test_snap_v']
 
-    def test_errors(self, reset_db, clip_embed: func.Function) -> None:
+    def test_errors(self, reset_db: None, clip_embed: func.Function) -> None:
         tbl = create_test_tbl()
         snap = pxt.create_snapshot('snap', tbl)
 

@@ -46,7 +46,7 @@ class TestHuggingface:
         t.describe()
 
     @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Not supported on Linux ARM')
-    def test_sentence_transformer(self, reset_db, reload_tester: ReloadTester) -> None:
+    def test_sentence_transformer(self, reset_db: None, reload_tester: ReloadTester) -> None:
         skip_test_if_not_installed('sentence_transformers')
         t = pxt.create_table('test_tbl', {'input': pxt.String, 'input_list': pxt.Json})
         sents = get_sentences(10)

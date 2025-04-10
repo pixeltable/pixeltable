@@ -151,7 +151,7 @@ class TestView:
             _ = pxt.create_view('lambda_view', t, additional_columns={'v1': lambda c3: c3 * 2.0})
         assert "invalid value for column 'v1'" in str(exc_info.value).lower()
 
-    def test_create_if_exists(self, reset_db, reload_tester: ReloadTester) -> None:
+    def test_create_if_exists(self, reset_db: None, reload_tester: ReloadTester) -> None:
         """Test if_exists parameter of create_view API"""
         t = self.create_tbl()
         v = pxt.create_view('test_view', t)
@@ -215,7 +215,7 @@ class TestView:
         _ = reload_tester.run_query(v3.select())
         reload_tester.run_reload_test()
 
-    def test_add_column_to_view(self, reset_db, test_tbl: catalog.Table, reload_tester: ReloadTester) -> None:
+    def test_add_column_to_view(self, reset_db: None, test_tbl: catalog.Table, reload_tester: ReloadTester) -> None:
         """Test add_column* methods for views"""
         t = test_tbl
         t_c1_val0 = t.select(t.c1).order_by(t.c1).collect()[0]['c1']
@@ -406,7 +406,7 @@ class TestView:
         }
         v2 = pxt.create_view('v2', v1.where(t.c2 < 5), additional_columns=v2_schema)
 
-        def check_views():
+        def check_views() -> None:
             assert_resultset_eq(
                 v1.select(v1.col1).order_by(v1.c2).collect(),
                 t.select(t.c3 * 2).where(t.c2 < 10).order_by(t.c2).collect(),
@@ -633,7 +633,7 @@ class TestView:
         logger.debug('******************* POST UPDATE INT2')
         check_views()
 
-    def test_selected_cols(self, reset_db, reload_tester: ReloadTester) -> None:
+    def test_selected_cols(self, reset_db: None, reload_tester: ReloadTester) -> None:
         t = self.create_tbl()
 
         # Note that v1.c3 overrides t.c3, but both are accessible

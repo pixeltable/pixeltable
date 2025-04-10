@@ -693,7 +693,7 @@ class TestExprs:
 
         reload_tester.run_reload_test()
 
-    def test_multi_json_mapper(self, reset_db, reload_tester: ReloadTester) -> None:
+    def test_multi_json_mapper(self, reset_db: None, reload_tester: ReloadTester) -> None:
         # Workflow with multiple JsonMapper instances
         t = pxt.create_table('test', {'jcol': pxt.Json})
         t.add_computed_column(outputx=pxtf.map(t.jcol.x['*'], lambda x: x + 1))
@@ -1170,7 +1170,7 @@ class TestExprs:
         assert len(subexprs) == 1
         assert t.img.equals(subexprs[0])
 
-    def test_window_fns(self, reset_db, test_tbl: catalog.Table) -> None:
+    def test_window_fns(self, reset_db: None, test_tbl: catalog.Table) -> None:
         t = test_tbl
         _ = t.select(pxtf.sum(t.c2, group_by=t.c4, order_by=t.c3)).show(100)
 
@@ -1495,7 +1495,7 @@ class TestExprs:
         for e, expected_repr in instances:
             assert repr(e) == expected_repr
 
-    def test_string_operations(self, test_tbl: catalog.Table, reset_db, reload_tester: ReloadTester) -> None:
+    def test_string_operations(self, test_tbl: catalog.Table, reset_db: None, reload_tester: ReloadTester) -> None:
         # create table with two columns
         schema = {'s1': pxt.String, 's2': pxt.String, 'i1': pxt.Int}
         t = pxt.create_table('test_str_concat', schema)

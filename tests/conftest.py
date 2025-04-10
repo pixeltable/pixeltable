@@ -71,7 +71,7 @@ def init_env(tmp_path_factory, worker_id) -> None:
 
 
 @pytest.fixture(scope='function')
-def reset_db(init_env) -> None:
+def reset_db(init_env: None) -> None:
     from pixeltable.env import Env
 
     # Clean the DB *before* reloading. This is because some tests
@@ -121,7 +121,7 @@ def test_tbl(reset_db: None) -> catalog.Table:
 
 
 @pytest.fixture(scope='function')
-def reload_tester(init_env) -> ReloadTester:
+def reload_tester(init_env: None) -> ReloadTester:
     return ReloadTester()
 
 
@@ -196,7 +196,7 @@ def small_img_tbl(reset_db: None) -> catalog.Table:
 
 
 @pytest.fixture(scope='function')
-def indexed_img_tbl(reset_db, clip_embed: func.Function) -> pxt.Table:
+def indexed_img_tbl(reset_db: None, clip_embed: func.Function) -> pxt.Table:
     skip_test_if_not_installed('transformers')
     t = create_img_tbl('indexed_img_tbl', num_rows=40)
     t.add_embedding_index('img', idx_name='img_idx0', metric='cosine', image_embed=clip_embed, string_embed=clip_embed)
@@ -204,7 +204,7 @@ def indexed_img_tbl(reset_db, clip_embed: func.Function) -> pxt.Table:
 
 
 @pytest.fixture(scope='function')
-def multi_idx_img_tbl(reset_db, clip_embed: func.Function) -> pxt.Table:
+def multi_idx_img_tbl(reset_db: None, clip_embed: func.Function) -> pxt.Table:
     skip_test_if_not_installed('transformers')
     t = create_img_tbl('multi_idx_img_tbl', num_rows=4)
     t.add_embedding_index('img', idx_name='img_idx1', metric='cosine', image_embed=clip_embed, string_embed=clip_embed)

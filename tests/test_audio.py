@@ -131,7 +131,7 @@ class TestAudio:
             min_chunk_duration_sec,
         )
 
-    def test_audio_iterator_on_audio(self, reset_db, reload_tester: ReloadTester) -> None:
+    def test_audio_iterator_on_audio(self, reset_db: None, reload_tester: ReloadTester) -> None:
         audio_filepaths = get_audio_files()
         base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio})
         validate_update_status(base_t.insert({'audio': p} for p in audio_filepaths), expected_rows=len(audio_filepaths))
@@ -150,7 +150,7 @@ class TestAudio:
             assert count == file_to_chunks_from_view.get(file, 0)
         reload_tester.run_reload_test()
 
-    def test_audio_iterator_on_videos(self, reset_db, reload_tester: ReloadTester) -> None:
+    def test_audio_iterator_on_videos(self, reset_db: None, reload_tester: ReloadTester) -> None:
         video_filepaths = get_video_files()
         video_t = pxt.create_table('videos', {'video': pxt.Video})
         video_t.insert({'video': p} for p in video_filepaths)
@@ -232,7 +232,7 @@ class TestAudio:
         assert round(chunks[-1][0], 2) == 55.5
         assert round(chunks[-1][1], 2) == 69.5
 
-    def test_audio_iterator_single_file(self, reset_db, reload_tester: ReloadTester) -> None:
+    def test_audio_iterator_single_file(self, reset_db: None, reload_tester: ReloadTester) -> None:
         audio_filepath = get_audio_file('jfk_1961_0109_cityuponahill-excerpt.flac')  # 60s audio file
         base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio})
         validate_update_status(base_t.insert([{'audio': audio_filepath}]))

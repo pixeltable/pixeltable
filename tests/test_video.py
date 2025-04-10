@@ -208,7 +208,9 @@ class TestVideo:
     # window function that simply passes through the frame
     @pxt.uda(requires_order_by=True, allows_std_agg=False, allows_window=True)
     class agg_fn(pxt.Aggregator):
-        def __init__(self):
+        img: Optional[PIL.Image.Image]
+
+        def __init__(self) -> None:
             self.img = None
 
         def update(self, frame: PIL.Image.Image) -> None:

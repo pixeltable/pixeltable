@@ -480,7 +480,7 @@ def ls_audio_table(init_ls, reset_db: None) -> pxt.Table:
 
 
 @pytest.fixture(scope='session')
-def init_ls(init_env) -> Iterator[None]:
+def init_ls(init_env: None) -> Iterator[None]:
     skip_test_if_not_installed('label_studio_sdk')
     ls_version = '1.13.0'
     ls_port = 31713
