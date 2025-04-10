@@ -41,6 +41,11 @@ class TestReplica:
     def test_complex_replica(self, reset_db) -> None:
         """
         This test involves various more complicated arrangements of tables and snapshots.
+
+        base_tbl > v1, v2
+        v1 > s11, s12
+        v2 > v3 > s31
+        s11 > v4 > v5 > s51 > v6 > s61
         """
         t = pxt.create_table('base_tbl', {'c1': pxt.Int})  # Base table
         t.insert({'c1': i} for i in range(10))
@@ -50,11 +55,11 @@ class TestReplica:
         t.insert({'c1': i} for i in range(10, 20))
         assert t._tbl_version.get().version == 2
         assert v1._tbl_version.get().version == 2
-        s1 = pxt.create_snapshot('s1', v1)
+        s11 = pxt.create_snapshot('s11', v1)
         v1.update({'c2': v1.c1 * 10})
         assert t._tbl_version.get().version == 2
         assert v1._tbl_version.get().version == 3
-        s2 = pxt.create_snapshot('s2', v1)
+        s12 = pxt.create_snapshot('s12', v1)
 
         v2 = pxt.create_view('v2', t, additional_columns={'c2': pxt.String})
         v2.update({'c2': 'xyz'})
@@ -64,18 +69,37 @@ class TestReplica:
         assert t._tbl_version.get().version == 3
         assert v2._tbl_version.get().version == 2
         assert v3._tbl_version.get().version == 2
-        s3 = pxt.create_snapshot('s3', v3)
+        s31 = pxt.create_snapshot('s31', v3, additional_columns={'c31': pxt.Int})
+
+        v4 = pxt.create_view('v4', s11, additional_columns={'c4': pxt.Float})
+        v5 = pxt.create_view('v5', v4, additional_columns={'c5': pxt.Bool})
+
+        s51 = pxt.create_snapshot('s51', v5, additional_columns={'c51': pxt.Json})
+
+        v6 = pxt.create_view('v6', s51, additional_columns={'c6': pxt.Json})
+        s61 = pxt.create_snapshot('s61', v6)
 
         with Env.get().begin_xact():
-            s1_md = Catalog.get().load_tbl_hierarchy_md(s1)
-            s2_md = Catalog.get().load_tbl_hierarchy_md(s2)
-            s3_md = Catalog.get().load_tbl_hierarchy_md(s3)
+            s11_md = Catalog.get().load_tbl_hierarchy_md(s11)
+            s12_md = Catalog.get().load_tbl_hierarchy_md(s12)
+            s31_md = Catalog.get().load_tbl_hierarchy_md(s31)
+            s51_md = Catalog.get().load_tbl_hierarchy_md(s51)
+            s61_md = Catalog.get().load_tbl_hierarchy_md(s61)
 
         pxt.drop_table('base_tbl', force=True)
         reload_catalog()
 
-        for i, md in enumerate(s1_md):
+        for i, md in enumerate(s11_md):
             print(f'\n{i}: {md}')
-        r1 = Catalog.get().create_replica(Path('replica_s1'), s1_md, if_exists=IfExistsParam.ERROR)
-        r2 = Catalog.get().create_replica(Path('replica_s2'), s2_md, if_exists=IfExistsParam.ERROR)
-        r3 = Catalog.get().create_replica(Path('replica_s3'), s3_md, if_exists=IfExistsParam.ERROR)
+        r11 = Catalog.get().create_replica(Path('replica_s11'), s11_md, if_exists=IfExistsParam.ERROR)
+        r12 = Catalog.get().create_replica(Path('replica_s12'), s12_md, if_exists=IfExistsParam.ERROR)
+        r31 = Catalog.get().create_replica(Path('replica_s31'), s31_md, if_exists=IfExistsParam.ERROR)
+
+        # Intentionally create r61 first, before r51; this way we address both cases for snapshot-over-snapshot:
+        # Base snapshot inserted first (r61 after r31); base snapshot inserted last (r51 after r61).
+        r61 = Catalog.get().create_replica(Path('replica_s61'), s61_md, if_exists=IfExistsParam.ERROR)
+        r51 = Catalog.get().create_replica(Path('replica_s51'), s51_md, if_exists=IfExistsParam.ERROR)
+
+        with Env.get().begin_xact():
+            assert len(r51._bases) == 4
+            assert len(r61._bases) == 6
