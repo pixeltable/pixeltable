@@ -25,7 +25,7 @@
 
 ---
 
-Pixeltable is the only Python framework purpose-built for multimodal AI that provides incremental storage, transformation, indexing, and orchestration of your data.
+Pixeltable is the only Python framework that provides incremental storage, transformation, indexing, and orchestration of your multimodal data.
 
 ## 😩 Maintaining Production-Ready Multimodal AI Apps is Still Too Hard
 
