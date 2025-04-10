@@ -534,7 +534,7 @@ class LabelStudioProject(Project):
         _label_studio_client().delete_project(self.project_id)
         env.Env.get().console_logger.info(f'Deleted Label Studio project: {title}')
 
-    def __eq__(self, other: Any) -> bool:
+    def __eq__(self, other: object) -> bool:
         return isinstance(other, LabelStudioProject) and self.project_id == other.project_id
 
     def __hash__(self) -> int:
