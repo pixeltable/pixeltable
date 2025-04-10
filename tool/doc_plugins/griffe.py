@@ -20,15 +20,14 @@ class PxtGriffeExtension(Extension):
             # Skip over entities without a docstring
             return
 
-        if isinstance(obj, Function):
-            # See if the (Python) function has a @pxt.udf decorator
-            if any(
-                isinstance(dec.value, griffe.expressions.Expr)
-                and dec.value.canonical_path in ['pixeltable.func.udf', 'pixeltable.udf']
-                for dec in obj.decorators
-            ):
-                # Update the template
-                self.__modify_pxt_udf(obj)
+        # Is it a function definition with a @pxt.udf decorator?
+        if isinstance(obj, Function) and any(
+            isinstance(dec.value, griffe.expressions.Expr)
+            and dec.value.canonical_path in ('pixeltable.func.udf', 'pixeltable.udf')
+            for dec in obj.decorators
+        ):
+            # Update the template
+            self.__modify_pxt_udf(obj)
 
     def __modify_pxt_udf(self, func: Function) -> None:
         """
@@ -54,7 +53,7 @@ class PxtGriffeExtension(Extension):
         # Document additional signatures for polymorphic functions
         if len(udf.signatures) > 1:
             polymorphic_signatures = [self.__signature_str(udf.name, sig) for sig in udf.signatures[1:]]
-            func.docstring.value = '\n'.join(polymorphic_signatures + [func.docstring.value])
+            func.docstring.value = '\n'.join((*polymorphic_signatures, func.docstring.value))
 
     def __signature_str(self, name: str, sig: pxt.func.Signature) -> str:
         """

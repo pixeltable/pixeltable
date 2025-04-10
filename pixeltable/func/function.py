@@ -246,7 +246,7 @@ class Function(ABC):
         # `None` when any of its non-nullable inputs are `None`.
         for arg_name, arg in bound_args.items():
             param = self.signature.parameters[arg_name]
-            if param.kind in {inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD}:
+            if param.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD):
                 continue
             if arg.col_type.nullable and not param.col_type.nullable:
                 return_type = return_type.copy(nullable=True)
@@ -385,10 +385,10 @@ class Function(ABC):
             else:
                 var = exprs.Variable(name, param.col_type)
                 bindings[name] = var
-                if args_ok and param.kind in {
+                if args_ok and param.kind in (
                     inspect.Parameter.POSITIONAL_ONLY,
                     inspect.Parameter.POSITIONAL_OR_KEYWORD,
-                }:
+                ):
                     template_args.append(var)
                 else:
                     template_kwargs[name] = var

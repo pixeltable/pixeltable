@@ -835,13 +835,13 @@ class Expr(abc.ABC):
             first_param = next(params_iter) if len(params) >= 1 else None
             second_param = next(params_iter) if len(params) >= 2 else None
             # Check that fn has at least one positional parameter
-            if len(params) == 0 or first_param.kind in {inspect.Parameter.KEYWORD_ONLY, inspect.Parameter.VAR_KEYWORD}:
+            if len(params) == 0 or first_param.kind in (inspect.Parameter.KEYWORD_ONLY, inspect.Parameter.VAR_KEYWORD):
                 raise excs.Error(f'Function `{fn.__name__}` has no positional parameters.')
             # Check that fn has at most one required parameter, i.e., its second parameter
             # has no default and is not a varargs
             if (
                 len(params) >= 2
-                and second_param.kind not in {inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD}
+                and second_param.kind not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
                 and second_param.default is inspect.Parameter.empty
             ):
                 raise excs.Error(f'Function `{fn.__name__}` has multiple required parameters.')

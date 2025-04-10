@@ -35,7 +35,7 @@ def create_test_video(
     """
 
     if output_path is None:
-        output_path = Path(tempfile.NamedTemporaryFile(suffix='.mp4', delete=False).name)
+        output_path = Path(tempfile.NamedTemporaryFile(suffix='.mp4', delete=False).name)  # noqa: SIM115
 
     parts = [int(p) for p in aspect_ratio.split(':')]
     assert len(parts) == 2

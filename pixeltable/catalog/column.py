@@ -140,12 +140,12 @@ class Column:
                         The computed column {self.name!r} in table {self.tbl.get().name!r} is no longer valid.
                         {{validation_error}}
                         You can continue to query existing data from this column, but evaluating it on new data will raise an error.
-                        """
+                        """  # noqa: E501
                     )
                     .strip()
                     .format(validation_error=self._value_expr.validation_error)
                 )
-                warnings.warn(message, category=excs.PixeltableWarning)
+                warnings.warn(message, category=excs.PixeltableWarning, stacklevel=2)
         return self._value_expr
 
     def set_value_expr(self, value_expr: exprs.Expr) -> None:
@@ -165,8 +165,10 @@ class Column:
             return False
         from pixeltable import exprs
 
-        l = list(self.value_expr.subexprs(filter=lambda e: isinstance(e, exprs.FunctionCall) and e.is_window_fn_call))
-        return len(l) > 0
+        window_fn_calls = list(
+            self.value_expr.subexprs(filter=lambda e: isinstance(e, exprs.FunctionCall) and e.is_window_fn_call)
+        )
+        return len(window_fn_calls) > 0
 
     def get_idx_info(self) -> dict[str, 'TableVersion.IndexInfo']:
         assert self.tbl is not None

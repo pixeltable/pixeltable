@@ -289,7 +289,7 @@ class FunctionCall(Expr):
             if (
                 val is None
                 and parameters_by_pos[idx].kind
-                in {inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD}
+                in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
                 and not parameters_by_pos[idx].col_type.nullable
             ):
                 return None
@@ -302,7 +302,7 @@ class FunctionCall(Expr):
             if (
                 val is None
                 and parameters[param_name].kind
-                in {inspect.Parameter.KEYWORD_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD}
+                in (inspect.Parameter.KEYWORD_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
                 and not parameters[param_name].col_type.nullable
             ):
                 return None
