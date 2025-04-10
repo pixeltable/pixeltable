@@ -950,7 +950,7 @@ class TestExprs:
                 assert row[str_col_name] == json.dumps(row[col_name])
                 assert row[back_to_json_col_name] == row[col_name]
 
-        def f1(x):
+        def f1(x):  # type: ignore[no-untyped-def]
             return str(x)
 
         # Now test that a function without a return type throws an exception ...
@@ -963,7 +963,7 @@ class TestExprs:
         assert status.num_excs == 0
 
         # Test that the return type of a function can be successfully inferred.
-        def f2(x) -> str:
+        def f2(x) -> str:  # type: ignore[no-untyped-def]
             return str(x)
 
         status = t.add_computed_column(c2_str_f2=t.c2.apply(f2))
@@ -971,7 +971,7 @@ class TestExprs:
 
         # Test various validation failures.
 
-        def f3(x, y) -> str:
+        def f3(x, y) -> str:  # type: ignore[no-untyped-def]
             return f'{x}{y}'
 
         with pytest.raises(excs.Error) as exc_info:
@@ -1009,7 +1009,7 @@ class TestExprs:
 
         t.c2.apply(f8)
 
-    def test_select_list(self, img_tbl) -> None:
+    def test_select_list(self, img_tbl: pxt.Table) -> None:
         t = img_tbl
         result = t.select(t.img).show(n=100)
         _ = result._repr_html_()
@@ -1019,7 +1019,7 @@ class TestExprs:
         with pytest.raises(excs.Error):
             _ = t.select(t.img.rotate)
 
-    def test_img_members(self, img_tbl) -> None:
+    def test_img_members(self, img_tbl: pxt.Table) -> None:
         t = img_tbl
         # make sure the limit is applied in Python, not in the SELECT
         result = t.where(t.img.height > 200).select(t.img).show(n=3)
@@ -1050,7 +1050,7 @@ class TestExprs:
         # TODO: fix it
         # res = t.where(t.img.width < 600).collect()
 
-    def test_img_exprs(self, img_tbl) -> None:
+    def test_img_exprs(self, img_tbl: pxt.Table) -> None:
         t = img_tbl
         _ = t.where(t.img.width < 600).collect()
         _ = (t.img.entropy() > 1) & (t.split == 'train')
@@ -1070,7 +1070,7 @@ class TestExprs:
         print(result)
 
     @pytest.mark.skip(reason='temporarily disabled')
-    def test_similarity(self, small_img_tbl) -> None:
+    def test_similarity(self, small_img_tbl: pxt.Table) -> None:
         t = small_img_tbl
         _ = t.show(30)
         probe = t.select(t.img, t.category).show(1)

@@ -391,7 +391,7 @@ class TestDataFrame:
         )
         _ = df._repr_html_()  # TODO: Is there a good way to test this output?
 
-    def test_count(self, test_tbl: catalog.Table, small_img_tbl) -> None:
+    def test_count(self, test_tbl: catalog.Table, small_img_tbl: pxt.Table) -> None:
         t = test_tbl
         cnt = t.count()
         assert cnt == 100
