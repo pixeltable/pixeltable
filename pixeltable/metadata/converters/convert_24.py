@@ -19,11 +19,11 @@ def __substitute_md(k: Optional[str], v: Any) -> Optional[tuple[Optional[str], A
         isinstance(v, dict)
         and '_classpath' in v
         and v['_classpath']
-        in {
+        in (
             'pixeltable.func.callable_function.CallableFunction',
             'pixeltable.func.aggregate_function.AggregateFunction',
             'pixeltable.func.expr_template_function.ExprTemplateFunction',
-        }
+        )
     ):
         if 'path' in v:
             assert 'signature' not in v
@@ -50,6 +50,6 @@ def __substitute_path(path: str) -> str:
     # versions, it's necessary to resolve the function symbol to get the signature. The following
     # adjustment is necessary for function names that are stored in db artifacts of version < 25, but
     # have changed in some version > 25.
-    if path in {'pixeltable.functions.huggingface.clip_text', 'pixeltable.functions.huggingface.clip_image'}:
+    if path in ('pixeltable.functions.huggingface.clip_text', 'pixeltable.functions.huggingface.clip_image'):
         return 'pixeltable.functions.huggingface.clip'
     return path

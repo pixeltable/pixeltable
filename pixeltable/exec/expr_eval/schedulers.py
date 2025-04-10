@@ -76,7 +76,7 @@ class RateLimitsScheduler(Scheduler):
         assert hasattr(self.pool_info, 'get_request_resources')
         sig = inspect.signature(self.pool_info.get_request_resources)
         self.get_request_resources_param_names = [p.name for p in sig.parameters.values()]
-        self.est_usage = {r: 0 for r in self._resources}
+        self.est_usage = dict.fromkeys(self._resources, 0)
 
     async def _main_loop(self) -> None:
         item: Optional[RateLimitsScheduler.QueueItem] = None
@@ -180,7 +180,8 @@ class RateLimitsScheduler(Scheduler):
             pxt_fn = request.fn_call.fn
             assert isinstance(pxt_fn, func.CallableFunction)
             _logger.debug(
-                f'scheduler {self.resource_pool}: start evaluating slot {request.fn_call.slot_idx}, batch_size={len(request.rows)}'
+                f'scheduler {self.resource_pool}: '
+                f'start evaluating slot {request.fn_call.slot_idx}, batch_size={len(request.rows)}'
             )
             self.total_requests += 1
             if request.is_batched:
@@ -193,11 +194,12 @@ class RateLimitsScheduler(Scheduler):
                 request.row[request.fn_call.slot_idx] = result
             end_ts = datetime.datetime.now(tz=datetime.timezone.utc)
             _logger.debug(
-                f'scheduler {self.resource_pool}: evaluated slot {request.fn_call.slot_idx} in {end_ts - start_ts}, batch_size={len(request.rows)}'
+                f'scheduler {self.resource_pool}: evaluated slot {request.fn_call.slot_idx} '
+                f'in {end_ts - start_ts}, batch_size={len(request.rows)}'
             )
 
             # purge accumulated usage estimate, now that we have a new report
-            self.est_usage = {r: 0 for r in self._resources}
+            self.est_usage = dict.fromkeys(self._resources, 0)
 
             self.dispatcher.dispatch(request.rows)
         except Exception as exc:
@@ -318,7 +320,8 @@ class RequestRateScheduler(Scheduler):
             pxt_fn = request.fn_call.fn
             assert isinstance(pxt_fn, func.CallableFunction)
             _logger.debug(
-                f'scheduler {self.resource_pool}: start evaluating slot {request.fn_call.slot_idx}, batch_size={len(request.rows)}'
+                f'scheduler {self.resource_pool}: '
+                f'start evaluating slot {request.fn_call.slot_idx}, batch_size={len(request.rows)}'
             )
             self.total_requests += 1
             if request.is_batched:
@@ -331,7 +334,8 @@ class RequestRateScheduler(Scheduler):
                 request.row[request.fn_call.slot_idx] = result
             end_ts = datetime.datetime.now(tz=datetime.timezone.utc)
             _logger.debug(
-                f'scheduler {self.resource_pool}: evaluated slot {request.fn_call.slot_idx} in {end_ts - start_ts}, batch_size={len(request.rows)}'
+                f'scheduler {self.resource_pool}: evaluated slot {request.fn_call.slot_idx} '
+                f'in {end_ts - start_ts}, batch_size={len(request.rows)}'
             )
             self.dispatcher.dispatch(request.rows)
 
@@ -351,7 +355,8 @@ class RequestRateScheduler(Scheduler):
             self.dispatcher.dispatch_exc(request.rows, request.fn_call.slot_idx, exc_tb)
         finally:
             _logger.debug(
-                f'Scheduler stats: #in-flight={self.num_in_flight} #requests={self.total_requests}, #retried={self.total_retried}'
+                f'Scheduler stats: #in-flight={self.num_in_flight} #requests={self.total_requests}, '
+                f'#retried={self.total_retried}'
             )
             if is_task:
                 self.num_in_flight -= 1

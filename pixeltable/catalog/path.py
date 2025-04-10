@@ -27,7 +27,7 @@ class Path:
 
     @property
     def is_root(self) -> bool:
-        return self.components[0] == ''
+        return not self.components[0]
 
     @property
     def parent(self) -> Path:
@@ -43,7 +43,7 @@ class Path:
         if self.is_root:
             return Path(name, allow_system_paths=True)
         else:
-            return Path(f'{str(self)}.{name}', allow_system_paths=True)
+            return Path(f'{self}.{name}', allow_system_paths=True)
 
     def is_ancestor(self, other: Path, is_parent: bool = False) -> bool:
         """
