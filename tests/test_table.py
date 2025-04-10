@@ -2116,7 +2116,7 @@ class TestTable:
                      c8  Required[Array[(2, 3), Int]]  [[1, 2, 3], [4, 5, 6]]
 
             Index Name Column  Metric                                          Embedding
-                  idx0     c1  cosine  sentence_transformer(sentence, model_id='all-m...
+                  idx0     c1  cosine  sentence_transformer(sentence, normalize_embed...
 
             External Store         Type
                    project  MockProject

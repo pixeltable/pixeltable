@@ -96,6 +96,9 @@ class ExprTemplateFunction(Function):
 
     @property
     def display_name(self) -> str:
+        if not self.self_name and isinstance(self.templates[0].expr, exprs.FunctionCall):
+            # In this common case, fall back on the display name of the underlying FunctionCall
+            return self.templates[0].expr.fn.display_name
         return self.self_name
 
     @property

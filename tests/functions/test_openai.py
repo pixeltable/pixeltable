@@ -9,7 +9,7 @@ from ..utils import SAMPLE_IMAGE_URL, skip_test_if_not_installed, stock_price, v
 
 
 @pytest.mark.remote_api
-#@pytest.mark.flaky(reruns=3, reruns_delay=8)
+@pytest.mark.flaky(reruns=3, reruns_delay=8)
 class TestOpenai:
     @pytest.mark.expensive
     def test_audio(self, reset_db) -> None:
@@ -341,6 +341,8 @@ class TestOpenai:
         from pixeltable.functions.openai import embeddings
 
         t = pxt.create_table('test_tbl', {'input': pxt.String})
+
+        # Embeddings as computed columns
         t.add_computed_column(ada_embed=embeddings(model='text-embedding-ada-002', input=t.input))
         t.add_computed_column(
             text_3=embeddings(model='text-embedding-3-small', input=t.input, dimensions=1024, user='pixeltable')
@@ -351,6 +353,8 @@ class TestOpenai:
         assert isinstance(type_info['text_3'], pxt.ArrayType)
         assert type_info['text_3'].shape == (1024,)
         validate_update_status(t.insert(input='Say something interesting.'), 1)
+
+        # Via add_embedding_index()
         t.add_embedding_index(t.input, embedding=embeddings.using(model='text-embedding-3-small'))
         _ = t.head()
 
