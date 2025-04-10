@@ -79,7 +79,7 @@ def udf(*args, **kwargs):  # type: ignore[no-untyped-def]
         if len(args) > 0:
             raise excs.Error('Unexpected @udf decorator arguments.')
 
-        def decorator(decorated_fn: Callable):
+        def decorator(decorated_fn: Callable) -> CallableFunction:
             return make_function(
                 decorated_fn,
                 batch_size=batch_size,

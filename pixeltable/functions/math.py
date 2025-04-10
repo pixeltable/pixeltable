@@ -63,5 +63,5 @@ def _(self: sql.ColumnElement, digits: Optional[sql.ColumnElement] = None) -> sq
 __all__ = local_public_names(__name__)
 
 
-def __dir__():
+def __dir__() -> list[str]:
     return __all__

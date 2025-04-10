@@ -50,7 +50,6 @@ class LoggingHTTPServer(http.server.ThreadingHTTPServer):
 
     def handle_error(self, request, client_address) -> None:  # type: ignore[no-untyped-def]
         """override socketserver.TCPServer.handle_error which prints directly to sys.stderr"""
-        super().handle_error(request, client_address)
         import traceback
 
         _logger.error(

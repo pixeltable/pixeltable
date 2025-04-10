@@ -88,12 +88,12 @@ class DataFrameResultSet:
     def __iter__(self) -> Iterator[dict[str, Any]]:
         return (self._row_to_dict(i) for i in range(len(self)))
 
-    def __eq__(self, other):
+    def __eq__(self, other: Any) -> bool:
         if not isinstance(other, DataFrameResultSet):
             return False
         return self.to_pandas().equals(other.to_pandas())
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         return hash(self.to_pandas())
 
 

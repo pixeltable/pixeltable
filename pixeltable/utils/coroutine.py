@@ -16,7 +16,7 @@ def run_coroutine_synchronously(coroutine: Coroutine[Any, Any, T], timeout: floa
     Runs the given coroutine synchronously, even if called in the context of a running event loop.
     """
 
-    def run_in_new_loop() -> None:
+    def run_in_new_loop() -> T:
         new_loop = asyncio.new_event_loop()
         asyncio.set_event_loop(new_loop)
         try:
