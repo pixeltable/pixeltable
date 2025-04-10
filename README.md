@@ -3,7 +3,7 @@
      alt="Pixeltable Logo" width="50%" />
 <br></br>
 
-<h2>The Declarative Data Infrastructure for Multimodal AI Apps</h2>
+<h2>Declarative Data Infrastructure for Multimodal AI Apps</h2>
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-0530AD.svg)](https://opensource.org/licenses/Apache-2.0)
 ![PyPI - Python Version](https://img.shields.io/pypi/pyversions/pixeltable?logo=python&logoColor=white&)
@@ -25,7 +25,7 @@
 
 ---
 
-Pixeltable is the only Python framework that provides incremental storage, transformation, indexing, and orchestration of your multimodal data, eliminating months of infrastructure work.
+Pixeltable is the only Python framework purpose-built for multimodal AI that provides incremental storage, transformation, indexing, and orchestration of your data.
 
 ## 😩 Maintaining Production-Ready Multimodal AI Apps is Still Too Hard
 
