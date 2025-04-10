@@ -76,7 +76,6 @@ class ExprTemplateFunction(Function):
                 arg_expr = arg
             arg_exprs[param_expr] = arg_expr
         result = result.substitute(arg_exprs)
-        assert not result._contains(exprs.Variable)
         return result
 
     def _docstring(self) -> Optional[str]:

@@ -9,7 +9,7 @@ from ..utils import SAMPLE_IMAGE_URL, skip_test_if_not_installed, stock_price, v
 
 
 @pytest.mark.remote_api
-@pytest.mark.flaky(reruns=3, reruns_delay=8)
+#@pytest.mark.flaky(reruns=3, reruns_delay=8)
 class TestOpenai:
     @pytest.mark.expensive
     def test_audio(self, reset_db) -> None:
@@ -351,10 +351,8 @@ class TestOpenai:
         assert isinstance(type_info['text_3'], pxt.ArrayType)
         assert type_info['text_3'].shape == (1024,)
         validate_update_status(t.insert(input='Say something interesting.'), 1)
+        t.add_embedding_index(t.input, embedding=embeddings.using(model='text-embedding-3-small'))
         _ = t.head()
-
-        embeddings_fn = embeddings.using(model='text-embedding-3-small')
-        assert embeddings_fn.signature.return_type == pxt.Array[(1536,)]
 
     def test_moderations(self, reset_db) -> None:
         skip_test_if_not_installed('openai')

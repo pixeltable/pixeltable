@@ -208,6 +208,15 @@ class EmbeddingIndex(IndexBase):
                 and len(sig.required_parameters) <= 1
                 and sig.parameters_by_pos[0].col_type.type_enum == expected_type
             ):
+                # We found a valid signature. Now, if it has more than one parameter, we need to transform it into a
+                # 1-ary function by fixing all the other parameters to their defaults. This is to ensure that
+                # conditional_return_type resolves correctly.
+                if len(sig.parameters) > 1:
+                    assert all(sig.parameters_by_pos[i].has_default for i in range(1, len(sig.parameters)))
+                    defaults = {param.name: param.default for param in sig.parameters_by_pos[1:]}
+                    resolved_fn = resolved_fn.using(**defaults)
+                assert not resolved_fn.is_polymorphic
+                assert len(resolved_fn.signature.parameters) == 1
                 return resolved_fn
         return None
 

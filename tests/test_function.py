@@ -395,6 +395,26 @@ class TestFunction:
             _ = pb1(p1='a')
         assert 'missing a required argument' in str(exc_info.value).lower()
 
+    def test_nested_partial_binding(self, reset_db) -> None:
+        pb1 = self.binding_test_udf.using(p2='y')
+        pb2 = pb1.using(p1='x')
+        pb3 = pb2.using(p3='z')
+        assert pb1.arity == 3
+        assert pb2.arity == 2
+        assert pb3.arity == 1
+        assert len(pb1.signatures[0].required_parameters) == 2
+        assert len(pb2.signatures[0].required_parameters) == 1
+        assert len(pb3.signatures[0].required_parameters) == 0
+        assert pb2.signatures[0].required_parameters[0].name == 'p3'
+
+        t = pxt.create_table('test', {'c1': pxt.String, 'c2': pxt.String, 'c3': pxt.String})
+        t.insert(c1='a', c2='b', c3='c')
+        t.add_computed_column(pb1=pb1(t.c1, t.c3))
+        t.add_computed_column(pb2=pb2(t.c3))
+        t.add_computed_column(pb3=pb3(p4='changed'))
+        res = t.select(t.pb1, t.pb2, t.pb3).collect()
+        assert res[0] == {'pb1': 'a y c default', 'pb2': 'x y c default', 'pb3': 'x y z changed'}
+
     @staticmethod
     @pxt.expr_udf
     def add1(x: int) -> int:
