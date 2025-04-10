@@ -925,7 +925,7 @@ class Catalog:
         md = [self.load_tbl_md(tv.id, tv.effective_version) for tv in tbl._tbl_version_path.get_tbl_versions()]
 
         # If `tbl` is a named pure snapshot, we're not quite done, since the snapshot metadata won't appear in the
-        # TableVersionPath. We need to append it separately.
+        # TableVersionPath. We need to prepend it separately.
         if tbl._id != tbl._tbl_version.id:
             snapshot_md = self.load_tbl_md(tbl._id, 0)
             md = [snapshot_md, *md]

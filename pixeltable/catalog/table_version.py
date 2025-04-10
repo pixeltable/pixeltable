@@ -376,7 +376,7 @@ class TableVersion:
 
             # make sure to traverse columns ordered by position = order in which cols were created;
             # this guarantees that references always point backwards
-            if col_md.value_expr is not None:
+            if not self.is_snapshot and col_md.value_expr is not None:
                 self._record_refd_columns(col)
 
     def _init_idxs(self, tbl_md: schema.TableMd) -> None:
