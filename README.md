@@ -366,7 +366,7 @@ We're working on a hosted Pixeltable service that will:
 
 - Enable Multimodal Data Sharing of Pixeltable Tables and Views
 - Provide a persistent cloud instance
-- Turn Pixeltable workflows (Tables, Queries, UDFs) into API endpoints/[MCP Servers](https://github.com/pixeltable/pixelagent)
+- Turn Pixeltable workflows (Tables, Queries, UDFs) into API endpoints/[MCP Servers](https://github.com/pixeltable/pixeltable-mcp-server)
 
 ## 🤝 Contributing
 
