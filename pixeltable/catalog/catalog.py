@@ -482,19 +482,44 @@ class Catalog:
         existing_md_row = conn.execute(q).one_or_none()
 
         if existing_md_row is None:
-            # No existing table, so create a new record
+            # No existing table, so create a new record.
+            # If this is a proper ancestor of the table being replicated, it might be the case that the current_version
+            # and/or current_schema_version records in the given TableMd are strictly greater than the versions found
+            # in the given TableVersionMd and/or TableSchemaVersionMd. If that's the case, we need to adjust them so
+            # that they point to known versions. This will cause no harm, since those proper ancestors will not be
+            # directly instantiable.
             q = sql.insert(schema.Table.__table__).values(
                 id=tbl_id,
                 dir_id=dir._id,
                 md=dataclasses.asdict(
-                    dataclasses.replace(md.tbl_md, name=path.name, user=Env.get().user, is_replica=True)
+                    dataclasses.replace(
+                        md.tbl_md,
+                        name=path.name,
+                        user=Env.get().user,
+                        is_replica=True,
+                        current_version=md.version_md.version,
+                        current_schema_version=md.schema_version_md.schema_version,
+                    )
                 ),
             )
             conn.execute(q)
         elif md.tbl_md.current_version > existing_md_row.md['current_version']:
             # New metadata is more recent than the metadata currently stored in the DB; we'll update the record
-            # in place in the DB
-            new_tbl_md = dataclasses.replace(md.tbl_md, name=path.name, user=Env.get().user, is_replica=True)
+            # in place in the DB.
+            # The same consideration applies to current_version etc. as before, except now we also need to account for
+            # other versions already in the DB, which might be more recent.
+            new_current_version = max(existing_md_row.md['current_version'], md.version_md.version)
+            new_current_schema_version = max(
+                existing_md_row.md['current_schema_version'], md.schema_version_md.schema_version
+            )
+            new_tbl_md = dataclasses.replace(
+                md.tbl_md,
+                name=path.name,
+                user=Env.get().user,
+                is_replica=True,
+                current_version=new_current_version,
+                current_schema_version=new_current_schema_version,
+            )
 
         # Now see if a TableVersion record already exists in the DB for this table version. If not, insert it. If
         # it already exists, check that the existing record is identical to the new one.
