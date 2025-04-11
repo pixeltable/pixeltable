@@ -213,7 +213,7 @@ class EmbeddingIndex(IndexBase):
                 # conditional_return_type resolves correctly.
                 if len(sig.parameters) == 1:
                     unary_fn = resolved_fn
-                if len(sig.parameters) > 1:
+                else:
                     assert all(sig.parameters_by_pos[i].has_default for i in range(1, len(sig.parameters)))
                     defaults = {param.name: param.default for param in sig.parameters_by_pos[1:]}
                     unary_fn = resolved_fn.using(**defaults)
