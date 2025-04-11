@@ -7,17 +7,17 @@ This application demonstrates building a multimodal similarity search system usi
 ![App Screenshot](./screenshot.png)
 
 **Functionality:**
-- **Video Frame Search:** Ingests videos, automatically extracts frames using [`FrameIterator`](https://pixeltable.github.io/pixeltable/api/pixeltable/iterators/#pixeltable.iterators.FrameIterator), generates CLIP embeddings, and enables text/image similarity search across frames via an [embedding index](https://pixeltable.github.io/pixeltable/user-guide/concepts/embedding-indexes/).
-- **Tagged Image Search:** Allows uploading images with multiple tags (stored as [`pxt.Json`](https://pixeltable.github.io/pixeltable/user-guide/data-types/)), generates CLIP embeddings, and supports text/image similarity search.
+- **Video Frame Search:** Ingests videos, automatically extracts frames using `FrameIterator`, generates CLIP embeddings, and enables text/image similarity search across frames via an embedding index.
+- **Tagged Image Search:** Allows uploading images with multiple tags (stored as `pxt.Json`), generates CLIP embeddings, and supports text/image similarity search.
 - **Frontend Interaction:** Provides a React-based UI for uploading, searching, and browsing results grouped by tags.
 
 ## Key Pixeltable Concepts Demonstrated
 
-- **Declarative Data Loading:** Defining tables with [`pxt.Video`](https://pixeltable.github.io/pixeltable/user-guide/data-types/) and [`pxt.Image`](https://pixeltable.github.io/pixeltable/user-guide/data-types/) types automatically handles media ingestion.
-- **Automated Data Transformation:** Using [`FrameIterator`](https://pixeltable.github.io/pixeltable/api/pixeltable/iterators/#pixeltable.iterators.FrameIterator) in a `pxt.create_view` call triggers automatic frame extraction upon video insertion.
-- **Embedding Index Integration:** [`add_embedding_index`](https://pixeltable.github.io/pixeltable/api/pixeltable/table/#pixeltable.table.Table.add_embedding_index) automatically computes and indexes embeddings (using OpenAI CLIP via `pixeltable.functions.huggingface.clip`) for new video frames and images.
+- **Declarative Data Loading:** Defining tables with `pxt.Video` and `pxt.Image` types automatically handles media ingestion.
+- **Automated Data Transformation:** Using `FrameIterator` in a `pxt.create_view` call triggers automatic frame extraction upon video insertion.
+- **Embedding Index Integration:** `add_embedding_index` automatically computes and indexes embeddings (using OpenAI CLIP via `pixeltable.functions.huggingface.clip`) for new video frames and images.
 - **Efficient Similarity Search:** Leveraging the `similarity()` method on indexed image columns for fast, cross-modal (text-to-image, image-to-image) search.
-- **Flexible Data Types:** Utilizing [`pxt.Json`](https://pixeltable.github.io/pixeltable/user-guide/data-types/) for storing lists of tags.
+- **Flexible Data Types:** Utilizing `pxt.Json` for storing lists of tags.
 - **Direct Image Encoding:** Using `column.b64_encode()` within a `.select()` clause for efficient image formatting for the API.
 
 ## 🛠️ Technologies
