@@ -79,7 +79,7 @@ def _retry_loop(op: Callable[..., T]) -> Callable[..., T]:
                         # print('retrying ************************************************************')
                         time.sleep(1)
                     else:
-                        raise excs.Error(f'Serialization retry limit ({_MAX_RETRIES}) exceeded')
+                        raise excs.Error(f'Serialization retry limit ({_MAX_RETRIES}) exceeded') from e
                 else:
                     raise
 
@@ -118,7 +118,7 @@ class Catalog:
 
     @classmethod
     def _lock_dir(cls, parent_id: Optional[UUID], dir_name: Optional[str], user_name: Optional[str]) -> None:
-        """Update directory record(s) to sequentialize access by other threads. Lock is released when transaction commits."""
+        """Update directory record(s) to sequentialize thread access. Lock is released when transaction commits."""
         conn = Env.get().conn
         q = sql.update(schema.Dir).values(lock_dummy=1).where(schema.Dir.parent_id == parent_id)
 
