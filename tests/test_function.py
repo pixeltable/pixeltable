@@ -329,11 +329,10 @@ class TestFunction:
         reload_catalog()
         pxt.drop_dir('test', force=True)
 
-    @pytest.mark.skip('Requires support for async JsonMapper execution')
     def test_query_json_mapper(self, reset_db, reload_tester: ReloadTester) -> None:
         t = pxt.create_table('test', {'c1': pxt.Int, 'c2': pxt.Float})
-        rows = [{'c1': i, 'c2': i + 0.5} for i in range(100)]
-        validate_update_status(t.insert(rows), 100)
+        t_rows = [{'c1': i, 'c2': i + 0.5} for i in range(100)]
+        validate_update_status(t.insert(t_rows), 100)
 
         @pxt.query
         def lt_x(x: int) -> pxt.DataFrame:
@@ -341,7 +340,8 @@ class TestFunction:
 
         u = pxt.create_table('test2', {'c': pxt.Json})
         u.add_computed_column(out=pxtf.map(u.c['*'], lambda x: lt_x(x)))
-        validate_update_status(u.insert(c=[3, 4, 5]), 1)
+        u_rows = [{'c': [i, i + 1, i + 2]} for i in range(10)]
+        validate_update_status(u.insert(u_rows), len(u_rows))
         _ = u.select(u.out).collect()
 
     def test_query_errors(self, reset_db) -> None:
