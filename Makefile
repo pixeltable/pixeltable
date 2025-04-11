@@ -34,27 +34,28 @@ NB_CELL_TIMEOUT := 3600
 
 .PHONY: help
 help:
-	@echo "Usage: make <target>"
-	@echo "You must be in a conda environment to install the Pixeltable dev environment."
-	@echo "See: https://github.com/pixeltable/pixeltable/blob/main/CONTRIBUTING.md"
-	@echo ""
-	@echo "Targets:"
-	@echo "  install       Install the development environment"
-	@echo "  test          Run pytest, typecheck, and docstest"
-	@echo "  fulltest      Run pytest, nbtest, typecheck, and docstest, including expensive tests"
-	@echo "  release       Create a pypi release and post to github"
-	@echo "  release-docs  Build and deploy API documentation (must be run from home repo, not a fork)"
-	@echo ""
-	@echo "Individual test targets:"
-	@echo "  clean         Remove generated files and temp files"
-	@echo "  pytest        Run pytest"
-	@echo "  fullpytest    Run pytest, including expensive tests"
-	@echo "  typecheck     Run mypy"
-	@echo "  docstest      Run mkdocs build --strict"
-	@echo "  formattest    Run the formatter (check only)"
-	@echo "  format        Run the formatter (update .py files in place)"
-	@echo "  nbtest        Run notebook tests"
-	@echo "  lint          Run linting tools against changed files"
+	@echo 'Usage: make <target>'
+	@echo 'You must be in a conda environment to install the Pixeltable dev environment.'
+	@echo 'See: https://github.com/pixeltable/pixeltable/blob/main/CONTRIBUTING.md'
+	@echo ''
+	@echo 'Targets:'
+	@echo '  install       Install the development environment'
+	@echo '  test          Run pytest and check'
+	@echo '  fulltest      Run fullpytest, nbtest, and check'
+	@echo '  check		   Run typecheck, docscheck, lint, and formatcheck'
+	@echo '  format        Run `ruff format` (updates .py files in place)'
+	@echo '  release       Create a pypi release and post to github'
+	@echo '  release-docs  Build and deploy API documentation (must be run from home repo, not a fork)'
+	@echo ''
+	@echo 'Individual test targets:'
+	@echo '  clean         Remove generated files and temp files'
+	@echo '  pytest        Run `pytest`'
+	@echo '  fullpytest    Run `pytest`, including expensive tests'
+	@echo '  nbtest        Run `pytest` on notebooks'
+	@echo '  typecheck     Run `mypy`'
+	@echo '  docscheck     Run `mkdocs build --strict`'
+	@echo '  lint          Run `ruff check`'
+	@echo '  formatcheck   Run `ruff format --check` (check only, do not modify files)
 
 .PHONY: setup-install
 setup-install:
@@ -72,20 +73,20 @@ else
 endif
 
 .make-install/poetry:
-	@echo "Installing poetry ..."
+	@echo 'Installing poetry ...'
 	@python -m pip install -qU pip
 	@python -m pip install -q poetry==2.1.1
-	@poetry self add "poetry-dynamic-versioning[plugin]==1.7.1"
+	@poetry self add 'poetry-dynamic-versioning[plugin]==1.7.1'
 	@$(TOUCH) .make-install/poetry
 
 .make-install/deps: poetry.lock
-	@echo "Installing dependencies from poetry ..."
+	@echo 'Installing dependencies from poetry ...'
 	@$(SET_ENV) CMAKE_ARGS='-DLLAVA_BUILD=OFF'
 	@poetry install --with dev
 	@$(TOUCH) .make-install/deps
 
 .make-install/others:
-	@echo "Installing Jupyter kernel ..."
+	@echo 'Installing Jupyter kernel ...'
 	@python -m ipykernel install --user --name=$(KERNEL_NAME)
 	@$(TOUCH) .make-install/others
 
@@ -93,57 +94,61 @@ endif
 install: setup-install .make-install/poetry .make-install/deps .make-install/others
 
 .PHONY: test
-test: pytest typecheck docstest lint formattest
-	@echo "All tests passed!"
+test: pytest check
+	@echo 'All tests passed.'
 
 .PHONY: fulltest
-fulltest: fullpytest nbtest typecheck docstest lint formattest
-	@echo "All tests passed!"
+fulltest: fullpytest nbtest check
+	@echo 'All tests passed.'
+
+.PHONY: check
+check: typecheck docscheck lint formatcheck
+	@echo 'All static checks passed.'
 
 .PHONY: pytest
 pytest: install
-	@echo "Running pytest ..."
+	@echo 'Running `pytest` ...'
 	@$(ULIMIT_CMD) pytest $(PYTEST_COMMON_ARGS)
 
 .PHONY: fullpytest
 fullpytest: install
-	@echo "Running pytest, including expensive tests ..."
+	@echo 'Running `pytest`, including expensive tests ...'
 	@$(ULIMIT_CMD) pytest -m '' $(PYTEST_COMMON_ARGS)
 
 .PHONY: nbtest
 nbtest: install
 	@$(SET_ENV) TQDM_MININTERVAL=$(NB_CELL_TIMEOUT)
-	@echo "Running pytest on notebooks ..."
+	@echo 'Running `pytest` on notebooks ...'
 	@$(SHELL_PREFIX) scripts/prepare-nb-tests.sh --no-pip docs/notebooks tests
 	@$(ULIMIT_CMD) pytest -v --nbmake --nbmake-timeout=$(NB_CELL_TIMEOUT) --nbmake-kernel=$(KERNEL_NAME) target/nb-tests/*.ipynb
 
 .PHONY: typecheck
 typecheck: install
-	@echo "Running mypy ..."
+	@echo 'Running `mypy` ...'
 	@mypy pixeltable tests tool
 
-.PHONY: docstest
-docstest: install
-	@echo "Running mkdocs build --strict ..."
+.PHONY: docscheck
+docscheck: install
+	@echo 'Running `mkdocs build --strict` ...'
 	@mkdocs build --strict
 
 .PHONY: lint
 lint: install
-	@echo "Running ruff check ..."
+	@echo 'Running `ruff check` ...'
 	@ruff check pixeltable tool
 
-.PHONY: formattest
-formattest: install
-	@echo "Running ruff format --check ..."
+.PHONY: formatcheck
+formatcheck: install
+	@echo 'Running `ruff format --check` ...'
 	@ruff format --check pixeltable tests tool
-	@echo "Running ruff check --select I ..."
+	@echo 'Running `ruff check --select I` ...'
 	@ruff check --select I pixeltable tests tool
 
 .PHONY: format
 format: install
-	@echo "Running ruff format ..."
+	@echo 'Running `ruff format` ...'
 	@ruff format pixeltable tests tool
-	@echo "Running ruff check --select I --fix ..."
+	@echo 'Running `ruff check --select I --fix` ...'
 	@ruff check --select I --fix pixeltable tests tool
 
 .PHONY: release

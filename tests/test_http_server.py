@@ -6,14 +6,14 @@ from pixeltable.utils.http_server import get_file_uri, make_server
 from .utils import get_audio_files, get_documents, get_image_files, get_video_files
 
 
-def test_http_server():
+def test_http_server() -> None:
     """check path to url conversion and back"""
     httpd = make_server(address='127.0.0.1', port=0)
     (host, port) = httpd.server_address
     assert isinstance(host, str)
     http_address = f'http://{host}:{port}'
 
-    def run_server():
+    def run_server() -> None:
         httpd.serve_forever()
 
     # Run the server in a separate thread

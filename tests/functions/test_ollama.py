@@ -9,7 +9,7 @@ from tests.utils import skip_test_if_not_installed, validate_update_status
 
 class TestOllama:
     @pytest.mark.xdist_group('ollama')
-    def test_generate(self, reset_db):
+    def test_generate(self, reset_db: None) -> None:
         self.__ensure_ollama_availability()
         from pixeltable.functions.ollama import generate
 
@@ -30,7 +30,7 @@ class TestOllama:
         assert len(results['output2'][0]['response']) > 0
 
     @pytest.mark.xdist_group('ollama')
-    def test_chat(self, reset_db):
+    def test_chat(self, reset_db: None) -> None:
         self.__ensure_ollama_availability()
         from pixeltable.functions.ollama import chat
 
@@ -50,7 +50,7 @@ class TestOllama:
         assert len(results['output2'][0]['message']['content']) > 0
 
     @pytest.mark.xdist_group('ollama')
-    def test_embed(self, reset_db):
+    def test_embed(self, reset_db: None) -> None:
         self.__ensure_ollama_availability()
         from pixeltable.functions.ollama import embed
 
@@ -62,7 +62,7 @@ class TestOllama:
         assert isinstance(results['output'][0], np.ndarray)
         assert len(results['output'][0]) == 896
 
-    def __ensure_ollama_availability(self):
+    def __ensure_ollama_availability(self) -> None:
         skip_test_if_not_installed('ollama')
         if self.__ollama_available is None:
             import ollama

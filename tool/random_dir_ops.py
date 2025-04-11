@@ -17,7 +17,7 @@ def list_objects(dir: str) -> tuple[list[str], list[str]]:
     return tbls, subdirs
 
 
-def random_dir_op():
+def random_dir_op() -> None:
     dir = random.choice(dirs)
     tbls, subdirs = list_objects(dir)
     existing = [path.split('.')[1] for path in tbls + subdirs]
@@ -52,7 +52,7 @@ def random_dir_op():
     _, _ = list_objects(dir)
 
 
-def main():
+def main() -> None:
     pxt.init()
     for dir in dirs:
         pxt.create_dir(dir, if_exists='ignore')

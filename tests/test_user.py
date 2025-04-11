@@ -7,7 +7,7 @@ from pixeltable.env import Env
 
 
 class TestUser:
-    def test_user_namespace(self, reset_db) -> None:
+    def test_user_namespace(self, reset_db: None) -> None:
         pxt.create_dir('test_dir')
         pxt.create_dir('test_dir.subdir')
         t = pxt.create_table('test_dir.test_tbl', {'col': pxt.Int})

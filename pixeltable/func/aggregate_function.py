@@ -252,7 +252,7 @@ def uda(
 ) -> Callable[[type[Aggregator]], AggregateFunction]: ...
 
 
-def uda(*args, **kwargs):
+def uda(*args, **kwargs):  # type: ignore[no-untyped-def]
     """Decorator for user-defined aggregate functions.
 
     The decorated class must inherit from Aggregator and implement the following methods:

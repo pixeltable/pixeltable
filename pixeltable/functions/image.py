@@ -426,5 +426,5 @@ def mode(self: PIL.Image.Image) -> str:
 __all__ = local_public_names(__name__)
 
 
-def __dir__():
+def __dir__() -> list[str]:
     return __all__

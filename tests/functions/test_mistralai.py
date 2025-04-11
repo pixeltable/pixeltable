@@ -8,7 +8,7 @@ from ..utils import skip_test_if_no_client, skip_test_if_not_installed, validate
 @pytest.mark.remote_api
 @pytest.mark.flaky(reruns=3, reruns_delay=8)
 class TestMistral:
-    def test_chat_completions(self, reset_db) -> None:
+    def test_chat_completions(self, reset_db: None) -> None:
         from pixeltable.functions.mistralai import chat_completions
 
         skip_test_if_not_installed('mistralai')
@@ -36,7 +36,7 @@ class TestMistral:
         assert len(results['output2'][0]['choices'][0]['message']['content']) > 0
 
     @pytest.mark.skip(reason="Disabled until we figure out why it's failing")
-    def test_fim_completions(self, reset_db) -> None:
+    def test_fim_completions(self, reset_db: None) -> None:
         from pixeltable.functions.mistralai import fim_completions
 
         skip_test_if_not_installed('mistralai')
@@ -71,7 +71,7 @@ class TestMistral:
             for i in range(2):
                 assert len(results[out_col][i]['choices'][0]['message']['content']) > 0
 
-    def test_embeddings(self, reset_db) -> None:
+    def test_embeddings(self, reset_db: None) -> None:
         from pixeltable.functions.mistralai import embeddings
 
         skip_test_if_not_installed('mistralai')

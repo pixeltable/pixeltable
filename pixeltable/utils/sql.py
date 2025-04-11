@@ -4,7 +4,7 @@ import sqlalchemy as sql
 from sqlalchemy.dialects import postgresql
 
 
-def log_stmt(logger: logging.Logger, stmt) -> None:
+def log_stmt(logger: logging.Logger, stmt: sql.sql.ClauseElement) -> None:
     logger.debug(f'executing {stmt.compile(dialect=postgresql.dialect())}')
 
 
