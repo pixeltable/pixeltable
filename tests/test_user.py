@@ -49,7 +49,7 @@ class TestUser:
         assert pxt.get_table('test_dir.test_tbl').select().collect()['col'] == [22]
 
         Env.get().user = 'asiegel'
-        with pytest.raises(excs.Error, match="Path 'test_dir.test_tbl' does not exist."):
+        with pytest.raises(excs.Error, match=r"Path 'test_dir.test_tbl' does not exist."):
             pxt.get_table('test_dir.test_tbl').select().collect()
 
         # Directory is dropped from correct userspace

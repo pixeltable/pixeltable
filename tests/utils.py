@@ -33,7 +33,7 @@ def make_default_type(t: pxt.ColumnType.Type) -> pxt.ColumnType:
         return pxt.BoolType()
     if t == pxt.ColumnType.Type.TIMESTAMP:
         return pxt.TimestampType()
-    assert False
+    raise AssertionError()
 
 
 def make_tbl(name: str = 'test', col_names: Optional[list[str]] = None) -> pxt.Table:
@@ -96,7 +96,7 @@ def create_table_data(
             col_data = (np.random.random(size=num_rows) * 100).tolist()
         if col_type.is_bool_type():
             col_data = np.random.randint(0, 2, size=num_rows)
-            col_data = [False if i == 0 else True for i in col_data]
+            col_data = [i != 0 for i in col_data]
         if col_type.is_timestamp_type():
             col_data = [datetime.datetime.now()] * num_rows
         if col_type.is_json_type():
@@ -141,7 +141,7 @@ def create_test_tbl(name: str = 'test_tbl') -> catalog.Table:
     d2 = [d1, d1]
 
     c1_data = [f'test string {i}' for i in range(num_rows)]
-    c2_data = [i for i in range(num_rows)]
+    c2_data = list(range(num_rows))
     c3_data = [float(i) for i in range(num_rows)]
     c4_data = [bool(i % 2) for i in range(num_rows)]
     c5_data = [datetime.datetime(2024, 7, 1) + datetime.timedelta(hours=i) for i in range(num_rows)]
@@ -153,7 +153,7 @@ def create_test_tbl(name: str = 'test_tbl') -> catalog.Table:
             'f3': float(i),
             'f4': bool(i % 2),
             'f5': list(range(5 + i // 10)),
-            #'f5': [1.0, 2.0, 3.0, 4.0],
+            # 'f5': [1.0, 2.0, 3.0, 4.0],
             'f6': {'f7': 'test string 2', 'f8': [1.0, 2.0, 3.0, 4.0]},
         }
         c6_data.append(d)
@@ -269,7 +269,7 @@ def read_data_file(dir_name: str, file_name: str, path_col_names: Optional[list[
     assert len(glob_result) == 1, f'Could not find {dir_name}'
     abs_path = Path(glob_result[0])
     data_file_path = abs_path / file_name
-    assert data_file_path.is_file(), f'Not a file: {str(data_file_path)}'
+    assert data_file_path.is_file(), f'Not a file: {data_file_path}'
     df = pd.read_csv(str(data_file_path))
     for col_name in path_col_names:
         assert col_name in df.columns
@@ -303,7 +303,7 @@ __IMAGE_FILES_WITH_BAD_IMAGE: list[str] = []
 # of different modes appear early in the list; and (3) is appropriately randomized subject to
 # these constraints.
 def get_image_files(include_bad_image: bool = False) -> list[str]:
-    global __IMAGE_FILES, __IMAGE_FILES_WITH_BAD_IMAGE
+    global __IMAGE_FILES, __IMAGE_FILES_WITH_BAD_IMAGE  # noqa: PLW0603
     if not __IMAGE_FILES:
         tests_dir = os.path.dirname(__file__)  # search with respect to tests/ dir
         img_files_path = Path(tests_dir) / 'data' / 'imagenette2-160'
@@ -322,7 +322,7 @@ def get_image_files(include_bad_image: bool = False) -> list[str]:
         # Combine the groups in round-robin fashion to ensure that small initial segments
         # contain representatives from each group
         __IMAGE_FILES = list(more_itertools.roundrobin(*groups))
-        __IMAGE_FILES_WITH_BAD_IMAGE = [bad_image] + __IMAGE_FILES
+        __IMAGE_FILES_WITH_BAD_IMAGE = [bad_image, *__IMAGE_FILES]
     return __IMAGE_FILES_WITH_BAD_IMAGE if include_bad_image else __IMAGE_FILES
 
 
