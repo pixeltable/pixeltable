@@ -299,10 +299,20 @@ class DataFrame:
         finally:
             plan.close()
 
+    def _create_stratified_sample_plan(self) -> exec.ExecNode:
+        for item in self._select_list_exprs:
+            item.bind_rel_paths()
+
+        #        s_key = SampleKey(samplex._seed_expr, self.__rowid_columns()) # TODO: use this for stratified sampling
+
+        return plan.Planner.create_query_plan(
+            self._from_clause, self._select_list_exprs, where_clause=self.where_clause, sample_clause=self.sample_clause
+        )
+
     def _create_sample_plan(self) -> exec.ExecNode:
         samplex = self.sample_clause
         if len(samplex._stratify_list) > 0:
-            raise excs.Error('sample() is not implemented')
+            return self._create_stratified_sample_plan()
 
         # Construct an expression for sorting rows and limiting row counts
         s_key = SampleKey(samplex._seed_expr, self.__rowid_columns())
@@ -353,9 +363,10 @@ class DataFrame:
 
     def __rowid_columns(self, num_rowid_cols: Optional[int] = None) -> list[exprs.Expr]:
         """Return list of RowidRef for the given number of associated rowids"""
+        target = self._first_tbl.tbl_version
         if num_rowid_cols is None:
-            num_rowid_cols = len(self._first_tbl.tbl_version.get().store_tbl.rowid_columns())
-        return [exprs.RowidRef(self._first_tbl.tbl_version, idx) for idx in range(num_rowid_cols)]
+            num_rowid_cols = target.get().num_rowid_columns()
+        return [exprs.RowidRef(target, i) for i in range(num_rowid_cols)]
 
     def _has_joins(self) -> bool:
         return len(self._from_clause.join_clauses) > 0

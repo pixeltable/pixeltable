@@ -8,6 +8,7 @@ import sqlalchemy as sql
 
 from pixeltable import catalog, exprs
 from pixeltable.env import Env
+from pixeltable.utils.sample import SampleKey
 
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
@@ -500,4 +501,122 @@ class SqlJoinNode(SqlNode):
                 isouter=is_outer,
                 full=join_clause == plan.JoinType.FULL_OUTER,
             )
+        return stmt
+
+
+class SqlSampleNode(SqlNode):
+    """
+    Returns rows from a stratified sample with N samples per strata.
+    """
+
+    group_by_items: Optional[list[exprs.Expr]]
+    n_samples: Optional[int]
+    fraction_samples: Optional[float]
+    seed: Optional[int]
+    input_cte: Optional[sql.CTE]
+
+    def __init__(
+        self,
+        row_builder: exprs.RowBuilder,
+        input: SqlNode,
+        select_list: Iterable[exprs.Expr],
+        group_by_items: Optional[list[exprs.Expr]] = None,
+        sample_clause: Optional[exprs.Expr] = None,
+    ):
+        """
+        Args:
+            select_list: can contain calls to AggregateFunctions
+            group_by_items: list of expressions to group by
+            n: number of samples per strata
+        """
+        self.input_cte, input_col_map = input.to_cte()
+        sql_elements = exprs.SqlElementCache(input_col_map)
+        super().__init__(input.tbl, row_builder, select_list, sql_elements)
+        self.group_by_items = group_by_items
+        self.n_samples = sample_clause._n_expr.val if sample_clause._n_expr.val is not None else None
+        self.fraction_samples = sample_clause._fraction_expr.val if sample_clause._fraction_expr.val is not None else None
+        self.seed = sample_clause._seed_expr if sample_clause._seed_expr.val is not None else exprs.Literal(0)
+
+    def __rowid_columns(self, num_rowid_cols: Optional[int] = None) -> list[exprs.Expr]:
+        """Return list of RowidRef for the given number of associated rowids"""
+        target = self.tbl.tbl_version
+        if num_rowid_cols is None:
+            num_rowid_cols = target.get().num_rowid_columns()
+        return [exprs.RowidRef(target, i) for i in range(num_rowid_cols)]
+
+    def _create_stmt(self) -> sql.Select:
+        if self.n_samples is not None:
+            return self._create_stmt_n(self.n_samples)
+        else:
+            return self._create_stmt_fraction(self.fraction_samples)
+
+    def _create_stmt_n(self, n_samples: int) -> sql.Select:
+        """Create a Select stmt that returns n_samples per strata"""
+        sql_group_by_items = [self.sql_elements.get(e) for e in self.group_by_items]
+
+        # Get all columns from the input CTE dynamically
+        srct_columns = [self.input_cte.c[i] for i in range(len(self.input_cte.c))]
+
+        # Construct an expression for randomly ordering rows with a given seed
+        s_key = SampleKey(self.seed, self.__rowid_columns())
+        o_by = s_key.sql_expr(self.sql_elements)
+
+        # Create a list of all columns plus the rank
+        select_columns = srct_columns.copy()
+        select_columns.append(
+            sql.func.row_number().over(partition_by=sql_group_by_items, order_by=o_by).label('rank')
+        )
+        srcp = sql.select(*select_columns).select_from(self.input_cte).cte('srcp')
+
+        final_columns = [srcp.c[i] for i in range(len(srcp.c))]
+
+        stmt = sql.select(*final_columns).filter(srcp.c.rank <= n_samples)
+
+        return stmt
+
+    def _create_stmt_fraction(self, fraction_samples: float) -> sql.Select:
+        """Create a Select stmt that returns a fraction of the rows per strata"""
+        sql_group_by_items = [self.sql_elements.get(e) for e in self.group_by_items]
+
+        # Build the strata count CTE
+        srcs = (
+            sql.select(
+                *sql_group_by_items,
+                sql.func.ceil(fraction_samples * sql.func.count(1).cast(sql.Integer)).label('s_s_size'),
+            )
+            .select_from(self.input_cte)
+            .group_by(*sql_group_by_items)
+            .cte('srcs')
+        )
+
+        # Get all columns from the input CTE dynamically
+        srct_columns = [self.input_cte.c[i] for i in range(len(self.input_cte.c))]
+
+        # Construct an expression for randomly ordering rows with a given seed
+        s_key = SampleKey(self.seed, self.__rowid_columns())
+        o_by = s_key.sql_expr(self.sql_elements)
+
+        # Second CTE: srcp
+        # Create a list of all columns plus the rank
+        select_columns = srct_columns.copy()
+        select_columns.append(
+            sql.func.row_number().over(partition_by=sql_group_by_items, order_by=o_by).label('rank')
+        )
+        srcp = sql.select(*select_columns).select_from(self.input_cte).cte('srcp')
+
+        final_columns = [srcp.c[i] for i in range(len(srcp.c))]
+
+        # Build the join criterion dynamically to accommodate any number of group by columns
+        join_c = sql.true()
+        for i in range(len(srcs.c) - 1):
+            join_c &= srcp.c[srcs.c[i].name].isnot_distinct_from(srcs.c[i])
+
+        # Join srcp with srcs to limit returns to the requested fraction of rows
+        stmt = (
+            sql.select(*final_columns)
+            .select_from(srcp)
+            .join(srcs, join_c)
+            .where(srcp.c.rank <= srcs.c.s_s_size)
+        )
+
         return stmt

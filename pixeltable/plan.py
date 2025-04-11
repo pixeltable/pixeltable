@@ -260,7 +260,7 @@ class Planner:
     # TODO: create an exec.CountNode and change this to create_count_plan()
     @classmethod
     def create_count_stmt(cls, tbl: catalog.TableVersionPath, where_clause: Optional[exprs.Expr] = None) -> sql.Select:
-        stmt = sql.select(sql.func.count())
+        stmt = sql.select(sql.func.count().label('all_count'))
         refd_tbl_ids: set[UUID] = set()
         if where_clause is not None:
             analyzer = cls.analyze(tbl, where_clause)
@@ -697,6 +697,7 @@ class Planner:
         group_by_clause: Optional[list[exprs.Expr]] = None,
         order_by_clause: Optional[list[tuple[exprs.Expr, bool]]] = None,
         limit: Optional[exprs.Expr] = None,
+        sample_clause: Optional[exprs.Expr] = None,
         ignore_errors: bool = False,
         exact_version_only: Optional[list[catalog.TableVersionHandle]] = None,
     ) -> exec.ExecNode:
@@ -710,11 +711,12 @@ class Planner:
             order_by_clause = []
         if exact_version_only is None:
             exact_version_only = []
+
         analyzer = Analyzer(
             from_clause,
             select_list,
             where_clause=where_clause,
-            group_by_clause=group_by_clause,
+            group_by_clause=group_by_clause if sample_clause is None else sample_clause._stratify_list,
             order_by_clause=order_by_clause,
         )
         row_builder = exprs.RowBuilder(analyzer.all_exprs, [], [])
@@ -728,6 +730,7 @@ class Planner:
             analyzer=analyzer,
             eval_ctx=eval_ctx,
             limit=limit,
+            sample_clause=sample_clause,
             with_pk=True,
             exact_version_only=exact_version_only,
         )
@@ -743,6 +746,7 @@ class Planner:
         analyzer: Analyzer,
         eval_ctx: exprs.RowBuilder.EvalCtx,
         limit: Optional[exprs.Expr] = None,
+        sample_clause: Optional[exprs.Expr] = None,
         with_pk: bool = False,
         exact_version_only: Optional[list[catalog.TableVersionHandle]] = None,
     ) -> exec.ExecNode:
@@ -855,10 +859,24 @@ class Planner:
                 and isinstance(plan, exec.SqlNode)
                 and plan.to_cte() is not None
             ):
-                plan = exec.SqlAggregationNode(
-                    row_builder, input=plan, select_list=analyzer.select_list, group_by_items=analyzer.group_by_clause
-                )
+                if sample_clause is not None:
+                    plan = exec.SqlSampleNode(
+                        row_builder,
+                        input=plan,
+                        select_list=analyzer.select_list,
+                        group_by_items=analyzer.group_by_clause,
+                        sample_clause=sample_clause,
+                    )
+                else:
+                    plan = exec.SqlAggregationNode(
+                        row_builder,
+                        input=plan,
+                        select_list=analyzer.select_list,
+                        group_by_items=analyzer.group_by_clause,
+                    )
             else:
+                if sample_clause is not None:
+                    raise excs.Error('Sample clause not supported with Python aggregation')
                 plan = exec.AggregationNode(
                     tbl.tbl_version,
                     row_builder,

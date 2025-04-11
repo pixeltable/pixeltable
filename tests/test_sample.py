@@ -5,6 +5,8 @@ from typing import Union
 import pytest
 
 import pixeltable as pxt
+import pixeltable.functions as pxtf
+import pixeltable.type_system as ts
 from pixeltable import catalog, exceptions as excs
 
 from .utils import ReloadTester
@@ -138,6 +140,24 @@ class TestSampling:
             rows.append({'id': i, 'cat1': cat1, 'cat2': cat2})
         return pxt.create_table('s_t', source=rows, schema_overrides=schema)
 
+    @classmethod
+    def create_sample_data_2(cls, row_mult: int, cat_count: int, with_null: bool) -> pxt.Table:
+        schema = {
+            'id': ts.IntType(nullable=False),
+            'cat1': ts.IntType(nullable=with_null),
+            'cat2': ts.IntType(nullable=with_null),
+        }
+        rows = []
+        rowid = 0
+        for cat1 in range(cat_count):
+            for cat2 in range(cat_count):
+                cat1v = cat1 if not with_null or cat1 != cat_count - 1 else None
+                cat2v = cat2 if not with_null or cat2 != cat_count - 1 else None
+                for i in range(row_mult * (cat1 + 1) * (cat2 + 1)):
+                    rows.append({'id': rowid, 'cat1': cat1v, 'cat2': cat2v})
+                    rowid += 1
+        return pxt.create_table('scm_t', source=rows, schema_overrides=schema)
+
     def test_sample_basic(self, test_tbl: catalog.Table) -> None:
         t_rows = 360
         t = self.create_table(t_rows, 6, False)
@@ -169,10 +189,21 @@ class TestSampling:
         reload_tester.run_reload_test()
 
     def test_sample_stratified(self, test_tbl: catalog.Table) -> None:
-        t_rows = 360
-        t = self.create_table(t_rows, 6, False)
+        t = self.create_sample_data_2(4, 6, True)
 
-        # Test that stratified sampling reports as unimplemented
-        df = t.select().sample(n=12, stratify_by=[t.cat1, t.cat2])
-        with pytest.raises(pxt.Error, match='is not implemented'):
-            print(df.collect())
+        df = t.select(t.cat1, t.cat2, t.id).where(t.cat1 != None).sample(n=2, stratify_by=[t.cat1, t.cat2])
+        r = df.collect()
+        print(r)
+
+        df = t.select(t.cat1, t.cat2, t.id).where(t.cat1 != None).sample(fraction=0.1, stratify_by=[t.cat1, t.cat2])
+        r = df.collect()
+        print(r)
+#        assert False
+
+    def test_sample_stratified_nulls(self, test_tbl: catalog.Table) -> None:
+        t_rows = 360
+        t = self.create_table(t_rows, 6, True)
+
+        df = t.select(t.cat1, t.cat2, count=pxtf.count(t.cat1)).group_by(t.cat1, t.cat2).order_by(t.cat1, t.cat2)
+        r = df.collect()
+        print(r)
