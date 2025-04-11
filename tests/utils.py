@@ -96,7 +96,7 @@ def create_table_data(
             col_data = (np.random.random(size=num_rows) * 100).tolist()
         if col_type.is_bool_type():
             col_data = np.random.randint(0, 2, size=num_rows)
-            col_data = [i != 0 for i in col_data]
+            col_data = [False if i == 0 else True for i in col_data]  # noqa: SIM211
         if col_type.is_timestamp_type():
             col_data = [datetime.datetime.now()] * num_rows
         if col_type.is_json_type():
