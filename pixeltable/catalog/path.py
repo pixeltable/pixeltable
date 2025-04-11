@@ -30,6 +30,10 @@ class Path:
         return not self.components[0]
 
     @property
+    def is_system_path(self) -> bool:
+        return self.components[0].startswith('_')
+
+    @property
     def parent(self) -> Path:
         if len(self.components) == 1:
             if self.is_root:

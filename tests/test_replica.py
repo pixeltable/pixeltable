@@ -21,6 +21,9 @@ class TestReplica:
         assert len(md1) == 2
         assert len(md2) == 2
 
+        for i, md in enumerate(md1):
+            print(f'\n{i}: {md}')
+
         pxt.drop_table(test_tbl, force=True)
         reload_catalog()
 
@@ -102,4 +105,4 @@ class TestReplica:
 
         with Env.get().begin_xact():
             assert len(r51._bases) == 4
-            assert len(r61._bases) == 6
+            assert len(r61._bases) == 5

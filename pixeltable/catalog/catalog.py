@@ -175,6 +175,9 @@ class Catalog:
 
     @_retry_loop
     def move(self, path: Path, new_path: Path) -> None:
+        self._move(path, new_path)
+
+    def _move(self, path: Path, new_path: Path) -> None:
         _, dest_dir, src_obj = self._prepare_dir_op(
             add_dir_path=new_path.parent,
             add_name=new_path.name,
@@ -431,6 +434,7 @@ class Catalog:
         """
         tbl_id = UUID(md[0].tbl_md.tbl_id)
 
+        # First handle path collisions (if_exists='ignore' or 'replace' or etc).
         existing = self._handle_path_collision(path, View, False, if_exists)
         if existing is not None:
             if existing._id != tbl_id:
@@ -441,31 +445,49 @@ class Catalog:
             assert isinstance(existing, View)
             return existing
 
-        # If this table UUID already exists in the catalog, it's an error
-        # TODO: Handle the case where it already exists as an anonymous table (because it was an ancestor of
-        #     a different replica)
-        if Catalog.get().get_table_by_id(tbl_id) is not None:
-            raise excs.Error(
-                f'That table has already been replicated as {self._tbls[tbl_id]._path()!r}. \n'
-                f'Drop the existing replica if you wish to re-create it.'
-            )
-
-        # Ensure that the system directory exists
+        # Ensure that the system directory exists.
         self._create_dir(Path('_system', allow_system_paths=True), if_exists=IfExistsParam.IGNORE, parents=False)
 
-        # Save replica metadata to the store for the table and all its ancestors. If one or more proper ancestors
-        # do not yet exist in the store, they will be created as anonymous system tables.
+        # Now check to see if this table already exists in the catalog.
+        existing = Catalog.get().get_table_by_id(tbl_id)
+        if existing is not None:
+            existing_path = Path(existing._path(), allow_system_paths=True)
+            # It does exist. If it's a non-system table, that's an error: it's already been replicated.
+            if not existing_path.is_system_path:
+                raise excs.Error(
+                    f'That table has already been replicated as {self._tbls[tbl_id]._path()!r}. \n'
+                    f'Drop the existing replica if you wish to re-create it.'
+                )
+            # If it's a system table, then this means it was created at some point as the ancestor of some other
+            # table (a snapshot-over-snapshot scenario). In that case, we simply move it to the new (named) location.
+            self._move(existing_path, path)
+
+        # Now save the metadata for this replica. In the case where the table already exists (and was just moved
+        # into a named location), this will be a no-op, but it still serves to validate that the newly received
+        # metadata is identical to what's in the catalog.
         self.__save_replica_md(path, md[0])
+
+        # Now store the metadata for all of this table's proper ancestors. If one or more proper ancestors
+        # do not yet exist in the store, they will be created as anonymous system tables.
         for ancestor_md in md[1:]:
             ancestor_id = UUID(ancestor_md.tbl_md.tbl_id)
-            # TODO: Check if it already exists under a different name
-            replica_path = Path(f'_system.replica_{ancestor_id.hex}', allow_system_paths=True)
+            replica = Catalog.get().get_table_by_id(ancestor_id)
+            replica_path: Path
+            if replica is None:
+                # We've never seen this table before. Create a new anonymous system table for it.
+                replica_path = Path(f'_system.replica_{ancestor_id.hex}', allow_system_paths=True)
+            else:
+                # The table already exists in the catalog. The existing path might be a system path (if the table
+                # was created as an anonymous base table of some other table), or it might not (if it's a snapshot
+                # that was directly replicated by the user at some point). In either case, use the existing path.
+                replica_path = Path(replica._path(), allow_system_paths=True)
+
+            # Store the metadata; it could be a new version (in which case a new record will be created) or a
+            # known version (in which case the newly received metadata will be validated as identical).
             self.__save_replica_md(replica_path, ancestor_md)
 
-        # Update the catalog (as a final step, after all DB operations completed successfully)
-        # Only the table being replicated is actually visible in the catalog. The others might in fact not be
-        # valid tables on their own, since their version and/or schema_version numbers might correspond to
-        # TableVersion and/or TableSchemaVersion records that have not been replicated.
+        # Update the catalog (as a final step, after all DB operations completed successfully).
+        # Only the table being replicated is actually made visible in the catalog.
         self._tbls[tbl_id] = self._load_tbl(tbl_id)
         return self._tbls[tbl_id]
 
