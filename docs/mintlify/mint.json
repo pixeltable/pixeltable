@@ -93,7 +93,7 @@
         "docs/datastore/bringing-data",
         "docs/datastore/filtering-and-selecting",
         "docs/datastore/computed-columns",
-        "docs/datastore/embedding-index",
+        "docs/datastore/vector-database",
         "docs/datastore/custom-functions"       
       ]
     },    
