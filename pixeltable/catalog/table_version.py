@@ -440,7 +440,7 @@ class TableVersion:
             self._create_schema_version_md(preceding_schema_version) if preceding_schema_version is not None else None
         )
 
-        Catalog.get().save_tbl_md(self.id, tbl_md, version_md, schema_version_md)
+        Catalog.get().store_tbl_md(self.id, tbl_md, version_md, schema_version_md)
 
     def ensure_md_loaded(self) -> None:
         """Ensure that table metadata is loaded."""

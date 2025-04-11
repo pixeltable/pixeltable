@@ -462,10 +462,10 @@ class Catalog:
             # table (a snapshot-over-snapshot scenario). In that case, we simply move it to the new (named) location.
             self._move(existing_path, path)
 
-        # Now save the metadata for this replica. In the case where the table already exists (and was just moved
+        # Now store the metadata for this replica. In the case where the table already exists (and was just moved
         # into a named location), this will be a no-op, but it still serves to validate that the newly received
         # metadata is identical to what's in the catalog.
-        self.__save_replica_md(path, md[0])
+        self.__store_replica_md(path, md[0])
 
         # Now store the metadata for all of this table's proper ancestors. If one or more proper ancestors
         # do not yet exist in the store, they will be created as anonymous system tables.
@@ -484,14 +484,14 @@ class Catalog:
 
             # Store the metadata; it could be a new version (in which case a new record will be created) or a
             # known version (in which case the newly received metadata will be validated as identical).
-            self.__save_replica_md(replica_path, ancestor_md)
+            self.__store_replica_md(replica_path, ancestor_md)
 
         # Update the catalog (as a final step, after all DB operations completed successfully).
         # Only the table being replicated is actually made visible in the catalog.
         self._tbls[tbl_id] = self._load_tbl(tbl_id)
         return self._tbls[tbl_id]
 
-    def __save_replica_md(self, path: Path, md: schema.FullTableMd) -> None:
+    def __store_replica_md(self, path: Path, md: schema.FullTableMd) -> None:
         _logger.info(f'Creating replica table at {path!r} with ID: {md.tbl_md.tbl_id}')
         dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
         assert dir is not None
@@ -593,7 +593,7 @@ class Catalog:
                     'This is likely due to data corruption in the replicated table.'
                 )
 
-        self.save_tbl_md(UUID(tbl_id), new_tbl_md, new_version_md, new_schema_version_md)
+        self.store_tbl_md(UUID(tbl_id), new_tbl_md, new_version_md, new_schema_version_md)
 
     @_retry_loop
     def get_table(self, path: Path) -> Table:
@@ -921,7 +921,7 @@ class Catalog:
 
         return schema.FullTableMd(tbl_md, version_md, schema_version_md)
 
-    def save_tbl_md(
+    def store_tbl_md(
         self,
         tbl_id: UUID,
         tbl_md: Optional[schema.TableMd],
@@ -929,7 +929,7 @@ class Catalog:
         schema_version_md: Optional[schema.TableSchemaVersionMd],
     ) -> None:
         """
-        Saves metadata to the store. If specified, `tbl_md` will be updated in place (only one such record can exist
+        Stores metadata to the DB. If specified, `tbl_md` will be updated in place (only one such record can exist
         per UUID); `version_md` and `schema_version_md` will be inserted as new records.
 
         If inserting `version_md` or `schema_version_md` would be a primary key violation, an exception will be raised.
