@@ -7,7 +7,7 @@ from tests.utils import skip_test_if_no_client, skip_test_if_not_installed, vali
 @pytest.mark.remote_api
 @pytest.mark.flaky(reruns=3, reruns_delay=8)
 class TestGemini:
-    def test_generate_content(self, reset_db) -> None:
+    def test_generate_content(self, reset_db: None) -> None:
         from pixeltable.functions.gemini import generate_content
 
         skip_test_if_not_installed('google.generativeai')

@@ -11,7 +11,7 @@ import pixeltable.functions as pxtf
 class TestTimestamp:
     TEST_FLOATS = (0.0, 1.6, -19.274, 1.32e57, math.inf, -math.inf, math.nan)
 
-    def test_methods(self, reset_db) -> None:
+    def test_methods(self, reset_db: None) -> None:
         t = pxt.create_table('test_tbl', {'x': pxt.Float})
         t.insert({'x': x} for x in self.TEST_FLOATS)
 

@@ -71,7 +71,7 @@ class TestSnapshot:
         pxt.drop_table(snap_path)
         pxt.drop_table(tbl_path)
 
-    def test_basic(self, reset_db) -> None:
+    def test_basic(self, reset_db: None) -> None:
         pxt.create_dir('main')
         pxt.create_dir('snap')
         tbl_path = 'main.tbl1'
@@ -170,7 +170,7 @@ class TestSnapshot:
             assert 'already exists' in err_msg and 'is not a snapshot' in err_msg
             assert 'not_snapshot' in pxt.list_tables(), f'with if_exists={_ie}'
 
-    def test_create_if_exists(self, reset_db, reload_tester: ReloadTester) -> None:
+    def test_create_if_exists(self, reset_db: None, reload_tester: ReloadTester) -> None:
         """Test the if_exists parameter while creating a snapshot."""
         t = create_test_tbl()
         v = pxt.create_view('test_view', t)
@@ -195,7 +195,7 @@ class TestSnapshot:
         assert s1._id == id_before['test_snap_t']
         assert s2._id == id_before['test_snap_v']
 
-    def test_errors(self, reset_db, clip_embed: func.Function) -> None:
+    def test_errors(self, reset_db: None, clip_embed: func.Function) -> None:
         tbl = create_test_tbl()
         snap = pxt.create_snapshot('snap', tbl)
 
@@ -237,7 +237,7 @@ class TestSnapshot:
             snap.add_embedding_index('img', image_embed=clip_embed)
         assert 'cannot add an index to a snapshot' in str(excinfo.value).lower()
 
-    def test_views_of_snapshots(self, reset_db) -> None:
+    def test_views_of_snapshots(self, reset_db: None) -> None:
         t = pxt.create_table('tbl', {'a': pxt.Int})
         rows = [{'a': 1}, {'a': 2}, {'a': 3}]
         status = t.insert(rows)
@@ -268,7 +268,7 @@ class TestSnapshot:
         v2 = pxt.get_table('v2')
         verify(s1, s2, v1, v2)
 
-    def test_snapshot_of_view_chain(self, reset_db) -> None:
+    def test_snapshot_of_view_chain(self, reset_db: None) -> None:
         t = pxt.create_table('tbl', {'a': pxt.Int})
         rows = [{'a': 1}, {'a': 2}, {'a': 3}]
         status = t.insert(rows)
@@ -296,7 +296,7 @@ class TestSnapshot:
         s = pxt.get_table('s')
         verify(v1, v2, s)
 
-    def test_multiple_snapshot_paths(self, reset_db) -> None:
+    def test_multiple_snapshot_paths(self, reset_db: None) -> None:
         t = create_test_tbl()
         c4 = t.select(t.c4).order_by(t.c2).collect().to_pandas()['c4']
         orig_c3 = t.select(t.c3).order_by(t.c2).collect().to_pandas()['c3']

@@ -37,7 +37,7 @@ class TestVideo:
         assert len(result) == total_num_rows
         return base_t, view_t
 
-    def test_basic(self, reset_db) -> None:
+    def test_basic(self, reset_db: None) -> None:
         video_filepaths = get_video_files()
 
         # computed images are not stored
@@ -53,7 +53,7 @@ class TestVideo:
         tbl.revert()
         assert MediaStore.count(view._id) == view.count()
 
-    def test_query(self, reset_db) -> None:
+    def test_query(self, reset_db: None) -> None:
         skip_test_if_not_installed('boto3')
         video_filepaths = get_video_files()
         base_t, view_t = self.create_tbls()
@@ -70,7 +70,7 @@ class TestVideo:
         res = view_t.where(view_t.video == url).collect()
         assert len(res) == len(all_rows[all_rows.url == url])
 
-    def test_fps(self, reset_db) -> None:
+    def test_fps(self, reset_db: None) -> None:
         path = get_video_files()[0]
         videos = pxt.create_table('videos', {'video': pxt.Video})
         frames_all = pxt.create_view('frames_all', videos, iterator=FrameIterator.create(video=videos.video))
@@ -102,7 +102,7 @@ class TestVideo:
             )
         assert 'At most one of `fps` or `num_frames` may be specified' in str(exc_info.value)
 
-    def test_computed_cols(self, reset_db) -> None:
+    def test_computed_cols(self, reset_db: None) -> None:
         video_filepaths = get_video_files()
         base_t, view_t = self.create_tbls()
         # c2 and c4 depend directly on c1, c3 depends on it indirectly
@@ -115,7 +115,7 @@ class TestVideo:
         base_t.insert({'video': p} for p in video_filepaths)
         _ = view_t.select(view_t.c1, view_t.c2, view_t.c3, view_t.c4).collect()
 
-    def test_get_metadata(self, reset_db) -> None:
+    def test_get_metadata(self, reset_db: None) -> None:
         video_filepaths = get_video_files()
         base_t = pxt.create_table('video_tbl', {'video': pxt.Video})
         base_t.add_computed_column(metadata=base_t.video.get_metadata())
@@ -208,7 +208,9 @@ class TestVideo:
     # window function that simply passes through the frame
     @pxt.uda(requires_order_by=True, allows_std_agg=False, allows_window=True)
     class agg_fn(pxt.Aggregator):
-        def __init__(self):
+        img: Optional[PIL.Image.Image]
+
+        def __init__(self) -> None:
             self.img = None
 
         def update(self, frame: PIL.Image.Image) -> None:
@@ -217,7 +219,7 @@ class TestVideo:
         def value(self) -> PIL.Image.Image:
             return self.img
 
-    def test_make_video(self, reset_db) -> None:
+    def test_make_video(self, reset_db: None) -> None:
         video_filepaths = get_video_files()
         base_t, view_t = self.create_tbls()
         base_t.insert({'video': p} for p in video_filepaths)

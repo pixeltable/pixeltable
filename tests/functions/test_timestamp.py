@@ -19,7 +19,7 @@ class TestTimestamp:
         '2019-01-01T00:00:01-08:00',
     ]
 
-    def test_methods(self, reset_db) -> None:
+    def test_methods(self, reset_db: None) -> None:
         # Set a default time zone that's likely to be different from the system time zone of most test environments
         default_tz = ZoneInfo('America/Anchorage')
         Env.get().default_time_zone = default_tz
@@ -47,7 +47,7 @@ class TestTimestamp:
         )
 
         test_params: list[tuple[pxt.Function, Callable, list, dict]] = [
-            # (pxt_fn, str_fn, args, kwargs)
+            # (pxt_fn, str_fn, args, **kwargs)
             # (date, lambda dt: datetime(dt.year, dt.month, dt.day), [], {}),
             # (time, lambda dt: datetime(1, 1, 1, dt.hour, dt.minute, dt.second, dt.microsecond), [], {}),
             (year, datetime.year.__get__, [], {}),
@@ -101,7 +101,7 @@ class TestTimestamp:
             else:
                 assert False
 
-    def test_time_zones(self, reset_db) -> None:
+    def test_time_zones(self, reset_db: None) -> None:
         timestamps = [
             # Some random times in the summer months (to ensure varying DST treatment)
             datetime.fromisoformat('2024-07-01T22:45:12'),
@@ -160,7 +160,7 @@ class TestTimestamp:
                         results[method + '_tz'][row_idx] == getattr(effective_dt.astimezone(query_time_zone), method)()
                     )
 
-    def test_time_zone_in_literals(self, reset_db) -> None:
+    def test_time_zone_in_literals(self, reset_db: None) -> None:
         Env.get().default_time_zone = ZoneInfo('America/Anchorage')
         t = pxt.create_table('test_tbl', {'n': pxt.Int, 'dt': pxt.Timestamp})
         start = datetime.fromisoformat('2024-07-01T00:00:00+00:00')
@@ -174,7 +174,7 @@ class TestTimestamp:
         assert t.where(t.dt >= datetime.fromisoformat('2024-07-01T00:00:00')).count() == 960
         assert t.where(t.dt >= datetime.fromisoformat('2024-07-01T00:00:00-04:00')).count() == 1200
 
-    def test_make_ts(self, reset_db) -> None:
+    def test_make_ts(self, reset_db: None) -> None:
         Env.get().default_time_zone = ZoneInfo('America/Anchorage')
         t = pxt.create_table('test_tbl', {'dt': pxt.Timestamp})
         test_dts = [datetime.fromisoformat(dt) for dt in self.TEST_DATETIMES]

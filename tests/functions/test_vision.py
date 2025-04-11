@@ -7,7 +7,7 @@ from ..utils import get_video_files, skip_test_if_not_installed
 
 
 class TestVision:
-    def test_eval(self, reset_db) -> None:
+    def test_eval(self, reset_db: None) -> None:
         skip_test_if_not_installed('yolox')
         from pixeltable.ext.functions.yolox import yolox
 
@@ -50,7 +50,7 @@ class TestVision:
             draw_bounding_boxes(v.frame_s, boxes=v.detections_a.bboxes, labels=v.detections_a.labels, fill=True)
         ).collect()
 
-    def test_draw_bounding_boxes(self, reset_db) -> None:
+    def test_draw_bounding_boxes(self, reset_db: None) -> None:
         skip_test_if_not_installed('yolox')
         from pixeltable.ext.functions.yolox import yolox
 

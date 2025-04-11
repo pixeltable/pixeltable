@@ -4,7 +4,7 @@ from ..utils import get_image_files, skip_test_if_not_installed, validate_update
 
 
 class TestYolox:
-    def test_yolox(self, reset_db):
+    def test_yolox(self, reset_db: None) -> None:
         skip_test_if_not_installed('yolox')
         from pixeltable.ext.functions.yolox import yolox
 

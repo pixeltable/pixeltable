@@ -14,7 +14,7 @@ _logger = logging.getLogger('pixeltable')
 
 
 class TestProject:
-    def test_validation(self, reset_db):
+    def test_validation(self, reset_db: None) -> None:
         schema = {'col1': pxt.String, 'col2': pxt.Image, 'col3': pxt.String, 'col4': pxt.Video}
         t = pxt.create_table('test_store', schema)
         export_cols = {'export1': pxt.StringType(), 'export2': pxt.ImageType()}
@@ -133,7 +133,7 @@ class TestProject:
         )
 
     @pytest.mark.parametrize('with_reloads', [False, True])
-    def test_stored_proxies(self, reset_db, with_reloads: bool) -> None:
+    def test_stored_proxies(self, reset_db: None, with_reloads: bool) -> None:
         schema = {'img': pxt.Image, 'other_img': pxt.Image}
         t = pxt.create_table('test_store', schema)
         t.add_computed_column(rot_img=t.img.rotate(180), stored=False)

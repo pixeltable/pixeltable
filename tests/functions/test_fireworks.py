@@ -9,7 +9,7 @@ from ..utils import skip_test_if_not_installed, validate_update_status
 @pytest.mark.remote_api
 @pytest.mark.flaky(reruns=3, reruns_delay=8)
 class TestFireworks:
-    def test_fireworks(self, reset_db) -> None:
+    def test_fireworks(self, reset_db: None) -> None:
         skip_test_if_not_installed('fireworks')
         TestFireworks.skip_test_if_no_fireworks_client()
         t = pxt.create_table('test_tbl', {'input': pxt.String})

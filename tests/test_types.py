@@ -58,7 +58,7 @@ class TestTypes:
 
     bad_json_schema = {'type': 'junk'}
 
-    def test_infer(self, init_env) -> None:
+    def test_infer(self, init_env: None) -> None:
         test_cases: list[tuple[Any, ColumnType]] = [
             ('a', StringType()),
             (1, IntType()),
@@ -73,7 +73,7 @@ class TestTypes:
         for val, expected_type in test_cases:
             assert ColumnType.infer_literal_type(val) == expected_type, val
 
-    def test_from_python_type(self, init_env) -> None:
+    def test_from_python_type(self, init_env: None) -> None:
         # Test cases: map of python_type to expected (pxt_type, str(pxt_type))
         test_cases: dict[Union[type, _GenericAlias], tuple[ColumnType, str]] = {
             # Builtin and standard types
@@ -147,7 +147,7 @@ class TestTypes:
             assert non_nullable_pxt_type._to_str(as_schema=True) == f'Required[{string}]'
             assert nullable_pxt_type._to_str(as_schema=True) == string
 
-    def test_supertype(self, init_env) -> None:
+    def test_supertype(self, init_env: None) -> None:
         test_cases = [
             (IntType(), FloatType(), FloatType()),
             (BoolType(), IntType(), IntType()),
@@ -210,7 +210,7 @@ class TestTypes:
                     assert t1n.supertype(t2n) == expectedn, (t1n, t2n)
                     assert t2n.supertype(t1n) == expectedn, (t1n, t2n)
 
-    def test_json_schemas(self, init_env) -> None:
+    def test_json_schemas(self, init_env: None) -> None:
         skip_test_if_not_installed('pydantic')
         import pydantic
 

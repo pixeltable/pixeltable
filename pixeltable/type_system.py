@@ -512,7 +512,7 @@ class StringType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.STRING, nullable=nullable)
 
-    def has_supertype(self):
+    def has_supertype(self) -> bool:
         return not self.nullable
 
     @classmethod
@@ -602,7 +602,7 @@ class TimestampType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.TIMESTAMP, nullable=nullable)
 
-    def has_supertype(self):
+    def has_supertype(self) -> bool:
         return not self.nullable
 
     @classmethod
@@ -1252,7 +1252,7 @@ class _PxtType:
     `ColumnType`.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         raise TypeError(f'Type `{type(self)}` cannot be instantiated.')
 
     @classmethod

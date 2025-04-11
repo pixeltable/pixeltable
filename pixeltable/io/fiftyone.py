@@ -1,5 +1,5 @@
 import os
-from typing import Iterator, Optional, Union
+from typing import Any, Iterator, Optional, Union
 
 import fiftyone as fo  # type: ignore[import-untyped]
 import fiftyone.utils.data as foud  # type: ignore[import-untyped]
@@ -165,5 +165,5 @@ class PxtImageDatasetImporter(foud.LabeledImageDatasetImporter):
     def get_dataset_info(self) -> dict:
         pass
 
-    def close(self, *args) -> None:
+    def close(self, *args: Any) -> None:
         pass

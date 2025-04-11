@@ -227,15 +227,15 @@ class Table(SchemaObject):
         """Return rows from this table."""
         return self._df().collect()
 
-    def show(self, *args, **kwargs) -> 'pxt.dataframe.DataFrameResultSet':
+    def show(self, *args: Any, **kwargs: Any) -> 'pxt.dataframe.DataFrameResultSet':
         """Return rows from this table."""
         return self._df().show(*args, **kwargs)
 
-    def head(self, *args, **kwargs) -> 'pxt.dataframe.DataFrameResultSet':
+    def head(self, *args: Any, **kwargs: Any) -> 'pxt.dataframe.DataFrameResultSet':
         """Return the first n rows inserted into this table."""
         return self._df().head(*args, **kwargs)
 
-    def tail(self, *args, **kwargs) -> 'pxt.dataframe.DataFrameResultSet':
+    def tail(self, *args: Any, **kwargs: Any) -> 'pxt.dataframe.DataFrameResultSet':
         """Return the last n rows inserted into this table."""
         return self._df().tail(*args, **kwargs)
 
@@ -282,7 +282,7 @@ class Table(SchemaObject):
         return self._tbl_version.get().comment
 
     @property
-    def _num_retained_versions(self):
+    def _num_retained_versions(self) -> int:
         return self._tbl_version.get().num_retained_versions
 
     @property
