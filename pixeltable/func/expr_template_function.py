@@ -1,6 +1,6 @@
 from typing import Any, Optional, Sequence
 
-from pixeltable import exceptions as excs, exprs
+from pixeltable import exceptions as excs, exprs, type_system as ts
 
 from .function import Function
 from .signature import Signature
@@ -78,6 +78,18 @@ class ExprTemplateFunction(Function):
         result = result.substitute(arg_exprs)
         return result
 
+    def call_return_type(self, bound_args: dict[str, 'exprs.Expr']) -> ts.ColumnType:
+        assert not self.is_polymorphic
+        template = self.template
+        with_defaults = bound_args.copy()
+        with_defaults.update(
+            {param_name: default for param_name, default in template.defaults.items() if param_name not in bound_args}
+        )
+        substituted_expr = self.template.expr.copy().substitute(
+            {template.param_exprs[name]: expr for name, expr in with_defaults.items()}
+        )
+        return substituted_expr.col_type
+
     def _docstring(self) -> Optional[str]:
         if isinstance(self.templates[0].expr, exprs.FunctionCall):
             return self.templates[0].expr.fn._docstring()
@@ -97,7 +109,8 @@ class ExprTemplateFunction(Function):
     @property
     def display_name(self) -> str:
         if not self.self_name and isinstance(self.templates[0].expr, exprs.FunctionCall):
-            # In this common case, fall back on the display name of the underlying FunctionCall
+            # In the common case where the templated expression is itself a FunctionCall,
+            # fall back on the display name of the underlying FunctionCall
             return self.templates[0].expr.fn.display_name
         return self.self_name
 

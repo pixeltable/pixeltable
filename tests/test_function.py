@@ -395,7 +395,7 @@ class TestFunction:
             _ = pb1(p1='a')
         assert 'missing a required argument' in str(exc_info.value).lower()
 
-    def test_nested_partial_binding(self, reset_db) -> None:
+    def test_nested_partial_binding(self, reset_db: None) -> None:
         pb1 = self.binding_test_udf.using(p2='y')
         pb2 = pb1.using(p1='x')
         pb3 = pb2.using(p3='z')
@@ -414,6 +414,31 @@ class TestFunction:
         t.add_computed_column(pb3=pb3(p4='changed'))
         res = t.select(t.pb1, t.pb2, t.pb3).collect()
         assert res[0] == {'pb1': 'a y c default', 'pb2': 'x y c default', 'pb3': 'x y z changed'}
+
+    @staticmethod
+    @pxt.udf
+    def crt_test_udf(a: int, b: int, c: int = 5) -> pxt.Array[pxt.Int]:
+        return np.ones((b, c)) * a
+
+    def test_conditional_return_type(self, reset_db: None) -> None:
+        f = self.crt_test_udf
+
+        @f.conditional_return_type
+        def _(b: int, c: int) -> pxt.ColumnType:
+            return pxt.ArrayType(shape=(b, c), dtype=pxt.IntType())
+
+        assert f.signature.return_type == pxt.ArrayType(dtype=pxt.IntType())
+        assert f(3, 7).col_type == pxt.ArrayType(shape=(7, 5), dtype=pxt.IntType())
+        assert f(3, 7, 2).col_type == pxt.ArrayType(shape=(7, 2), dtype=pxt.IntType())
+
+        g = f.using(b=7)
+        assert g.signature.return_type == pxt.ArrayType(dtype=pxt.IntType())
+        assert g(3).col_type == pxt.ArrayType(shape=(7, 5), dtype=pxt.IntType())
+        assert g(3, 2).col_type == pxt.ArrayType(shape=(7, 2), dtype=pxt.IntType())
+
+        h = g.using(c=2)
+        assert h.signature.return_type == pxt.ArrayType(shape=(7, 2), dtype=pxt.IntType())
+        assert h(3).col_type == pxt.ArrayType(shape=(7, 2), dtype=pxt.IntType())
 
     @staticmethod
     @pxt.expr_udf
