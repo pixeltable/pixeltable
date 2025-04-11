@@ -491,7 +491,7 @@ class TableVersion:
         if not col.col_type.is_scalar_type() and not (col.col_type.is_media_type() and not col.is_computed):
             # wrong type for a B-tree
             return False
-        if col.col_type.is_bool_type():
+        if col.col_type.is_bool_type():  # noqa : SIM103 Supress `Return the negated condition directly` check
             # B-trees on bools aren't useful
             return False
         return True
@@ -706,7 +706,7 @@ class TableVersion:
                     num_excs += excs_per_col
             finally:
                 # Ensure cleanup occurs if an exception or keyboard interruption happens during `load_column()`.
-                def cleanup_on_error():
+                def cleanup_on_error() -> None:
                     """Delete columns that are added as part of current add_columns operation and re-initialize
                     the sqlalchemy schema"""
                     self.cols = [col for col in self.cols if col not in cols_to_add]

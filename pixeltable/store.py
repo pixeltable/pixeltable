@@ -303,7 +303,7 @@ class StoreBase:
             conn.execute(update_stmt)
         finally:
 
-            def remove_tmp_tbl():
+            def remove_tmp_tbl() -> None:
                 self.sa_md.remove(tmp_tbl)
                 tmp_tbl.drop(bind=conn)
 

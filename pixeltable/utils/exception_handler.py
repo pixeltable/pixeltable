@@ -1,6 +1,6 @@
 import logging
 import sys
-from typing import Callable, Optional, TypeVar
+from typing import Any, Callable, Optional, TypeVar
 
 R = TypeVar('R')
 
@@ -13,7 +13,7 @@ def _is_in_exception() -> bool:
     return current_exception is not None
 
 
-def run_cleanup_on_exception(cleanup_func: Callable[..., R], *args, **kwargs) -> Optional[R]:
+def run_cleanup_on_exception(cleanup_func: Callable[..., R], *args: Any, **kwargs: Any) -> Optional[R]:
     """
     Runs cleanup only when running in exception context.
 
@@ -29,7 +29,7 @@ def run_cleanup_on_exception(cleanup_func: Callable[..., R], *args, **kwargs) ->
     return None
 
 
-def run_cleanup(cleanup_func: Callable[..., R], *args, raise_error=True, **kwargs) -> Optional[R]:
+def run_cleanup(cleanup_func: Callable[..., R], *args: Any, raise_error: bool = True, **kwargs: Any) -> Optional[R]:
     """
     Runs a cleanup function. If interrupted, retry cleanup.
     The `run_cleanup()` function ensures that the `cleanup_func()` function executes at least once.
