@@ -1,29 +1,29 @@
-# Text and Image similarity search on video with embedding indexes
-
-## Pixeltable + Next.js + FastAPI Video Frame Search Engine
+# Multimodal Similarity Search: Video Frames & Tagged Images
 
 <a href="https://github.com/pixeltable/pixeltable"><img src="https://img.shields.io/badge/Powered%20by-Pixeltable-blue.svg"/></a>
 
-[Pixeltable](https://github.com/pixeltable/pixeltable) is a declarative interface for working with text, images, embeddings, and video, enabling you to store, transform, index, and iterate on data.
+This application demonstrates building a multimodal similarity search system using [Pixeltable](https://github.com/pixeltable/pixeltable), FastAPI, and Next.js.
 
-This example shows how to  build a video frame search application built with Next.js, FastAPI, and Pixeltable.
+![App Screenshot](./screenshot.png)
 
-Search through video content using text descriptions or similar images.
+**Functionality:**
+- **Video Frame Search:** Ingests videos, automatically extracts frames using [`FrameIterator`](https://pixeltable.github.io/pixeltable/api/pixeltable/iterators/#pixeltable.iterators.FrameIterator), generates CLIP embeddings, and enables text/image similarity search across frames via an [embedding index](https://pixeltable.github.io/pixeltable/user-guide/concepts/embedding-indexes/).
+- **Tagged Image Search:** Allows uploading images with multiple tags (stored as [`pxt.Json`](https://pixeltable.github.io/pixeltable/user-guide/data-types/)), generates CLIP embeddings, and supports text/image similarity search.
+- **Frontend Interaction:** Provides a React-based UI for uploading, searching, and browsing results grouped by tags.
 
-![overview](overview.png)
+## Key Pixeltable Concepts Demonstrated
 
-## 🚀 Features
-
-- Video processing and frame extraction
-- Text-based frame search
-- Image similarity search
-- Responsive UI
-- Frame preview gallery
+- **Declarative Data Loading:** Defining tables with [`pxt.Video`](https://pixeltable.github.io/pixeltable/user-guide/data-types/) and [`pxt.Image`](https://pixeltable.github.io/pixeltable/user-guide/data-types/) types automatically handles media ingestion.
+- **Automated Data Transformation:** Using [`FrameIterator`](https://pixeltable.github.io/pixeltable/api/pixeltable/iterators/#pixeltable.iterators.FrameIterator) in a `pxt.create_view` call triggers automatic frame extraction upon video insertion.
+- **Embedding Index Integration:** [`add_embedding_index`](https://pixeltable.github.io/pixeltable/api/pixeltable/table/#pixeltable.table.Table.add_embedding_index) automatically computes and indexes embeddings (using OpenAI CLIP via `pixeltable.functions.huggingface.clip`) for new video frames and images.
+- **Efficient Similarity Search:** Leveraging the `similarity()` method on indexed image columns for fast, cross-modal (text-to-image, image-to-image) search.
+- **Flexible Data Types:** Utilizing [`pxt.Json`](https://pixeltable.github.io/pixeltable/user-guide/data-types/) for storing lists of tags.
+- **Direct Image Encoding:** Using `column.b64_encode()` within a `.select()` clause for efficient image formatting for the API.
 
 ## 🛠️ Technologies
 
 - **Frontend:**
-  - Next.js 14
+  - Next.js
   - TypeScript
   - Tailwind CSS
   - React
@@ -31,6 +31,24 @@ Search through video content using text descriptions or similar images.
 - **Backend:**
   - FastAPI
   - Pixeltable
+
+## 🏛️ Architecture
+
+```mermaid
+graph LR
+    User[User] --> Frontend[Next.js Frontend];
+    subgraph "Browser"
+        Frontend -- API Requests (Upload/Search) --> Backend[FastAPI Backend];
+        Backend -- Search Results / Status --> Frontend;
+    end
+
+    subgraph "Server"
+        Backend -- Pixeltable Operations (Insert/Query) --> PTable[Pixeltable Engine];
+        PTable -- Reads/Writes --> Storage[Data Storage Files/Metadata];
+        PTable -- Uses --> CLIP[CLIP Model Embeddings];
+        PTable -- Similarity Search / Data Retrieval --> Backend;
+    end
+```
 
 ## 📦 Installation
 
@@ -53,7 +71,7 @@ npm run dev
 ```bash
 cd docs/sample-apps/text-and-image-similarity-search-nextjs-fastapi
 python -m venv venv
-pip install -r requirements.txt 
+pip install -r requirements.txt
 python app.py
 ```
 
