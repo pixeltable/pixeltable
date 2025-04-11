@@ -8,7 +8,7 @@ from ..utils import skip_test_if_no_client, skip_test_if_not_installed, validate
 @pytest.mark.remote_api
 @pytest.mark.flaky(reruns=3, reruns_delay=8)
 class TestDeepseek:
-    def test_chat_completions(self, reset_db) -> None:
+    def test_chat_completions(self, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('deepseek')
         t = pxt.create_table('test_tbl', {'input': pxt.String})

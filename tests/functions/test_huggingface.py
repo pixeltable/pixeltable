@@ -19,7 +19,7 @@ from ..utils import (
 
 @pytest.mark.flaky(reruns=3, reruns_delay=15)  # Guard against connection errors downloading models
 class TestHuggingface:
-    def test_hf_function(self, reset_db) -> None:
+    def test_hf_function(self, reset_db: None) -> None:
         skip_test_if_not_installed('sentence_transformers')
         t = pxt.create_table('test_tbl', {'input': pxt.String, 'bool_col': pxt.Bool})
         from pixeltable.functions.huggingface import sentence_transformer
@@ -46,7 +46,7 @@ class TestHuggingface:
         t.describe()
 
     @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Not supported on Linux ARM')
-    def test_sentence_transformer(self, reset_db, reload_tester: ReloadTester) -> None:
+    def test_sentence_transformer(self, reset_db: None, reload_tester: ReloadTester) -> None:
         skip_test_if_not_installed('sentence_transformers')
         t = pxt.create_table('test_tbl', {'input': pxt.String, 'input_list': pxt.Json})
         sents = get_sentences(10)
@@ -90,7 +90,7 @@ class TestHuggingface:
         verify_row(t.tail(1)[0])
 
     @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Not supported on Linux ARM')
-    def test_cross_encoder(self, reset_db) -> None:
+    def test_cross_encoder(self, reset_db: None) -> None:
         skip_test_if_not_installed('sentence_transformers')
         t = pxt.create_table('test_tbl', {'input': pxt.String, 'input_list': pxt.Json})
         sents = get_sentences(10)
@@ -125,7 +125,7 @@ class TestHuggingface:
         assert status.num_excs == 0
         verify_row(t.tail(1)[0])
 
-    def test_clip(self, reset_db) -> None:
+    def test_clip(self, reset_db: None) -> None:
         skip_test_if_not_installed('transformers')
         t = pxt.create_table('test_tbl', {'text': pxt.String, 'img': pxt.Image})
         num_rows = 10
@@ -163,7 +163,7 @@ class TestHuggingface:
         verify_row(t.tail(1)[0])
 
     @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Not supported on Linux ARM')
-    def test_detr_for_object_detection(self, reset_db) -> None:
+    def test_detr_for_object_detection(self, reset_db: None) -> None:
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import detr_for_object_detection
         from pixeltable.utils import coco
@@ -185,7 +185,7 @@ class TestHuggingface:
         assert 'broccoli' in label_text
 
     @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Not supported on Linux ARM')
-    def test_vit_for_image_classification(self, reset_db) -> None:
+    def test_vit_for_image_classification(self, reset_db: None) -> None:
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import vit_for_image_classification
 
@@ -199,7 +199,7 @@ class TestHuggingface:
         assert result['label_text'] == ['meat loaf, meatloaf', 'mashed potato', 'broccoli']
 
     @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Not supported on Linux ARM')
-    def test_speech2text_for_conditional_generation(self, reset_db) -> None:
+    def test_speech2text_for_conditional_generation(self, reset_db: None) -> None:
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import speech2text_for_conditional_generation
 

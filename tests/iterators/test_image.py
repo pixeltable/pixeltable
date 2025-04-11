@@ -8,7 +8,7 @@ from ..utils import SAMPLE_IMAGE_URL
 
 
 class TestImage:
-    def test_tile_iterator(self, reset_db):
+    def test_tile_iterator(self, reset_db: None) -> None:
         t = pxt.create_table('test_tbl', {'image': pxt.Image})
         t.insert(image=SAMPLE_IMAGE_URL)
         v = pxt.create_view(
@@ -30,7 +30,7 @@ class TestImage:
                 tile = image.crop(box)
                 assert list(result['tile'].getdata()) == list(tile.getdata())
 
-    def test_tile_iterator_errors(self, reset_db):
+    def test_tile_iterator_errors(self, reset_db: None) -> None:
         t = pxt.create_table('test_tbl', {'image': pxt.Image})
         t.insert(image=SAMPLE_IMAGE_URL)
         for overlap in ((0, 100), (100, 0)):

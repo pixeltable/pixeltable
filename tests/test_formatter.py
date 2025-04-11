@@ -4,7 +4,7 @@ from pixeltable.utils.formatter import Formatter
 
 
 class TestFormatter:
-    def test_format(self, init_env):
+    def test_format(self, init_env: None) -> None:
         formatter = Formatter(10, 10, Env.get().http_address)
         float_formatter = formatter.get_pandas_formatter(ts.FloatType())
         string_formatter = formatter.get_pandas_formatter(ts.StringType())

@@ -411,7 +411,7 @@ def strip_lines(s: str) -> str:
     return '\n'.join(line.strip() for line in lines)
 
 
-def skip_test_if_not_installed(package) -> None:
+def skip_test_if_not_installed(package: str) -> None:
     if not Env.get().is_installed_package(package):
         pytest.skip(f'Package `{package}` is not installed.')
 
@@ -538,7 +538,7 @@ class ReloadTester:
 
     df_info: list[tuple[dict[str, Any], DataFrameResultSet]]  # list of (df.as_dict(), df.collect())
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.df_info = []
 
     def clear(self) -> None:

@@ -31,7 +31,7 @@ class FunctionRegistry:
             cls._instance = FunctionRegistry()
         return cls._instance
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.stored_fns_by_id: dict[UUID, Function] = {}
         self.module_fns: dict[str, Function] = {}  # fqn -> Function
         self.type_methods: dict[ts.ColumnType.Type, dict[str, Function]] = {}

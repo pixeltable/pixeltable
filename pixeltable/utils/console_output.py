@@ -1,4 +1,5 @@
 import logging
+from typing import TextIO
 
 
 def map_level(verbosity: int) -> int:
@@ -22,10 +23,10 @@ def map_level(verbosity: int) -> int:
 
 
 class ConsoleOutputHandler(logging.StreamHandler):
-    def __init__(self, stream):
+    def __init__(self, stream: TextIO):
         super().__init__(stream)
 
-    def emit(self, record):
+    def emit(self, record: logging.LogRecord) -> None:
         if record.msg.endswith('\n'):
             self.stream.write(record.msg)
         else:

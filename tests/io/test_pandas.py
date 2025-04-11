@@ -12,7 +12,7 @@ from ..utils import skip_test_if_not_installed
 
 
 class TestPandas:
-    def test_import_pandas_types(self, reset_db) -> None:
+    def test_import_pandas_types(self, reset_db: None) -> None:
         df = pd.DataFrame(
             {
                 'int_col': [1, 2],
@@ -48,7 +48,7 @@ class TestPandas:
             'image_col': pxt.ImageType(width=100, nullable=True),
         }
 
-    def test_insert_pandas_types(self, reset_db) -> None:
+    def test_insert_pandas_types(self, reset_db: None) -> None:
         df = pd.DataFrame(
             {
                 'int_col': [1, 2],
@@ -87,7 +87,7 @@ class TestPandas:
         t.insert(df)
         assert t.count() == 2 * len(df)
 
-    def test_import_pandas_csv(self, reset_db) -> None:
+    def test_import_pandas_csv(self, reset_db: None) -> None:
         from pixeltable.io import import_csv
 
         t1 = import_csv('online_foods', 'tests/data/datasets/onlinefoods.csv')
@@ -149,7 +149,7 @@ class TestPandas:
             datetime.datetime(2024, 5, 6).astimezone(None),
         ]
 
-    def test_insert_pandas_csv(self, reset_db) -> None:
+    def test_insert_pandas_csv(self, reset_db: None) -> None:
         from pixeltable.io import import_csv
 
         t1 = import_csv('online_foods', 'tests/data/datasets/onlinefoods.csv')
@@ -167,7 +167,7 @@ class TestPandas:
         t3.insert('tests/data/datasets/edge-cases.csv')
         assert t3.count() == 2 * 4
 
-    def test_pandas_images(self, reset_db) -> None:
+    def test_pandas_images(self, reset_db: None) -> None:
         skip_test_if_not_installed('boto3')  # This test relies on s3 URLs
         from pixeltable.io.pandas import import_csv
 
@@ -180,7 +180,7 @@ class TestPandas:
         result_set = t4.order_by(t4.name).select(t4.image.width).collect()
         assert result_set['width'] == [1024, None, 1024, 962]
 
-    def test_import_pandas_excel(self, reset_db) -> None:
+    def test_import_pandas_excel(self, reset_db: None) -> None:
         skip_test_if_not_installed('openpyxl')
         from pixeltable.io.pandas import import_excel
 
@@ -201,7 +201,7 @@ class TestPandas:
         # Ensure that StringType is used when the column contains mixed types
         assert t6._schema['correct_answer'] == pxt.StringType(nullable=True)
 
-    def test_insert_pandas_excel(self, reset_db) -> None:
+    def test_insert_pandas_excel(self, reset_db: None) -> None:
         skip_test_if_not_installed('openpyxl')
         from pixeltable.io.pandas import import_excel
 
@@ -220,7 +220,7 @@ class TestPandas:
         t6.insert('docs/resources/rag-demo/Q-A-Rag.xlsx')
         assert t6.count() == 2 * 8
 
-    def test_pandas_errors(self, reset_db) -> None:
+    def test_pandas_errors(self, reset_db: None) -> None:
         from pixeltable.io import import_csv
 
         with pytest.raises(excs.Error) as exc_info:

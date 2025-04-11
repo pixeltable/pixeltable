@@ -8,7 +8,7 @@ import pixeltable.type_system as ts
 
 from .data_row import DataRow
 from .expr import Expr, ExprScope
-from .json_mapper import JsonMapper
+from .json_mapper import JsonMapperDispatch
 from .row_builder import RowBuilder
 from .sql_element_cache import SqlElementCache
 
@@ -19,7 +19,7 @@ class ObjectRef(Expr):
     The object is generated/materialized elsewhere and establishes a new scope.
     """
 
-    def __init__(self, scope: ExprScope, owner: JsonMapper):
+    def __init__(self, scope: ExprScope, owner: JsonMapperDispatch):
         # TODO: do we need an Unknown type after all?
         super().__init__(ts.JsonType())  # JsonType: this could be anything
         self._scope = scope

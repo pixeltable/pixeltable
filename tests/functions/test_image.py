@@ -33,7 +33,7 @@ class TestImage:
         _ = t.select(t.img.reduce(2, box=[0, 0, 10, 10])).show()
         _ = t.select(t.img.transpose(Transpose.FLIP_LEFT_RIGHT)).show()
 
-    def test_return_types(self, reset_db) -> None:
+    def test_return_types(self, reset_db: None) -> None:
         for nullable in (True, False):
             type_hint = pxt.Image[(200, 300), 'RGB']  # type: ignore
             type_hint = type_hint if nullable else pxt.Required[type_hint]  # type: ignore

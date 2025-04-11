@@ -11,7 +11,7 @@ from pixeltable import catalog, exceptions as excs, type_system as ts
 from .data_row import DataRow
 from .expr import Expr
 from .globals import print_slice
-from .json_mapper import JsonMapper
+from .json_mapper import JsonMapperDispatch
 from .object_ref import ObjectRef
 from .row_builder import RowBuilder
 from .sql_element_cache import SqlElementCache
@@ -80,11 +80,10 @@ class JsonPath(Expr):
     def is_relative_path(self) -> bool:
         return self._anchor is None
 
-    @property
     def _has_relative_path(self) -> bool:
-        return self.is_relative_path() or super()._has_relative_path
+        return self.is_relative_path() or super()._has_relative_path()
 
-    def _bind_rel_paths(self, mapper: Optional['JsonMapper'] = None) -> None:
+    def _bind_rel_paths(self, mapper: Optional['JsonMapperDispatch'] = None) -> None:
         if self.is_relative_path():
             # TODO: take scope_idx into account
             self.set_anchor(mapper.scope_anchor)
