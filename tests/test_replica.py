@@ -41,7 +41,7 @@ class TestReplica:
         assert t2.get_metadata()['is_snapshot']
         assert t2.get_metadata()['is_replica']
 
-    def test_complex_replica(self, reset_db) -> None:
+    def test_complex_replica(self, reset_db: None) -> None:
         """
         This test involves various more complicated arrangements of tables and snapshots.
 
