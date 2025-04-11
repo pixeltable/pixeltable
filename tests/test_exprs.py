@@ -21,7 +21,6 @@ from pixeltable.exprs import ColumnRef, Expr, Literal
 from pixeltable.functions.globals import cast
 from pixeltable.iterators import FrameIterator
 
-from .conftest import test_tbl
 from .utils import (
     ReloadTester,
     create_all_datatypes_tbl,

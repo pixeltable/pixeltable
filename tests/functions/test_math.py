@@ -40,7 +40,7 @@ class TestTimestamp:
 
         # Check that they can all be called with method syntax too
         for pxt_fn, _, _, _ in test_params:
-            mref = t.x.__getattr__(pxt_fn.name)
+            mref = getattr(t.x, pxt_fn.name)
             if isinstance(mref, pxt.exprs.MethodRef):
                 # method
                 assert mref.method_name == pxt_fn.name, pxt_fn
@@ -48,4 +48,4 @@ class TestTimestamp:
                 # property
                 assert mref.fn.name == pxt_fn.name, pxt_fn
             else:
-                assert False
+                raise AssertionError()
