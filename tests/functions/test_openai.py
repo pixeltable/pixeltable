@@ -341,6 +341,8 @@ class TestOpenai:
         from pixeltable.functions.openai import embeddings
 
         t = pxt.create_table('test_tbl', {'input': pxt.String})
+
+        # Embeddings as computed columns
         t.add_computed_column(ada_embed=embeddings(model='text-embedding-ada-002', input=t.input))
         t.add_computed_column(
             text_3=embeddings(model='text-embedding-3-small', input=t.input, dimensions=1024, user='pixeltable')
@@ -351,6 +353,9 @@ class TestOpenai:
         assert isinstance(type_info['text_3'], pxt.ArrayType)
         assert type_info['text_3'].shape == (1024,)
         validate_update_status(t.insert(input='Say something interesting.'), 1)
+
+        # Via add_embedding_index()
+        t.add_embedding_index(t.input, embedding=embeddings.using(model='text-embedding-3-small'))
         _ = t.head()
 
     def test_moderations(self, reset_db: None) -> None:

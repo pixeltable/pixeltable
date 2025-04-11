@@ -76,7 +76,6 @@ class ExprTemplateFunction(Function):
                 arg_expr = arg
             arg_exprs[param_expr] = arg_expr
         result = result.substitute(arg_exprs)
-        assert not result._contains(exprs.Variable)
         return result
 
     def _docstring(self) -> Optional[str]:
@@ -97,6 +96,9 @@ class ExprTemplateFunction(Function):
 
     @property
     def display_name(self) -> str:
+        if not self.self_name and isinstance(self.templates[0].expr, exprs.FunctionCall):
+            # In this common case, fall back on the display name of the underlying FunctionCall
+            return self.templates[0].expr.fn.display_name
         return self.self_name
 
     @property
