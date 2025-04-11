@@ -11,8 +11,8 @@ _logger = logging.getLogger('pixeltable')
 
 
 class Path:
-    def __init__(self, path: str, empty_is_valid: bool = False):
-        if not is_valid_path(path, empty_is_valid):
+    def __init__(self, path: str, empty_is_valid: bool = False, allow_system_paths: bool = False):
+        if not is_valid_path(path, empty_is_valid, allow_system_paths):
             raise excs.Error(f"Invalid path format: '{path}'")
         self.components = path.split('.')
 
@@ -30,20 +30,24 @@ class Path:
         return not self.components[0]
 
     @property
+    def is_system_path(self) -> bool:
+        return self.components[0].startswith('_')
+
+    @property
     def parent(self) -> Path:
         if len(self.components) == 1:
             if self.is_root:
                 return self
             else:
-                return Path('', empty_is_valid=True)
+                return Path('', empty_is_valid=True, allow_system_paths=True)
         else:
-            return Path('.'.join(self.components[:-1]))
+            return Path('.'.join(self.components[:-1]), allow_system_paths=True)
 
     def append(self, name: str) -> Path:
         if self.is_root:
-            return Path(name)
+            return Path(name, allow_system_paths=True)
         else:
-            return Path(f'{self!s}.{name}')
+            return Path(f'{self}.{name}', allow_system_paths=True)
 
     def is_ancestor(self, other: Path, is_parent: bool = False) -> bool:
         """
@@ -66,6 +70,9 @@ class Path:
         else:
             for i in range(0, len(self.components)):
                 yield Path('.'.join(self.components[0:i]), empty_is_valid=True)
+
+    def __repr__(self) -> str:
+        return repr(str(self))
 
     def __str__(self) -> str:
         return '.'.join(self.components)

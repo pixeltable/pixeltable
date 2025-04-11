@@ -2,6 +2,7 @@
 # rather than as a comment, so that the existence of a description can be enforced by
 # the unit tests when new versions are added.
 VERSION_NOTES = {
+    32: 'Add is_replica field to table metadata',
     31: 'Add table ids to metadata structs',
     30: 'Store default values and constant arguments as literals',
     29: 'Add user and additional_md fields to metadata structs',

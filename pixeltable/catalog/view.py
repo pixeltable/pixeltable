@@ -8,7 +8,7 @@ from uuid import UUID
 import pixeltable.exceptions as excs
 import pixeltable.metadata.schema as md_schema
 import pixeltable.type_system as ts
-from pixeltable import exprs, func
+from pixeltable import catalog, exprs, func
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
 
@@ -21,6 +21,7 @@ from .table_version_path import TableVersionPath
 
 if TYPE_CHECKING:
     import pixeltable as pxt
+    from pixeltable.globals import TableDataSource
 
 _logger = logging.getLogger('pixeltable')
 
@@ -242,7 +243,7 @@ class View(Table):
             # there is not TableVersion to drop
             self._check_is_dropped()
             self.is_dropped = True
-            TableVersion.delete_md(self._id)
+            catalog.Catalog.get().delete_tbl_md(self._id)
         else:
             super()._drop()
 
@@ -251,11 +252,6 @@ class View(Table):
         md['is_view'] = True
         md['is_snapshot'] = self._tbl_version_path.is_snapshot()
         return md
-
-    if TYPE_CHECKING:
-        import datasets  # type: ignore[import-untyped]
-
-        from pixeltable.globals import RowData, TableDataSource
 
     def insert(
         self,
