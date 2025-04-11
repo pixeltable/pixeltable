@@ -1144,6 +1144,7 @@ class TestExprs:
     ) -> None:
         """Test as_dict()/from_dict() (via serialize()/deserialize()) for all exprs."""
         skip_test_if_not_installed('transformers')
+
         for e in test_tbl_exprs + img_tbl_exprs + multi_img_tbl_exprs:
             e_serialized = e.serialize()
             e_deserialized = Expr.deserialize(e_serialized)

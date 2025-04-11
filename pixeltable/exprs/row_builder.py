@@ -77,6 +77,8 @@ class RowBuilder:
     transitive_dependents: np.ndarray  # of bool
     # dependencies[i] = direct dependencies of expr with slot idx i; transpose of dependents
     dependencies: np.ndarray  # of bool
+    # num_dependencies[i] = number of direct dependencies of expr with slot idx i
+    num_dependencies: np.ndarray  # of int
 
     # records the output_expr that a subexpr belongs to
     # (a subexpr can be shared across multiple output exprs)
@@ -209,6 +211,7 @@ class RowBuilder:
                 exc_dependencies[expr.slot_idx].add(d.slot_idx)
                 exc_dependencies[expr.slot_idx].update(exc_dependencies[d.slot_idx])
 
+        self.num_dependencies = np.sum(self.dependencies, axis=1)
         self.dependents = self.dependencies.T
         self.transitive_dependents = np.zeros((self.num_materialized, self.num_materialized), dtype=bool)
         for i in reversed(range(self.num_materialized)):
@@ -275,8 +278,14 @@ class RowBuilder:
         for d in e.dependencies():
             self._record_output_expr_id(d, output_expr_id)
 
-    def _compute_dependencies(self, target_slot_idxs: list[int], excluded_slot_idxs: list[int]) -> list[int]:
-        """Compute exprs needed to materialize the given target slots, excluding 'excluded_slot_idxs'"""
+    def _compute_dependencies(
+        self, target_slot_idxs: list[int], excluded_slot_idxs: list[int], target_scope: Optional[ExprScope] = None
+    ) -> list[int]:
+        """Compute exprs needed to materialize the given target slots, excluding 'excluded_slot_idxs'
+
+        If target_scope != None, stops transitive dependency resolution when leaving target_scope (ie, includes
+        immediate dependents that aren't in target_scope, but doesn't resolve those).
+        """
         dependencies: list[set[int]] = [set() for _ in range(self.num_materialized)]  # indexed by slot_idx
         # doing this front-to-back ensures that we capture transitive dependencies
         max_target_slot_idx = max(target_slot_idxs)
@@ -288,6 +297,9 @@ class RowBuilder:
                 continue
             if expr.slot_idx in self.input_expr_slot_idxs:
                 # this is input and therefore doesn't depend on other exprs
+                continue
+            if target_scope is not None and expr.scope() != target_scope:
+                # don't resolve dependencies outside of target_scope
                 continue
             for d in expr.dependencies():
                 assert d.slot_idx is not None, f'{expr}, {d}'
@@ -320,10 +332,15 @@ class RowBuilder:
         for c in e.components:
             self.__set_slot_idxs_aux(c)
 
-    def get_dependencies(self, targets: Iterable[Expr], exclude: Optional[Iterable[Expr]] = None) -> list[Expr]:
+    def get_dependencies(
+        self, targets: Iterable[Expr], exclude: Optional[Iterable[Expr]] = None, limit_scope: bool = True
+    ) -> list[Expr]:
         """
         Return list of dependencies needed to evaluate the given target exprs (expressed as slot idxs).
         The exprs given in 'exclude' are excluded.
+        If limit_scope == True, only returns dependencies in the same scope and immediate (ie, not transitive)
+        dependencies from enclosing scopes.
+
         Returns:
             list of Exprs from unique_exprs (= with slot_idx set)
         """
@@ -334,23 +351,33 @@ class RowBuilder:
             return []
         # make sure we only refer to recorded exprs
         targets = [self.unique_exprs[e] for e in targets]
+        target_scope: Optional[ExprScope] = None
+        if limit_scope:
+            # make sure all targets are from the same scope
+            target_scopes = {e.scope() for e in targets}
+            assert len(target_scopes) == 1
+            target_scope = target_scopes.pop()
         exclude = [self.unique_exprs[e] for e in exclude]
         target_slot_idxs = [e.slot_idx for e in targets]
         excluded_slot_idxs = [e.slot_idx for e in exclude]
-        all_dependencies = set(self._compute_dependencies(target_slot_idxs, excluded_slot_idxs))
+        all_dependencies = set(
+            self._compute_dependencies(target_slot_idxs, excluded_slot_idxs, target_scope=target_scope)
+        )
         all_dependencies.update(target_slot_idxs)
         result_ids = list(all_dependencies)
         result_ids.sort()
         return [self.unique_exprs[id] for id in result_ids]
 
-    def create_eval_ctx(self, targets: Iterable[Expr], exclude: Optional[Iterable[Expr]] = None) -> EvalCtx:
+    def create_eval_ctx(
+        self, targets: Iterable[Expr], exclude: Optional[Iterable[Expr]] = None, limit_scope: bool = True
+    ) -> EvalCtx:
         """Return EvalCtx for targets"""
         targets = list(targets)
         if exclude is None:
             exclude = []
         if len(targets) == 0:
             return self.EvalCtx([], [], [], [])
-        dependencies = self.get_dependencies(targets, exclude)
+        dependencies = self.get_dependencies(targets, exclude, limit_scope=limit_scope)
         targets = [self.unique_exprs[e] for e in targets]
         target_slot_idxs = [e.slot_idx for e in targets]
         ctx_slot_idxs = [e.slot_idx for e in dependencies]
