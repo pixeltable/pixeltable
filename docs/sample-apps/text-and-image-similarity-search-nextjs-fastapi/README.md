@@ -4,7 +4,7 @@
 
 This application demonstrates building a multimodal similarity search system using [Pixeltable](https://github.com/pixeltable/pixeltable), FastAPI, and Next.js.
 
-![App Screenshot](./screenshot.png)
+![App Screenshot](frontend/screenshot.png)
 
 **Functionality:**
 - **Video Frame Search:** Ingests videos, automatically extracts frames using `FrameIterator`, generates CLIP embeddings, and enables text/image similarity search across frames via an embedding index.
