@@ -66,7 +66,7 @@ class TestExprs:
         def __init__(self) -> None:
             self.sum = 1 / 0
 
-        def update(self, val: int):
+        def update(self, val: int) -> None:
             pass
 
         def value(self) -> int:
@@ -78,7 +78,7 @@ class TestExprs:
         def __init__(self) -> None:
             self.sum = 0
 
-        def update(self, val: int):
+        def update(self, val: int) -> None:
             self.sum += 1 // val
 
         def value(self) -> int:
@@ -87,10 +87,10 @@ class TestExprs:
     # error in agg.value()
     @pxt.uda
     class value_exc(pxt.Aggregator):
-        def __init__(self):
+        def __init__(self) -> None:
             self.sum = 0
 
-        def update(self, val: int):
+        def update(self, val: int) -> None:
             self.sum += val
 
         def value(self) -> float:
@@ -281,7 +281,7 @@ class TestExprs:
             _ = img_t.select(img_t.c9.errortype).show()
         assert 'only valid for' in str(excinfo.value)
 
-    def test_null_args(self, reset_db) -> None:
+    def test_null_args(self, reset_db: None) -> None:
         # create table with two columns
         schema = {'c1': pxt.Float, 'c2': pxt.Float}
         t = pxt.create_table('test', schema)
@@ -693,7 +693,7 @@ class TestExprs:
 
         reload_tester.run_reload_test()
 
-    def test_multi_json_mapper(self, reset_db, reload_tester: ReloadTester) -> None:
+    def test_multi_json_mapper(self, reset_db: None, reload_tester: ReloadTester) -> None:
         # Workflow with multiple JsonMapper instances
         t = pxt.create_table('test', {'jcol': pxt.Json})
         t.add_computed_column(outputx=pxtf.map(t.jcol.x['*'], lambda x: x + 1))
@@ -855,7 +855,7 @@ class TestExprs:
         assert len(errormsgs) == t.count() // 2
         assert all('Expected non-None value' in msg for msg in errormsgs), errormsgs
 
-    def test_astype_str_to_img(self, reset_db) -> None:
+    def test_astype_str_to_img(self, reset_db: None) -> None:
         img_files = get_image_files()
         img_files = img_files[:5]
         # store relative paths in the table
@@ -884,7 +884,7 @@ class TestExprs:
         for orig_img, retrieved_img in zip(orig_imgs, loaded_imgs):
             assert np.array_equal(np.array(orig_img), np.array(retrieved_img))
 
-    def test_astype_str_to_img_data_url(self, reset_db) -> None:
+    def test_astype_str_to_img_data_url(self, reset_db: None) -> None:
         t = pxt.create_table('astype_test', {'url': pxt.String})
         t.add_computed_column(img=t.url.astype(pxt.Image))
         images = get_image_files(include_bad_image=True)[:5]  # bad image is at idx 0
@@ -950,7 +950,7 @@ class TestExprs:
                 assert row[str_col_name] == json.dumps(row[col_name])
                 assert row[back_to_json_col_name] == row[col_name]
 
-        def f1(x):
+        def f1(x):  # type: ignore[no-untyped-def]
             return str(x)
 
         # Now test that a function without a return type throws an exception ...
@@ -963,7 +963,7 @@ class TestExprs:
         assert status.num_excs == 0
 
         # Test that the return type of a function can be successfully inferred.
-        def f2(x) -> str:
+        def f2(x) -> str:  # type: ignore[no-untyped-def]
             return str(x)
 
         status = t.add_computed_column(c2_str_f2=t.c2.apply(f2))
@@ -971,7 +971,7 @@ class TestExprs:
 
         # Test various validation failures.
 
-        def f3(x, y) -> str:
+        def f3(x, y) -> str:  # type: ignore[no-untyped-def]
             return f'{x}{y}'
 
         with pytest.raises(excs.Error) as exc_info:
@@ -985,7 +985,7 @@ class TestExprs:
             t.c2.apply(f4)  # No positional parameters
         assert str(exc_info.value) == 'Function `f4` has no positional parameters.'
 
-        def f5(**kwargs) -> str:
+        def f5(**kwargs: Any) -> str:
             return ''
 
         with pytest.raises(excs.Error) as exc_info:
@@ -994,22 +994,22 @@ class TestExprs:
 
         # Ensure these varargs signatures are acceptable
 
-        def f6(x, **kwargs) -> str:
+        def f6(x, **kwargs: Any) -> str:  # type: ignore[no-untyped-def]
             return x
 
         t.c2.apply(f6)
 
-        def f7(x, *args) -> str:
+        def f7(x, *args: Any) -> str:  # type: ignore[no-untyped-def]
             return x
 
         t.c2.apply(f7)
 
-        def f8(*args) -> str:
+        def f8(*args: Any) -> str:
             return ''
 
         t.c2.apply(f8)
 
-    def test_select_list(self, img_tbl) -> None:
+    def test_select_list(self, img_tbl: pxt.Table) -> None:
         t = img_tbl
         result = t.select(t.img).show(n=100)
         _ = result._repr_html_()
@@ -1019,7 +1019,7 @@ class TestExprs:
         with pytest.raises(excs.Error):
             _ = t.select(t.img.rotate)
 
-    def test_img_members(self, img_tbl) -> None:
+    def test_img_members(self, img_tbl: pxt.Table) -> None:
         t = img_tbl
         # make sure the limit is applied in Python, not in the SELECT
         result = t.where(t.img.height > 200).select(t.img).show(n=3)
@@ -1031,7 +1031,7 @@ class TestExprs:
         result = t.select(t.img, t.img.height, t.img.rotate(90)).show(n=100)
         _ = result._repr_html_()
 
-    def test_ext_imgs(self, reset_db) -> None:
+    def test_ext_imgs(self, reset_db: None) -> None:
         t = pxt.create_table('img_test', {'img': pxt.ImageType()})
         img_urls = [
             'https://raw.github.com/pixeltable/pixeltable/main/docs/resources/images/000000000030.jpg',
@@ -1050,7 +1050,7 @@ class TestExprs:
         # TODO: fix it
         # res = t.where(t.img.width < 600).collect()
 
-    def test_img_exprs(self, img_tbl) -> None:
+    def test_img_exprs(self, img_tbl: pxt.Table) -> None:
         t = img_tbl
         _ = t.where(t.img.width < 600).collect()
         _ = (t.img.entropy() > 1) & (t.split == 'train')
@@ -1070,7 +1070,7 @@ class TestExprs:
         print(result)
 
     @pytest.mark.skip(reason='temporarily disabled')
-    def test_similarity(self, small_img_tbl) -> None:
+    def test_similarity(self, small_img_tbl: pxt.Table) -> None:
         t = small_img_tbl
         _ = t.show(30)
         probe = t.select(t.img, t.category).show(1)
@@ -1171,7 +1171,7 @@ class TestExprs:
         assert len(subexprs) == 1
         assert t.img.equals(subexprs[0])
 
-    def test_window_fns(self, reset_db, test_tbl: catalog.Table) -> None:
+    def test_window_fns(self, reset_db: None, test_tbl: catalog.Table) -> None:
         t = test_tbl
         _ = t.select(pxtf.sum(t.c2, group_by=t.c4, order_by=t.c3)).show(100)
 
@@ -1218,11 +1218,11 @@ class TestExprs:
         # need to use frozensets because dicts are not hashable
         assert set(frozenset(d.items()) for d in val) == set(frozenset(d.items()) for d in res2)
 
-    def test_agg(self, reset_db) -> None:
+    def test_agg(self, reset_db: None) -> None:
         t = create_scalars_tbl(1000)
         df = t.select().collect().to_pandas()
 
-        def series_to_list(series):
+        def series_to_list(series: pd.Series) -> list[Optional[int]]:
             return [int(x) if pd.notna(x) else None for x in series]
 
         int_sum: Expr = pxtf.sum(t.c_int)
@@ -1444,7 +1444,7 @@ class TestExprs:
 
         assert "'group_by' is a reserved parameter name" in str(exc_info.value).lower()
 
-    def test_repr(self, reset_db) -> None:
+    def test_repr(self, reset_db: None) -> None:
         t = create_all_datatypes_tbl()
         instances: list[tuple[exprs.Expr, str]] = [
             # ArithmeticExpr
@@ -1496,7 +1496,7 @@ class TestExprs:
         for e, expected_repr in instances:
             assert repr(e) == expected_repr
 
-    def test_string_operations(self, test_tbl: catalog.Table, reset_db, reload_tester: ReloadTester) -> None:
+    def test_string_operations(self, test_tbl: catalog.Table, reset_db: None, reload_tester: ReloadTester) -> None:
         # create table with two columns
         schema = {'s1': pxt.String, 's2': pxt.String, 'i1': pxt.Int}
         t = pxt.create_table('test_str_concat', schema)

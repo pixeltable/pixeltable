@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 
 class TestParquet:
-    def test_import_parquet_examples(self, reset_db, tmp_path: pathlib.Path) -> None:
+    def test_import_parquet_examples(self, reset_db: None, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('pyarrow')
         import pyarrow as pa
         from pyarrow import parquet
@@ -63,7 +63,7 @@ class TestParquet:
             pqt.insert(xfile)
             assert pqt.count() == len1 * 2
 
-    def test_import_parquet(self, reset_db, tmp_path: pathlib.Path) -> None:
+    def test_import_parquet(self, reset_db: None, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('pyarrow')
         import pyarrow as pa
         from pyarrow import parquet
@@ -100,7 +100,7 @@ class TestParquet:
                 else:
                     assert val == arrow_tup[col]
 
-    def test_insert_parquet(self, reset_db, tmp_path: pathlib.Path) -> None:
+    def test_insert_parquet(self, reset_db: None, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('pyarrow')
         import pyarrow as pa
         from pyarrow import parquet
@@ -115,7 +115,7 @@ class TestParquet:
         tab.insert(str(parquet_dir), source_format='parquet')
         assert tab.count() == len1 * 2
 
-    def test_export_parquet_simple(self, reset_db, tmp_path: pathlib.Path) -> None:
+    def test_export_parquet_simple(self, reset_db: None, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('pyarrow')
         import pyarrow as pa
         from pyarrow import parquet
@@ -196,7 +196,7 @@ class TestParquet:
         assert it.select(it.c2).collect() == t.where(t.c1 == 1).select(t.c2).collect()
         assert it.select(it.c3).collect() == t.where(t.c1 == 1).select(t.c3).collect()
 
-    def test_export_parquet(self, reset_db, tmp_path: pathlib.Path) -> None:
+    def test_export_parquet(self, reset_db: None, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('pyarrow')
         import pyarrow as pa
         from pyarrow import parquet
@@ -249,7 +249,7 @@ class TestParquet:
         #   So the schema and value of that column differ.
         #
 
-    def test_export_parquet_image(self, reset_db, tmp_path: pathlib.Path) -> None:
+    def test_export_parquet_image(self, reset_db: None, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('pyarrow')
 
         tab = pxt.create_table('test_image', {'c1': pxt.Image})

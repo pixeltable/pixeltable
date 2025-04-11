@@ -1,3 +1,4 @@
+import os
 from typing import Any, Optional, Union
 
 import numpy as np
@@ -52,12 +53,12 @@ def import_pandas(
 
 def import_csv(
     tbl_name: str,
-    filepath_or_buffer,
+    filepath_or_buffer: Union[str, os.PathLike],
     schema_overrides: Optional[dict[str, Any]] = None,
     primary_key: Optional[Union[str, list[str]]] = None,
     num_retained_versions: int = 10,
     comment: str = '',
-    **kwargs,
+    **kwargs: Any,
 ) -> pxt.Table:
     """
     Creates a new base table from a csv file. This is a convenience method and is equivalent
@@ -81,13 +82,13 @@ def import_csv(
 
 def import_excel(
     tbl_name: str,
-    io,
-    *args,
+    io: Union[str, os.PathLike],
+    *,
     schema_overrides: Optional[dict[str, Any]] = None,
     primary_key: Optional[Union[str, list[str]]] = None,
     num_retained_versions: int = 10,
     comment: str = '',
-    **kwargs,
+    **kwargs: Any,
 ) -> pxt.Table:
     """
     Creates a new base table from an Excel (.xlsx) file. This is a convenience method and is

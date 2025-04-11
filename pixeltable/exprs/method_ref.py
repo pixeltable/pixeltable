@@ -23,7 +23,7 @@ class MethodRef(Expr):
     # TODO: Should this even be an `Expr`? It can't actually be evaluated directly (it has to be first
     #   converted to a `FunctionCall` by binding any remaining parameters).
 
-    def __init__(self, base_expr: Expr, method_name: str):
+    def __init__(self, base_expr: Expr, method_name: str) -> None:
         super().__init__(ts.InvalidType())  # The `MethodRef` is untyped until it is called.
         self.base_expr = base_expr
         self.method_name = method_name
@@ -43,7 +43,7 @@ class MethodRef(Expr):
         assert len(components) == 1
         return cls(components[0], d['method_name'])
 
-    def __call__(self, *args, **kwargs) -> FunctionCall:
+    def __call__(self, *args: Any, **kwargs: Any) -> FunctionCall:
         result = self.fn(*[self.base_expr, *args], **kwargs)
         assert isinstance(result, FunctionCall)
         result.is_method_call = True

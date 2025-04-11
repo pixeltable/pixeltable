@@ -238,7 +238,7 @@ class mean_ap(pxt.Aggregator):
     - A `dict[int, float]` mapping each label class to an average precision (AP) value for that class.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.class_tpfp: dict[int, list[dict]] = defaultdict(list)
 
     def update(self, eval_dicts: list[dict]) -> None:
@@ -394,5 +394,5 @@ def draw_bounding_boxes(
 __all__ = local_public_names(__name__)
 
 
-def __dir__():
+def __dir__() -> list[str]:
     return __all__

@@ -43,7 +43,7 @@ def udf(
 ) -> ExprTemplateFunction: ...
 
 
-def udf(*args, **kwargs):
+def udf(*args, **kwargs):  # type: ignore[no-untyped-def]
     """A decorator to create a Function from a function definition.
 
     Examples:
@@ -79,7 +79,7 @@ def udf(*args, **kwargs):
         if len(args) > 0:
             raise excs.Error('Unexpected @udf decorator arguments.')
 
-        def decorator(decorated_fn: Callable):
+        def decorator(decorated_fn: Callable) -> CallableFunction:
             return make_function(
                 decorated_fn,
                 batch_size=batch_size,

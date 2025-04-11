@@ -7,7 +7,7 @@ from .utils import make_tbl, reload_catalog
 
 
 class TestDirs:
-    def test_create(self, reset_db) -> None:
+    def test_create(self, reset_db: None) -> None:
         dirs = ['dir1', 'dir1.sub1', 'dir1.sub1.subsub1']
         for name in dirs:
             dir = pxt.create_dir(name)
@@ -64,7 +64,7 @@ class TestDirs:
         listing = pxt.list_dirs('dir1.sub1', recursive=False)
         assert listing == ['dir1.sub1.subsub1']
 
-    def test_create_if_exists(self, reset_db) -> None:
+    def test_create_if_exists(self, reset_db: None) -> None:
         """Test if_exists parameter of create_dir API"""
         dirs = ['dir1', 'dir1.sub1', 'dir1.sub1.subsub1']
         id_before = {}
@@ -158,7 +158,7 @@ class TestDirs:
             pxt.drop_dir(dir_name, if_not_exists='invalid')  # type: ignore[arg-type]
         assert "if_not_exists must be one of: ['error', 'ignore']" in str(exc_info.value).lower()
 
-    def test_drop(self, reset_db) -> None:
+    def test_drop(self, reset_db: None) -> None:
         dirs = ['dir1', 'dir1.sub1', 'dir1.sub1.subsub1']
         for name in dirs:
             pxt.create_dir(name)
@@ -188,7 +188,7 @@ class TestDirs:
         reload_catalog()
         assert pxt.list_dirs('dir1.sub1') == []
 
-    def test_drop_force(self, reset_db) -> None:
+    def test_drop_force(self, reset_db: None) -> None:
         pxt.create_dir('dir1')
         pxt.create_dir('dir2')
         pxt.create_dir('dir1.subdir')
@@ -207,7 +207,7 @@ class TestDirs:
         assert len(pxt.list_tables()) == 0
         assert len(pxt.list_dirs()) == 1
 
-    def test_move(self, reset_db) -> None:
+    def test_move(self, reset_db: None) -> None:
         pxt.create_dir('dir1')
         pxt.create_dir('dir1.sub1')
         make_tbl('dir1.sub1.t1')
@@ -229,7 +229,7 @@ class TestDirs:
         reload_catalog()
         assert pxt.list_tables('dir2') == ['dir2.dir1.sub1.t2']
 
-    def test_create_with_parents(self, reset_db) -> None:
+    def test_create_with_parents(self, reset_db: None) -> None:
         all_dirs = ['dir1', 'dir1.dir2', 'dir1.dir2.dir3']
         dir3 = pxt.create_dir('dir1.dir2.dir3', parents=True)
         md = dir3.get_metadata()
