@@ -102,7 +102,7 @@ class FileCache:
     def init(cls) -> None:
         cls.__instance = cls()
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.cache = OrderedDict()
         self.total_size = 0
         self.capacity_bytes = int(Env.get()._file_cache_size_g * (1 << 30))

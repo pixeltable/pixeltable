@@ -122,7 +122,7 @@ class OpenAIRateLimitsInfo(env.RateLimitsInfo):
 _header_duration_pattern = re.compile(r'(?:(\d+)d)?(?:(\d+)h)?(?:(\d+)ms)|(?:(\d+)m)?(?:([\d.]+)s)?')
 
 
-def _parse_header_duration(duration_str):
+def _parse_header_duration(duration_str: str) -> datetime.timedelta:
     match = _header_duration_pattern.match(duration_str)
     if not match:
         raise ValueError('Invalid duration format')
@@ -837,5 +837,5 @@ def _opt(arg: _T) -> Union[_T, 'openai.NotGiven']:
 __all__ = local_public_names(__name__)
 
 
-def __dir__():
+def __dir__() -> list[str]:
     return __all__

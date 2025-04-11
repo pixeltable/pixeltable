@@ -7,8 +7,6 @@ import logging
 import sys
 from typing import Any, Callable, Iterator, Optional, cast
 
-import numpy as np
-
 from pixeltable import exprs, func
 
 from .globals import Dispatcher, Evaluator, ExecCtx, FnCallArgs
@@ -324,8 +322,8 @@ class JsonMapperDispatcher(Evaluator):
             ]
             for nested_row, anchor_val in zip(nested_rows, src):
                 nested_row[self.scope_anchor.slot_idx] = anchor_val
-                for slot_idx, nested_slot_idx in self.external_slot_map.items():
-                    nested_row[nested_slot_idx] = row[slot_idx]
+                for slot_idx_, nested_slot_idx in self.external_slot_map.items():
+                    nested_row[nested_slot_idx] = row[slot_idx_]
             self.nested_exec_ctx.init_rows(nested_rows)
 
             # we modify DataRow.vals here directly, rather than going through __getitem__(), because we don't have

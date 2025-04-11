@@ -39,7 +39,7 @@ def _anthropic_client() -> 'anthropic.AsyncAnthropic':
 
 
 class AnthropicRateLimitsInfo(env.RateLimitsInfo):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(self._get_request_resources)
 
     def _get_request_resources(self, messages: dict, max_tokens: int) -> dict[str, int]:
@@ -236,5 +236,5 @@ def _opt(arg: _T) -> Union[_T, 'anthropic.NotGiven']:
 __all__ = local_public_names(__name__)
 
 
-def __dir__():
+def __dir__() -> list[str]:
     return __all__

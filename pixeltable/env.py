@@ -102,7 +102,7 @@ class Env:
         cls._instance = env
         cls.__initializing = False
 
-    def __init__(self):
+    def __init__(self) -> None:
         assert self._instance is None, 'Env is a singleton; use Env.get() to access the instance'
 
         self._media_dir = None  # computed media files
@@ -590,7 +590,7 @@ class Env:
         port = self._httpd.server_address[1]
         self._http_address = f'http://127.0.0.1:{port}'
 
-        def run_server():
+        def run_server() -> None:
             logging.log(logging.INFO, f'running web server at {self._http_address}')
             self._httpd.serve_forever()
 
@@ -845,7 +845,7 @@ class RateLimitsInfo:
     def reset(self) -> None:
         self.resource_limits.clear()
 
-    def record(self, **kwargs) -> None:
+    def record(self, **kwargs: Any) -> None:
         now = datetime.datetime.now(tz=datetime.timezone.utc)
         if len(self.resource_limits) == 0:
             self.resource_limits = {k: RateLimitInfo(k, now, *v) for k, v in kwargs.items() if v is not None}

@@ -17,7 +17,7 @@ class SqlElementCache:
             for e, el in elements.items():
                 self.cache[e.id] = el
 
-    def extend(self, elements: ExprDict[sql.ColumnElement]):
+    def extend(self, elements: ExprDict[sql.ColumnElement]) -> None:
         for e, el in elements.items():
             self.cache[e.id] = el
 

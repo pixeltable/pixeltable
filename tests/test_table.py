@@ -71,7 +71,7 @@ class TestTable:
 
     @pxt.uda(requires_order_by=True, allows_window=True)
     class window_fn(pxt.Aggregator):
-        def __init__(self):
+        def __init__(self) -> None:
             pass
 
         def update(self, i: int) -> None:
@@ -755,7 +755,7 @@ class TestTable:
             for path in paths:
                 assert os.path.exists(path) and os.path.isfile(path)
 
-    def test_validate_json(self, reset_db) -> None:
+    def test_validate_json(self, reset_db: None) -> None:
         json_schema = {
             'properties': {
                 'a': {'type': 'string'},
@@ -1021,7 +1021,7 @@ class TestTable:
         assert status.num_rows == len(rows)
         assert status.num_excs == 0
 
-        # alternate (kwargs) insert syntax
+        # alternate (**kwargs: Any) insert syntax
         status = t.insert(
             c1='string',
             c2=91,
@@ -1112,7 +1112,7 @@ class TestTable:
         t.insert(str_col='Hello there.')  # Succeeds because column 'bad' is dropped
         pxt.drop_table('test')
 
-    def test_insert_string_with_null(self, reset_db) -> None:
+    def test_insert_string_with_null(self, reset_db: None) -> None:
         t = pxt.create_table('test', {'c1': pxt.String})
 
         t.insert([{'c1': 'this is a python\x00string'}])
@@ -1965,7 +1965,7 @@ class TestTable:
             s1.drop_column('s1')
         assert 's1' in s1.columns
 
-    def test_drop_column_via_reference(self, reset_db) -> None:
+    def test_drop_column_via_reference(self, reset_db: None) -> None:
         t1 = pxt.create_table('test1', {'c1': pxt.String, 'c2': pxt.String})
         t1.insert([{'c1': 'a1', 'c2': 'b1'}, {'c1': 'a2', 'c2': 'b2'}])
         t2 = pxt.create_table('test2', {'c1': pxt.String, 'c2': pxt.String})

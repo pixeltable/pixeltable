@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 )
 @pytest.mark.flaky(reruns=3, reruns_delay=15)  # Guard against connection errors downloading datasets
 class TestHfDatasets:
-    def test_import_hf_dataset(self, reset_db, tmp_path: pathlib.Path) -> None:
+    def test_import_hf_dataset(self, reset_db: None, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('datasets')
         import datasets
 
@@ -76,7 +76,7 @@ class TestHfDatasets:
             else:
                 assert False
 
-    def test_insert_hf_dataset(self, reset_db, tmp_path: pathlib.Path) -> None:
+    def test_insert_hf_dataset(self, reset_db: None, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('datasets')
         import datasets
 
@@ -181,7 +181,7 @@ class TestHfDatasets:
             check_tup = DatasetTuple(**encoded_tup)
             assert check_tup in acc_dataset
 
-    def test_import_hf_dataset_with_images(self, reset_db) -> None:
+    def test_import_hf_dataset_with_images(self, reset_db: None) -> None:
         skip_test_if_not_installed('datasets')
         import datasets
 
@@ -192,7 +192,7 @@ class TestHfDatasets:
         assert isinstance(img, PIL.Image.Image)
         assert img.size == (28, 28)
 
-    def test_import_hf_dataset_invalid(self, reset_db) -> None:
+    def test_import_hf_dataset_invalid(self, reset_db: None) -> None:
         skip_test_if_not_installed('datasets')
         with pytest.raises(excs.Error) as exc_info:
             pxt.io.import_huggingface_dataset('test', {})

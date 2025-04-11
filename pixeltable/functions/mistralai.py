@@ -193,5 +193,5 @@ def _opt(arg: Optional[_T]) -> Union[_T, 'mistralai.types.basemodel.Unset']:
 __all__ = local_public_names(__name__)
 
 
-def __dir__():
+def __dir__() -> list[str]:
     return __all__
