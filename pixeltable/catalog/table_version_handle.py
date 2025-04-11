@@ -31,6 +31,9 @@ class TableVersionHandle:
             return False
         return self.id == other.id and self.effective_version == other.effective_version
 
+    def __hash__(self) -> int:
+        return hash((self.id, self.effective_version))
+
     @classmethod
     def create(cls, tbl_version: TableVersion) -> TableVersionHandle:
         return cls(tbl_version.id, tbl_version.effective_version, tbl_version)

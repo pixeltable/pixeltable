@@ -206,6 +206,10 @@ class FunctionCall(Expr):
         return self.group_by_stop_idx != 0
 
     @property
+    def is_async(self) -> bool:
+        return self.fn.is_async
+
+    @property
     def group_by(self) -> list[Expr]:
         return self.components[self.group_by_start_idx : self.group_by_stop_idx]
 
@@ -289,7 +293,7 @@ class FunctionCall(Expr):
             if (
                 val is None
                 and parameters_by_pos[idx].kind
-                in {inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD}
+                in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
                 and not parameters_by_pos[idx].col_type.nullable
             ):
                 return None
@@ -302,7 +306,7 @@ class FunctionCall(Expr):
             if (
                 val is None
                 and parameters[param_name].kind
-                in {inspect.Parameter.KEYWORD_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD}
+                in (inspect.Parameter.KEYWORD_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
                 and not parameters[param_name].col_type.nullable
             ):
                 return None
