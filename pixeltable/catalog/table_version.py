@@ -707,7 +707,8 @@ class TableVersion:
             finally:
                 # Ensure cleanup occurs if an exception or keyboard interruption happens during `load_column()`.
                 def cleanup_on_error():
-                    """Delete columns that are added as part of current add_columns operation and re-initialize the sqlalchemy schema"""
+                    """Delete columns that are added as part of current add_columns operation and re-initialize
+                    the sqlalchemy schema"""
                     self.cols = [col for col in self.cols if col not in cols_to_add]
                     for col in cols_to_add:
                         # remove columns that we already added
