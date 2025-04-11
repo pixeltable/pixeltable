@@ -7,9 +7,7 @@ import pytest
 import pixeltable as pxt
 from pixeltable import catalog, exceptions as excs
 
-# from .utils import (
-#    ReloadTester,
-# )
+from .utils import ReloadTester
 
 
 class TestSampling:
@@ -158,6 +156,17 @@ class TestSampling:
 
         df = t.select().where(t.id < 200).sample(fraction=0.5)
         self._check_sample(df, 200 * 0.5)
+
+    def test_sample_view(self, test_tbl: catalog.Table, reload_tester: ReloadTester) -> None:
+        t_rows = 360
+        t = self.create_table(t_rows, 6, False)
+
+        df = t.select(t.cat1).sample(fraction=0.3, seed=51)
+        v = pxt.create_view('view1', df)
+
+        results = reload_tester.run_query(v.select())
+        print(results)
+        reload_tester.run_reload_test()
 
     def test_sample_stratified(self, test_tbl: catalog.Table) -> None:
         t_rows = 360

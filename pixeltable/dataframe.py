@@ -1167,6 +1167,7 @@ class DataFrame:
             if self.order_by_clause is not None
             else None,
             'limit_val': self.limit_val.as_dict() if self.limit_val is not None else None,
+            'sample_clause': self.sample_clause.as_dict() if self.sample_clause is not None else None,
         }
         return d
 
@@ -1193,6 +1194,7 @@ class DataFrame:
                 else None
             )
             limit_val = exprs.Expr.from_dict(d['limit_val']) if d['limit_val'] is not None else None
+            sample_clause = exprs.Expr.from_dict(d['sample_clause']) if d['sample_clause'] is not None else None
 
             return DataFrame(
                 from_clause=from_clause,
@@ -1202,6 +1204,7 @@ class DataFrame:
                 grouping_tbl=grouping_tbl,
                 order_by_clause=order_by_clause,
                 limit=limit_val,
+                sample_clause=sample_clause,
             )
 
     def _hash_result_set(self) -> str:
