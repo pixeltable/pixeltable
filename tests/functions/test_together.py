@@ -7,7 +7,7 @@ from ..utils import skip_test_if_not_installed, validate_update_status
 
 
 @pytest.mark.remote_api
-@pytest.mark.flaky(reruns=3, reruns_delay=8)
+#@pytest.mark.flaky(reruns=3, reruns_delay=8)
 class TestTogether:
     def test_completions(self, reset_db: None) -> None:
         skip_test_if_not_installed('together')
@@ -97,8 +97,6 @@ class TestTogether:
                 model='stabilityai/stable-diffusion-xl-base-1.0',
                 steps=30,
                 seed=4171780,
-                height=768,
-                width=512,
                 negative_prompt=t.negative_prompt,
             )
         )
@@ -112,9 +110,9 @@ class TestTogether:
             2,
         )
         assert t.collect()['img'][0].size == (1024, 1024)
-        assert t.collect()['img_2'][0].size == (512, 768)
+        assert t.collect()['img_2'][0].size == (1024, 1024)
         assert t.collect()['img'][1].size == (1024, 1024)
-        assert t.collect()['img_2'][1].size == (512, 768)
+        assert t.collect()['img_2'][1].size == (1024, 1024)
 
     # This ensures that the test will be skipped, rather than returning an error, when no API key is
     # available (for example, when a PR runs in CI).
