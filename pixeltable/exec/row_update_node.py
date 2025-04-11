@@ -1,8 +1,7 @@
 import logging
 from typing import Any, AsyncIterator
 
-import pixeltable.catalog as catalog
-import pixeltable.exprs as exprs
+from pixeltable import catalog, exprs
 
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
@@ -29,7 +28,7 @@ class RowUpdateNode(ExecNode):
         input: ExecNode,
     ):
         super().__init__(row_builder, [], [], input)
-        self.updates = {key_vals: col_vals for key_vals, col_vals in zip(key_vals_batch, col_vals_batch)}
+        self.updates = dict(zip(key_vals_batch, col_vals_batch))
         self.is_rowid_key = is_rowid_key
         # determine slot idxs of all columns we need to read or write
         # retrieve ColumnRefs from the RowBuilder (has slot_idx set)
@@ -38,7 +37,7 @@ class RowUpdateNode(ExecNode):
             for col_ref in row_builder.unique_exprs
             if isinstance(col_ref, exprs.ColumnRef)
         }
-        self.col_slot_idxs = {col: all_col_slot_idxs[col] for col in col_vals_batch[0].keys()}
+        self.col_slot_idxs = {col: all_col_slot_idxs[col] for col in col_vals_batch[0]}
         self.key_slot_idxs = {col: all_col_slot_idxs[col] for col in tbl.tbl_version.get().primary_key_columns()}
         self.matched_key_vals: set[tuple] = set()
 

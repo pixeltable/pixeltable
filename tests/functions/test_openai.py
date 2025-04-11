@@ -4,8 +4,23 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
+import pixeltable.functions as pxtf
 
 from ..utils import SAMPLE_IMAGE_URL, skip_test_if_not_installed, stock_price, validate_update_status
+
+
+@pxt.udf
+def weather(city: str) -> Optional[str]:
+    """
+    Get today's weather forecast for a given city.
+
+    Args:
+        city - The name of the city to look up.
+    """
+    if city == 'San Francisco':
+        return 'Cloudy with a chance of meatballs'
+    else:
+        return 'Unknown city'
 
 
 @pytest.mark.remote_api
@@ -145,20 +160,6 @@ class TestOpenai:
         TestOpenai.skip_test_if_no_openai_client()
         from pixeltable.functions.openai import chat_completions, invoke_tools
 
-        # stock_price is a module UDF and weather is a local UDF, so we test both
-        @pxt.udf(_force_stored=True)
-        def weather(city: str) -> Optional[str]:
-            """
-            Get today's weather forecast for a given city.
-
-            Args:
-                city - The name of the city to look up.
-            """
-            if city == 'San Francisco':
-                return 'Cloudy with a chance of meatballs'
-            else:
-                return 'Unknown city'
-
         tools = pxt.tools(stock_price, weather)
         tool_choice_opts: list[Optional[pxt.func.ToolChoice]] = [
             None,
@@ -271,6 +272,40 @@ class TestOpenai:
         assert res[0]['output'] is None
         assert res[0]['tool_calls'] == {'banana_quantity': [131.17]}
 
+    def test_query_as_tool(self, reset_db) -> None:
+        skip_test_if_not_installed('openai')
+        TestOpenai.skip_test_if_no_openai_client()
+        from pixeltable.functions.openai import chat_completions, invoke_tools
+
+        t = pxt.create_table('customer_tbl', {'customer_id': pxt.String, 'name': pxt.String})
+        t.insert(
+            [{'customer_id': 'Q371A', 'name': 'Aaron Siegel'}, {'customer_id': 'B117F', 'name': 'Marcel Kornacker'}]
+        )
+
+        @pxt.query
+        def get_customer_name(customer_id: str) -> pxt.DataFrame:
+            """
+            Get the customer name for a given customer ID.
+
+            Args:
+                customer_id - The ID of the customer to look up.
+            """
+            return t.where(t.customer_id == customer_id).select(t.name)
+
+        u = pxt.create_table('test_tbl', {'prompt': pxt.String})
+
+        messages = [{'role': 'user', 'content': u.prompt}]
+        tools = pxt.tools(get_customer_name)
+        u.add_computed_column(response=chat_completions(model='gpt-4o-mini', messages=messages, tools=tools))
+        u.add_computed_column(output=u.response.choices[0].message.content)
+        u.add_computed_column(tool_calls=invoke_tools(tools, u.response))
+        u.insert(prompt='What is the name of the customer with customer ID Q371A?')
+        u.insert(prompt='What is the name of the customer with customer ID B117F?')
+        res = u.select(u.output, u.tool_calls).head()
+
+        assert res[0]['output'] is None
+        assert res[0]['tool_calls'] == {'get_customer_name': [[{'name': 'Aaron Siegel'}]]}
+
     @pytest.mark.expensive
     def test_gpt_4_vision(self, reset_db) -> None:
         skip_test_if_not_installed('openai')
@@ -363,6 +398,120 @@ class TestOpenai:
         )
         validate_update_status(t.insert(input='A friendly dinosaur playing tennis in a cornfield'), 1)
         assert t.collect()['img_3'][0].size == (1792, 1024)
+
+    @pytest.mark.expensive
+    def test_table_udf_tools(self, reset_db) -> None:
+        skip_test_if_not_installed('openai')
+        TestOpenai.skip_test_if_no_openai_client()
+        from pixeltable.functions.openai import chat_completions, invoke_tools
+
+        # Register tools
+        finance_tools = pxt.tools(stock_price)
+        weather_tools = pxt.tools(weather)
+
+        # Finance agent
+        finance_agent = pxt.create_table('finance_agent', {'prompt': pxt.String})
+        finance_agent.add_computed_column(
+            initial_response=chat_completions(
+                model='gpt-4o-mini',
+                messages=[{'role': 'user', 'content': finance_agent.prompt}],
+                tools=finance_tools,
+                tool_choice=finance_tools.choice(required=True),
+            )
+        )
+        finance_agent.add_computed_column(tool_output=invoke_tools(finance_tools, finance_agent.initial_response))
+        finance_agent.add_computed_column(
+            tool_response_prompt=pxtf.string.format(
+                'Orginal Prompt\n{0}: Tool Output\n{1}', finance_agent.prompt, finance_agent.tool_output
+            )
+        )
+        finance_agent.add_computed_column(
+            final_response=chat_completions(
+                model='gpt-4o-mini',
+                messages=[
+                    {
+                        'role': 'system',
+                        'content': 'You are a helpful AI assistant that can use various tools. Analyze the tool results and provide a clear, concise response.',
+                    },
+                    {'role': 'user', 'content': finance_agent.tool_response_prompt},
+                ],
+            )
+        )
+        finance_agent.add_computed_column(answer=finance_agent.final_response.choices[0].message.content)
+        finance_agent_udf = pxt.udf(finance_agent, return_value=finance_agent.answer)
+
+        # Weather agent
+        weather_agent = pxt.create_table('weather_agent', {'prompt': pxt.String})
+        weather_agent.add_computed_column(
+            initial_response=chat_completions(
+                model='gpt-4o-mini',
+                messages=[{'role': 'user', 'content': weather_agent.prompt}],
+                tools=weather_tools,
+                tool_choice=weather_tools.choice(required=True),
+            )
+        )
+        weather_agent.add_computed_column(tool_output=invoke_tools(weather_tools, weather_agent.initial_response))
+        weather_agent.add_computed_column(
+            tool_response_prompt=pxtf.string.format(
+                'Orginal Prompt\n{0}: Tool Output\n{1}', weather_agent.prompt, weather_agent.tool_output
+            )
+        )
+        weather_agent.add_computed_column(
+            final_response=chat_completions(
+                model='gpt-4o-mini',
+                messages=[
+                    {
+                        'role': 'system',
+                        'content': 'You are a helpful AI assistant that can use various tools. Analyze the tool results and provide a clear, concise response.',
+                    },
+                    {'role': 'user', 'content': weather_agent.tool_response_prompt},
+                ],
+            )
+        )
+        weather_agent.add_computed_column(answer=weather_agent.final_response.choices[0].message.content)
+        weather_agent_udf = pxt.udf(weather_agent, return_value=weather_agent.answer)
+
+        # Team tools
+        team_tools = pxt.tools(finance_agent_udf, weather_agent_udf)
+
+        # Manager Agent
+        manager = pxt.create_table('manager', {'prompt': pxt.String})
+        manager.add_computed_column(
+            initial_response=chat_completions(
+                model='gpt-4o-mini',
+                messages=[{'role': 'user', 'content': manager.prompt}],
+                tools=team_tools,
+                tool_choice=team_tools.choice(required=True),
+            )
+        )
+        manager.add_computed_column(tool_output=invoke_tools(team_tools, manager.initial_response))
+        manager.add_computed_column(
+            tool_response_prompt=pxtf.string.format(
+                'Orginal Prompt\n{0}: Tool Output\n{1}', manager.prompt, manager.tool_output
+            )
+        )
+        manager.add_computed_column(
+            final_response=chat_completions(
+                model='gpt-4o-mini',
+                messages=[
+                    {
+                        'role': 'system',
+                        'content': 'You are a helpful AI assistant that can use various tools. Analyze the tool results and provide a clear, concise response.',
+                    },
+                    {'role': 'user', 'content': manager.tool_response_prompt},
+                ],
+            )
+        )
+        manager.add_computed_column(answer=manager.final_response.choices[0].message.content)
+
+        manager.insert([{'prompt': "what's the weather in sf"}])
+        r1 = manager.select(manager.answer).collect()
+        assert len(r1) == 1
+        assert 'weather' in r1[0, 'answer'] and 'San Francisco' in r1[0, 'answer']
+        manager.insert([{'prompt': 'stock price of apple'}])
+        r2 = manager.select(manager.answer).collect()
+        assert len(r2) == 2
+        assert any('Apple' in answer for answer in r2['answer'])
 
     # This ensures that the test will be skipped, rather than returning an error, when no API key is
     # available (for example, when a PR runs in CI).

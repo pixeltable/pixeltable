@@ -32,7 +32,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-    "numpy (>=1.25,<2.0)",
+    "numpy (>=1.25)",
     "pandas (>=2.0,<3.0)",
     "pillow (>=9.3.0)",
     "tqdm (>=4.64)",
@@ -71,10 +71,11 @@ documentation = "https://docs.pixeltable.com/"
 
 [tool.poetry]
 exclude = [
-    ".pytype",
     ".pytest_cache",
-    "tests",
+    ".pytype",
     "docs",
+    "local",
+    "tests",
     "tool",
 ]
 requires-poetry = ">=2.0"
@@ -148,6 +149,7 @@ label-studio-sdk = "^0.0.32"
 fiftyone = "^1.0.0"
 ollama = ">=0.4.0"
 llama-cpp-python = { version = ">=0.3.7", platform = "!=win32" }  # Windows build of llama_cpp has issues in CI
+pixeltable-yolox = "==0.4.0"
 
 [tool.poetry.plugins."mkdocstrings.python.templates"]
 extension-name = "tool.doc_plugins.mkdocstrings:get_templates_path"
@@ -212,17 +214,22 @@ line-length = 120
 select = ["B", "C", "E", "F", "ICN", "N", "PL", "PYI", "RUF", "SIM", "TD002", "W"]
 ignore = [
     "B023",  # Function definition does not bind to loop variable (appears to generate false positives)
+    "B027",  # Empty method in abstract base class (I'm not sure why this should be a problem)
     # A bunch of rules that are just plain fussy about code complexity:
     "C901", "PLR0904", "PLR0911", "PLR0912", "PLR0913", "PLR0914", "PLR0915", "PLR0916", "PLR0917", "PLR1702",
     "E711",  # None comparison (x == None); needed for Pandas/Pixeltable expressions
+    "E712",  # Equality comparisons to `False` (x == False); needed for Pandas/Pixeltable expressions
     "N801",  # Class name should use CapWords convention (we intentionally violate this for aggregate functions)
     "PLC0415",  # Allow imports within functions (I don't see how this linting rule could ever work)
+    "PLC1901",  # Allow empty string comparisons
     "PLC2701",  # Allow private name imports
     "PLE0605",  # Invalid format for __all__ (appears to generate false positives)
     "PLR2004",  # Permit "magic values" (numbers that are not defined as constants)
+    "PLR6201",  # Don't require set literal for membership tests
     "PLR6301",  # Class method (not sure what to do yet)
     "PLW0108",  # Lambda may be unnecessary (gives false positives, e.g., for an arity-reducing lambda)
     "PLW3201",  # Dunder method has no special meaning (conflicts with _repr_html_)
+    "PYI041",  # Use `float` instead of `int | float` (just seems like a questionable idea)
     "SIM108",  # Don't prefer use of ternary if/else operator
     "TD002"  # Don't require author for TODOs
 ]

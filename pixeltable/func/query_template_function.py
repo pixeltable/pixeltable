@@ -17,8 +17,6 @@ class QueryTemplateFunction(Function):
 
     template_df: Optional['DataFrame']
     self_name: Optional[str]
-    # conn: Optional[sql.engine.Connection]
-    defaults: dict[str, exprs.Literal]
 
     @classmethod
     def create(
@@ -46,20 +44,6 @@ class QueryTemplateFunction(Function):
         self.self_name = name
         self.template_df = template_df
 
-        # if we're running as part of an ongoing update operation, we need to use the same connection, otherwise
-        # we end up with a deadlock
-        # TODO: figure out a more general way to make execution state available
-        # self.conn = None
-
-        # convert defaults to Literals
-        self.defaults = {}  # key: param name, value: default value converted to a Literal
-        param_types = self.template_df.parameters()
-        for param in [p for p in sig.parameters.values() if p.has_default()]:
-            assert param.name in param_types
-            param_type = param_types[param.name]
-            literal_default = exprs.Literal(param.default, col_type=param_type)
-            self.defaults[param.name] = literal_default
-
     def _update_as_overload_resolution(self, signature_idx: int) -> None:
         pass  # only one signature supported for QueryTemplateFunction
 
@@ -72,7 +56,11 @@ class QueryTemplateFunction(Function):
         bound_args = self.signature.py_signature.bind(*args, **kwargs).arguments
         # apply defaults, otherwise we might have Parameters left over
         bound_args.update(
-            {param_name: default for param_name, default in self.defaults.items() if param_name not in bound_args}
+            {
+                param.name: param.default
+                for param in self.signature.parameters.values()
+                if param.has_default() and param.name not in bound_args
+            }
         )
         bound_df = self.template_df.bind(bound_args)
         result = await bound_df._acollect()
@@ -87,7 +75,7 @@ class QueryTemplateFunction(Function):
         return self.self_name
 
     def _as_dict(self) -> dict:
-        return {'name': self.name, 'signature': self.signatures[0].as_dict(), 'df': self.template_df.as_dict()}
+        return {'name': self.name, 'signature': self.signature.as_dict(), 'df': self.template_df.as_dict()}
 
     @classmethod
     def _from_dict(cls, d: dict) -> Function:

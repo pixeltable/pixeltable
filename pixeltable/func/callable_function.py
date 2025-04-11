@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import inspect
 from typing import TYPE_CHECKING, Any, Callable, Optional, Sequence
 from uuid import UUID
@@ -85,6 +84,7 @@ class CallableFunction(Function):
 
     def exec(self, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:
         assert not self.is_polymorphic
+        assert not self.is_async
         if self.is_batched:
             # Pack the batched parameters into singleton lists
             constant_param_names = [p.name for p in self.signature.constant_parameters]
@@ -92,14 +92,9 @@ class CallableFunction(Function):
             constant_kwargs = {k: v for k, v in kwargs.items() if k in constant_param_names}
             batched_kwargs = {k: [v] for k, v in kwargs.items() if k not in constant_param_names}
             result: list[Any]
-            if inspect.iscoroutinefunction(self.py_fn):
-                result = asyncio.run(self.py_fn(*batched_args, **constant_kwargs, **batched_kwargs))
-            else:
-                result = self.py_fn(*batched_args, **constant_kwargs, **batched_kwargs)
+            result = self.py_fn(*batched_args, **constant_kwargs, **batched_kwargs)
             assert len(result) == 1
             return result[0]
-        elif inspect.iscoroutinefunction(self.py_fn):
-            return asyncio.run(self.py_fn(*args, **kwargs))
         else:
             return self.py_fn(*args, **kwargs)
 
@@ -124,12 +119,10 @@ class CallableFunction(Function):
         """
         assert self.is_batched
         assert not self.is_polymorphic
+        assert not self.is_async
         # Unpack the constant parameters
         constant_kwargs, batched_kwargs = self.create_batch_kwargs(kwargs)
-        if inspect.iscoroutinefunction(self.py_fn):
-            return asyncio.run(self.py_fn(*args, **constant_kwargs, **batched_kwargs))
-        else:
-            return self.py_fn(*args, **constant_kwargs, **batched_kwargs)
+        return self.py_fn(*args, **constant_kwargs, **batched_kwargs)
 
     def create_batch_kwargs(self, kwargs: dict[str, Any]) -> tuple[dict[str, Any], dict[str, list[Any]]]:
         """Converts kwargs containing lists into constant and batched kwargs in the format expected by a batched udf."""

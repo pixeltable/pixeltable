@@ -17,7 +17,7 @@ from typing_extensions import Self, _AnnotatedAlias
 from pixeltable import catalog, exceptions as excs, func, type_system as ts
 
 from .data_row import DataRow
-from .globals import ArithmeticOperator, ComparisonOperator, LiteralPythonTypes, LogicalOperator
+from .globals import ArithmeticOperator, ComparisonOperator, LiteralPythonTypes, LogicalOperator, StringOperator
 
 if TYPE_CHECKING:
     from pixeltable import exprs
@@ -69,6 +69,8 @@ class Expr(abc.ABC):
     # - not set for subexprs that don't need to be materialized because the parent can be materialized via SQL
     slot_idx: Optional[int]
 
+    T = TypeVar('T', bound='Expr')
+
     def __init__(self, col_type: ts.ColumnType):
         self.col_type = col_type
         self.components = []
@@ -90,14 +92,31 @@ class Expr(abc.ABC):
                 result = c_scope
         return result
 
-    def bind_rel_paths(self, mapper: Optional['exprs.JsonMapper'] = None) -> None:
+    def bind_rel_paths(self) -> None:
         """
         Binds relative JsonPaths to mapper.
         This needs to be done in a separate phase after __init__(), because RelativeJsonPath()(-1) cannot be resolved
         by the immediately containing JsonMapper during initialization.
         """
+        self._bind_rel_paths()
+        has_rel_path = self._has_relative_path()
+        assert not has_rel_path, self._expr_tree()
+        assert not self._has_relative_path(), self._expr_tree()
+
+    def _bind_rel_paths(self, mapper: Optional['exprs.JsonMapperDispatch'] = None) -> None:
         for c in self.components:
-            c.bind_rel_paths(mapper)
+            c._bind_rel_paths(mapper)
+
+    def _expr_tree(self) -> str:
+        """Returns a string representation of this expression as a multi-line tree. Useful for debugging."""
+        buf: list[str] = []
+        self._expr_tree_r(0, buf)
+        return '\n'.join(buf)
+
+    def _expr_tree_r(self, indent: int, buf: list[str]) -> None:
+        buf.append(f'{" " * indent}{type(self).__name__}: {self}'.replace('\n', '\\n'))
+        for c in self.components:
+            c._expr_tree_r(indent + 2, buf)
 
     def default_column_name(self) -> Optional[str]:
         """
@@ -173,7 +192,7 @@ class Expr(abc.ABC):
             return False
         return all(a[i].equals(b[i]) for i in range(len(a)))
 
-    def copy(self) -> Expr:
+    def copy(self: T) -> T:
         """
         Creates a copy that can be evaluated separately: it doesn't share any eval context (slot_idx)
         but shares everything else (catalog objects, etc.)
@@ -281,8 +300,6 @@ class Expr(abc.ABC):
     # instances of that subclass; and another that returns all subexpressions that match the given filter.
     # In order for type checking to behave correctly on both forms, we provide two overloaded signatures.
 
-    T = TypeVar('T', bound='Expr')
-
     @overload
     def subexprs(
         self, *, filter: Optional[Callable[[Expr], bool]] = None, traverse_matches: bool = True
@@ -354,6 +371,9 @@ class Expr(abc.ABC):
             return True
         except StopIteration:
             return False
+
+    def _has_relative_path(self) -> bool:
+        return any(c._has_relative_path() for c in self.components)
 
     def tbl_ids(self) -> set[UUID]:
         """Returns table ids referenced by this expr."""
@@ -440,7 +460,6 @@ class Expr(abc.ABC):
                 return Literal(o, col_type=obj_type)
         return None
 
-    @abc.abstractmethod
     def sql_expr(self, sql_elements: 'exprs.SqlElementCache') -> Optional[sql.ColumnElement]:
         """
         If this expr can be materialized directly in SQL:
@@ -450,7 +469,7 @@ class Expr(abc.ABC):
         - returns None
         - eval() will be called
         """
-        pass
+        return None
 
     @abc.abstractmethod
     def eval(self, data_row: DataRow, row_builder: 'exprs.RowBuilder') -> None:
@@ -514,7 +533,7 @@ class Expr(abc.ABC):
 
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr]) -> Self:
-        raise AssertionError('not implemented')
+        raise AssertionError(f'not implemented: {cls.__name__}')
 
     def isin(self, value_set: Any) -> 'exprs.InPredicate':
         from .in_predicate import InPredicate
@@ -586,10 +605,6 @@ class Expr(abc.ABC):
                 # Return the `MethodRef` object itself; it requires arguments to become a `FunctionCall`
                 return method_ref
 
-    def __rshift__(self, other: object) -> 'exprs.Expr':
-        # Implemented here for type-checking purposes
-        raise excs.Error('The `>>` operator can only be applied to Json expressions')
-
     def __bool__(self) -> bool:
         raise TypeError(
             f'Pixeltable expressions cannot be used in conjunction with Python boolean operators (and/or/not)\n{self!r}'
@@ -639,13 +654,17 @@ class Expr(abc.ABC):
     def __neg__(self) -> 'exprs.ArithmeticExpr':
         return self._make_arithmetic_expr(ArithmeticOperator.MUL, -1)
 
-    def __add__(self, other: object) -> 'exprs.ArithmeticExpr':
+    def __add__(self, other: object) -> Union[exprs.ArithmeticExpr, exprs.StringOp]:
+        if isinstance(self, str) or (isinstance(self, Expr) and self.col_type.is_string_type()):
+            return self._make_string_expr(StringOperator.CONCAT, other)
         return self._make_arithmetic_expr(ArithmeticOperator.ADD, other)
 
     def __sub__(self, other: object) -> 'exprs.ArithmeticExpr':
         return self._make_arithmetic_expr(ArithmeticOperator.SUB, other)
 
-    def __mul__(self, other: object) -> 'exprs.ArithmeticExpr':
+    def __mul__(self, other: object) -> Union['exprs.ArithmeticExpr', 'exprs.StringOp']:
+        if isinstance(self, str) or (isinstance(self, Expr) and self.col_type.is_string_type()):
+            return self._make_string_expr(StringOperator.REPEAT, other)
         return self._make_arithmetic_expr(ArithmeticOperator.MUL, other)
 
     def __truediv__(self, other: object) -> 'exprs.ArithmeticExpr':
@@ -657,13 +676,17 @@ class Expr(abc.ABC):
     def __floordiv__(self, other: object) -> 'exprs.ArithmeticExpr':
         return self._make_arithmetic_expr(ArithmeticOperator.FLOORDIV, other)
 
-    def __radd__(self, other: object) -> 'exprs.ArithmeticExpr':
+    def __radd__(self, other: object) -> Union['exprs.ArithmeticExpr', 'exprs.StringOp']:
+        if isinstance(other, str) or (isinstance(other, Expr) and other.col_type.is_string_type()):
+            return self._rmake_string_expr(StringOperator.CONCAT, other)
         return self._rmake_arithmetic_expr(ArithmeticOperator.ADD, other)
 
     def __rsub__(self, other: object) -> 'exprs.ArithmeticExpr':
         return self._rmake_arithmetic_expr(ArithmeticOperator.SUB, other)
 
-    def __rmul__(self, other: object) -> 'exprs.ArithmeticExpr':
+    def __rmul__(self, other: object) -> Union['exprs.ArithmeticExpr', 'exprs.StringOp']:
+        if isinstance(other, str) or (isinstance(other, Expr) and other.col_type.is_string_type()):
+            return self._rmake_string_expr(StringOperator.REPEAT, other)
         return self._rmake_arithmetic_expr(ArithmeticOperator.MUL, other)
 
     def __rtruediv__(self, other: object) -> 'exprs.ArithmeticExpr':
@@ -674,6 +697,32 @@ class Expr(abc.ABC):
 
     def __rfloordiv__(self, other: object) -> 'exprs.ArithmeticExpr':
         return self._rmake_arithmetic_expr(ArithmeticOperator.FLOORDIV, other)
+
+    def _make_string_expr(self, op: StringOperator, other: object) -> 'exprs.StringOp':
+        """
+        Make left-handed version of string expression.
+        """
+        from .literal import Literal
+        from .string_op import StringOp
+
+        if isinstance(other, Expr):
+            return StringOp(op, self, other)
+        if isinstance(other, typing.get_args(LiteralPythonTypes)):
+            return StringOp(op, self, Literal(other))
+        raise TypeError(f'Other must be Expr or literal: {type(other)}')
+
+    def _rmake_string_expr(self, op: StringOperator, other: object) -> 'exprs.StringOp':
+        """
+        Right-handed version of _make_string_expr. other must be a literal; if it were an Expr,
+        the operation would have already been evaluated in its left-handed form.
+        """
+        from .literal import Literal
+        from .string_op import StringOp
+
+        assert not isinstance(other, Expr)  # Else the left-handed form would have evaluated first
+        if isinstance(other, typing.get_args(LiteralPythonTypes)):
+            return StringOp(op, Literal(other), self)
+        raise TypeError(f'Other must be Expr or literal: {type(other)}')
 
     def _make_arithmetic_expr(self, op: ArithmeticOperator, other: object) -> 'exprs.ArithmeticExpr':
         """
@@ -786,13 +835,13 @@ class Expr(abc.ABC):
             first_param = next(params_iter) if len(params) >= 1 else None
             second_param = next(params_iter) if len(params) >= 2 else None
             # Check that fn has at least one positional parameter
-            if len(params) == 0 or first_param.kind in {inspect.Parameter.KEYWORD_ONLY, inspect.Parameter.VAR_KEYWORD}:
+            if len(params) == 0 or first_param.kind in (inspect.Parameter.KEYWORD_ONLY, inspect.Parameter.VAR_KEYWORD):
                 raise excs.Error(f'Function `{fn.__name__}` has no positional parameters.')
             # Check that fn has at most one required parameter, i.e., its second parameter
             # has no default and is not a varargs
             if (
                 len(params) >= 2
-                and second_param.kind not in {inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD}
+                and second_param.kind not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
                 and second_param.default is inspect.Parameter.empty
             ):
                 raise excs.Error(f'Function `{fn.__name__}` has multiple required parameters.')

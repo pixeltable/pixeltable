@@ -120,6 +120,9 @@ class TestDataFrame:
             _ = t.select(t.c1, t2.c1 + t.c2).collect()
         assert 'cannot be evaluated in the context' in str(exc_info.value)
 
+        with pytest.raises(excs.Error, match='Where clause already specified'):
+            r2 = t.select(t.c2).where(t.c2 <= 10).where(t.c2 <= 20).count()
+
     def test_join(self, reset_db) -> None:
         t1, t2, t3 = self.create_join_tbls(1000)
         # inner join
@@ -531,6 +534,17 @@ class TestDataFrame:
         with pytest.raises(excs.Error) as exc_info:
             snap.where(t.c2 < 10).delete()
         assert 'Cannot delete from view' in str(exc_info.value)
+
+    def __check_constant_query(self, df: pxt.DataFrame, v: Any) -> None:
+        r = df.limit(5).collect()
+        assert all(r[i, 0] == v for i in range(len(r)))
+
+    def test_select_constant(self, all_datatypes_tbl: catalog.Table) -> None:
+        t = all_datatypes_tbl
+        self.__check_constant_query(t.select(5), 5)
+        self.__check_constant_query(t.select(None), None)
+        self.__check_constant_query(t.select(foo=5), 5)
+        self.__check_constant_query(t.select(foo=None), None)
 
     def test_to_pytorch_dataset(self, all_datatypes_tbl: catalog.Table) -> None:
         """tests all types are handled correctly in this conversion"""

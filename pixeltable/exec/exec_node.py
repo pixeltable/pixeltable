@@ -3,7 +3,6 @@ from __future__ import annotations
 import abc
 import asyncio
 import logging
-import sys
 from typing import AsyncIterator, Iterable, Iterator, Optional, TypeVar
 
 from pixeltable import exprs
@@ -70,12 +69,12 @@ class ExecNode(abc.ABC):
 
             nest_asyncio.apply()
             loop = running_loop
-            _logger.debug(f'Patched running loop')
+            _logger.debug('Patched running loop')
         except RuntimeError:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
 
-        if 'pytest' in sys.modules:
+        if _logger.isEnabledFor(logging.DEBUG):
             loop.set_debug(True)
 
         aiter = self.__aiter__()

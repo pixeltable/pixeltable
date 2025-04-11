@@ -1,3 +1,5 @@
+# ruff: noqa: F401
+
 from .catalog import Catalog
 from .column import Column
 from .dir import Dir
@@ -5,7 +7,6 @@ from .globals import IfExistsParam, IfNotExistsParam, MediaValidation, UpdateSta
 from .insertable_table import InsertableTable
 from .named_function import NamedFunction
 from .path import Path
-from .path_dict import PathDict
 from .schema_object import SchemaObject
 from .table import Table
 from .table_version import TableVersion

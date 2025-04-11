@@ -80,7 +80,7 @@ def __substitute_md(k: Optional[str], v: Any) -> Optional[tuple[Optional[str], A
                         rolled_kwargs = kwargs.pop(param['name'])
 
         if rolled_args is not None:
-            assert rolled_args['_classname'] in {'InlineArray', 'InlineList'}
+            assert rolled_args['_classname'] in ('InlineArray', 'InlineList')
             new_args.extend(rolled_args['components'])
         if rolled_kwargs is not None:
             assert rolled_kwargs['_classname'] == 'InlineDict'

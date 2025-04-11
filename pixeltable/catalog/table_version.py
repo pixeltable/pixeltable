@@ -13,9 +13,8 @@ import sqlalchemy as sql
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
-import pixeltable.exprs as exprs
-import pixeltable.index as index
 import pixeltable.type_system as ts
+from pixeltable import exprs, index
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
 from pixeltable.metadata import schema
@@ -55,6 +54,7 @@ class TableVersion:
 
     id: UUID
     name: str
+    user: Optional[str]
     effective_version: Optional[int]
     version: int
     comment: str
@@ -109,6 +109,7 @@ class TableVersion:
     ):
         self.id = id
         self.name = tbl_md.name
+        self.user = tbl_md.user
         self.effective_version = effective_version
         self.version = tbl_md.current_version if effective_version is None else effective_version
         self.comment = schema_version_md.comment
@@ -178,10 +179,6 @@ class TableVersion:
         # Init external stores (this needs to happen after the schema is created)
         self._init_external_stores(tbl_md)
 
-        # Force column metadata to load, in order to surface any invalid metadata now (as warnings)
-        for col in self.cols_by_id.values():
-            _ = col.value_expr
-
     def __hash__(self) -> int:
         return hash(self.id)
 
@@ -216,6 +213,7 @@ class TableVersion:
         view_md: Optional[schema.ViewMd] = None,
     ) -> tuple[UUID, Optional[TableVersion]]:
         session = Env.get().session
+        user = Env.get().user
 
         # assign ids
         cols_by_name: dict[str, Column] = {}
@@ -230,9 +228,11 @@ class TableVersion:
         # create schema.Table
         # Column.dependent_cols for existing cols is wrong at this point, but init() will set it correctly
         column_md = cls._create_column_md(cols)
+        tbl_id = uuid.uuid4()
         table_md = schema.TableMd(
+            tbl_id=str(tbl_id),
             name=name,
-            user=None,
+            user=user,
             current_version=0,
             current_schema_version=0,
             next_col_id=len(cols),
@@ -246,11 +246,12 @@ class TableVersion:
         )
         # create a schema.Table here, we need it to call our c'tor;
         # don't add it to the session yet, we might add index metadata
-        tbl_id = uuid.uuid4()
         tbl_record = schema.Table(id=tbl_id, dir_id=dir_id, md=dataclasses.asdict(table_md))
 
         # create schema.TableVersion
-        table_version_md = schema.TableVersionMd(created_at=timestamp, version=0, schema_version=0, additional_md={})
+        table_version_md = schema.TableVersionMd(
+            tbl_id=str(tbl_record.id), created_at=timestamp, version=0, schema_version=0, additional_md={}
+        )
         tbl_version_record = schema.TableVersion(
             tbl_id=tbl_record.id, version=0, md=dataclasses.asdict(table_version_md)
         )
@@ -266,6 +267,7 @@ class TableVersion:
             schema_col_md[col.id] = md
 
         schema_version_md = schema.TableSchemaVersionMd(
+            tbl_id=str(tbl_record.id),
             schema_version=0,
             preceding_schema_version=None,
             columns=schema_col_md,
@@ -342,8 +344,11 @@ class TableVersion:
         self.cols = []
         self.cols_by_name = {}
         self.cols_by_id = {}
-        for col_md in tbl_md.column_md.values():
-            schema_col_md = schema_version_md.columns[col_md.id] if col_md.id in schema_version_md.columns else None
+        # Sort columns in column_md by the position specified in col_md.id to guarantee that all references
+        # point backward.
+        sorted_column_md = sorted(tbl_md.column_md.values(), key=lambda item: item.id)
+        for col_md in sorted_column_md:
+            schema_col_md = schema_version_md.columns.get(col_md.id)
             col_name = schema_col_md.name if schema_col_md is not None else None
             media_val = (
                 MediaValidation[schema_col_md.media_validation.upper()]
@@ -386,10 +391,8 @@ class TableVersion:
         import pixeltable.index as index_module
 
         for md in tbl_md.index_md.values():
-            if (
-                md.schema_version_add > self.schema_version
-                or md.schema_version_drop is not None
-                and md.schema_version_drop <= self.schema_version
+            if md.schema_version_add > self.schema_version or (
+                md.schema_version_drop is not None and md.schema_version_drop <= self.schema_version
             ):
                 # index not visible in this schema version
                 continue
@@ -458,6 +461,11 @@ class TableVersion:
                     tbl_id=self.id, schema_version=self.schema_version, md=dataclasses.asdict(schema_version_md)
                 )
             )
+
+    def ensure_md_loaded(self) -> None:
+        """Ensure that table metadata is loaded."""
+        for col in self.cols_by_id.values():
+            _ = col.value_expr
 
     def _store_idx_name(self, idx_id: int) -> str:
         """Return name of index in the store, which needs to be globally unique"""
@@ -655,11 +663,10 @@ class TableVersion:
         cols_to_add = list(cols)
         row_count = self.store_tbl.count()
         for col in cols_to_add:
-            if not col.col_type.nullable and not col.is_computed:
-                if row_count > 0:
-                    raise excs.Error(
-                        f'Cannot add non-nullable column "{col.name}" to table {self.name} with existing rows'
-                    )
+            if not col.col_type.nullable and not col.is_computed and row_count > 0:
+                raise excs.Error(
+                    f'Cannot add non-nullable column {col.name!r} to table {self.name!r} with existing rows'
+                )
 
         num_excs = 0
         cols_with_excs: list[Column] = []
@@ -802,7 +809,8 @@ class TableVersion:
 
     def set_num_retained_versions(self, new_num_retained_versions: int):
         _logger.info(
-            f'[{self.name}] Updating num_retained_versions: {new_num_retained_versions} (was {self.num_retained_versions})'
+            f'[{self.name}] Updating num_retained_versions: {new_num_retained_versions} '
+            f'(was {self.num_retained_versions})'
         )
         self.num_retained_versions = new_num_retained_versions
         self._create_schema_version()
@@ -897,7 +905,7 @@ class TableVersion:
 
         from pixeltable.plan import Planner
 
-        update_spec = self._validate_update_spec(value_spec, allow_pk=False, allow_exprs=True)
+        update_spec = self._validate_update_spec(value_spec, allow_pk=False, allow_exprs=True, allow_media=True)
         if where is not None:
             if not isinstance(where, exprs.Expr):
                 raise excs.Error(f"'where' argument must be a predicate, got {type(where)}")
@@ -936,7 +944,6 @@ class TableVersion:
         """
         # if we do lookups of rowids, we must have one for each row in the batch
         assert len(rowids) == 0 or len(rowids) == len(batch)
-        cols_with_excs: set[str] = set()
 
         from pixeltable.plan import Planner
 
@@ -958,7 +965,7 @@ class TableVersion:
         return result
 
     def _validate_update_spec(
-        self, value_spec: dict[str, Any], allow_pk: bool, allow_exprs: bool
+        self, value_spec: dict[str, Any], allow_pk: bool, allow_exprs: bool, allow_media: bool
     ) -> dict[Column, exprs.Expr]:
         update_targets: dict[Column, exprs.Expr] = {}
         for col_name, val in value_spec.items():
@@ -978,27 +985,31 @@ class TableVersion:
                 raise excs.Error(f'Column {col_name} is computed and cannot be updated')
             if col.is_pk and not allow_pk:
                 raise excs.Error(f'Column {col_name} is a primary key column and cannot be updated')
+            if col.col_type.is_media_type() and not allow_media:
+                raise excs.Error(f'Column {col_name} is a media column and cannot be updated')
 
             # make sure that the value is compatible with the column type
             value_expr: exprs.Expr
             try:
                 # check if this is a literal
                 value_expr = exprs.Literal(val, col_type=col.col_type)
-            except (TypeError, jsonschema.exceptions.ValidationError):
+            except (TypeError, jsonschema.exceptions.ValidationError) as exc:
                 if not allow_exprs:
                     raise excs.Error(
                         f'Column {col_name}: value {val!r} is not a valid literal for this column '
                         f'(expected {col.col_type})'
-                    )
+                    ) from exc
                 # it's not a literal, let's try to create an expr from it
                 value_expr = exprs.Expr.from_object(val)
                 if value_expr is None:
-                    raise excs.Error(f'Column {col_name}: value {val!r} is not a recognized literal or expression')
+                    raise excs.Error(
+                        f'Column {col_name}: value {val!r} is not a recognized literal or expression'
+                    ) from exc
                 if not col.col_type.is_supertype_of(value_expr.col_type, ignore_nullable=True):
                     raise excs.Error(
                         f'Type of value {val!r} ({value_expr.col_type}) is not compatible with the type of column '
                         f'{col_name} ({col.col_type})'
-                    )
+                    ) from exc
             update_targets[col] = value_expr
 
         return update_targets
@@ -1027,7 +1038,7 @@ class TableVersion:
             self._update_md(timestamp)
 
         if cascade:
-            base_versions = [None if plan is None else self.version] + base_versions  # don't update in place
+            base_versions = [None if plan is None else self.version, *base_versions]  # don't update in place
             # propagate to views
             for view in self.mutable_views:
                 recomputed_cols = [col for col in recomputed_view_cols if col.tbl == view]
@@ -1087,11 +1098,9 @@ class TableVersion:
             # we're creating a new version
             self.version += 1
             self._update_md(timestamp)
-        else:
-            pass
         for view in self.mutable_views:
             num_rows += view.get().propagate_delete(
-                where=None, base_versions=[self.version] + base_versions, timestamp=timestamp
+                where=None, base_versions=[self.version, *base_versions], timestamp=timestamp
             )
         return num_rows
 
@@ -1271,9 +1280,7 @@ class TableVersion:
 
     def is_system_column(self, col: Column) -> bool:
         """Return True if column was created by Pixeltable"""
-        if col.name == _POS_COLUMN_NAME and self.is_component_view:
-            return True
-        return False
+        return col.name == _POS_COLUMN_NAME and self.is_component_view
 
     def user_columns(self) -> list[Column]:
         """Return all non-system columns"""
@@ -1282,6 +1289,11 @@ class TableVersion:
     def primary_key_columns(self) -> list[Column]:
         """Return all non-system columns"""
         return [c for c in self.cols if c.is_pk]
+
+    @property
+    def primary_key(self) -> list[str]:
+        """Return the names of the primary key columns"""
+        return [c.name for c in self.cols if c.is_pk]
 
     def get_required_col_names(self) -> list[str]:
         """Return the names of all columns for which values must be specified in insert()"""
@@ -1296,7 +1308,7 @@ class TableVersion:
 
     def _record_refd_columns(self, col: Column) -> None:
         """Update Column.dependent_cols for all cols referenced in col.value_expr."""
-        import pixeltable.exprs as exprs
+        from pixeltable import exprs
 
         if col.value_expr_dict is not None:
             # if we have a value_expr_dict, use that instead of instantiating the value_expr
@@ -1349,8 +1361,9 @@ class TableVersion:
 
     def _create_tbl_md(self) -> schema.TableMd:
         return schema.TableMd(
+            tbl_id=str(self.id),
             name=self.name,
-            user=None,
+            user=self.user,
             current_version=self.version,
             current_schema_version=self.schema_version,
             next_col_id=self.next_col_id,
@@ -1365,7 +1378,11 @@ class TableVersion:
 
     def _create_version_md(self, timestamp: float) -> schema.TableVersionMd:
         return schema.TableVersionMd(
-            created_at=timestamp, version=self.version, schema_version=self.schema_version, additional_md={}
+            tbl_id=str(self.id),
+            created_at=timestamp,
+            version=self.version,
+            schema_version=self.schema_version,
+            additional_md={},
         )
 
     def _create_schema_version_md(self, preceding_schema_version: int) -> schema.TableSchemaVersionMd:
@@ -1378,6 +1395,7 @@ class TableVersion:
             )
         # preceding_schema_version to be set by the caller
         return schema.TableSchemaVersionMd(
+            tbl_id=str(self.id),
             schema_version=self.schema_version,
             preceding_schema_version=preceding_schema_version,
             columns=column_md,
@@ -1392,7 +1410,7 @@ class TableVersion:
 
     @classmethod
     def from_dict(cls, d: dict) -> TableVersion:
-        import pixeltable.catalog as catalog
+        from pixeltable import catalog
 
         id = UUID(d['id'])
         effective_version = d['effective_version']

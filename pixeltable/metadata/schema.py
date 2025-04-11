@@ -153,6 +153,7 @@ class ViewMd:
 
 @dataclasses.dataclass
 class TableMd:
+    tbl_id: str  # uuid.UUID
     name: str
 
     user: Optional[str]
@@ -199,6 +200,7 @@ class Table(Base):
 
 @dataclasses.dataclass
 class TableVersionMd:
+    tbl_id: str  # uuid.UUID
     created_at: float  # time.time()
     version: int
     schema_version: int
@@ -234,6 +236,7 @@ class TableSchemaVersionMd:
     Records all versioned table metadata.
     """
 
+    tbl_id: str  # uuid.UUID
     schema_version: int
     preceding_schema_version: Optional[int]
     columns: dict[int, SchemaColumn]  # col_id -> SchemaColumn

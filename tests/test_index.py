@@ -2,7 +2,7 @@ import random
 import string
 import sys
 from datetime import datetime, timedelta
-from typing import Union, _GenericAlias  # type: ignore[attr-defined]
+from typing import Any, Union, _GenericAlias  # type: ignore[attr-defined]
 
 import numpy as np
 import PIL.Image
@@ -190,9 +190,8 @@ class TestIndex:
             _ = t.order_by(t.img.similarity(t.split)).limit(1).collect()
         assert 'not an expression' in str(exc_info.value).lower()
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.Error, match='No indices found for '):
             _ = t.order_by(t.split.similarity('red truck')).limit(1).collect()
-        assert 'no index found' in str(exc_info.value).lower()
 
         t = small_img_tbl
         t.add_embedding_index('img', image_embed=clip_embed)
@@ -204,6 +203,15 @@ class TestIndex:
         with pytest.raises(pxt.Error) as exc_info:
             _ = t.order_by(t.img.similarity('red truck')).limit(1).collect()
         assert "column 'img' has multiple indices" in str(exc_info.value).lower()
+
+        # Similarity fails when attempted on a snapshot
+        t_s = pxt.create_snapshot('t_s', t)
+        with pytest.raises(pxt.Error, match='No indices found for '):
+            _ = t_s.order_by(t_s.img.similarity('red truck')).limit(1).collect()
+
+        # Direct access to the unnamed embedding column fails on a snapshot
+        with pytest.raises(pxt.Error, match='No indices found for '):
+            r = t_s.select(t_s.img.embedding(idx='other_idx')).limit(2)
 
         t.drop_embedding_index(idx_name='idx0')
         t.drop_embedding_index(idx_name='idx1')
@@ -345,6 +353,93 @@ class TestIndex:
         # sanity check persistence
         reload_tester.run_reload_test()
 
+    def test_update_img(
+        self,
+        img_tbl: pxt.Table,
+        test_tbl: pxt.Table,
+        clip_embed: func.Function,
+        e5_embed: func.Function,
+        all_mpnet_embed: func.Function,
+        reload_tester: ReloadTester,
+    ) -> None:
+        img_t = img_tbl
+        rows = list(img_t.select(img=img_t.img.fileurl, category=img_t.category, split=img_t.split).collect())
+        short_rows = rows[:5]
+        new_rows: list[dict[str, Any]] = []
+        for n, row in enumerate(short_rows):
+            row['pkey'] = n
+            new_rows.append(row)
+
+        # create table with fewer rows to speed up testing
+        schema = {'pkey': pxt.IntType(nullable=False), 'img': pxt.Image, 'category': pxt.String, 'split': pxt.String}
+        tbl_name = 'update_test'
+        img_t = pxt.create_table(tbl_name, schema, primary_key='pkey')
+        img_t.insert(new_rows)
+        print(img_t.head())
+
+        with pytest.raises(pxt.Error, match='reference to an error property of another column is not allowed'):
+            img_t.add_computed_column(emsg=img_t.img.errormsg)
+
+        with pytest.raises(pxt.Error, match='reference to an error property of another column is not allowed'):
+            img_t.add_computed_column(etype=img_t.img.errortype)
+
+        # Update the first row with a new image
+        repl_row = rows[6]
+        img_t.update(repl_row, where=img_t.pkey == 0, cascade=True)
+        print(img_t.select(img_t.pkey, img_t.img).collect())
+
+        # Update the row, removing the image
+        repl_row['img'] = None
+        img_t.update(repl_row, where=img_t.pkey == 0, cascade=True)
+        print(img_t.select(img_t.pkey, img_t.img).collect())
+
+        # Update the row with a new image
+        repl_row = rows[7]
+        repl_row['pkey'] = 0
+        with pytest.raises(pxt.Error, match='is a media column and cannot be updated'):
+            img_t.batch_update([repl_row], cascade=True)
+        print(img_t.select(img_t.pkey, img_t.img).collect())
+
+        # Update the row again, looking for an error
+        with pytest.raises(pxt.Error, match='is a media column and cannot be updated'):
+            img_t.batch_update([repl_row], cascade=True)
+        print(img_t.select(img_t.pkey, img_t.img).collect())
+
+    def test_embedding_access(
+        self,
+        img_tbl: pxt.Table,
+        test_tbl: pxt.Table,
+        clip_embed: func.Function,
+        e5_embed: func.Function,
+        all_mpnet_embed: func.Function,
+        reload_tester: ReloadTester,
+    ) -> None:
+        skip_test_if_not_installed('transformers')
+        img_t = img_tbl
+        rows = list(img_t.select(img=img_t.img.fileurl, category=img_t.category, split=img_t.split).collect())
+        # create table with fewer rows to speed up testing
+        schema = {'img': pxt.Image, 'category': pxt.String, 'split': pxt.String}
+        tbl_name = 'access_test'
+        img_t = pxt.create_table(tbl_name, schema)
+        img_t.insert(rows[:5])
+
+        # Add computed column based on the other_idx embedding index
+        img_t.add_embedding_index(img_t.category, idx_name='cat_idx', string_embed=e5_embed)
+        img_t.add_computed_column(ebd_copy=img_t.category.embedding(idx='cat_idx'))
+        img_t.insert([rows[6]])
+
+        # Attempt to drop the embedding index
+        with pytest.raises(pxt.Error, match='Cannot drop index because the following columns depend on it'):
+            img_t.drop_embedding_index(column=img_t.category)
+
+        img_t.add_computed_column(simmy=img_t.category.similarity('red_truck', idx='cat_idx'))
+        with pytest.raises(pxt.ExprEvalError, match='cannot be used in a computed column'):
+            img_t.insert([rows[7]])
+
+        img_t.drop_column('simmy')
+        img_t.drop_column('ebd_copy')
+        img_t.drop_embedding_index(column=img_t.category)
+
     def test_embedding_basic(
         self,
         img_tbl: pxt.Table,
@@ -380,6 +475,11 @@ class TestIndex:
         # predicates on media columns that have both a B-tree and an embedding index still work
         res = img_t.where(img_t.img == rows[0]['img']).collect()
         assert len(res) == 1
+
+        # Direct access to the unnamed embedding column works
+        res = img_t.select(img_t.img.embedding()).limit(2).collect()
+        assert len(res) == 2
+        assert isinstance(res[0, 'img_embedding_'], np.ndarray)
 
         with pytest.raises(pxt.Error) as exc_info:
             # duplicate name
@@ -445,6 +545,19 @@ class TestIndex:
         sim = img_t.img.similarity('red truck', idx='other_idx')
         res = img_t.order_by(sim, asc=False).limit(1).collect()
         assert len(res) == 1
+
+        # Direct access to the new named embedding column works
+        r = img_t.select(img_t.img.embedding(idx='other_idx')).limit(2).collect()
+        assert len(r) == 2
+        assert isinstance(r[0, 'img_embedding_other_idx'], np.ndarray)
+
+        # Direct access to an unnamed embedding column fails when multiple indices are present
+        with pytest.raises(pxt.Error, match='has multiple indices'):
+            _ = img_t.select(img_t.img.embedding()).collect()
+
+        # Adding an index with an invalid index name fails
+        with pytest.raises(pxt.Error, match='Invalid column name'):
+            img_t.add_embedding_index(img_t.img, idx_name='BOGUS COL NAME', embedding=clip_embed)
 
         with pytest.raises(pxt.Error) as exc_info:
             _ = img_t.img.similarity('red truck', idx='doesnotexist')
@@ -514,9 +627,8 @@ class TestIndex:
         # the table in the ColumnRef, which is the base table.
         # So it raises error that there's no index.
         # Fix needs discussion.
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.Error, match='No indices found for '):
             df = v.select(sim=v.s.similarity(sents[1]))
-        assert 'no index found for column' in str(exc_info.value).lower()
         _ = reload_tester.run_query(v.select())
 
         reload_tester.run_reload_test()

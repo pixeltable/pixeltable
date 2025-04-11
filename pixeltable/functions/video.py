@@ -143,7 +143,7 @@ def _get_metadata(path: str) -> dict:
 
 
 def __get_stream_metadata(stream: av.stream.Stream) -> dict:
-    if stream.type not in {'audio', 'video'}:
+    if stream.type not in ('audio', 'video'):
         return {'type': stream.type}  # Currently unsupported
 
     codec_context = stream.codec_context

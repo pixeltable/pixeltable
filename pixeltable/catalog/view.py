@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import inspect
 import logging
-from typing import TYPE_CHECKING, Any, Iterable, List, Literal, Optional
+from typing import TYPE_CHECKING, Any, List, Literal, Optional
 from uuid import UUID
 
 import pixeltable.exceptions as excs
 import pixeltable.metadata.schema as md_schema
 import pixeltable.type_system as ts
-from pixeltable import catalog, exprs, func
+from pixeltable import exprs, func
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
 
@@ -98,7 +98,8 @@ class View(Table):
             # make sure that the value can be computed in the context of the base
             if col.value_expr is not None and not col.value_expr.is_bound_by([base]):
                 raise excs.Error(
-                    f'Column {col.name}: value expression cannot be computed in the context of the base {base.tbl_name()}'
+                    f'Column {col.name}: value expression cannot be computed in the context of the '
+                    f'base {base.tbl_name()}'
                 )
 
         if iterator_cls is not None:
@@ -111,8 +112,8 @@ class View(Table):
             bound_args: dict[str, Any]
             try:
                 bound_args = py_signature.bind(None, **iterator_args).arguments  # None: arg for self
-            except TypeError as e:
-                raise excs.Error(f'Invalid iterator arguments: {e}')
+            except TypeError as exc:
+                raise excs.Error(f'Invalid iterator arguments: {exc}') from exc
             # we ignore 'self'
             first_param_name = next(iter(py_signature.parameters))  # can't guarantee it's actually 'self'
             del bound_args[first_param_name]
@@ -203,8 +204,8 @@ class View(Table):
 
             from pixeltable.plan import Planner
 
-            plan, num_values_per_row = Planner.create_view_load_plan(view._tbl_version_path)
-            num_rows, num_excs, cols_with_excs = tbl_version.store_tbl.insert_rows(plan, v_min=tbl_version.version)
+            plan, _ = Planner.create_view_load_plan(view._tbl_version_path)
+            num_rows, num_excs, _ = tbl_version.store_tbl.insert_rows(plan, v_min=tbl_version.version)
             Env.get().console_logger.info(f'Created view `{name}` with {num_rows} rows, {num_excs} exceptions.')
 
         session.commit()
@@ -251,13 +252,20 @@ class View(Table):
         md['is_snapshot'] = self._tbl_version_path.is_snapshot()
         return md
 
+    if TYPE_CHECKING:
+        import datasets  # type: ignore[import-untyped]
+
+        from pixeltable.globals import RowData, TableDataSource
+
     def insert(
         self,
-        rows: Optional[Iterable[dict[str, Any]]] = None,
+        source: Optional[TableDataSource] = None,
         /,
         *,
-        print_stats: bool = False,
+        source_format: Optional[Literal['csv', 'excel', 'parquet', 'json']] = None,
+        schema_overrides: Optional[dict[str, ts.ColumnType]] = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
+        print_stats: bool = False,
         **kwargs: Any,
     ) -> UpdateStatus:
         raise excs.Error(f'{self._display_name()} {self._name!r}: cannot insert into view')

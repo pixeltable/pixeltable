@@ -1,6 +1,7 @@
 import difflib
 import itertools
 import json
+import os
 import re
 from typing import Optional
 
@@ -56,7 +57,7 @@ class TestDocument:
         assert set(stored_paths) == set(file_paths)
 
         file_paths = self.invalid_doc_paths()
-        status = doc_t.insert(({'doc': p} for p in file_paths), on_error='ignore')
+        status = doc_t.insert([{'doc': p} for p in file_paths], on_error='ignore')
         assert status.num_rows == len(file_paths)
         assert status.num_excs >= len(file_paths)
 
@@ -65,26 +66,26 @@ class TestDocument:
 
         file_paths = self.valid_doc_paths()
         for path in file_paths:
-            extension = path.split('.')[-1].lower()
+            _, extension = os.path.splitext(path)
             handle = get_document_handle(path)
             assert handle is not None
-            if extension == 'pdf':
+            if extension == '.pdf':
                 assert handle.format == pxt.DocumentType.DocumentFormat.PDF, path
                 assert handle.pdf_doc is not None, path
-            elif extension in ['html', 'htm']:
+            elif extension in ('.html', '.htm'):
                 assert handle.format == pxt.DocumentType.DocumentFormat.HTML, path
                 assert handle.bs_doc is not None, path
-            elif extension == 'md':
+            elif extension == '.md':
                 assert handle.format == pxt.DocumentType.DocumentFormat.MD, path
                 assert handle.md_ast is not None, path
-            elif extension == 'xml':
+            elif extension == '.xml':
                 assert handle.format == pxt.DocumentType.DocumentFormat.XML, path
                 assert handle.bs_doc is not None, path
-            elif extension == 'txt':
+            elif extension == '.txt':
                 assert handle.format == pxt.DocumentType.DocumentFormat.TXT, path
                 assert handle.txt_doc is not None, path
             else:
-                assert False, f'Unexpected extension {extension}, add corresponding check'
+                raise AssertionError(f'Unexpected extension {extension}, add corresponding check')
 
     def test_invalid_arguments(self, reset_db) -> None:
         """Test input parsing provides useful error messages"""

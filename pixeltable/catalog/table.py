@@ -8,20 +8,16 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable, Literal, Optional, Union, overload
 
 from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
+from keyword import iskeyword as is_python_keyword
 from uuid import UUID
 
 import pandas as pd
 import sqlalchemy as sql
 
 import pixeltable as pxt
-import pixeltable.catalog as catalog
-import pixeltable.env as env
-import pixeltable.exceptions as excs
-import pixeltable.exprs as exprs
-import pixeltable.index as index
-import pixeltable.metadata.schema as schema
-import pixeltable.type_system as ts
+from pixeltable import catalog, env, exceptions as excs, exprs, index, type_system as ts
 from pixeltable.env import Env
+from pixeltable.metadata import schema
 
 from ..exprs import ColumnRef
 from ..utils.description_helper import DescriptionHelper
@@ -37,7 +33,6 @@ from .globals import (
     is_valid_identifier,
 )
 from .schema_object import SchemaObject
-from .table_version import TableVersion
 from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
 
@@ -45,6 +40,7 @@ if TYPE_CHECKING:
     import torch.utils.data
 
     import pixeltable.plan
+    from pixeltable.globals import TableDataSource
 
 _logger = logging.getLogger('pixeltable')
 
@@ -79,7 +75,7 @@ class Table(SchemaObject):
             (
                 f'UPDATE {schema.Table.__table__} '
                 f'SET {schema.Table.dir_id.name} = :new_dir_id, '
-                f"    {schema.Table.md.name}['name'] = :new_name "
+                f"    {schema.Table.md.name} = jsonb_set({schema.Table.md.name}, '{{name}}', (:new_name)::jsonb) "
                 f'WHERE {schema.Table.id.name} = :id'
             )
         )
@@ -369,11 +365,6 @@ class Table(SchemaObject):
             pd_rows.append(row)
         return pd.DataFrame(pd_rows)
 
-    def ensure_md_loaded(self) -> None:
-        """Ensure that table metadata is loaded."""
-        for col in self._tbl_version.get().cols_by_id.values():
-            _ = col.value_expr
-
     def describe(self) -> None:
         """
         Print the table schema.
@@ -408,12 +399,12 @@ class Table(SchemaObject):
     def _column_has_dependents(self, col: Column) -> bool:
         """Returns True if the column has dependents, False otherwise."""
         assert col is not None
-        assert col.name in self._schema.keys()
+        assert col.name in self._schema
         if any(c.name is not None for c in col.dependent_cols):
             return True
         return any(
             col in store.get_local_columns()
-            for view in [self] + self._get_views(recursive=True)
+            for view in (self, *self._get_views(recursive=True))
             for store in view._tbl_version.get().external_stores.values()
         )
 
@@ -431,7 +422,7 @@ class Table(SchemaObject):
                     raise excs.Error(f'Duplicate column name: {new_col_name!r}')
                 elif if_exists == IfExistsParam.IGNORE:
                     cols_to_ignore.append(new_col_name)
-                elif if_exists == IfExistsParam.REPLACE or if_exists == IfExistsParam.REPLACE_FORCE:
+                elif if_exists in (IfExistsParam.REPLACE, IfExistsParam.REPLACE_FORCE):
                     if new_col_name not in self._tbl_version.get().cols_by_name:
                         # for views, it is possible that the existing column
                         # is a base table column; in that case, we should not
@@ -442,7 +433,8 @@ class Table(SchemaObject):
                     # replace directive if column has dependents.
                     if self._column_has_dependents(col):
                         raise excs.Error(
-                            f'Column {new_col_name!r} already exists and has dependents. Cannot {if_exists.name.lower()} it.'
+                            f'Column {new_col_name!r} already exists and has dependents. '
+                            f'Cannot {if_exists.name.lower()} it.'
                         )
                     self.drop_column(new_col_name)
                     assert new_col_name not in self._tbl_version.get().cols_by_name
@@ -454,8 +446,8 @@ class Table(SchemaObject):
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     ) -> UpdateStatus:
         """
-        Adds multiple columns to the table. The columns must be concrete (non-computed) columns; to add computed columns,
-        use [`add_computed_column()`][pixeltable.catalog.Table.add_computed_column] instead.
+        Adds multiple columns to the table. The columns must be concrete (non-computed) columns; to add computed
+        columns, use [`add_computed_column()`][pixeltable.catalog.Table.add_computed_column] instead.
 
         The format of the `schema` argument is identical to the format of the schema in a call to
         [`create_table()`][pixeltable.globals.create_table].
@@ -466,10 +458,12 @@ class Table(SchemaObject):
 
                 - `'error'`: an exception will be raised.
                 - `'ignore'`: do nothing and return.
-                - `'replace' or 'replace_force'`: drop the existing column and add the new column, if it has no dependents.
+                - `'replace' or 'replace_force'`: drop the existing column and add the new column, if it has no
+                    dependents.
 
                 Note that the `if_exists` parameter is applied to all columns in the schema.
-                To apply different behaviors to different columns, please use [`add_column()`][pixeltable.Table.add_column] for each column.
+                To apply different behaviors to different columns, please use
+                [`add_column()`][pixeltable.Table.add_column] for each column.
 
         Returns:
             Information about the execution status of the operation.
@@ -530,7 +524,8 @@ class Table(SchemaObject):
 
                 - `'error'`: an exception will be raised.
                 - `'ignore'`: do nothing and return.
-                - `'replace' or 'replace_force'`: drop the existing column and add the new column, if it has no dependents.
+                - `'replace' or 'replace_force'`: drop the existing column and add the new column, if it has
+                    no dependents.
 
         Returns:
             Information about the execution status of the operation.
@@ -561,7 +556,7 @@ class Table(SchemaObject):
         col_type = next(iter(kwargs.values()))
         if not isinstance(col_type, (ts.ColumnType, type, _GenericAlias)):
             raise excs.Error(
-                f'The argument to add_column() must be a type; did you intend to use add_computed_column() instead?'
+                'The argument to add_column() must be a type; did you intend to use add_computed_column() instead?'
             )
         return self.add_columns(kwargs, if_exists=if_exists)
 
@@ -592,7 +587,8 @@ class Table(SchemaObject):
 
                 - `'error'`: an exception will be raised.
                 - `'ignore'`: do nothing and return.
-                - `'replace' or 'replace_force'`: drop the existing column and add the new column, iff it has no dependents.
+                - `'replace' or 'replace_force'`: drop the existing column and add the new column, iff it has
+                    no dependents.
 
         Returns:
             Information about the execution status of the operation.
@@ -616,7 +612,8 @@ class Table(SchemaObject):
             raise excs.Error('Cannot add column to a snapshot.')
         if len(kwargs) != 1:
             raise excs.Error(
-                f'add_computed_column() requires exactly one keyword argument of the form "column-name=type|value-expression"; '
+                f'add_computed_column() requires exactly one keyword argument of the form '
+                '"column-name=type|value-expression"; '
                 f'got {len(kwargs)} arguments instead ({", ".join(list(kwargs.keys()))})'
             )
         col_name, spec = next(iter(kwargs.items()))
@@ -626,6 +623,15 @@ class Table(SchemaObject):
         col_schema: dict[str, Any] = {'value': spec}
         if stored is not None:
             col_schema['stored'] = stored
+
+        # Raise an error if the column expression refers to a column error property
+        if isinstance(spec, exprs.Expr):
+            for e in spec.subexprs(expr_class=exprs.ColumnPropertyRef, traverse_matches=False):
+                if e.is_error_prop():
+                    raise excs.Error(
+                        'Use of a reference to an error property of another column is not allowed in a computed '
+                        f'column. The specified computation for this column contains this reference: `{e!r}`'
+                    )
 
         with Env.get().begin_xact():
             # handle existing columns based on if_exists parameter
@@ -653,16 +659,15 @@ class Table(SchemaObject):
         """
         assert isinstance(spec, dict)
         valid_keys = {'type', 'value', 'stored', 'media_validation'}
-        for k in spec.keys():
+        for k in spec:
             if k not in valid_keys:
                 raise excs.Error(f'Column {name}: invalid key {k!r}')
 
         if 'type' not in spec and 'value' not in spec:
             raise excs.Error(f"Column {name}: 'type' or 'value' must be specified")
 
-        if 'type' in spec:
-            if not isinstance(spec['type'], (ts.ColumnType, type, _GenericAlias)):
-                raise excs.Error(f'Column {name}: "type" must be a type or ColumnType, got {spec["type"]}')
+        if 'type' in spec and not isinstance(spec['type'], (ts.ColumnType, type, _GenericAlias)):
+            raise excs.Error(f'Column {name}: "type" must be a type or ColumnType, got {spec["type"]}')
 
         if 'value' in spec:
             value_expr = exprs.Expr.from_object(spec['value'])
@@ -726,19 +731,24 @@ class Table(SchemaObject):
         return columns
 
     @classmethod
+    def validate_column_name(cls, name: str) -> None:
+        """Check that a name is usable as a pixeltalbe column name"""
+        if is_system_column_name(name) or is_python_keyword(name):
+            raise excs.Error(f'{name!r} is a reserved name in Pixeltable; please choose a different column name.')
+        if not is_valid_identifier(name):
+            raise excs.Error(f'Invalid column name: {name!r}')
+
+    @classmethod
     def _verify_column(cls, col: Column) -> None:
         """Check integrity of user-supplied Column and supply defaults"""
-        if is_system_column_name(col.name):
-            raise excs.Error(f'{col.name!r} is a reserved name in Pixeltable; please choose a different column name.')
-        if not is_valid_identifier(col.name):
-            raise excs.Error(f'Invalid column name: {col.name!r}')
+        cls.validate_column_name(col.name)
         if col.stored is False and not col.is_computed:
             raise excs.Error(f'Column {col.name!r}: stored={col.stored} only applies to computed columns')
         if col.stored is False and col.has_window_fn_call():
             raise excs.Error(
                 (
-                    f'Column {col.name!r}: stored={col.stored} is not valid for image columns computed with a streaming '
-                    f'function'
+                    f'Column {col.name!r}: stored={col.stored} is not valid for image columns computed with a '
+                    f'streaming function'
                 )
             )
 
@@ -749,16 +759,6 @@ class Table(SchemaObject):
         for col in schema:
             cls._verify_column(col)
             column_names.add(col.name)
-
-    def __check_column_name_exists(self, column_name: str, include_bases: bool = False) -> None:
-        col = self._tbl_version_path.get_column(column_name, include_bases)
-        if col is None:
-            raise excs.Error(f'Column {column_name!r} unknown')
-
-    def __check_column_ref_exists(self, col_ref: ColumnRef, include_bases: bool = False) -> None:
-        exists = self._tbl_version_path.has_column(col_ref.col, include_bases)
-        if not exists:
-            raise excs.Error(f'Unknown column: {col_ref.col.qualified_name}')
 
     def drop_column(self, column: Union[str, ColumnRef], if_not_exists: Literal['error', 'ignore'] = 'error') -> None:
         """Drop a column from the table.
@@ -794,21 +794,21 @@ class Table(SchemaObject):
         if self._tbl_version_path.is_snapshot():
             raise excs.Error('Cannot drop column from a snapshot.')
         col: Column = None
-        _if_not_exists = IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
+        if_not_exists_ = IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
         if isinstance(column, str):
             col = self._tbl_version_path.get_column(column, include_bases=False)
             if col is None:
-                if _if_not_exists == IfNotExistsParam.ERROR:
+                if if_not_exists_ == IfNotExistsParam.ERROR:
                     raise excs.Error(f'Column {column!r} unknown')
-                assert _if_not_exists == IfNotExistsParam.IGNORE
+                assert if_not_exists_ == IfNotExistsParam.IGNORE
                 return
             col = self._tbl_version.get().cols_by_name[column]
         else:
             exists = self._tbl_version_path.has_column(column.col, include_bases=False)
             if not exists:
-                if _if_not_exists == IfNotExistsParam.ERROR:
+                if if_not_exists_ == IfNotExistsParam.ERROR:
                     raise excs.Error(f'Unknown column: {column.col.qualified_name}')
-                assert _if_not_exists == IfNotExistsParam.IGNORE
+                assert if_not_exists_ == IfNotExistsParam.IGNORE
                 return
             col = column.col
 
@@ -824,7 +824,7 @@ class Table(SchemaObject):
             # (transitive) views of this table.
             dependent_stores = [
                 (view, store)
-                for view in [self] + self._get_views(recursive=True)
+                for view in (self, *self._get_views(recursive=True))
                 for store in view._tbl_version.get().external_stores.values()
                 if col in store.get_local_columns()
             ]
@@ -912,7 +912,7 @@ class Table(SchemaObject):
         Args:
             column: The name of, or reference to, the column to be indexed; must be a `String` or `Image` column.
             idx_name: An optional name for the index. If not specified, a name such as `'idx0'` will be generated
-                automatically. If specified, the name must be unique for this table.
+                automatically. If specified, the name must be unique for this table and a valid pixeltable column name.
             embedding: The UDF to use for the embedding. Must be a UDF that accepts a single argument of type `String`
                 or `Image` (as appropriate for the column being indexed) and returns a fixed-size 1-dimensional
                 array of floats.
@@ -931,7 +931,8 @@ class Table(SchemaObject):
                 - `'replace'` or `'replace_force'`: replace the existing index with the new one.
 
         Raises:
-            Error: If an index with the specified name already exists for the table and `if_exists='error'`, or if the specified column does not exist.
+            Error: If an index with the specified name already exists for the table and `if_exists='error'`, or if
+                the specified column does not exist.
 
         Examples:
             Add an index to the `img` column of the table `my_table`:
@@ -965,37 +966,35 @@ class Table(SchemaObject):
         """
         if self._tbl_version_path.is_snapshot():
             raise excs.Error('Cannot add an index to a snapshot')
-        col: Column
-        if isinstance(column, str):
-            self.__check_column_name_exists(column, include_bases=True)
-            col = self._tbl_version_path.get_column(column, include_bases=True)
-        else:
-            self.__check_column_ref_exists(column, include_bases=True)
-            col = column.col
+        col = self._resolve_column_parameter(column)
 
         with Env.get().begin_xact():
             if idx_name is not None and idx_name in self._tbl_version.get().idxs_by_name:
-                _if_exists = IfExistsParam.validated(if_exists, 'if_exists')
+                if_exists_ = IfExistsParam.validated(if_exists, 'if_exists')
                 # An index with the same name already exists.
                 # Handle it according to if_exists.
-                if _if_exists == IfExistsParam.ERROR:
+                if if_exists_ == IfExistsParam.ERROR:
                     raise excs.Error(f'Duplicate index name: {idx_name}')
                 if not isinstance(self._tbl_version.get().idxs_by_name[idx_name].idx, index.EmbeddingIndex):
                     raise excs.Error(
-                        f'Index `{idx_name}` is not an embedding index. Cannot {_if_exists.name.lower()} it.'
+                        f'Index `{idx_name}` is not an embedding index. Cannot {if_exists_.name.lower()} it.'
                     )
-                if _if_exists == IfExistsParam.IGNORE:
+                if if_exists_ == IfExistsParam.IGNORE:
                     return
-                assert _if_exists == IfExistsParam.REPLACE or _if_exists == IfExistsParam.REPLACE_FORCE
+                assert if_exists_ in (IfExistsParam.REPLACE, IfExistsParam.REPLACE_FORCE)
                 self.drop_index(idx_name=idx_name)
                 assert idx_name not in self._tbl_version.get().idxs_by_name
             from pixeltable.index import EmbeddingIndex
+
+            # idx_name must be a valid pixeltable column name
+            if idx_name is not None:
+                Table.validate_column_name(idx_name)
 
             # create the EmbeddingIndex instance to verify args
             idx = EmbeddingIndex(
                 col, metric=metric, embed=embedding, string_embed=string_embed, image_embed=image_embed
             )
-            status = self._tbl_version.get().add_index(col, idx_name=idx_name, idx=idx)
+            _ = self._tbl_version.get().add_index(col, idx_name=idx_name, idx=idx)
             # TODO: how to deal with exceptions here? drop the index and raise?
             FileCache.get().emit_eviction_warnings()
 
@@ -1054,16 +1053,27 @@ class Table(SchemaObject):
 
         col: Column = None
         if idx_name is None:
-            if isinstance(column, str):
-                self.__check_column_name_exists(column, include_bases=True)
-                col = self._tbl_version_path.get_column(column, include_bases=True)
-            else:
-                self.__check_column_ref_exists(column, include_bases=True)
-                col = column.col
+            col = self._resolve_column_parameter(column)
             assert col is not None
 
         with Env.get().begin_xact():
             self._drop_index(col=col, idx_name=idx_name, _idx_class=index.EmbeddingIndex, if_not_exists=if_not_exists)
+
+    def _resolve_column_parameter(self, column: Union[str, ColumnRef]) -> Column:
+        """Resolve a column parameter to a Column object"""
+        col: Column = None
+        if isinstance(column, str):
+            col = self._tbl_version_path.get_column(column, include_bases=True)
+            if col is None:
+                raise excs.Error(f'Column {column!r} unknown')
+        elif isinstance(column, ColumnRef):
+            exists = self._tbl_version_path.has_column(column.col, include_bases=True)
+            if not exists:
+                raise excs.Error(f'Unknown column: {column.col.qualified_name}')
+            col = column.col
+        else:
+            raise excs.Error(f'Invalid column parameter type: {type(column)}')
+        return col
 
     def drop_index(
         self,
@@ -1120,12 +1130,7 @@ class Table(SchemaObject):
 
         col: Column = None
         if idx_name is None:
-            if isinstance(column, str):
-                self.__check_column_name_exists(column, include_bases=True)
-                col = self._tbl_version_path.get_column(column, include_bases=True)
-            else:
-                self.__check_column_ref_exists(column, include_bases=True)
-                col = column.col
+            col = self._resolve_column_parameter(column)
             assert col is not None
 
         with Env.get().begin_xact():
@@ -1144,55 +1149,68 @@ class Table(SchemaObject):
         assert (col is None) != (idx_name is None)
 
         if idx_name is not None:
-            _if_not_exists = IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
+            if_not_exists_ = IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
             if idx_name not in self._tbl_version.get().idxs_by_name:
-                if _if_not_exists == IfNotExistsParam.ERROR:
+                if if_not_exists_ == IfNotExistsParam.ERROR:
                     raise excs.Error(f'Index {idx_name!r} does not exist')
-                assert _if_not_exists == IfNotExistsParam.IGNORE
+                assert if_not_exists_ == IfNotExistsParam.IGNORE
                 return
-            idx_id = self._tbl_version.get().idxs_by_name[idx_name].id
+            idx_info = self._tbl_version.get().idxs_by_name[idx_name]
         else:
             if col.tbl.id != self._tbl_version.id:
                 raise excs.Error(
                     f'Column {col.name!r}: cannot drop index from column that belongs to base ({col.tbl.get().name}!r)'
                 )
-            idx_info = [info for info in self._tbl_version.get().idxs_by_name.values() if info.col.id == col.id]
+            idx_info_list = [info for info in self._tbl_version.get().idxs_by_name.values() if info.col.id == col.id]
             if _idx_class is not None:
-                idx_info = [info for info in idx_info if isinstance(info.idx, _idx_class)]
-            if len(idx_info) == 0:
-                _if_not_exists = IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
-                if _if_not_exists == IfNotExistsParam.ERROR:
+                idx_info_list = [info for info in idx_info_list if isinstance(info.idx, _idx_class)]
+            if len(idx_info_list) == 0:
+                if_not_exists_ = IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
+                if if_not_exists_ == IfNotExistsParam.ERROR:
                     raise excs.Error(f'Column {col.name!r} does not have an index')
-                assert _if_not_exists == IfNotExistsParam.IGNORE
+                assert if_not_exists_ == IfNotExistsParam.IGNORE
                 return
-            if len(idx_info) > 1:
+            if len(idx_info_list) > 1:
                 raise excs.Error(f"Column {col.name!r} has multiple indices; specify 'idx_name' instead")
-            idx_id = idx_info[0].id
-        self._tbl_version.get().drop_index(idx_id)
+            idx_info = idx_info_list[0]
+
+        # Find out if anything depends on this index
+        dependent_user_cols = [c for c in idx_info.val_col.dependent_cols if c.name is not None]
+        if len(dependent_user_cols) > 0:
+            raise excs.Error(
+                f'Cannot drop index because the following columns depend on it:\n'
+                f'{", ".join(c.name for c in dependent_user_cols)}'
+            )
+        self._tbl_version.get().drop_index(idx_info.id)
 
     @overload
     def insert(
         self,
-        rows: Iterable[dict[str, Any]],
+        source: TableDataSource,
         /,
         *,
-        print_stats: bool = False,
+        source_format: Optional[Literal['csv', 'excel', 'parquet', 'json']] = None,
+        schema_overrides: Optional[dict[str, ts.ColumnType]] = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
+        print_stats: bool = False,
+        **kwargs: Any,
     ) -> UpdateStatus: ...
 
     @overload
     def insert(
-        self, *, print_stats: bool = False, on_error: Literal['abort', 'ignore'] = 'abort', **kwargs: Any
+        self, /, *, on_error: Literal['abort', 'ignore'] = 'abort', print_stats: bool = False, **kwargs: Any
     ) -> UpdateStatus: ...
 
-    @abc.abstractmethod  # type: ignore[misc]
+    @abc.abstractmethod
     def insert(
         self,
-        rows: Optional[Iterable[dict[str, Any]]] = None,
+        source: Optional[TableDataSource] = None,
         /,
         *,
-        print_stats: bool = False,
+        source_format: Optional[Literal['csv', 'excel', 'parquet', 'json']] = None,
+        schema_overrides: Optional[dict[str, ts.ColumnType]] = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
+        print_stats: bool = False,
         **kwargs: Any,
     ) -> UpdateStatus:
         """Inserts rows into this table. There are two mutually exclusive call patterns:
@@ -1201,11 +1219,12 @@ class Table(SchemaObject):
 
         ```python
         insert(
-            rows: Iterable[dict[str, Any]],
+            source: TableSourceDataType,
             /,
             *,
+            on_error: Literal['abort', 'ignore'] = 'abort',
             print_stats: bool = False,
-            on_error: Literal['abort', 'ignore'] = 'abort'
+            **kwargs: Any,
         )```
 
         To insert just a single row, you can use the more concise syntax:
@@ -1213,23 +1232,25 @@ class Table(SchemaObject):
         ```python
         insert(
             *,
-            print_stats: bool = False,
             on_error: Literal['abort', 'ignore'] = 'abort',
+            print_stats: bool = False,
             **kwargs: Any
         )```
 
         Args:
-            rows: (if inserting multiple rows) A list of rows to insert, each of which is a dictionary mapping column
-                names to values.
+            source: A data source from which data can be imported.
             kwargs: (if inserting a single row) Keyword-argument pairs representing column names and values.
-            print_stats: If `True`, print statistics about the cost of computed columns.
+                (if inserting multiple rows) Additional keyword arguments are passed to the data source.
+            source_format: A hint about the format of the source data
+            schema_overrides: If specified, then columns in `schema_overrides` will be given the specified types
             on_error: Determines the behavior if an error occurs while evaluating a computed column or detecting an
                 invalid media file (such as a corrupt image) for one of the inserted rows.
 
                 - If `on_error='abort'`, then an exception will be raised and the rows will not be inserted.
                 - If `on_error='ignore'`, then execution will continue and the rows will be inserted. Any cells
-                  with errors will have a `None` value for that cell, with information about the error stored in the
-                  corresponding `tbl.col_name.errortype` and `tbl.col_name.errormsg` fields.
+                    with errors will have a `None` value for that cell, with information about the error stored in the
+                    corresponding `tbl.col_name.errortype` and `tbl.col_name.errormsg` fields.
+            print_stats: If `True`, print statistics about the cost of computed columns.
 
         Returns:
             An [`UpdateStatus`][pixeltable.UpdateStatus] object containing information about the update.
@@ -1241,6 +1262,7 @@ class Table(SchemaObject):
                 - The table has been dropped.
                 - One of the rows being inserted does not conform to the table schema.
                 - An error occurs during processing of computed columns, and `on_error='ignore'`.
+                - An error occurs while importing data from a source, and `on_error='abort'`.
 
         Examples:
             Insert two rows into the table `my_table` with three int columns ``a``, ``b``, and ``c``.
@@ -1252,6 +1274,10 @@ class Table(SchemaObject):
             Insert a single row using the alternative syntax:
 
             >>> tbl.insert(a=3, b=3, c=3)
+
+            Insert rows from a CSV file:
+
+            >>> tbl.insert(source='path/to/file.csv')
         """
         raise NotImplementedError
 
@@ -1323,7 +1349,7 @@ class Table(SchemaObject):
         rows = list(rows)
 
         row_updates: list[dict[Column, exprs.Expr]] = []
-        pk_col_names = set(c.name for c in self._tbl_version.get().primary_key_columns())
+        pk_col_names = {c.name for c in self._tbl_version.get().primary_key_columns()}
 
         # pseudo-column _rowid: contains the rowid of the row to update and can be used instead of the primary key
         has_rowid = _ROWID_COLUMN_NAME in rows[0]
@@ -1333,16 +1359,16 @@ class Table(SchemaObject):
 
         for row_spec in rows:
             col_vals = self._tbl_version.get()._validate_update_spec(
-                row_spec, allow_pk=not has_rowid, allow_exprs=False
+                row_spec, allow_pk=not has_rowid, allow_exprs=False, allow_media=False
             )
             if has_rowid:
                 # we expect the _rowid column to be present for each row
                 assert _ROWID_COLUMN_NAME in row_spec
                 rowids.append(row_spec[_ROWID_COLUMN_NAME])
             else:
-                col_names = set(col.name for col in col_vals.keys())
+                col_names = {col.name for col in col_vals}
                 if any(pk_col_name not in col_names for pk_col_name in pk_col_names):
-                    missing_cols = pk_col_names - set(col.name for col in col_vals.keys())
+                    missing_cols = pk_col_names - {col.name for col in col_vals}
                     raise excs.Error(f'Primary key columns ({", ".join(missing_cols)}) missing in {row_spec}')
             row_updates.append(col_vals)
 

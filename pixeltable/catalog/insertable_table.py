@@ -1,12 +1,12 @@
 from __future__ import annotations
 
+import enum
 import logging
-from typing import Any, Iterable, Literal, Optional, overload
+from typing import TYPE_CHECKING, Any, Literal, Optional, overload
 from uuid import UUID
 
 import pixeltable as pxt
-import pixeltable.type_system as ts
-from pixeltable import exceptions as excs
+from pixeltable import exceptions as excs, type_system as ts
 from pixeltable.env import Env
 from pixeltable.utils.filecache import FileCache
 
@@ -16,7 +16,32 @@ from .table_version import TableVersion
 from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
 
+if TYPE_CHECKING:
+    from pixeltable.globals import TableDataSource
+    from pixeltable.io.table_data_conduit import TableDataConduit
+
 _logger = logging.getLogger('pixeltable')
+
+
+class OnErrorParameter(enum.Enum):
+    """Supported values for the on_error parameter"""
+
+    ABORT = 'abort'
+    IGNORE = 'ignore'
+
+    @classmethod
+    def is_valid(cls, v: Any) -> bool:
+        if isinstance(v, str):
+            return v.lower() in [c.value for c in cls]
+        return False
+
+    @classmethod
+    def fail_on_exception(cls, v: Any) -> bool:
+        if not cls.is_valid(v):
+            raise ValueError(f'Invalid value for on_error: {v}')
+        if isinstance(v, str):
+            return v.lower() != cls.IGNORE.value
+        return True
 
 
 class InsertableTable(Table):
@@ -86,62 +111,75 @@ class InsertableTable(Table):
     @overload
     def insert(
         self,
-        rows: Iterable[dict[str, Any]],
+        source: Optional[TableDataSource] = None,
         /,
         *,
-        print_stats: bool = False,
+        source_format: Optional[Literal['csv', 'excel', 'parquet', 'json']] = None,
+        schema_overrides: Optional[dict[str, ts.ColumnType]] = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
+        print_stats: bool = False,
+        **kwargs: Any,
     ) -> UpdateStatus: ...
 
     @overload
     def insert(
-        self, *, print_stats: bool = False, on_error: Literal['abort', 'ignore'] = 'abort', **kwargs: Any
+        self, /, *, on_error: Literal['abort', 'ignore'] = 'abort', print_stats: bool = False, **kwargs: Any
     ) -> UpdateStatus: ...
 
-    def insert(  # type: ignore[misc]
+    def insert(
         self,
-        rows: Optional[Iterable[dict[str, Any]]] = None,
+        source: Optional[TableDataSource] = None,
         /,
         *,
-        print_stats: bool = False,
+        source_format: Optional[Literal['csv', 'excel', 'parquet', 'json']] = None,
+        schema_overrides: Optional[dict[str, ts.ColumnType]] = None,
         on_error: Literal['abort', 'ignore'] = 'abort',
+        print_stats: bool = False,
         **kwargs: Any,
     ) -> UpdateStatus:
-        if rows is None:
-            rows = [kwargs]
-        else:
-            rows = list(rows)
-            if len(kwargs) > 0:
-                raise excs.Error('`kwargs` cannot be specified unless `rows is None`.')
+        from pixeltable.io.table_data_conduit import UnkTableDataConduit
 
-        fail_on_exception = on_error == 'abort'
+        table = self
+        if source is None:
+            source = [kwargs]
+            kwargs = None
 
-        if not isinstance(rows, list):
-            raise excs.Error('rows must be a list of dictionaries')
-        if len(rows) == 0:
-            raise excs.Error('rows must not be empty')
-        for row in rows:
-            if not isinstance(row, dict):
-                raise excs.Error('rows must be a list of dictionaries')
-        self._validate_input_rows(rows)
-        with Env.get().begin_xact():
-            status = self._tbl_version.get().insert(
-                rows, None, print_stats=print_stats, fail_on_exception=fail_on_exception
-            )
-
-        if status.num_excs == 0:
-            cols_with_excs_str = ''
-        else:
-            cols_with_excs_str = (
-                f' across {len(status.cols_with_excs)} column{"" if len(status.cols_with_excs) == 1 else "s"}'
-            )
-            cols_with_excs_str += f' ({", ".join(status.cols_with_excs)})'
-        msg = (
-            f'Inserted {status.num_rows} row{"" if status.num_rows == 1 else "s"} '
-            f'with {status.num_excs} error{"" if status.num_excs == 1 else "s"}{cols_with_excs_str}.'
+        tds = UnkTableDataConduit(
+            source, source_format=source_format, src_schema_overrides=schema_overrides, extra_fields=kwargs
         )
-        Env.get().console_logger.info(msg)
-        _logger.info(f'InsertableTable {self._name}: {msg}')
+        data_source = tds.specialize()
+        if data_source.source_column_map is None:
+            data_source.src_pk = []
+
+        assert isinstance(table, Table)
+        data_source.add_table_info(table)
+        data_source.prepare_for_insert_into_table()
+
+        fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
+        return table.insert_table_data_source(
+            data_source=data_source, fail_on_exception=fail_on_exception, print_stats=print_stats
+        )
+
+    def insert_table_data_source(
+        self, data_source: TableDataConduit, fail_on_exception: bool, print_stats: bool = False
+    ) -> pxt.UpdateStatus:
+        """Insert row batches into this table from a `TableDataConduit`."""
+        from pixeltable.io.table_data_conduit import DFTableDataConduit
+
+        status = pxt.UpdateStatus()
+        with Env.get().begin_xact():
+            if isinstance(data_source, DFTableDataConduit):
+                status += self._tbl_version.get().insert(
+                    rows=None, df=data_source.pxt_df, print_stats=print_stats, fail_on_exception=fail_on_exception
+                )
+            else:
+                for row_batch in data_source.valid_row_batch():
+                    status += self._tbl_version.get().insert(
+                        rows=row_batch, df=None, print_stats=print_stats, fail_on_exception=fail_on_exception
+                    )
+
+        Env.get().console_logger.info(status.insert_msg)
+
         FileCache.get().emit_eviction_warnings()
         return status
 

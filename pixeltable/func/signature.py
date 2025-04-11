@@ -253,7 +253,7 @@ class Signature:
                 continue  # skip 'self' or 'cls' parameter
             if param.name in cls.SPECIAL_PARAM_NAMES:
                 raise excs.Error(f'{param.name!r} is a reserved parameter name')
-            if param.kind in {inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD}:
+            if param.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD):
                 parameters.append(Parameter(param.name, col_type=None, kind=param.kind))
                 continue
 

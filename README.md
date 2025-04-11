@@ -1,9 +1,9 @@
 <div align="center">
 <img src="https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/pixeltable-logo-large.png"
-     alt="Pixeltable" width="50%" />
+     alt="Pixeltable Logo" width="50%" />
 <br></br>
 
-<h2>Build Multimodal AI Apps with Declarative Data Infrastructure</h2>
+<h2>Declarative Data Infrastructure for Multimodal AI Apps</h2>
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-0530AD.svg)](https://opensource.org/licenses/Apache-2.0)
 ![PyPI - Python Version](https://img.shields.io/pypi/pyversions/pixeltable?logo=python&logoColor=white&)
@@ -13,27 +13,31 @@
 [![tests status](https://github.com/pixeltable/pixeltable/actions/workflows/nightly.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions/workflows/nightly.yml)
 [![PyPI Package](https://img.shields.io/pypi/v/pixeltable?color=4D148C)](https://pypi.org/project/pixeltable/)
 [![My Discord (1306431018890166272)](https://img.shields.io/badge/💬-Discord-%235865F2.svg)](https://discord.gg/QPyqFYx2UN)
-<a target="_blank" href="https://huggingface.co/Pixeltable">
-  <img src="https://img.shields.io/badge/🤗-HF Space-FF7D04" alt="Visit our Hugging Face space"/>
-</a>
 
-[Installation](https://docs.pixeltable.com/docs/installation) |
-[Documentation](https://docs.pixeltable.com/docs/overview/quick-start) |
-[API Reference](https://pixeltable.github.io/pixeltable/) |
-[Code Samples](https://github.com/pixeltable/pixeltable?tab=readme-ov-file#-code-samples) |
-[Computer Vision](https://docs.pixeltable.com/docs/object-detection-in-videos) |
-[LLM](https://docs.pixeltable.com/docs/document-indexing-and-rag)
+[**Installation**](https://docs.pixeltable.com/docs/overview/installation) |
+[**Quick Start**](https://docs.pixeltable.com/docs/overview/quick-start) |
+[**Documentation**](https://docs.pixeltable.com/) |
+[**API Reference**](https://pixeltable.github.io/pixeltable/) |
+[**Examples**](https://docs.pixeltable.com/docs/examples/use-cases) |
+[**Discord Community**](https://discord.gg/QPyqFYx2UN)
+
 </div>
 
-## 🔍 What is Pixeltable?
-Pixeltable is a declarative data infrastructure for building multimodal AI applications, enabling incremental storage, transformation, indexing, and orchestration of your data.
-- **Data Ingestion**: Unified interface for all [data types](https://docs.pixeltable.com/docs/datastore/bringing-data) (images, videos, audio, documents, URLs, blob storage, structured data)
-- **Data Transformation**: [Chunking](https://docs.pixeltable.com/docs/datastore/views), [embedding](https://docs.pixeltable.com/docs/datastore/embedding-index), and processing with declarative [computed columns](https://docs.pixeltable.com/docs/datastore/computed-columns)
-- **Indexing & Storage**: Type-safe tables with [built-in vector indexing](https://docs.pixeltable.com/docs/cookbooks/search/website)
-- **Query & Retrieval**: [Queries](https://docs.pixeltable.com/docs/datastore/filtering-and-selecting) combining filtering, sorting, and similarity search
-- **Inference & Generation**: [Integration](https://docs.pixeltable.com/docs/integrations/frameworks#cloud-llm-providers) with AI models (OpenAI, Anthropic, PyTorch, YOLOX, DETR, Together, Hugging Face and more...)
+---
 
-All with your [custom functions (UDFs)](https://docs.pixeltable.com/docs/datastore/custom-functions), and built-in caching, versioning, lineage tracking, and incremental computation.
+Pixeltable is the only Python framework that provides incremental storage, transformation, indexing, and orchestration of your multimodal data.
+
+## 😩 Maintaining Production-Ready Multimodal AI Apps is Still Too Hard
+
+Building robust AI applications, especially [multimodal](https://docs.pixeltable.com/docs/datastore/bringing-data) ones, requires stitching together numerous tools:
+*   ETL pipelines for data loading and transformation.
+*   Vector databases for semantic search.
+*   Feature stores for ML models.
+*   Orchestrators for scheduling.
+*   Model serving infrastructure for inference.
+*   Separate systems for parallelization, caching, versioning, and lineage tracking.
+
+This complex "data plumbing" slows down development, increases costs, and makes applications brittle and hard to reproduce.
 
 ## 💾 Installation
 
@@ -41,49 +45,157 @@ All with your [custom functions (UDFs)](https://docs.pixeltable.com/docs/datasto
 pip install pixeltable
 ```
 
-**Pixeltable is persistent. Unlike in-memory Python libraries such as Pandas, Pixeltable is a database.**
+**Pixeltable is a database.** It stores metadata and computed results persistently, typically in a `.pixeltable` directory in your workspace. See [configuration](https://docs.pixeltable.com/docs/overview/configuration) options for your setup.
 
-## 💡 Getting Started
+## ✨ What is Pixeltable?
 
-Learn how to create tables, populate them with data, and enhance them with built-in or user-defined transformations.
+With Pixeltable, you define your *entire* data processing and AI workflow declaratively using **[computed columns](https://docs.pixeltable.com/docs/datastore/computed-columns)** on **[tables](https://docs.pixeltable.com/docs/datastore/tables-and-operations)**. Pixeltable's engine then automatically handles:
 
-| Topic | Notebook | Topic | Notebook |
-|:----------|:-----------------|:-------------------------|:---------------------------------:|
-| 10-Minute Tour of Pixeltable    | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/pixeltable-basics.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> </a> | Tables and Data Operations    | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/fundamentals/tables-and-data-operations.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> </a> |
-| User-Defined Functions (UDFs)    | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/feature-guides/udfs-in-pixeltable.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> </a> | Object Detection Models | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/use-cases/object-detection-in-videos.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> </a> |
-| Incremental Prompt Engineering | <a target="_blank" href="https://colab.research.google.com/github/mistralai/cookbook/blob/main/third_party/Pixeltable/incremental_prompt_engineering_and_model_comparison.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Github"/> | Working with External Files    | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/feature-guides/working-with-external-files.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> </a> |
-| Integrating with Label Studio    | <a target="_blank" href="https://docs.pixeltable.com/docs/cookbooks/vision/label-studio"> <img src="https://img.shields.io/badge/📚 Documentation-013056" alt="Visit our documentation"/></a> | Audio/Video Transcript Indexing    | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/use-cases/audio-transcriptions.ipynb">  <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> |
-| Multimodal Application    | <a target="_blank" href="https://huggingface.co/spaces/Pixeltable/Multimodal-Powerhouse"> <img src="https://img.shields.io/badge/🤗-Gradio App-FF7D04" alt="Visit our Hugging Face Space"/></a> | Document Indexing and RAG    | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/use-cases/rag-demo.ipynb">  <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> |
-| Context-Aware Discord Bot    | <a target="_blank" href="https://github.com/pixeltable/pixeltable/blob/main/docs/sample-apps/context-aware-discord-bot"> <img src="https://img.shields.io/badge/%F0%9F%92%AC-Discord Bot-%235865F2.svg" alt="Visit our documentation"/></a> | Image/Text Similarity Search  | <a target="_blank" href="https://github.com/pixeltable/pixeltable/tree/main/docs/sample-apps/text-and-image-similarity-search-nextjs-fastapi">  <img src="https://img.shields.io/badge/🖥️-Next.js + FastAPI-black.svg" alt="Open In Colab"/> |
+*   **Data Ingestion & Storage:** References [files](https://docs.pixeltable.com/docs/datastore/bringing-data) (images, videos, audio, docs) in place, handles structured data.
+*   **Transformation & Processing:** Applies *any* Python function ([UDFs](https://docs.pixeltable.com/docs/datastore/custom-functions)) or built-in operations ([chunking, frame extraction](https://docs.pixeltable.com/docs/datastore/iterators)) automatically.
+*   **AI Model Integration:** Runs inference ([embeddings](https://docs.pixeltable.com/docs/datastore/embedding-index), [object detection](https://docs.pixeltable.com/docs/examples/vision/yolox), [LLMs](https://docs.pixeltable.com/docs/integrations/frameworks#cloud-llm-providers)) as part of the data pipeline.
+*   **Indexing & Retrieval:** Creates and manages vector indexes for fast [semantic search](https://docs.pixeltable.com/docs/datastore/embedding-index#phase-3%3A-query) alongside traditional filtering.
+*   **Incremental Computation:** Only [recomputes](https://docs.pixeltable.com/docs/overview/quick-start) what's necessary when data or code changes, saving time and cost.
+*   **Versioning & Lineage:** Automatically tracks data and schema changes for reproducibility.
 
-## 🧱 Code Samples
+**Focus on your application logic, not the infrastructure.**
 
-### Import media data into Pixeltable (videos, images, audio...)
 
-```python
-import pixeltable as pxt
+## 🚀 Key Features
 
-v = pxt.create_table('external_data.videos', {'video': pxt.Video})
+* **[Unified Multimodal Interface:](https://docs.pixeltable.com/docs/datastore/tables-and-operations)** `pxt.Image`, `pxt.Video`, `pxt.Audio`, `pxt.Document`, etc. – manage diverse data consistently.
+  ```python
+  t = pxt.create_table(
+    'media', 
+    {
+        'img': pxt.Image, 
+        'video': pxt.Video
+    }
+  )
+  ```
 
-prefix = 's3://multimedia-commons/'
-paths = [
-    'data/videos/mp4/ffe/ffb/ffeffbef41bbc269810b2a1a888de.mp4',
-    'data/videos/mp4/ffe/feb/ffefebb41485539f964760e6115fbc44.mp4',
-    'data/videos/mp4/ffe/f73/ffef7384d698b5f70d411c696247169.mp4'
-]
-v.insert({'video': prefix + p} for p in paths)
+* **[Declarative Computed Columns:](https://docs.pixeltable.com/docs/datastore/computed-columns)** Define processing steps once; they run automatically on new/updated data.
+  ```python
+  t.add_computed_column(
+    classification=huggingface.vit_for_image_classification(
+        t.image
+    )
+  )
+  ```
+
+* **[Built-in Vector Search:](https://docs.pixeltable.com/docs/datastore/embedding-index)** Add embedding indexes and perform similarity searches directly on tables/views.
+  ```python
+  t.add_embedding_index(
+    'img', 
+    embedding=clip.using(
+        model_id='openai/clip-vit-base-patch32'
+    )
+  )
+
+  sim = t.img.similarity("cat playing with yarn")
+  ```
+
+* **[On-the-Fly Data Views:](https://docs.pixeltable.com/docs/datastore/views)** Create virtual tables using iterators for efficient processing without data duplication.
+  ```python
+  frames = pxt.create_view(
+    'frames', 
+    videos, 
+    iterator=FrameIterator.create(
+        video=videos.video, 
+        fps=1
+    )
+  )
+  ```
+
+* **[Seamless AI Integration:](https://docs.pixeltable.com/docs/integrations/frameworks)** Built-in functions for OpenAI, Anthropic, Hugging Face, CLIP, YOLOX, and more.
+  ```python
+  t.add_computed_column(
+    response=openai.chat_completions(
+        messages=[{"role": "user", "content": t.prompt}]
+    )
+  )
+  ```
+
+* **[Bring Your Own Code:](https://docs.pixeltable.com/docs/datastore/custom-functions)** Extend Pixeltable with simple Python User-Defined Functions.
+  ```python
+  @pxt.udf
+  def format_prompt(context: list, question: str) -> str:
+      return f"Context: {context}\nQuestion: {question}"
+  ```
+
+* **[Agentic Workflows / Tool Calling:](https://docs.pixeltable.com/docs/examples/chat/tools)** Register `@pxt.udf` or `@pxt.query` functions as tools and orchestrate LLM-based tool use (incl. multimodal).
+  ```python
+  # Example tools: a UDF and a Query function for RAG
+  tools = pxt.tools(get_weather_udf, search_context_query)
+
+  # LLM decides which tool to call; Pixeltable executes it
+  t.add_computed_column(
+       tool_output=invoke_tools(tools, t.llm_tool_choice)
+  )
+  ```
+
+* **[Persistent & Versioned:](https://docs.pixeltable.com/docs/datastore/tables-and-operations#data-operations)** All data, metadata, and computed results are automatically stored.
+  ```python
+  t.revert()  # Revert to a previous version
+  stored_table = pxt.get_table('my_existing_table')  # Retrieve persisted table
+  ```
+
+* **[SQL-like Python Querying:](https://docs.pixeltable.com/docs/datastore/filtering-and-selecting)** Familiar syntax combined with powerful AI capabilities.
+  ```python
+  results = (
+    t.where(t.score > 0.8)
+    .order_by(t.timestamp)
+    .select(t.image, score=t.score)
+    .limit(10)
+    .collect()
+  )
+  ```
+
+## 💡 Key Examples
+
+*(See the [Full Quick Start](https://docs.pixeltable.com/docs/overview/quick-start) or [Notebook Gallery](#-notebook-gallery) for more details)*
+
+**1. Multimodal Data Store and Data Transformation (Computed Column):**
+```bash
+pip install pixeltable
 ```
 
-Learn how to [work with data in Pixeltable](https://docs.pixeltable.com/docs/datastore/tables-and-operations).
-
-### Object detection in images using DETR model
-
 ```python
 import pixeltable as pxt
-from pixeltable.functions import huggingface
 
-# Create a table to store data persistently
-t = pxt.create_table('image', {'image': pxt.Image})
+# Create a table
+t = pxt.create_table(
+    'films', 
+    {'name': pxt.String, 'revenue': pxt.Float, 'budget': pxt.Float}, 
+    if_exists="replace"
+)
+
+t.insert([
+  {'name': 'Inside Out', 'revenue': 800.5, 'budget': 200.0},
+  {'name': 'Toy Story', 'revenue': 1073.4, 'budget': 200.0}
+])
+
+# Add a computed column for profit - runs automatically!
+t.add_computed_column(profit=(t.revenue - t.budget), if_exists="replace")
+
+# Query the results
+print(t.select(t.name, t.profit).collect())
+# Output includes the automatically computed 'profit' column
+```
+
+**2. Object Detection with [YOLOX](https://github.com/pixeltable/pixeltable-yolox):**
+
+```bash
+pip install pixeltable pixeltable-yolox
+```
+
+```python
+import PIL
+import pixeltable as pxt
+from yolox.models import Yolox
+from yolox.data.datasets import COCO_CLASSES
+
+t = pxt.create_table('image', {'image': pxt.Image}, if_exists='replace')
 
 # Insert some images
 prefix = 'https://upload.wikimedia.org/wikipedia/commons'
@@ -94,230 +206,172 @@ paths = [
 ]
 t.insert({'image': prefix + p} for p in paths)
 
-# Add a computed column for image classification
-t.add_computed_column(classification=huggingface.detr_for_object_detection(
-    t.image,
-    model_id='facebook/detr-resnet-50'
-))
-
-# Retrieve the rows where cats have been identified
-t.select(animal = t.image,
-         classification = t.classification.label_text[0]) \
-.where(t.classification.label_text[0]=='cat').head()
-```
-
-Learn about computed columns and object detection:
-[Comparing object detection models](https://docs.pixeltable.com/docs/examples/use-cases#multimodal-processing).
-
-### Extend Pixeltable's capabilities with user-defined functions
-
-```python
 @pxt.udf
-def draw_boxes(img: PIL.Image.Image, boxes: list[list[float]]) -> PIL.Image.Image:
-    result = img.copy()  # Create a copy of `img`
-    d = PIL.ImageDraw.Draw(result)
-    for box in boxes:
-        d.rectangle(box, width=3)  # Draw bounding box rectangles on the copied image
-    return result
+def detect(image: PIL.Image.Image) -> list[str]:
+    model = Yolox.from_pretrained("yolox_s")
+    result = model([image])
+    coco_labels = [COCO_CLASSES[label] for label in result[0]["labels"]]
+    return coco_labels
+
+t.add_computed_column(classification=detect(t.image))
+
+print(t.select().collect())
 ```
 
-Learn more about user-defined functions:
-[UDFs in Pixeltable](https://docs.pixeltable.com/docs/datastore/custom-functions).
+**3. Image Similarity Search (CLIP Embedding Index):**
 
-### Automate data operations with views, e.g., split documents into chunks
-
-```python
-# In this example, the view is defined by iteration over the chunks of a DocumentSplitter
-chunks_table = pxt.create_view(
-    'rag_demo.chunks',
-    documents_table,
-    iterator=DocumentSplitter.create(
-        document=documents_table.document,
-        separators='token_limit', limit=300)
-)
+```bash
+pip install pixeltable sentence-transformers
 ```
-
-Learn how to leverage views to build your
-[RAG workflow](https://docs.pixeltable.com/docs/cookbooks/chat/memory).
-
-### Evaluate model performance
-
-```python
-# The computation of the mAP metric can become a query over the evaluation output
-frames_view.select(mean_ap(frames_view.eval_yolox_tiny), mean_ap(frames_view.eval_yolox_m)).show()
-```
-
-Learn how to leverage Pixeltable for [Model analytics](https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/use-cases/object-detection-in-videos.ipynb).
-
-### Working with inference services
-
-```python
-chat_table = pxt.create_table('together_demo.chat', {'input': pxt.String})
-
-# The chat-completions API expects JSON-formatted input:
-messages = [{'role': 'user', 'content': chat_table.input}]
-
-# This example shows how additional parameters from the Together API can be used in Pixeltable
-chat_table.add_computed_column(
-    output=chat_completions(
-        messages=messages,
-        model='mistralai/Mixtral-8x7B-Instruct-v0.1',
-        max_tokens=300,
-        stop=['\n'],
-        temperature=0.7,
-        top_p=0.9,
-        top_k=40,
-        repetition_penalty=1.1,
-        logprobs=1,
-        echo=True
-    )
-)
-chat_table.add_computed_column(
-    response=chat_table.output.choices[0].message.content
-)
-
-# Start a conversation
-chat_table.insert([
-    {'input': 'How many species of felids have been classified?'},
-    {'input': 'Can you make me a coffee?'}
-])
-chat_table.select(chat_table.input, chat_table.response).head()
-```
-
-Learn how to interact with inference services such as [Together AI](https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/integrations/working-with-together.ipynb) in Pixeltable.
-
-### Text and image similarity search on video frames with embedding indexes
 
 ```python
 import pixeltable as pxt
 from pixeltable.functions.huggingface import clip
-from pixeltable.iterators import FrameIterator
-import PIL.Image
 
-video_table = pxt.create_table('videos', {'video': pxt.Video})
+# Create image table and add sample images
+images = pxt.create_table('my_images', {'img': pxt.Image}, if_exists='replace')
+images.insert([
+    {'img': 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/68/Orange_tabby_cat_sitting_on_fallen_leaves-Hisashi-01A.jpg/1920px-Orange_tabby_cat_sitting_on_fallen_leaves-Hisashi-01A.jpg'},
+    {'img': 'https://upload.wikimedia.org/wikipedia/commons/d/d5/Retriever_in_water.jpg'}
+])
 
-video_table.insert([{'video': '/video.mp4'}])
+# Add CLIP embedding index for similarity search
+images.add_embedding_index(
+    'img',
+    embedding=clip.using(model_id='openai/clip-vit-base-patch32')
+)
 
-frames_view = pxt.create_view(
-    'frames', video_table, iterator=FrameIterator.create(video=video_table.video))
+# Text-based image search
+query_text = "a dog playing fetch"
+sim_text = images.img.similarity(query_text)
+results_text = images.order_by(sim_text, asc=False).limit(3).select(
+    image=images.img, similarity=sim_text
+).collect()
+print("--- Text Query Results ---")
+print(results_text)
 
-# Create an index on the 'frame' column that allows text and image search
-frames_view.add_embedding_index('frame', embed=clip.using('openai/clip-vit-base-patch32'))
-
-# Now we will retrieve images based on a sample image
-sample_image = '/image.jpeg'
-sim = frames_view.frame.similarity(sample_image)
-frames_view.order_by(sim, asc=False).limit(5).select(frames_view.frame, sim=sim).collect()
-
-# Now we will retrieve images based on a string
-sample_text = 'red truck'
-sim = frames_view.frame.similarity(sample_text)
-frames_view.order_by(sim, asc=False).limit(5).select(frames_view.frame, sim=sim).collect()
+# Image-based image search
+query_image_url = 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/7a/Huskiesatrest.jpg/2880px-Huskiesatrest.jpg'
+sim_image = images.img.similarity(query_image_url)
+results_image = images.order_by(sim_image, asc=False).limit(3).select(
+    image=images.img, similarity=sim_image
+).collect()
+print("--- Image URL Query Results ---")
+print(results_image)
 ```
 
-Learn how to work with [Embedding and Vector Indexes](https://docs.pixeltable.com/docs/datastore/embedding-index).
+**4. Multimodal/Incremental RAG Workflow (Document Chunking & LLM Call):**
 
-## 🔄 AI Stack Comparison
+```bash
+pip install pixeltable openai spacy sentence-transformers
+```
 
-### 🎯 Computer Vision Workflows
+```bash
+python -m spacy download en_core_web_sm
+```
 
-| Requirement | Traditional | Pixeltable |
-|-------------|---------------------|------------|
-| Frame Extraction | ffmpeg + custom code | Automatic via FrameIterator |
-| Object Detection | Multiple scripts + caching | Single computed column |
-| Video Indexing | Custom pipelines + Vector DB | Native similarity search |
-| Annotation Management | Separate tools + custom code | Label Studio integration |
-| Model Evaluation | Custom metrics pipeline | Built-in mAP computation |
+```python
+import pixeltable as pxt
+import pixeltable.functions as pxtf
+from pixeltable.functions import openai, huggingface
+from pixeltable.iterators import DocumentSplitter
 
-### 🤖 LLM Workflows
+# Manage your tables by directories
+directory = "my_docs"
+pxt.drop_dir(directory, if_not_exists="ignore", force=True)
+pxt.create_dir("my_docs")
 
-| Requirement | Traditional | Pixeltable |
-|-------------|---------------------|------------|
-| Document Chunking | Tool + custom code | Native DocumentSplitter |
-| Embedding Generation | Separate pipeline + caching | Computed columns |
-| Vector Search | External vector DB | Built-in vector indexing |
-| Prompt Management | Custom tracking solution | Version-controlled columns |
-| Chain Management | Tool + custom code | Computed column DAGs |
+# Create a document table and add a PDF
+docs = pxt.create_table(f'{directory}.docs', {'doc': pxt.Document})
+docs.insert([{'doc': 'https://github.com/pixeltable/pixeltable/raw/release/docs/resources/rag-demo/Jefferson-Amazon.pdf'}])
 
-### 🎨 Multimodal Workflows
+# Create chunks view with sentence-based splitting
+chunks = pxt.create_view(
+    'doc_chunks',
+    docs,
+    iterator=DocumentSplitter.create(document=docs.doc, separators='sentence')
+)
 
-| Requirement | Traditional | Pixeltable |
-|-------------|---------------------|------------|
-| Data Types | Multiple storage systems | Unified table interface |
-| Cross-Modal Search | Complex integration | Native similarity support |
-| Pipeline Orchestration | Multiple tools (Airflow, etc.) | Single declarative interface |
-| Asset Management | Custom tracking system | Automatic lineage |
-| Quality Control | Multiple validation tools | Computed validation columns |
+# Explicitly create the embedding function object
+embed_model = huggingface.sentence_transformer.using(model_id='all-MiniLM-L6-v2')
+# Add embedding index using the function object
+chunks.add_embedding_index('text', string_embed=embed_model)
 
-## ❓ FAQ
+# Define query function for retrieval - Returns a DataFrame expression
+@pxt.query
+def get_relevant_context(query_text: str, limit: int = 3):
+    sim = chunks.text.similarity(query_text)
+    # Return a list of strings (text of relevant chunks)
+    return chunks.order_by(sim, asc=False).limit(limit).select(chunks.text)
 
-### What problems does Pixeltable solve?
+# Build a simple Q&A table
+qa = pxt.create_table(f'{directory}.qa_system', {'prompt': pxt.String})
 
-Today's solutions for AI app development require extensive custom coding and infrastructure plumbing.
-Tracking lineage and versions between and across data transformations, models, and deployments is cumbersome.
-Pixeltable lets ML Engineers and Data Scientists focus on exploration, modeling, and app development without
-dealing with the customary data plumbing.
+# 1. Add retrieved context (now a list of strings)
+qa.add_computed_column(context=get_relevant_context(qa.prompt))
 
-### What does Pixeltable provide me with? Pixeltable provides:
+# 2. Format the prompt with context
+qa.add_computed_column(
+    final_prompt=pxtf.string.format(
+        """
+        PASSAGES: 
+        {0}
+        
+        QUESTION: 
+        {1}
+        """, 
+        qa.context, 
+        qa.prompt
+    )
+)
 
-- Data storage and versioning
-- Combined Data and Model Lineage
-- Indexing (e.g. embedding vectors) and Data Retrieval
-- Orchestration of multimodal workloads
-- Incremental updates
-- Code is automatically production-ready
+# 4. Generate the answer using the well-formatted prompt column
+qa.add_computed_column(
+    answer=openai.chat_completions(
+        model='gpt-4o-mini',
+        messages=[{
+            'role': 'user',
+            'content': qa.final_prompt
+        }]
+    ).choices[0].message.content
+)
 
-### Why should you use Pixeltable?
+# Ask a question and get the answer
+qa.insert([{'prompt': 'What can you tell me about Amazon?'}])
+print("--- Final Answer ---")
+print(qa.select(qa.answer).collect())
+```
 
-- **It gives you transparency and reproducibility**
-  - All generated data is automatically recorded and versioned
-  - You will never need to re-run a workload because you lost track of the input data
-- **It saves you money**
-  - All data changes are automatically incremental
-  - You never need to re-run pipelines from scratch because you’re adding data
-- **It integrates with any existing Python code or libraries**
-  - Bring your ever-changing code and workloads
-  - You choose the models, tools, and AI practices (e.g., your embedding model for a vector index);
-    Pixeltable orchestrates the data
+## 📚 Notebook Gallery
 
-### What is Pixeltable not providing?
+Explore Pixeltable's capabilities interactively:
 
-- Pixeltable is not a low-code, prescriptive AI solution. We empower you to use the best frameworks and techniques for
-  your specific needs.
-- We do not aim to replace your existing AI toolkit, but rather enhance it by streamlining the underlying data
-  infrastructure and orchestration.
+| Topic | Notebook | Topic | Notebook |
+|:----------|:-----------------|:-------------------------|:---------------------------------:|
+| **Fundamentals** | | **Integrations** | |
+| 10-Min Tour | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/pixeltable-basics.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> </a> | OpenAI | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-openai.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> </a> |
+| Tables & Ops | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/fundamentals/tables-and-data-operations.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> </a> | Anthropic | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-anthropic.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> </a> |
+| UDFs | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/feature-guides/udfs-in-pixeltable.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> </a> | Together AI | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-together.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> </a> |
+| Embedding Index | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/feature-guides/embedding-and-vector-indexes.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> </a> | Label Studio | <a target="_blank" href="https://docs.pixeltable.com/docs/cookbooks/vision/label-studio"> <img src="https://img.shields.io/badge/📚%20Docs-013056" alt="Visit Docs"/></a> |
+| External Files | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/feature-guides/working-with-external-files.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> </a> | Mistral | <a target="_blank" href="https://colab.research.google.com/github/mistralai/cookbook/blob/main/third_party/Pixeltable/incremental_prompt_engineering_and_model_comparison.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Github"/> |
+| **Use Cases** | | **Sample Apps** | |
+| RAG Demo | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/use-cases/rag-demo.ipynb">  <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> | Multimodal Agent | <a target="_blank" href="https://huggingface.co/spaces/Pixeltable/Multimodal-Powerhouse"> <img src="https://img.shields.io/badge/🤗%20Demo-FF7D04" alt="HF Space"/></a> |
+| Object Detection | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/use-cases/object-detection-in-videos.ipynb"> <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> </a> | Image/Text Search | <a target="_blank" href="https://github.com/pixeltable/pixeltable/tree/main/docs/sample-apps/text-and-image-similarity-search-nextjs-fastapi">  <img src="https://img.shields.io/badge/🖥️%20App-black.svg" alt="GitHub App"/> |
+| Audio Transcription | <a target="_blank" href="https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/use-cases/audio-transcriptions.ipynb">  <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/> | Discord Bot | <a target="_blank" href="https://github.com/pixeltable/pixeltable/blob/main/docs/sample-apps/context-aware-discord-bot"> <img src="https://img.shields.io/badge/%F0%9F%92%AC%20Bot-%235865F2.svg" alt="GitHub App"/></a> |
 
-> [!TIP]
-> Check out the [Integrations](https://docs.pixeltable.com/docs/integrations/frameworks) section, and feel free to submit
-> a request for additional ones.
+## 🔮 Roadmap (2025)
 
-## 🤝 Contributing to Pixeltable
+### Cloud Infrastructure and Deployment
+We're working on a hosted Pixeltable service that will:
 
-We're excited to welcome contributions from the community! Here's how you can get involved:
+- Enable Multimodal Data Sharing of Pixeltable Tables and Views
+- Provide a persistent cloud instance
+- Turn Pixeltable workflows (Tables, Queries, UDFs) into API endpoints/[MCP Servers](https://github.com/pixeltable/pixeltable-mcp-server)
 
-### 🐛 Report Issues
+## 🤝 Contributing
 
-- Found a bug? [Open an issue](https://github.com/pixeltable/pixeltable/issues)
-- Include steps to reproduce and environment details
-
-### 💡 Submit Changes
-
-- Fork the repository
-- Create a feature branch
-- Submit a [pull request](https://github.com/pixeltable/pixeltable/pulls)
-- See our [Contributing Guide](CONTRIBUTING.md) for detailed instructions
-
-### 💬 Join the Discussion
-
-- Have questions? Start a [Discussion](https://github.com/pixeltable/pixeltable/discussions)
-- Share your Pixeltable projects and use cases
-- Help others in the community
-
-### 📝 Improve Documentation
-
-- Suggest examples and tutorials
-- Propose improvements
+We love contributions! Whether it's reporting bugs, suggesting features, improving documentation, or submitting code changes, please check out our [Contributing Guide](CONTRIBUTING.md) and join the [Discussions](https://github.com/pixeltable/pixeltable/discussions) or our [Discord Server](https://discord.gg/QPyqFYx2UN).
 
 ## 🏢 License
 
-This library is licensed under the Apache 2.0 License.
+Pixeltable is licensed under the Apache 2.0 License.
