@@ -8,7 +8,7 @@ import sys
 import time
 from typing import Awaitable, Collection, Optional
 
-from pixeltable import env, exprs, func
+from pixeltable import env, func
 from pixeltable.config import Config
 
 from .globals import Dispatcher, ExecCtx, FnCallArgs, Scheduler

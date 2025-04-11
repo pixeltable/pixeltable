@@ -400,7 +400,7 @@ class TestOpenai:
         assert t.collect()['img_3'][0].size == (1792, 1024)
 
     @pytest.mark.expensive
-    def test_table_udf_tools(self, reset_db) -> None:
+    def test_table_udf_tools(self, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
         TestOpenai.skip_test_if_no_openai_client()
         from pixeltable.functions.openai import chat_completions, invoke_tools
