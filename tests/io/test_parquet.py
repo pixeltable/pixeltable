@@ -18,8 +18,6 @@ if TYPE_CHECKING:
 class TestParquet:
     def test_import_parquet_examples(self, reset_db: None, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('pyarrow')
-        import pyarrow as pa
-        from pyarrow import parquet
 
         pdts = []
         pqts = []
@@ -52,7 +50,7 @@ class TestParquet:
 
         for fn, pdt, pqt in zip(file_list, pdts, pqts):
             print(fn, 'row count: ', pqt.count())
-            if not pdt.columns == pqt.columns:
+            if pdt.columns != pqt.columns:
                 print(pdt.columns)
                 print(pqt.columns)
             assert pdt.count() == pqt.count()
@@ -102,8 +100,6 @@ class TestParquet:
 
     def test_insert_parquet(self, reset_db: None, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('pyarrow')
-        import pyarrow as pa
-        from pyarrow import parquet
 
         parquet_dir = tmp_path / 'test_data'
         parquet_dir.mkdir()
@@ -229,7 +225,6 @@ class TestParquet:
                     assert val1.all() == val2.all()
                 else:
                     assert val1 == val2
-                assert None == None
 
         # verify the data is same by reading it back into pyarrow table
         exported_arrow_tab: pa.Table = parquet.read_table(str(export_path))
@@ -265,7 +260,7 @@ class TestParquet:
 
         # Right now we cannot import a table with inlined image back into pixeltable
         with pytest.raises(excs.Error) as exc_info:
-            imported_tab = pxt.io.import_parquet('imported_image', parquet_path=str(export_path))
+            _ = pxt.io.import_parquet('imported_image', parquet_path=str(export_path))
         assert 'Could not infer pixeltable type for column(s): c1' in str(exc_info.value)
 
     def __pa_array(self, obj: Iterable) -> 'pa.Array':
