@@ -1,5 +1,5 @@
 import os
-from typing import Iterator, Optional, Union
+from typing import Any, Iterator, Optional, Union
 
 import fiftyone as fo  # type: ignore[import-untyped]
 import fiftyone.utils.data as foud  # type: ignore[import-untyped]
@@ -59,10 +59,9 @@ class PxtImageDatasetImporter(foud.LabeledImageDatasetImporter):
         for exprs_, label_cls, default_name in label_categories:
             if exprs_ is None or isinstance(exprs_, dict):
                 continue
-            if isinstance(exprs_, exprs.Expr):
-                exprs_ = [exprs_]
-            assert isinstance(exprs_, list)
-            for expr in exprs_:
+            exprs_list = [exprs_] if isinstance(exprs_, exprs.Expr) else exprs_
+            assert isinstance(exprs_list, list)
+            for expr in exprs_list:
                 if default_name not in self.__labels:
                     name = default_name
                 else:
@@ -125,7 +124,7 @@ class PxtImageDatasetImporter(foud.LabeledImageDatasetImporter):
             elif label_cls is fo.Detections:
                 label = fo.Detections(detections=self.__as_fo_detections(label_data))
             else:
-                assert False
+                raise AssertionError()
             labels[label_name] = label
 
         return file, metadata, labels
@@ -166,5 +165,5 @@ class PxtImageDatasetImporter(foud.LabeledImageDatasetImporter):
     def get_dataset_info(self) -> dict:
         pass
 
-    def close(self, *args) -> None:
+    def close(self, *args: Any) -> None:
         pass

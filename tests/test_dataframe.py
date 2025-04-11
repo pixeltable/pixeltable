@@ -123,7 +123,7 @@ class TestDataFrame:
         with pytest.raises(excs.Error, match='Where clause already specified'):
             r2 = t.select(t.c2).where(t.c2 <= 10).where(t.c2 <= 20).count()
 
-    def test_join(self, reset_db) -> None:
+    def test_join(self, reset_db: None) -> None:
         t1, t2, t3 = self.create_join_tbls(1000)
         # inner join
         df = t1.join(t2, on=t1.id, how='inner').select(t1.i, t2.f, out=t1.i + t2.f).order_by(t2.f)
@@ -177,7 +177,7 @@ class TestDataFrame:
         pd_df = res.to_pandas()
         # TODO: verify result
 
-    def test_join_errors(self, reset_db) -> None:
+    def test_join_errors(self, reset_db: None) -> None:
         t1, t2, t3 = self.create_join_tbls(1000)
 
         with pytest.raises(excs.Error) as exc_info:
@@ -293,7 +293,7 @@ class TestDataFrame:
         assert len(res) == nrows
 
         @pxt.query
-        def get_lim(n: int):
+        def get_lim(n: int) -> pxt.DataFrame:
             return t.select(t.c4).limit(n)
 
         res = t.select(t.c4, get_lim(2)).collect()
@@ -317,7 +317,7 @@ class TestDataFrame:
         assert len(res) == nrows
 
         @pxt.query
-        def get_lim(n: int):
+        def get_lim(n: int) -> pxt.DataFrame:
             return t.select(t.c4, folded_flt=(5.7 * n) - 4).limit((3 * (n + 1) // 2) - 1)
 
         res = t.select(t.c4, get_lim(1)).collect()
@@ -330,7 +330,7 @@ class TestDataFrame:
         t = test_tbl
 
         @pxt.query
-        def get_lim(n: float):
+        def get_lim(n: float) -> pxt.DataFrame:
             return t.select(t.c4).limit(n.astype(pxt.Int))  # type: ignore[attr-defined]
 
         res = t.select(t.c4, get_lim(2.2)).collect()
@@ -343,7 +343,7 @@ class TestDataFrame:
         assert res[0]['foo'] == [2, 3, 4]
 
         @pxt.query
-        def get_val(n: int):
+        def get_val(n: int) -> pxt.DataFrame:
             return t.select(foo=[2, 3, n]).limit(2)
 
         res = t.select(t.c4, get_val(4)).limit(2).collect()
@@ -391,7 +391,7 @@ class TestDataFrame:
         )
         _ = df._repr_html_()  # TODO: Is there a good way to test this output?
 
-    def test_count(self, test_tbl: catalog.Table, small_img_tbl) -> None:
+    def test_count(self, test_tbl: catalog.Table, small_img_tbl: pxt.Table) -> None:
         t = test_tbl
         cnt = t.count()
         assert cnt == 100
@@ -409,7 +409,7 @@ class TestDataFrame:
         res = t.select(1.0).where(t.c2 < 10).collect()
         assert res[next(iter(res.schema.keys()))] == [1.0] * 10
 
-    def test_html_media_url(self, reset_db) -> None:
+    def test_html_media_url(self, reset_db: None) -> None:
         tab = pxt.create_table('test_html_repr', {'video': pxt.Video, 'audio': pxt.Audio, 'doc': pxt.Document})
 
         pdf_doc = next(f for f in get_documents() if f.endswith('.pdf'))
@@ -535,6 +535,17 @@ class TestDataFrame:
             snap.where(t.c2 < 10).delete()
         assert 'Cannot delete from view' in str(exc_info.value)
 
+    def __check_constant_query(self, df: pxt.DataFrame, v: Any) -> None:
+        r = df.limit(5).collect()
+        assert all(r[i, 0] == v for i in range(len(r)))
+
+    def test_select_constant(self, all_datatypes_tbl: catalog.Table) -> None:
+        t = all_datatypes_tbl
+        self.__check_constant_query(t.select(5), 5)
+        self.__check_constant_query(t.select(None), None)
+        self.__check_constant_query(t.select(foo=5), 5)
+        self.__check_constant_query(t.select(foo=None), None)
+
     def test_to_pytorch_dataset(self, all_datatypes_tbl: catalog.Table) -> None:
         """tests all types are handled correctly in this conversion"""
         skip_test_if_not_installed('torch')
@@ -658,7 +669,7 @@ class TestDataFrame:
         _ = pickle.loads(x)
 
         # test we get all rows
-        def check_recover_all_rows(ds, size: int, **kwargs):
+        def check_recover_all_rows(ds: 'torch.utils.data.Dataset', size: int, **kwargs: Any) -> None:
             dl = torch.utils.data.DataLoader(ds, **kwargs)
             loaded_ids = set()
             for batch in dl:
@@ -696,7 +707,7 @@ class TestDataFrame:
 
         t.drop_column('c_array')  # no support yet for null array values in the pytorch dataset
 
-        def _get_mtimes(dir: Path):
+        def _get_mtimes(dir: Path) -> dict[str, float]:
             return {p.name: p.stat().st_mtime for p in dir.iterdir()}
 
         #  check result cached
@@ -722,7 +733,7 @@ class TestDataFrame:
         assert isinstance(ds4, PixeltablePytorchDataset)
         assert ds4.path != ds3.path, 'different select list, hence different path should be used'
 
-    def test_to_coco(self, reset_db) -> None:
+    def test_to_coco(self, reset_db: None) -> None:
         skip_test_if_not_installed('yolox')
         from pycocotools.coco import COCO
 

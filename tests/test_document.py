@@ -14,7 +14,7 @@ from pixeltable.utils.documents import get_document_handle
 from .utils import get_audio_files, get_documents, get_image_files, get_video_files, skip_test_if_not_installed
 
 
-def _check_pdf_metadata(rec: dict, sep1: str, metadata: list[str]):
+def _check_pdf_metadata(rec: dict, sep1: str, metadata: list[str]) -> None:
     if 'page' in metadata and sep1 in ['page', 'paragraph', 'sentence']:
         assert rec.get('page') is not None
     if 'bounding_box' in metadata and sep1 in ['paragraph', 'sentence']:
@@ -45,7 +45,7 @@ class TestDocument:
     def invalid_doc_paths(self) -> list[str]:
         return [get_video_files()[0], get_audio_files()[0], get_image_files()[0]]
 
-    def test_insert(self, reset_db) -> None:
+    def test_insert(self, reset_db: None) -> None:
         skip_test_if_not_installed('mistune')
 
         file_paths = self.valid_doc_paths()
@@ -72,7 +72,7 @@ class TestDocument:
             if extension == '.pdf':
                 assert handle.format == pxt.DocumentType.DocumentFormat.PDF, path
                 assert handle.pdf_doc is not None, path
-            elif extension in {'.html', '.htm'}:
+            elif extension in ('.html', '.htm'):
                 assert handle.format == pxt.DocumentType.DocumentFormat.HTML, path
                 assert handle.bs_doc is not None, path
             elif extension == '.md':
@@ -87,7 +87,7 @@ class TestDocument:
             else:
                 raise AssertionError(f'Unexpected extension {extension}, add corresponding check')
 
-    def test_invalid_arguments(self, reset_db) -> None:
+    def test_invalid_arguments(self, reset_db: None) -> None:
         """Test input parsing provides useful error messages"""
         example_file = [p for p in self.valid_doc_paths() if p.endswith('.pdf')][0]
 
@@ -125,7 +125,7 @@ class TestDocument:
                 _ = DocumentSplitter(document=example_file, separators='', metadata=md)
             assert 'Invalid metadata' in str(exc_info.value)
 
-    def test_doc_splitter(self, reset_db) -> None:
+    def test_doc_splitter(self, reset_db: None) -> None:
         skip_test_if_not_installed('tiktoken')
         skip_test_if_not_installed('spacy')
 
@@ -217,7 +217,7 @@ class TestDocument:
 
             pxt.drop_table('chunks')
 
-    def test_doc_splitter_headings(self, reset_db) -> None:
+    def test_doc_splitter_headings(self, reset_db: None) -> None:
         skip_test_if_not_installed('spacy')
         file_paths = [
             p for p in self.valid_doc_paths() if not (p.endswith('.pdf') or p.endswith('.xml') or p.endswith('.txt'))
@@ -249,7 +249,7 @@ class TestDocument:
                         _ = res[md_element]
             pxt.drop_table('chunks')
 
-    def test_doc_splitter_txt(self, reset_db) -> None:
+    def test_doc_splitter_txt(self, reset_db: None) -> None:
         """Test the DocumentSplitter with a .txt file
 
         test_doc_splitter above already tests the behaviour

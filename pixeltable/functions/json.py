@@ -37,5 +37,5 @@ class make_list(pxt.Aggregator):
 __all__ = local_public_names(__name__)
 
 
-def __dir__():
+def __dir__() -> list[str]:
     return __all__

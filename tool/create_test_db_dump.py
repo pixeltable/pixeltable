@@ -13,7 +13,7 @@ import pixeltable_pgserver
 import toml
 
 import pixeltable as pxt
-import pixeltable.metadata as metadata
+from pixeltable import metadata
 from pixeltable.env import Env
 from pixeltable.func import Batch
 from pixeltable.io.external_store import Project
@@ -23,7 +23,7 @@ _logger = logging.getLogger('pixeltable')
 
 
 class Dumper:
-    def __init__(self, output_dir='target', db_name='pxtdump') -> None:
+    def __init__(self, output_dir: str = 'target', db_name: str = 'pxtdump') -> None:
         if sys.version_info >= (3, 10):
             raise RuntimeError(
                 'This script must be run on Python 3.9. '
@@ -74,7 +74,7 @@ class Dumper:
                 'user': user,
             }
         }
-        with open(info_file, 'w') as info:
+        with open(info_file, 'w', encoding='utf-8') as info:
             toml.dump(info_dict, info)
 
     # Expression types, predicate types, embedding indices, views on views
@@ -104,7 +104,7 @@ class Dumper:
         d2 = [d1, d1]
 
         c1_data = [f'test string {i}' for i in range(num_rows)]
-        c2_data = [i for i in range(num_rows)]
+        c2_data = list(range(num_rows))
         c3_data = [float(i) for i in range(num_rows)]
         c4_data = [bool(i % 2) for i in range(num_rows)]
         c5_data = [datetime.datetime.now()] * num_rows
@@ -184,7 +184,7 @@ class Dumper:
         assert len(project.stored_proxies) == 1
         assert t.base_table_image_rot.col in project.stored_proxies
 
-    def __add_expr_columns(self, t: pxt.Table, col_prefix: str, include_expensive_functions=False) -> None:
+    def __add_expr_columns(self, t: pxt.Table, col_prefix: str, include_expensive_functions: bool = False) -> None:
         def add_computed_column(col_name: str, col_expr: Any, stored: bool = True) -> None:
             t.add_computed_column(**{f'{col_prefix}_{col_name}': col_expr}, stored=stored)
 
@@ -284,7 +284,7 @@ class Dumper:
 
         # query()
         @pxt.query
-        def q1(i: int):
+        def q1(i: int) -> pxt.DataFrame:
             # this breaks; TODO: why?
             # return t.where(t.c2 < i)
             return t.where(t.c2 < i).select(t.c1, t.c2)
@@ -292,7 +292,7 @@ class Dumper:
         add_computed_column('query_output', q1(t.c2))
 
         @pxt.query
-        def q2(s: str):
+        def q2(s: str) -> pxt.DataFrame:
             sim = t[f'{col_prefix}_function_call'].similarity(s)
             return t.order_by(sim, asc=False).select(t[f'{col_prefix}_function_call']).limit(5)
 

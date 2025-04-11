@@ -23,7 +23,7 @@ T = typing.TypeVar('T')
 class sum(func.Aggregator, typing.Generic[T]):
     """Sums the selected integers or floats."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.sum: T = None
 
     def update(self, val: T) -> None:
@@ -67,7 +67,7 @@ def _(val: sql.ColumnElement) -> Optional[sql.ColumnElement]:
     ),
 )
 class count(func.Aggregator, typing.Generic[T]):
-    def __init__(self):
+    def __init__(self) -> None:
         self.count = 0
 
     def update(self, val: T) -> None:
@@ -88,7 +88,7 @@ def _(val: sql.ColumnElement) -> Optional[sql.ColumnElement]:
     type_substitutions=tuple({T: Optional[t]} for t in (str, int, float, bool, ts.Timestamp)),  # type: ignore[misc]
 )
 class min(func.Aggregator, typing.Generic[T]):
-    def __init__(self):
+    def __init__(self) -> None:
         self.val: T = None
 
     def update(self, val: T) -> None:
@@ -118,7 +118,7 @@ def _(val: sql.ColumnElement) -> Optional[sql.ColumnElement]:
     type_substitutions=tuple({T: Optional[t]} for t in (str, int, float, bool, ts.Timestamp)),  # type: ignore[misc]
 )
 class max(func.Aggregator, typing.Generic[T]):
-    def __init__(self):
+    def __init__(self) -> None:
         self.val: T = None
 
     def update(self, val: T) -> None:
@@ -143,7 +143,7 @@ def _(val: sql.ColumnElement) -> Optional[sql.ColumnElement]:
 
 @func.uda(type_substitutions=({T: Optional[int]}, {T: Optional[float]}))  # type: ignore[misc]
 class mean(func.Aggregator, typing.Generic[T]):
-    def __init__(self):
+    def __init__(self) -> None:
         self.sum: T = None
         self.count = 0
 
@@ -182,5 +182,5 @@ def map(expr: exprs.Expr, fn: Callable[[exprs.Expr], Any]) -> exprs.Expr:
 __all__ = local_public_names(__name__)
 
 
-def __dir__():
+def __dir__() -> list[str]:
     return __all__

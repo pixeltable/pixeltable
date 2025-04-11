@@ -512,7 +512,7 @@ class StringType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.STRING, nullable=nullable)
 
-    def has_supertype(self):
+    def has_supertype(self) -> bool:
         return not self.nullable
 
     @classmethod
@@ -602,7 +602,7 @@ class TimestampType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.TIMESTAMP, nullable=nullable)
 
-    def has_supertype(self):
+    def has_supertype(self) -> bool:
         return not self.nullable
 
     @classmethod
@@ -768,7 +768,7 @@ class JsonType(ColumnType):
         a_type = a.get('type')
         b_type = b.get('type')
 
-        if a_type in {'string', 'integer', 'number', 'boolean', 'object', 'array'} and a_type == b_type:
+        if a_type in ('string', 'integer', 'number', 'boolean', 'object', 'array') and a_type == b_type:
             # a and b both have the same type designation, but are not identical. This can happen if
             # (for example) they have validators or other attributes that differ. In this case, we
             # generalize to {'type': t}, where t is their shared type, with no other qualifications.
@@ -1172,7 +1172,7 @@ class DocumentType(ColumnType):
 
         @classmethod
         def from_extension(cls, ext: str) -> Optional['DocumentType.DocumentFormat']:
-            if ext in {'.htm', '.html'}:
+            if ext in ('.htm', '.html'):
                 return cls.HTML
             if ext == '.md':
                 return cls.MD
@@ -1252,7 +1252,7 @@ class _PxtType:
     `ColumnType`.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         raise TypeError(f'Type `{type(self)}` cannot be instantiated.')
 
     @classmethod

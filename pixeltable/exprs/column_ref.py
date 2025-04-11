@@ -176,13 +176,13 @@ class ColumnRef(Expr):
         tbl = catalog.Catalog.get().get_table_by_id(self.col.tbl.id)
         return tbl.select(self)
 
-    def show(self, *args, **kwargs) -> 'pxt.dataframe.DataFrameResultSet':
+    def show(self, *args: Any, **kwargs: Any) -> 'pxt.dataframe.DataFrameResultSet':
         return self._df().show(*args, **kwargs)
 
-    def head(self, *args, **kwargs) -> 'pxt.dataframe.DataFrameResultSet':
+    def head(self, *args: Any, **kwargs: Any) -> 'pxt.dataframe.DataFrameResultSet':
         return self._df().head(*args, **kwargs)
 
-    def tail(self, *args, **kwargs) -> 'pxt.dataframe.DataFrameResultSet':
+    def tail(self, *args: Any, **kwargs: Any) -> 'pxt.dataframe.DataFrameResultSet':
         return self._df().tail(*args, **kwargs)
 
     def count(self) -> int:

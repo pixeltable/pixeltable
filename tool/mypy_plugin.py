@@ -1,4 +1,4 @@
-from typing import Callable, Optional
+from typing import Callable, ClassVar, Optional
 
 from mypy import nodes
 from mypy.plugin import AnalyzeTypeContext, ClassDefContext, FunctionContext, MethodSigContext, Plugin
@@ -15,7 +15,7 @@ class PxtPlugin(Plugin):
     __ADD_COMPUTED_COLUMN_FULLNAME = (
         f'{pxt.Table.__module__}.{pxt.Table.__name__}.{pxt.Table.add_computed_column.__name__}'
     )
-    __TYPE_MAP = {
+    __TYPE_MAP: ClassVar[dict] = {
         pxt.Json: 'typing.Any',
         pxt.Array: 'numpy.ndarray',
         pxt.Image: 'PIL.Image.Image',
@@ -23,7 +23,7 @@ class PxtPlugin(Plugin):
         pxt.Audio: 'builtins.str',
         pxt.Document: 'builtins.str',
     }
-    __FULLNAME_MAP = {f'{k.__module__}.{k.__name__}': v for k, v in __TYPE_MAP.items()}
+    __FULLNAME_MAP: ClassVar[dict] = {f'{k.__module__}.{k.__name__}': v for k, v in __TYPE_MAP.items()}
 
     def get_function_hook(self, fullname: str) -> Optional[Callable[[FunctionContext], Type]]:
         return adjust_uda_type
@@ -35,7 +35,7 @@ class PxtPlugin(Plugin):
         return None
 
     def get_method_signature_hook(self, fullname: str) -> Optional[Callable[[MethodSigContext], FunctionLike]]:
-        if fullname in [self.__ADD_COLUMN_FULLNAME, self.__ADD_COMPUTED_COLUMN_FULLNAME]:
+        if fullname in (self.__ADD_COLUMN_FULLNAME, self.__ADD_COMPUTED_COLUMN_FULLNAME):
             return adjust_kwargs
         return None
 
@@ -60,11 +60,11 @@ def adjust_uda_type(ctx: FunctionContext) -> Type:
     return type of any subclass of `Aggregator` to `FunctionCall`.
     """
     ret_type = ctx.default_return_type
-    if isinstance(ret_type, Instance):
-        if ret_type.type.fullname == _AGGREGATOR_FULLNAME or any(
-            base.type.fullname == _AGGREGATOR_FULLNAME for base in ret_type.type.bases
-        ):
-            ret_type = AnyType(TypeOfAny.special_form)
+    if isinstance(ret_type, Instance) and (
+        ret_type.type.fullname == _AGGREGATOR_FULLNAME
+        or any(base.type.fullname == _AGGREGATOR_FULLNAME for base in ret_type.type.bases)
+    ):
+        ret_type = AnyType(TypeOfAny.special_form)
     return ret_type
 
 

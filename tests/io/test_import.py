@@ -8,7 +8,7 @@ import pixeltable.exceptions as excs
 
 
 class TestImport:
-    def test_import_rows(self, reset_db) -> None:
+    def test_import_rows(self, reset_db: None) -> None:
         example = Path(__file__).parent.parent / 'data' / 'json' / 'example.json'
         with open(example) as fp:
             data = json.loads(fp.read())
@@ -62,7 +62,7 @@ class TestImport:
             pxt.io.import_rows('example7', [{'__unusable_name': 'abc'}])
         assert 'Column names must be valid pixeltable identifiers' in str(exc_info.value)
 
-    def test_insert_rows(self, reset_db) -> None:
+    def test_insert_rows(self, reset_db: None) -> None:
         example = Path(__file__).parent.parent / 'data' / 'json' / 'example.json'
         with open(example) as fp:
             data = json.loads(fp.read())
@@ -76,7 +76,7 @@ class TestImport:
         t2.insert(data)
         assert t2.count() == 8
 
-    def test_import_json(self, reset_db) -> None:
+    def test_import_json(self, reset_db: None) -> None:
         example = Path(__file__).parent.parent / 'data' / 'json' / 'example.json'
         jeopardy = 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests/data/json/jeopardy.json'
 
@@ -96,7 +96,7 @@ class TestImport:
         t2 = pxt.io.import_json('jeopardy', jeopardy)
         assert t2.count() == 10000
 
-    def test_insert_json(self, reset_db) -> None:
+    def test_insert_json(self, reset_db: None) -> None:
         example = Path(__file__).parent.parent / 'data' / 'json' / 'example.json'
         jeopardy = 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests/data/json/jeopardy.json'
 

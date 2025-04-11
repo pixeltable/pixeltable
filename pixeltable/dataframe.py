@@ -88,12 +88,12 @@ class DataFrameResultSet:
     def __iter__(self) -> Iterator[dict[str, Any]]:
         return (self._row_to_dict(i) for i in range(len(self)))
 
-    def __eq__(self, other):
+    def __eq__(self, other: object) -> bool:
         if not isinstance(other, DataFrameResultSet):
             return False
         return self.to_pandas().equals(other.to_pandas())
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         return hash(self.to_pandas())
 
 
@@ -571,7 +571,7 @@ class DataFrame:
             expr = exprs.Expr.from_object(raw_expr)
             if expr is None:
                 raise excs.Error(f'Invalid expression: {raw_expr}')
-            if expr.col_type.is_invalid_type():
+            if expr.col_type.is_invalid_type() and not (isinstance(expr, exprs.Literal) and expr.val is None):
                 raise excs.Error(f'Invalid type: {raw_expr}')
             if not expr.is_bound_by(self._from_clause.tbls):
                 raise excs.Error(

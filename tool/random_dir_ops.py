@@ -34,7 +34,7 @@ def create_drop(dir_name: str, if_exists: Any) -> None:
     log_op(f'dropped : {dir_name}')
 
 
-def run_ops():
+def run_ops() -> None:
     log_op(f'listD   : {pxt.list_dirs()}')
     if_exists = 'ignore'
     try:
@@ -45,7 +45,7 @@ def run_ops():
         print('pxt.ERROR: ---------------', e)
 
 
-def random_dir_op():
+def random_dir_op() -> None:
     log_op(f'listDT  : {pxt.list_dirs()} , {pxt.list_tables()}')
     dir = random.choice(dirs)
     tbls, subdirs = list_objects(dir)
@@ -81,7 +81,7 @@ def random_dir_op():
     log_op(f'list2   : {pxt.list_dirs()}')
 
 
-def main():
+def main() -> None:
     pxt.init()
     for dir in dirs:
         pxt.create_dir(dir, if_exists='ignore')
