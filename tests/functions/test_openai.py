@@ -356,7 +356,11 @@ class TestOpenai:
 
         # Via add_embedding_index()
         t.add_embedding_index(t.input, embedding=embeddings.using(model='text-embedding-3-small'))
+        validate_update_status(t.insert(input='Another sentence for you to index.'), 1)
         _ = t.head()
+
+        sim = t.input.similarity('Indexing sentences is fun.')
+        _ = t.select().order_by(sim, asc=False).collect()
 
     def test_moderations(self, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
