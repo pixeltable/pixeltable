@@ -125,7 +125,7 @@ class TestExprs:
         # compound predicates that can be fully evaluated in SQL
         _ = t.where((t.c1 == 'test string') & (t.c6.f1 > 50)).collect()
         _ = t.where((t.c1 == 'test string') & (t.c2 > 50)).collect()
-        sql_elements = pxt.exprs.SqlElementCache()
+        sql_elements = exprs.SqlElementCache()
         e = sql_elements.get(((t.c1 == 'test string') & (t.c2 > 50)))
         assert len(e.clauses) == 2
 

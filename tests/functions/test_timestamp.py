@@ -4,6 +4,7 @@ from typing import Callable
 from zoneinfo import ZoneInfo
 
 import pixeltable as pxt
+from pixeltable import exprs
 from pixeltable.env import Env
 
 from ..utils import validate_update_status
@@ -92,10 +93,10 @@ class TestTimestamp:
         # Check that they can all be called with method syntax too
         for pxt_fn, _, _, _ in test_params:
             mref = getattr(t.dt, pxt_fn.name)
-            if isinstance(mref, pxt.exprs.MethodRef):
+            if isinstance(mref, exprs.MethodRef):
                 # method
                 assert mref.method_name == pxt_fn.name, pxt_fn
-            elif isinstance(mref, pxt.exprs.FunctionCall):
+            elif isinstance(mref, exprs.FunctionCall):
                 # property
                 assert mref.fn.name == pxt_fn.name, pxt_fn
             else:

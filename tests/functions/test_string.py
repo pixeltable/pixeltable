@@ -4,6 +4,7 @@ from typing import Callable
 import pytest
 
 import pixeltable as pxt
+from pixeltable import exprs
 
 from ..utils import reload_catalog, validate_update_status
 
@@ -112,7 +113,7 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
         # Check that they can all be called with method syntax too
         for pxt_fn, _, _, _ in test_params:
             mref = t.s.__getattr__(pxt_fn.name)  # noqa: PLC2801
-            assert isinstance(mref, pxt.exprs.MethodRef)
+            assert isinstance(mref, exprs.MethodRef)
             assert mref.method_name == pxt_fn.name, pxt_fn
 
     def test_removeprefix(self, reset_db: None) -> None:
