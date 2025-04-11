@@ -1,5 +1,5 @@
 import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, ClassVar, Dict, List, Literal, Optional, Union
 
 import jsonschema.exceptions
 import numpy as np
@@ -7,7 +7,32 @@ import PIL.Image
 import pytest
 
 import pixeltable as pxt
-from pixeltable.type_system import *
+from pixeltable.type_system import (
+    Array,
+    ArrayType,
+    Audio,
+    AudioType,
+    Bool,
+    BoolType,
+    ColumnType,
+    Document,
+    DocumentType,
+    Float,
+    FloatType,
+    Image,
+    ImageType,
+    Int,
+    IntType,
+    Json,
+    JsonType,
+    Required,
+    String,
+    StringType,
+    Timestamp,
+    TimestampType,
+    Video,
+    VideoType,
+)
 
 from .utils import skip_test_if_not_installed
 
@@ -15,7 +40,7 @@ from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
 
 
 class TestTypes:
-    json_schema_1 = {
+    json_schema_1: ClassVar[dict[str, Any]] = {
         'properties': {
             'a': {'type': 'string'},  # required in 1 and 2
             'b': {'type': 'integer'},  # required in 1, optional in 2
@@ -28,7 +53,7 @@ class TestTypes:
         'required': ['a', 'b'],
     }
 
-    json_schema_2 = {
+    json_schema_2: ClassVar[dict[str, Any]] = {
         'properties': {
             'a': {'type': 'string'},
             'b': {'type': 'integer'},
@@ -41,7 +66,7 @@ class TestTypes:
         'required': ['a', 'c'],
     }
 
-    json_schema_12 = {  # supertype of 1 + 2
+    json_schema_12: ClassVar[dict[str, Any]] = {  # supertype of 1 + 2
         'type': 'object',
         'properties': {
             'a': {'type': 'string'},
@@ -56,7 +81,7 @@ class TestTypes:
         'required': ['a'],
     }
 
-    bad_json_schema = {'type': 'junk'}
+    bad_json_schema: ClassVar[dict[str, Any]] = {'type': 'junk'}
 
     def test_infer(self, init_env: None) -> None:
         test_cases: list[tuple[Any, ColumnType]] = [
@@ -114,9 +139,9 @@ class TestTypes:
                 ArrayType((5, None, 3), dtype=FloatType(), nullable=False),
                 'Array[(5, None, 3), Float]',
             ),
-            Image[(100, 200)]: (ImageType(width=100, height=200, mode=None, nullable=False), 'Image[(100, 200)]'),  # type: ignore[misc]
-            Image[(100, None)]: (ImageType(width=100, height=None, mode=None, nullable=False), 'Image[(100, None)]'),  # type: ignore[misc]
-            Image[(None, 200)]: (ImageType(width=None, height=200, mode=None, nullable=False), 'Image[(None, 200)]'),  # type: ignore[misc]
+            Image[100, 200]: (ImageType(width=100, height=200, mode=None, nullable=False), 'Image[(100, 200)]'),  # type: ignore[misc]
+            Image[100, None]: (ImageType(width=100, height=None, mode=None, nullable=False), 'Image[(100, None)]'),  # type: ignore[misc]
+            Image[None, 200]: (ImageType(width=None, height=200, mode=None, nullable=False), 'Image[(None, 200)]'),  # type: ignore[misc]
             Image[(100, 200), 'RGB']: (  # type: ignore[misc]
                 ImageType(width=100, height=200, mode='RGB', nullable=False),
                 "Image[(100, 200), 'RGB']",
@@ -125,7 +150,7 @@ class TestTypes:
             Literal['a', 'b', 'c']: (StringType(nullable=False), 'String'),
             Literal[1, 2, 3]: (IntType(nullable=False), 'Int'),
             Literal[1, 2.0, 3]: (FloatType(nullable=False), 'Float'),
-            Literal['a', 'b', None]: (StringType(nullable=True), 'String'),
+            Literal['a', 'b', None]: (StringType(nullable=True), 'String'),  # noqa: PYI061
         }
         for py_type, (pxt_type, string) in test_cases.items():
             print(py_type)
@@ -135,12 +160,12 @@ class TestTypes:
             assert ColumnType.from_python_type(py_type) == pxt_type
             assert ColumnType.from_python_type(Required[py_type]) == non_nullable_pxt_type  # type: ignore[valid-type]
             assert ColumnType.from_python_type(Optional[py_type]) == nullable_pxt_type
-            assert ColumnType.from_python_type(Union[None, py_type]) == nullable_pxt_type
+            assert ColumnType.from_python_type(Union[None, py_type]) == nullable_pxt_type  # noqa: RUF036
 
             assert ColumnType.from_python_type(py_type, nullable_default=True) == nullable_pxt_type
             assert ColumnType.from_python_type(Required[py_type], nullable_default=True) == non_nullable_pxt_type  # type: ignore[valid-type]
             assert ColumnType.from_python_type(Optional[py_type], nullable_default=True) == nullable_pxt_type
-            assert ColumnType.from_python_type(Union[None, py_type], nullable_default=True) == nullable_pxt_type
+            assert ColumnType.from_python_type(Union[None, py_type], nullable_default=True) == nullable_pxt_type  # noqa: RUF036
 
             assert str(non_nullable_pxt_type) == string
             assert str(nullable_pxt_type) == f'Optional[{string}]'
