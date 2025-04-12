@@ -294,6 +294,10 @@ class FunctionCall(Expr):
         return bound_args
 
     def substitute(self, spec: dict[Expr, Expr]) -> Expr:
+        """
+        Substitution of FunctionCall arguments could cause the return value to become more specific, in the case
+        where a variable is replaced with a specific value.
+        """
         res = super().substitute(spec)
         assert res is self
         self.return_type = self.fn.call_return_type(self.bound_args)

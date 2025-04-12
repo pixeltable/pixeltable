@@ -79,6 +79,11 @@ class ExprTemplateFunction(Function):
         return result
 
     def call_return_type(self, bound_args: dict[str, 'exprs.Expr']) -> ts.ColumnType:
+        """
+        The call_return_type of an ExprTemplateFunction is derived from the template expression's col_type after
+        substitution (unlike for UDFs, whose call_return_type is derived from an explicitly specified
+        conditional_return_type).
+        """
         assert not self.is_polymorphic
         template = self.template
         with_defaults = bound_args.copy()
