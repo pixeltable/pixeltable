@@ -550,9 +550,9 @@ class TestTable:
         t = pxt.get_table('test_tbl')
         v1 = pxt.create_view('v1', t)
         v2 = pxt.create_view('v2', t)
-        _ = pxt.create_view('v3', v1)
-        _ = pxt.create_view('v4', v2)
-        _ = pxt.create_view('v5', t)
+        _v3 = pxt.create_view('v3', v1)
+        _v4 = pxt.create_view('v4', v2)
+        _v5 = pxt.create_view('v5', t)
         assert len(pxt.list_tables()) == 6
         pxt.drop_table('v2', force=True)  # Drops v2 and v4, but not the others
         assert len(pxt.list_tables()) == 4
@@ -563,9 +563,9 @@ class TestTable:
         t = pxt.get_table('test_tbl')
         v1 = pxt.create_view('v1', t)
         v2 = pxt.create_view('v2', t)
-        _ = pxt.create_view('v3', v1)
-        _ = pxt.create_view('v4', v2)
-        _ = pxt.create_view('v5', t)
+        _v3 = pxt.create_view('v3', v1)
+        _v4 = pxt.create_view('v4', v2)
+        _v5 = pxt.create_view('v5', t)
         assert len(pxt.list_tables()) == 6
         pxt.drop_table(v2, force=True)  # Drops v2 and v4, but not the others
         assert len(pxt.list_tables()) == 4
