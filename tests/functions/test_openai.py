@@ -360,7 +360,14 @@ class TestOpenai:
         _ = t.head()
 
         sim = t.input.similarity('Indexing sentences is fun.')
-        _ = t.select().order_by(sim, asc=False).collect()
+        res = t.select(t.input, sim=sim).order_by(sim, asc=False).collect()
+
+        # The exact values are probabilistic, but we should reliably get similarity > 0.5 for the sentence about
+        # indexing and < 0.5 for the unrelated one.
+        assert res[0]['input'] == 'Another sentence for you to index.'
+        assert res[0]['sim'] > 0.5
+        assert res[1]['input'] == 'Say something interesting.'
+        assert res[1]['sim'] < 0.5
 
     def test_moderations(self, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
