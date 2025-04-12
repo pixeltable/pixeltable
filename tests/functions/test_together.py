@@ -90,12 +90,14 @@ class TestTogether:
         t = pxt.create_table('test_tbl', {'input': pxt.String, 'negative_prompt': pxt.String})
         from pixeltable.functions.together import image_generations
 
-        t.add_computed_column(img=image_generations(t.input, model='stabilityai/stable-diffusion-xl-base-1.0'))
+        t.add_computed_column(img=image_generations(t.input, model='black-forest-labs/FLUX.1-schnell'))
         t.add_computed_column(
             img_2=image_generations(
                 t.input,
-                model='stabilityai/stable-diffusion-xl-base-1.0',
-                steps=30,
+                model='black-forest-labs/FLUX.1-schnell',
+                steps=5,
+                width=768,
+                height=1024,
                 seed=4171780,
                 negative_prompt=t.negative_prompt,
             )
@@ -109,10 +111,10 @@ class TestTogether:
             ),
             2,
         )
-        assert t.collect()['img'][0].size == (1024, 1024)
-        assert t.collect()['img_2'][0].size == (1024, 1024)
-        assert t.collect()['img'][1].size == (1024, 1024)
-        assert t.collect()['img_2'][1].size == (1024, 1024)
+        assert t.collect()['img'][0].size == (1024, 768)
+        assert t.collect()['img_2'][0].size == (768, 1024)
+        assert t.collect()['img'][1].size == (1024, 768)
+        assert t.collect()['img_2'][1].size == (768, 1024)
 
     # This ensures that the test will be skipped, rather than returning an error, when no API key is
     # available (for example, when a PR runs in CI).
