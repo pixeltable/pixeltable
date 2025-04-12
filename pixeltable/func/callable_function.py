@@ -7,6 +7,7 @@ from uuid import UUID
 import cloudpickle  # type: ignore[import-untyped]
 
 import pixeltable.exceptions as excs
+from pixeltable.utils.coroutine import run_coroutine_synchronously
 
 from .function import Function
 from .signature import Signature
@@ -84,7 +85,6 @@ class CallableFunction(Function):
 
     def exec(self, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:
         assert not self.is_polymorphic
-        assert not self.is_async
         if self.is_batched:
             # Pack the batched parameters into singleton lists
             constant_param_names = [p.name for p in self.signature.constant_parameters]
@@ -92,9 +92,16 @@ class CallableFunction(Function):
             constant_kwargs = {k: v for k, v in kwargs.items() if k in constant_param_names}
             batched_kwargs = {k: [v] for k, v in kwargs.items() if k not in constant_param_names}
             result: list[Any]
-            result = self.py_fn(*batched_args, **constant_kwargs, **batched_kwargs)
+            if inspect.iscoroutinefunction(self.py_fn):
+                # TODO: This is temporary (see note in utils/coroutine.py)
+                result = run_coroutine_synchronously(self.py_fn(*batched_args, **constant_kwargs, **batched_kwargs))
+            else:
+                result = self.py_fn(*batched_args, **constant_kwargs, **batched_kwargs)
             assert len(result) == 1
             return result[0]
+        elif inspect.iscoroutinefunction(self.py_fn):
+            # TODO: This is temporary (see note in utils/coroutine.py)
+            return run_coroutine_synchronously(self.py_fn(*args, **kwargs))
         else:
             return self.py_fn(*args, **kwargs)
 
