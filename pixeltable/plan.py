@@ -768,8 +768,7 @@ class Planner:
         # - select list subexprs that aren't aggregates
         # - join clause subexprs
         # - subexprs of Where clause conjuncts that can't be run in SQL
-        # - all grouping exprs, if any aggregate function call can't be run in SQL (in that case, they all have to be
-        #   run in Python)
+        # - all grouping exprs
         candidates = list(
             exprs.Expr.list_subexprs(
                 analyzer.select_list,
@@ -784,7 +783,7 @@ class Planner:
             candidates.extend(
                 exprs.Expr.subexprs(analyzer.filter, filter=sql_elements.contains, traverse_matches=False)
             )
-        if is_python_agg and analyzer.group_by_clause is not None:
+        if analyzer.group_by_clause is not None:
             candidates.extend(
                 exprs.Expr.list_subexprs(analyzer.group_by_clause, filter=sql_elements.contains, traverse_matches=False)
             )
