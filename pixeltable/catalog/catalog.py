@@ -455,13 +455,14 @@ class Catalog:
         self._create_dir(Path('_system', allow_system_paths=True), if_exists=IfExistsParam.IGNORE, parents=False)
 
         # Now check to see if this table already exists in the catalog.
+        # TODO: Handle concurrency in create_replica()
         existing = Catalog.get().get_table_by_id(tbl_id)
         if existing is not None:
             existing_path = Path(existing._path(), allow_system_paths=True)
             # It does exist. If it's a non-system table, that's an error: it's already been replicated.
             if not existing_path.is_system_path:
                 raise excs.Error(
-                    f'That table has already been replicated as {self._tbls[tbl_id]._path()!r}. \n'
+                    f'That table has already been replicated as {existing._path()!r}. \n'
                     f'Drop the existing replica if you wish to re-create it.'
                 )
             # If it's a system table, then this means it was created at some point as the ancestor of some other
@@ -499,6 +500,7 @@ class Catalog:
 
     def __store_replica_md(self, path: Path, md: schema.FullTableMd) -> None:
         _logger.info(f'Creating replica table at {path!r} with ID: {md.tbl_md.tbl_id}')
+        # TODO: Handle concurrency
         dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
         assert dir is not None
 
@@ -537,23 +539,25 @@ class Catalog:
                 ),
             )
             conn.execute(q)
-        elif md.tbl_md.current_version > existing_md_row.md['current_version']:
-            # New metadata is more recent than the metadata currently stored in the DB; we'll update the record
-            # in place in the DB.
-            # The same consideration applies to current_version etc. as before, except now we also need to account for
-            # other versions already in the DB, which might be more recent.
-            new_current_version = max(existing_md_row.md['current_version'], md.version_md.version)
-            new_current_schema_version = max(
-                existing_md_row.md['current_schema_version'], md.schema_version_md.schema_version
-            )
-            new_tbl_md = dataclasses.replace(
-                md.tbl_md,
-                name=path.name,
-                user=Env.get().user,
-                is_replica=True,
-                current_version=new_current_version,
-                current_schema_version=new_current_schema_version,
-            )
+        else:
+            assert existing_md_row.md['is_replica']
+            if md.tbl_md.current_version > existing_md_row.md['current_version']:
+                # New metadata is more recent than the metadata currently stored in the DB; we'll update the record
+                # in place in the DB.
+                # The same consideration applies to current_version etc. as before, except now we also need to account for
+                # other versions already in the DB, which might be more recent.
+                new_current_version = max(existing_md_row.md['current_version'], md.version_md.version)
+                new_current_schema_version = max(
+                    existing_md_row.md['current_schema_version'], md.schema_version_md.schema_version
+                )
+                new_tbl_md = dataclasses.replace(
+                    md.tbl_md,
+                    name=path.name,
+                    user=Env.get().user,
+                    is_replica=True,
+                    current_version=new_current_version,
+                    current_schema_version=new_current_schema_version,
+                )
 
         # Now see if a TableVersion record already exists in the DB for this table version. If not, insert it. If
         # it already exists, check that the existing record is identical to the new one.
