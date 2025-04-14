@@ -33,16 +33,6 @@ if TYPE_CHECKING:
 _logger = logging.getLogger('pixeltable')
 
 
-def _lock_str(for_update: bool) -> str:
-    return 'X' if for_update else 'S'
-
-
-# TODO: remove once the concurrent update behavior has been debugged
-# def _debug_print(for_update: bool, msg: str) -> None:
-#     return
-#     print(f'{datetime.datetime.now()}: {_lock_str(for_update)}: {msg}')
-
-
 def _unpack_row(
     row: Optional[sql.engine.Row], entities: list[type[sql.orm.decl_api.DeclarativeBase]]
 ) -> Optional[list[Any]]:
@@ -82,11 +72,14 @@ def _retry_loop(op: Callable[..., T]) -> Callable[..., T]:
                 with Env.get().begin_xact():
                     return op(*args, **kwargs)
             except sql.exc.DBAPIError as e:
-                if isinstance(e.orig, psycopg.errors.SerializationFailure) and num_remaining_retries > 0:
-                    num_remaining_retries -= 1
-                    print(f'serialization failure:\n{e}')
-                    print('retrying ************************************************************')
-                    time.sleep(1)
+                if isinstance(e.orig, psycopg.errors.SerializationFailure):
+                    if num_remaining_retries > 0:
+                        num_remaining_retries -= 1
+                        # print(f'serialization failure:\n{e}')
+                        # print('retrying ************************************************************')
+                        time.sleep(1)
+                    else:
+                        raise excs.Error(f'Serialization retry limit ({_MAX_RETRIES}) exceeded') from e
                 else:
                     raise
 
@@ -123,13 +116,32 @@ class Catalog:
         self._tbls = {}  # don't use a defaultdict here, it doesn't cooperate with the debugger
         self._init_store()
 
+    @classmethod
+    def _lock_dir(cls, parent_id: Optional[UUID], dir_id: Optional[UUID], dir_name: Optional[str]) -> None:
+        """Update directory record(s) to sequentialize thread access. Lock is released when transaction commits.
+        If dir_id is present, then all other conditions are ignored.
+        Note that (parent_id==None) is a valid where condition.
+        If dir_id is not specified, the user from the environment is added to the directory filters.
+        """
+        user = Env.get().user
+        conn = Env.get().conn
+        q = sql.update(schema.Dir).values(lock_dummy=1)
+        if dir_id is not None:
+            q = q.where(schema.Dir.id == dir_id)
+        else:
+            q = q.where(schema.Dir.parent_id == parent_id)
+            if dir_name is not None:
+                q = q.where(schema.Dir.md['name'].astext == dir_name)
+            if user is not None:
+                q = q.where(schema.Dir.md['user'].astext == user)
+        conn.execute(q)
+
     def get_dir_path(self, dir_id: UUID) -> Path:
         """Return path for directory with given id"""
         conn = Env.get().conn
         names: list[str] = []
         while True:
             q = sql.select(schema.Dir).where(schema.Dir.id == dir_id)
-            # _debug_print(for_update=False, msg=f'dir id={dir_id}')
             row = conn.execute(q).one()
             dir = schema.Dir(**row._mapping)
             if dir.md['name'] == '':
@@ -155,7 +167,6 @@ class Catalog:
         result: dict[str, Catalog.DirEntry] = {}
 
         q = sql.select(schema.Dir).where(schema.Dir.parent_id == dir_id)
-        # _debug_print(for_update=False, msg=f'dirs parent_id={dir_id}')
         rows = conn.execute(q).all()
         for row in rows:
             dir = schema.Dir(**row._mapping)
@@ -165,7 +176,6 @@ class Catalog:
             result[dir.md['name']] = self.DirEntry(dir=dir, dir_entries=dir_contents, table=None)
 
         q = sql.select(schema.Table).where(schema.Table.dir_id == dir_id)
-        # _debug_print(for_update=False, msg=f'tbls parent_id={dir_id}')
         rows = conn.execute(q).all()
         for row in rows:
             tbl = schema.Table(**row._mapping)
@@ -258,17 +268,14 @@ class Catalog:
         conn = Env.get().conn
 
         # check for subdirectory
+        if for_update:
+            self._lock_dir(dir_id, None, name)
         q = sql.select(schema.Dir).where(
             schema.Dir.parent_id == dir_id, schema.Dir.md['name'].astext == name, schema.Dir.md['user'].astext == user
         )
-        if for_update:
-            q = q.with_for_update()
-        # _debug_print(for_update, f'dir name={name!r} parent={dir_id}')
-        # row = conn.execute(q).one_or_none()
-        # if row is not None:
-        #     dir_record = schema.Dir(**row._mapping)
-        #     return Dir(dir_record.id, dir_record.parent_id, name)
         rows = conn.execute(q).all()
+        # The condition below can occur if there is a synchronization failure across multiple processes
+        # It indicates database inconsistency.
         if len(rows) > 1:
             raise AssertionError(rows)
         if len(rows) == 1:
@@ -283,7 +290,6 @@ class Catalog:
         )
         if for_update:
             q = q.with_for_update()
-        # _debug_print(for_update, f'table name={name!r} parent={dir_id}')
         tbl_id = conn.execute(q).scalar_one_or_none()
         if tbl_id is not None:
             if tbl_id not in self._tbls:
@@ -535,7 +541,8 @@ class Catalog:
                 raise excs.Error(f'Directory {str(dir_path)!r} is not empty.')
 
         # drop existing subdirs
-        dir_q = sql.select(schema.Dir).where(schema.Dir.parent_id == dir_id).with_for_update()
+        self._lock_dir(dir_id, None, None)
+        dir_q = sql.select(schema.Dir).where(schema.Dir.parent_id == dir_id)
         for row in conn.execute(dir_q).all():
             self._drop_dir(row.id, dir_path.append(row.md['name']), force=True)
 
@@ -548,7 +555,6 @@ class Catalog:
                 self._drop_tbl(tbl, force=True, is_replace=False)
 
         # self.drop_dir(dir_id)
-        # _debug_print(for_update=True, msg=f'drop dir id={dir_id}')
         conn.execute(sql.delete(schema.Dir).where(schema.Dir.id == dir_id))
         _logger.info(f'Removed directory {str(dir_path)!r}.')
 
@@ -558,7 +564,6 @@ class Catalog:
         q = sql.select(schema.Table.id).where(sql.text(f"md->'view_md'->'base_versions'->0->>0 = {tbl_id.hex!r}"))
         if for_update:
             q = q.with_for_update()
-        # _debug_print(for_update=False, msg=f'views of tbl id={tbl_id}')
         result = [r[0] for r in conn.execute(q).all()]
         return result
 
@@ -582,10 +587,9 @@ class Catalog:
     def get_dir(self, dir_id: UUID, for_update: bool = False) -> Optional[Dir]:
         """Return the Dir with the given id, or None if it doesn't exist"""
         conn = Env.get().conn
-        q = sql.select(schema.Dir).where(schema.Dir.id == dir_id)
         if for_update:
-            q = q.with_for_update()
-        # _debug_print(for_update=False, msg=f'dir id={dir_id!r}')
+            self._lock_dir(None, dir_id, None)
+        q = sql.select(schema.Dir).where(schema.Dir.id == dir_id)
         row = conn.execute(q).one_or_none()
         if row is None:
             return None
@@ -594,31 +598,27 @@ class Catalog:
 
     def _get_dir(self, path: Path, for_update: bool = False) -> Optional[schema.Dir]:
         """
-        Locking protocol:
-        - S locks on all ancestors
-        - X lock on dir if for_update == True, otherwise also an S lock
+        Locking protocol: X locks on all ancestors
         """
         user = Env.get().user
         conn = Env.get().conn
         if path.is_root:
-            q = sql.select(schema.Dir).where(schema.Dir.parent_id.is_(None), schema.Dir.md['user'].astext == user)
             if for_update:
-                q = q.with_for_update()
-            # _debug_print(for_update, 'root dir')
+                self._lock_dir(parent_id=None, dir_id=None, dir_name='')
+            q = sql.select(schema.Dir).where(schema.Dir.parent_id.is_(None), schema.Dir.md['user'].astext == user)
             row = conn.execute(q).one_or_none()
             return schema.Dir(**row._mapping) if row is not None else None
         else:
             parent_dir = self._get_dir(path.parent, for_update=False)
             if parent_dir is None:
                 return None
+            if for_update:
+                self._lock_dir(parent_id=parent_dir.id, dir_id=None, dir_name=path.name)
             q = sql.select(schema.Dir).where(
                 schema.Dir.parent_id == parent_dir.id,
                 schema.Dir.md['name'].astext == path.name,
                 schema.Dir.md['user'].astext == user,
             )
-            if for_update:
-                q = q.with_for_update()
-            # _debug_print(for_update, f'dir {str(path)}')
             row = conn.execute(q).one_or_none()
             return schema.Dir(**row._mapping) if row is not None else None
 
@@ -641,7 +641,6 @@ class Catalog:
             )
             .where(schema.Table.id == tbl_id)
         )
-        # _debug_print(for_update=False, msg=f'load table id={tbl_id!r}')
         row = conn.execute(q).one_or_none()
         if row is None:
             return None
