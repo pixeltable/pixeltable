@@ -15,8 +15,8 @@ class TestReplica:
         snapshot_view = pxt.create_snapshot('snapshot_view', test_tbl, additional_columns={'extra': pxt.Int})
 
         with Env.get().begin_xact():
-            md1 = Catalog.get().load_tbl_hierarchy_md(pure_snapshot)
-            md2 = Catalog.get().load_tbl_hierarchy_md(snapshot_view)
+            md1 = Catalog.get().load_replica_md(pure_snapshot)
+            md2 = Catalog.get().load_replica_md(snapshot_view)
 
         assert len(md1) == 2
         assert len(md2) == 2
@@ -83,11 +83,11 @@ class TestReplica:
         s61 = pxt.create_snapshot('s61', v6)
 
         with Env.get().begin_xact():
-            s11_md = Catalog.get().load_tbl_hierarchy_md(s11)
-            s12_md = Catalog.get().load_tbl_hierarchy_md(s12)
-            s31_md = Catalog.get().load_tbl_hierarchy_md(s31)
-            s51_md = Catalog.get().load_tbl_hierarchy_md(s51)
-            s61_md = Catalog.get().load_tbl_hierarchy_md(s61)
+            s11_md = Catalog.get().load_replica_md(s11)
+            s12_md = Catalog.get().load_replica_md(s12)
+            s31_md = Catalog.get().load_replica_md(s31)
+            s51_md = Catalog.get().load_replica_md(s51)
+            s61_md = Catalog.get().load_replica_md(s61)
 
         pxt.drop_table('base_tbl', force=True)
         reload_catalog()

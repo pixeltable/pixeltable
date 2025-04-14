@@ -519,11 +519,6 @@ class Catalog:
 
         if existing_md_row is None:
             # No existing table, so create a new record.
-            # If this is a proper ancestor of the table being replicated, it might be the case that the current_version
-            # and/or current_schema_version records in the given TableMd are strictly greater than the versions found
-            # in the given TableVersionMd and/or TableSchemaVersionMd. If that's the case, we need to adjust them so
-            # that they point to known versions. This will cause no harm, since those proper ancestors will not be
-            # directly instantiable.
             q = sql.insert(schema.Table.__table__).values(
                 id=tbl_id,
                 dir_id=dir._id,
@@ -533,8 +528,6 @@ class Catalog:
                         name=path.name,
                         user=Env.get().user,
                         is_replica=True,
-                        current_version=md.version_md.version,
-                        current_schema_version=md.schema_version_md.schema_version,
                     )
                 ),
             )
@@ -544,19 +537,11 @@ class Catalog:
             if md.tbl_md.current_version > existing_md_row.md['current_version']:
                 # New metadata is more recent than the metadata currently stored in the DB; we'll update the record
                 # in place in the DB.
-                # The same consideration applies to current_version etc. as before, except now we also need to account
-                # for other versions already in the DB, which might be more recent.
-                new_current_version = max(existing_md_row.md['current_version'], md.version_md.version)
-                new_current_schema_version = max(
-                    existing_md_row.md['current_schema_version'], md.schema_version_md.schema_version
-                )
                 new_tbl_md = dataclasses.replace(
                     md.tbl_md,
                     name=path.name,
                     user=Env.get().user,
                     is_replica=True,
-                    current_version=new_current_version,
-                    current_schema_version=new_current_schema_version,
                 )
 
         # Now see if a TableVersion record already exists in the DB for this table version. If not, insert it. If
@@ -971,9 +956,11 @@ class Catalog:
         conn.execute(sql.delete(schema.TableVersion.__table__).where(schema.TableVersion.tbl_id == tbl_id))
         conn.execute(sql.delete(schema.Table.__table__).where(schema.Table.id == tbl_id))
 
-    def load_tbl_hierarchy_md(self, tbl: Table) -> list[schema.FullTableMd]:
+    def load_replica_md(self, tbl: Table) -> list[schema.FullTableMd]:
         """
-        Load metadata for the given table along with all its ancestors.
+        Load metadata for the given table along with all its ancestors. The values of TableMd.current_version and
+        TableMd.current_schema_version will be adjusted to ensure that the metadata represent a valid (internally
+        consistent) table state.
         """
         # TODO: First acquire X-locks for all relevant metadata entries
 
@@ -985,6 +972,15 @@ class Catalog:
         if tbl._id != tbl._tbl_version.id:
             snapshot_md = self.load_tbl_md(tbl._id, 0)
             md = [snapshot_md, *md]
+
+        for ancestor_md in md[1:]:
+            # For proper ancestors of the table being replicated, it might be the case that the current_version
+            # and/or current_schema_version records in the given TableMd are strictly greater than the versions
+            # in the given TableVersionMd and/or TableSchemaVersionMd. If that's the case, we need to adjust them
+            # so that they point to known versions. This will cause no harm, since those proper ancestors will
+            # not be directly instantiable.
+            ancestor_md.tbl_md.current_version = ancestor_md.version_md.version
+            ancestor_md.tbl_md.current_schema_version = ancestor_md.schema_version_md.schema_version
 
         return md
 

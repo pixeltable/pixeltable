@@ -58,7 +58,7 @@ class TablePackager:
 
         # Load metadata
         with Env.get().begin_xact():
-            tbl_md = catalog.Catalog.get().load_tbl_hierarchy_md(table)
+            tbl_md = catalog.Catalog.get().load_replica_md(table)
             self.md = {
                 'pxt_version': pxt.__version__,
                 'pxt_md_version': metadata.VERSION,
