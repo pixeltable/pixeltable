@@ -20,7 +20,6 @@ from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
 
 if TYPE_CHECKING:
-    import pixeltable as pxt
     from pixeltable.globals import TableDataSource
 
 _logger = logging.getLogger('pixeltable')
@@ -66,7 +65,7 @@ class View(Table):
         base: TableVersionPath,
         select_list: Optional[list[tuple[exprs.Expr, Optional[str]]]],
         additional_columns: dict[str, Any],
-        predicate: Optional['pxt.exprs.Expr'],
+        predicate: Optional['exprs.Expr'],
         is_snapshot: bool,
         num_retained_versions: int,
         comment: str,

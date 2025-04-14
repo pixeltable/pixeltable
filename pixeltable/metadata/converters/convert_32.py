@@ -6,7 +6,7 @@ from pixeltable.metadata import register_converter
 from pixeltable.metadata.converters.util import convert_table_md
 
 
-@register_converter(version=31)
+@register_converter(version=32)
 def _(engine: sql.engine.Engine) -> None:
     convert_table_md(engine, table_md_updater=__update_table_md)
 

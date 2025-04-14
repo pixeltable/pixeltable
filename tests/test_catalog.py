@@ -34,16 +34,16 @@ class TestCatalog:
         # multiple ancestors in path
         path = Path('a.b.c')
         ancestors = path.ancestors()
-        assert '' == str(next(ancestors))
-        assert 'a' == str(next(ancestors))
-        assert 'a.b' == str(next(ancestors))
+        assert str(next(ancestors)) == ''
+        assert str(next(ancestors)) == 'a'
+        assert str(next(ancestors)) == 'a.b'
         with pytest.raises(StopIteration):
             next(ancestors)
 
         # single element in path
         path = Path('a')
         ancestors = path.ancestors()
-        assert '' == str(next(ancestors))
+        assert str(next(ancestors)) == ''
         with pytest.raises(StopIteration):
             next(ancestors)
 

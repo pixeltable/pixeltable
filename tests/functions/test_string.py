@@ -4,6 +4,7 @@ from typing import Callable
 import pytest
 
 import pixeltable as pxt
+from pixeltable import exprs
 
 from ..utils import reload_catalog, validate_update_status
 
@@ -27,7 +28,7 @@ The first systems that were relatively faithful implementations of the relationa
 University of Michigan – Micro DBMS (1969)
 Massachusetts Institute of Technology (1971)]
 IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRTV (1973–79).
-            """
+            """  # noqa: RUF001
 
     def test_all(self, reset_db: None) -> None:
         t = pxt.create_table('test_tbl', {'s': pxt.String})
@@ -111,15 +112,14 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
 
         # Check that they can all be called with method syntax too
         for pxt_fn, _, _, _ in test_params:
-            mref = t.s.__getattr__(pxt_fn.name)
-            assert isinstance(mref, pxt.exprs.MethodRef)
+            mref = t.s.__getattr__(pxt_fn.name)  # noqa: PLC2801
+            assert isinstance(mref, exprs.MethodRef)
             assert mref.method_name == pxt_fn.name, pxt_fn
 
     def test_removeprefix(self, reset_db: None) -> None:
         t = pxt.create_table('test_tbl', {'s': pxt.String})
         test_strs = self.TEST_STR.split('. ')
         validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
-        from pixeltable.functions.string import removeprefix
 
         # count() doesn't yet support non-SQL Where clauses
         res = t.select(t.s, out=t.s.removeprefix('Codd')).collect()
