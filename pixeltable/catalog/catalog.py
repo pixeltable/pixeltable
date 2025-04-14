@@ -965,11 +965,11 @@ class Catalog:
             md = [snapshot_md, *md]
 
         for ancestor_md in md[1:]:
-            # For proper ancestors of the table being replicated, it might be the case that the current_version
-            # and/or current_schema_version records in the given TableMd are strictly greater than the versions
-            # in the given TableVersionMd and/or TableSchemaVersionMd. If that's the case, we need to adjust them
-            # so that they point to known versions. This will cause no harm, since those proper ancestors will
-            # not be directly instantiable.
+            # For replica metadata, we guarantee that the current_version and current_schema_version of TableMd
+            # match the corresponding values in TableVersionMd and TableSchemaVersionMd. This is to ensure that,
+            # when the metadata is later stored in the catalog of a different Pixeltable instance, the values of
+            # current_version and current_schema_version will always point to versions that are known to the
+            # destination catalog.
             ancestor_md.tbl_md.current_version = ancestor_md.version_md.version
             ancestor_md.tbl_md.current_schema_version = ancestor_md.schema_version_md.schema_version
 
