@@ -111,7 +111,7 @@ class TestHuggingface:
             assert t._schema[list_col_name] == pxt.JsonType(nullable=True)
 
         def verify_row(row: dict[str, Any]) -> None:
-            for i in range(len(model_ids)):
+            for idx in range(len(model_ids)):
                 assert len(row[f'embed_list{idx}']) == len(sents)
                 assert all(isinstance(v, float) for v in row[f'embed_list{idx}'])
 

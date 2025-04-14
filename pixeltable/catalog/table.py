@@ -139,14 +139,14 @@ class Table(SchemaObject):
         if self._is_dropped:
             raise excs.Error(f'{self._display_name()} {self._name} has been dropped')
 
-    def __getattr__(self, name: str) -> 'pxt.exprs.ColumnRef':
+    def __getattr__(self, name: str) -> 'exprs.ColumnRef':
         """Return a ColumnRef for the given name."""
         col = self._tbl_version_path.get_column(name)
         if col is None:
             raise AttributeError(f'Column {name!r} unknown')
         return ColumnRef(col)
 
-    def __getitem__(self, name: str) -> 'pxt.exprs.ColumnRef':
+    def __getitem__(self, name: str) -> 'exprs.ColumnRef':
         """Return a ColumnRef for the given name."""
         return getattr(self, name)
 
@@ -1282,7 +1282,7 @@ class Table(SchemaObject):
         raise NotImplementedError
 
     def update(
-        self, value_spec: dict[str, Any], where: Optional['pxt.exprs.Expr'] = None, cascade: bool = True
+        self, value_spec: dict[str, Any], where: Optional['exprs.Expr'] = None, cascade: bool = True
     ) -> UpdateStatus:
         """Update rows in this table.
 
@@ -1383,7 +1383,7 @@ class Table(SchemaObject):
             FileCache.get().emit_eviction_warnings()
             return status
 
-    def delete(self, where: Optional['pxt.exprs.Expr'] = None) -> UpdateStatus:
+    def delete(self, where: Optional['exprs.Expr'] = None) -> UpdateStatus:
         """Delete rows in this table.
 
         Args:

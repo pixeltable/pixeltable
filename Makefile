@@ -135,7 +135,7 @@ docscheck: install
 .PHONY: lint
 lint: install
 	@echo 'Running `ruff check` ...'
-	@ruff check pixeltable tool
+	@ruff check pixeltable tests tool
 
 .PHONY: formatcheck
 formatcheck: install

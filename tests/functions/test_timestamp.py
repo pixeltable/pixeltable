@@ -4,6 +4,7 @@ from typing import Callable
 from zoneinfo import ZoneInfo
 
 import pixeltable as pxt
+from pixeltable import exprs
 from pixeltable.env import Env
 
 from ..utils import validate_update_status
@@ -11,13 +12,13 @@ from ..utils import validate_update_status
 
 class TestTimestamp:
     # All test datetimes are in America/Los_Angeles time zone
-    TEST_DATETIMES = [
+    TEST_DATETIMES = (
         '2024-01-01T12:34:56-08:00',
         '2023-12-31T23:59:59-08:00',
         '2022-06-15T08:30:00-07:00',
         '2020-02-29T00:00:00-08:00',
         '2019-01-01T00:00:01-08:00',
-    ]
+    )
 
     def test_methods(self, reset_db: None) -> None:
         # Set a default time zone that's likely to be different from the system time zone of most test environments
@@ -91,15 +92,15 @@ class TestTimestamp:
 
         # Check that they can all be called with method syntax too
         for pxt_fn, _, _, _ in test_params:
-            mref = t.dt.__getattr__(pxt_fn.name)
-            if isinstance(mref, pxt.exprs.MethodRef):
+            mref = getattr(t.dt, pxt_fn.name)
+            if isinstance(mref, exprs.MethodRef):
                 # method
                 assert mref.method_name == pxt_fn.name, pxt_fn
-            elif isinstance(mref, pxt.exprs.FunctionCall):
+            elif isinstance(mref, exprs.FunctionCall):
                 # property
                 assert mref.fn.name == pxt_fn.name, pxt_fn
             else:
-                assert False
+                raise AssertionError()
 
     def test_time_zones(self, reset_db: None) -> None:
         timestamps = [
