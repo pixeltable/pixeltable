@@ -64,6 +64,21 @@ def publish_snapshot(dest_tbl_uri: str, src_tbl: pxt.Table) -> str:
     Env.get().console_logger.info(f'The published snapshot is now available at: {confirmed_tbl_uri}')
     return confirmed_tbl_uri
 
+def get_snapshot(dest_tbl_uri: str) -> str:
+    headers_json = {'X-api-key': Env.get().pxt_api_key, 'Content-Type': 'application/json'}
+    get_request_json = {
+        'operation_type': 'get_snapshot',
+        'table_uri': dest_tbl_uri
+    }
+    request_json = {'request': get_request_json, 'operation_type': 'get_snapshot'}
+    response = requests.post(PIXELTABLE_API_URL, json=request_json, headers=headers_json)
+    if response.status_code != 200:
+        raise excs.Error(f'Error getting snapshot: {response.text}')
+    response_json = response.json()
+    if not isinstance(response_json, dict) or 'table_uri' not in response_json:
+        raise excs.Error(f'Error unexpected response from server.\n{response_json}')
+    print(response_json.get('table_uri'))
+    print(response_json['md']['tables'][0]['table_md']['additional_md'])
 
 def _upload_bundle_to_s3(bundle: Path, parsed_location: urllib.parse.ParseResult) -> None:
     from pixeltable.utils.s3 import get_client
