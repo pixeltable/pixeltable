@@ -94,9 +94,9 @@ class TestReplica:
 
         for i, md in enumerate(s11_md):
             print(f'\n{i}: {md}')
-        r11 = Catalog.get().create_replica(Path('replica_s11'), s11_md, if_exists=IfExistsParam.ERROR)
-        r12 = Catalog.get().create_replica(Path('replica_s12'), s12_md, if_exists=IfExistsParam.ERROR)
-        r31 = Catalog.get().create_replica(Path('replica_s31'), s31_md, if_exists=IfExistsParam.ERROR)
+        _r11 = Catalog.get().create_replica(Path('replica_s11'), s11_md, if_exists=IfExistsParam.ERROR)
+        _r12 = Catalog.get().create_replica(Path('replica_s12'), s12_md, if_exists=IfExistsParam.ERROR)
+        _r31 = Catalog.get().create_replica(Path('replica_s31'), s31_md, if_exists=IfExistsParam.ERROR)
 
         # Intentionally create r61 first, before r51; this way we address both cases for snapshot-over-snapshot:
         # Base snapshot inserted first (r61 after r31); base snapshot inserted last (r51 after r61).

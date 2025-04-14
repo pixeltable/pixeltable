@@ -544,8 +544,8 @@ class Catalog:
             if md.tbl_md.current_version > existing_md_row.md['current_version']:
                 # New metadata is more recent than the metadata currently stored in the DB; we'll update the record
                 # in place in the DB.
-                # The same consideration applies to current_version etc. as before, except now we also need to account for
-                # other versions already in the DB, which might be more recent.
+                # The same consideration applies to current_version etc. as before, except now we also need to account
+                # for other versions already in the DB, which might be more recent.
                 new_current_version = max(existing_md_row.md['current_version'], md.version_md.version)
                 new_current_schema_version = max(
                     existing_md_row.md['current_schema_version'], md.schema_version_md.schema_version
