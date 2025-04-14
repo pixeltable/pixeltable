@@ -523,12 +523,7 @@ class Catalog:
                 id=tbl_id,
                 dir_id=dir._id,
                 md=dataclasses.asdict(
-                    dataclasses.replace(
-                        md.tbl_md,
-                        name=path.name,
-                        user=Env.get().user,
-                        is_replica=True,
-                    )
+                    dataclasses.replace(md.tbl_md, name=path.name, user=Env.get().user, is_replica=True)
                 ),
             )
             conn.execute(q)
@@ -537,12 +532,7 @@ class Catalog:
             if md.tbl_md.current_version > existing_md_row.md['current_version']:
                 # New metadata is more recent than the metadata currently stored in the DB; we'll update the record
                 # in place in the DB.
-                new_tbl_md = dataclasses.replace(
-                    md.tbl_md,
-                    name=path.name,
-                    user=Env.get().user,
-                    is_replica=True,
-                )
+                new_tbl_md = dataclasses.replace(md.tbl_md, name=path.name, user=Env.get().user, is_replica=True)
 
         # Now see if a TableVersion record already exists in the DB for this table version. If not, insert it. If
         # it already exists, check that the existing record is identical to the new one.
@@ -925,11 +915,12 @@ class Catalog:
         conn = Env.get().conn
 
         if tbl_md is not None:
-            conn.execute(
+            result = conn.execute(
                 sql.update(schema.Table.__table__)
                 .values({schema.Table.md: dataclasses.asdict(tbl_md)})
                 .where(schema.Table.id == tbl_id)
             )
+            assert result.rowcount == 1, result.rowcount
 
         if version_md is not None:
             conn.execute(
