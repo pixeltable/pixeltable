@@ -1230,8 +1230,14 @@ class TestExprs:
             return [int(x) if pd.notna(x) else None for x in series]
 
         int_sum: Expr = pxtf.sum(t.c_int)
+        _ = t.group_by(t.c_int).select(t.c_int, two=2).collect()
         _ = t.group_by(t.c_int).select(t.c_int).collect()
         _ = t.group_by(t.c_int).select(t.c_int, out=int_sum).order_by(int_sum, asc=False).limit(5).collect()
+
+        # selecting a subset of the grouping exprs doesn't change the cardinality of the result
+        r1 = t.group_by(t.c_bool, t.c_string).select(t.c_bool, t.c_string).collect()
+        r2 = t.group_by(t.c_bool, t.c_string).select(t.c_string).collect()
+        assert len(r1) == len(r2)
 
         for pxt_fn, pd_fn in [
             (pxtf.sum, 'sum'),
