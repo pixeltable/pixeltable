@@ -68,7 +68,7 @@ Pixeltable lets you build audio search workflows in two phases:
         column="text", 
         string_embed=embed_model
     )
-    ```
+```
   </Step>
 
   <Step title="Use Your Workflow" icon="play">
@@ -100,7 +100,7 @@ Pixeltable lets you build audio search workflows in two phases:
     for i in result:
         print(f"Similarity: {i['sim']:.3f}")
         print(f"Text: {i['text']}\n")
-    ```
+```
   </Step>
 </Steps>
 
@@ -131,9 +131,14 @@ Pixeltable lets you build audio search workflows in two phases:
   <Card title="Vector Search" icon="magnifying-glass">
     Fast search using E5 embeddings:
     ```python
-    sentences_view.add_embedding_index(
-        column="text",
-        string_embed=embed_model
+    query_text = "What are the key features of Pixeltable?"
+    min_similarity = 0.8
+    sim = sentences_view.text.similarity(query_text)
+    result = (
+        sentences_view.where(sim >= min_similarity)
+        .order_by(sim, asc=False)
+        .select(sentences_view.text, sim=sim)
+        .collect()
     )
     ```
   </Card>
