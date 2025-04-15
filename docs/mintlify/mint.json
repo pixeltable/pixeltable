@@ -80,8 +80,7 @@
       "pages": [
         "docs/overview/pixeltable",
         "docs/overview/installation",
-        "docs/overview/quick-start",
-        "docs/overview/configuration"
+        "docs/overview/quick-start"
       ]
     },
     {
