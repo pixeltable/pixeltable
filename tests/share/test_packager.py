@@ -12,7 +12,7 @@ from pyiceberg.table import Table as IcebergTable
 import pixeltable as pxt
 from pixeltable import exprs, metadata
 from pixeltable.env import Env
-from pixeltable.share.packager import TablePackager
+from pixeltable.share.packager import TablePackager, TableRestorer
 from pixeltable.utils.iceberg import sqlite_catalog
 
 from ..utils import SAMPLE_IMAGE_URL, assert_resultset_eq, get_image_files, get_video_files, reload_catalog
@@ -174,7 +174,8 @@ class TestPackager:
         pxt.drop_table(test_tbl, force=True)
         reload_catalog()
 
-        TablePackager.unpackage(bundle_path, 'new_replica')
+        restorer = TableRestorer('new_replica')
+        restorer.restore(bundle_path)
         t = pxt.get_table('new_replica')
         assert t._schema == schema
         reconstituted_data = t.select().order_by(t.c2).collect()
@@ -192,7 +193,8 @@ class TestPackager:
         pxt.drop_table(img_tbl, force=True)
         reload_catalog()
 
-        TablePackager.unpackage(bundle_path, 'new_replica')
+        restorer = TableRestorer('new_replica')
+        restorer.restore(bundle_path)
         t = pxt.get_table('new_replica')
         assert t._schema == schema
         reconstituted_data = t.select().head()

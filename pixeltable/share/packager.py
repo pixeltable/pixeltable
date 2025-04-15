@@ -220,50 +220,63 @@ class TablePackager:
                 tf.add(src_file, arcname=f'media/{dest_name}')
         return bundle_path
 
-    @classmethod
-    def unpackage(cls, bundle_path: Path, tbl_path: str, md: Optional[list[schema.FullTableMd]] = None) -> None:
-        # Extract tarball
-        tmp_dir = Path(Env.get().create_tmp_path())
-        with tarfile.open(bundle_path, 'r:bz2') as tf:
-            tf.extractall(path=tmp_dir)
 
-        if md is None:
+class TableRestorer:
+    tbl_path: str
+    md: Optional[list[schema.FullTableMd]]
+    tmp_dir: Path
+    media_files: dict[str, Path]  # Mapping from pxtmedia:// URLs to local file paths
+
+    def __init__(self, tbl_path: str, md: Optional[list[schema.FullTableMd]] = None) -> None:
+        self.tbl_path = tbl_path
+        self.md = md
+        self.tmp_dir = Path(Env.get().create_tmp_path())
+        self.media_files = {}
+
+    def restore(self, bundle_path: Path) -> None:
+        # Extract tarball
+        with tarfile.open(bundle_path, 'r:bz2') as tf:
+            tf.extractall(path=self.tmp_dir)
+
+        if self.md is None:
             # Read metadata from the archive
-            with open(tmp_dir / 'metadata.json', 'r', encoding='utf8') as fp:
+            with open(self.tmp_dir / 'metadata.json', 'r', encoding='utf8') as fp:
                 md_json = json.load(fp)
-                md = [schema.FullTableMd.from_dict(t) for t in md_json['md']['tables']]
+                self.md = [schema.FullTableMd.from_dict(t) for t in md_json['md']['tables']]
 
         # TODO: Version check
 
         # Create the replica table
-        replica_tbl = catalog.Catalog.get().create_replica(catalog.Path(tbl_path), md)
+        replica_tbl = catalog.Catalog.get().create_replica(catalog.Path(self.tbl_path), self.md)
         assert replica_tbl._tbl_version.get().is_snapshot
 
         # Now create TableVersions (and store tables) for the table and all its ancestors.
         with Env.get().begin_xact():
-            for ancestor_md in md[::-1]:
-                catalog.TableVersion.create_replica(ancestor_md)
+            for md in self.md[::-1]:
+                catalog.TableVersion.create_replica(md)
 
         # Load the Iceberg catalog
-        iceberg_catalog = sqlite_catalog(tmp_dir / 'warehouse')
+        iceberg_catalog = sqlite_catalog(self.tmp_dir / 'warehouse')
         with Env.get().begin_xact():
             ancestors: tuple[catalog.TableVersionHandle, ...] = (
                 replica_tbl._tbl_version,
                 *replica_tbl._tbl_version_path.get_bases(),
             )
-            if replica_tbl._id != replica_tbl._tbl_version.id:
+            if replica_tbl._id == replica_tbl._tbl_version.id:
+                # replica_tbl is not a pure snapshot. We need to load data for replica_tbl as well as it ancestors.
+                ancestor_md = self.md
+            else:
                 # replica_tbl is a pure snapshot. We'll discard its metadata for purposes of data loading,
                 # since the pure snapshot (as a schema object) won't contain any data of its own.
-                md = md[1:]
-            assert len(ancestors) == len(md)
-            for tv, tbl_md in zip(ancestors[::-1], md[::-1]):
+                ancestor_md = self.md[1:]
+            assert len(ancestors) == len(ancestor_md)
+            for tv, md in zip(ancestors[::-1], ancestor_md[::-1]):
                 assert isinstance(tv, catalog.TableVersionHandle)
                 _logger.info(f'Importing table {tv.get().name!r}.')
-                cls.__import_table(iceberg_catalog, tv.get(), tbl_md)
+                self.__import_table(iceberg_catalog, tv.get(), md)
 
-    @classmethod
     def __import_table(
-        cls, iceberg_catalog: pyiceberg.catalog.Catalog, tv: catalog.TableVersion, tbl_md: schema.FullTableMd
+        self, iceberg_catalog: pyiceberg.catalog.Catalog, tv: catalog.TableVersion, tbl_md: schema.FullTableMd
     ) -> None:
         """
         Import the Iceberg table into the Pixeltable catalog.
@@ -284,11 +297,16 @@ class TablePackager:
                 elif name.startswith('errortype_') or name.startswith('errormsg_'):
                     col_ids.append(None)
                     col_types.append(pxt.StringType())
-            rows = cls.__from_pa_pydict(tv, pydict, col_ids, col_types)
+            rows = self.__from_pa_pydict(tv, pydict, col_ids, col_types)
             tv.store_tbl.insert_replica_rows(rows)
 
-    @classmethod
-    def __from_pa_pydict(cls, tv: catalog.TableVersion, pydict: dict[str, Any], col_ids: list[Optional[int]], col_types: list[ts.ColumnType]) -> list[dict[str, Any]]:
+    def __from_pa_pydict(
+        self,
+        tv: catalog.TableVersion,
+        pydict: dict[str, Any],
+        col_ids: list[Optional[int]],
+        col_types: list[ts.ColumnType],
+    ) -> list[dict[str, Any]]:
         # pydict must have length exactly 1 more than col_types, because the pk column is not included in col_types
         assert len(pydict) == len(col_types) + 1, (
             f'{len(pydict)} != {len(col_types) + 1}:\n{list(pydict.keys())}\n{col_types}'
@@ -297,7 +315,7 @@ class TablePackager:
 
         # Data conversions from pyarrow to Pixeltable
         converted_pydict = {
-            col_name: [cls.__from_pa_value(val, tv, col_id, col_type) for val in col_vals]
+            col_name: [self.__from_pa_value(val, tv, col_id, col_type) for val in col_vals]
             for (col_name, col_vals), col_id, col_type in zip(pydict.items(), col_ids, col_types)
             if col_name != 'pk'
         }
@@ -307,8 +325,7 @@ class TablePackager:
 
         return rows
 
-    @classmethod
-    def __from_pa_value(cls, val: Any, tv: catalog.TableVersion, col_id: int, col_type: ts.ColumnType) -> Any:
+    def __from_pa_value(self, val: Any, tv: catalog.TableVersion, col_id: int, col_type: ts.ColumnType) -> Any:
         if val is None:
             return None
         if col_type.is_array_type():
@@ -323,19 +340,17 @@ class TablePackager:
             return json.loads(val)
         if col_type.is_media_type():
             assert isinstance(val, str)
-            return cls.__relocate_media_file(tv, col_id, val)
+            return self.__relocate_media_file(tv, col_id, val)
         return val
 
-    @classmethod
     def __relocate_media_file(self, tv: catalog.TableVersion, col_id: int, url: str) -> str:
         # If this is a pxtmedia:// URL, relocate it
         parsed_url = urllib.parse.urlparse(url)
         assert parsed_url.scheme != 'file'  # These should all have been converted to pxtmedia:// URLs
         if parsed_url.scheme == 'pxtmedia':
-            path = Path('media') / parsed_url.netloc
+            path = self.tmp_dir / 'media' / parsed_url.netloc
             dest = MediaStore.prepare_media_path(tv.id, col_id, tv.version, ext=path.suffix)
             path.rename(dest)
-            assert False, urllib.parse.urljoin('file:', urllib.request.pathname2url(str(dest)))
             return urllib.parse.urljoin('file:', urllib.request.pathname2url(str(dest)))
         # For any type of URL other than a local file, just return the URL as-is.
         return url
