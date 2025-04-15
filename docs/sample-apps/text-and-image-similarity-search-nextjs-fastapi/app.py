@@ -1,7 +1,6 @@
 # Standard library imports
 import io
 import json
-import os
 import tempfile
 from pathlib import Path
 from typing import Literal, Optional
@@ -16,8 +15,10 @@ from fastapi.middleware.cors import CORSMiddleware
 # --- Pixeltable Imports ---
 # The core pixeltable library
 import pixeltable as pxt
+
 # Specific functions: HuggingFace integration (for CLIP model)
 from pixeltable.functions.huggingface import clip
+
 # Iterators: Tools to transform data, like extracting frames from video
 from pixeltable.iterators import FrameIterator
 # --- End Pixeltable Imports ---
@@ -47,20 +48,23 @@ pxt.create_dir('media_search')
 # --- Define Pixeltable Tables and Views ---
 # Define a Pixeltable 'table' to store uploaded videos.
 # Tables have a schema, similar to SQL tables, but with support for media types.
-video_table = pxt.create_table('media_search.videos', {
-    # 'video' column stores video data; Pixeltable handles file references/storage.
-    'video': pxt.Video
-})
+video_table = pxt.create_table(
+    'media_search.videos',
+    {
+        # 'video' column stores video data; Pixeltable handles file references/storage.
+        'video': pxt.Video
+    },
+)
 
 # Define a Pixeltable 'view'. Views are derived from tables or other views.
 # Here, we use FrameIterator to automatically extract frames from videos in 'video_table'.
 # The view effectively creates a new "table" where each row represents one frame.
 frames_view = pxt.create_view(
-    'media_search.frames', # Name of the view
-    video_table,           # Source table
+    'media_search.frames',  # Name of the view
+    video_table,  # Source table
     # The iterator defines how to generate rows for the view.
     # FrameIterator extracts frames at a specified FPS.
-    iterator=FrameIterator.create(video=video_table.video, fps=1)
+    iterator=FrameIterator.create(video=video_table.video, fps=1),
 )
 
 # Create an embedding index on the 'frame' column of the 'frames_view'.
@@ -71,34 +75,29 @@ frames_view = pxt.create_view(
 # 3. Use an efficient vector index for fast similarity lookups.
 # The CLIP model allows *cross-modal* search (text-to-image and image-to-image).
 frames_view.add_embedding_index(
-    'frame', # The column containing the image data (video frames)
+    'frame',  # The column containing the image data (video frames)
     # Specify the embedding function. '.using()' configures the function.
-    embedding=clip.using(model_id='openai/clip-vit-base-patch32') # Use OpenAI's CLIP model
+    embedding=clip.using(model_id='openai/clip-vit-base-patch32'),  # Use OpenAI's CLIP model
 )
 
 # Define a Pixeltable table for storing uploaded images (e-commerce/tagging example).
-image_table = pxt.create_table(
-    'media_search.images',
-    {
-        'image': pxt.Image,
-        'tags': pxt.Json
-    }
-)
+image_table = pxt.create_table('media_search.images', {'image': pxt.Image, 'tags': pxt.Json})
 
 # Add a similar embedding index to the image table.
 # This allows searching uploaded images using text or other images.
 image_table.add_embedding_index(
-    'image', # The column with image data
-    embedding=clip.using(model_id='openai/clip-vit-base-patch32') # Use the same CLIP model
+    'image',  # The column with image data
+    embedding=clip.using(model_id='openai/clip-vit-base-patch32'),  # Use the same CLIP model
 )
 # --- End Pixeltable Setup ---
 
 
 # --- API Endpoints ---
 
+
 # Endpoint to upload and process a video file.
 @app.post('/api/process-video')
-async def process_video(file: UploadFile = File(...)):
+async def process_video(file: UploadFile = File(...)):  # noqa: B008
     try:
         # Get a reference to the Pixeltable table.
         video_table = pxt.get_table('media_search.videos')
@@ -121,12 +120,12 @@ async def process_video(file: UploadFile = File(...)):
 
     except Exception as e:
         print(f'Error processing video: {e}')
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 # Endpoint to upload an image with tags.
 @app.post('/api/upload-image')
-async def upload_image(tags: str = Form(...), file: UploadFile = File(...)):
+async def upload_image(tags: str = Form(...), file: UploadFile = File(...)):  # noqa: B008
     try:
         # Get a reference to the image table.
         image_table = pxt.get_table('media_search.images')
@@ -137,7 +136,7 @@ async def upload_image(tags: str = Form(...), file: UploadFile = File(...)):
             if not isinstance(tags_list, list) or not all(isinstance(tag, str) for tag in tags_list):
                 raise ValueError('Tags must be a JSON array of strings.')
         except (json.JSONDecodeError, ValueError) as e:
-            raise HTTPException(status_code=400, detail=f'Invalid tags format: {e}')
+            raise HTTPException(status_code=400, detail=f'Invalid tags format: {e}') from e
 
         # Save the uploaded image temporarily.
         temp_path = Path(TEMP_DIR) / file.filename
@@ -146,28 +145,25 @@ async def upload_image(tags: str = Form(...), file: UploadFile = File(...)):
             buffer.write(content)
 
         # Insert the image path and tags list.
-        image_table.insert([{
-            'image': str(temp_path),
-            'tags': tags_list
-        }])
+        image_table.insert([{'image': str(temp_path), 'tags': tags_list}])
 
         return {'message': 'Image uploaded and tagged successfully.'}
 
     except Exception as e:
         print(f'Error uploading image: {e}')
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 # Endpoint to search video frames.
 @app.post('/api/search')
 async def search_video(
-    query: Optional[UploadFile] = File(None), # Can be text (in filename) or image file
+    query: Optional[UploadFile] = File(None),  # noqa: B008 # Can be text (in filename) or image file
     search_type: Literal['text', 'image'] = Form(...),
     num_results: int = Form(...),
 ):
     try:
         # Get a reference to the 'frames' view.
-        frames_view = pxt.get_table('media_search.frames') # Use get_table for views too
+        frames_view = pxt.get_table('media_search.frames')  # Use get_table for views too
 
         # Determine the query input (text string or PIL image)
         if search_type == 'text':
@@ -175,11 +171,11 @@ async def search_video(
             if not text_query:
                 raise HTTPException(status_code=400, detail='No text query provided')
             query_input = text_query
-        else: # Image search
+        else:  # Image search
             if not query:
                 raise HTTPException(status_code=400, detail='No image provided')
             contents = await query.read()
-            query_input = PIL.Image.open(io.BytesIO(contents)) # Use PIL image object
+            query_input = PIL.Image.open(io.BytesIO(contents))  # Use PIL image object
 
         # Calculate similarity using the embedding index on the 'frame' column.
         # Pixeltable's '.similarity()' method takes either text or an image
@@ -206,17 +202,17 @@ async def search_video(
         return {'frames': encoded_frames, 'success': True}
 
     except Exception as e:
-        print(f'Search error: {str(e)}')
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f'Search error: {e!s}')
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 # Endpoint to search uploaded images.
 @app.post('/api/search-images')
 async def search_images(
-    query: Optional[UploadFile] = File(None), # Text (in filename) or image file
+    query: Optional[UploadFile] = File(None),  # noqa: B008 # Text (in filename) or image file
     search_type: Literal['text', 'image'] = Form(...),
     num_results: int = Form(...),
-    similarity_threshold: float = Form(0.5) # Add similarity threshold parameter
+    similarity_threshold: float = Form(0.5),  # Add similarity threshold parameter
 ):
     try:
         # Get a reference to the image table.
@@ -230,7 +226,7 @@ async def search_images(
             if not text_query:
                 raise HTTPException(status_code=400, detail='No text query provided')
             query_input = text_query
-        else: # Image search
+        else:  # Image search
             if not query:
                 raise HTTPException(status_code=400, detail='No image provided for search')
             contents = await query.read()
@@ -244,32 +240,26 @@ async def search_images(
         results = (
             base_query.order_by(sim, asc=False)
             .limit(num_results)
-            .select(
-                encoded_image=base_query.image.b64_encode('png'),
-                tags=base_query.tags
-            )
+            .select(encoded_image=base_query.image.b64_encode('png'), tags=base_query.tags)
             # Execute the query.
-            .where(sim > similarity_threshold) # Use the parameter here
+            .where(sim > similarity_threshold)  # Use the parameter here
             .collect()
         )
 
         # Prepare response directly from encoded results
         output_images = [
-            {
-                'image': f'data:image/png;base64,{row["encoded_image"]}',
-                'tags': row['tags']
-            }
-            for row in results
+            {'image': f'data:image/png;base64,{row["encoded_image"]}', 'tags': row['tags']} for row in results
         ]
 
         return {'images': output_images, 'success': True}
 
     except Exception as e:
-        print(f'Image search error: {str(e)}')
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f'Image search error: {e!s}')
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 # Standard Python entry point for running the FastAPI app with uvicorn
 if __name__ == '__main__':
     import uvicorn
+
     uvicorn.run(app, host='0.0.0.0', port=8000)

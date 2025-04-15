@@ -2,6 +2,7 @@
 'use client'
 
 import React, { useState, useMemo } from 'react'
+import Image from 'next/image'
 
 type SearchType = 'text' | 'image'
 type ActiveTab = 'video' | 'image'
@@ -21,7 +22,6 @@ export default function VideoSearch() {
   const [results, setResults] = useState<string[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [progress, setProgress] = useState(0)
-  const [uploadedFiles, setUploadedFiles] = useState<File[]>([])
   const [accordionState, setAccordionState] = useState<AccordionState>({
     howItWorks: false,
     whatItDoes: false,
@@ -29,7 +29,6 @@ export default function VideoSearch() {
 
   // New state specific to Image Search tab
   const [imageUploadFile, setImageUploadFile] = useState<File | null>(null);
-  const [imageCategory, setImageCategory] = useState<string>('');
   const [imageTagsInput, setImageTagsInput] = useState<string>('');
   const [imageSearchResults, setImageSearchResults] = useState<{
     image: string;
@@ -38,7 +37,6 @@ export default function VideoSearch() {
 
   const [similarityThreshold, setSimilarityThreshold] = useState(0.5); // Add state for threshold
 
-  const [filterTagsInput, setFilterTagsInput] = useState<string>('');
   const [activeTagFilters, setActiveTagFilters] = useState<Set<string>>(new Set()); // State for active tag checkboxes
   const [isDraggingImage, setIsDraggingImage] = useState(false); // State for upload drag feedback
   const [isDraggingSearchImage, setIsDraggingSearchImage] = useState(false); // State for search drag feedback
@@ -56,16 +54,12 @@ export default function VideoSearch() {
     });
 
     // Initialize/update filters to include all found tags + Untagged if present
-    setActiveTagFilters(prevFilters => {
-        // Create a new set based on found tags + Untagged
-        const initialFilters = new Set(allTagsFound);
-        if (hasUntagged) {
-            initialFilters.add('Untagged');
-        }
-        // Optionally preserve existing selections if needed, but for now, let's reset to all found
-        // Or merge: allTagsFound.forEach(tag => newFilters.add(tag));
-        return initialFilters; // Reset filters to all found tags + Untagged
-    });
+    const initialFilters = new Set(allTagsFound);
+    if (hasUntagged) {
+        initialFilters.add('Untagged');
+    }
+    // Set the state directly without using the callback form
+    setActiveTagFilters(initialFilters);
 
   }, [imageSearchResults]); // Dependency array ensures this runs only when results change
 
@@ -116,7 +110,7 @@ export default function VideoSearch() {
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
               {groupedResults[tag].map((result, index) => (
                 <div key={`${tag}-${index}`} className="group relative aspect-square bg-neutral-100 rounded-lg overflow-hidden shadow hover:shadow-md transition-shadow">
-                  <img src={result.image} alt={`Search result ${index + 1}`} className="object-cover w-full h-full" />
+                  <Image src={result.image} alt={`Search result ${index + 1}`} layout="fill" objectFit="cover" />
                   <div className="absolute bottom-0 left-0 right-0 bg-black/70 px-2 py-1 space-y-0.5 text-white text-xs">
                     {result.tags && result.tags.length > 0 && (
                       <p className="truncate font-medium" title={result.tags.join(', ')}>
@@ -136,7 +130,7 @@ export default function VideoSearch() {
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
               {untaggedResults.map((result, index) => (
                   <div key={`untagged-${index}`} className="group relative aspect-square bg-neutral-100 rounded-lg overflow-hidden shadow hover:shadow-md transition-shadow">
-                  <img src={result.image} alt={`Search result ${index + 1}`} className="object-cover w-full h-full" />
+                  <Image src={result.image} alt={`Search result ${index + 1}`} layout="fill" objectFit="cover" />
                   <div className="absolute bottom-0 left-0 right-0 bg-black/70 px-2 py-1 space-y-0.5 text-white text-xs">
                   </div>
                   </div>
@@ -164,20 +158,6 @@ export default function VideoSearch() {
   const handleVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files?.[0]) return
     setVideoFile(e.target.files[0])
-  }
-
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-
-    // Validate file type
-    if (!file.type.startsWith('image/')) {
-        setStatus('Please select a valid image file')
-        return
-    }
-
-    setImageQuery(file)
-    setStatus('Image selected for search')
   }
 
   const processVideo = async () => {
@@ -649,8 +629,8 @@ export default function VideoSearch() {
                       onClick={() => setSearchType('text')}
                       className={`flex-1 py-2 px-4 text-sm font-medium ${
                         searchType === 'text'
-                          ? 'bg-primary-600 text-white'
-                          : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'
+                          ? 'bg-gray-800 text-white'
+                          : 'bg-white text-neutral-600 hover:bg-neutral-100'
                       } transition-colors`}
                     >
                       Text Search
@@ -659,8 +639,8 @@ export default function VideoSearch() {
                       onClick={() => setSearchType('image')}
                       className={`flex-1 py-2 px-4 text-sm font-medium ${
                         searchType === 'image'
-                          ? 'bg-primary-600 text-white'
-                          : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'
+                          ? 'bg-gray-800 text-white'
+                          : 'bg-white text-neutral-600 hover:bg-neutral-100'
                       } transition-colors`}
                     >
                       Image Search
@@ -694,7 +674,7 @@ export default function VideoSearch() {
                       />
                       {imageQuery ? ( // Check imageQuery state
                         <div className="space-y-2">
-                          <img src={URL.createObjectURL(imageQuery)} alt="Search query" className="max-h-24 mx-auto rounded-lg" />
+                          <Image src={URL.createObjectURL(imageQuery)} alt="Search query" width={96} height={96} objectFit="contain" className="mx-auto rounded-lg" />
                           <p className="text-sm text-neutral-600">Click to change search image</p>
                         </div>
                       ) : (
@@ -761,11 +741,12 @@ export default function VideoSearch() {
                       className="relative aspect-video group rounded-lg overflow-hidden
                         hover:shadow-lg transition-all duration-300"
                     >
-                      <img
+                      <Image
                         src={frame}
                         alt={`Frame ${index + 1}`}
-                        className="object-cover w-full h-full transition-transform duration-300
-                          group-hover:scale-105"
+                        layout="fill"
+                        objectFit="cover"
+                        className="transition-transform duration-300 group-hover:scale-105"
                       />
                       <div className="absolute inset-0 bg-black opacity-0 group-hover:opacity-20
                         transition-opacity duration-300" />
@@ -834,10 +815,13 @@ export default function VideoSearch() {
                     />
                     {imageUploadFile ? (
                       <div className="space-y-2">
-                        <img
+                        <Image
                           src={URL.createObjectURL(imageUploadFile)}
                           alt="Selected for upload"
-                          className="max-h-32 mx-auto rounded-lg"
+                          width={128}
+                          height={128}
+                          objectFit="contain"
+                          className="mx-auto rounded-lg"
                         />
                         <p className="text-sm text-neutral-600">{imageUploadFile.name}</p>
                         <p className="text-xs text-neutral-500">Click to change image</p>
@@ -865,7 +849,7 @@ export default function VideoSearch() {
                   <button
                     onClick={handleImageSubmit}
                     disabled={!imageUploadFile || !imageTagsInput || isLoading}
-                    className="w-full py-2 px-4 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:bg-neutral-300 disabled:cursor-not-allowed transition-colors"
+                    className="w-full py-2 px-4 bg-gray-800 text-white rounded-lg hover:bg-gray-900 disabled:bg-neutral-300 disabled:cursor-not-allowed transition-colors"
                   >
                     {isLoading ? 'Uploading...' : 'Upload Image'}
                   </button>
@@ -881,13 +865,21 @@ export default function VideoSearch() {
                      <div className="flex rounded-lg overflow-hidden border border-neutral-200">
                        <button
                          onClick={() => setSearchType('text')}
-                         className={`flex-1 py-2 px-4 text-sm font-medium ${searchType === 'text' ? 'bg-primary-600 text-white' : 'bg-white text-neutral-600 hover:bg-neutral-100'} transition-colors`}
+                         className={`flex-1 py-2 px-4 text-sm font-medium ${
+                           searchType === 'text'
+                             ? 'bg-gray-800 text-white'
+                             : 'bg-white text-neutral-600 hover:bg-neutral-100'
+                         } transition-colors`}
                        >
                          Text Search
                        </button>
                        <button
                          onClick={() => setSearchType('image')}
-                         className={`flex-1 py-2 px-4 text-sm font-medium ${searchType === 'image' ? 'bg-primary-600 text-white' : 'bg-white text-neutral-600 hover:bg-neutral-100'} transition-colors border-l border-neutral-200`}
+                         className={`flex-1 py-2 px-4 text-sm font-medium ${
+                           searchType === 'image'
+                             ? 'bg-gray-800 text-white'
+                             : 'bg-white text-neutral-600 hover:bg-neutral-100'
+                         } transition-colors border-l border-neutral-200`}
                        >
                          Image Search
                        </button>
@@ -918,7 +910,7 @@ export default function VideoSearch() {
                          />
                          {imageQuery ? (
                            <div className="space-y-2">
-                             <img src={URL.createObjectURL(imageQuery)} alt="Search query" className="max-h-24 mx-auto rounded-lg" />
+                             <Image src={URL.createObjectURL(imageQuery)} alt="Search query" width={96} height={96} objectFit="contain" className="mx-auto rounded-lg" />
                              <p className="text-sm text-neutral-600">Click to change search image</p>
                            </div>
                          ) : (
