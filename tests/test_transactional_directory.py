@@ -4,7 +4,7 @@ import tempfile
 from pixeltable.utils.transactional_directory import transactional_directory
 
 
-class MyException(Exception):
+class MyError(Exception):
     pass
 
 
@@ -36,8 +36,8 @@ class TestTransactionalDirectory:
                 (folder / 'subfolder1').mkdir()
                 with (folder / 'test.txt').open('w') as f:
                     f.write('test')
-                raise MyException()
-        except MyException:
+                raise MyError()
+        except MyError:
             pass
 
         assert not final.exists()

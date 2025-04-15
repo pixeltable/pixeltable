@@ -56,6 +56,7 @@ class TableVersion:
     name: str
     user: Optional[str]
     effective_version: Optional[int]
+    is_replica: bool
     version: int
     comment: str
     media_validation: MediaValidation
@@ -112,6 +113,7 @@ class TableVersion:
         self.user = tbl_md.user
         self.effective_version = effective_version
         self.version = tbl_md.current_version if effective_version is None else effective_version
+        self.is_replica = tbl_md.is_replica
         self.comment = schema_version_md.comment
         self.num_retained_versions = schema_version_md.num_retained_versions
         self.schema_version = schema_version_md.schema_version
@@ -233,6 +235,7 @@ class TableVersion:
             tbl_id=str(tbl_id),
             name=name,
             user=user,
+            is_replica=False,
             current_version=0,
             current_schema_version=0,
             next_col_id=len(cols),
@@ -311,24 +314,16 @@ class TableVersion:
         session.add(schema_version_record)
         return tbl_record.id, tbl_version
 
-    @classmethod
-    def delete_md(cls, tbl_id: UUID) -> None:
-        conn = Env.get().conn
-        conn.execute(sql.delete(schema.TableSchemaVersion.__table__).where(schema.TableSchemaVersion.tbl_id == tbl_id))
-        conn.execute(sql.delete(schema.TableVersion.__table__).where(schema.TableVersion.tbl_id == tbl_id))
-        conn.execute(sql.delete(schema.Table.__table__).where(schema.Table.id == tbl_id))
-
     def drop(self) -> None:
-        # delete this table and all associated data
-        MediaStore.delete(self.id)
-        FileCache.get().clear(tbl_id=self.id)
-        self.delete_md(self.id)
-        self.store_tbl.drop()
-
-        # de-register table version from catalog
         from .catalog import Catalog
 
         cat = Catalog.get()
+        # delete this table and all associated data
+        MediaStore.delete(self.id)
+        FileCache.get().clear(tbl_id=self.id)
+        cat.delete_tbl_md(self.id)
+        self.store_tbl.drop()
+        # de-register table version from catalog
         cat.remove_tbl_version(self)
 
     def _init_schema(self, tbl_md: schema.TableMd, schema_version_md: schema.TableSchemaVersionMd) -> None:
@@ -382,7 +377,7 @@ class TableVersion:
 
             # make sure to traverse columns ordered by position = order in which cols were created;
             # this guarantees that references always point backwards
-            if col_md.value_expr is not None:
+            if not self.is_snapshot and col_md.value_expr is not None:
                 self._record_refd_columns(col)
 
     def _init_idxs(self, tbl_md: schema.TableMd) -> None:
@@ -438,29 +433,15 @@ class TableVersion:
                 specified preceding schema version
         """
         assert update_tbl_version or preceding_schema_version is None
+        from pixeltable.catalog import Catalog
 
-        conn = Env.get().conn
-        conn.execute(
-            sql.update(schema.Table.__table__)
-            .values({schema.Table.md: dataclasses.asdict(self._create_tbl_md())})
-            .where(schema.Table.id == self.id)
+        tbl_md = self._create_tbl_md()
+        version_md = self._create_version_md(timestamp) if update_tbl_version else None
+        schema_version_md = (
+            self._create_schema_version_md(preceding_schema_version) if preceding_schema_version is not None else None
         )
 
-        if update_tbl_version:
-            version_md = self._create_version_md(timestamp)
-            conn.execute(
-                sql.insert(schema.TableVersion.__table__).values(
-                    tbl_id=self.id, version=self.version, md=dataclasses.asdict(version_md)
-                )
-            )
-
-        if preceding_schema_version is not None:
-            schema_version_md = self._create_schema_version_md(preceding_schema_version)
-            conn.execute(
-                sql.insert(schema.TableSchemaVersion.__table__).values(
-                    tbl_id=self.id, schema_version=self.schema_version, md=dataclasses.asdict(schema_version_md)
-                )
-            )
+        Catalog.get().store_tbl_md(self.id, tbl_md, version_md, schema_version_md)
 
     def ensure_md_loaded(self) -> None:
         """Ensure that table metadata is loaded."""
@@ -1365,6 +1346,7 @@ class TableVersion:
             tbl_id=str(self.id),
             name=self.name,
             user=self.user,
+            is_replica=self.is_replica,
             current_version=self.version,
             current_schema_version=self.schema_version,
             next_col_id=self.next_col_id,

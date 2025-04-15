@@ -616,9 +616,14 @@ def _extract_paths(
         matches = [name for name, entry in dir_entries.items() if entry.dir is not None]
     else:
         matches = [name for name, entry in dir_entries.items() if entry.table is not None]
+
+    # Filter out system paths
+    matches = [name for name in matches if catalog.is_valid_identifier(name)]
     result = [parent.append(name) for name in matches]
-    for name, entry in [(name, entry) for name, entry in dir_entries.items() if len(entry.dir_entries) > 0]:
-        result.extend(_extract_paths(entry.dir_entries, parent=parent.append(name), entry_type=entry_type))
+
+    for name, entry in dir_entries.items():
+        if len(entry.dir_entries) > 0 and catalog.is_valid_identifier(name):
+            result.extend(_extract_paths(entry.dir_entries, parent=parent.append(name), entry_type=entry_type))
     return result
 
 

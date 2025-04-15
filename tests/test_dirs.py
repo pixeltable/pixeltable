@@ -39,13 +39,13 @@ class TestDirs:
 
         # existing table
         make_tbl('dir1.t1')
-        t = pxt.get_table('dir1.t1')
+        _ = pxt.get_table('dir1.t1')
         with pytest.raises(excs.Error, match='is an existing'):
             pxt.create_dir('dir1.t1')
         with pytest.raises(excs.Error, match='does not exist'):
             pxt.create_dir('dir2.sub2')
         make_tbl('t2')
-        with pytest.raises(excs.Error, match=f"Directory 't2' does not exist"):
+        with pytest.raises(excs.Error, match="Directory 't2' does not exist"):
             pxt.create_dir('t2.sub2')
 
         # new client: force loading from store
@@ -219,9 +219,9 @@ class TestDirs:
         assert pxt.list_tables('dir2') == ['dir2.dir1.sub1.t2']
 
         pxt.create_dir('dir2.sub1')
-        with pytest.raises(excs.Error, match='cannot be identical') as exc_info:
+        with pytest.raises(excs.Error, match='cannot be identical'):
             pxt.move('dir2.sub1', 'dir2.sub1')
-        with pytest.raises(excs.Error, match='into its own subdirectory') as exc_info:
+        with pytest.raises(excs.Error, match='into its own subdirectory'):
             pxt.create_dir('dir2.sub1.subsub1')
             pxt.move('dir2.sub1', 'dir2.sub1.subsub1')
 

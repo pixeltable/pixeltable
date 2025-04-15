@@ -89,7 +89,7 @@ class TestDocument:
 
     def test_invalid_arguments(self, reset_db: None) -> None:
         """Test input parsing provides useful error messages"""
-        example_file = [p for p in self.valid_doc_paths() if p.endswith('.pdf')][0]
+        example_file = next(p for p in self.valid_doc_paths() if p.endswith('.pdf'))
 
         # test invalid separators, or combinations of separators
         invalid_separators = [
@@ -198,7 +198,9 @@ class TestDocument:
 
                 # disable headings checks, currently failing strict equality,
                 # but headings look reasonable and text is correct
-                # assert headings == headings_reference, f'{sep1}, {sep2}, {limit}'
+                # (This can be made into an assertion to re-enable headings checks)
+                if headings == headings_reference:  # f'{sep1}, {sep2}, {limit}'
+                    pass
 
                 # check splitter honors limits
                 if sep2 == 'char_limit':
@@ -301,14 +303,15 @@ class TestDocument:
         )
         res = chunks_t.order_by(chunks_t.doc, chunks_t.pos).collect()
         assert len(res) == 23
-        assert (
-            res[0]['text']
-            == 'Pixeltable Briefing Doc\nSource: GitHub Repository: pixeltable/pixeltable\n\nMain Themes:\n\nAI Data Infrastructure: Pixeltable is a Python library designed to simplify the management and processing of multimodal data for machine learning workflows.\n'
+        assert res[0]['text'] == (
+            'Pixeltable Briefing Doc\nSource: GitHub Repository: pixeltable/pixeltable\n\nMain Themes:\n\n'
+            'AI Data Infrastructure: Pixeltable is a Python library designed to simplify the management '
+            'and processing of multimodal data for machine learning workflows.\n'
         )
         assert len(res[0]['text']) == 245
-        assert (
-            res[22]['text']
-            == 'Its declarative approach, incremental updates, and seamless Python integration make it a valuable tool for streamlining AI development and enhancing productivity.\n'
+        assert res[22]['text'] == (
+            'Its declarative approach, incremental updates, and seamless Python integration make it a '
+            'valuable tool for streamlining AI development and enhancing productivity.\n'
         )
         assert len(res[22]['text']) == 163
 

@@ -341,6 +341,8 @@ class TestOpenai:
         from pixeltable.functions.openai import embeddings
 
         t = pxt.create_table('test_tbl', {'input': pxt.String})
+
+        # Embeddings as computed columns
         t.add_computed_column(ada_embed=embeddings(model='text-embedding-ada-002', input=t.input))
         t.add_computed_column(
             text_3=embeddings(model='text-embedding-3-small', input=t.input, dimensions=1024, user='pixeltable')
@@ -351,7 +353,21 @@ class TestOpenai:
         assert isinstance(type_info['text_3'], pxt.ArrayType)
         assert type_info['text_3'].shape == (1024,)
         validate_update_status(t.insert(input='Say something interesting.'), 1)
+
+        # Via add_embedding_index()
+        t.add_embedding_index(t.input, embedding=embeddings.using(model='text-embedding-3-small'))
+        validate_update_status(t.insert(input='Another sentence for you to index.'), 1)
         _ = t.head()
+
+        sim = t.input.similarity('Indexing sentences is fun.')
+        res = t.select(t.input, sim=sim).order_by(sim, asc=False).collect()
+
+        # The exact values are probabilistic, but we should reliably get similarity > 0.5 for the sentence about
+        # indexing and < 0.5 for the unrelated one.
+        assert res[0]['input'] == 'Another sentence for you to index.'
+        assert res[0]['sim'] > 0.5
+        assert res[1]['input'] == 'Say something interesting.'
+        assert res[1]['sim'] < 0.5
 
     def test_moderations(self, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
@@ -431,7 +447,10 @@ class TestOpenai:
                 messages=[
                     {
                         'role': 'system',
-                        'content': 'You are a helpful AI assistant that can use various tools. Analyze the tool results and provide a clear, concise response.',
+                        'content': (
+                            'You are a helpful AI assistant that can use various tools. '
+                            'Analyze the tool results and provide a clear, concise response.'
+                        ),
                     },
                     {'role': 'user', 'content': finance_agent.tool_response_prompt},
                 ],
@@ -462,7 +481,10 @@ class TestOpenai:
                 messages=[
                     {
                         'role': 'system',
-                        'content': 'You are a helpful AI assistant that can use various tools. Analyze the tool results and provide a clear, concise response.',
+                        'content': (
+                            'You are a helpful AI assistant that can use various tools. '
+                            'Analyze the tool results and provide a clear, concise response.'
+                        ),
                     },
                     {'role': 'user', 'content': weather_agent.tool_response_prompt},
                 ],
@@ -496,7 +518,10 @@ class TestOpenai:
                 messages=[
                     {
                         'role': 'system',
-                        'content': 'You are a helpful AI assistant that can use various tools. Analyze the tool results and provide a clear, concise response.',
+                        'content': (
+                            'You are a helpful AI assistant that can use various tools. '
+                            'Analyze the tool results and provide a clear, concise response.'
+                        ),
                     },
                     {'role': 'user', 'content': manager.tool_response_prompt},
                 ],

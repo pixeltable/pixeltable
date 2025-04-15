@@ -1,21 +1,19 @@
 import datetime
 import logging
 import re
-from typing import Literal
 
 import PIL
 import pytest
 
 import pixeltable as pxt
 from pixeltable import catalog, exceptions as excs
+from pixeltable.func import Batch
 
 from .utils import ReloadTester, assert_resultset_eq, create_test_tbl, reload_catalog, validate_update_status
 
 logger = logging.getLogger('pixeltable')
 
 test_unstored_base_val: int = 0
-
-from pixeltable.func import Batch
 
 
 @pxt.udf(batch_size=20)
@@ -74,7 +72,7 @@ class TestView:
         schema = {'v1': t.c3 * 2.0, 'v2': t.c6.f5}
         v = pxt.create_view('test_view', t.where(t.c2 < 10), additional_columns=schema)
         # TODO: test repr more thoroughly
-        _ = v.__repr__()
+        _ = repr(v)
         assert_resultset_eq(
             v.select(v.v1).order_by(v.c2).collect(), t.select(t.c3 * 2.0).where(t.c2 < 10).order_by(t.c2).collect()
         )
@@ -107,8 +105,8 @@ class TestView:
         v = pxt.get_table('test_view')
         check_view(t, v)
 
-        view_query = v.select(v.v1).order_by(v.c2)
-        base_query = t.select(t.c3 * 2.0).where(t.c2 < 10).order_by(t.c2)
+        _ = v.select(v.v1).order_by(v.c2)
+        _ = t.select(t.c3 * 2.0).where(t.c2 < 10).order_by(t.c2)
 
         # insert data: of 20 new rows, only 10 are reflected in the view
         rows = list(t.select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7, t.c10).where(t.c2 < 20).collect())
@@ -125,7 +123,7 @@ class TestView:
 
         # base table delete is reflected in view
         status = t.delete(where=t.c2 < 5)
-        status.num_rows == 10 * 2  # *2: rows affected in both base table and view
+        assert status.num_rows == 10 * 2  # *2: rows affected in both base table and view
         assert t.count() == 110
         check_view(t, v)
 
@@ -385,7 +383,7 @@ class TestView:
 
         # base table delete is reflected in view
         status = t.delete(where=(t.c2 >= 5) & (t.c2 < 15))
-        status.num_rows == 10 * 2  # *2: rows affected in both base table and view
+        assert status.num_rows == 20 * 2  # *2: rows affected in both base table and view
         assert t.count() == 100
         assert v1.count() == 10
         assert v2.count() == 10
@@ -470,7 +468,7 @@ class TestView:
         # base table delete is reflected in both views
         base_version, v1_version, v2_version = t._version, v1._version, v2._version
         status = t.delete(where=t.c2 == 0)
-        status.num_rows == 1 + 1 + 1
+        assert status.num_rows == (1 + 1 + 1) * 2
         assert t.count() == 118
         assert v1.count() == 18
         assert v2.count() == 8
@@ -483,7 +481,7 @@ class TestView:
         # base table delete is reflected only in v1
         base_version, v1_version, v2_version = t._version, v1._version, v2._version
         status = t.delete(where=t.c2 == 5)
-        status.num_rows == 1 + 1
+        assert status.num_rows == (1 + 1) * 2
         assert t.count() == 116
         assert v1.count() == 16
         assert v2.count() == 8
@@ -550,7 +548,7 @@ class TestView:
             'wc2b': {'value': add_unstored_base_val(v2.vc2), 'stored': False},
         }
 
-        global test_unstored_base_val
+        global test_unstored_base_val  # noqa: PLW0603
         test_unstored_base_val = 1000
         v3 = pxt.create_view('v3', v2, additional_columns=add_schema3)
 
@@ -611,7 +609,7 @@ class TestView:
         check_views()
 
         logger.debug('******************* INSERT')
-        status = t.insert(rows, on_error='ignore')
+        t.insert(rows, on_error='ignore')
         v1.update({'int4': 1}, where=v1.int4 == None)
         logger.debug('******************* POST INSERT')
         check_views()

@@ -276,6 +276,34 @@ class FunctionCall(Expr):
         assert isinstance(self.fn, func.AggregateFunction)
         self.aggregator = self.fn.agg_class(**self.agg_init_args)
 
+    @property
+    def bound_args(self) -> dict[str, Expr]:
+        """
+        Reconstructs bound arguments from the components of this FunctionCall.
+        """
+        bound_args: dict[str, Expr] = {}
+        for name, idx in self.bound_idxs.items():
+            if isinstance(idx, int):
+                bound_args[name] = self.components[idx]
+            elif isinstance(idx, Sequence):
+                bound_args[name] = Expr.from_object([self.components[i] for i in idx])
+            elif isinstance(idx, dict):
+                bound_args[name] = Expr.from_object({k: self.components[i] for k, i in idx.items()})
+            else:
+                raise AssertionError(f'{name}: {idx} (of type `{type(idx)}`)')
+        return bound_args
+
+    def substitute(self, spec: dict[Expr, Expr]) -> Expr:
+        """
+        Substitution of FunctionCall arguments could cause the return value to become more specific, in the case
+        where a variable is replaced with a specific value.
+        """
+        res = super().substitute(spec)
+        assert res is self
+        self.return_type = self.fn.call_return_type(self.bound_args)
+        self.col_type = self.return_type
+        return self
+
     def update(self, data_row: DataRow) -> None:
         """
         Update agg state
