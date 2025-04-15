@@ -10,7 +10,7 @@ import pixeltable.exceptions as excs
 class TestImport:
     def test_import_rows(self, reset_db: None) -> None:
         example = Path(__file__).parent.parent / 'data' / 'json' / 'example.json'
-        with open(example) as fp:
+        with open(example, encoding='utf-8') as fp:
             data = json.loads(fp.read())
         t1 = pxt.io.import_rows('example1', data)
         assert t1.count() == 4
@@ -47,8 +47,8 @@ class TestImport:
         with pytest.raises(excs.Error) as exc_info:
             pxt.io.import_rows('example5', [{'col': 1}, {'col': 'value'}])
         assert (
-            "Could not infer type of column `col`; the value in row 1 does not match preceding type Optional[Int]: 'value'"
-            in str(exc_info.value)
+            'Could not infer type of column `col`; '
+            "the value in row 1 does not match preceding type Optional[Int]: 'value'" in str(exc_info.value)
         )
 
         with pytest.raises(excs.Error) as exc_info:
@@ -64,7 +64,7 @@ class TestImport:
 
     def test_insert_rows(self, reset_db: None) -> None:
         example = Path(__file__).parent.parent / 'data' / 'json' / 'example.json'
-        with open(example) as fp:
+        with open(example, encoding='utf-8') as fp:
             data = json.loads(fp.read())
         t1 = pxt.io.import_rows('example1', data)
         assert t1.count() == 4

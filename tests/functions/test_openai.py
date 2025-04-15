@@ -447,7 +447,10 @@ class TestOpenai:
                 messages=[
                     {
                         'role': 'system',
-                        'content': 'You are a helpful AI assistant that can use various tools. Analyze the tool results and provide a clear, concise response.',
+                        'content': (
+                            'You are a helpful AI assistant that can use various tools. '
+                            'Analyze the tool results and provide a clear, concise response.'
+                        ),
                     },
                     {'role': 'user', 'content': finance_agent.tool_response_prompt},
                 ],
@@ -478,7 +481,10 @@ class TestOpenai:
                 messages=[
                     {
                         'role': 'system',
-                        'content': 'You are a helpful AI assistant that can use various tools. Analyze the tool results and provide a clear, concise response.',
+                        'content': (
+                            'You are a helpful AI assistant that can use various tools. '
+                            'Analyze the tool results and provide a clear, concise response.'
+                        ),
                     },
                     {'role': 'user', 'content': weather_agent.tool_response_prompt},
                 ],
@@ -512,7 +518,10 @@ class TestOpenai:
                 messages=[
                     {
                         'role': 'system',
-                        'content': 'You are a helpful AI assistant that can use various tools. Analyze the tool results and provide a clear, concise response.',
+                        'content': (
+                            'You are a helpful AI assistant that can use various tools. '
+                            'Analyze the tool results and provide a clear, concise response.'
+                        ),
                     },
                     {'role': 'user', 'content': manager.tool_response_prompt},
                 ],

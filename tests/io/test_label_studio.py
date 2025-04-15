@@ -486,7 +486,7 @@ def init_ls(init_env: None) -> Iterator[None]:
     ls_port = 31713
     ls_url = f'http://localhost:{ls_port}/'
     _logger.info('Setting up a venv the Label Studio pytext fixture.')
-    subprocess.run('python -m venv target/ls-env'.split(' '), check=True)
+    subprocess.run('python -m venv target/ls-env'.split(' '), check=True)  # noqa: SIM905
     if platform.system() == 'Windows':
         python_binary = 'target\\ls-env\\Scripts\\python.exe'
         ls_binary = 'target\\ls-env\\Scripts\\label-studio.exe'

@@ -68,13 +68,13 @@ class TestHfDatasets:
                 self._assert_hf_dataset_equal(hf_dataset, tab.select(), split_column_name)
             elif isinstance(hf_dataset, datasets.DatasetDict):
                 assert tab.count() == sum(hf_dataset.num_rows.values())
-                assert split_column_name in tab._schema.keys()
+                assert split_column_name in tab._schema
 
                 for dataset_name in hf_dataset:
                     df = tab.where(tab.my_split_col == dataset_name)
                     self._assert_hf_dataset_equal(hf_dataset[dataset_name], df, split_column_name)
             else:
-                assert False
+                raise AssertionError()
 
     def test_insert_hf_dataset(self, reset_db: None, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('datasets')
@@ -124,13 +124,13 @@ class TestHfDatasets:
                 self._assert_hf_dataset_equal(hf_dataset, tab.select(), split_column_name)
             elif isinstance(hf_dataset, datasets.DatasetDict):
                 assert tab.count() == sum(hf_dataset.num_rows.values())
-                assert split_column_name in tab._schema.keys()
+                assert split_column_name in tab._schema
 
                 for dataset_name in hf_dataset:
                     df = tab.where(tab.my_split_col == dataset_name)
                     self._assert_hf_dataset_equal(hf_dataset[dataset_name], df, split_column_name)
             else:
-                assert False
+                raise AssertionError()
             len1 = tab.count()
             tab.insert(
                 hf_dataset, schema_overrides=rec.get('schema_override', None), column_name_for_split=split_column_name
@@ -147,7 +147,7 @@ class TestHfDatasets:
         assert set(df.schema.keys()) == (set(hf_dataset.features.keys()) | {split_column_name})
 
         # immutable so we can use it as in a set
-        DatasetTuple = namedtuple('DatasetTuple', ' '.join(hf_dataset.features.keys()))  # type: ignore[misc]
+        DatasetTuple = namedtuple('DatasetTuple', ' '.join(hf_dataset.features.keys()))  # type: ignore[misc]  # noqa: PYI024
         acc_dataset: set[DatasetTuple] = set()
         for tup in hf_dataset:
             immutable_tup = {}
@@ -171,12 +171,14 @@ class TestHfDatasets:
                     assert value in feature_type.names
                     # must use the index of the class label as the value to
                     # compare with dataset iteration output.
-                    value = feature_type.encode_example(value)
+                    enc_value = feature_type.encode_example(value)
                 elif isinstance(feature_type, datasets.Sequence):
                     assert feature_type.feature.dtype == 'float32', 'may need to add more types'
-                    value = tuple([float(x) for x in value])
+                    enc_value = tuple(float(x) for x in value)
+                else:
+                    enc_value = value
 
-                encoded_tup[column_name] = value
+                encoded_tup[column_name] = enc_value
 
             check_tup = DatasetTuple(**encoded_tup)
             assert check_tup in acc_dataset

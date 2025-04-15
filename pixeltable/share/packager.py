@@ -1,4 +1,3 @@
-import dataclasses
 import io
 import json
 import logging
@@ -6,7 +5,6 @@ import tarfile
 import urllib.parse
 import urllib.request
 import uuid
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterator, Optional
 
@@ -58,28 +56,14 @@ class TablePackager:
         self.tmp_dir = Path(Env.get().create_tmp_path())
         self.media_files = {}
 
-        # Generate metadata
-        self.md = {
-            'pxt_version': pxt.__version__,
-            'pxt_md_version': metadata.VERSION,
-            'md': {
-                'tables': [
-                    {
-                        'table_id': str(t._tbl_version.id),
-                        # These are temporary; will replace with a better solution once the concurrency
-                        # changes to catalog have been merged
-                        'table_md': dataclasses.asdict(t._tbl_version.get()._create_tbl_md()),
-                        'table_version_md': dataclasses.asdict(
-                            t._tbl_version.get()._create_version_md(datetime.now().timestamp())
-                        ),
-                        'table_schema_version_md': dataclasses.asdict(
-                            t._tbl_version.get()._create_schema_version_md(0)
-                        ),
-                    }
-                    for t in (table, *table._bases)
-                ]
-            },
-        }
+        # Load metadata
+        with Env.get().begin_xact():
+            tbl_md = catalog.Catalog.get().load_replica_md(table)
+            self.md = {
+                'pxt_version': pxt.__version__,
+                'pxt_md_version': metadata.VERSION,
+                'md': {'tables': [md.as_dict() for md in tbl_md]},
+            }
         if additional_md is not None:
             self.md.update(additional_md)
 

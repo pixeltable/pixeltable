@@ -6,6 +6,7 @@ from mypy.plugins.common import add_attribute_to_class, add_method_to_class
 from mypy.types import AnyType, FunctionLike, Instance, NoneType, Type, TypeOfAny
 
 import pixeltable as pxt
+from pixeltable import exprs
 
 
 class PxtPlugin(Plugin):
@@ -50,7 +51,7 @@ def plugin(version: str) -> type:
 
 
 _AGGREGATOR_FULLNAME = f'{pxt.Aggregator.__module__}.{pxt.Aggregator.__name__}'
-_FN_CALL_FULLNAME = f'{pxt.exprs.Expr.__module__}.{pxt.exprs.Expr.__name__}'
+_FN_CALL_FULLNAME = f'{exprs.Expr.__module__}.{exprs.Expr.__name__}'
 
 
 def adjust_uda_type(ctx: FunctionContext) -> Type:

@@ -5,7 +5,7 @@ from typing import Callable
 import numpy as np
 
 import pixeltable as pxt
-import pixeltable.functions as pxtf
+from pixeltable import exprs, functions as pxtf
 
 
 class TestTimestamp:
@@ -40,12 +40,12 @@ class TestTimestamp:
 
         # Check that they can all be called with method syntax too
         for pxt_fn, _, _, _ in test_params:
-            mref = t.x.__getattr__(pxt_fn.name)
-            if isinstance(mref, pxt.exprs.MethodRef):
+            mref = getattr(t.x, pxt_fn.name)
+            if isinstance(mref, exprs.MethodRef):
                 # method
                 assert mref.method_name == pxt_fn.name, pxt_fn
-            elif isinstance(mref, pxt.exprs.FunctionCall):
+            elif isinstance(mref, exprs.FunctionCall):
                 # property
                 assert mref.fn.name == pxt_fn.name, pxt_fn
             else:
-                assert False
+                raise AssertionError()

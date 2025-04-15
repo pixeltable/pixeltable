@@ -17,6 +17,7 @@ from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
 
 if TYPE_CHECKING:
+    from pixeltable import exprs
     from pixeltable.globals import TableDataSource
     from pixeltable.io.table_data_conduit import TableDataConduit
 
@@ -210,7 +211,7 @@ class InsertableTable(Table):
                     msg = str(e)
                     raise excs.Error(f'Error in column {col.name}: {msg[0].lower() + msg[1:]}\nRow: {row}') from e
 
-    def delete(self, where: Optional['pxt.exprs.Expr'] = None) -> UpdateStatus:
+    def delete(self, where: Optional['exprs.Expr'] = None) -> UpdateStatus:
         """Delete rows in this table.
 
         Args:
