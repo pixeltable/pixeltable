@@ -21,6 +21,7 @@ from pixeltable.functions.huggingface import clip
 
 # Iterators: Tools to transform data, like extracting frames from video
 from pixeltable.iterators import FrameIterator
+
 # --- End Pixeltable Imports ---
 
 # Initialize FastAPI app (Standard FastAPI)
