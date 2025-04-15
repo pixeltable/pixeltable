@@ -200,7 +200,7 @@ audio_files = [
     "s3://your-bucket/audio3.mp3"
 ]
 
-audio_t.insert([{"audio_file": f} for f in audio_files])
+audio_t.insert({"audio_file": f} for f in audio_files)
 ```
 
 ### Different Embedding Models
