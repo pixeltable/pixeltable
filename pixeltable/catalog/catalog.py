@@ -148,7 +148,7 @@ class Catalog:
                 break
             names.insert(0, dir.md['name'])
             dir_id = dir.parent_id
-        return Path('.'.join(names), empty_is_valid=True)
+        return Path('.'.join(names), empty_is_valid=True, allow_system_paths=True)
 
     @dataclasses.dataclass
     class DirEntry:
@@ -185,6 +185,9 @@ class Catalog:
 
     @_retry_loop
     def move(self, path: Path, new_path: Path) -> None:
+        self._move(path, new_path)
+
+    def _move(self, path: Path, new_path: Path) -> None:
         _, dest_dir, src_obj = self._prepare_dir_op(
             add_dir_path=new_path.parent,
             add_name=new_path.name,
@@ -429,6 +432,155 @@ class Catalog:
         return view
 
     @_retry_loop
+    def create_replica(self, path: Path, md: list[schema.FullTableMd], if_exists: IfExistsParam) -> Table:
+        """
+        Creates table, table_version, and table_schema_version records for a replica with the given metadata.
+        The metadata should be presented in standard "ancestor order", with the table being replicated at
+        list position 0 and the (root) base table at list position -1.
+        """
+        tbl_id = UUID(md[0].tbl_md.tbl_id)
+
+        # First handle path collisions (if_exists='ignore' or 'replace' or etc).
+        existing = self._handle_path_collision(path, View, False, if_exists)
+        if existing is not None:
+            if existing._id != tbl_id:
+                raise excs.Error(
+                    f"An attempt was made to create a replica table at {path!r} with if_exists='ignore', "
+                    'but a different table already exists at that location.'
+                )
+            assert isinstance(existing, View)
+            return existing
+
+        # Ensure that the system directory exists.
+        self._create_dir(Path('_system', allow_system_paths=True), if_exists=IfExistsParam.IGNORE, parents=False)
+
+        # Now check to see if this table already exists in the catalog.
+        # TODO: Handle concurrency in create_replica()
+        existing = Catalog.get().get_table_by_id(tbl_id)
+        if existing is not None:
+            existing_path = Path(existing._path(), allow_system_paths=True)
+            # It does exist. If it's a non-system table, that's an error: it's already been replicated.
+            if not existing_path.is_system_path:
+                raise excs.Error(
+                    f'That table has already been replicated as {existing._path()!r}. \n'
+                    f'Drop the existing replica if you wish to re-create it.'
+                )
+            # If it's a system table, then this means it was created at some point as the ancestor of some other
+            # table (a snapshot-over-snapshot scenario). In that case, we simply move it to the new (named) location.
+            self._move(existing_path, path)
+
+        # Now store the metadata for this replica. In the case where the table already exists (and was just moved
+        # into a named location), this will be a no-op, but it still serves to validate that the newly received
+        # metadata is identical to what's in the catalog.
+        self.__store_replica_md(path, md[0])
+
+        # Now store the metadata for all of this table's proper ancestors. If one or more proper ancestors
+        # do not yet exist in the store, they will be created as anonymous system tables.
+        for ancestor_md in md[1:]:
+            ancestor_id = UUID(ancestor_md.tbl_md.tbl_id)
+            replica = Catalog.get().get_table_by_id(ancestor_id)
+            replica_path: Path
+            if replica is None:
+                # We've never seen this table before. Create a new anonymous system table for it.
+                replica_path = Path(f'_system.replica_{ancestor_id.hex}', allow_system_paths=True)
+            else:
+                # The table already exists in the catalog. The existing path might be a system path (if the table
+                # was created as an anonymous base table of some other table), or it might not (if it's a snapshot
+                # that was directly replicated by the user at some point). In either case, use the existing path.
+                replica_path = Path(replica._path(), allow_system_paths=True)
+
+            # Store the metadata; it could be a new version (in which case a new record will be created) or a
+            # known version (in which case the newly received metadata will be validated as identical).
+            self.__store_replica_md(replica_path, ancestor_md)
+
+        # Update the catalog (as a final step, after all DB operations completed successfully).
+        # Only the table being replicated is actually made visible in the catalog.
+        self._tbls[tbl_id] = self._load_tbl(tbl_id)
+        return self._tbls[tbl_id]
+
+    def __store_replica_md(self, path: Path, md: schema.FullTableMd) -> None:
+        _logger.info(f'Creating replica table at {path!r} with ID: {md.tbl_md.tbl_id}')
+        # TODO: Handle concurrency
+        dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
+        assert dir is not None
+
+        conn = Env.get().conn
+        tbl_id = md.tbl_md.tbl_id
+
+        new_tbl_md: Optional[schema.TableMd] = None
+        new_version_md: Optional[schema.TableVersionMd] = None
+        new_schema_version_md: Optional[schema.TableSchemaVersionMd] = None
+
+        # We need to ensure that the table metadata in the catalog always reflects the latest observed version of
+        # this table. (In particular, if this is a base table, then its table metadata need to be consistent
+        # with the latest version of this table having a replicated view somewhere in the catalog.)
+        q: sql.Executable = sql.select(schema.Table.md).where(schema.Table.id == tbl_id)
+        existing_md_row = conn.execute(q).one_or_none()
+
+        if existing_md_row is None:
+            # No existing table, so create a new record.
+            q = sql.insert(schema.Table.__table__).values(
+                id=tbl_id,
+                dir_id=dir._id,
+                md=dataclasses.asdict(
+                    dataclasses.replace(md.tbl_md, name=path.name, user=Env.get().user, is_replica=True)
+                ),
+            )
+            conn.execute(q)
+        else:
+            assert existing_md_row.md['is_replica']
+            if md.tbl_md.current_version > existing_md_row.md['current_version']:
+                # New metadata is more recent than the metadata currently stored in the DB; we'll update the record
+                # in place in the DB.
+                new_tbl_md = dataclasses.replace(md.tbl_md, name=path.name, user=Env.get().user, is_replica=True)
+
+        # Now see if a TableVersion record already exists in the DB for this table version. If not, insert it. If
+        # it already exists, check that the existing record is identical to the new one.
+        q = (
+            sql.select(schema.TableVersion.md)
+            .where(schema.TableVersion.tbl_id == tbl_id)
+            .where(sql.text(f"({schema.TableVersion.__table__}.md->>'version')::int = {md.version_md.version}"))
+        )
+        existing_version_md_row = conn.execute(q).one_or_none()
+        if existing_version_md_row is None:
+            new_version_md = md.version_md
+        else:
+            existing_version_md = schema.md_from_dict(schema.TableVersionMd, existing_version_md_row.md)
+            if existing_version_md != md.version_md:
+                raise excs.Error(
+                    f'The version metadata for the replica {path!r}:{md.version_md.version} is inconsistent with '
+                    'the metadata recorded from a prior replica.\n'
+                    'This is likely due to data corruption in the replicated table.'
+                )
+
+        # Do the same thing for TableSchemaVersion.
+        q = (
+            sql.select(schema.TableSchemaVersion.md)
+            .where(schema.TableSchemaVersion.tbl_id == tbl_id)
+            .where(
+                sql.text(
+                    f"({schema.TableSchemaVersion.__table__}.md->>'schema_version')::int = "
+                    f'{md.schema_version_md.schema_version}'
+                )
+            )
+        )
+        existing_schema_version_md_row = conn.execute(q).one_or_none()
+        if existing_schema_version_md_row is None:
+            new_schema_version_md = md.schema_version_md
+        else:
+            existing_schema_version_md = schema.md_from_dict(
+                schema.TableSchemaVersionMd, existing_schema_version_md_row.md
+            )
+            if existing_schema_version_md != md.schema_version_md:
+                raise excs.Error(
+                    f'The schema version metadata for the replica {path!r}:{md.schema_version_md.schema_version} '
+                    'is inconsistent with the metadata recorded from a prior replica.\n'
+                    'This is likely due to data corruption in the replicated table.'
+                )
+
+        self.store_tbl_md(UUID(tbl_id), new_tbl_md, new_version_md, new_schema_version_md)
+
+    @_retry_loop
     def get_table(self, path: Path) -> Table:
         obj = Catalog.get()._get_schema_object(path, expected=Table, raise_if_not_exists=True)
         assert isinstance(obj, Table)
@@ -486,6 +638,9 @@ class Catalog:
 
     @_retry_loop
     def create_dir(self, path: Path, if_exists: IfExistsParam, parents: bool) -> Dir:
+        return self._create_dir(path, if_exists, parents)
+
+    def _create_dir(self, path: Path, if_exists: IfExistsParam, parents: bool) -> Dir:
         # existing = self._handle_path_collision(path, Dir, False, if_exists)
         # if existing is not None:
         #     assert isinstance(existing, Dir)
@@ -679,13 +834,19 @@ class Catalog:
         # TODO: also load mutable views
         return view
 
-    def _load_tbl_version(self, tbl_id: UUID, effective_version: Optional[int]) -> Optional[TableVersion]:
-        _logger.info(f'Loading table version: {tbl_id}:{effective_version}')
+    def load_tbl_md(self, tbl_id: UUID, effective_version: Optional[int]) -> schema.FullTableMd:
+        """
+        Loads metadata from the store for a given table UUID and version.
+        """
+        _logger.info(f'Loading metadata for table version: {tbl_id}:{effective_version}')
         conn = Env.get().conn
+
         q = (
-            sql.select(schema.Table, schema.TableSchemaVersion)
+            sql.select(schema.Table, schema.TableVersion, schema.TableSchemaVersion)
             .select_from(schema.Table)
             .where(schema.Table.id == tbl_id)
+            .join(schema.TableVersion)
+            .where(schema.TableVersion.tbl_id == tbl_id)
             .join(schema.TableSchemaVersion)
             .where(schema.TableSchemaVersion.tbl_id == tbl_id)
         )
@@ -697,16 +858,11 @@ class Catalog:
             # JOIN TableVersion tv ON (tv.tbl_id = tbl_id AND tv.version = effective_version)
             # JOIN TableSchemaVersion tsv ON (tsv.tbl_id = tbl_id AND tv.md.schema_version = tsv.schema_version)
             # WHERE t.id = tbl_id
-            q = (
-                q.join(schema.TableVersion)
-                .where(schema.TableVersion.tbl_id == tbl_id)
-                .where(sql.text(f"({schema.TableVersion.__table__}.md->>'version')::int = {effective_version}"))
-                .where(
-                    sql.text(
-                        (
-                            f"({schema.TableVersion.__table__}.md->>'schema_version')::int = "
-                            f'{schema.TableSchemaVersion.__table__}.{schema.TableSchemaVersion.schema_version.name}'
-                        )
+            q = q.where(sql.text(f"({schema.TableVersion.__table__}.md->>'version')::int = {effective_version}")).where(
+                sql.text(
+                    (
+                        f"({schema.TableVersion.__table__}.md->>'schema_version')::int = "
+                        f'{schema.TableSchemaVersion.__table__}.{schema.TableSchemaVersion.schema_version.name}'
                     )
                 )
             )
@@ -714,9 +870,15 @@ class Catalog:
             # we are loading the current version
             # SELECT *
             # FROM Table t
+            # JOIN TableVersion tv ON (tv.tbl_id = tbl_id AND t.current_version = tv.version)
             # JOIN TableSchemaVersion tsv ON (tsv.tbl_id = tbl_id AND t.current_schema_version = tsv.schema_version)
             # WHERE t.id = tbl_id
             q = q.where(
+                sql.text(
+                    f"({schema.Table.__table__}.md->>'current_version')::int = "
+                    f'{schema.TableVersion.__table__}.{schema.TableVersion.version.name}'
+                )
+            ).where(
                 sql.text(
                     (
                         f"({schema.Table.__table__}.md->>'current_schema_version')::int = "
@@ -726,10 +888,99 @@ class Catalog:
             )
 
         row = conn.execute(q).one_or_none()
-        tbl_record, schema_version_record = _unpack_row(row, [schema.Table, schema.TableSchemaVersion])
+        assert row is not None, f'Table record not found: {tbl_id}:{effective_version}'
+        tbl_record, version_record, schema_version_record = _unpack_row(
+            row, [schema.Table, schema.TableVersion, schema.TableSchemaVersion]
+        )
+        assert tbl_record.id == tbl_id
         tbl_md = schema.md_from_dict(schema.TableMd, tbl_record.md)
+        version_md = schema.md_from_dict(schema.TableVersionMd, version_record.md)
         schema_version_md = schema.md_from_dict(schema.TableSchemaVersionMd, schema_version_record.md)
+
+        return schema.FullTableMd(tbl_md, version_md, schema_version_md)
+
+    def store_tbl_md(
+        self,
+        tbl_id: UUID,
+        tbl_md: Optional[schema.TableMd],
+        version_md: Optional[schema.TableVersionMd],
+        schema_version_md: Optional[schema.TableSchemaVersionMd],
+    ) -> None:
+        """
+        Stores metadata to the DB. If specified, `tbl_md` will be updated in place (only one such record can exist
+        per UUID); `version_md` and `schema_version_md` will be inserted as new records.
+
+        If inserting `version_md` or `schema_version_md` would be a primary key violation, an exception will be raised.
+        """
+        conn = Env.get().conn
+
+        if tbl_md is not None:
+            result = conn.execute(
+                sql.update(schema.Table.__table__)
+                .values({schema.Table.md: dataclasses.asdict(tbl_md)})
+                .where(schema.Table.id == tbl_id)
+            )
+            assert result.rowcount == 1, result.rowcount
+
+        if version_md is not None:
+            conn.execute(
+                sql.insert(schema.TableVersion.__table__).values(
+                    tbl_id=tbl_id, version=version_md.version, md=dataclasses.asdict(version_md)
+                )
+            )
+
+        if schema_version_md is not None:
+            conn.execute(
+                sql.insert(schema.TableSchemaVersion.__table__).values(
+                    tbl_id=tbl_id,
+                    schema_version=schema_version_md.schema_version,
+                    md=dataclasses.asdict(schema_version_md),
+                )
+            )
+
+    def delete_tbl_md(self, tbl_id: UUID) -> None:
+        """
+        Deletes all table metadata from the store for the given table UUID.
+        """
+        conn = Env.get().conn
+        conn.execute(sql.delete(schema.TableSchemaVersion.__table__).where(schema.TableSchemaVersion.tbl_id == tbl_id))
+        conn.execute(sql.delete(schema.TableVersion.__table__).where(schema.TableVersion.tbl_id == tbl_id))
+        conn.execute(sql.delete(schema.Table.__table__).where(schema.Table.id == tbl_id))
+
+    def load_replica_md(self, tbl: Table) -> list[schema.FullTableMd]:
+        """
+        Load metadata for the given table along with all its ancestors. The values of TableMd.current_version and
+        TableMd.current_schema_version will be adjusted to ensure that the metadata represent a valid (internally
+        consistent) table state.
+        """
+        # TODO: First acquire X-locks for all relevant metadata entries
+
+        # Load metadata for every table in the TableVersionPath for `tbl`.
+        md = [self.load_tbl_md(tv.id, tv.effective_version) for tv in tbl._tbl_version_path.get_tbl_versions()]
+
+        # If `tbl` is a named pure snapshot, we're not quite done, since the snapshot metadata won't appear in the
+        # TableVersionPath. We need to prepend it separately.
+        if tbl._id != tbl._tbl_version.id:
+            snapshot_md = self.load_tbl_md(tbl._id, 0)
+            md = [snapshot_md, *md]
+
+        for ancestor_md in md[1:]:
+            # For replica metadata, we guarantee that the current_version and current_schema_version of TableMd
+            # match the corresponding values in TableVersionMd and TableSchemaVersionMd. This is to ensure that,
+            # when the metadata is later stored in the catalog of a different Pixeltable instance, the values of
+            # current_version and current_schema_version will always point to versions that are known to the
+            # destination catalog.
+            ancestor_md.tbl_md.current_version = ancestor_md.version_md.version
+            ancestor_md.tbl_md.current_schema_version = ancestor_md.schema_version_md.schema_version
+
+        return md
+
+    def _load_tbl_version(self, tbl_id: UUID, effective_version: Optional[int]) -> Optional[TableVersion]:
+        tbl_md, _, schema_version_md = self.load_tbl_md(tbl_id, effective_version)
         view_md = tbl_md.view_md
+
+        _logger.info(f'Loading table version: {tbl_id}:{effective_version}')
+        conn = Env.get().conn
 
         # load mutable view ids
         q = sql.select(schema.Table.id).where(
@@ -744,7 +995,7 @@ class Catalog:
         if view_md is None:
             # this is a base table
             tbl_version = TableVersion(
-                tbl_record.id, tbl_md, effective_version, schema_version_md, mutable_views=mutable_views
+                tbl_id, tbl_md, effective_version, schema_version_md, mutable_views=mutable_views
             )
             return tbl_version
 
@@ -761,7 +1012,7 @@ class Catalog:
             base = base_path.tbl_version
 
         tbl_version = TableVersion(
-            tbl_record.id,
+            tbl_id,
             tbl_md,
             effective_version,
             schema_version_md,

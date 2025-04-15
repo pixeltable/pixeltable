@@ -1,7 +1,7 @@
 import dataclasses
 import typing
 import uuid
-from typing import Any, Optional, TypeVar, Union, get_type_hints
+from typing import Any, NamedTuple, Optional, TypeVar, Union, get_type_hints
 
 import sqlalchemy as sql
 from sqlalchemy import BigInteger, ForeignKey, Integer, LargeBinary, orm
@@ -157,6 +157,7 @@ class ViewMd:
 class TableMd:
     tbl_id: str  # uuid.UUID
     name: str
+    is_replica: bool
 
     user: Optional[str]
 
@@ -288,3 +289,17 @@ class Function(Base):
     dir_id: orm.Mapped[uuid.UUID] = orm.mapped_column(UUID(as_uuid=True), ForeignKey('dirs.id'), nullable=True)
     md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # FunctionMd
     binary_obj: orm.Mapped[Optional[bytes]] = orm.mapped_column(LargeBinary, nullable=True)
+
+
+class FullTableMd(NamedTuple):
+    tbl_md: TableMd
+    version_md: TableVersionMd
+    schema_version_md: TableSchemaVersionMd
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            'table_id': self.tbl_md.tbl_id,
+            'table_md': dataclasses.asdict(self.tbl_md),
+            'table_version_md': dataclasses.asdict(self.version_md),
+            'table_schema_version_md': dataclasses.asdict(self.schema_version_md),
+        }
