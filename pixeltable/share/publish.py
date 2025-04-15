@@ -20,8 +20,8 @@ from .packager import TablePackager
 PIXELTABLE_API_URL = 'https://internal-api.pixeltable.com'
 
 def publish_snapshot(dest_tbl_uri: str, src_tbl: pxt.Table) -> str:
-    packager = TablePackager(src_tbl, additional_md={'table_uri': dest_tbl_uri, 'operation_type': 'create_snapshot'})
-    request_json = {'request': packager.md, 'operation_type': 'create_snapshot'}
+    packager = TablePackager(src_tbl, additional_md={'table_uri': dest_tbl_uri, 'operation_type': 'publish_snapshot'})
+    request_json = packager.md
     headers_json = {'X-api-key': Env.get().pxt_api_key, 'Content-Type': 'application/json'}
     response = requests.post(PIXELTABLE_API_URL, json=request_json, headers=headers_json)
     if response.status_code != 200:
@@ -51,9 +51,8 @@ def publish_snapshot(dest_tbl_uri: str, src_tbl: pxt.Table) -> str:
         'size': bundle.stat().st_size,
         'sha256': sha256sum(bundle),  # Generate our own SHA for independent verification
     }
-    request_json = {'request': finalize_request_json, 'operation_type': 'finalize_snapshot'}
     # TODO: Use Pydantic for validation
-    finalize_response = requests.post(PIXELTABLE_API_URL, json=request_json, headers=headers_json)
+    finalize_response = requests.post(PIXELTABLE_API_URL, json=finalize_request_json, headers=headers_json)
     if finalize_response.status_code != 200:
         raise excs.Error(f'Error finalizing snapshot: {finalize_response.text}')
     finalize_response_json = finalize_response.json()
@@ -64,16 +63,15 @@ def publish_snapshot(dest_tbl_uri: str, src_tbl: pxt.Table) -> str:
     Env.get().console_logger.info(f'The published snapshot is now available at: {confirmed_tbl_uri}')
     return confirmed_tbl_uri
 
-def get_snapshot(dest_tbl_uri: str) -> str:
+def clone_snapshot(dest_tbl_uri: str) -> str:
     headers_json = {'X-api-key': Env.get().pxt_api_key, 'Content-Type': 'application/json'}
-    get_request_json = {
-        'operation_type': 'get_snapshot',
+    clone_request_json = {
+        'operation_type': 'clone_snapshot',
         'table_uri': dest_tbl_uri
     }
-    request_json = {'request': get_request_json, 'operation_type': 'get_snapshot'}
-    response = requests.post(PIXELTABLE_API_URL, json=request_json, headers=headers_json)
+    response = requests.post(PIXELTABLE_API_URL, json=clone_request_json, headers=headers_json)
     if response.status_code != 200:
-        raise excs.Error(f'Error getting snapshot: {response.text}')
+        raise excs.Error(f'Error cloning snapshot: {response.text}')
     response_json = response.json()
     if not isinstance(response_json, dict) or 'table_uri' not in response_json:
         raise excs.Error(f'Error unexpected response from server.\n{response_json}')
