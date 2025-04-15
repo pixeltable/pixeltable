@@ -28,8 +28,8 @@ class TestPackager:
         metadata = json.loads((dest / 'metadata.json').read_text())
         self.__validate_metadata(metadata, test_tbl)
         catalog = sqlite_catalog(dest / 'warehouse')
-        assert catalog.list_tables('pxt') == [('pxt', 'test_tbl')]
-        iceberg_tbl = catalog.load_table('pxt.test_tbl')
+        assert catalog.list_tables('pxt') == [('pxt', f'tbl_{test_tbl._id.hex}')]
+        iceberg_tbl = catalog.load_table(f'pxt.tbl_{test_tbl._id.hex}')
         self.__check_iceberg_tbl(test_tbl, iceberg_tbl)
 
     def test_packager_with_views(self, test_tbl: pxt.Table) -> None:
@@ -46,14 +46,14 @@ class TestPackager:
         metadata = json.loads((dest / 'metadata.json').read_text())
         self.__validate_metadata(metadata, subview)
         catalog = sqlite_catalog(dest / 'warehouse')
-        assert catalog.list_tables('pxt') == [('pxt', 'test_tbl')]
-        assert set(catalog.list_tables('pxt.iceberg_dir.subdir')) == {
-            ('pxt', 'iceberg_dir', 'subdir', 'test_view'),
-            ('pxt', 'iceberg_dir', 'subdir', 'test_subview'),
+        assert set(catalog.list_tables('pxt')) == {
+            ('pxt', f'tbl_{test_tbl._id.hex}'),
+            ('pxt', f'tbl_{view._id.hex}'),
+            ('pxt', f'tbl_{subview._id.hex}'),
         }
-        self.__check_iceberg_tbl(test_tbl, catalog.load_table('pxt.test_tbl'), scope_tbl=subview)
-        self.__check_iceberg_tbl(view, catalog.load_table('pxt.iceberg_dir.subdir.test_view'), scope_tbl=subview)
-        self.__check_iceberg_tbl(subview, catalog.load_table('pxt.iceberg_dir.subdir.test_subview'))
+        self.__check_iceberg_tbl(test_tbl, catalog.load_table(f'pxt.tbl_{test_tbl._id.hex}'), scope_tbl=subview)
+        self.__check_iceberg_tbl(view, catalog.load_table(f'pxt.tbl_{view._id.hex}'), scope_tbl=subview)
+        self.__check_iceberg_tbl(subview, catalog.load_table(f'pxt.tbl_{subview._id.hex}'), scope_tbl=subview)
 
     def test_media_packager(self, reset_db: None) -> None:
         t = pxt.create_table('media_tbl', {'image': pxt.Image, 'video': pxt.Video})
@@ -80,7 +80,7 @@ class TestPackager:
 
         expected_cols = 2 + 3 * 3  # rowid, v_min, plus three stored media/computed columns with error columns
         self.__check_iceberg_tbl(
-            t, catalog.load_table('pxt.media_tbl'), media_dir=(dest / 'media'), expected_cols=expected_cols
+            t, catalog.load_table(f'pxt.tbl_{t._id.hex}'), media_dir=(dest / 'media'), expected_cols=expected_cols
         )
 
     def __extract_bundle(self, bundle_path: Path) -> Path:

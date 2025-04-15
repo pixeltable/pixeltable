@@ -14,10 +14,10 @@ import pyarrow as pa
 import pyiceberg.catalog
 
 import pixeltable as pxt
-import pixeltable.type_system as ts
-from pixeltable import catalog, exprs, metadata
+from pixeltable import catalog, exprs, metadata, type_system as ts
 from pixeltable.dataframe import DataFrame
 from pixeltable.env import Env
+from pixeltable.metadata import schema
 from pixeltable.utils.arrow import PXT_TO_PA_TYPES
 from pixeltable.utils.iceberg import sqlite_catalog
 
@@ -72,7 +72,7 @@ class TablePackager:
         Export the table to a tarball containing Iceberg tables and media files.
         """
         assert not self.tmp_dir.exists()  # Packaging can only be done once per TablePackager instance
-        _logger.info(f"Packaging table '{self.table._path}' and its ancestors in: {self.tmp_dir}")
+        _logger.info(f"Packaging table '{self.table._path()}' and its ancestors in: {self.tmp_dir}")
         self.tmp_dir.mkdir()
         with open(self.tmp_dir / 'metadata.json', 'w', encoding='utf8') as fp:
             json.dump(self.md, fp)
@@ -80,7 +80,7 @@ class TablePackager:
         with Env.get().begin_xact():
             ancestors = (self.table, *self.table._bases)
             for t in ancestors:
-                _logger.info(f"Exporting table '{t._path}'.")
+                _logger.info(f"Exporting table '{t._path()}'.")
                 self.__export_table(t)
         _logger.info('Building archive.')
         bundle_path = self.__build_tarball()
@@ -121,27 +121,17 @@ class TablePackager:
         # Run the select() on `self.table`, not `t`, so that we export only those rows that are actually present in
         # `self.table`.
         df = self.table.select(**select_exprs)
-        namespace = self.__iceberg_namespace(t)
-        self.iceberg_catalog.create_namespace_if_not_exists(namespace)
+        self.iceberg_catalog.create_namespace_if_not_exists('pxt')
         iceberg_schema = self.__to_iceberg_schema(df._schema)
-        iceberg_tbl = self.iceberg_catalog.create_table(f'{namespace}.{t._name}', schema=iceberg_schema)
+        iceberg_tbl_name = f'pxt.tbl_{t._tbl_version.id.hex}'
+        _logger.info(f'Creating iceberg table: {iceberg_tbl_name}')
+        iceberg_tbl = self.iceberg_catalog.create_table(iceberg_tbl_name, schema=iceberg_schema)
 
         # Populate the Iceberg table with data.
         # The data is first loaded from the DataFrame into a sequence of pyarrow tables, batched in order to avoid
         # excessive memory usage. The pyarrow tables are then amalgamated into the (single) Iceberg table on disk.
         for pa_table in self.__to_pa_tables(df, actual_col_types, iceberg_schema):
             iceberg_tbl.append(pa_table)
-
-    @classmethod
-    def __iceberg_namespace(cls, table: catalog.Table) -> str:
-        """
-        Iceberg tables must have a namespace, which cannot be the empty string, so we prepend `pxt` to the table path.
-        """
-        parent_path = table._parent()._path()
-        if len(parent_path) == 0:
-            return 'pxt'
-        else:
-            return f'pxt.{parent_path}'
 
     # The following methods are responsible for schema and data conversion from Pixeltable to Iceberg. Some of this
     # logic might be consolidated into arrow.py and unified with general Parquet export, but there are several
@@ -231,3 +221,48 @@ class TablePackager:
             for src_file, dest_name in self.media_files.items():
                 tf.add(src_file, arcname=f'media/{dest_name}')
         return bundle_path
+
+    @classmethod
+    def unpackage(cls, bundle_path: Path, tbl_path: str, md: Optional[schema.FullTableMd] = None) -> None:
+        # Extract tarball
+        tmp_dir = Path(Env.get().create_tmp_path())
+        with tarfile.open(bundle_path, 'r:bz2') as tf:
+            tf.extractall(path=tmp_dir)
+
+        if md is None:
+            # Read metadata from the archive
+            with open(tmp_dir / 'metadata.json', 'r', encoding='utf8') as fp:
+                md_json = json.load(fp)
+                md = [schema.FullTableMd.from_dict(t) for t in md_json['md']['tables']]
+
+        # TODO: Version check
+
+        # Create the replica table
+        replica_tbl = catalog.Catalog.get().create_replica(catalog.Path(tbl_path), md)
+        assert replica_tbl._tbl_version.get().is_snapshot
+
+        # Load the Iceberg catalog
+        iceberg_catalog = sqlite_catalog(tmp_dir / 'warehouse')
+        with Env.get().begin_xact():
+            ancestors: list[catalog.TableVersionHandle] = (replica_tbl._tbl_version, *replica_tbl._tbl_version_path.get_bases())
+            if replica_tbl._id != replica_tbl._tbl_version.id:
+                # replica_tbl is a pure snapshot. We'll discard its metadata for purposes of data loading, since the pure
+                # snapshot (as a schema object) won't contain any data of its own.
+                md = md[1:]
+            assert len(ancestors) == len(md)
+            for tv, tbl_md in zip(ancestors, md):
+                assert isinstance(tv, catalog.TableVersionHandle)
+                _logger.info(f"Importing table {tv.get().name!r}.")
+                cls.__import_table(iceberg_catalog, tv, tbl_md)
+
+    @classmethod
+    def __import_table(cls, iceberg_catalog: pyiceberg.catalog.Catalog, tv: catalog.TableVersion, tbl_md: schema.FullTableMd) -> None:
+        """
+        Import the Iceberg table into the Pixeltable catalog.
+        """
+        iceberg_tbl_id = uuid.UUID(tbl_md.tbl_md.tbl_id)
+        iceberg_tbl_name = f'pxt.tbl_{iceberg_tbl_id.hex}'
+        iceberg_tbl = iceberg_catalog.load_table(iceberg_tbl_name)
+        
+        for batch in iceberg_tbl.scan().to_arrow_batch_reader():
+            print(batch.to_pydict().keys())
