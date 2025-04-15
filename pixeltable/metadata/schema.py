@@ -301,3 +301,11 @@ class FullTableMd(NamedTuple):
             'table_version_md': dataclasses.asdict(self.version_md),
             'table_schema_version_md': dataclasses.asdict(self.schema_version_md),
         }
+
+    @classmethod
+    def from_dict(cls, data_dict: dict[str, Any]) -> 'FullTableMd':
+        return FullTableMd(
+            tbl_md=TableMd(**data_dict['table_md']),
+            version_md=TableVersionMd(**data_dict['table_version_md']),
+            schema_version_md=TableSchemaVersionMd(**data_dict['table_schema_version_md']),
+        )

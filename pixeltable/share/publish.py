@@ -1,4 +1,3 @@
-import os
 import sys
 import urllib.parse
 import urllib.request
@@ -10,6 +9,7 @@ from tqdm import tqdm
 import pixeltable as pxt
 from pixeltable import exceptions as excs
 from pixeltable.env import Env
+from pixeltable.metadata.schema import FullTableMd
 from pixeltable.utils import sha256sum
 
 from .packager import TablePackager
@@ -18,6 +18,7 @@ from .packager import TablePackager
 # pixeltable.com URLs are available.
 
 PIXELTABLE_API_URL = 'https://internal-api.pixeltable.com'
+
 
 def publish_snapshot(dest_tbl_uri: str, src_tbl: pxt.Table) -> str:
     packager = TablePackager(src_tbl, additional_md={'table_uri': dest_tbl_uri, 'operation_type': 'publish_snapshot'})
@@ -63,20 +64,18 @@ def publish_snapshot(dest_tbl_uri: str, src_tbl: pxt.Table) -> str:
     Env.get().console_logger.info(f'The published snapshot is now available at: {confirmed_tbl_uri}')
     return confirmed_tbl_uri
 
-def clone_snapshot(dest_tbl_uri: str) -> str:
+
+def clone_snapshot(dest_tbl_uri: str) -> list[FullTableMd]:
     headers_json = {'X-api-key': Env.get().pxt_api_key, 'Content-Type': 'application/json'}
-    clone_request_json = {
-        'operation_type': 'clone_snapshot',
-        'table_uri': dest_tbl_uri
-    }
+    clone_request_json = {'operation_type': 'clone_snapshot', 'table_uri': dest_tbl_uri}
     response = requests.post(PIXELTABLE_API_URL, json=clone_request_json, headers=headers_json)
     if response.status_code != 200:
         raise excs.Error(f'Error cloning snapshot: {response.text}')
     response_json = response.json()
     if not isinstance(response_json, dict) or 'table_uri' not in response_json:
         raise excs.Error(f'Error unexpected response from server.\n{response_json}')
-    print(response_json.get('table_uri'))
-    print(response_json['md']['tables'][0]['table_md']['additional_md'])
+    return [FullTableMd.from_dict(t) for t in response_json['md']['tables']]
+
 
 def _upload_bundle_to_s3(bundle: Path, parsed_location: urllib.parse.ParseResult) -> None:
     from pixeltable.utils.s3 import get_client
