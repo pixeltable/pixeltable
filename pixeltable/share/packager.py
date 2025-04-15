@@ -108,14 +108,14 @@ class TablePackager:
             if not col.is_stored:
                 continue
             if col.col_type.is_media_type():
-                select_exprs[col_name] = t[col_name].fileurl
+                select_exprs[f'val_{col_name}'] = t[col_name].fileurl
             else:
-                select_exprs[col_name] = t[col_name]
+                select_exprs[f'val_{col_name}'] = t[col_name]
             actual_col_types.append(col.col_type)
             if col.records_errors:
-                select_exprs[f'{col_name}_errortype'] = t[col_name].errortype
+                select_exprs[f'errortype_{col_name}'] = t[col_name].errortype
                 actual_col_types.append(ts.StringType())
-                select_exprs[f'{col_name}_errormsg'] = t[col_name].errormsg
+                select_exprs[f'errormsg_{col_name}'] = t[col_name].errormsg
                 actual_col_types.append(ts.StringType())
 
         # Run the select() on `self.table`, not `t`, so that we export only those rows that are actually present in
@@ -143,8 +143,7 @@ class TablePackager:
     @classmethod
     def __to_iceberg_schema(cls, pxt_schema: dict[str, ts.ColumnType]) -> pa.Schema:
         entries = [(name, cls.__to_iceberg_type(col_type)) for name, col_type in pxt_schema.items()]
-        entries.append(('_rowid', pa.list_(pa.int64())))
-        entries.append(('_v_min', pa.int64()))
+        entries.append(('pk', pa.list_(pa.int64())))
         return pa.schema(entries)  # type: ignore[arg-type]
 
     @classmethod
@@ -164,16 +163,14 @@ class TablePackager:
         """
         for rows in more_itertools.batched(self.__to_pa_rows(df, actual_col_types), batch_size):
             cols = {col_name: [row[idx] for row in rows] for idx, col_name in enumerate(df._schema.keys())}
-            cols['_rowid'] = [row[-2] for row in rows]
-            cols['_v_min'] = [row[-1] for row in rows]
+            cols['pk'] = [row[-1] for row in rows]
             yield pa.Table.from_pydict(cols, schema=arrow_schema)
 
     def __to_pa_rows(self, df: DataFrame, actual_col_types: list[ts.ColumnType]) -> Iterator[list]:
         for row in df._exec():
             vals = [row[e.slot_idx] for e in df._select_list_exprs]
             result = [self.__to_pa_value(val, col_type) for val, col_type in zip(vals, actual_col_types)]
-            result.append(row.rowid)
-            result.append(row.v_min)
+            result.append(row.pk)
             yield result
 
     def __to_pa_value(self, val: Any, col_type: ts.ColumnType) -> Any:
@@ -223,7 +220,7 @@ class TablePackager:
         return bundle_path
 
     @classmethod
-    def unpackage(cls, bundle_path: Path, tbl_path: str, md: Optional[schema.FullTableMd] = None) -> None:
+    def unpackage(cls, bundle_path: Path, tbl_path: str, md: Optional[list[schema.FullTableMd]] = None) -> None:
         # Extract tarball
         tmp_dir = Path(Env.get().create_tmp_path())
         with tarfile.open(bundle_path, 'r:bz2') as tf:
@@ -241,28 +238,85 @@ class TablePackager:
         replica_tbl = catalog.Catalog.get().create_replica(catalog.Path(tbl_path), md)
         assert replica_tbl._tbl_version.get().is_snapshot
 
+        # Now create TableVersions (and store tables) for the table and all its ancestors.
+        with Env.get().begin_xact():
+            for ancestor_md in md[::-1]:
+                catalog.TableVersion.create_replica(ancestor_md)
+
         # Load the Iceberg catalog
         iceberg_catalog = sqlite_catalog(tmp_dir / 'warehouse')
         with Env.get().begin_xact():
-            ancestors: list[catalog.TableVersionHandle] = (replica_tbl._tbl_version, *replica_tbl._tbl_version_path.get_bases())
+            ancestors: tuple[catalog.TableVersionHandle, ...] = (
+                replica_tbl._tbl_version,
+                *replica_tbl._tbl_version_path.get_bases(),
+            )
             if replica_tbl._id != replica_tbl._tbl_version.id:
-                # replica_tbl is a pure snapshot. We'll discard its metadata for purposes of data loading, since the pure
-                # snapshot (as a schema object) won't contain any data of its own.
+                # replica_tbl is a pure snapshot. We'll discard its metadata for purposes of data loading,
+                # since the pure snapshot (as a schema object) won't contain any data of its own.
                 md = md[1:]
             assert len(ancestors) == len(md)
-            for tv, tbl_md in zip(ancestors, md):
+            for tv, tbl_md in zip(ancestors[::-1], md[::-1]):
                 assert isinstance(tv, catalog.TableVersionHandle)
-                _logger.info(f"Importing table {tv.get().name!r}.")
-                cls.__import_table(iceberg_catalog, tv, tbl_md)
+                _logger.info(f'Importing table {tv.get().name!r}.')
+                cls.__import_table(iceberg_catalog, tv.get(), tbl_md)
 
     @classmethod
-    def __import_table(cls, iceberg_catalog: pyiceberg.catalog.Catalog, tv: catalog.TableVersion, tbl_md: schema.FullTableMd) -> None:
+    def __import_table(
+        cls, iceberg_catalog: pyiceberg.catalog.Catalog, tv: catalog.TableVersion, tbl_md: schema.FullTableMd
+    ) -> None:
         """
         Import the Iceberg table into the Pixeltable catalog.
         """
         iceberg_tbl_id = uuid.UUID(tbl_md.tbl_md.tbl_id)
         iceberg_tbl_name = f'pxt.tbl_{iceberg_tbl_id.hex}'
         iceberg_tbl = iceberg_catalog.load_table(iceberg_tbl_name)
-        
+
         for batch in iceberg_tbl.scan().to_arrow_batch_reader():
-            print(batch.to_pydict().keys())
+            pydict = batch.to_pydict()
+            col_types = []
+            for name in pydict:
+                if name.startswith('val_'):
+                    col_name = name.removeprefix('val_')
+                    col_types.append(tv.cols_by_name[col_name].col_type)
+                elif name.startswith('errortype_') or name.startswith('errormsg_'):
+                    col_types.append(pxt.StringType())
+            rows = cls.__from_pa_pydict(pydict, col_types)
+            tv.store_tbl.insert_replica_rows(rows)
+
+    @classmethod
+    def __from_pa_pydict(cls, pydict: dict[str, Any], col_types: list[ts.ColumnType]) -> list[dict[str, Any]]:
+        # pydict must have length exactly 1 more than col_types, because the pk column is not included in col_types
+        assert len(pydict) == len(col_types) + 1, (
+            f'{len(pydict)} != {len(col_types) + 1}:\n{list(pydict.keys())}\n{col_types}'
+        )
+        row_count = len(next(iter(pydict.values())))
+
+        # Data conversions from pyarrow to Pixeltable
+        converted_pydict = {
+            col_name: [cls.__from_pa_value(val, col_type) for val in col_vals]
+            for (col_name, col_vals), col_type in zip(pydict.items(), col_types)
+            if col_name != 'pk'
+        }
+        converted_pydict['pk'] = pydict['pk']  # pk values are kept as lists of integers
+
+        rows = [{col_name: col_vals[i] for col_name, col_vals in converted_pydict.items()} for i in range(row_count)]
+
+        return rows
+
+    @classmethod
+    def __from_pa_value(cls, val: Any, col_type: ts.ColumnType) -> Any:
+        if val is None:
+            return None
+        if col_type.is_array_type():
+            assert isinstance(val, bytes)
+            # Validate that the value represents a valid numpy array
+            arr = io.BytesIO(val)
+            res = np.load(arr)
+            assert isinstance(res, np.ndarray)
+            # ... but just return the raw bytes, since we'll be direct-inserting them into the db
+            return val
+        if col_type.is_json_type():
+            return json.loads(val)
+        if col_type.is_media_type():
+            raise AssertionError()  # TODO
+        return val

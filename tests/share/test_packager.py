@@ -15,7 +15,7 @@ from pixeltable.env import Env
 from pixeltable.share.packager import TablePackager
 from pixeltable.utils.iceberg import sqlite_catalog
 
-from ..utils import SAMPLE_IMAGE_URL, get_image_files, get_video_files
+from ..utils import SAMPLE_IMAGE_URL, get_image_files, get_video_files, reload_catalog
 
 
 class TestPackager:
@@ -78,7 +78,7 @@ class TestPackager:
 
         catalog = sqlite_catalog(dest / 'warehouse')
 
-        expected_cols = 2 + 3 * 3  # rowid, v_min, plus three stored media/computed columns with error columns
+        expected_cols = 1 + 3 * 3  # pk plus three stored media/computed columns with error columns
         self.__check_iceberg_tbl(
             t, catalog.load_table(f'pxt.tbl_{t._id.hex}'), media_dir=(dest / 'media'), expected_cols=expected_cols
         )
@@ -116,14 +116,14 @@ class TestPackager:
             if not col.is_stored:
                 continue
             if col.col_type.is_media_type():
-                select_exprs[col_name] = t[col_name].fileurl
+                select_exprs[f'val_{col_name}'] = t[col_name].fileurl
             else:
-                select_exprs[col_name] = t[col_name]
+                select_exprs[f'val_{col_name}'] = t[col_name]
             actual_col_types.append(col.col_type)
             if col.records_errors:
-                select_exprs[f'{col_name}_errortype'] = t[col_name].errortype
+                select_exprs[f'errortype_{col_name}'] = t[col_name].errortype
                 actual_col_types.append(pxt.StringType())
-                select_exprs[f'{col_name}_errormsg'] = t[col_name].errormsg
+                select_exprs[f'errormsg_{col_name}'] = t[col_name].errormsg
                 actual_col_types.append(pxt.StringType())
 
         scope_tbl = scope_tbl or t
@@ -161,3 +161,21 @@ class TestPackager:
                 assert filecmp.cmp(path, bundled_path)
             else:
                 assert pxt_val == iceberg_val
+
+    def test_round_trip(self, test_tbl: pxt.Table) -> None:
+        """package() / unpackage() round trip"""
+        snapshot = pxt.create_snapshot('snapshot', test_tbl)
+        schema = snapshot._schema
+        data = snapshot.select().order_by(snapshot.c2).collect()
+
+        packager = TablePackager(snapshot)
+        bundle_path = packager.package()
+
+        pxt.drop_table(test_tbl, force=True)
+        reload_catalog()
+
+        TablePackager.unpackage(bundle_path, 'new_replica')
+        t = pxt.get_table('new_replica')
+        assert t._schema == schema
+        reconstituted_data = t.select().order_by(t.c2).collect()
+        assert data == reconstituted_data

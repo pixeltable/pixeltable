@@ -432,7 +432,9 @@ class Catalog:
         return view
 
     @_retry_loop
-    def create_replica(self, path: Path, md: list[schema.FullTableMd], if_exists: IfExistsParam = IfExistsParam.ERROR) -> Table:
+    def create_replica(
+        self, path: Path, md: list[schema.FullTableMd], if_exists: IfExistsParam = IfExistsParam.ERROR
+    ) -> Table:
         """
         Creates table, table_version, and table_schema_version records for a replica with the given metadata.
         The metadata should be presented in standard "ancestor order", with the table being replicated at
