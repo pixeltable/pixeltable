@@ -20,6 +20,7 @@ from pixeltable.env import Env
 from pixeltable.metadata import schema
 from pixeltable.utils.arrow import PXT_TO_PA_TYPES
 from pixeltable.utils.iceberg import sqlite_catalog
+from pixeltable.utils.media_store import MediaStore
 
 _logger = logging.getLogger('pixeltable')
 
@@ -273,18 +274,21 @@ class TablePackager:
 
         for batch in iceberg_tbl.scan().to_arrow_batch_reader():
             pydict = batch.to_pydict()
-            col_types = []
+            col_ids: list[Optional[int]] = []
+            col_types: list[pxt.ColumnType] = []
             for name in pydict:
                 if name.startswith('val_'):
-                    col_name = name.removeprefix('val_')
-                    col_types.append(tv.cols_by_name[col_name].col_type)
+                    col = tv.cols_by_name[name.removeprefix('val_')]
+                    col_ids.append(col.id)
+                    col_types.append(col.col_type)
                 elif name.startswith('errortype_') or name.startswith('errormsg_'):
+                    col_ids.append(None)
                     col_types.append(pxt.StringType())
-            rows = cls.__from_pa_pydict(pydict, col_types)
+            rows = cls.__from_pa_pydict(tv, pydict, col_ids, col_types)
             tv.store_tbl.insert_replica_rows(rows)
 
     @classmethod
-    def __from_pa_pydict(cls, pydict: dict[str, Any], col_types: list[ts.ColumnType]) -> list[dict[str, Any]]:
+    def __from_pa_pydict(cls, tv: catalog.TableVersion, pydict: dict[str, Any], col_ids: list[Optional[int]], col_types: list[ts.ColumnType]) -> list[dict[str, Any]]:
         # pydict must have length exactly 1 more than col_types, because the pk column is not included in col_types
         assert len(pydict) == len(col_types) + 1, (
             f'{len(pydict)} != {len(col_types) + 1}:\n{list(pydict.keys())}\n{col_types}'
@@ -293,8 +297,8 @@ class TablePackager:
 
         # Data conversions from pyarrow to Pixeltable
         converted_pydict = {
-            col_name: [cls.__from_pa_value(val, col_type) for val in col_vals]
-            for (col_name, col_vals), col_type in zip(pydict.items(), col_types)
+            col_name: [cls.__from_pa_value(val, tv, col_id, col_type) for val in col_vals]
+            for (col_name, col_vals), col_id, col_type in zip(pydict.items(), col_ids, col_types)
             if col_name != 'pk'
         }
         converted_pydict['pk'] = pydict['pk']  # pk values are kept as lists of integers
@@ -304,7 +308,7 @@ class TablePackager:
         return rows
 
     @classmethod
-    def __from_pa_value(cls, val: Any, col_type: ts.ColumnType) -> Any:
+    def __from_pa_value(cls, val: Any, tv: catalog.TableVersion, col_id: int, col_type: ts.ColumnType) -> Any:
         if val is None:
             return None
         if col_type.is_array_type():
@@ -318,5 +322,20 @@ class TablePackager:
         if col_type.is_json_type():
             return json.loads(val)
         if col_type.is_media_type():
-            raise AssertionError()  # TODO
+            assert isinstance(val, str)
+            return cls.__relocate_media_file(tv, col_id, val)
         return val
+
+    @classmethod
+    def __relocate_media_file(self, tv: catalog.TableVersion, col_id: int, url: str) -> str:
+        # If this is a pxtmedia:// URL, relocate it
+        parsed_url = urllib.parse.urlparse(url)
+        assert parsed_url.scheme != 'file'  # These should all have been converted to pxtmedia:// URLs
+        if parsed_url.scheme == 'pxtmedia':
+            path = Path('media') / parsed_url.netloc
+            dest = MediaStore.prepare_media_path(tv.id, col_id, tv.version, ext=path.suffix)
+            path.rename(dest)
+            assert False, urllib.parse.urljoin('file:', urllib.request.pathname2url(str(dest)))
+            return urllib.parse.urljoin('file:', urllib.request.pathname2url(str(dest)))
+        # For any type of URL other than a local file, just return the URL as-is.
+        return url

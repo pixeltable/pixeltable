@@ -15,7 +15,7 @@ from pixeltable.env import Env
 from pixeltable.share.packager import TablePackager
 from pixeltable.utils.iceberg import sqlite_catalog
 
-from ..utils import SAMPLE_IMAGE_URL, get_image_files, get_video_files, reload_catalog
+from ..utils import SAMPLE_IMAGE_URL, assert_resultset_eq, get_image_files, get_video_files, reload_catalog
 
 
 class TestPackager:
@@ -178,4 +178,23 @@ class TestPackager:
         t = pxt.get_table('new_replica')
         assert t._schema == schema
         reconstituted_data = t.select().order_by(t.c2).collect()
-        assert data == reconstituted_data
+
+        assert_resultset_eq(data, reconstituted_data)
+
+    def test_media_round_trip(self, img_tbl: pxt.Table) -> None:
+        snapshot = pxt.create_snapshot('snapshot', img_tbl)
+        schema = snapshot._schema
+        data = snapshot.select().head()
+
+        packager = TablePackager(snapshot)
+        bundle_path = packager.package()
+
+        pxt.drop_table(img_tbl, force=True)
+        reload_catalog()
+
+        TablePackager.unpackage(bundle_path, 'new_replica')
+        t = pxt.get_table('new_replica')
+        assert t._schema == schema
+        reconstituted_data = t.select().head()
+
+        assert_resultset_eq(data, reconstituted_data)
