@@ -12,7 +12,6 @@ import pandas as pd
 import PIL
 import pytest
 from jsonschema.exceptions import ValidationError
-from psycopg import rows
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
