@@ -1,6 +1,6 @@
 ---
 title: "Image"
-description: "Build an image search system using GPT-4 Vision and vector embeddings"
+description: "Build an image search system using OpenAI Vision and vector embeddings"
 icon: "image"
 ---
 
@@ -34,7 +34,7 @@ Pixeltable image search works in two phases:
       {"image": pxt.Image}
   )
 
-  # Add GPT-4 Vision analysis
+  # Add OpenAI Vision analysis
   img_t.add_computed_column(
       image_description=vision(
           prompt="Describe the image. Be specific on the colors you see.",
@@ -196,7 +196,7 @@ img_t.insert({"image": url} for url in image_urls)
 
 ### Custom Vision Prompts
 
-Customize the GPT-4 Vision analysis:
+Customize the OpenAI Vision analysis:
 
 ```python
 img_t.add_computed_column(
