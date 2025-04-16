@@ -1,4 +1,3 @@
-import os
 import sys
 import urllib.parse
 import urllib.request
@@ -10,22 +9,22 @@ from tqdm import tqdm
 import pixeltable as pxt
 from pixeltable import exceptions as excs
 from pixeltable.env import Env
+from pixeltable.metadata.schema import FullTableMd
 from pixeltable.utils import sha256sum
 
 from .packager import TablePackager
 
 # These URLs are abstracted out for now, but will be replaced with actual (hard-coded) URLs once the
 # pixeltable.com URLs are available.
-_PUBLISH_URL = os.environ.get('PIXELTABLE_PUBLISH_URL')
-_FINALIZE_URL = os.environ.get('PIXELTABLE_FINALIZE_URL')
+
+PIXELTABLE_API_URL = 'https://internal-api.pixeltable.com'
 
 
 def publish_snapshot(dest_tbl_uri: str, src_tbl: pxt.Table) -> str:
     packager = TablePackager(src_tbl, additional_md={'table_uri': dest_tbl_uri})
-    request_json = packager.md
-    headers_json = {'X-api-key': Env.get().pxt_api_key}
-
-    response = requests.post(_PUBLISH_URL, json=request_json, headers=headers_json)
+    request_json = packager.md | {'operation_type': 'publish_snapshot'}
+    headers_json = {'X-api-key': Env.get().pxt_api_key, 'Content-Type': 'application/json'}
+    response = requests.post(PIXELTABLE_API_URL, json=request_json, headers=headers_json)
     if response.status_code != 200:
         raise excs.Error(f'Error publishing snapshot: {response.text}')
     response_json = response.json()
@@ -47,14 +46,14 @@ def publish_snapshot(dest_tbl_uri: str, src_tbl: pxt.Table) -> str:
     Env.get().console_logger.info('Finalizing snapshot ...')
 
     finalize_request_json = {
+        'operation_type': 'finalize_snapshot',
         'upload_id': upload_id,
         'datafile': bundle.name,
         'size': bundle.stat().st_size,
         'sha256': sha256sum(bundle),  # Generate our own SHA for independent verification
     }
-
     # TODO: Use Pydantic for validation
-    finalize_response = requests.post(_FINALIZE_URL, json=finalize_request_json, headers=headers_json)
+    finalize_response = requests.post(PIXELTABLE_API_URL, json=finalize_request_json, headers=headers_json)
     if finalize_response.status_code != 200:
         raise excs.Error(f'Error finalizing snapshot: {finalize_response.text}')
     finalize_response_json = finalize_response.json()
@@ -64,6 +63,18 @@ def publish_snapshot(dest_tbl_uri: str, src_tbl: pxt.Table) -> str:
     confirmed_tbl_uri = finalize_response_json['confirmed_table_uri']
     Env.get().console_logger.info(f'The published snapshot is now available at: {confirmed_tbl_uri}')
     return confirmed_tbl_uri
+
+
+def clone_snapshot(dest_tbl_uri: str) -> list[FullTableMd]:
+    headers_json = {'X-api-key': Env.get().pxt_api_key, 'Content-Type': 'application/json'}
+    clone_request_json = {'operation_type': 'clone_snapshot', 'table_uri': dest_tbl_uri}
+    response = requests.post(PIXELTABLE_API_URL, json=clone_request_json, headers=headers_json)
+    if response.status_code != 200:
+        raise excs.Error(f'Error cloning snapshot: {response.text}')
+    response_json = response.json()
+    if not isinstance(response_json, dict) or 'table_uri' not in response_json:
+        raise excs.Error(f'Unexpected response from server.\n{response_json}')
+    return [FullTableMd.from_dict(t) for t in response_json['md']['tables']]
 
 
 def _upload_bundle_to_s3(bundle: Path, parsed_location: urllib.parse.ParseResult) -> None:

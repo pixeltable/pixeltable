@@ -7,5 +7,5 @@ def duplicate_udf(n: int) -> int:
 
 
 @udf  # type: ignore[no-redef]
-def duplicate_udf(n: int) -> int:
+def duplicate_udf(n: int) -> int:  # noqa: F811  # (this one gives our linters conniption fits)
     return n + 2

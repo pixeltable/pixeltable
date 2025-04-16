@@ -121,7 +121,7 @@ class TestDataFrame:
         assert 'cannot be evaluated in the context' in str(exc_info.value)
 
         with pytest.raises(excs.Error, match='Where clause already specified'):
-            r2 = t.select(t.c2).where(t.c2 <= 10).where(t.c2 <= 20).count()
+            _ = t.select(t.c2).where(t.c2 <= 10).where(t.c2 <= 20).count()
 
     def test_join(self, reset_db: None) -> None:
         t1, t2, t3 = self.create_join_tbls(1000)
@@ -272,7 +272,7 @@ class TestDataFrame:
 
     def test_order_by(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
-        res = t.select(t.c4, t.c2).order_by(t.c4).order_by(t.c2, asc=False).collect()
+        _ = t.select(t.c4, t.c2).order_by(t.c4).order_by(t.c2, asc=False).collect()
 
         # invalid expr in order_by()
         with pytest.raises(excs.Error) as exc_info:
@@ -376,7 +376,7 @@ class TestDataFrame:
         df = t.select(t.c1, t.c1.upper(), t.c2 + 5).where(t.c2 < 10).group_by(t.c1).order_by(t.c3).limit(10)
         df.describe()
 
-        r = df.__repr__()
+        r = repr(df)
         assert strip_lines(r) == strip_lines(
             """Name              Type  Expression
                c1  Required[String]          c1
@@ -557,7 +557,7 @@ class TestDataFrame:
         assert df.count() > 0
         ds = df.to_pytorch_dataset()
         for tup in ds:
-            for col in df.schema.keys():
+            for col in df.schema:
                 assert col in tup
 
             arrval = tup['c_array']
@@ -583,11 +583,11 @@ class TestDataFrame:
         skip_test_if_not_installed('torchvision')
         skip_test_if_not_installed('pyarrow')
         import torch
-        import torchvision.transforms as T  # type: ignore[import-untyped]
+        import torchvision.transforms  # type: ignore[import-untyped]
 
-        W, H = 220, 224  # make different from each other
+        w, h = 220, 224  # make different from each other
         t = all_datatypes_tbl
-        df = t.select(t.row_id, t.c_image, c_image_xformed=t.c_image.resize([W, H]).convert('RGB')).where(t.row_id < 1)
+        df = t.select(t.row_id, t.c_image, c_image_xformed=t.c_image.resize([w, h]).convert('RGB')).where(t.row_id < 1)
 
         pandas_df = df.show().to_pandas()
         im_plain = pandas_df['c_image'].values[0]
@@ -609,7 +609,7 @@ class TestDataFrame:
             assert isinstance(arr_xformed, np.ndarray)
             assert arr_xformed.flags['WRITEABLE'], 'required by pytorch collate function'
 
-            assert arr_xformed.shape == (H, W, 3)
+            assert arr_xformed.shape == (h, w, 3)
             assert arr_xformed.dtype == np.uint8
             # same as above, compare numpy array bc PIL.Image object itself is not using same file.
             assert (arr_xformed == np.array(im_xformed)).all(), (
@@ -621,11 +621,11 @@ class TestDataFrame:
             assert torch.is_tensor(arr_pt)
             arr_pt = elt_pt['c_image_xformed']
             assert torch.is_tensor(arr_pt)
-            assert arr_pt.shape == (3, H, W)
+            assert arr_pt.shape == (3, h, w)
             assert arr_pt.dtype == torch.float32
-            assert (0.0 <= arr_pt).all()
+            assert (arr_pt >= 0.0).all()
             assert (arr_pt <= 1.0).all()
-            assert torch.isclose(T.ToTensor()(arr_xformed), arr_pt).all(), (
+            assert torch.isclose(torchvision.transforms.ToTensor()(arr_xformed), arr_pt).all(), (
                 'pytorch image should be consistent with numpy image'
             )
             elt_count += 1

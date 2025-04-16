@@ -95,6 +95,7 @@ class Table(SchemaObject):
                         'col1': StringType(),
                         'col2': IntType(),
                     },
+                    'is_replica': False,
                     'version': 22,
                     'schema_version': 1,
                     'comment': '',
@@ -110,6 +111,7 @@ class Table(SchemaObject):
             md = super().get_metadata()
             md['base'] = self._base._path() if self._base is not None else None
             md['schema'] = self._schema
+            md['is_replica'] = self._tbl_version.get().is_replica
             md['version'] = self._version
             md['schema_version'] = self._tbl_version.get().schema_version
             md['comment'] = self._comment
@@ -689,7 +691,7 @@ class Table(SchemaObject):
         for name, spec in schema.items():
             col_type: Optional[ts.ColumnType] = None
             value_expr: Optional[exprs.Expr] = None
-            primary_key: Optional[bool] = None
+            primary_key: bool = False
             media_validation: Optional[catalog.MediaValidation] = None
             stored = True
 
@@ -711,7 +713,7 @@ class Table(SchemaObject):
                     value_expr = value_expr.copy()
                     value_expr.bind_rel_paths()
                 stored = spec.get('stored', True)
-                primary_key = spec.get('primary_key')
+                primary_key = spec.get('primary_key', False)
                 media_validation_str = spec.get('media_validation')
                 media_validation = (
                     catalog.MediaValidation[media_validation_str.upper()] if media_validation_str is not None else None
@@ -1282,7 +1284,7 @@ class Table(SchemaObject):
         raise NotImplementedError
 
     def update(
-        self, value_spec: dict[str, Any], where: Optional['pxt.exprs.Expr'] = None, cascade: bool = True
+        self, value_spec: dict[str, Any], where: Optional['exprs.Expr'] = None, cascade: bool = True
     ) -> UpdateStatus:
         """Update rows in this table.
 
@@ -1383,7 +1385,7 @@ class Table(SchemaObject):
             FileCache.get().emit_eviction_warnings()
             return status
 
-    def delete(self, where: Optional['pxt.exprs.Expr'] = None) -> UpdateStatus:
+    def delete(self, where: Optional['exprs.Expr'] = None) -> UpdateStatus:
         """Delete rows in this table.
 
         Args:

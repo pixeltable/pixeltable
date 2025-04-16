@@ -5,8 +5,7 @@ import av
 import pytest
 
 import pixeltable as pxt
-import pixeltable.env as env
-from pixeltable import exceptions as excs
+from pixeltable import env, exceptions as excs
 from pixeltable.iterators.audio import AudioSplitter
 from pixeltable.utils.media_store import MediaStore
 

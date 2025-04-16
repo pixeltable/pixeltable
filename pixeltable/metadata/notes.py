@@ -2,6 +2,9 @@
 # rather than as a comment, so that the existence of a description can be enforced by
 # the unit tests when new versions are added.
 VERSION_NOTES = {
+    34: 'Set default value for is_pk field in column metadata to False',
+    33: 'Add is_replica field to table metadata',
+    32: 'Add the lock_dummy BIGINT column to the dirs table',
     31: 'Add table ids to metadata structs',
     30: 'Store default values and constant arguments as literals',
     29: 'Add user and additional_md fields to metadata structs',

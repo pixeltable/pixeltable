@@ -20,7 +20,7 @@ class TestSnapshot:
     ) -> None:
         tbl_path, snap_path = tbl._path(), snap._path()
         # run the initial query against the base table here, before reloading, otherwise the filter breaks
-        tbl_select_list = [tbl[col_name] for col_name in tbl._schema.keys()]
+        tbl_select_list = [tbl[col_name] for col_name in tbl._schema]
         tbl_select_list.extend([value_expr for _, value_expr in extra_items.items()])
         orig_resultset = orig_query.select(*tbl_select_list).order_by(tbl.c2).collect()
 
@@ -33,10 +33,8 @@ class TestSnapshot:
         # view select list: base cols followed by view cols
         column_names = list(snap._schema.keys())
         snap_select_list = [snap[col_name] for col_name in column_names[len(extra_items) :]]
-        snap_select_list.extend([snap[col_name] for col_name in extra_items.keys()])
+        snap_select_list.extend(snap[col_name] for col_name in extra_items)
         snap_query = snap.select(*snap_select_list).order_by(snap.c2)
-        r1 = list(orig_resultset)
-        r2 = list(snap_query.collect())
         assert_resultset_eq(snap_query.collect(), orig_resultset)
 
         # adding data to a base table doesn't change the snapshot
@@ -334,8 +332,6 @@ class TestSnapshot:
             assert np.all(s4.select(s4.c3).order_by(s4.c2).collect().to_pandas()['c3'] == orig_c3 + 1)
 
             # v1
-            a = v.select(v.v1).order_by(v.c2).collect().to_pandas()['v1']
-            b = t.select(t.c3).order_by(t.c2).collect().to_pandas()['c3']
             assert np.all(
                 v.select(v.v1).order_by(v.c2).collect().to_pandas()['v1']
                 == t.select(t.c3).order_by(t.c2).collect().to_pandas()['c3'] + 1

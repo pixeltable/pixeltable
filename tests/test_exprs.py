@@ -14,14 +14,11 @@ import pytest
 import sqlalchemy as sql
 
 import pixeltable as pxt
-import pixeltable.exceptions as excs
-import pixeltable.functions as pxtf
-from pixeltable import catalog, exprs
+from pixeltable import catalog, exceptions as excs, exprs, functions as pxtf
 from pixeltable.exprs import ColumnRef, Expr, Literal
 from pixeltable.functions.globals import cast
 from pixeltable.iterators import FrameIterator
 
-from .conftest import test_tbl
 from .utils import (
     ReloadTester,
     create_all_datatypes_tbl,
@@ -128,7 +125,7 @@ class TestExprs:
         # compound predicates that can be fully evaluated in SQL
         _ = t.where((t.c1 == 'test string') & (t.c6.f1 > 50)).collect()
         _ = t.where((t.c1 == 'test string') & (t.c2 > 50)).collect()
-        sql_elements = pxt.exprs.SqlElementCache()
+        sql_elements = exprs.SqlElementCache()
         e = sql_elements.get(((t.c1 == 'test string') & (t.c2 > 50)))
         assert len(e.clauses) == 2
 
@@ -236,7 +233,7 @@ class TestExprs:
         res = img_t.select(img_t.img.fileurl).collect().to_pandas()
         stored_urls = set(res.iloc[:, 0])
         assert len(stored_urls) == len(res)
-        all_urls = set(urllib.parse.urljoin('file:', urllib.request.pathname2url(path)) for path in get_image_files())
+        all_urls = {urllib.parse.urljoin('file:', urllib.request.pathname2url(path)) for path in get_image_files()}
         assert stored_urls <= all_urls
 
         # localpath
@@ -397,7 +394,8 @@ class TestExprs:
 
         # Test that arithmetic operations give the right answers. We do this two ways:
         # (i) with primitive operators only, to ensure that the arithmetic operations are done in SQL when possible;
-        # (ii) with a Python function call interposed, to ensure that the arithmetic operations are always done in Python;
+        # (ii) with a Python function call interposed, to ensure that the arithmetic operations are always done in
+        #     Python;
         # (iii) and (iv), as (i) and (ii) but with JsonType expressions.
         primitive_ops = (t.c2, t.c3)
         forced_python_ops = (t.c2.apply(math.floor, col_type=pxt.Int), t.c3.apply(math.floor, col_type=pxt.Float))
@@ -459,7 +457,8 @@ class TestExprs:
         t = test_tbl
         # Test that comparison operations give the right answers. As with arithmetic operations, we do this two ways:
         # (i) with primitive operators only, to ensure that the comparison operations are done in SQL when possible;
-        # (ii) with a Python function call interposed, to ensure that the comparison operations are always done in Python.
+        # (ii) with a Python function call interposed, to ensure that the comparison operations are always done in
+        #     Python.
         comparison_pairs = (
             (t.c1, 'test string 10'),  # string-to-string
             (t.c2, 50),  # int-to-int
@@ -688,7 +687,7 @@ class TestExprs:
             assert row3['output'] == row_col['out3']
             assert row4['output'] == row_col['out4']
 
-        with pytest.raises(excs.Error, match='Failed to evaluate map function.'):
+        with pytest.raises(excs.Error, match=r'Failed to evaluate map function.'):
             pxtf.map(t.c6.f5['*'], lambda x: x and False)
 
         reload_tester.run_reload_test()
@@ -888,9 +887,11 @@ class TestExprs:
         t = pxt.create_table('astype_test', {'url': pxt.String})
         t.add_computed_column(img=t.url.astype(pxt.Image))
         images = get_image_files(include_bad_image=True)[:5]  # bad image is at idx 0
-        url_encoded_images = [
-            f'data:image/jpeg;base64,{base64.b64encode(open(img, "rb").read()).decode()}' for img in images
-        ]
+        url_encoded_images = []
+        for img in images:
+            with open(img, 'rb') as fp:
+                b64_img = base64.b64encode(fp.read()).decode()
+                url_encoded_images.append(f'data:image/jpeg;base64,{b64_img}')
 
         status = t.insert({'url': url} for url in url_encoded_images[1:])
         validate_update_status(status, expected_rows=4)
@@ -903,14 +904,17 @@ class TestExprs:
 
         # Try inserting a non-image
         with pytest.raises(
-            excs.ExprEvalError, match='data URL could not be decoded into a valid image: data:text/plain,Hello there.'
+            excs.ExprEvalError, match=r'data URL could not be decoded into a valid image: data:text/plain,Hello there.'
         ):
             t.insert(url='data:text/plain,Hello there.')
 
         # Try inserting a bad image
         with pytest.raises(
             excs.ExprEvalError,
-            match='data URL could not be decoded into a valid image: data:image/jpeg;base64,dGhlc2UgYXJlIHNvbWUgYmFkIGp...',
+            match=(
+                r'data URL could not be decoded into a valid image: '
+                r'data:image/jpeg;base64,dGhlc2UgYXJlIHNvbWUgYmFkIGp...'
+            ),
         ):
             t.insert(url=url_encoded_images[0])
 
@@ -1162,12 +1166,12 @@ class TestExprs:
     def test_subexprs(self, img_tbl: catalog.Table) -> None:
         t = img_tbl
         e = t.img
-        subexprs = [s for s in e.subexprs()]
+        subexprs = list(e.subexprs())
         assert len(subexprs) == 1
         e = t.img.rotate(90).resize((224, 224))
-        subexprs = [s for s in e.subexprs()]
+        subexprs = list(e.subexprs())
         assert len(subexprs) == 5
-        subexprs = [s for s in e.subexprs(expr_class=ColumnRef)]
+        subexprs = list(e.subexprs(expr_class=ColumnRef))
         assert len(subexprs) == 1
         assert t.img.equals(subexprs[0])
 
@@ -1216,7 +1220,7 @@ class TestExprs:
         assert len(val) == t.count()
         res2 = t.select(t.json_col).collect()['json_col']
         # need to use frozensets because dicts are not hashable
-        assert set(frozenset(d.items()) for d in val) == set(frozenset(d.items()) for d in res2)
+        assert {frozenset(d.items()) for d in val} == {frozenset(d.items()) for d in res2}
 
     def test_agg(self, reset_db: None) -> None:
         t = create_scalars_tbl(1000)
@@ -1226,8 +1230,14 @@ class TestExprs:
             return [int(x) if pd.notna(x) else None for x in series]
 
         int_sum: Expr = pxtf.sum(t.c_int)
+        _ = t.group_by(t.c_int).select(t.c_int, two=2).collect()
         _ = t.group_by(t.c_int).select(t.c_int).collect()
         _ = t.group_by(t.c_int).select(t.c_int, out=int_sum).order_by(int_sum, asc=False).limit(5).collect()
+
+        # selecting a subset of the grouping exprs doesn't change the cardinality of the result
+        r1 = t.group_by(t.c_bool, t.c_string).select(t.c_bool, t.c_string).collect()
+        r2 = t.group_by(t.c_bool, t.c_string).select(t.c_string).collect()
+        assert len(r1) == len(r2)
 
         for pxt_fn, pd_fn in [
             (pxtf.sum, 'sum'),
@@ -1303,11 +1313,11 @@ class TestExprs:
     def test_function_call_errors(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         with pytest.raises(
-            excs.Error, match="Argument 2 in call to 'tests.test_exprs.udf1' is not a valid Pixeltable expression"
+            excs.Error, match=r"Argument 2 in call to 'tests.test_exprs.udf1' is not a valid Pixeltable expression"
         ):
             udf1(t.c2, bool)
         with pytest.raises(
-            excs.Error, match="Argument 'eggs' in call to 'tests.test_exprs.udf1' is not a valid Pixeltable expression"
+            excs.Error, match=r"Argument 'eggs' in call to 'tests.test_exprs.udf1' is not a valid Pixeltable expression"
         ):
             udf1(eggs=bool)
 
