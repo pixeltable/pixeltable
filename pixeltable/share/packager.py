@@ -36,8 +36,13 @@ class TablePackager:
     media/**  # Local media files
 
     If the table being archived is a view, then the Iceberg catalog will contain separate tables for the view and each
-    of its ancestors. All rows will be exported with additional _rowid and _v_min columns. Currently, only the most
-    recent version of the table can be exported, and only the full table contents.
+    of its ancestors. All rows will be exported with an additional 'pk' column. Currently, only the most recent version
+    of the table can be exported, and only the full table contents.
+
+    Columns in the Iceberg tables follow the standard naming conventions:
+    - val_{col_name} for the values in stored columns
+    - errortype_{col_name} and errormsg_{col_name} for the error columns (if `col.records_errors`)
+    - pk for the primary key column
 
     If the table contains media columns, they are handled as follows:
     - If a media file has an external URL (any URL scheme other than file://), then the URL will be preserved as-is and
@@ -138,7 +143,8 @@ class TablePackager:
     # logic might be consolidated into arrow.py and unified with general Parquet export, but there are several
     # major differences:
     # - Iceberg has no array type; we export all arrays as binary blobs
-    # - We include _rowid and _v_min columns in the Iceberg table
+    # - We include a 'pk' column in the Iceberg table
+    # - errortype / errormsg are exported with special handling
     # - Media columns are handled specially as indicated above
 
     @classmethod
