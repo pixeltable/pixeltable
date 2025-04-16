@@ -15,6 +15,7 @@ import pyiceberg.catalog
 
 import pixeltable as pxt
 from pixeltable import catalog, exprs, metadata, type_system as ts
+from pixeltable import plan
 from pixeltable.dataframe import DataFrame
 from pixeltable.env import Env
 from pixeltable.metadata import schema
@@ -84,16 +85,15 @@ class TablePackager:
             json.dump(self.md, fp)
         self.iceberg_catalog = sqlite_catalog(self.tmp_dir / 'warehouse')
         with Env.get().begin_xact():
-            ancestors = (self.table, *self.table._bases)
-            for t in ancestors:
-                _logger.info(f"Exporting table '{t._path()}'.")
-                self.__export_table(t)
+            for tvp in self.table._tbl_version_path.ancestors:
+                _logger.info(f"Exporting table '{tvp.tbl_version.get().name}'.")
+                self.__export_table(tvp)
         _logger.info('Building archive.')
         bundle_path = self.__build_tarball()
         _logger.info(f'Packaging complete: {bundle_path}')
         return bundle_path
 
-    def __export_table(self, t: catalog.Table) -> None:
+    def __export_table(self, tvp: catalog.TableVersionPath) -> None:
         """
         Exports the data from `t` into an Iceberg table.
         """
@@ -110,26 +110,27 @@ class TablePackager:
         # to get the column types, since we'll be substituting `fileurl`s for media columns.
         actual_col_types: list[ts.ColumnType] = []
 
-        for col_name, col in t._tbl_version.get().cols_by_name.items():
+        tv = tvp.tbl_version.get()
+        for col_name, col in tv.cols_by_name.items():
             if not col.is_stored:
                 continue
+            col_ref = exprs.ColumnRef(col)
             if col.col_type.is_media_type():
-                select_exprs[f'val_{col_name}'] = t[col_name].fileurl
+                select_exprs[f'val_{col_name}'] = col_ref.fileurl
             else:
-                select_exprs[f'val_{col_name}'] = t[col_name]
+                select_exprs[f'val_{col_name}'] = col_ref
             actual_col_types.append(col.col_type)
             if col.records_errors:
-                select_exprs[f'errortype_{col_name}'] = t[col_name].errortype
+                select_exprs[f'errortype_{col_name}'] = col_ref.errortype
                 actual_col_types.append(ts.StringType())
-                select_exprs[f'errormsg_{col_name}'] = t[col_name].errormsg
+                select_exprs[f'errormsg_{col_name}'] = col_ref.errormsg
                 actual_col_types.append(ts.StringType())
 
-        # Run the select() on `self.table`, not `t`, so that we export only those rows that are actually present in
-        # `self.table`.
-        df = self.table.select(**select_exprs)
+        df = pxt.DataFrame(plan.FromClause([tvp])).select(**select_exprs)
+
         self.iceberg_catalog.create_namespace_if_not_exists('pxt')
         iceberg_schema = self.__to_iceberg_schema(df._schema)
-        iceberg_tbl_name = f'pxt.tbl_{t._tbl_version.id.hex}'
+        iceberg_tbl_name = f'pxt.tbl_{tv.id.hex}'
         _logger.info(f'Creating iceberg table: {iceberg_tbl_name}')
         iceberg_tbl = self.iceberg_catalog.create_table(iceberg_tbl_name, schema=iceberg_schema)
 
@@ -231,7 +232,6 @@ class TableRestorer:
     tbl_path: str
     md: Optional[list[schema.FullTableMd]]
     tmp_dir: Path
-    media_files: dict[str, Path]  # Mapping from pxtmedia:// URLs to local file paths
 
     def __init__(self, tbl_path: str, md: Optional[list[schema.FullTableMd]] = None) -> None:
         self.tbl_path = tbl_path
@@ -336,7 +336,7 @@ class TableRestorer:
             return None
         if col_type.is_array_type():
             assert isinstance(val, bytes)
-            # Validate that the value represents a valid numpy array
+            # Decode the value to validate that it represents a valid numpy array
             arr = io.BytesIO(val)
             res = np.load(arr)
             assert isinstance(res, np.ndarray)

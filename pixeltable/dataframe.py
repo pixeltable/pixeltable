@@ -569,6 +569,12 @@ class DataFrame:
         select_list: list[tuple[exprs.Expr, Optional[str]]] = []
         for raw_expr, name in base_list:
             expr = exprs.Expr.from_object(raw_expr)
+            if len(self._from_clause.tbls) == 1:
+                # Select expressions need to be retargeted in order to handle snapshots correctly
+                # TODO: For joins involving snapshots, we need a more sophisticated retarget() that can handle
+                #     multiple TableVersionPaths.
+                expr = expr.copy()
+                expr.retarget(self._from_clause.tbls[0])
             if expr is None:
                 raise excs.Error(f'Invalid expression: {raw_expr}')
             if expr.col_type.is_invalid_type() and not (isinstance(expr, exprs.Literal) and expr.val is None):

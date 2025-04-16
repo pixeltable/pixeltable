@@ -126,7 +126,7 @@ class TestPackager:
                 select_exprs[f'errormsg_{col_name}'] = t[col_name].errormsg
                 actual_col_types.append(pxt.StringType())
 
-        scope_tbl = scope_tbl or t
+        scope_tbl = t  # scope_tbl or t  # TODO Currently not working
         pxt_data = scope_tbl.select(**select_exprs).collect()
         for col, col_type in zip(select_exprs.keys(), actual_col_types):
             print(f'Checking column: {col}')
@@ -199,4 +199,28 @@ class TestPackager:
         assert t._schema == schema
         reconstituted_data = t.select().head()
 
+        assert_resultset_eq(data, reconstituted_data)
+
+    def test_iterator_view_round_trip(self, reset_db: None) -> None:
+        t = pxt.create_table('base_tbl', {'video': pxt.Video})
+        t.insert({'video': video} for video in get_video_files()[:2])
+
+        v = pxt.create_view('frames_view', t, iterator=pxt.iterators.FrameIterator.create(video=t.video, fps=1))
+        # Add a stored computed column that will generate a bunch of media files in the view.
+        v.add_computed_column(rot_frame=v.frame.rotate(180))
+        snapshot = pxt.create_snapshot('snapshot', v)
+        schema = snapshot._schema
+        data = snapshot.select().head()
+
+        packager = TablePackager(snapshot)
+        bundle_path = packager.package()
+
+        pxt.drop_table(t, force=True)
+        reload_catalog()
+
+        restorer = TableRestorer('new_replica')
+        restorer.restore(bundle_path)
+        t = pxt.get_table('new_replica')
+        assert t._schema == schema
+        reconstituted_data = t.select().head()
         assert_resultset_eq(data, reconstituted_data)
