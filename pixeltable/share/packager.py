@@ -262,9 +262,9 @@ class TableRestorer:
         replica_tbl = catalog.Catalog.get().create_replica(catalog.Path(self.tbl_path), self.md)
         assert replica_tbl._tbl_version.get().is_snapshot
 
-        # Now create TableVersions (and store tables) for the table and all its ancestors.
+        # Now create TableVersions (and store tables) for the ancestors of replica_tbl.
         with Env.get().begin_xact():
-            for md in self.md[::-1]:
+            for md in self.md[:0:-1]:  # All list entries except the first one, in descending order
                 catalog.TableVersion.create_replica(md)
 
         # Load the Iceberg catalog
