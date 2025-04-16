@@ -262,30 +262,22 @@ class TableRestorer:
         replica_tbl = catalog.Catalog.get().create_replica(catalog.Path(self.tbl_path), self.md)
         assert replica_tbl._tbl_version.get().is_snapshot
 
-        # Now create TableVersions (and store tables) for the ancestors of replica_tbl.
-        with Env.get().begin_xact():
-            for md in self.md[:0:-1]:  # All list entries except the first one, in descending order
-                catalog.TableVersion.create_replica(md)
+        # Now we need to instantiate and load data for replica_tbl and its ancestors, except that we skip
+        # replica_tbl itself if it's a pure snapshot.
+        if replica_tbl._id != replica_tbl._tbl_version.id:
+            ancestor_md = self.md[1:]  # Pure snapshot; skip replica_tbl
+        else:
+            ancestor_md = self.md  # Not a pure snapshot; include replica_tbl
 
-        # Load the Iceberg catalog
+        # Instantiate data from the Iceberg archive
         iceberg_catalog = sqlite_catalog(self.tmp_dir / 'warehouse')
         with Env.get().begin_xact():
-            ancestors: tuple[catalog.TableVersionHandle, ...] = (
-                replica_tbl._tbl_version,
-                *replica_tbl._tbl_version_path.get_bases(),
-            )
-            if replica_tbl._id == replica_tbl._tbl_version.id:
-                # replica_tbl is not a pure snapshot. We need to load data for replica_tbl as well as it ancestors.
-                ancestor_md = self.md
-            else:
-                # replica_tbl is a pure snapshot. We'll discard its metadata for purposes of data loading,
-                # since the pure snapshot (as a schema object) won't contain any data of its own.
-                ancestor_md = self.md[1:]
-            assert len(ancestors) == len(ancestor_md)
-            for tv, md in zip(ancestors[::-1], ancestor_md[::-1]):
-                assert isinstance(tv, catalog.TableVersionHandle)
-                _logger.info(f'Importing table {tv.get().name!r}.')
-                self.__import_table(iceberg_catalog, tv.get(), md)
+            for md in ancestor_md[::-1]:  # Base table first
+                # Create a TableVersion instance (and a store table) for this ancestor.
+                tv = catalog.TableVersion.create_replica(md)
+                # Now import data from Iceberg.
+                _logger.info(f'Importing table {tv.name!r}.')
+                self.__import_table(iceberg_catalog, tv, md)
 
     def __import_table(
         self, iceberg_catalog: pyiceberg.catalog.Catalog, tv: catalog.TableVersion, tbl_md: schema.FullTableMd
