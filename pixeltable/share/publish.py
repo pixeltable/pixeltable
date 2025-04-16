@@ -21,8 +21,8 @@ PIXELTABLE_API_URL = 'https://internal-api.pixeltable.com'
 
 
 def publish_snapshot(dest_tbl_uri: str, src_tbl: pxt.Table) -> str:
-    packager = TablePackager(src_tbl, additional_md={'table_uri': dest_tbl_uri, 'operation_type': 'publish_snapshot'})
-    request_json = packager.md
+    packager = TablePackager(src_tbl, additional_md={'table_uri': dest_tbl_uri})
+    request_json = packager.md | {'operation_type': 'publish_snapshot'}
     headers_json = {'X-api-key': Env.get().pxt_api_key, 'Content-Type': 'application/json'}
     response = requests.post(PIXELTABLE_API_URL, json=request_json, headers=headers_json)
     if response.status_code != 200:
@@ -73,7 +73,7 @@ def clone_snapshot(dest_tbl_uri: str) -> list[FullTableMd]:
         raise excs.Error(f'Error cloning snapshot: {response.text}')
     response_json = response.json()
     if not isinstance(response_json, dict) or 'table_uri' not in response_json:
-        raise excs.Error(f'Error unexpected response from server.\n{response_json}')
+        raise excs.Error(f'Unexpected response from server.\n{response_json}')
     return [FullTableMd.from_dict(t) for t in response_json['md']['tables']]
 
 
