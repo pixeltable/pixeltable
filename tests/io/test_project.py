@@ -66,7 +66,7 @@ class TestProject:
 
         # Subtype/supertype relationships
 
-        schema3 = {'img': pxt.Image, 'spec_img': pxt.Image[(512, 512)]}  # type: ignore[misc]
+        schema3 = {'img': pxt.Image, 'spec_img': pxt.Image[512, 512]}  # type: ignore[misc]
         t3 = pxt.create_table('test_store_3', schema3)
 
         export_img_cols: dict[str, ColumnType] = {
@@ -128,8 +128,8 @@ class TestProject:
         with pytest.raises(excs.Error) as exc_info:
             t.drop_column('col3')
         assert (
-            'Cannot drop column `col3` because the following external stores depend on it:\nproject (in view `test_view`)'
-            in str(exc_info.value)
+            'Cannot drop column `col3` because the following external stores depend on it:\n'
+            'project (in view `test_view`)' in str(exc_info.value)
         )
 
     @pytest.mark.parametrize('with_reloads', [False, True])

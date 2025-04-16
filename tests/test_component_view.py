@@ -362,13 +362,18 @@ class TestComponentView:
         video_url = urllib.parse.urljoin('file:', urllib.request.pathname2url(video_filepaths[0]))
         status = video_t.update({'int1': video_t.int1 + 1}, where=video_t.video == video_url)
         assert status.num_rows == 1 + v1.where(v1.video == video_url).count() + v2.where(v2.video == video_url).count()
-        assert sorted('int1 int3 img1 int5 img3 int7'.split()) == sorted(
-            [str.split('.')[1] for str in status.updated_cols]
-        )
+        assert sorted(str.split('.')[1] for str in status.updated_cols) == [
+            'img1',
+            'img3',
+            'int1',
+            'int3',
+            'int5',
+            'int7',
+        ]
         check_view()
 
         # update int2: propagates to img4, int6, int7
         status = video_t.update({'int2': video_t.int2 + 1}, where=video_t.video == video_url)
         assert status.num_rows == 1 + v2.where(v2.video == video_url).count()
-        assert sorted('int2 img4 int6 int7'.split()) == sorted([str.split('.')[1] for str in status.updated_cols])
+        assert sorted(str.split('.')[1] for str in status.updated_cols) == ['img4', 'int2', 'int6', 'int7']
         check_view()

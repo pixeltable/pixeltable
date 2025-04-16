@@ -131,7 +131,8 @@ class TestIndex:
             [
                 {'text': 'the stock of artificial intelligence companies is up 1000%'},
                 {
-                    'text': 'the term machine learning has fallen out of fashion now that AI has been rehabilitated and is now the new hotness'
+                    'text': 'the term machine learning has fallen out of fashion now that '
+                    'AI has been rehabilitated and is now the new hotness'
                 },
                 {'text': 'machine learning is a subset of artificial intelligence'},
                 {'text': 'gas car companies are in danger of being left behind by electric car companies'},
@@ -171,7 +172,7 @@ class TestIndex:
         def img_matches(img: PIL.Image.Image) -> pxt.DataFrame:
             return t.select(t.img.localpath).order_by(t.img.similarity(img), asc=False).limit(3)
 
-        res = list(t.select(img=t.img.localpath, matches=img_matches(t.img)).head(1))
+        _ = list(t.select(img=t.img.localpath, matches=img_matches(t.img)).head(1))
 
     def test_similarity_errors(
         self, indexed_img_tbl: pxt.Table, small_img_tbl: pxt.Table, clip_embed: func.Function
@@ -211,7 +212,7 @@ class TestIndex:
 
         # Direct access to the unnamed embedding column fails on a snapshot
         with pytest.raises(pxt.Error, match='No indices found for '):
-            r = t_s.select(t_s.img.embedding(idx='other_idx')).limit(2)
+            _ = t_s.select(t_s.img.embedding(idx='other_idx')).limit(2)
 
         t.drop_embedding_index(idx_name='idx0')
         t.drop_embedding_index(idx_name='idx1')
@@ -289,7 +290,7 @@ class TestIndex:
         t.add_embedding_index('img', idx_name='clip_idx', embedding=clip_embed)
         indexes = t._list_index_info_for_test()
         assert len(indexes) == initial_indexes + 1
-        assert 'clip_idx' == indexes[initial_indexes]['_name']
+        assert indexes[initial_indexes]['_name'] == 'clip_idx'
         clip_idx_id_before = indexes[initial_indexes]['_id']
 
         # when index name is not provided, the index is created with
@@ -322,26 +323,26 @@ class TestIndex:
         t.add_embedding_index('img', idx_name='clip_idx', embedding=clip_embed, if_exists='ignore')
         indexes = t._list_index_info_for_test()
         assert len(indexes) == initial_indexes + 3
-        assert 'clip_idx' == indexes[initial_indexes]['_name']
+        assert indexes[initial_indexes]['_name'] == 'clip_idx'
         assert clip_idx_id_before == indexes[initial_indexes]['_id']
 
         # cannot use if_exists to ignore or replace an existing index
         # that is not an embedding (like, default btree indexes).
-        assert 'idx0' == indexes[0]['_name']
+        assert indexes[0]['_name'] == 'idx0'
         for _ie in ['ignore', 'replace', 'replace_force']:
             with pytest.raises(pxt.Error, match='not an embedding index'):
                 t.add_embedding_index('img', idx_name='idx0', embedding=clip_embed, if_exists=_ie)  # type: ignore[arg-type]
         indexes = t._list_index_info_for_test()
         assert len(indexes) == initial_indexes + 3
-        assert 'idx0' == indexes[0]['_name']
-        assert 'clip_idx' == indexes[initial_indexes]['_name']
+        assert indexes[0]['_name'] == 'idx0'
+        assert indexes[initial_indexes]['_name'] == 'clip_idx'
 
         # if_exists='replace' replaces the existing index with the new one.
         t.add_embedding_index('img', idx_name='clip_idx', embedding=clip_embed, if_exists='replace')
         indexes = t._list_index_info_for_test()
         assert len(indexes) == initial_indexes + 3
-        assert 'clip_idx' != indexes[initial_indexes]['_name']
-        assert 'clip_idx' == indexes[initial_indexes + 2]['_name']
+        assert indexes[initial_indexes]['_name'] != 'clip_idx'
+        assert indexes[initial_indexes + 2]['_name'] == 'clip_idx'
         assert clip_idx_id_before != indexes[initial_indexes + 2]['_id']
 
         # sanity check: use the replaced index to run a query.
@@ -601,7 +602,7 @@ class TestIndex:
         status = t.insert({'s': s} for s in sents)
         t.add_embedding_index('s', string_embed=all_mpnet_embed)
         df = t.select(sim=t.s.similarity(sents[1]))
-        res1 = df.collect()
+        _ = df.collect()
         _ = reload_tester.run_query(t.select())
         _ = reload_tester.run_query(df)
 

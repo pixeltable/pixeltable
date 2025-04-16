@@ -2,20 +2,8 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --background: #F2F2F2;
-  --foreground: #171717;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@layer base {
+  body {
+    @apply bg-neutral-100 text-neutral-900 font-sans;
   }
-}
-
-body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Inter, Helvetica, sans-serif;
 }

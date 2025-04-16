@@ -100,14 +100,14 @@ class IfNotExistsParam(enum.Enum):
             raise excs.Error(f'{param_name} must be one of: [{val_strs}]') from None
 
 
-def is_valid_identifier(name: str) -> bool:
-    return name.isidentifier() and not name.startswith('_')
+def is_valid_identifier(name: str, allow_system_identifiers: bool = False) -> bool:
+    return name.isidentifier() and (allow_system_identifiers or not name.startswith('_'))
 
 
-def is_valid_path(path: str, empty_is_valid: bool) -> bool:
-    if not path:
+def is_valid_path(path: str, empty_is_valid: bool, allow_system_paths: bool = False) -> bool:
+    if path == '':
         return empty_is_valid
-    return all(is_valid_identifier(part) for part in path.split('.'))
+    return all(is_valid_identifier(part, allow_system_paths) for part in path.split('.'))
 
 
 def is_system_column_name(name: str) -> bool:

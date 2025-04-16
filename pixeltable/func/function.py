@@ -10,9 +10,7 @@ from typing import TYPE_CHECKING, Any, Callable, Optional, Sequence, cast
 import sqlalchemy as sql
 from typing_extensions import Self
 
-import pixeltable as pxt
-import pixeltable.exceptions as excs
-import pixeltable.type_system as ts
+from pixeltable import exceptions as excs, type_system as ts
 
 from .globals import resolve_symbol
 from .signature import Signature
@@ -155,7 +153,7 @@ class Function(ABC):
         """
         raise NotImplementedError()
 
-    def __call__(self, *args: Any, **kwargs: Any) -> 'pxt.exprs.FunctionCall':
+    def __call__(self, *args: Any, **kwargs: Any) -> 'exprs.FunctionCall':
         from pixeltable import exprs
 
         args = [exprs.Expr.from_object(arg) for arg in args]

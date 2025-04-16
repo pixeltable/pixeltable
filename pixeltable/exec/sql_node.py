@@ -103,7 +103,6 @@ class SqlNode(ExecNode):
         # create Select stmt
         self.sql_elements = sql_elements
         self.tbl = tbl
-        assert all(not isinstance(e, exprs.Literal) for e in select_list)  # we're never asked to materialize literals
         self.select_list = exprs.ExprSet(select_list)
         # unstored iter columns: we also need to retrieve whatever is needed to materialize the iter args
         for iter_arg in row_builder.unstored_iter_args.values():
