@@ -248,16 +248,116 @@ Column casting helps maintain data consistency and prevents type errors when pro
     timestamps = result['timestamp']  # Get list of values for one column
     
     # Convert to Pandas
-    df = result.to_pandas()
+    df = result
     df['revenue'].describe()  # Get statistics for revenue column
     ```
   </Card>
+  <Card title="Join Tables" icon="link">
+    Combine data from multiple tables using different join types.
+    
+    ```python
+    import pixeltable as pxt
+    
+    # Define the customers table
+    customers = pxt.create_table(
+        "customers",
+        {"customer_id": pxt.Int, "name": pxt.String, "total_spent": pxt.Float},
+        if_exists="replace",
+    )
+
+    # Define the orders table
+    orders = pxt.create_table(
+        "orders",
+        {"order_id": pxt.Int, "customer_id": pxt.Int, "amount": pxt.Float},
+        if_exists="replace",
+    )
+
+    
+    # Populate the tables with sample data
+    customers.insert([
+        {'customer_id': 1, 'name': 'Alice Johnson', 'total_spent': 250.0},
+        {'customer_id': 2, 'name': 'Bob Smith', 'total_spent': 180.0},
+        {'customer_id': 3, 'name': 'Carol White', 'total_spent': 320.0},
+        {'customer_id': 4, 'name': 'David Brown', 'total_spent': 150.0},
+        {'customer_id': 5, 'name': 'Eve Davis', 'total_spent': 90.0}
+    ])
+    
+    orders.insert([
+        {'order_id': 101, 'customer_id': 1, 'amount': 75.0},
+        {'order_id': 102, 'customer_id': 1, 'amount': 30.0},
+        {'order_id': 103, 'customer_id': 2, 'amount': 120.0},
+        {'order_id': 104, 'customer_id': 4, 'amount': 60.0}
+    ])
+    ```
+    
+    ### Inner Join
+    Returns only matching records from both tables.
+    
+    ```python
+    inner_join_result = customers.join(
+        orders, 
+        on=customers.customer_id == orders.customer_id, 
+        how='inner'
+    ).select(
+        customers.name, 
+        orders.amount
+    )
+    inner_df = inner_join_result.collect()
+    print(inner_df)
+    # Output will show only customers with matching orders (customer_id 1, 2, 4)
+    ```
+    
+    ### Left Outer Join
+    Returns all records from the left table and matching records from the right table.
+    
+    ```python
+    left_join_result = customers.join(
+        orders, 
+        on=customers.customer_id == orders.customer_id, 
+        how='left'
+    ).select(
+        customers.name, 
+        orders.amount
+    )
+    left_df = left_join_result.collect()
+    print(left_df)
+    # Output will show all customers (1-5), with null for amount where no order exists
+    ```
+    
+    ### Right Outer Join
+    Returns all records from the right table and matching records from the left table.
+    
+    ```python
+    right_join_result = customers.join(
+        orders, 
+        on=customers.customer_id == orders.customer_id, 
+        how='right'
+    ).select(
+        customers.name, 
+        orders.amount
+    )
+    right_df = right_join_result.collect()
+    print(right_df)
+    # Output will show all orders (order_id 101-104), with null for name where no customer exists
+    ```
+    
+    ### Cross Join
+    Returns all possible combinations of records from both tables.
+    
+    ```python
+    cross_join_result = customers.join(
+        orders, 
+        how='cross'
+    ).select(
+        customers.name, 
+        orders.amount
+    )
+    cross_df = cross_join_result.collect()
+    print(cross_df)
+    # Output will show 5 customers x 4 orders = 20 combinations
+    ```
+  </Card>
 </CardGroup>
-
-<Warning>
-Always use a `where()` clause with `delete()`. Without it, all rows in the table will be deleted! While you can use `revert()` to undo operations, it's better to be careful with destructive operations.
-</Warning>
-
 
 ## Best Practices
 

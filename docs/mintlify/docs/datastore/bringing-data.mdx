@@ -26,13 +26,15 @@ Pixeltable provides a unified interface for working with diverse data types - fr
     })
 
     # Insert single row
-    basic_table.insert({
-        'id': 1,
-        'score': 95.5,
-        'active': True,
-        'name': 'Example',
-        'created_at': datetime.now()
-    })
+    basic_table.insert([
+        {
+            'id': 1,
+            'score': 95.5,
+            'active': True,
+            'name': 'Example',
+            'created_at': datetime.now()
+        }
+    ])
 
     # Batch insert
     basic_table.insert([
@@ -86,13 +88,13 @@ Pixeltable provides a unified interface for working with diverse data types - fr
     })
 
     # Insert array data
-    array_table.insert({
+    array_table.insert([{
         'fixed_vector': np.random.randn(768),
         'variable_tensor': np.random.randn(5, 512),
         'any_int_array': np.array([1, 2, 3, 4]),          # 1D array
         'any_float_array': np.random.randn(3, 3),         # 2D array
         'completely_flexible': np.array([[1, 2], [3, 4]])  # Any numpy array
-    })
+    }])
     ```
   </Accordion>
 
@@ -106,27 +108,29 @@ Pixeltable provides a unified interface for working with diverse data types - fr
     })
 
     # Insert structured data
-    json_table.insert({
-        'metadata': {
-            'source': 'api',
-            'version': '1.0',
-            'tags': ['test', 'example']
-        },
+    json_table.insert([
+        {
+            'metadata': {
+                'source': 'api',
+                'version': '1.0',
+                'tags': ['test', 'example']
+            },
         'config': {
             'mode': 'testing',
             'parameters': {
                 'batch_size': 32,
                 'learning_rate': 0.001
             }
-        },
-        'features': {
-            'numeric': [1, 2, 3],
-            'categorical': {
-                'color': 'red',
-                'size': 'large'
+            },
+            'features': {
+                'numeric': [1, 2, 3],
+                'categorical': {
+                    'color': 'red',
+                    'size': 'large'
+                }
             }
         }
-    })
+    ])
 
     # Import JSON file
     pxt.io.import_json('myproject.from_json', 'data.json',

@@ -1,5 +1,5 @@
 ---
-title: 'Embedding/Vector Index'
+title: 'Vector Database'
 description: 'Learn how to create, populate and query embedding indexes in Pixeltable'
 icon: 'cube'
 ---
@@ -8,62 +8,51 @@ icon: 'cube'
 Learn more about embedding/vector indexes with this [in-depth guide](https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/feature-guides/embedding-indexes.ipynb).
 </Info>
 
-## What are Embedding Indexes?
+## What are Embedding/Vector Indexes?
 
-Embedding indexes in Pixeltable enable semantic search and similarity-based retrieval across different data modalities. They store vector representations of your content, allowing you to find related items based on meaning rather than exact matching.
+Embedding indexes let you search your data based on meaning, not just keywords. They work with all kinds of content - text, images, audio, video, and documents - making it easy to build powerful search systems.
 
-Unlike traditional indexes that search by keywords, embedding indexes capture the semantic essence of your data, making it possible to:
-- Find content with similar meaning even when using different words
-- Match content across different modalities (text-to-image, image-to-text)
-- Rank results based on semantic relevance
-- Build powerful retrieval systems for RAG applications
+### Multimodal Search Examples
 
-Pixeltable makes working with embeddings simple by:
-- Managing the lifecycle of embedding computations
-- Automatically updating indexes when data changes
-- Providing a unified interface for different embedding models
-- Supporting multiple index types on the same column
+Pixeltable makes it easy to build semantic search for different media types:
 
-```python
-import pixeltable as pxt
-from pixeltable.functions.huggingface import sentence_transformer
+<CardGroup cols={3}>
+  <Card title="Audio" icon="volume-high" href="/docs/examples/search/audio">
+    Build semantic search for audio files and podcasts
+  </Card>
+  <Card title="Image" icon="image" href="/docs/examples/search/images">
+    Create visual search engines with embedding models
+  </Card>
+  <Card title="Document" icon="file-pdf" href="/docs/examples/search/PDF">
+    Search through PDFs and other document formats
+  </Card>
+  <Card title="Video" icon="film" href="/docs/examples/search/video">
+    Find relevant content within video libraries
+  </Card>
+  <Card title="Website" icon="globe" href="/docs/examples/search/website">
+    Search across web content with semantic understanding
+  </Card>
+  <Card title="Text" icon="text" href="https://github.com/pixeltable/pixelagent/tree/main/examples/memory">
+    Use metadata to search for long term memory for ai agents
+  </Card>  
+</CardGroup>
 
-# Create a table and add an embedding index
-knowledge_base = pxt.create_table('kb', {
-    'content': pxt.String,
-    'category': pxt.String
-})
+## How Pixeltable Makes Embeddings Easy
 
-# Add an embedding index using a pre-trained model
-knowledge_base.add_embedding_index(
-    column='content',
-    string_embed=sentence_transformer.using(
-        model_id='sentence-transformers/all-MiniLM-L12-v2'
-    )
-)
-```
+- **No infrastructure headaches** - embeddings are managed automatically
+- **Works with any media type** - text, images, audio, video, or documents
+- **Updates automatically** - when data changes, embeddings update too
+- **Compatible with your favorite models** - use Hugging Face, OpenAI, or your custom models
 
-# Overview
-
-Embedding indexes in Pixeltable are:
-- **Declarative**: Define the index structure and embedding functions once
-- **Maintainable**: Pixeltable automatically keeps indexes up-to-date on changes
-- **Flexible**: Support multiple index types on the same column
-- **Multimodal**: Handle text, images, audio, and documents
-
-<Note>
-In this guide, we'll create a semantic search system for images and text. Make sure you have the required dependencies installed:
-```bash
-pip install pixeltable sentence_transformers
-```
-</Note>
-
-## Phase 1: Setup
+## Phase 1: Setup Embeddings Model and Index
 
 The setup phase defines your schema and creates embedding indexes.
 
 <Tabs>
-  <Tab title="Basic Setup">
+  <Tab title="Sentence Transformers">
+    ```bash
+    pip install pixeltable sentence-transformers
+    ```
     ```python
     import pixeltable as pxt
     from pixeltable.functions.huggingface import sentence_transformer
@@ -91,29 +80,38 @@ The setup phase defines your schema and creates embedding indexes.
     )
     ```
   </Tab>
-  
-  <Tab title="Multiple Indexes">
+
+  <Tab title="OpenAI">
+    ```bash
+    pip install pixeltable openai
+    ```  
     ```python
-    # Create multiple indexes on same column
-    docs.add_embedding_index(
-        column='content',
-        idx_name='minilm_idx',
-        string_embed=sentence_transformer.using(
-            model_id='sentence-transformers/all-MiniLM-L12-v2'
-        )
+    import pixeltable as pxt
+    from pixeltable.functions.openai import embeddings 
+    
+    # Create a directory to organize data (optional)
+    pxt.drop_dir('knowledge_base', force=True)
+    pxt.create_dir('knowledge_base')
+    
+    # Create table
+    docs = pxt.create_table(
+        "knowledge_base.documents",
+        {
+            "content": pxt.String,
+            "metadata": pxt.Json
+        }
     )
     
+    # Create embedding index
+    embed_model = embeddings.using(model_id="text-embedding-3-small")
     docs.add_embedding_index(
         column='content',
-        idx_name='e5_idx',
-        string_embed=sentence_transformer.using(
-            model_id='intfloat/e5-large-v2'
-        )
+        embedding=embed_model
     )
     ```
-  </Tab>
+  </Tab>  
   
-  <Tab title="Custom Embeddings">
+  <Tab title="Custom">
     ```python
     import tensorflow as tf
     import tensorflow_hub as hub
@@ -177,10 +175,12 @@ The insert phase populates your indexes with data. Pixeltable automatically comp
 
 ```python
 # Single insertion
-docs.insert({
-    "content": "Your document text here",
-    "metadata": {"source": "web", "category": "tech"}
-})
+docs.insert([
+    {
+        "content": "Your document text here",
+        "metadata": {"source": "web", "category": "tech"}
+    }
+])
 
 # Batch insertion
 docs.insert([
@@ -211,51 +211,23 @@ Large batch insertions are more efficient than multiple single insertions as the
 The query phase allows you to search your indexed content using the `similarity()` function.
 
 <Tabs>
-  <Tab title="Basic Search">
+  <Tab title="Similarity Search">
     ```python
-    @pxt.query
-    def semantic_search(query: str, k: int):
-        # Calculate similarity scores
-        sim = docs.content.similarity(query)
-        
-        # Return top-k most similar documents
-        return (
-            docs
-            .order_by(sim, asc=False)
-            .select(docs.content, docs.metadata, score=sim)
-            .limit(k)
-        )
+      sim = docs.content.similarity("what is the documentation")
+      
+      # Return top-k most similar documents
+      results = (docs.order_by(sim, asc=False)
+          .select(docs.content, docs.metadata, score=sim)
+          .limit(10)
+      )
+  
+      for i in results:
+          print(f"Similarity: {i['score']:.3f}")
+          print(f"Text: {i['content']}\n")
+    ```
+  </Tab>
     
-    # Use it
-    results = semantic_search("quantum computing")
-    ```
-  </Tab>
-  
-  <Tab title="Multi-Index Search">
-    ```python
-    @pxt.query
-    def compare_models(query: str):
-        # Search with different models
-        minilm_sim = docs.content.similarity(
-            query, idx='minilm_idx'
-        )
-        e5_sim = docs.content.similarity(
-            query, idx='e5_idx'
-        )
-        
-        return (
-            docs
-            .select(
-                docs.content,
-                minilm_score=minilm_sim,
-                e5_score=e5_sim
-            )
-            .limit(5)
-        )
-    ```
-  </Tab>
-  
-  <Tab title="Filtered Search">
+  <Tab title="Use in a Computed Column">
     ```python
     @pxt.query
     def filtered_search(query: str, category: str):
@@ -268,38 +240,13 @@ The query phase allows you to search your indexed content using the `similarity(
             .select(docs.content, score=sim)
             .limit(5)
         )
+
+    docs.add_computed_column(
+      filtered_search(docs.content, docs.category)
+    )
     ```
   </Tab>
 </Tabs>
-
-### Advanced Query Patterns
-
-<AccordionGroup>
-  <Accordion title="Hybrid Search" icon="layer-group">
-    ```python
-    @pxt.query
-    def hybrid_search(query: str):
-        # Combine different similarity scores
-        text_sim = docs.content.similarity(query)
-        title_sim = docs.title.similarity(query)
-        
-        # Weighted combination
-        combined_sim = (text_sim * 0.7) + (title_sim * 0.3)
-        
-        return docs.order_by(combined_sim, asc=False).limit(5)
-    ```
-  </Accordion>
-
-  <Accordion title="Cross-Modal Search" icon="arrows-repeat">
-    ```python
-    @pxt.query
-    def image_to_text(image_query: PIL.Image.Image):
-        # Search text using image embedding
-        sim = docs.content.similarity(image_query)
-        return docs.order_by(sim, asc=False).limit(5)
-    ```
-  </Accordion>
-</AccordionGroup>
 
 ## Management Operations
 
