@@ -245,7 +245,7 @@ class TableRestorer:
         self.tmp_dir = Path(Env.get().create_tmp_path())
         self.media_files = {}
 
-    def restore(self, bundle_path: Path) -> None:
+    def restore(self, bundle_path: Path) -> pxt.Table:
         # Extract tarball
         with tarfile.open(bundle_path, 'r:bz2') as tf:
             tf.extractall(path=self.tmp_dir)
@@ -278,6 +278,8 @@ class TableRestorer:
                 # Now import data from Iceberg.
                 _logger.info(f'Importing table {tv.name!r}.')
                 self.__import_table(iceberg_catalog, tv, md)
+
+        return replica_tbl
 
     def __import_table(
         self, iceberg_catalog: pyiceberg.catalog.Catalog, tv: catalog.TableVersion, tbl_md: schema.FullTableMd
