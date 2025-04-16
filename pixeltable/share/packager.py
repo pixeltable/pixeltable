@@ -14,8 +14,7 @@ import pyarrow as pa
 import pyiceberg.catalog
 
 import pixeltable as pxt
-from pixeltable import catalog, exprs, metadata, type_system as ts
-from pixeltable import plan
+from pixeltable import catalog, exceptions as excs, exprs, metadata, type_system as ts
 from pixeltable.dataframe import DataFrame
 from pixeltable.env import Env
 from pixeltable.metadata import schema
@@ -62,6 +61,10 @@ class TablePackager:
         self.table = table
         self.tmp_dir = Path(Env.get().create_tmp_path())
         self.media_files = {}
+
+        for t in (table, *table._bases):
+            if t._tbl_version.get().iterator_cls is not None:
+                raise excs.Error('Publishing iterator views is not currently supported.')
 
         # Load metadata
         with Env.get().begin_xact():
@@ -126,7 +129,9 @@ class TablePackager:
                 select_exprs[f'errormsg_{col_name}'] = col_ref.errormsg
                 actual_col_types.append(ts.StringType())
 
-        df = pxt.DataFrame(plan.FromClause([tvp])).select(**select_exprs)
+        # Run the select() with `self.table` as the context, not the base TableVersionPath, so that we export only
+        # those rows that are actually present in `self.table`.
+        df = self.table.select(**select_exprs)
 
         self.iceberg_catalog.create_namespace_if_not_exists('pxt')
         iceberg_schema = self.__to_iceberg_schema(df._schema)
@@ -232,6 +237,7 @@ class TableRestorer:
     tbl_path: str
     md: Optional[list[schema.FullTableMd]]
     tmp_dir: Path
+    media_files: dict[str, str]  # Mapping from pxtmedia:// URLs to local file:// URLs
 
     def __init__(self, tbl_path: str, md: Optional[list[schema.FullTableMd]] = None) -> None:
         self.tbl_path = tbl_path
@@ -336,7 +342,7 @@ class TableRestorer:
             return None
         if col_type.is_array_type():
             assert isinstance(val, bytes)
-            # Decode the value to validate that it represents a valid numpy array
+            # Decode the value to validate that it represents a valid numpy array ...
             arr = io.BytesIO(val)
             res = np.load(arr)
             assert isinstance(res, np.ndarray)
@@ -354,9 +360,13 @@ class TableRestorer:
         parsed_url = urllib.parse.urlparse(url)
         assert parsed_url.scheme != 'file'  # These should all have been converted to pxtmedia:// URLs
         if parsed_url.scheme == 'pxtmedia':
-            path = self.tmp_dir / 'media' / parsed_url.netloc
-            dest = MediaStore.prepare_media_path(tv.id, col_id, tv.version, ext=path.suffix)
-            path.rename(dest)
-            return urllib.parse.urljoin('file:', urllib.request.pathname2url(str(dest)))
+            if url not in self.media_files:
+                # First time seeing this pxtmedia:// URL. Relocate the file to the media store and record the mapping
+                # in self.media_files.
+                src_path = self.tmp_dir / 'media' / parsed_url.netloc
+                dest_path = MediaStore.prepare_media_path(tv.id, col_id, tv.version, ext=src_path.suffix)
+                src_path.rename(dest_path)
+                self.media_files[url] = urllib.parse.urljoin('file:', urllib.request.pathname2url(str(dest_path)))
+            return self.media_files[url]
         # For any type of URL other than a local file, just return the URL as-is.
         return url

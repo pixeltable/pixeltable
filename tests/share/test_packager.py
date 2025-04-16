@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
+import pytest
 from pyiceberg.table import Table as IcebergTable
 
 import pixeltable as pxt
@@ -14,6 +15,7 @@ from pixeltable import exprs, metadata
 from pixeltable.env import Env
 from pixeltable.share.packager import TablePackager, TableRestorer
 from pixeltable.utils.iceberg import sqlite_catalog
+from tests.conftest import clean_db
 
 from ..utils import SAMPLE_IMAGE_URL, assert_resultset_eq, get_image_files, get_video_files, reload_catalog
 
@@ -126,7 +128,7 @@ class TestPackager:
                 select_exprs[f'errormsg_{col_name}'] = t[col_name].errormsg
                 actual_col_types.append(pxt.StringType())
 
-        scope_tbl = t  # scope_tbl or t  # TODO Currently not working
+        scope_tbl = scope_tbl or t
         pxt_data = scope_tbl.select(**select_exprs).collect()
         for col, col_type in zip(select_exprs.keys(), actual_col_types):
             print(f'Checking column: {col}')
@@ -162,44 +164,47 @@ class TestPackager:
             else:
                 assert pxt_val == iceberg_val
 
+    def __do_round_trip(self, snapshot: pxt.Table) -> None:
+        assert snapshot._tbl_version.get().is_snapshot
+
+        schema = snapshot._schema
+        depth = len(snapshot._tbl_version_path.ancestors)
+        data = snapshot.head(n=500)
+
+        # Package the snapshot into a tarball
+        packager = TablePackager(snapshot)
+        bundle_path = packager.package()
+
+        # Clear out the db
+        clean_db()
+        reload_catalog()
+
+        # Restore the snapshot from the tarball
+        restorer = TableRestorer('new_replica')
+        restorer.restore(bundle_path)
+        t = pxt.get_table('new_replica')
+        assert t._schema == schema
+        assert len(snapshot._tbl_version_path.ancestors) == depth
+        reconstituted_data = t.head(n=500)
+
+        assert_resultset_eq(data, reconstituted_data)
+
     def test_round_trip(self, test_tbl: pxt.Table) -> None:
         """package() / unpackage() round trip"""
         snapshot = pxt.create_snapshot('snapshot', test_tbl)
-        schema = snapshot._schema
-        data = snapshot.select().order_by(snapshot.c2).collect()
-
-        packager = TablePackager(snapshot)
-        bundle_path = packager.package()
-
-        pxt.drop_table(test_tbl, force=True)
-        reload_catalog()
-
-        restorer = TableRestorer('new_replica')
-        restorer.restore(bundle_path)
-        t = pxt.get_table('new_replica')
-        assert t._schema == schema
-        reconstituted_data = t.select().order_by(t.c2).collect()
-
-        assert_resultset_eq(data, reconstituted_data)
+        self.__do_round_trip(snapshot)
 
     def test_media_round_trip(self, img_tbl: pxt.Table) -> None:
         snapshot = pxt.create_snapshot('snapshot', img_tbl)
-        schema = snapshot._schema
-        data = snapshot.select().head()
+        self.__do_round_trip(snapshot)
 
-        packager = TablePackager(snapshot)
-        bundle_path = packager.package()
-
-        pxt.drop_table(img_tbl, force=True)
-        reload_catalog()
-
-        restorer = TableRestorer('new_replica')
-        restorer.restore(bundle_path)
-        t = pxt.get_table('new_replica')
-        assert t._schema == schema
-        reconstituted_data = t.select().head()
-
-        assert_resultset_eq(data, reconstituted_data)
+    def test_views_round_trip(self, test_tbl: pxt.Table) -> None:
+        v1 = pxt.create_view('v1', test_tbl, additional_columns={'x1': pxt.Int})
+        v1.update({'x1': test_tbl.c2 * 10})
+        v2 = pxt.create_view('v2', v1, additional_columns={'x2': pxt.Int})
+        v2.update({'x2': v1.x1 + 8})
+        snapshot = pxt.create_snapshot('snapshot', v2)
+        self.__do_round_trip(snapshot)
 
     def test_iterator_view_round_trip(self, reset_db: None) -> None:
         t = pxt.create_table('base_tbl', {'video': pxt.Video})
@@ -209,18 +214,7 @@ class TestPackager:
         # Add a stored computed column that will generate a bunch of media files in the view.
         v.add_computed_column(rot_frame=v.frame.rotate(180))
         snapshot = pxt.create_snapshot('snapshot', v)
-        schema = snapshot._schema
-        data = snapshot.select().head()
 
-        packager = TablePackager(snapshot)
-        bundle_path = packager.package()
-
-        pxt.drop_table(t, force=True)
-        reload_catalog()
-
-        restorer = TableRestorer('new_replica')
-        restorer.restore(bundle_path)
-        t = pxt.get_table('new_replica')
-        assert t._schema == schema
-        reconstituted_data = t.select().head()
-        assert_resultset_eq(data, reconstituted_data)
+        # TODO: Remove the `pytest.raises()` when we support iterator views.
+        with pytest.raises(pxt.Error, match=r'Publishing iterator views is not currently supported.'):
+            self.__do_round_trip(snapshot)

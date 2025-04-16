@@ -430,6 +430,10 @@ class StoreBase:
         return status.rowcount
 
     def insert_replica_rows(self, rows: list[dict[str, Any]]) -> None:
+        """
+        When instantiating a replica, we can't rely on the usual insertion code path, which contains error handling
+        and other logic that doesn't apply.
+        """
         conn = Env.get().conn
 
         # First cache the column mappings (for efficiency)
@@ -449,6 +453,7 @@ class StoreBase:
                 store_row[store_col_name] = row[col_name]
             # Now fill in the pk cols
             pk = row['pk']
+            assert len(pk) == len(self._pk_cols)
             for pk_col, pk_val in zip(self._pk_cols, pk):
                 store_row[pk_col.name] = pk_val
             store_rows.append(store_row)

@@ -14,13 +14,13 @@ import PIL.Image
 import pytest
 
 import pixeltable as pxt
-from pixeltable.utils import sha256sum
 import pixeltable.utils.s3 as s3_util
 from pixeltable import catalog, exceptions as excs
 from pixeltable.catalog.globals import UpdateStatus
 from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
 from pixeltable.io import SyncStatus
+from pixeltable.utils import sha256sum
 
 
 def make_default_type(t: pxt.ColumnType.Type) -> pxt.ColumnType:
@@ -398,29 +398,42 @@ def assert_resultset_eq(r1: DataFrameResultSet, r2: DataFrameResultSet, compare_
         mismatches = __find_column_mismatches(r1.schema[r1_col], r1[r1_col], r2[r2_col])
         assert len(mismatches) == 0, __mismatch_err_string(r1_col, r1[r1_col], r2[r2_col], mismatches)
 
+
 def __find_column_mismatches(col_type: pxt.ColumnType, s1: list[Any], s2: list[Any]) -> list[int]:
     """
     Find the first `limit` mismatches between two lists of values.
     """
-    comparer: Callable[[Any, Any], bool]
-    if col_type.is_float_type():
-        # Use np.isclose to compare floats
-        comparer = lambda x, y: np.isclose(x, y, equal_nan=True)
-    elif col_type.is_array_type():
-        # Use np.array_equal to compare arrays
-        comparer = lambda x, y: np.array_equal(x, y, equal_nan=True)
-    elif col_type.is_video_type() or col_type.is_audio_type() or col_type.is_document_type():
-        # Compare media files by hashing their contents
-        comparer = lambda x, y: sha256sum(x) == sha256sum(y)
-    else:
-        # Everything else (including PIL images) is compared by value
-        comparer = lambda x, y: x == y
-
+    comparer = __COMPARERS.get(col_type._type, __equality_comparer)
     mismatches = []
     for i, (v1, v2) in enumerate(zip(s1, s2)):
         if (v1 is None) != (v2 is None) or (v1 is not None and not comparer(v1, v2)):
             mismatches.append(i)
     return mismatches
+
+
+def __float_comparer(x: float, y: float) -> bool:
+    return bool(np.isclose(x, y, equal_nan=True))
+
+
+def __array_comparer(x: np.ndarray, y: np.ndarray) -> bool:
+    return np.array_equal(x, y)
+
+
+def __file_comparer(x: str, y: str) -> bool:
+    return sha256sum(x) == sha256sum(y)
+
+
+def __equality_comparer(x: Any, y: Any) -> bool:
+    return x == y
+
+
+__COMPARERS: dict[pxt.ColumnType.Type, Callable[[Any, Any], bool]] = {
+    pxt.ColumnType.Type.FLOAT: __float_comparer,
+    pxt.ColumnType.Type.ARRAY: __array_comparer,
+    pxt.ColumnType.Type.VIDEO: __file_comparer,
+    pxt.ColumnType.Type.AUDIO: __file_comparer,
+    pxt.ColumnType.Type.DOCUMENT: __file_comparer,
+}
 
 
 def __mismatch_err_string(col_name: str, s1: list[Any], s2: list[Any], mismatches: list[int]) -> str:
