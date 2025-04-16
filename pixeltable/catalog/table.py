@@ -691,7 +691,7 @@ class Table(SchemaObject):
         for name, spec in schema.items():
             col_type: Optional[ts.ColumnType] = None
             value_expr: Optional[exprs.Expr] = None
-            primary_key: Optional[bool] = None
+            primary_key: bool = False
             media_validation: Optional[catalog.MediaValidation] = None
             stored = True
 
@@ -713,7 +713,7 @@ class Table(SchemaObject):
                     value_expr = value_expr.copy()
                     value_expr.bind_rel_paths()
                 stored = spec.get('stored', True)
-                primary_key = spec.get('primary_key')
+                primary_key = spec.get('primary_key', False)
                 media_validation_str = spec.get('media_validation')
                 media_validation = (
                     catalog.MediaValidation[media_validation_str.upper()] if media_validation_str is not None else None
