@@ -100,7 +100,8 @@ class TestMigration:
                 self._run_v19_tests()
             if old_version >= 30:
                 self._run_v30_tests()
-
+            if old_version >= 33:
+                self._verify_v33()
             self._verify_v24(old_version)
 
         _logger.info(f'Verified DB dumps with versions: {versions_found}')
@@ -275,3 +276,11 @@ class TestMigration:
                 table_schema_version_md = row[2]
                 assert table_schema_version_md['tbl_id'] == tbl_id
                 assert table_schema_version_md['schema_version'] == schema_version
+
+    @classmethod
+    def _verify_v33(cls) -> None:
+        with Env.get().engine.begin() as conn:
+            for row in conn.execute(sql.select(Table)):
+                table_md = row[2]
+                for col_md in table_md['column_md'].values():
+                    assert col_md['is_pk'] is not None

@@ -16,6 +16,7 @@ from pixeltable import catalog, exceptions as excs, exprs
 from pixeltable.env import Env
 from pixeltable.exec import ExecNode
 from pixeltable.metadata import schema
+from pixeltable.utils.exception_handler import run_cleanup
 from pixeltable.utils.media_store import MediaStore
 from pixeltable.utils.sql import log_explain, log_stmt
 
@@ -232,7 +233,6 @@ class StoreBase:
         assert col.tbl.id == self.tbl_version.id
         num_excs = 0
         num_rows = 0
-
         # create temp table to store output of exec_plan, with the same primary key as the store table
         tmp_name = f'temp_{self._storage_name()}'
         tmp_pk_cols = [sql.Column(col.name, col.type, primary_key=True) for col in self.pk_columns()]
@@ -301,10 +301,13 @@ class StoreBase:
                 )
             log_explain(_logger, update_stmt, conn)
             conn.execute(update_stmt)
-
         finally:
-            tmp_tbl.drop(bind=conn)
-            self.sa_md.remove(tmp_tbl)
+
+            def remove_tmp_tbl() -> None:
+                self.sa_md.remove(tmp_tbl)
+                tmp_tbl.drop(bind=conn)
+
+            run_cleanup(remove_tmp_tbl, raise_error=True)
         return num_excs
 
     def insert_rows(

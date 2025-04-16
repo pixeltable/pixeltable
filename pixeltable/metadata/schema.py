@@ -305,9 +305,9 @@ class FullTableMd(NamedTuple):
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> 'FullTableMd':
-        return cls(
-            tbl_md=md_from_dict(TableMd, data['table_md']),
-            version_md=md_from_dict(TableVersionMd, data['table_version_md']),
-            schema_version_md=md_from_dict(TableSchemaVersionMd, data['table_schema_version_md']),
+    def from_dict(cls, data_dict: dict[str, Any]) -> 'FullTableMd':
+        return FullTableMd(
+            tbl_md=md_from_dict(TableMd, data_dict['table_md']),
+            version_md=md_from_dict(TableVersionMd, data_dict['table_version_md']),
+            schema_version_md=md_from_dict(TableSchemaVersionMd, data_dict['table_schema_version_md']),
         )

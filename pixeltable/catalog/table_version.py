@@ -5,7 +5,7 @@ import importlib
 import logging
 import time
 import uuid
-from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, Optional
+from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, Optional, Tuple
 from uuid import UUID
 
 import jsonschema.exceptions
@@ -18,6 +18,7 @@ from pixeltable import exprs, index
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
 from pixeltable.metadata import schema
+from pixeltable.utils.exception_handler import run_cleanup_on_exception
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.media_store import MediaStore
 
@@ -473,33 +474,36 @@ class TableVersion:
         _logger.info(f'Added index {idx_name} on column {col.name} to table {self.name}')
         return status
 
-    def _add_default_index(self, col: Column) -> Optional[UpdateStatus]:
-        """Add a B-tree index on this column if it has a compatible type"""
+    def _is_btree_indexable(self, col: Column) -> bool:
         if not col.stored:
             # if the column is intentionally not stored, we want to avoid the overhead of an index
-            return None
+            return False
         # Skip index for stored media columns produced by an iterator
         if col.col_type.is_media_type() and self.is_iterator_column(col):
-            return None
+            return False
         if not col.col_type.is_scalar_type() and not (col.col_type.is_media_type() and not col.is_computed):
             # wrong type for a B-tree
-            return None
-        if col.col_type.is_bool_type():
+            return False
+        if col.col_type.is_bool_type():  # noqa : SIM103 Supress `Return the negated condition directly` check
             # B-trees on bools aren't useful
+            return False
+        return True
+
+    def _add_default_index(self, col: Column) -> Optional[UpdateStatus]:
+        """Add a B-tree index on this column if it has a compatible type"""
+        if not self._is_btree_indexable(col):
             return None
         status = self._add_index(col, idx_name=None, idx=index.BtreeIndex(col))
         return status
 
-    def _add_index(self, col: Column, idx_name: Optional[str], idx: index.IndexBase) -> UpdateStatus:
+    def _create_index_columns(self, idx: index.IndexBase) -> Tuple[Column, Column]:
+        """Create value and undo columns for the given index.
+        Args:
+            idx:  index for which columns will be created.
+        Returns:
+            A tuple containing the value column and the undo column.
+        """
         assert not self.is_snapshot
-        idx_id = self.next_idx_id
-        self.next_idx_id += 1
-        if idx_name is None:
-            idx_name = f'idx{idx_id}'
-        else:
-            assert is_valid_identifier(idx_name)
-            assert idx_name not in [i.name for i in self.idx_md.values()]
-
         # add the index value and undo columns (which need to be nullable)
         val_col = Column(
             col_id=self.next_col_id,
@@ -528,7 +532,19 @@ class TableVersion:
         undo_col.tbl = self.create_handle()
         undo_col.col_type = undo_col.col_type.copy(nullable=True)
         self.next_col_id += 1
+        return val_col, undo_col
 
+    def _create_index(
+        self, col: Column, val_col: Column, undo_col: Column, idx_name: Optional[str], idx: index.IndexBase
+    ) -> None:
+        """Create the given index along with index md"""
+        idx_id = self.next_idx_id
+        self.next_idx_id += 1
+        if idx_name is None:
+            idx_name = f'idx{idx_id}'
+        else:
+            assert is_valid_identifier(idx_name)
+            assert idx_name not in [i.name for i in self.idx_md.values()]
         # create and register the index metadata
         idx_cls = type(idx)
         idx_md = schema.IndexMd(
@@ -546,14 +562,27 @@ class TableVersion:
         idx_info = self.IndexInfo(id=idx_id, name=idx_name, idx=idx, col=col, val_col=val_col, undo_col=undo_col)
         self.idx_md[idx_id] = idx_md
         self.idxs_by_name[idx_name] = idx_info
+        try:
+            idx.create_index(self._store_idx_name(idx_id), val_col)
+        finally:
 
+            def cleanup_index() -> None:
+                """Delete the newly added in-memory index structure"""
+                del self.idxs_by_name[idx_name]
+                del self.idx_md[idx_id]
+                self.next_idx_id = idx_id
+
+            # Run cleanup only if there has been an exception; otherwise, skip cleanup.
+            run_cleanup_on_exception(cleanup_index)
+
+    def _add_index(self, col: Column, idx_name: Optional[str], idx: index.IndexBase) -> UpdateStatus:
+        val_col, undo_vol = self._create_index_columns(idx)
         # add the columns and update the metadata
         # TODO support on_error='abort' for indices; it's tricky because of the way metadata changes are entangled
         # with the database operations
-        status = self._add_columns([val_col, undo_col], print_stats=False, on_error='ignore')
+        status = self._add_columns([val_col, undo_vol], print_stats=False, on_error='ignore')
         # now create the index structure
-        idx.create_index(self._store_idx_name(idx_id), val_col)
-
+        self._create_index(col, val_col, undo_vol, idx_name, idx)
         return status
 
     def drop_index(self, idx_id: int) -> None:
@@ -594,9 +623,21 @@ class TableVersion:
         self.version += 1
         preceding_schema_version = self.schema_version
         self.schema_version = self.version
-        status = self._add_columns(cols, print_stats=print_stats, on_error=on_error)
+        index_cols: dict[Column, tuple[index.BtreeIndex, Column, Column]] = {}
+        all_cols: list[Column] = []
         for col in cols:
-            _ = self._add_default_index(col)
+            all_cols.append(col)
+            if self._is_btree_indexable(col):
+                idx = index.BtreeIndex(col)
+                val_col, undo_col = self._create_index_columns(idx)
+                index_cols[col] = (idx, val_col, undo_col)
+                all_cols.append(val_col)
+                all_cols.append(undo_col)
+        # Add all columns
+        status = self._add_columns(all_cols, print_stats=print_stats, on_error=on_error)
+        # Create indices and their mds
+        for col, (idx, val_col, undo_col) in index_cols.items():
+            self._create_index(col, val_col, undo_col, idx_name=None, idx=idx)
         self._update_md(time.time(), preceding_schema_version=preceding_schema_version)
         _logger.info(f'Added columns {[col.name for col in cols]} to table {self.name}, new version: {self.version}')
 
@@ -612,9 +653,9 @@ class TableVersion:
         self, cols: Iterable[Column], print_stats: bool, on_error: Literal['abort', 'ignore']
     ) -> UpdateStatus:
         """Add and populate columns within the current transaction"""
-        cols = list(cols)
+        cols_to_add = list(cols)
         row_count = self.store_tbl.count()
-        for col in cols:
+        for col in cols_to_add:
             if not col.col_type.nullable and not col.is_computed and row_count > 0:
                 raise excs.Error(
                     f'Cannot add non-nullable column {col.name!r} to table {self.name!r} with existing rows'
@@ -622,7 +663,8 @@ class TableVersion:
 
         num_excs = 0
         cols_with_excs: list[Column] = []
-        for col in cols:
+        for col in cols_to_add:
+            excs_per_col = 0
             col.schema_version_add = self.schema_version
             # add the column to the lookup structures now, rather than after the store changes executed successfully,
             # because it might be referenced by the next column's value_expr
@@ -645,29 +687,32 @@ class TableVersion:
 
             plan, value_expr_slot_idx = Planner.create_add_column_plan(self.path, col)
             plan.ctx.num_rows = row_count
-
             try:
                 plan.open()
                 try:
-                    num_excs = self.store_tbl.load_column(col, plan, value_expr_slot_idx, on_error)
+                    excs_per_col = self.store_tbl.load_column(col, plan, value_expr_slot_idx, on_error)
                 except sql.exc.DBAPIError as exc:
                     # Wrap the DBAPIError in an excs.Error to unify processing in the subsequent except block
                     raise excs.Error(f'SQL error during execution of computed column `{col.name}`:\n{exc}') from exc
-                if num_excs > 0:
+                if excs_per_col > 0:
                     cols_with_excs.append(col)
-            except excs.Error as exc:
-                self.cols.pop()
-                for c in cols:
-                    # remove columns that we already added
-                    if c.id not in self.cols_by_id:
-                        continue
-                    if c.name is not None:
-                        del self.cols_by_name[c.name]
-                    del self.cols_by_id[c.id]
-                # we need to re-initialize the sqlalchemy schema
-                self.store_tbl.create_sa_tbl()
-                raise exc
+                    num_excs += excs_per_col
             finally:
+                # Ensure cleanup occurs if an exception or keyboard interruption happens during `load_column()`.
+                def cleanup_on_error() -> None:
+                    """Delete columns that are added as part of current add_columns operation and re-initialize
+                    the sqlalchemy schema"""
+                    self.cols = [col for col in self.cols if col not in cols_to_add]
+                    for col in cols_to_add:
+                        # remove columns that we already added
+                        if col.id in self.cols_by_id:
+                            del self.cols_by_id[col.id]
+                        if col.name is not None and col.name in self.cols_by_name:
+                            del self.cols_by_name[col.name]
+                    self.store_tbl.create_sa_tbl()
+
+                # Run cleanup only if there has been an exception; otherwise, skip cleanup.
+                run_cleanup_on_exception(cleanup_on_error)
                 plan.close()
 
         if print_stats:
@@ -1291,6 +1336,7 @@ class TableVersion:
         column_md: dict[int, schema.ColumnMd] = {}
         for col in cols:
             value_expr_dict = col.value_expr.as_dict() if col.value_expr is not None else None
+            assert col.is_pk is not None
             column_md[col.id] = schema.ColumnMd(
                 id=col.id,
                 col_type=col.col_type.as_dict(),
