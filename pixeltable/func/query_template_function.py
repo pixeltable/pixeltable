@@ -125,7 +125,7 @@ def query(*args: Any, **kwargs: Any) -> Any:
         return lambda py_fn: make_query_template(py_fn, kwargs['param_types'])
 
 
-def retrieval_tool(
+def retrieval_udf(
     table: catalog.Table,
     name: Optional[str] = None,
     description: Optional[str] = None,
@@ -133,7 +133,7 @@ def retrieval_tool(
     limit: Optional[int] = 10,
 ) -> func.QueryTemplateFunction:
     """
-    Constructs a retrieval tool for the given table. The retrieval tool is a function `f` whose parameters are
+    Constructs a retrieval UDF for the given table. The retrieval UDF is a UDF whose parameters are
     columns of the table and whose return value is a list of rows from the table. The return value of
     ```python
     f(col1=x, col2=y, ...)
@@ -163,16 +163,6 @@ def retrieval_tool(
         for param in parameters:
             if isinstance(param, str) and param not in table.columns:
                 raise excs.Error(f'The specified parameter {param!r} is not a column of the table {table._path!r}')
-            if isinstance(param, str) and table[param].col.is_computed:
-                raise excs.Error(
-                    f'The specified parameter {param!r} is a computed column; '
-                    'only data columns are allowed as parameters'
-                )
-            if isinstance(param, exprs.ColumnRef) and param.col.is_computed:
-                raise excs.Error(
-                    f'The specified parameter {param.col.name!r} is a computed column; '
-                    'only data columns are allowed as parameters'
-                )
         col_refs = [table[param] if isinstance(param, str) else param for param in parameters]
 
     if len(col_refs) == 0:

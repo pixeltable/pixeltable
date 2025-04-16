@@ -994,7 +994,7 @@ class TestFunction:
         )
         t.add_computed_column(ref_id=pxtf.string.format('PXT-{0}', t.customer_id))
 
-        fn1 = pxt.retrieval_tool(t)
+        fn1 = pxt.retrieval_udf(t)
         assert fn1.name == 'customers'
         assert list(fn1.signature.parameters.keys()) == ['customer_id', 'name', 'sales']
         assert [p.col_type for p in fn1.signature.parameters.values()] == [
@@ -1013,7 +1013,7 @@ class TestFunction:
             """
         ).strip()  # fmt: skip
 
-        fn2 = pxt.retrieval_tool(t, parameters=['customer_id'], limit=None)
+        fn2 = pxt.retrieval_udf(t, parameters=['customer_id'], limit=None)
         assert fn2.name == 'customers'
         assert list(fn2.signature.parameters.keys()) == ['customer_id']
         assert [p.col_type for p in fn2.signature.parameters.values()] == [pxt.StringType()]
@@ -1031,7 +1031,7 @@ class TestFunction:
             {'customer_id': 'Q371A', 'name': 'Aaron Siegel', 'ref_id': 'PXT-Q371A', 'sales': None}
         ]
 
-        fn3 = pxt.retrieval_tool(
+        fn3 = pxt.retrieval_udf(
             t,
             name='my_customers',
             description="I'm a tool that LLMs can use to do stuff.",
