@@ -23,7 +23,7 @@ class TestVision:
         v.add_computed_column(gt=yolox(v.frame_s, model_id='yolox_m'))
         from pixeltable.functions.vision import draw_bounding_boxes, eval_detections, mean_ap
 
-        res = v.select(
+        _ = v.select(
             eval_detections(
                 v.detections_a.bboxes, v.detections_a.labels, v.detections_a.scores, v.gt.bboxes, v.gt.labels
             )

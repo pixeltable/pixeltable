@@ -5,7 +5,6 @@ from typing import Any, Optional, Union
 import jmespath
 import sqlalchemy as sql
 
-import pixeltable as pxt
 from pixeltable import catalog, exceptions as excs, type_system as ts
 
 from .data_row import DataRow
@@ -19,10 +18,7 @@ from .sql_element_cache import SqlElementCache
 
 class JsonPath(Expr):
     def __init__(
-        self,
-        anchor: Optional['pxt.exprs.Expr'],
-        path_elements: Optional[list[Union[str, int, slice]]] = None,
-        scope_idx: int = 0,
+        self, anchor: Optional[Expr], path_elements: Optional[list[Union[str, int, slice]]] = None, scope_idx: int = 0
     ) -> None:
         """
         anchor can be None, in which case this is a relative JsonPath and the anchor is set later via set_anchor().

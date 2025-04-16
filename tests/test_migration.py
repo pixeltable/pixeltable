@@ -10,7 +10,7 @@ from typing import Any, Optional
 import pixeltable_pgserver
 import pytest
 import sqlalchemy as sql
-import sqlalchemy.orm as orm
+from sqlalchemy import orm
 
 import pixeltable as pxt
 from pixeltable.env import Env
@@ -46,7 +46,7 @@ class TestMigration:
 
         for dump_file in dump_files:
             _logger.info(f'Testing migration from DB dump {dump_file}.')
-            info_file = dump_file.rstrip('.dump.gz') + '-info.toml'
+            info_file = dump_file.removesuffix('.dump.gz') + '-info.toml'
             with open(info_file, 'r', encoding='utf-8') as fp:
                 info = toml.load(fp)
                 old_version = info['pixeltable-dump']['metadata-version']
@@ -165,7 +165,6 @@ class TestMigration:
         pxt.get_table('views.view_of_views').describe()
         pxt.get_table('views.empty_view').describe()
 
-        t = pxt.get_table('base_table')
         v = pxt.get_table('views.view')
         e = pxt.get_table('views.empty_view')
 
@@ -236,7 +235,7 @@ class TestMigration:
             c4=True,
             c5=datetime.now(),
             c6={
-                'f1': f'test string 21',
+                'f1': 'test string 21',
                 'f2': 21,
                 'f3': float(21.0),
                 'f4': True,

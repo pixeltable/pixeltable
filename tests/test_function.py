@@ -13,7 +13,7 @@ import pixeltable.functions as pxtf
 from pixeltable import catalog, func
 from pixeltable.func import Batch, Function, FunctionRegistry
 
-from .utils import SAMPLE_IMAGE_URL, ReloadTester, assert_resultset_eq, reload_catalog, validate_update_status
+from .utils import ReloadTester, assert_resultset_eq, reload_catalog, validate_update_status
 
 
 def dummy_fn(i: int) -> int:
@@ -395,6 +395,51 @@ class TestFunction:
             _ = pb1(p1='a')
         assert 'missing a required argument' in str(exc_info.value).lower()
 
+    def test_nested_partial_binding(self, reset_db: None) -> None:
+        pb1 = self.binding_test_udf.using(p2='y')
+        pb2 = pb1.using(p1='x')
+        pb3 = pb2.using(p3='z')
+        assert pb1.arity == 3
+        assert pb2.arity == 2
+        assert pb3.arity == 1
+        assert len(pb1.signatures[0].required_parameters) == 2
+        assert len(pb2.signatures[0].required_parameters) == 1
+        assert len(pb3.signatures[0].required_parameters) == 0
+        assert pb2.signatures[0].required_parameters[0].name == 'p3'
+
+        t = pxt.create_table('test', {'c1': pxt.String, 'c2': pxt.String, 'c3': pxt.String})
+        t.insert(c1='a', c2='b', c3='c')
+        t.add_computed_column(pb1=pb1(t.c1, t.c3))
+        t.add_computed_column(pb2=pb2(t.c3))
+        t.add_computed_column(pb3=pb3(p4='changed'))
+        res = t.select(t.pb1, t.pb2, t.pb3).collect()
+        assert res[0] == {'pb1': 'a y c default', 'pb2': 'x y c default', 'pb3': 'x y z changed'}
+
+    @staticmethod
+    @pxt.udf
+    def crt_test_udf(a: int, b: int, c: int = 5) -> pxt.Array[pxt.Int]:
+        return np.ones((b, c)) * a
+
+    def test_conditional_return_type(self, reset_db: None) -> None:
+        f = self.crt_test_udf
+
+        @f.conditional_return_type
+        def _(b: int, c: int) -> pxt.ColumnType:
+            return pxt.ArrayType(shape=(b, c), dtype=pxt.IntType())
+
+        assert f.signature.return_type == pxt.ArrayType(dtype=pxt.IntType())
+        assert f(3, 7).col_type == pxt.ArrayType(shape=(7, 5), dtype=pxt.IntType())
+        assert f(3, 7, 2).col_type == pxt.ArrayType(shape=(7, 2), dtype=pxt.IntType())
+
+        g = f.using(b=7)
+        assert g.signature.return_type == pxt.ArrayType(dtype=pxt.IntType())
+        assert g(3).col_type == pxt.ArrayType(shape=(7, 5), dtype=pxt.IntType())
+        assert g(3, 2).col_type == pxt.ArrayType(shape=(7, 2), dtype=pxt.IntType())
+
+        h = g.using(c=2)
+        assert h.signature.return_type == pxt.ArrayType(shape=(7, 2), dtype=pxt.IntType())
+        assert h(3).col_type == pxt.ArrayType(shape=(7, 2), dtype=pxt.IntType())
+
     @staticmethod
     @pxt.expr_udf
     def add1(x: int) -> int:
@@ -513,7 +558,7 @@ class TestFunction:
         assert '`wrong_param` that is not in a signature' in str(v_exc_info.value).lower()
 
         with pytest.raises(excs.Error) as exc_info:
-            from .module_with_duplicate_udf import duplicate_udf
+            from .module_with_duplicate_udf import duplicate_udf  # noqa: F401
         assert 'A UDF with that name already exists: tests.module_with_duplicate_udf.duplicate_udf' in str(
             exc_info.value
         )
@@ -523,7 +568,7 @@ class TestFunction:
         assert self.agg.__doc__ == 'An aggregator.'
 
     @pxt.udf
-    def overloaded_udf(x: str, y: str, z: str = 'a') -> str:  # type: ignore[misc]
+    def overloaded_udf(x: str, y: str, z: str = 'a') -> str:  # type: ignore[misc]  # noqa: N805
         return x + y
 
     @staticmethod
@@ -537,7 +582,7 @@ class TestFunction:
         return x + y + 2.0
 
     @pxt.udf(type_substitutions=({T: str}, {T: int}, {T: float}))
-    def typevar_udf(x: T, y: T, z: str = 'a') -> T:
+    def typevar_udf(x: T, y: T, z: str = 'a') -> T:  # noqa: N805
         return x + y  # type: ignore[operator]
 
     def test_overloaded_udf(self, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
@@ -580,7 +625,7 @@ class TestFunction:
         assert fc_int2.fn.signature == fn.signatures[1]
         assert fc_int2.col_type.is_int_type()
 
-        with pytest.raises(excs.Error, match='has no matching signature') as exc_info:
+        with pytest.raises(excs.Error, match='has no matching signature'):
             fn(t.c3, t.c3)
 
         res = t.select(fc_str2, fc_int2).order_by(t.c2).collect()
@@ -709,17 +754,21 @@ class TestFunction:
         Test UDFs with default values and/or constant arguments that are not JSON serializable.
         """
 
+        epoch = datetime.fromtimestamp(0)
+
         @pxt.udf(_force_stored=True)
-        def udf_with_timestamp_constants(ts1: datetime, ts2: datetime = datetime.fromtimestamp(0)) -> float:
+        def udf_with_timestamp_constants(ts1: datetime, ts2: datetime = epoch) -> float:
             return (ts1 - ts2).seconds
 
         t = pxt.create_table('test1', {'ts1': pxt.Timestamp})
         t.add_computed_column(seconds_since_epoch=udf_with_timestamp_constants(t.ts1))
         t.add_computed_column(seconds_since_2000=udf_with_timestamp_constants(t.ts1, ts2=datetime(2000, 1, 1)))
 
+        ones_arr = np.ones(6, dtype=np.float32)
+
         @pxt.udf(_force_stored=True)
         def udf_with_array_constants(
-            a: pxt.Array[pxt.Float, (6,)], b: pxt.Array[pxt.Float, (6,)] = np.ones(6, dtype=np.float32)
+            a: pxt.Array[pxt.Float, (6,)], b: pxt.Array[pxt.Float, (6,)] = ones_arr
         ) -> pxt.Array[pxt.Float, (6,)]:
             return a + b
 
@@ -747,7 +796,7 @@ class TestFunction:
         error messages are lengthy and complex, we match against the entire fully-baked error string, to ensure
         that they remain comprehensible after future refactorings.
         """
-        import tests.test_function
+        import tests.test_function  # noqa: PLW0406
 
         t = pxt.create_table('test', {'c1': pxt.String})
         t.insert(c1='xyz')
@@ -789,7 +838,8 @@ class TestFunction:
                     re.escape("The computed column 'result' in table 'test' is no longer valid."),
                     re.escape(msg),
                     re.escape(
-                        'You can continue to query existing data from this column, but evaluating it on new data will raise an error.'
+                        'You can continue to query existing data from this column, '
+                        'but evaluating it on new data will raise an error.'
                     ),
                 ]
             )
@@ -799,7 +849,8 @@ class TestFunction:
             regex = '\n'.join(
                 [
                     re.escape(
-                        "Data cannot be inserted into the table 'test',\nbecause the column 'result' is currently invalid:"
+                        "Data cannot be inserted into the table 'test',\n"
+                        "because the column 'result' is currently invalid:"
                     ),
                     re.escape(msg),
                 ]
