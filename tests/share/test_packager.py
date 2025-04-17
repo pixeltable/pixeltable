@@ -7,14 +7,13 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
+import pyarrow.parquet as pq
 import pytest
-from pyiceberg.table import Table as IcebergTable
 
 import pixeltable as pxt
 from pixeltable import exprs, metadata
 from pixeltable.env import Env
 from pixeltable.share.packager import TablePackager, TableRestorer
-from pixeltable.utils.iceberg import sqlite_catalog
 from tests.conftest import clean_db
 
 from ..utils import SAMPLE_IMAGE_URL, assert_resultset_eq, get_image_files, get_video_files, reload_catalog
@@ -29,17 +28,14 @@ class TestPackager:
         dest = self.__extract_bundle(bundle_path)
         metadata = json.loads((dest / 'metadata.json').read_text())
         self.__validate_metadata(metadata, test_tbl)
-        catalog = sqlite_catalog(dest / 'warehouse')
-        assert catalog.list_tables('pxt') == [('pxt', f'tbl_{test_tbl._id.hex}')]
-        iceberg_tbl = catalog.load_table(f'pxt.tbl_{test_tbl._id.hex}')
-        self.__check_iceberg_tbl(test_tbl, iceberg_tbl)
+        self.__check_parquet_tbl(test_tbl, dest)
 
     def test_packager_with_views(self, test_tbl: pxt.Table) -> None:
-        pxt.create_dir('iceberg_dir')
-        pxt.create_dir('iceberg_dir.subdir')
-        view = pxt.create_view('iceberg_dir.subdir.test_view', test_tbl)
+        pxt.create_dir('test_dir')
+        pxt.create_dir('test_dir.subdir')
+        view = pxt.create_view('test_dir.subdir.test_view', test_tbl)
         view.add_computed_column(vc2=(view.c2 + 1))
-        subview = pxt.create_view('iceberg_dir.subdir.test_subview', view.where(view.c2 % 5 == 0))
+        subview = pxt.create_view('test_dir.subdir.test_subview', view.where(view.c2 % 5 == 0))
         subview.add_computed_column(vvc2=(subview.vc2 + 1))
         packager = TablePackager(subview)
         bundle_path = packager.package()
@@ -47,15 +43,9 @@ class TestPackager:
         dest = self.__extract_bundle(bundle_path)
         metadata = json.loads((dest / 'metadata.json').read_text())
         self.__validate_metadata(metadata, subview)
-        catalog = sqlite_catalog(dest / 'warehouse')
-        assert set(catalog.list_tables('pxt')) == {
-            ('pxt', f'tbl_{test_tbl._id.hex}'),
-            ('pxt', f'tbl_{view._id.hex}'),
-            ('pxt', f'tbl_{subview._id.hex}'),
-        }
-        self.__check_iceberg_tbl(test_tbl, catalog.load_table(f'pxt.tbl_{test_tbl._id.hex}'), scope_tbl=subview)
-        self.__check_iceberg_tbl(view, catalog.load_table(f'pxt.tbl_{view._id.hex}'), scope_tbl=subview)
-        self.__check_iceberg_tbl(subview, catalog.load_table(f'pxt.tbl_{subview._id.hex}'), scope_tbl=subview)
+        self.__check_parquet_tbl(test_tbl, dest, scope_tbl=subview)
+        self.__check_parquet_tbl(view, dest, scope_tbl=subview)
+        self.__check_parquet_tbl(subview, dest, scope_tbl=subview)
 
     def test_media_packager(self, reset_db: None) -> None:
         t = pxt.create_table('media_tbl', {'image': pxt.Image, 'video': pxt.Video})
@@ -78,12 +68,8 @@ class TestPackager:
         metadata = json.loads((dest / 'metadata.json').read_text())
         self.__validate_metadata(metadata, t)
 
-        catalog = sqlite_catalog(dest / 'warehouse')
-
         expected_cols = 1 + 3 * 3  # pk plus three stored media/computed columns with error columns
-        self.__check_iceberg_tbl(
-            t, catalog.load_table(f'pxt.tbl_{t._id.hex}'), media_dir=(dest / 'media'), expected_cols=expected_cols
-        )
+        self.__check_parquet_tbl(t, dest, media_dir=(dest / 'media'), expected_cols=expected_cols)
 
     def __extract_bundle(self, bundle_path: Path) -> Path:
         tmp_dir = Path(Env.get().create_tmp_path())
@@ -98,18 +84,20 @@ class TestPackager:
         for t_md, t in zip(md['md']['tables'], (tbl, *tbl._bases)):
             assert t_md['table_id'] == str(t._tbl_version.id)
 
-    def __check_iceberg_tbl(
+    def __check_parquet_tbl(
         self,
         t: pxt.Table,
-        iceberg_tbl: IcebergTable,
+        bundle_path: Path,
         media_dir: Optional[Path] = None,
         scope_tbl: Optional[pxt.Table] = None,  # If specified, use instead of `tbl` to select rows
         expected_cols: Optional[int] = None,
     ) -> None:
-        iceberg_data = iceberg_tbl.scan().to_pandas()
+        parquet_file = bundle_path / 'tables' / f'tbl_{t._id.hex}.parquet'
+        parquet_table = pq.read_table(str(parquet_file))
+        parquet_data = parquet_table.to_pandas()
 
         if expected_cols is not None:
-            assert len(iceberg_data.columns) == expected_cols
+            assert len(parquet_data.columns) == expected_cols
 
         # Only check columns defined in the table (not ancestors)
         select_exprs: dict[str, exprs.Expr] = {}
@@ -133,36 +121,36 @@ class TestPackager:
         for col, col_type in zip(select_exprs.keys(), actual_col_types):
             print(f'Checking column: {col}')
             pxt_values: list = pxt_data[col]
-            iceberg_values = list(iceberg_data[col])
+            parquet_values = list(parquet_data[col])
             if col_type.is_array_type():
-                iceberg_values = [np.load(io.BytesIO(val)) for val in iceberg_values]
-                for pxt_val, iceberg_val in zip(pxt_values, iceberg_values):
-                    assert np.array_equal(pxt_val, iceberg_val)
+                parquet_values = [np.load(io.BytesIO(val)) for val in parquet_values]
+                for pxt_val, parquet_val in zip(pxt_values, parquet_values):
+                    assert np.array_equal(pxt_val, parquet_val)
             elif col_type.is_json_type():
                 # JSON columns were exported as strings; check that they parse properly
-                assert pxt_values == [json.loads(val) for val in iceberg_values]
+                assert pxt_values == [json.loads(val) for val in parquet_values]
             elif col_type.is_media_type():
                 assert media_dir is not None
-                self.__check_media(pxt_values, iceberg_values, media_dir)
+                self.__check_media(pxt_values, parquet_values, media_dir)
             else:
-                assert pxt_values == iceberg_values
+                assert pxt_values == parquet_values
 
-    def __check_media(self, pxt_values: list, iceberg_values: list, media_dir: Path) -> None:
-        for pxt_val, iceberg_val in zip(pxt_values, iceberg_values):
+    def __check_media(self, pxt_values: list, parquet_values: list, media_dir: Path) -> None:
+        for pxt_val, parquet_val in zip(pxt_values, parquet_values):
             if pxt_val is None:
-                assert iceberg_val is None
+                assert parquet_val is None
                 continue
             assert isinstance(pxt_val, str)
-            assert isinstance(iceberg_val, str)
+            assert isinstance(parquet_val, str)
             parsed_url = urllib.parse.urlparse(pxt_val)
             if parsed_url.scheme == 'file':
-                assert iceberg_val.startswith('pxtmedia://')
+                assert parquet_val.startswith('pxtmedia://')
                 path = Path(urllib.parse.unquote(urllib.request.url2pathname(parsed_url.path)))
-                bundled_path = media_dir / iceberg_val.removeprefix('pxtmedia://')
+                bundled_path = media_dir / parquet_val.removeprefix('pxtmedia://')
                 assert bundled_path.exists(), bundled_path
                 assert filecmp.cmp(path, bundled_path)
             else:
-                assert pxt_val == iceberg_val
+                assert pxt_val == parquet_val
 
     def __do_round_trip(self, snapshot: pxt.Table) -> None:
         assert snapshot._tbl_version.get().is_snapshot

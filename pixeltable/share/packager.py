@@ -11,7 +11,7 @@ from typing import Any, Iterator, Optional
 import more_itertools
 import numpy as np
 import pyarrow as pa
-import pyiceberg.catalog
+import pyarrow.parquet as pq
 
 import pixeltable as pxt
 from pixeltable import catalog, exceptions as excs, exprs, metadata, type_system as ts
@@ -19,7 +19,6 @@ from pixeltable.dataframe import DataFrame
 from pixeltable.env import Env
 from pixeltable.metadata import schema
 from pixeltable.utils.arrow import PXT_TO_PA_TYPES
-from pixeltable.utils.iceberg import sqlite_catalog
 from pixeltable.utils.media_store import MediaStore
 
 _logger = logging.getLogger('pixeltable')
@@ -27,33 +26,31 @@ _logger = logging.getLogger('pixeltable')
 
 class TablePackager:
     """
-    Packages a pixeltable Table into a tarball containing Iceberg tables and media files. The structure of the tarball
+    Packages a pixeltable Table into a tarball containing Parquet tables and media files. The structure of the tarball
     is as follows:
 
-    metadata.json  # Pixeltable metadata for the packaged table
-    warehouse/catalog.db  # sqlite Iceberg catalog
-    warehouse/pxt.db/**  # Iceberg metadata and data files (parquet/avro/json)
+    metadata.json  # Pixeltable metadata for the packaged table and its ancestors
+    tables/**  # Parquet tables for the packaged table and its ancestors, named as 'tbl_{tbl_id.hex}.parquet'
     media/**  # Local media files
 
-    If the table being archived is a view, then the Iceberg catalog will contain separate tables for the view and each
-    of its ancestors. All rows will be exported with an additional 'pk' column. Currently, only the most recent version
-    of the table can be exported, and only the full table contents.
+    All rows will be exported with an additional 'pk' column. Currently, only the most recent version of the table can
+    be exported, and only the full table contents.
 
-    Columns in the Iceberg tables follow the standard naming conventions:
+    Columns in the Parquet tables follow the standard naming conventions:
     - val_{col_name} for the values in stored columns
     - errortype_{col_name} and errormsg_{col_name} for the error columns (if `col.records_errors`)
     - pk for the primary key column
 
     If the table contains media columns, they are handled as follows:
     - If a media file has an external URL (any URL scheme other than file://), then the URL will be preserved as-is and
-      stored in the Iceberg table.
+      stored in the Parquet table.
     - If a media file is a local file, then it will be copied into the tarball as a file of the form
-      'media/{uuid}{extension}', and the Iceberg table will contain the ephemeral URI 'pxtmedia://{uuid}{extension}'.
+      'media/{uuid}{extension}', and the Parquet table will contain the ephemeral URI 'pxtmedia://{uuid}{extension}'.
     """
 
     table: catalog.Table  # The table to be packaged
     tmp_dir: Path  # Temporary directory where the package will reside
-    iceberg_catalog: pyiceberg.catalog.Catalog
+    tables_dir: Path  # Directory where the Parquet tables will be written
     media_files: dict[Path, str]  # Mapping from local media file paths to their tarball names
     md: dict[str, Any]
 
@@ -79,14 +76,15 @@ class TablePackager:
 
     def package(self) -> Path:
         """
-        Export the table to a tarball containing Iceberg tables and media files.
+        Export the table to a tarball containing Parquet tables and media files.
         """
         assert not self.tmp_dir.exists()  # Packaging can only be done once per TablePackager instance
         _logger.info(f"Packaging table '{self.table._path}' and its ancestors in: {self.tmp_dir}")
         self.tmp_dir.mkdir()
         with open(self.tmp_dir / 'metadata.json', 'w', encoding='utf8') as fp:
             json.dump(self.md, fp)
-        self.iceberg_catalog = sqlite_catalog(self.tmp_dir / 'warehouse')
+        self.tables_dir = self.tmp_dir / 'tables'
+        self.tables_dir.mkdir()
         with Env.get().begin_xact():
             for tvp in self.table._tbl_version_path.ancestors:
                 _logger.info(f"Exporting table '{tvp.tbl_version.get().name}'.")
@@ -98,7 +96,7 @@ class TablePackager:
 
     def __export_table(self, tvp: catalog.TableVersionPath) -> None:
         """
-        Exports the data from `t` into an Iceberg table.
+        Exports the data from `t` into a Parquet table.
         """
         # First generate a select list for the data we want to extract from `t`. This includes:
         # - all stored columns, including computed columns;
@@ -133,34 +131,35 @@ class TablePackager:
         # those rows that are actually present in `self.table`.
         df = self.table.select(**select_exprs)
 
-        self.iceberg_catalog.create_namespace_if_not_exists('pxt')
-        iceberg_schema = self.__to_iceberg_schema(df._schema)
-        iceberg_tbl_name = f'pxt.tbl_{tv.id.hex}'
-        _logger.info(f'Creating iceberg table: {iceberg_tbl_name}')
-        iceberg_tbl = self.iceberg_catalog.create_table(iceberg_tbl_name, schema=iceberg_schema)
+        parquet_schema = self.__to_parquet_schema(df._schema)
+        parquet_file = self.tables_dir / f'tbl_{tv.id.hex}.parquet'
+        _logger.info(f'Creating parquet table: {parquet_file}')
 
-        # Populate the Iceberg table with data.
+        # Populate the Parquet table with data.
         # The data is first loaded from the DataFrame into a sequence of pyarrow tables, batched in order to avoid
-        # excessive memory usage. The pyarrow tables are then amalgamated into the (single) Iceberg table on disk.
-        for pa_table in self.__to_pa_tables(df, actual_col_types, iceberg_schema):
-            iceberg_tbl.append(pa_table)
+        # excessive memory usage. The pyarrow tables are then amalgamated into the (single) Parquet table on disk.
+        # We use snappy compression for the Parquet tables; the entire bundle will be bzip2-compressed later, so
+        # faster compression should provide good performance while still reducing temporary storage utilization.
+        parquet_writer = pq.ParquetWriter(parquet_file, parquet_schema, compression='SNAPPY')
+        for pa_table in self.__to_pa_tables(df, actual_col_types, parquet_schema):
+            parquet_writer.write_table(pa_table)
 
-    # The following methods are responsible for schema and data conversion from Pixeltable to Iceberg. Some of this
+    # The following methods are responsible for schema and data conversion from Pixeltable to Parquet. Some of this
     # logic might be consolidated into arrow.py and unified with general Parquet export, but there are several
     # major differences:
-    # - Iceberg has no array type; we export all arrays as binary blobs
-    # - We include a 'pk' column in the Iceberg table
+    # - We export all arrays as binary blobs
+    # - We include a 'pk' column in the Parquet table
     # - errortype / errormsg are exported with special handling
     # - Media columns are handled specially as indicated above
 
     @classmethod
-    def __to_iceberg_schema(cls, pxt_schema: dict[str, ts.ColumnType]) -> pa.Schema:
-        entries = [(name, cls.__to_iceberg_type(col_type)) for name, col_type in pxt_schema.items()]
+    def __to_parquet_schema(cls, pxt_schema: dict[str, ts.ColumnType]) -> pa.Schema:
+        entries = [(name, cls.__to_parquet_type(col_type)) for name, col_type in pxt_schema.items()]
         entries.append(('pk', pa.list_(pa.int64())))
         return pa.schema(entries)  # type: ignore[arg-type]
 
     @classmethod
-    def __to_iceberg_type(cls, col_type: ts.ColumnType) -> pa.DataType:
+    def __to_parquet_type(cls, col_type: ts.ColumnType) -> pa.DataType:
         if col_type.is_array_type():
             return pa.binary()
         if col_type.is_media_type():
@@ -225,8 +224,8 @@ class TablePackager:
         with tarfile.open(bundle_path, 'w:bz2') as tf:
             # Add metadata json
             tf.add(self.tmp_dir / 'metadata.json', arcname='metadata.json')
-            # Add the Iceberg warehouse dir (including the catalog)
-            tf.add(self.tmp_dir / 'warehouse', arcname='warehouse', recursive=True)
+            # Add the dir containing Parquet tables
+            tf.add(self.tables_dir, arcname='tables')
             # Add the media files
             for src_file, dest_name in self.media_files.items():
                 tf.add(src_file, arcname=f'media/{dest_name}')
@@ -270,29 +269,26 @@ class TableRestorer:
         else:
             ancestor_md = self.md  # Not a pure snapshot; include replica_tbl
 
-        # Instantiate data from the Iceberg archive
-        iceberg_catalog = sqlite_catalog(self.tmp_dir / 'warehouse')
+        # Instantiate data from the Parquet tables.
         with Env.get().begin_xact():
             for md in ancestor_md[::-1]:  # Base table first
                 # Create a TableVersion instance (and a store table) for this ancestor.
                 tv = catalog.TableVersion.create_replica(md)
-                # Now import data from Iceberg.
+                # Now import data from Parquet.
                 _logger.info(f'Importing table {tv.name!r}.')
-                self.__import_table(iceberg_catalog, tv, md)
+                self.__import_table(self.tmp_dir, tv, md)
 
         return replica_tbl
 
-    def __import_table(
-        self, iceberg_catalog: pyiceberg.catalog.Catalog, tv: catalog.TableVersion, tbl_md: schema.FullTableMd
-    ) -> None:
+    def __import_table(self, bundle_path: Path, tv: catalog.TableVersion, tbl_md: schema.FullTableMd) -> None:
         """
-        Import the Iceberg table into the Pixeltable catalog.
+        Import the Parquet table into the Pixeltable catalog.
         """
-        iceberg_tbl_id = uuid.UUID(tbl_md.tbl_md.tbl_id)
-        iceberg_tbl_name = f'pxt.tbl_{iceberg_tbl_id.hex}'
-        iceberg_tbl = iceberg_catalog.load_table(iceberg_tbl_name)
+        tbl_id = uuid.UUID(tbl_md.tbl_md.tbl_id)
+        parquet_file = bundle_path / 'tables' / f'tbl_{tbl_id.hex}.parquet'
+        parquet_table = pq.read_table(str(parquet_file))
 
-        for batch in iceberg_tbl.scan().to_arrow_batch_reader():
+        for batch in parquet_table.to_batches():
             pydict = batch.to_pydict()
             col_ids: list[Optional[int]] = []
             col_types: list[pxt.ColumnType] = []
