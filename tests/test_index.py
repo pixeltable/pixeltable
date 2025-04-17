@@ -406,15 +406,7 @@ class TestIndex:
             img_t.batch_update([repl_row], cascade=True)
         print(img_t.select(img_t.pkey, img_t.img).collect())
 
-    def test_embedding_access(
-        self,
-        img_tbl: pxt.Table,
-        test_tbl: pxt.Table,
-        clip_embed: func.Function,
-        e5_embed: func.Function,
-        all_mpnet_embed: func.Function,
-        reload_tester: ReloadTester,
-    ) -> None:
+    def test_embedding_access(self, img_tbl: pxt.Table, e5_embed: func.Function) -> None:
         skip_test_if_not_installed('transformers')
         img_t = img_tbl
         rows = list(img_t.select(img=img_t.img.fileurl, category=img_t.category, split=img_t.split).collect())
@@ -442,13 +434,7 @@ class TestIndex:
         img_t.drop_embedding_index(column=img_t.category)
 
     def test_embedding_basic(
-        self,
-        img_tbl: pxt.Table,
-        test_tbl: pxt.Table,
-        clip_embed: func.Function,
-        e5_embed: func.Function,
-        all_mpnet_embed: func.Function,
-        reload_tester: ReloadTester,
+        self, img_tbl: pxt.Table, clip_embed: func.Function, e5_embed: func.Function, reload_tester: ReloadTester
     ) -> None:
         skip_test_if_not_installed('transformers')
         img_t = img_tbl
@@ -596,26 +582,36 @@ class TestIndex:
 
         _ = reload_tester.run_query(img_t.select())
 
-        # test that a table with an embedding index can be reloaded
-        t = pxt.create_table('t1', {'s': pxt.String})
-        sents = get_sentences(3)
-        status = t.insert({'s': s} for s in sents)
-        t.add_embedding_index('s', string_embed=all_mpnet_embed)
-        df = t.select(sim=t.s.similarity(sents[1]))
-        res1 = df.collect()
-        _ = reload_tester.run_query(t.select())
-        _ = reload_tester.run_query(df)
+    def test_view_indices(
+        self, reset_db: None, e5_embed: func.Function, all_mpnet_embed: func.Function, reload_tester: ReloadTester
+    ) -> None:
+        # Create a base table
+        t = pxt.create_table('t1', {'n': pxt.Int, 's': pxt.String})
+        sentences = get_sentences(20)
+        status = t.insert({'n': i, 's': s} for i, s in enumerate(sentences))
+        validate_update_status(status, 20)
 
-        # test that a view with an embedding index on a base table column can be reloaded
-        t = pxt.create_table('t2', {'s': pxt.String})
-        status = t.insert({'s': s} for s in sents)
-        v = pxt.create_view('v', t)
+        # Create a view that indexes the base table column
+        v = pxt.create_view('v', t.where(t.n % 2 == 0))
         v.add_embedding_index('s', string_embed=all_mpnet_embed)
-        df = v.select(sim=v.s.similarity(sents[1]))
-        res2 = df.collect()
-        assert_resultset_eq(res1, res2)
-        _ = reload_tester.run_query(v.select())
-        _ = reload_tester.run_query(df)
+
+        df1 = v.select(sim1=v.s.similarity(sentences[1]))
+        res1 = reload_tester.run_query(df1)
+
+        # Now add an index to the base table, which should be independent of the view index
+        t.add_embedding_index('s', string_embed=e5_embed)
+        df2 = t.where(t.n % 2 == 0).select(sim2=t.s.similarity(sentences[1]))
+        res2 = reload_tester.run_query(df2)
+
+        # Now query the view again twice: once with the column referenced as `v.s`, and once as `t.s`
+        df3 = v.select(sim3=v.s.similarity(sentences[1]))
+        res3 = reload_tester.run_query(df3)
+        df4 = v.select(sim4=t.s.similarity(sentences[1]))
+        res4 = reload_tester.run_query(df4)
+
+        # `v.s` should use the view index, while `t.s` should use the base table index
+        assert_resultset_eq(res1, res3)
+        assert_resultset_eq(res2, res4)
 
         reload_tester.run_reload_test()
 

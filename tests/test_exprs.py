@@ -1555,11 +1555,19 @@ class TestExprs:
         assert len(t.c2.show(n=100)) == 100
         assert len(v.c2.show(n=100)) == 5
 
-        snap = pxt.create_snapshot('test_snapshot', t)
+        # Test snapshots of the base table and of the view, with and without additional_columns
+        snap1 = pxt.create_snapshot('test_snapshot_1', t)
+        snap2 = pxt.create_snapshot('test_snapshot_2', v)
+        snap3 = pxt.create_snapshot('test_snapshot_3', t, additional_columns={'x1': t.c2})
+        snap4 = pxt.create_snapshot('test_snapshot_4', v, additional_columns={'x1': v.c2})
         t.delete()
 
         assert len(t.c2.head(n=100)) == 0
-        assert len(snap.c2.head(n=100)) == 100
+        assert len(v.c2.head(n=100)) == 0
+        assert len(snap1.c2.head(n=100)) == 100
+        assert len(snap2.c2.head(n=100)) == 5
+        assert len(snap3.c2.head(n=100)) == 100
+        assert len(snap4.c2.head(n=100)) == 5
 
 
 @pxt.udf

@@ -573,17 +573,6 @@ class DataFrame:
                 raise excs.Error(f'Invalid expression: {raw_expr}')
             if expr.col_type.is_invalid_type() and not (isinstance(expr, exprs.Literal) and expr.val is None):
                 raise excs.Error(f'Invalid type: {raw_expr}')
-            if len(self._from_clause.tbls) == 1:
-                # Select expressions need to be retargeted in order to handle snapshots correctly, as in expressions
-                # such as `snapshot.select(base_tbl.col)`
-                # TODO: For joins involving snapshots, we need a more sophisticated retarget() that can handle
-                #     multiple TableVersionPaths.
-                expr = expr.copy()
-                try:
-                    expr.retarget(self._from_clause.tbls[0])
-                except Exception:
-                    # If retarget() fails, then the succeeding is_bound_by() will raise an error.
-                    pass
             if not expr.is_bound_by(self._from_clause.tbls):
                 raise excs.Error(
                     f"Expression '{expr}' cannot be evaluated in the context of this query's tables "
