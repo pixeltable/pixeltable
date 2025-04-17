@@ -338,7 +338,7 @@ class Table(SchemaObject):
         if len(bases) <= 2:
             return ', '.join(repr(b._path) for b in bases)
         else:
-            return f'{bases[0]._path!r}, ..., {bases[-1]._path()!r}'
+            return f'{bases[0]._path!r}, ..., {bases[-1]._path!r}'
 
     def _index_descriptor(self, columns: Optional[list[str]] = None) -> pd.DataFrame:
         from pixeltable import index

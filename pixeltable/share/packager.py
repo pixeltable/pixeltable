@@ -247,6 +247,7 @@ class TableRestorer:
 
     def restore(self, bundle_path: Path) -> pxt.Table:
         # Extract tarball
+        print(f'Extracting table data into: {self.tmp_dir}')
         with tarfile.open(bundle_path, 'r:bz2') as tf:
             tf.extractall(path=self.tmp_dir)
 

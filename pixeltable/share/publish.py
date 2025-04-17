@@ -21,6 +21,9 @@ PIXELTABLE_API_URL = 'https://internal-api.pixeltable.com'
 
 
 def publish_snapshot(dest_tbl_uri: str, src_tbl: pxt.Table) -> str:
+    if not src_tbl._tbl_version.get().is_snapshot:
+        raise excs.Error('Only snapshots may be published.')
+
     packager = TablePackager(src_tbl, additional_md={'table_uri': dest_tbl_uri})
     request_json = packager.md | {'operation_type': 'publish_snapshot'}
     headers_json = {'X-api-key': Env.get().pxt_api_key, 'Content-Type': 'application/json'}
@@ -106,10 +109,11 @@ def clone_snapshot(dest_path: str, src_tbl_uri: str) -> pxt.Table:
 
     md = [FullTableMd.from_dict(t) for t in response_json['md']['tables']]
 
-    bundle_uri = ''
+    bundle_uri = md[0].tbl_md.additional_md['destination_uri']
+    bundle_filename = md[0].tbl_md.additional_md['datafile']
     parsed_location = urllib.parse.urlparse(bundle_uri)
     if parsed_location.scheme == 's3':
-        bundle_path = _download_bundle_from_s3(parsed_location)
+        bundle_path = _download_bundle_from_s3(parsed_location, bundle_filename)
     else:
         raise excs.Error(f'Unexpected response from server: unsupported bundle uri: {bundle_uri}')
 
@@ -119,21 +123,25 @@ def clone_snapshot(dest_path: str, src_tbl_uri: str) -> pxt.Table:
     return tbl
 
 
-def _download_bundle_from_s3(parsed_location: urllib.parse.ParseResult) -> Path:
+def _download_bundle_from_s3(parsed_location: urllib.parse.ParseResult, bundle_filename: str) -> Path:
     from pixeltable.utils.s3 import get_client
 
     bucket = parsed_location.netloc
     remote_dir = Path(urllib.parse.unquote(urllib.request.url2pathname(parsed_location.path)))
-    remote_path = str(remote_dir)[1:]  # Remove initial /
+    remote_path = str(remote_dir / bundle_filename)[1:]  # Remove initial /
 
     Env.get().console_logger.info(f'Downloading snapshot from: {bucket}:{remote_path}')
 
     boto_config = {'max_pool_connections': 5, 'connect_timeout': 15, 'retries': {'max_attempts': 3, 'mode': 'adaptive'}}
     s3_client = get_client(**boto_config)
 
+    obj = s3_client.head_object(Bucket=bucket, Key=remote_path)  # Check if the object exists
+    bundle_size = obj['ContentLength']
+
     bundle_path = Path(Env.get().create_tmp_path())
     progress_bar = tqdm(
         desc='Downloading',
+        total=bundle_size,
         unit='B',
         unit_scale=True,
         unit_divisor=1024,
