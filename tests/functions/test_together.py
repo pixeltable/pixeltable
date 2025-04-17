@@ -3,11 +3,12 @@ import pytest
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 
+from ..conftest import DO_RERUN
 from ..utils import skip_test_if_not_installed, validate_update_status
 
 
 @pytest.mark.remote_api
-@pytest.mark.flaky(reruns=3, reruns_delay=8)
+@pytest.mark.flaky(reruns=3, reruns_delay=8, condition=DO_RERUN)
 class TestTogether:
     def test_completions(self, reset_db: None) -> None:
         skip_test_if_not_installed('together')

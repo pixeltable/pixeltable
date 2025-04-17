@@ -9,6 +9,7 @@ import pytest
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 
+from ..conftest import DO_RERUN
 from ..utils import skip_test_if_not_installed
 
 if TYPE_CHECKING:
@@ -18,7 +19,9 @@ if TYPE_CHECKING:
 @pytest.mark.skipif(
     sysconfig.get_platform() == 'linux-aarch64', reason='libsndfile.so is missing on Linux ARM instances in CI'
 )
-@pytest.mark.flaky(reruns=3, reruns_delay=15)  # Guard against connection errors downloading datasets
+@pytest.mark.flaky(
+    reruns=3, reruns_delay=15, condition=DO_RERUN
+)  # Guard against connection errors downloading datasets
 class TestHfDatasets:
     def test_import_hf_dataset(self, reset_db: None, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('datasets')

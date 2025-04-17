@@ -2,11 +2,12 @@ import pytest
 
 import pixeltable as pxt
 
+from ..conftest import DO_RERUN
 from ..utils import skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
 
 
 @pytest.mark.remote_api
-@pytest.mark.flaky(reruns=3, reruns_delay=8)
+@pytest.mark.flaky(reruns=3, reruns_delay=8, condition=DO_RERUN)
 class TestMistral:
     def test_chat_completions(self, reset_db: None) -> None:
         from pixeltable.functions.mistralai import chat_completions
