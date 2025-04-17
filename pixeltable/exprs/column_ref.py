@@ -203,7 +203,7 @@ class ColumnRef(Expr):
     def _descriptors(self) -> DescriptionHelper:
         tbl = catalog.Catalog.get().get_table_by_id(self.col.tbl.id)
         helper = DescriptionHelper()
-        helper.append(f'Column\n{self.col.name!r}\n(of table {tbl._path()!r})')
+        helper.append(f'Column\n{self.col.name!r}\n(of table {tbl._path!r})')
         helper.append(tbl._col_descriptor([self.col.name]))
         idxs = tbl._index_descriptor([self.col.name])
         if len(idxs) > 0:

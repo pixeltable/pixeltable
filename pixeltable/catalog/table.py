@@ -109,7 +109,7 @@ class Table(SchemaObject):
         self._check_is_dropped()
         with env.Env.get().begin_xact():
             md = super().get_metadata()
-            md['base'] = self._base._path() if self._base is not None else None
+            md['base'] = self._base._path if self._base is not None else None
             md['schema'] = self._schema
             md['is_replica'] = self._tbl_version.get().is_replica
             md['version'] = self._version
@@ -165,7 +165,7 @@ class Table(SchemaObject):
         """
         self._check_is_dropped()
         with env.Env.get().begin_xact():
-            return [t._path() for t in self._get_views(recursive=recursive)]
+            return [t._path for t in self._get_views(recursive=recursive)]
 
     def _get_views(self, *, recursive: bool = True) -> list['Table']:
         cat = catalog.Catalog.get()
@@ -315,9 +315,9 @@ class Table(SchemaObject):
     def _title_descriptor(self) -> str:
         title: str
         if self._base is None:
-            title = f'Table\n{self._path()!r}'
+            title = f'Table\n{self._path!r}'
         else:
-            title = f'View\n{self._path()!r}'
+            title = f'View\n{self._path!r}'
             title += f'\n(of {self.__bases_to_desc()})'
         return title
 
@@ -336,9 +336,9 @@ class Table(SchemaObject):
         bases = self._bases
         assert len(bases) >= 1
         if len(bases) <= 2:
-            return ', '.join(repr(b._path()) for b in bases)
+            return ', '.join(repr(b._path) for b in bases)
         else:
-            return f'{bases[0]._path()!r}, ..., {bases[-1]._path()!r}'
+            return f'{bases[0]._path!r}, ..., {bases[-1]._path()!r}'
 
     def _index_descriptor(self, columns: Optional[list[str]] = None) -> pd.DataFrame:
         from pixeltable import index
