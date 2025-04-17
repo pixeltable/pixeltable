@@ -1324,6 +1324,7 @@ class TableVersion:
         column_md: dict[int, schema.ColumnMd] = {}
         for col in cols:
             value_expr_dict = col.value_expr.as_dict() if col.value_expr is not None else None
+            assert col.is_pk is not None
             column_md[col.id] = schema.ColumnMd(
                 id=col.id,
                 col_type=col.col_type.as_dict(),
