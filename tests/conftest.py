@@ -7,7 +7,7 @@ from typing import Callable, Iterator
 import pytest
 import requests
 import tenacity
-from _pytest.config import argparsing
+from _pytest.config import Config, argparsing
 from filelock import FileLock
 from sqlalchemy import orm
 
@@ -39,13 +39,13 @@ def pytest_addoption(parser: argparsing.Parser) -> None:
     parser.addoption('--no-rerun', action='store_true', default=False, help='Do not rerun any failed tests.')
 
 
-def pytest_configure(config):
+def pytest_configure(config: Config) -> None:
     global DO_RERUN  # noqa: PLW0603
     DO_RERUN = not config.getoption('--no-rerun')
 
 
 @pytest.fixture(autouse=True)
-def pxt_test_harness(request) -> Iterator[None]:
+def pxt_test_harness() -> Iterator[None]:
     current_test = os.environ.get('PYTEST_CURRENT_TEST')
     _logger.info(f'Running Pixeltable test: {current_test}')
     yield
