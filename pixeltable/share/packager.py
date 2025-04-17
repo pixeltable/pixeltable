@@ -143,6 +143,7 @@ class TablePackager:
         parquet_writer = pq.ParquetWriter(parquet_file, parquet_schema, compression='SNAPPY')
         for pa_table in self.__to_pa_tables(df, actual_col_types, parquet_schema):
             parquet_writer.write_table(pa_table)
+        parquet_writer.close()
 
     # The following methods are responsible for schema and data conversion from Pixeltable to Parquet. Some of this
     # logic might be consolidated into arrow.py and unified with general Parquet export, but there are several
