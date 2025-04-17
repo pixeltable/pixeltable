@@ -5,8 +5,8 @@ import pytest
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.functions as pxtf
-from tests.conftest import DO_RERUN
 
+from ..conftest import DO_RERUN
 from ..utils import SAMPLE_IMAGE_URL, skip_test_if_not_installed, stock_price, validate_update_status
 
 
@@ -155,7 +155,7 @@ class TestOpenai:
         # adding a second column re-uses the existing client, with an existing connection pool
         t.add_computed_column(output2=openai.chat_completions(model='gpt-4o-mini', messages=messages))
 
-    @pytest.mark.flaky(reruns=6, reruns_delay=8)
+    @pytest.mark.flaky(reruns=6, reruns_delay=8, condition=DO_RERUN)
     def test_tool_invocations(self, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
         TestOpenai.skip_test_if_no_openai_client()
@@ -298,6 +298,7 @@ class TestOpenai:
                     customer_id - The ID of the customer to look up.
                 """
                 return t.where(t.customer_id == customer_id).select()
+
             tools = pxt.tools(get_customer_info)
 
         u = pxt.create_table('test_tbl', {'prompt': pxt.String})

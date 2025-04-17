@@ -3,8 +3,8 @@ from typing import Optional
 import pytest
 
 import pixeltable as pxt
-from tests.conftest import DO_RERUN
 
+from ..conftest import DO_RERUN
 from ..utils import skip_test_if_no_client, skip_test_if_not_installed, stock_price, validate_update_status
 
 
