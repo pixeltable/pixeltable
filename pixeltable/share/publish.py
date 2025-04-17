@@ -9,7 +9,6 @@ from tqdm import tqdm
 import pixeltable as pxt
 from pixeltable import exceptions as excs
 from pixeltable.env import Env
-from pixeltable.metadata.schema import FullTableMd
 from pixeltable.utils import sha256sum
 
 from .packager import TablePackager, TableRestorer
