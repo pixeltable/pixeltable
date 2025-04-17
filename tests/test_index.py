@@ -602,7 +602,7 @@ class TestIndex:
         status = t.insert({'s': s} for s in sents)
         t.add_embedding_index('s', string_embed=all_mpnet_embed)
         df = t.select(sim=t.s.similarity(sents[1]))
-        _ = df.collect()
+        res1 = df.collect()
         _ = reload_tester.run_query(t.select())
         _ = reload_tester.run_query(df)
 
@@ -611,26 +611,11 @@ class TestIndex:
         status = t.insert({'s': s} for s in sents)
         v = pxt.create_view('v', t)
         v.add_embedding_index('s', string_embed=all_mpnet_embed)
-        # should work irrespective of whether the column is passed by name or reference
-        v.add_embedding_index(v.s, string_embed=all_mpnet_embed)
-        v.add_embedding_index(t.s, string_embed=all_mpnet_embed)
-        # Expected to verify the following:
-        # df = v.select(sim=v.s.similarity(sents[1]))
-        # res2 = df.collect()
-        # assert_resultset_eq(res1, res2)
-        # and
-        # _ = reload_tester.run_query(df)
-        #
-        # But found a bug, instead. PXT-371 tracks this.
-        # RCA: The indexes above are on the view, not the base table.
-        # Since they are on a column of the base table, the code
-        # initializing the SimilarityExpr is looking for the index in
-        # the table in the ColumnRef, which is the base table.
-        # So it raises error that there's no index.
-        # Fix needs discussion.
-        with pytest.raises(pxt.Error, match='No indices found for '):
-            df = v.select(sim=v.s.similarity(sents[1]))
+        df = v.select(sim=v.s.similarity(sents[1]))
+        res2 = df.collect()
+        assert_resultset_eq(res1, res2)
         _ = reload_tester.run_query(v.select())
+        _ = reload_tester.run_query(df)
 
         reload_tester.run_reload_test()
 

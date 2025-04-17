@@ -170,9 +170,10 @@ class Column:
         )
         return len(window_fn_calls) > 0
 
-    def get_idx_info(self) -> dict[str, 'TableVersion.IndexInfo']:
+    def get_idx_info(self, reference_tbl: Optional[TableVersionHandle] = None) -> dict[str, 'TableVersion.IndexInfo']:
         assert self.tbl is not None
-        return {name: info for name, info in self.tbl.get().idxs_by_name.items() if info.col == self}
+        tbl = reference_tbl or self.tbl
+        return {name: info for name, info in tbl.get().idxs_by_name.items() if info.col == self}
 
     @property
     def is_computed(self) -> bool:

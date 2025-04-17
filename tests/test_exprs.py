@@ -1543,6 +1543,18 @@ class TestExprs:
 
         reload_tester.run_reload_test()
 
+    def test_base_table_col_refs(self, test_tbl: pxt.Table) -> None:
+        t = test_tbl
+        # Filter down to just 5 rows of the table.
+        v = pxt.create_view('test_view', t.where(t.c2 < 5))
+
+        assert len(t.c2.head(n=100)) == 100
+        assert len(v.c2.head(n=100)) == 5
+        assert len(t.c2.tail(n=100)) == 100
+        assert len(v.c2.tail(n=100)) == 5
+        assert len(t.c2.show(n=100)) == 100
+        assert len(v.c2.show(n=100)) == 5
+
 
 @pxt.udf
 def udf1(x: int, y: str) -> str:

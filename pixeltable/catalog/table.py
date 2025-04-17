@@ -146,7 +146,7 @@ class Table(SchemaObject):
         col = self._tbl_version_path.get_column(name)
         if col is None:
             raise AttributeError(f'Column {name!r} unknown')
-        return ColumnRef(col)
+        return ColumnRef(col, reference_tbl=self._tbl_version)
 
     def __getitem__(self, name: str) -> 'exprs.ColumnRef':
         """Return a ColumnRef for the given name."""
