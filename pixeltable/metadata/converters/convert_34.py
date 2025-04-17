@@ -14,10 +14,8 @@ def _(engine: sql.engine.Engine) -> None:
 def __substitute_md(k: Optional[str], v: Any) -> Optional[tuple[Optional[str], Any]]:
     if isinstance(v, dict) and '_classname' in v and v['_classname'] == 'ColumnRef':
         # Add reference_tbl to ColumnRef; for historical metadata it is always equal to tbl
-        assert 'reference_tbl_id' not in v
-        assert 'reference_tbl_version' not in v
-        v['reference_tbl_id'] = v['tbl_id']
-        v['reference_tbl_version'] = v['tbl_version']
+        assert 'reference_tbl' not in v
+        v['reference_tbl'] = None
         return k, v
 
     return None

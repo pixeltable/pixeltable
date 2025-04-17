@@ -37,7 +37,7 @@ class ColumnRef(Expr):
     """
 
     col: catalog.Column
-    reference_tbl: catalog.TableVersionHandle
+    reference_tbl: catalog.TableVersionPath
     is_unstored_iter_col: bool
     iter_arg_ctx: Optional[RowBuilder.EvalCtx]
     base_rowid_len: int
@@ -47,11 +47,16 @@ class ColumnRef(Expr):
     id: int
     perform_validation: bool  # if True, performs media validation
 
-    def __init__(self, col: catalog.Column, reference_tbl: Optional[catalog.TableVersionHandle] = None, perform_validation: Optional[bool] = None):
+    def __init__(
+        self,
+        col: catalog.Column,
+        reference_tbl: Optional[catalog.TableVersionPath] = None,
+        perform_validation: Optional[bool] = None,
+    ):
         super().__init__(col.col_type)
         assert col.tbl is not None
         self.col = col
-        self.reference_tbl = reference_tbl or col.tbl  # Defaults to the column's table
+        self.reference_tbl = reference_tbl
         self.is_unstored_iter_col = (
             col.tbl.get().is_component_view and col.tbl.get().is_iterator_column(col) and not col.is_stored
         )
@@ -169,14 +174,21 @@ class ColumnRef(Expr):
         return ColumnRef(col)
 
     def default_column_name(self) -> Optional[str]:
-        return str(self)
+        return self.col.name if self.col is not None else None
 
     def _equals(self, other: ColumnRef) -> bool:
         return self.col == other.col and self.perform_validation == other.perform_validation
 
     def _df(self) -> 'pxt.dataframe.DataFrame':
-        tbl = catalog.Catalog.get().get_table_by_id(self.reference_tbl.get().id)
-        return tbl.select(self)
+        from pixeltable import plan
+
+        if self.reference_tbl is None:
+            # No reference table; use the current version of the table to which the column belongs
+            tbl = catalog.Catalog.get().get_table_by_id(self.col.tbl.id)
+            return tbl.select(self)
+        else:
+            # Explicit reference table; construct a DataFrame directly from it
+            return pxt.DataFrame(plan.FromClause([self.reference_tbl]))
 
     def show(self, *args: Any, **kwargs: Any) -> 'pxt.dataframe.DataFrameResultSet':
         return self._df().show(*args, **kwargs)
@@ -263,15 +275,13 @@ class ColumnRef(Expr):
     def _as_dict(self) -> dict:
         tbl = self.col.tbl
         tbl_version = tbl.get().version if tbl.get().is_snapshot else None
-        reference_tbl_version = self.reference_tbl.get().version if self.reference_tbl.get().is_snapshot else None
         # we omit self.components, even if this is a validating ColumnRef, because init() will recreate the
         # non-validating component ColumnRef
         return {
             'tbl_id': str(tbl.id),
             'tbl_version': tbl_version,
             'col_id': self.col.id,
-            'reference_tbl_id': str(self.reference_tbl.id),
-            'reference_tbl_version': reference_tbl_version,
+            'reference_tbl': self.reference_tbl.as_dict() if self.reference_tbl is not None else None,
             'perform_validation': self.perform_validation,
         }
 
@@ -286,8 +296,6 @@ class ColumnRef(Expr):
     @classmethod
     def _from_dict(cls, d: dict, _: list[Expr]) -> ColumnRef:
         col = cls.get_column(d)
-        reference_tbl_id = UUID(d['reference_tbl_id'])
-        reference_tbl_version = d['reference_tbl_version']
-        reference_tbl = catalog.Catalog.get().get_tbl_version(reference_tbl_id, reference_tbl_version).create_handle()
+        reference_tbl = None if d['reference_tbl'] is None else catalog.TableVersionPath.from_dict(d['reference_tbl'])
         perform_validation = d['perform_validation']
         return cls(col, reference_tbl, perform_validation=perform_validation)

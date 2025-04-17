@@ -1555,6 +1555,12 @@ class TestExprs:
         assert len(t.c2.show(n=100)) == 100
         assert len(v.c2.show(n=100)) == 5
 
+        snap = pxt.create_snapshot('test_snapshot', t)
+        t.delete()
+
+        assert len(t.c2.head(n=100)) == 0
+        assert len(snap.c2.head(n=100)) == 100
+
 
 @pxt.udf
 def udf1(x: int, y: str) -> str:
