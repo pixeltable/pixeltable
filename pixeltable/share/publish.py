@@ -107,17 +107,17 @@ def clone_snapshot(dest_path: str, src_tbl_uri: str) -> pxt.Table:
     if not isinstance(response_json, dict) or 'table_uri' not in response_json:
         raise excs.Error(f'Error cloning shapshot: unexpected response from server.\n{response_json}')
 
-    md = [FullTableMd.from_dict(t) for t in response_json['md']['tables']]
-
-    bundle_uri = md[0].tbl_md.additional_md['destination_uri']
-    bundle_filename = md[0].tbl_md.additional_md['datafile']
+    print(response_json)
+    primary_tbl_additional_md = response_json['md']['tables'][0]['table_md']['additional_md']
+    bundle_uri = primary_tbl_additional_md['destination_uri']
+    bundle_filename = primary_tbl_additional_md['datafile']
     parsed_location = urllib.parse.urlparse(bundle_uri)
     if parsed_location.scheme == 's3':
         bundle_path = _download_bundle_from_s3(parsed_location, bundle_filename)
     else:
         raise excs.Error(f'Unexpected response from server: unsupported bundle uri: {bundle_uri}')
 
-    restorer = TableRestorer(dest_path, md)
+    restorer = TableRestorer(dest_path, response_json)
     tbl = restorer.restore(bundle_path)
     Env.get().console_logger.info(f'Created local replica {tbl._path!r} from URI: {src_tbl_uri}')
     return tbl

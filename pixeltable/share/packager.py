@@ -234,11 +234,11 @@ class TablePackager:
 
 class TableRestorer:
     tbl_path: str
-    md: Optional[list[schema.FullTableMd]]
+    md: Optional[dict[str, Any]]
     tmp_dir: Path
     media_files: dict[str, str]  # Mapping from pxtmedia:// URLs to local file:// URLs
 
-    def __init__(self, tbl_path: str, md: Optional[list[schema.FullTableMd]] = None) -> None:
+    def __init__(self, tbl_path: str, md: Optional[dict[str, Any]] = None) -> None:
         self.tbl_path = tbl_path
         self.md = md
         self.tmp_dir = Path(Env.get().create_tmp_path())
@@ -253,21 +253,29 @@ class TableRestorer:
         if self.md is None:
             # Read metadata from the archive
             with open(self.tmp_dir / 'metadata.json', 'r', encoding='utf8') as fp:
-                md_json = json.load(fp)
-                self.md = [schema.FullTableMd.from_dict(t) for t in md_json['md']['tables']]
+                self.md = json.load(fp)
 
-        # TODO: Version check
+        pxt_md_version = self.md['pxt_md_version']
+        assert isinstance(pxt_md_version, int)
+
+        if pxt_md_version != metadata.VERSION:
+            raise excs.Error(
+                f'Pixeltable metadata version mismatch: {pxt_md_version} != {metadata.VERSION}.\n'
+                'Please upgrade Pixeltable to use this dataset: pip install -U pixeltable'
+            )
+
+        tbl_md = [schema.FullTableMd.from_dict(t) for t in self.md['md']['tables']]
 
         # Create the replica table
-        replica_tbl = catalog.Catalog.get().create_replica(catalog.Path(self.tbl_path), self.md)
+        replica_tbl = catalog.Catalog.get().create_replica(catalog.Path(self.tbl_path), tbl_md)
         assert replica_tbl._tbl_version.get().is_snapshot
 
         # Now we need to instantiate and load data for replica_tbl and its ancestors, except that we skip
         # replica_tbl itself if it's a pure snapshot.
         if replica_tbl._id != replica_tbl._tbl_version.id:
-            ancestor_md = self.md[1:]  # Pure snapshot; skip replica_tbl
+            ancestor_md = tbl_md[1:]  # Pure snapshot; skip replica_tbl
         else:
-            ancestor_md = self.md  # Not a pure snapshot; include replica_tbl
+            ancestor_md = tbl_md  # Not a pure snapshot; include replica_tbl
 
         # Instantiate data from the Parquet tables.
         with Env.get().begin_xact():
