@@ -202,6 +202,13 @@ class TableVersion:
 
         return TableVersionHandle(self.id, self.effective_version, tbl_version=self)
 
+    @property
+    def versioned_name(self) -> str:
+        if self.effective_version is None:
+            return self.name
+        else:
+            return f'{self.name}:{self.effective_version}'
+
     @classmethod
     def create(
         cls,
