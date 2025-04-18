@@ -105,11 +105,11 @@ class Function(ABC):
     @abstractmethod
     def is_async(self) -> bool: ...
 
-    def _docstring(self) -> Optional[str]:
+    def comment(self) -> Optional[str]:
         return None
 
     def help_str(self) -> str:
-        docstring = self._docstring()
+        docstring = self.comment()
         display = self.display_name + str(self.signatures[0])
         if docstring is None:
             return display

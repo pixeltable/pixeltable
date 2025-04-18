@@ -95,9 +95,9 @@ class ExprTemplateFunction(Function):
         )
         return substituted_expr.col_type
 
-    def _docstring(self) -> Optional[str]:
+    def comment(self) -> Optional[str]:
         if isinstance(self.templates[0].expr, exprs.FunctionCall):
-            return self.templates[0].expr.fn._docstring()
+            return self.templates[0].expr.fn.comment()
         return None
 
     def exec(self, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:

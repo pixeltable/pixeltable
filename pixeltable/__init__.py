@@ -4,7 +4,7 @@ from .__version__ import __version__, __version_tuple__
 from .catalog import Column, InsertableTable, Table, UpdateStatus, View
 from .dataframe import DataFrame
 from .exceptions import Error, ExprEvalError, PixeltableWarning
-from .func import Aggregator, Function, expr_udf, query, uda, udf
+from .func import Aggregator, Function, expr_udf, query, retrieval_udf, uda, udf
 from .globals import (
     array,
     configure_logging,
