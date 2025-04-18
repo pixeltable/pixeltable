@@ -60,7 +60,6 @@ dependencies = [
     "ftfy (>=6.2.0)",
     "pydantic (>=2.7.4)",
     "pyarrow (>=13.0.0)",
-    "pyiceberg (>=0.6.0)",
     "pixeltable-pgserver (==0.3.1)",
 ]
 
@@ -120,6 +119,7 @@ ipykernel = "^6.27.1"
 nbmake = "^1.4.6"
 # packages required by various optional pieces of the codebase
 mistune = "^3.0.2"
+pyiceberg = ">=0.6.0"
 torch = "^2.2"
 torchaudio = "^2.2"
 torchvision = "^0.17"
