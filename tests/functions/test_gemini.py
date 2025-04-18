@@ -1,11 +1,13 @@
 import pytest
 
 import pixeltable as pxt
-from tests.utils import skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
+
+from ..conftest import DO_RERUN
+from ..utils import skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
 
 
 @pytest.mark.remote_api
-@pytest.mark.flaky(reruns=3, reruns_delay=8)
+@pytest.mark.flaky(reruns=3, reruns_delay=8, condition=DO_RERUN)
 class TestGemini:
     def test_generate_content(self, reset_db: None) -> None:
         from pixeltable.functions.gemini import generate_content
