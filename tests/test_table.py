@@ -249,12 +249,12 @@ class TestTable:
             tbl = pxt.create_table(tbl_path, {'col': pxt.String}, media_validation=media_val)  # type: ignore[arg-type]
             view = pxt.create_view(f'{tbl_path}_view', tbl, media_validation=media_val)  # type: ignore[arg-type]
             snap = pxt.create_snapshot(f'{tbl_path}_snap', tbl, media_validation=media_val)  # type: ignore[arg-type]
-            assert tbl._path() == tbl_path
+            assert tbl._path == tbl_path
             assert tbl._name == tbl_path.split('.')[-1]
-            assert tbl._parent()._path() == '.'.join(tbl_path.split('.')[:-1])
+            assert tbl._parent()._path == '.'.join(tbl_path.split('.')[:-1])
             for t in (tbl, view, snap):
                 assert t.get_metadata() == {
-                    'base': None if t._base is None else t._base._path(),
+                    'base': None if t._base is None else t._base._path,
                     'comment': t._comment,
                     'is_view': isinstance(t, catalog.View),
                     'is_snapshot': t._tbl_version.get().is_snapshot,
@@ -262,7 +262,7 @@ class TestTable:
                     'name': t._name,
                     'num_retained_versions': t._num_retained_versions,
                     'media_validation': media_val,
-                    'path': t._path(),
+                    'path': t._path,
                     'schema': t._schema,
                     'schema_version': t._tbl_version.get().schema_version,
                     'version': t._version,

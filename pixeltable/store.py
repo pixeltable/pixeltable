@@ -313,7 +313,7 @@ class StoreBase:
     def insert_rows(
         self,
         exec_plan: ExecNode,
-        v_min: Optional[int] = None,
+        v_min: int,
         show_progress: bool = True,
         rowids: Optional[Iterator[int]] = None,
         abort_on_exc: bool = False,
@@ -431,6 +431,37 @@ class StoreBase:
         log_explain(_logger, stmt, conn)
         status = conn.execute(stmt)
         return status.rowcount
+
+    def insert_replica_rows(self, rows: list[dict[str, Any]]) -> None:
+        """
+        When instantiating a replica, we can't rely on the usual insertion code path, which contains error handling
+        and other logic that doesn't apply.
+        """
+        conn = Env.get().conn
+
+        # First cache the column mappings (for efficiency)
+        # (col_name, store_col_name) pairs
+        col_map: list[tuple[str, str]] = []
+        for col_name, col in self.tbl_version.get().cols_by_name.items():
+            if col.is_stored:
+                col_map.append((f'val_{col_name}', col.store_name()))
+                if col.records_errors:
+                    col_map.append((f'errortype_{col_name}', col.errortype_store_name()))
+                    col_map.append((f'errormsg_{col_name}', col.errormsg_store_name()))
+
+        store_rows: list[dict[str, Any]] = []
+        for row in rows:
+            store_row: dict[str, Any] = {}
+            for col_name, store_col_name in col_map:
+                store_row[store_col_name] = row[col_name]
+            # Now fill in the pk cols
+            pk = row['pk']
+            assert len(pk) == len(self._pk_cols)
+            for pk_col, pk_val in zip(self._pk_cols, pk):
+                store_row[pk_col.name] = pk_val
+            store_rows.append(store_row)
+
+        conn.execute(sql.insert(self.sa_tbl), store_rows)
 
 
 class StoreTable(StoreBase):
