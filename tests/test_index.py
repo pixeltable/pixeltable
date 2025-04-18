@@ -436,7 +436,9 @@ class TestIndex:
     def test_embedding_basic(
         self, img_tbl: pxt.Table, clip_embed: func.Function, e5_embed: func.Function, reload_tester: ReloadTester
     ) -> None:
+        skip_test_if_not_installed('sentence_transformers')
         skip_test_if_not_installed('transformers')
+
         img_t = img_tbl
         rows = list(img_t.select(img=img_t.img.fileurl, category=img_t.category, split=img_t.split).collect())
         # create table with fewer rows to speed up testing
@@ -585,6 +587,8 @@ class TestIndex:
     def test_view_indices(
         self, reset_db: None, e5_embed: func.Function, all_mpnet_embed: func.Function, reload_tester: ReloadTester
     ) -> None:
+        skip_test_if_not_installed('sentence_transformers')
+
         # Create a base table
         t = pxt.create_table('t1', {'n': pxt.Int, 's': pxt.String})
         sentences = get_sentences(20)
