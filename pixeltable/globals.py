@@ -627,6 +627,70 @@ def drop_dir(path: str, force: bool = False, if_not_exists: Literal['error', 'ig
     Catalog.get().drop_dir(path_obj, if_not_exists=if_not_exists_, force=force)
 
 
+def ls(path: str = '') -> pd.DataFrame:
+    from pixeltable.metadata import schema
+
+    cat = Catalog.get()
+    path_obj = catalog.Path(path, empty_is_valid=True)
+    dir_entries = cat.get_dir_contents(path_obj)
+    rows: list[list[str]] = []
+    with Env.get().begin_xact():
+        for name, entry in dir_entries.items():
+            if name.startswith('_'):
+                continue
+            if entry.dir is not None:
+                kind = 'dir'
+                version = ''
+                base = ''
+            else:
+                assert entry.table is not None
+                assert isinstance(entry.table, schema.Table)
+                tbl = cat.get_table_by_id(entry.table.id)
+                tvp = tbl._tbl_version_path
+                tv = tvp.tbl_version.get()
+                version = tv.version
+                if tvp.is_snapshot():
+                    kind = 'snapshot'
+                    version = ''
+                    if tbl._id != tvp.tbl_id():
+                        # pure snapshot
+                        base_tbl = Catalog.get().get_table_by_id(tvp.tbl_id())
+                        base = f'{base_tbl._path}:{tv.version}'
+                    else:
+                        assert tvp.base is not None
+                        base_tbl = Catalog.get().get_table_by_id(tvp.base.tbl_id())
+                        base_tv = tvp.base.tbl_version.get()
+                        base = f'{base_tbl._path}:{base_tv.version}'
+                elif tvp.is_view():
+                    kind = 'view'
+                    version = str(tv.version)
+                    assert tvp.base is not None
+                    base_tbl = Catalog.get().get_table_by_id(tvp.base.tbl_id())
+                    base = base_tbl._path
+                else:
+                    kind = 'table'
+                    version = str(tv.version)
+                    assert tvp.base is None
+                    base = ''
+                if base.startswith('_'):
+                    base = '<anonymous base table>'
+                if tv.is_replica:
+                    kind = f'*{kind}'
+            rows.append([name, kind, version, base])
+
+    rows = sorted(rows, key=lambda x: x[0])
+    df = pd.DataFrame(
+        {
+            'Name': [row[0] for row in rows],
+            'Kind': [row[1] for row in rows],
+            'Version': [row[2] for row in rows],
+            'Base': [row[3] for row in rows],
+        },
+        index=([''] * len(rows)),
+    )
+    return df
+
+
 def _extract_paths(
     dir_entries: dict[str, Catalog.DirEntry],
     parent: catalog.Path,
