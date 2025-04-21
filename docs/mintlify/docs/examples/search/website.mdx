@@ -56,19 +56,6 @@ Pixeltable website search works in two phases:
         string_embed=embed_model
     )
 
-    # Define search query
-    @pxt.query
-    def search_content(query_text: str, limit: int):
-        sim = websites_chunks.text.similarity(query_text)
-        return (
-            websites_chunks.order_by(sim, asc=False)
-            .select(
-                websites_chunks.text,
-                websites_chunks.website,
-                similarity=sim
-            )
-            .limit(limit)
-        )
     ```
   </Step>
 
@@ -86,41 +73,30 @@ Pixeltable website search works in two phases:
     urls = [
         "https://quotes.toscrape.com/",
         "https://example.com",
-        "https://docs.pixeltable.io"
     ]
 
-    for url in urls:
-        try:
-            websites_t.insert({"website": url})
-            time.sleep(1)  # Respect rate limits
-        except Exception as e:
-            print(f"Failed to process {url}: {e}")
+    websites_t.insert({"website": url} for url in urls)
 
     # Search content
-    @pxt.query
-    def find_content(query: str, top_k: int):
-        sim = websites_chunks.text.similarity(query)
-        return (
-            websites_chunks.order_by(sim, asc=False)
-            .select(
-                websites_chunks.text,
-                websites_chunks.website,
-                similarity=sim
-            )
-            .limit(top_k)
+    query = "Find inspirational quotes about life"
+    sim = websites_chunks.text.similarity(query)
+    top_k = 3
+    results = (
+        websites_chunks.order_by(sim, asc=False)
+        .select(
+            websites_chunks.text,
+            websites_chunks.website,
+            similarity=sim
         )
-
-    # Example search
-    results = find_content(
-        "Find inspirational quotes about life"
+        .limit(top_k)
     ).collect()
-    
+
     # Print results
     for r in results:
         print(f"Similarity: {r['similarity']:.3f}")
         print(f"Source: {r['website']}")
         print(f"Content: {r['text']}\n")
-    ```
+```
   </Step>
 </Steps>
 
@@ -130,9 +106,7 @@ Pixeltable website search works in two phases:
   <Card title="Web Scraping" icon="spider-web">
     Automatic content extraction:
     ```python
-    websites_t.insert({
-        "website": "https://example.com"
-    })
+    websites_t.insert([{"website": "https://example.com"}])
     ```
   </Card>
 
@@ -212,31 +186,6 @@ chunks_by_size = pxt.create_view(
         size=1000  # characters
     )
 )
-```
-
-### Batch Processing with Rate Limiting
-
-Process multiple websites responsibly:
-
-```python
-import time
-from typing import List
-
-def batch_process_urls(urls: List[str], delay: float = 1.0):
-    """Process multiple URLs with rate limiting"""
-    results = []
-    for url in urls:
-        try:
-            websites_t.insert({"website": url})
-            results.append({"url": url, "status": "success"})
-        except Exception as e:
-            results.append({
-                "url": url, 
-                "status": "failed", 
-                "error": str(e)
-            })
-        time.sleep(delay)
-    return results
 ```
 
 ### Advanced Search Functions
