@@ -72,6 +72,11 @@ class TableDataConduit:
     def check_source_format(self) -> None:
         assert self.source_format is None or TableDataConduitFormat.is_valid(self.source_format)
 
+    def __post_init__(self) -> None:
+        '''If no extra_fields were provided, initialize to empty dict'''
+        if self.extra_fields is None:
+            self.extra_fields = {}
+
     @classmethod
     def is_rowdata_structure(cls, d: TableDataSource) -> bool:
         if not isinstance(d, list) or len(d) == 0:
