@@ -73,7 +73,7 @@ class TableDataConduit:
         assert self.source_format is None or TableDataConduitFormat.is_valid(self.source_format)
 
     def __post_init__(self) -> None:
-        '''If no extra_fields were provided, initialize to empty dict'''
+        """If no extra_fields were provided, initialize to empty dict"""
         if self.extra_fields is None:
             self.extra_fields = {}
 
