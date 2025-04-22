@@ -6,7 +6,6 @@ import numpy as np
 import PIL.Image
 import pytest
 
-import pixeltable as pxt
 from pixeltable.type_system import (
     Array,
     ArrayType,
@@ -92,8 +91,8 @@ class TestTypes:
             (datetime.datetime.now(), TimestampType()),
             (PIL.Image.new('RGB', (100, 100)), ImageType(height=100, width=100, mode='RGB')),
             (np.ndarray((1, 2, 3), dtype=np.int64), ArrayType((1, 2, 3), dtype=IntType())),
-            ({'a': 1, 'b': '2'}, pxt.JsonType()),
-            (['3', 4], pxt.JsonType()),
+            ({'a': 1, 'b': '2'}, JsonType()),
+            (['3', 4], JsonType()),
         ]
         for val, expected_type in test_cases:
             assert ColumnType.infer_literal_type(val) == expected_type, val

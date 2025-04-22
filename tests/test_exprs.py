@@ -14,6 +14,7 @@ import pytest
 import sqlalchemy as sql
 
 import pixeltable as pxt
+import pixeltable.type_system as ts
 from pixeltable import catalog, exceptions as excs, exprs, functions as pxtf
 from pixeltable.exprs import ColumnRef, Expr, Literal
 from pixeltable.functions.globals import cast
@@ -602,16 +603,16 @@ class TestExprs:
         assert isinstance(exprs[0], Literal)
         col_type = next(iter(result.schema.values()))
         assert col_type.is_array_type()
-        assert isinstance(col_type, pxt.ArrayType)
+        assert isinstance(col_type, ts.ArrayType)
 
     def test_inline_array(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
         result = t.select(pxt.array([[t.c2, 1], [t.c2, 2]])).show()
         col_type = next(iter(result.schema.values()))
         assert col_type.is_array_type()
-        assert isinstance(col_type, pxt.ArrayType)
+        assert isinstance(col_type, ts.ArrayType)
         assert col_type.shape == (2, 2)
-        assert col_type.dtype == pxt.ColumnType.Type.INT
+        assert col_type.dtype == ts.ColumnType.Type.INT
 
         with pytest.raises(excs.Error) as excinfo:
             _ = t.select(pxt.array([t.c1, t.c2])).collect()
@@ -819,7 +820,7 @@ class TestExprs:
 
         # Convert int to float
         validate_update_status(t.add_computed_column(c2_as_float=t.c2.astype(pxt.Float)))
-        assert t.c2_as_float.col_type == pxt.FloatType(nullable=False)
+        assert t.c2_as_float.col_type == ts.FloatType(nullable=False)
         data = t.select(t.c2, t.c2_as_float).collect()
         for row in data:
             assert isinstance(row['c2'], int)
@@ -828,7 +829,7 @@ class TestExprs:
 
         # Compound expression
         validate_update_status(t.add_computed_column(compound_as_float=(t.c2 + 1).astype(pxt.Float)))
-        assert t.compound_as_float.col_type == pxt.FloatType(nullable=False)
+        assert t.compound_as_float.col_type == ts.FloatType(nullable=False)
         data = t.select(t.c2, t.compound_as_float).collect()
         for row in data:
             assert isinstance(row['compound_as_float'], float)
@@ -844,11 +845,11 @@ class TestExprs:
         validate_update_status(t.add_column(c2n=pxt.Int))
         t.where(t.c2 % 2 == 0).update({'c2n': t.c2})  # set even values; keep odd values as None
         validate_update_status(t.add_computed_column(c2n_as_float=t.c2n.astype(pxt.Float)))
-        assert t.c2n_as_float.col_type == pxt.FloatType(nullable=True)
+        assert t.c2n_as_float.col_type == ts.FloatType(nullable=True)
 
         # Cast nullable to required
         status = t.add_computed_column(c2n_as_req_float=t.c2n.astype(pxt.Required[pxt.Float]), on_error='ignore')
-        assert t.c2n_as_req_float.col_type == pxt.FloatType(nullable=False)
+        assert t.c2n_as_req_float.col_type == ts.FloatType(nullable=False)
         assert status.num_excs == t.count() // 2  # Just the odd values should error out
         errormsgs = [msg for msg in t.select(out=t.c2n_as_req_float.errormsg).collect()['out'] if msg is not None]
         assert len(errormsgs) == t.count() // 2
@@ -1036,7 +1037,7 @@ class TestExprs:
         _ = result._repr_html_()
 
     def test_ext_imgs(self, reset_db: None) -> None:
-        t = pxt.create_table('img_test', {'img': pxt.ImageType()})
+        t = pxt.create_table('img_test', {'img': ts.ImageType()})
         img_urls = [
             'https://raw.github.com/pixeltable/pixeltable/main/docs/resources/images/000000000030.jpg',
             'https://raw.github.com/pixeltable/pixeltable/main/docs/resources/images/000000000034.jpg',

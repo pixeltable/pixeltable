@@ -3,7 +3,7 @@ from typing import Any, Optional
 
 import sqlalchemy as sql
 
-import pixeltable as pxt
+import pixeltable.type_system as ts
 from pixeltable.metadata import register_converter, schema
 from pixeltable.metadata.converters.util import convert_table_md
 
@@ -34,7 +34,7 @@ def __update_timestamp_literals(k: Any, v: Any) -> Optional[tuple[Any, Any]]:
         # timestamp literal, which (in version 19) is stored in the DB as a naive datetime.
         # We convert it to an aware datetime, stored in UTC.
         assert v['_classname'] == 'Literal'
-        assert v['val_t'] == pxt.ColumnType.Type.TIMESTAMP.name
+        assert v['val_t'] == ts.ColumnType.Type.TIMESTAMP.name
         assert isinstance(v['val'], str)
         dt = datetime.datetime.fromisoformat(v['val'])
         assert dt.tzinfo is None  # In version 19 all timestamps are naive
