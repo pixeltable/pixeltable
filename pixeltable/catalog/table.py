@@ -373,7 +373,7 @@ class Table(SchemaObject):
         """
         self._check_is_dropped()
         if getattr(builtins, '__IPYTHON__', False):
-            from IPython.display import display, Markdown
+            from IPython.display import Markdown, display
 
             display(Markdown(self._repr_html_()))
         else:
