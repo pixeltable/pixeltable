@@ -1239,6 +1239,12 @@ class TestExprs:
         r2 = t.group_by(t.c_bool, t.c_string).select(t.c_string).collect()
         assert len(r1) == len(r2)
 
+        r3 = t.group_by(t.c_bool, t.c_string).select(t.c_bool, two='2').collect()
+        assert len(r1) == len(r3)
+
+        r4 = t.group_by(t.c_bool, t.c_string).select(two='2').collect()
+        assert len(r1) == len(r4)
+
         for pxt_fn, pd_fn in [
             (pxtf.sum, 'sum'),
             (pxtf.mean, 'mean'),
