@@ -424,6 +424,7 @@ class SqlAggregationNode(SqlNode):
     """
 
     group_by_items: Optional[list[exprs.Expr]]
+    input_cte: Optional[sql.CTE]
 
     def __init__(
         self,
@@ -440,13 +441,13 @@ class SqlAggregationNode(SqlNode):
             group_by_items: list of expressions to group by
             limit: max number of rows to return: None = no limit
         """
-        _, input_col_map = input.to_cte()
+        self.input_cte, input_col_map = input.to_cte()
         sql_elements = exprs.SqlElementCache(input_col_map)
         super().__init__(None, row_builder, select_list, sql_elements)
         self.group_by_items = group_by_items
 
     def _create_stmt(self) -> sql.Select:
-        stmt = super()._create_stmt()
+        stmt = super()._create_stmt().select_from(self.input_cte)
         if self.group_by_items is not None:
             sql_group_by_items = [self.sql_elements.get(e) for e in self.group_by_items]
             assert all(e is not None for e in sql_group_by_items)
