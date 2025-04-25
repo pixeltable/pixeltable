@@ -13,6 +13,7 @@ import sqlalchemy as sql
 from sqlalchemy import orm
 
 import pixeltable as pxt
+import pixeltable.type_system as ts
 from pixeltable.env import Env
 from pixeltable.exprs import FunctionCall, Literal
 from pixeltable.func import CallableFunction
@@ -214,8 +215,8 @@ class TestMigration:
         assert len(stores) == 2
         store0 = stores[0]
         assert isinstance(store0, MockProject)
-        assert store0.get_export_columns() == {'int_field': pxt.IntType()}
-        assert store0.get_import_columns() == {'str_field': pxt.StringType()}
+        assert store0.get_export_columns() == {'int_field': ts.IntType()}
+        assert store0.get_import_columns() == {'str_field': ts.StringType()}
         assert store0.col_mapping == {v.view_test_udf.col: 'int_field', t.c1.col: 'str_field'}
         store1 = stores[1]
         assert isinstance(store1, LabelStudioProject)
