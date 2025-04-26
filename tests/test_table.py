@@ -255,7 +255,7 @@ class TestTable:
             assert tbl._parent()._path() == '.'.join(tbl_path.split('.')[:-1])
             for t in (tbl, view, snap):
                 assert t.get_metadata() == {
-                    'base': None if t._base is None else t._base._path(),
+                    'base': None if t._base_table is None else t._base_table._path(),
                     'comment': t._comment,
                     'is_view': isinstance(t, catalog.View),
                     'is_snapshot': t._tbl_version.get().is_snapshot,
@@ -2113,8 +2113,7 @@ class TestTable:
         skip_test_if_not_installed('sentence_transformers')
 
         v = pxt.create_view('test_view', test_tbl)
-        pxt.create_dir('test_dir')
-        v2 = pxt.create_view('test_subview', v, comment='This is an intriguing table comment.')
+        v2 = pxt.create_view('test_subview', v.where(v.c1 != None), comment='This is an intriguing table comment.')
 
         v2.add_computed_column(computed1=v2.c2.apply(lambda x: np.full((3, 4), x), col_type=pxt.Array[(3, 4), pxt.Int]))  # type: ignore[misc]
         v2.add_embedding_index('c1', string_embed=all_mpnet_embed)
@@ -2123,9 +2122,8 @@ class TestTable:
 
         r = repr(v2)
         assert strip_lines(r) == strip_lines(
-            """View
-            'test_subview'
-            (of 'test_view', 'test_tbl')
+            """View 'test_subview' (of 'test_view', 'test_tbl')
+            Where: ~(c1 == None)
 
             Column Name                          Type           Computed With
               computed1  Required[Array[(3, 4), Int]]            <lambda>(c2)
@@ -2148,6 +2146,23 @@ class TestTable:
             COMMENT: This is an intriguing table comment."""
         )
         _ = v2._repr_html_()  # TODO: Is there a good way to test this output?
+
+        s = pxt.create_snapshot('test_snap', test_tbl)
+        r = repr(s)
+        assert strip_lines(r) == strip_lines(
+            """Snapshot 'test_snap' (of 'test_tbl:2')
+
+            Column Name                          Type           Computed With
+                     c1              Required[String]
+                    c1n                        String
+                     c2                 Required[Int]
+                     c3               Required[Float]
+                     c4                Required[Bool]
+                     c5           Required[Timestamp]
+                     c6                Required[Json]
+                     c7                Required[Json]
+                     c8  Required[Array[(2, 3), Int]]  [[1, 2, 3], [4, 5, 6]]"""
+        )
 
         c = repr(v2.c1)
         assert strip_lines(c) == strip_lines(

@@ -267,3 +267,35 @@ class View(Table):
 
     def delete(self, where: Optional[exprs.Expr] = None) -> UpdateStatus:
         raise excs.Error(f'{self._display_name()} {self._name!r}: cannot delete from view')
+
+    @property
+    def _base_table(self) -> Optional['Table']:
+        # if this is a pure snapshot, our tbl_version_path only reflects the base (there is no TableVersion instance
+        # for the snapshot itself)
+        base_id = self._tbl_version.id if self._snapshot_only else self._tbl_version_path.base.tbl_version.id
+        return catalog.Catalog.get().get_table_by_id(base_id)
+
+    @property
+    def _effective_base_versions(self) -> list[Optional[int]]:
+        effective_base_version = (
+            self._tbl_version.effective_version
+            if self._snapshot_only
+            else self._tbl_version_path.base.tbl_version.effective_version
+        )
+        return [effective_base_version, *self._base_table._effective_base_versions]
+
+    def _table_descriptor(self) -> str:
+        display_name = 'Snapshot' if self._snapshot_only else 'View'
+        result = [f'{display_name} {self._path()!r}']
+        bases_descrs: list[str] = []
+        for base, effective_version in zip(self._base_tables, self._effective_base_versions):
+            if effective_version is None:
+                bases_descrs.append(f'{base._path()!r}')
+            else:
+                base_descr = f'{base._path()}:{effective_version}'
+                bases_descrs.append(f'{base_descr!r}')
+        result.append(f' (of {", ".join(bases_descrs)})')
+
+        if self._tbl_version.get().predicate is not None:
+            result.append(f'\nWhere: {self._tbl_version.get().predicate!s}')
+        return ''.join(result)
