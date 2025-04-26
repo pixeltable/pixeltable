@@ -11,7 +11,7 @@ import label_studio_sdk  # type: ignore[import-untyped]
 import PIL.Image
 from requests.exceptions import HTTPError
 
-import pixeltable as pxt
+import pixeltable.type_system as ts
 from pixeltable import Column, Table, env, exceptions as excs
 from pixeltable.config import Config
 from pixeltable.exprs import ColumnRef, DataRow, Expr
@@ -89,21 +89,21 @@ class LabelStudioProject(Project):
     def __project_config(self) -> '_LabelStudioConfig':
         return self.__parse_project_config(self.project_params['label_config'])
 
-    def get_export_columns(self) -> dict[str, pxt.ColumnType]:
+    def get_export_columns(self) -> dict[str, ts.ColumnType]:
         """
         The data keys and preannotation fields specified in this Label Studio project.
         """
         return self.__project_config.export_columns
 
-    def get_import_columns(self) -> dict[str, pxt.ColumnType]:
+    def get_import_columns(self) -> dict[str, ts.ColumnType]:
         """
         Always contains a single entry:
 
         ```
-        {"annotations": pxt.JsonType(nullable=True)}
+        {"annotations": ts.JsonType(nullable=True)}
         ```
         """
-        return {ANNOTATIONS_COLUMN: pxt.JsonType(nullable=True)}
+        return {ANNOTATIONS_COLUMN: ts.JsonType(nullable=True)}
 
     def sync(self, t: Table, export_data: bool, import_data: bool) -> SyncStatus:
         _logger.info(
@@ -577,10 +577,10 @@ class LabelStudioProject(Project):
             else:
                 local_annotations_column = next(k for k, v in col_mapping.items() if v == ANNOTATIONS_COLUMN)
             if local_annotations_column not in t._schema:
-                t.add_columns({local_annotations_column: pxt.JsonType(nullable=True)})
+                t.add_columns({local_annotations_column: ts.JsonType(nullable=True)})
 
         resolved_col_mapping = cls.validate_columns(
-            t, config.export_columns, {ANNOTATIONS_COLUMN: pxt.JsonType(nullable=True)}, col_mapping
+            t, config.export_columns, {ANNOTATIONS_COLUMN: ts.JsonType(nullable=True)}, col_mapping
         )
 
         # Perform some additional validation
@@ -649,7 +649,7 @@ class LabelStudioProject(Project):
 @dataclass(frozen=True)
 class _DataKey:
     name: Optional[str]  # The 'name' attribute of the data key; may differ from the field name
-    column_type: pxt.ColumnType
+    column_type: ts.ColumnType
 
 
 @dataclass(frozen=True)
@@ -673,18 +673,18 @@ class _LabelStudioConfig:
                 )
 
     @property
-    def export_columns(self) -> dict[str, pxt.ColumnType]:
+    def export_columns(self) -> dict[str, ts.ColumnType]:
         data_key_cols = {key_id: key_info.column_type for key_id, key_info in self.data_keys.items()}
-        rl_cols = {name: pxt.JsonType() for name in self.rectangle_labels}
+        rl_cols = {name: ts.JsonType() for name in self.rectangle_labels}
         return {**data_key_cols, **rl_cols}
 
 
 ANNOTATIONS_COLUMN = 'annotations'
 _PAGE_SIZE = 100  # This is the default used in the LS SDK
 _LS_TAG_MAP = {
-    'header': pxt.StringType(),
-    'text': pxt.StringType(),
-    'image': pxt.ImageType(),
-    'video': pxt.VideoType(),
-    'audio': pxt.AudioType(),
+    'header': ts.StringType(),
+    'text': ts.StringType(),
+    'image': ts.ImageType(),
+    'video': ts.VideoType(),
+    'audio': ts.AudioType(),
 }

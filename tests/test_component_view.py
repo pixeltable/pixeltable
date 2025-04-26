@@ -6,6 +6,7 @@ import PIL
 import pytest
 
 import pixeltable as pxt
+import pixeltable.type_system as ts
 from pixeltable import exceptions as excs
 from pixeltable.iterators import ComponentIterator
 from pixeltable.iterators.video import FrameIterator
@@ -24,16 +25,16 @@ class ConstantImgIterator(ComponentIterator):
         self.pos_frame = 0.0
 
     @classmethod
-    def input_schema(cls) -> dict[str, pxt.ColumnType]:
-        return {'video': pxt.VideoType(nullable=False), 'fps': pxt.FloatType()}
+    def input_schema(cls) -> dict[str, ts.ColumnType]:
+        return {'video': ts.VideoType(nullable=False), 'fps': ts.FloatType()}
 
     @classmethod
-    def output_schema(cls, *args: Any, **kwargs: Any) -> tuple[dict[str, pxt.ColumnType], list[str]]:
+    def output_schema(cls, *args: Any, **kwargs: Any) -> tuple[dict[str, ts.ColumnType], list[str]]:
         return {
-            'frame_idx': pxt.IntType(),
-            'pos_msec': pxt.FloatType(),
-            'pos_frame': pxt.FloatType(),
-            'frame': pxt.ImageType(),
+            'frame_idx': ts.IntType(),
+            'pos_msec': ts.FloatType(),
+            'pos_frame': ts.FloatType(),
+            'frame': ts.ImageType(),
         }, ['frame']
 
     def __next__(self) -> dict[str, Any]:
