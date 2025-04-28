@@ -1370,3 +1370,6 @@ class Document(str, _PxtType):
     @classmethod
     def as_col_type(cls, nullable: bool) -> ColumnType:
         return DocumentType(nullable=nullable)
+
+
+ALL_PIXELTABLE_TYPES = (String, Bool, Int, Float, Timestamp, Json, Array, Image, Video, Audio, Document)

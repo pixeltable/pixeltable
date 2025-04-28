@@ -98,7 +98,8 @@ class TablePackager:
 
         # First generate a select list for the data we want to extract from `t`. This includes:
         # - all stored columns, including computed columns;
-        # - errortype and errormsg fields whenever they're defined.
+        # - errortype and errormsg fields whenever they're defined;
+        # - primary key columns (rowid components and vmin).
         # We select only those columns that are defined in this table (columns inherited from ancestor tables will be
         # handled separately).
         # For media columns, we substitute `col.fileurl` so that we always get the URL (which may be a file:// URL;
@@ -125,11 +126,15 @@ class TablePackager:
                 select_exprs[f'errormsg_{col_name}'] = col_ref.errormsg
                 actual_col_types.append(ts.StringType())
 
+        # Add columns for the primary key components of the base table rows.
+        # We need to use a VminRef for the vmin component, to ensure we get the correct vmin for the base table
+        # (which may be different from the vmin of the primary table).
+        # We also explicitly select the rowid components, in order to use them with the group_by() / any_value()
+        # pattern to deduplicate in SQL (see below).
         rowid_len = len(tv.store_tbl.rowid_columns())
-
-        # Add a column for the vmin of the base table record (which may be different from the vmin of the primary
-        # table)
-        select_exprs['vmin'] = exprs.VminRef(tvp.tbl_version)
+        for idx in range(rowid_len):
+            select_exprs[f'pk_{idx}'] = exprs.RowidRef(tvp.tbl_version, idx)
+        select_exprs['pk_vmin'] = exprs.VminRef(tvp.tbl_version)
 
         if tv.id == self.table._tbl_version.id:
             # Selecting from the primary table: just a simple select statement
@@ -139,7 +144,7 @@ class TablePackager:
             # context, not the base TableVersionPath, so that we export only those rows that are actually present in
             # `self.table`. The group_by() is needed to handle the case of iterator views correctly; it ensures that
             # records of the base table are appropriately deduplicated on rowid.
-            select_exprs = {name: pxtf.first(expr) for name, expr in select_exprs.items()}
+            select_exprs = {name: pxtf.any_value(expr) for name, expr in select_exprs.items()}
             df = self.table._df().group_by(tv).select(**select_exprs)
 
         parquet_schema = self.__to_parquet_schema(df._schema)
@@ -166,7 +171,11 @@ class TablePackager:
 
     @classmethod
     def __to_parquet_schema(cls, pxt_schema: dict[str, ts.ColumnType]) -> pa.Schema:
-        entries = [(name, cls.__to_parquet_type(col_type)) for name, col_type in pxt_schema.items() if name != 'vmin']
+        entries = [
+            (col_name, cls.__to_parquet_type(col_type))
+            for col_name, col_type in pxt_schema.items()
+            if not col_name.startswith('pk_')
+        ]
         entries.append(('pk', pa.list_(pa.int64())))
         return pa.schema(entries)  # type: ignore[arg-type]
 
@@ -191,17 +200,22 @@ class TablePackager:
         to avoid excessive memory usage.
         """
         for rows in more_itertools.batched(self.__to_pa_rows(df, rowid_len, actual_col_types), batch_size):
-            cols = {col_name: [row[idx] for row in rows] for idx, col_name in enumerate(df._schema.keys())}
+            cols = {
+                col_name: [row[idx] for row in rows]
+                for idx, col_name in enumerate(df._schema.keys())
+                if not col_name.startswith('pk_')
+            }
             cols['pk'] = [row[-1] for row in rows]
             yield pa.Table.from_pydict(cols, schema=arrow_schema)
 
     def __to_pa_rows(self, df: DataFrame, rowid_len: int, actual_col_types: list[ts.ColumnType]) -> Iterator[list]:
-        vmin_expr = df._select_list_exprs[-1]
+        val_exprs = df._select_list_exprs[: -rowid_len - 1]
+        pk_exprs = df._select_list_exprs[-rowid_len - 1 :]
         for row in df._exec():
-            vals = [row[e.slot_idx] for e in df._select_list_exprs[:-1]]
+            vals = [row[e.slot_idx] for e in val_exprs]
             assert len(vals) == len(actual_col_types)
             result = [self.__to_pa_value(val, col_type) for val, col_type in zip(vals, actual_col_types)]
-            pk = (*row.pk[:rowid_len], row[vmin_expr.slot_idx])
+            pk = tuple(row[e.slot_idx] for e in pk_exprs)
             result.append(pk)
             yield result
 

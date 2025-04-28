@@ -47,24 +47,9 @@ def _(val: sql.ColumnElement) -> Optional[sql.ColumnElement]:
 
 @func.uda(
     allows_window=True,
-    type_substitutions=tuple(
-        {T: Optional[t]}  # type: ignore[misc]
-        for t in (
-            ts.String,
-            ts.Bool,
-            ts.Int,
-            ts.Float,
-            ts.Timestamp,
-            ts.Array,
-            ts.Json,
-            ts.Image,
-            ts.Video,
-            ts.Audio,
-            ts.Document,
-        )
-    ),
+    type_substitutions=tuple({T: Optional[t]} for t in ts.ALL_PIXELTABLE_TYPES),  # type: ignore[misc]
 )
-class first(func.Aggregator, typing.Generic[T]):
+class any_value(func.Aggregator, typing.Generic[T]):
     result: T
 
     def __init__(self) -> None:
@@ -78,26 +63,16 @@ class first(func.Aggregator, typing.Generic[T]):
         return self.result
 
 
+@any_value.to_sql
+def _(val: sql.ColumnElement) -> Optional[sql.ColumnElement]:
+    return sql.sql.func.any_value(val)
+
+
 @func.uda(
     allows_window=True,
     # Allow counting non-null values of any type
     # TODO: should we have an "Any" type that can be used here?
-    type_substitutions=tuple(
-        {T: Optional[t]}  # type: ignore[misc]
-        for t in (
-            ts.String,
-            ts.Int,
-            ts.Float,
-            ts.Bool,
-            ts.Timestamp,
-            ts.Array,
-            ts.Json,
-            ts.Image,
-            ts.Video,
-            ts.Audio,
-            ts.Document,
-        )
-    ),
+    type_substitutions=tuple({T: Optional[t]} for t in ts.ALL_PIXELTABLE_TYPES),  # type: ignore[misc]
 )
 class count(func.Aggregator, typing.Generic[T]):
     def __init__(self) -> None:
