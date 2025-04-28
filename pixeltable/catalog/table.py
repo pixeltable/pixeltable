@@ -255,6 +255,11 @@ class Table(SchemaObject):
         return {c.name: c.col_type for c in self._tbl_version_path.columns()}
 
     @property
+    def base_table(self) -> Optional['Table']:
+        with env.Env.get().begin_xact():
+            return self._base
+
+    @property
     def _base(self) -> Optional['Table']:
         """
         The base table of this `Table`. If this table is a view, returns the `Table`

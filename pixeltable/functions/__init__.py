@@ -24,7 +24,7 @@ from . import (
     vision,
     whisper,
 )
-from .globals import count, map, max, mean, min, sum
+from .globals import count, first, map, max, mean, min, sum
 
 __all__ = local_public_names(__name__, exclude=['globals']) + local_public_names(globals.__name__)
 

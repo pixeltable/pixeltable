@@ -59,10 +59,6 @@ class TablePackager:
         self.tmp_dir = Path(Env.get().create_tmp_path())
         self.media_files = {}
 
-        for t in (table, *table._bases):
-            if t._tbl_version.get().iterator_cls is not None:
-                raise excs.Error('Publishing iterator views is not currently supported.')
-
         # Load metadata
         with Env.get().begin_xact():
             tbl_md = catalog.Catalog.get().load_replica_md(table)
@@ -98,6 +94,8 @@ class TablePackager:
         """
         Exports the data from `t` into a Parquet table.
         """
+        import pixeltable.functions as pxtf
+
         # First generate a select list for the data we want to extract from `t`. This includes:
         # - all stored columns, including computed columns;
         # - errortype and errormsg fields whenever they're defined.
@@ -127,9 +125,22 @@ class TablePackager:
                 select_exprs[f'errormsg_{col_name}'] = col_ref.errormsg
                 actual_col_types.append(ts.StringType())
 
-        # Run the select() with `self.table` as the context, not the base TableVersionPath, so that we export only
-        # those rows that are actually present in `self.table`.
-        df = self.table.select(**select_exprs)
+        rowid_len = len(tv.store_tbl.rowid_columns())
+
+        # Add a column for the vmin of the base table record (which may be different from the vmin of the primary
+        # table)
+        select_exprs['vmin'] = exprs.VminRef(tvp.tbl_version)
+
+        if tv.id == self.table._tbl_version.id:
+            # Selecting from the primary table: just a simple select statement
+            df = self.table.select(**select_exprs)
+        else:
+            # Selecting from an ancestor table: in this case we still need to run the select() with `self.table` as the
+            # context, not the base TableVersionPath, so that we export only those rows that are actually present in
+            # `self.table`. The group_by() is needed to handle the case of iterator views correctly; it ensures that
+            # records of the base table are appropriately deduplicated on rowid.
+            select_exprs = {name: pxtf.first(expr) for name, expr in select_exprs.items()}
+            df = self.table._df().group_by(tv).select(**select_exprs)
 
         parquet_schema = self.__to_parquet_schema(df._schema)
         parquet_file = self.tables_dir / f'tbl_{tv.id.hex}.parquet'
@@ -141,7 +152,7 @@ class TablePackager:
         # We use snappy compression for the Parquet tables; the entire bundle will be bzip2-compressed later, so
         # faster compression should provide good performance while still reducing temporary storage utilization.
         parquet_writer = pq.ParquetWriter(parquet_file, parquet_schema, compression='SNAPPY')
-        for pa_table in self.__to_pa_tables(df, actual_col_types, parquet_schema):
+        for pa_table in self.__to_pa_tables(df, rowid_len, actual_col_types, parquet_schema):
             parquet_writer.write_table(pa_table)
         parquet_writer.close()
 
@@ -155,7 +166,7 @@ class TablePackager:
 
     @classmethod
     def __to_parquet_schema(cls, pxt_schema: dict[str, ts.ColumnType]) -> pa.Schema:
-        entries = [(name, cls.__to_parquet_type(col_type)) for name, col_type in pxt_schema.items()]
+        entries = [(name, cls.__to_parquet_type(col_type)) for name, col_type in pxt_schema.items() if name != 'vmin']
         entries.append(('pk', pa.list_(pa.int64())))
         return pa.schema(entries)  # type: ignore[arg-type]
 
@@ -168,22 +179,30 @@ class TablePackager:
         return PXT_TO_PA_TYPES.get(col_type.__class__)
 
     def __to_pa_tables(
-        self, df: DataFrame, actual_col_types: list[ts.ColumnType], arrow_schema: pa.Schema, batch_size: int = 1_000
+        self,
+        df: DataFrame,
+        rowid_len: int,
+        actual_col_types: list[ts.ColumnType],
+        arrow_schema: pa.Schema,
+        batch_size: int = 1_000,
     ) -> Iterator[pa.Table]:
         """
         Load a DataFrame as a sequence of pyarrow tables. The pyarrow tables are batched into smaller chunks
         to avoid excessive memory usage.
         """
-        for rows in more_itertools.batched(self.__to_pa_rows(df, actual_col_types), batch_size):
+        for rows in more_itertools.batched(self.__to_pa_rows(df, rowid_len, actual_col_types), batch_size):
             cols = {col_name: [row[idx] for row in rows] for idx, col_name in enumerate(df._schema.keys())}
             cols['pk'] = [row[-1] for row in rows]
             yield pa.Table.from_pydict(cols, schema=arrow_schema)
 
-    def __to_pa_rows(self, df: DataFrame, actual_col_types: list[ts.ColumnType]) -> Iterator[list]:
+    def __to_pa_rows(self, df: DataFrame, rowid_len: int, actual_col_types: list[ts.ColumnType]) -> Iterator[list]:
+        vmin_expr = df._select_list_exprs[-1]
         for row in df._exec():
-            vals = [row[e.slot_idx] for e in df._select_list_exprs]
+            vals = [row[e.slot_idx] for e in df._select_list_exprs[:-1]]
+            assert len(vals) == len(actual_col_types)
             result = [self.__to_pa_value(val, col_type) for val, col_type in zip(vals, actual_col_types)]
-            result.append(row.pk)
+            pk = (*row.pk[:rowid_len], row[vmin_expr.slot_idx])
+            result.append(pk)
             yield result
 
     def __to_pa_value(self, val: Any, col_type: ts.ColumnType) -> Any:

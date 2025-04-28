@@ -210,7 +210,7 @@ class Analyzer:
             return True, False
         elif isinstance(e, exprs.Literal):
             return True, True
-        elif isinstance(e, (exprs.ColumnRef, exprs.RowidRef)):
+        elif isinstance(e, (exprs.ColumnRef, exprs.RowidRef, exprs.VminRef)):
             # we already know that this isn't a grouping expr
             return False, True
         else:

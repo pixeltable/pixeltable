@@ -47,6 +47,39 @@ def _(val: sql.ColumnElement) -> Optional[sql.ColumnElement]:
 
 @func.uda(
     allows_window=True,
+    type_substitutions=tuple(
+        {T: Optional[t]}  # type: ignore[misc]
+        for t in (
+            ts.String,
+            ts.Bool,
+            ts.Int,
+            ts.Float,
+            ts.Timestamp,
+            ts.Array,
+            ts.Json,
+            ts.Image,
+            ts.Video,
+            ts.Audio,
+            ts.Document,
+        )
+    ),
+)
+class first(func.Aggregator, typing.Generic[T]):
+    result: T
+
+    def __init__(self) -> None:
+        self.result = None
+
+    def update(self, val: T) -> None:
+        if self.result is None and val is not None:
+            self.result = val
+
+    def value(self) -> T:
+        return self.result
+
+
+@func.uda(
+    allows_window=True,
     # Allow counting non-null values of any type
     # TODO: should we have an "Any" type that can be used here?
     type_substitutions=tuple(

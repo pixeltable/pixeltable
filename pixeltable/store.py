@@ -456,7 +456,7 @@ class StoreBase:
                 store_row[store_col_name] = row[col_name]
             # Now fill in the pk cols
             pk = row['pk']
-            assert len(pk) == len(self._pk_cols)
+            assert len(pk) == len(self._pk_cols), f'pk {pk} does not match pk cols {self._pk_cols}'
             for pk_col, pk_val in zip(self._pk_cols, pk):
                 store_row[pk_col.name] = pk_val
             store_rows.append(store_row)

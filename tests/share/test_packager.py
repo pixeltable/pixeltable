@@ -8,7 +8,6 @@ from typing import Optional
 
 import numpy as np
 import pyarrow.parquet as pq
-import pytest
 
 import pixeltable as pxt
 from pixeltable import exprs, metadata
@@ -202,7 +201,12 @@ class TestPackager:
         # Add a stored computed column that will generate a bunch of media files in the view.
         v.add_computed_column(rot_frame=v.frame.rotate(180))
         snapshot = pxt.create_snapshot('snapshot', v)
+        snapshot_row_count = snapshot.count()
 
-        # TODO: Remove the `pytest.raises()` when we support iterator views.
-        with pytest.raises(pxt.Error, match=r'Publishing iterator views is not currently supported.'):
-            self.__do_round_trip(snapshot)
+        self.__do_round_trip(snapshot)
+
+        # Double-check that the iterator view and its base table have the correct number of rows
+        v_replica = pxt.get_table('new_replica')
+        assert v_replica.count() == snapshot_row_count
+        t_replica = v_replica.base_table
+        assert t_replica.count() == 2

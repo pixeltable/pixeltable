@@ -30,7 +30,7 @@ class RowidRef(Expr):
 
     def __init__(
         self,
-        tbl: catalog.TableVersionHandle,
+        tbl: Optional[catalog.TableVersionHandle],
         idx: int,
         tbl_id: Optional[UUID] = None,
         normalized_base_id: Optional[UUID] = None,
@@ -98,6 +98,9 @@ class RowidRef(Expr):
     def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
         tbl = self.tbl.get() if self.tbl is not None else catalog.Catalog.get().get_tbl_version(self.tbl_id, None)
         rowid_cols = tbl.store_tbl.rowid_columns()
+        assert self.rowid_component_idx <= len(rowid_cols), (
+            f'{self.rowid_component_idx} not consistent with {rowid_cols}'
+        )
         return rowid_cols[self.rowid_component_idx]
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
@@ -114,3 +117,45 @@ class RowidRef(Expr):
     def _from_dict(cls, d: dict, components: list[Expr]) -> RowidRef:
         tbl_id, normalized_base_id, idx = UUID(d['tbl_id']), UUID(d['normalized_base_id']), d['idx']
         return cls(tbl=None, idx=idx, tbl_id=tbl_id, normalized_base_id=normalized_base_id)
+
+
+class VminRef(Expr):
+    """
+    This bears some similarities to RowidRef, but there are enough differences to justify making it a separate class.
+    In particular, VminRef needs to be able to refer to a base table's vmin, and the retargeting simplifications of
+    RowidRef that are used by the planner don't apply (since a base table's vmin is in general different from its
+    descendants' vmins).
+    """
+
+    tbl: Optional[catalog.TableVersionHandle]
+    tbl_id: UUID
+
+    def __init__(self, tbl: Optional[catalog.TableVersionHandle], tbl_id: Optional[UUID] = None):
+        super().__init__(ts.IntType(nullable=False))
+        self.tbl = tbl
+        self.tbl_id = tbl.id if tbl is not None else tbl_id
+        self.id = self._create_id()
+
+    def default_column_name(self) -> Optional[str]:
+        return 'vmin'
+
+    def _equals(self, other: VminRef) -> bool:
+        return self.tbl_id == other.tbl_id
+
+    def _id_attrs(self) -> list[tuple[str, Any]]:
+        return [*super()._id_attrs(), ('tbl_id', self.tbl_id)]
+
+    def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
+        tbl = self.tbl.get() if self.tbl is not None else catalog.Catalog.get().get_tbl_version(self.tbl_id, None)
+        return tbl.store_tbl.v_min_col
+
+    def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
+        data_row[self.slot_idx] = data_row.v_min
+
+    def _as_dict(self) -> dict:
+        return {'tbl_id': str(self.tbl_id)}
+
+    @classmethod
+    def _from_dict(cls, d: dict, components: list[Expr]) -> VminRef:
+        tbl_id = UUID(d['tbl_id'])
+        return cls(tbl=None, tbl_id=tbl_id)
