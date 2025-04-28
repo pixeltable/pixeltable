@@ -13,6 +13,7 @@ import PIL.Image
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
+import pixeltable.type_system as ts
 from pixeltable import env
 from pixeltable.func import Batch
 from pixeltable.functions.util import normalize_image_mode, resolve_torch_device
@@ -61,14 +62,14 @@ def sentence_transformer(
 
 
 @sentence_transformer.conditional_return_type
-def _(model_id: str) -> pxt.ArrayType:
+def _(model_id: str) -> ts.ArrayType:
     try:
         from sentence_transformers import SentenceTransformer
 
         model = _lookup_model(model_id, SentenceTransformer)
-        return pxt.ArrayType((model.get_sentence_embedding_dimension(),), dtype=pxt.FloatType(), nullable=False)
+        return ts.ArrayType((model.get_sentence_embedding_dimension(),), dtype=ts.FloatType(), nullable=False)
     except ImportError:
-        return pxt.ArrayType((None,), dtype=pxt.FloatType(), nullable=False)
+        return ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False)
 
 
 @pxt.udf
@@ -199,14 +200,14 @@ def _(image: Batch[PIL.Image.Image], *, model_id: str) -> Batch[pxt.Array[(None,
 
 
 @clip.conditional_return_type
-def _(model_id: str) -> pxt.ArrayType:
+def _(model_id: str) -> ts.ArrayType:
     try:
         from transformers import CLIPModel
 
         model = _lookup_model(model_id, CLIPModel.from_pretrained)
-        return pxt.ArrayType((model.config.projection_dim,), dtype=pxt.FloatType(), nullable=False)
+        return ts.ArrayType((model.config.projection_dim,), dtype=ts.FloatType(), nullable=False)
     except ImportError:
-        return pxt.ArrayType((None,), dtype=pxt.FloatType(), nullable=False)
+        return ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False)
 
 
 @pxt.udf(batch_size=4)

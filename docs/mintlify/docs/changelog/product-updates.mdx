@@ -4,6 +4,35 @@ description: 'Keep track of changes'
 icon: 'newspaper'
 ---
 
+<Update label="2025-04-18" description="v0.3.12">
+### Highlights
+* Introduced pxt.retrieval_tool() for exposing tabular data as a RAG data source
+* Added client-side support for publishing snapshots. Sign up for [cloud preview](https://www.pixeltable.com/waitlist)
+
+### Enhancements
+* Added graceful handling of keyboard interrupts
+
+### Fixes
+* Fixed concurrency issues with directory operations
+* Fixed grouping aggregation-related bugs
+</Update>
+
+<Update label="2025-04-11" description="v0.3.11">
+### Highlights
+* Added support to initialize Pixeltable with database connection strings
+* Added support for separate userspaces in the Pixeltable catalog
+
+### Enhancements
+* Improved file format detection by preferring file extension over puremagic
+* Enabled table.select(None) functionality
+* Integrated JsonMapper with async expression evaluation
+* Widened numpy version compatibility
+
+### Fixes
+* Fixed add_embedding_index() when embedding function has arity > 1
+* Disallowed updates to media columns
+</Update>
+
 <Update label="2024-04-02" description="v0.3.10">
 ### Highlights
 * Introduced `pxtf.map()` as a replacement for the `>>` operator to create JsonMappers
@@ -13,18 +42,18 @@ icon: 'newspaper'
 * Switched to pixeltable-yolox for computer vision functionality
 
 ### Enhancements
-Restructured documentation for improved navigation and clarity
-Added table IDs to Pixeltable markdown documentation
-Added create_parents option to create_dir to automatically create missing parent directories
-Improved JsonMapper functionality with new unit tests for QueryTemplateFunction
+* Restructured documentation for improved navigation and clarity
+* Added table IDs to Pixeltable markdown documentation
+* Added create_parents option to create_dir to automatically create missing parent directories
+* Improved JsonMapper functionality with new unit tests for QueryTemplateFunction
 
 ### Fixes
-Fixed event loop debug logging
-Resolved syntax errors in documentation
-Addressed bugs in directory operations, particularly when drop_dir() is the first operation after catalog load
-Fixed issues with chained tool calling
-Corrected bug involving @pxt.query instances with default parameter values
-Improved JsonPath serialization
+* Fixed event loop debug logging
+* Resolved syntax errors in documentation
+* Addressed bugs in directory operations, particularly when drop_dir() is the first operation after catalog load
+* Fixed issues with chained tool calling
+* Corrected bug involving @pxt.query instances with default parameter values
+* Improved JsonPath serialization
 </Update>
 
 <Update label="2024-03-19" description="v0.3.7">

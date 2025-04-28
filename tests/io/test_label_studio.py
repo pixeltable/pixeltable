@@ -12,6 +12,7 @@ import requests.exceptions
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
+import pixeltable.type_system as ts
 from pixeltable import InsertableTable
 from pixeltable.functions.string import format
 
@@ -113,8 +114,8 @@ class TestLabelStudio:
         assert isinstance(store, LabelStudioProject)
         assert store.name == 'test_project'
         assert store.project_title == 'Test Project'
-        assert store.get_export_columns() == {'image': pxt.ImageType(), 'text': pxt.StringType()}
-        assert store.get_import_columns() == {'annotations': pxt.JsonType(nullable=True)}
+        assert store.get_export_columns() == {'image': ts.ImageType(), 'text': ts.StringType()}
+        assert store.get_import_columns() == {'annotations': ts.JsonType(nullable=True)}
 
         with pytest.raises(excs.Error) as exc_info:
             pxt.io.create_label_studio_project(

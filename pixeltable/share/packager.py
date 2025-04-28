@@ -333,7 +333,7 @@ class TableRestorer:
         for batch in parquet_table.to_batches():
             pydict = batch.to_pydict()
             col_ids: list[Optional[int]] = []
-            col_types: list[pxt.ColumnType] = []
+            col_types: list[ts.ColumnType] = []
             for name in pydict:
                 if name.startswith('val_'):
                     col = tv.cols_by_name[name.removeprefix('val_')]
@@ -341,7 +341,7 @@ class TableRestorer:
                     col_types.append(col.col_type)
                 elif name.startswith('errortype_') or name.startswith('errormsg_'):
                     col_ids.append(None)
-                    col_types.append(pxt.StringType())
+                    col_types.append(ts.StringType())
             rows = self.__from_pa_pydict(tv, pydict, col_ids, col_types)
             tv.store_tbl.insert_replica_rows(rows)
 

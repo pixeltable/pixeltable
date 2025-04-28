@@ -10,83 +10,41 @@ Pixeltable YOLOX apps work in two phases:
 1. Define your detection workflow (once)
 2. Use your app (anytime)
 
+## About Pixeltable YOLOX
+
+`pixeltable-yolox` is a lightweight, Apache-licensed object detection library built on PyTorch. It is a fork of the MegVii [YOLOX](https://github.com/Megvii-BaseDetection/YOLOX) package, modernized for recent versions of Python and refactored for easier use as a Python library. This library is designed for developers seeking a modern, accessible object detection solution for both academic and commercial projects.
+
+<Note>
+Pixeltable YOLOX is still under development, and some features of the original YOLOX have not been ported yet. However, it offers a robust foundation for object detection tasks.
+</Note>
+
+Developed by Pixeltable, Inc., a venture-backed AI infrastructure startup, this library aims to meet the vision community's need for a lightweight object detection library with an untainted open source license. The Pixeltable team brings decades of collective experience in open source development from companies like Google, Cloudera, Twitter, Amazon, and Airbnb.
+
 <Steps>
   <Step title="Install Dependencies">
     ```bash
-    pip install pixeltable
+    pip install pixeltable pixeltable-yolox
     ```
   </Step>
 
   <Step title="Define Your Detection Workflow" icon="wand-magic-sparkles">
     Create `table.py`:
     ```python
+    import PIL
     import pixeltable as pxt
-    from pixeltable.ext.functions.yolox import yolox
-    import PIL.Image
-    import PIL.ImageDraw
+    from yolox.models import Yolox
+    from yolox.data.datasets import COCO_CLASSES
 
-    # Initialize app structure
-    pxt.drop_dir("detection", force=True)
-    pxt.create_dir("detection")
+    t = pxt.create_table('image', {'image': pxt.Image}, if_exists='replace')
 
-    # Create tables for different media types
-    images = pxt.create_table(
-        'detection.images', 
-        {'image': pxt.ImageType()},
-        if_exists="ignore"
-    )
-
-    videos = pxt.create_table(
-        'detection.videos',
-        {'video': pxt.VideoType()},
-        if_exists="ignore"
-    )
-
-    # Create frame extraction view
-    frames = pxt.create_view(
-        'detection.frames',
-        videos,
-        iterator=pxt.iterators.FrameIterator.create(
-            video=videos.video,
-            fps=1  # Extract 1 frame per second
-        )
-    )
-
-    # Add detection workflow to images
-    images.add_computed_column(
-        detections=yolox(
-            images.image,
-            model_id='yolox_s',  # Choose model size
-            threshold=0.5        # Detection confidence threshold
-        )
-    )
-
-    # Add detection workflow to video frames
-    frames.add_computed_column(
-        detections=yolox(
-            frames.frame,
-            model_id='yolox_m',
-            threshold=0.25
-        )
-    )
-
-    # Add visualization function
     @pxt.udf
-    def draw_boxes(img: PIL.Image.Image, boxes: list[list[float]]) -> PIL.Image.Image:
-        result = img.copy()
-        d = PIL.ImageDraw.Draw(result)
-        for box in boxes:
-            d.rectangle(box, width=3)
-        return result
+    def detect(image: PIL.Image.Image) -> list[str]:
+        model = Yolox.from_pretrained("yolox_s")
+        result = model([image])
+        coco_labels = [COCO_CLASSES[label] for label in result[0]["labels"]]
+        return coco_labels
 
-    # Add visualization column to both tables
-    images.add_computed_column(
-        visualization=draw_boxes(images.image, images.detections.boxes)
-    )
-
-    frames.add_computed_column(
-        visualization=draw_boxes(frames.frame, frames.detections.boxes)
-    )
+    t.add_computed_column(classification=detect(t.image), if_exists='replace')
     ```
   </Step>
 
@@ -94,109 +52,38 @@ Pixeltable YOLOX apps work in two phases:
     Create `app.py`:
     ```python
     import pixeltable as pxt
+    from yolox.data.datasets import COCO_CLASSES
 
     # Connect to your tables
-    images = pxt.get_table("detection.images")
-    videos = pxt.get_table("detection.videos")
-    frames = pxt.get_table("detection.frames")
+    images = pxt.get_table("image")
 
-    # Process images
-    images.insert([
-        {'image': 'path/to/image1.jpg'},
-        {'image': 'path/to/image2.jpg'}
-    ])
-
-    # Process videos
-    videos.insert([
-        {'video': 'path/to/video1.mp4'}
-    ])
+    # Insert some images
+    prefix = 'https://upload.wikimedia.org/wikipedia/commons'
+    paths = [
+        '/1/15/Cat_August_2010-4.jpg',
+        '/e/e1/Example_of_a_Dog.jpg',
+        '/thumb/b/bf/Bird_Diversity_2013.png/300px-Bird_Diversity_2013.png'
+    ]
+    images.insert({'image': prefix + p} for p in paths)
 
     # Get detection results
-    image_results = images.select(
-        images.image,
-        images.detections,
-        images.visualization
-    ).collect()
+    image_results = images.select().collect()
 
-    frame_results = frames.select(
-        frames.frame,
-        frames.detections,
-        frames.visualization
-    ).collect()
-
-    # Access specific detection information
-    high_confidence = frames.where(
-        frames.detections.scores[0] > 0.9
-    ).collect()
+    # Process and display detailed results
+    for idx, result in enumerate(image_results):
+        print(f"Image {idx + 1} Detection Results:")
+        detections = result['classification']
+        for label in detections:
+            class_name = label
+            print(f"  - Detected: {class_name}")
     ```
   </Step>
 </Steps>
 
-## Available Models
+## Advanced Inference with YOLOX
 
-<Card title="Model Variants" icon="layer-group">
-| Model       | Speed     | Accuracy  | Use Case                          |
-| ----------- | --------- | --------- | --------------------------------- |
-| yolox_nano  | Fastest   | Base      | Mobile/Edge devices               |
-| yolox_tiny  | Very Fast | Good      | Resource-constrained environments |
-| yolox_s     | Fast      | Better    | Balanced performance              |
-| yolox_m     | Moderate  | High      | General purpose                   |
-| yolox_l     | Slower    | Very High | High accuracy needs               |
-| yolox_x     | Slowest   | Highest   | Maximum accuracy                  |
+Beyond basic object detection, `pixeltable-yolox` provides detailed output including bounding boxes, confidence scores, and class labels based on the COCO dataset categories.
+
+<Card title="Contribute to Pixeltable YOLOX" icon="github" href="https://github.com/pixeltable/pixeltable-yolox">
+  Join our community and contribute to the development of Pixeltable YOLOX
 </Card>
-
-## Key Features
-
-<CardGroup cols={1}>
-  <Card title="Automatic Processing" icon="gears">
-    Workflow handles model loading, inference, and result storage:
-    ```python
-    detections=yolox(images.image, model_id='yolox_s')
-    ```
-  </Card>
-
-  <Card title="Integrated Video Support" icon="film">
-    Built-in frame extraction and processing:
-    ```python
-    frames = pxt.create_view('detection.frames', videos,
-        iterator=pxt.iterators.FrameIterator.create(
-            video=videos.video, fps=1
-        )
-    )
-    ```
-  </Card>
-
-  <Card title="Rich Results" icon="magnifying-glass">
-    Comprehensive detection information:
-    ```python
-    {
-        "boxes": [[x1, y1, x2, y2], ...],
-        "scores": [0.98, ...],
-        "labels": [1, ...],
-        "label_text": ["person", ...]
-    }
-    ```
-  </Card>
-</CardGroup>
-
-## Best Practices
-
-<AccordionGroup>
-  <Accordion title="Model Selection" icon="scale-balanced">
-    - Start with smaller models (nano/tiny) for prototyping
-    - Use larger models when accuracy is critical
-    - Consider hardware constraints
-  </Accordion>
-
-  <Accordion title="Performance Optimization" icon="gauge-high">
-    - Adjust FPS settings for video processing
-    - Tune confidence threshold based on needs
-    - Use batch processing when possible
-  </Accordion>
-
-  <Accordion title="Resource Management" icon="microchip">
-    - Monitor memory usage with large videos
-    - Use frame sampling for initial testing
-    - Consider model size vs. speed tradeoffs
-  </Accordion>
-</AccordionGroup>

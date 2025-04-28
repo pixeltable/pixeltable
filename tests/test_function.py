@@ -10,6 +10,7 @@ import pytest
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.functions as pxtf
+import pixeltable.type_system as ts
 from pixeltable import catalog, func
 from pixeltable.func import Batch, Function, FunctionRegistry
 
@@ -61,7 +62,7 @@ class TestFunction:
         print(_)
 
     def test_stored_udf(self, reset_db: None) -> None:
-        t = pxt.create_table('test', {'c1': pxt.IntType(), 'c2': pxt.FloatType()})
+        t = pxt.create_table('test', {'c1': ts.IntType(), 'c2': ts.FloatType()})
         rows = [{'c1': i, 'c2': i + 0.5} for i in range(100)]
         status = t.insert(rows)
         assert status.num_rows == len(rows)
@@ -424,21 +425,21 @@ class TestFunction:
         f = self.crt_test_udf
 
         @f.conditional_return_type
-        def _(b: int, c: int) -> pxt.ColumnType:
-            return pxt.ArrayType(shape=(b, c), dtype=pxt.IntType())
+        def _(b: int, c: int) -> ts.ColumnType:
+            return ts.ArrayType(shape=(b, c), dtype=ts.IntType())
 
-        assert f.signature.return_type == pxt.ArrayType(dtype=pxt.IntType())
-        assert f(3, 7).col_type == pxt.ArrayType(shape=(7, 5), dtype=pxt.IntType())
-        assert f(3, 7, 2).col_type == pxt.ArrayType(shape=(7, 2), dtype=pxt.IntType())
+        assert f.signature.return_type == ts.ArrayType(dtype=ts.IntType())
+        assert f(3, 7).col_type == ts.ArrayType(shape=(7, 5), dtype=ts.IntType())
+        assert f(3, 7, 2).col_type == ts.ArrayType(shape=(7, 2), dtype=ts.IntType())
 
         g = f.using(b=7)
-        assert g.signature.return_type == pxt.ArrayType(dtype=pxt.IntType())
-        assert g(3).col_type == pxt.ArrayType(shape=(7, 5), dtype=pxt.IntType())
-        assert g(3, 2).col_type == pxt.ArrayType(shape=(7, 2), dtype=pxt.IntType())
+        assert g.signature.return_type == ts.ArrayType(dtype=ts.IntType())
+        assert g(3).col_type == ts.ArrayType(shape=(7, 5), dtype=ts.IntType())
+        assert g(3, 2).col_type == ts.ArrayType(shape=(7, 2), dtype=ts.IntType())
 
         h = g.using(c=2)
-        assert h.signature.return_type == pxt.ArrayType(shape=(7, 2), dtype=pxt.IntType())
-        assert h(3).col_type == pxt.ArrayType(shape=(7, 2), dtype=pxt.IntType())
+        assert h.signature.return_type == ts.ArrayType(shape=(7, 2), dtype=ts.IntType())
+        assert h(3).col_type == ts.ArrayType(shape=(7, 2), dtype=ts.IntType())
 
     @staticmethod
     @pxt.expr_udf
@@ -487,7 +488,7 @@ class TestFunction:
 
         with pytest.raises(excs.Error) as exc_info:
             # missing param types
-            @pxt.expr_udf(param_types=[pxt.IntType()])
+            @pxt.expr_udf(param_types=[ts.IntType()])
             def add1(x, y) -> int:  # type: ignore[no-untyped-def]
                 return x + y
 
@@ -552,8 +553,8 @@ class TestFunction:
         with pytest.raises(ValueError) as v_exc_info:
 
             @udf6.conditional_return_type
-            def _(wrong_param: str) -> pxt.ColumnType:
-                return pxt.StringType()
+            def _(wrong_param: str) -> ts.ColumnType:
+                return ts.StringType()
 
         assert '`wrong_param` that is not in a signature' in str(v_exc_info.value).lower()
 
@@ -998,9 +999,9 @@ class TestFunction:
         assert fn1.name == 'customers'
         assert list(fn1.signature.parameters.keys()) == ['customer_id', 'name', 'sales']
         assert [p.col_type for p in fn1.signature.parameters.values()] == [
-            pxt.StringType(),
-            pxt.StringType(),
-            pxt.IntType(nullable=True),
+            ts.StringType(),
+            ts.StringType(),
+            ts.IntType(nullable=True),
         ]
         assert fn1.comment() == dedent(
             """
@@ -1016,7 +1017,7 @@ class TestFunction:
         fn2 = pxt.retrieval_udf(t, parameters=['customer_id'], limit=None)
         assert fn2.name == 'customers'
         assert list(fn2.signature.parameters.keys()) == ['customer_id']
-        assert [p.col_type for p in fn2.signature.parameters.values()] == [pxt.StringType()]
+        assert [p.col_type for p in fn2.signature.parameters.values()] == [ts.StringType()]
         assert fn2.comment() == dedent(
             """
             Retrieves an entry from the dataset 'customers' that matches the given parameters.
@@ -1040,7 +1041,7 @@ class TestFunction:
         )
         assert fn3.name == 'my_customers'
         assert list(fn3.signature.parameters.keys()) == ['customer_id']
-        assert [p.col_type for p in fn3.signature.parameters.values()] == [pxt.StringType()]
+        assert [p.col_type for p in fn3.signature.parameters.values()] == [ts.StringType()]
         assert fn3.comment() == "I'm a tool that LLMs can use to do stuff."
 
     def test_from_table(self, reset_db: None) -> None:

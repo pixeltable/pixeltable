@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Optional, TypeVar, Union
 import numpy as np
 
 import pixeltable as pxt
+import pixeltable.type_system as ts
 from pixeltable.env import Env, register_client
 from pixeltable.func.signature import Batch
 from pixeltable.utils.code import local_public_names
@@ -176,9 +177,9 @@ async def embeddings(input: Batch[str], *, model: str) -> Batch[pxt.Array[(None,
 
 
 @embeddings.conditional_return_type
-def _(model: str) -> pxt.ArrayType:
+def _(model: str) -> ts.ArrayType:
     dimensions = _embedding_dimensions_cache.get(model)  # `None` if unknown model
-    return pxt.ArrayType((dimensions,), dtype=pxt.FloatType())
+    return ts.ArrayType((dimensions,), dtype=ts.FloatType())
 
 
 _T = TypeVar('_T')

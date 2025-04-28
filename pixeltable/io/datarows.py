@@ -3,13 +3,14 @@ from __future__ import annotations
 from typing import Any, Iterable, Optional, Union
 
 import pixeltable as pxt
+import pixeltable.type_system as ts
 from pixeltable import exceptions as excs
 
 
 def _infer_schema_from_rows(
     rows: Iterable[dict[str, Any]], schema_overrides: dict[str, Any], primary_key: list[str]
-) -> dict[str, pxt.ColumnType]:
-    schema: dict[str, pxt.ColumnType] = {}
+) -> dict[str, ts.ColumnType]:
+    schema: dict[str, ts.ColumnType] = {}
     cols_with_nones: set[str] = set()
 
     for n, row in enumerate(rows):
@@ -23,7 +24,7 @@ def _infer_schema_from_rows(
             elif value is not None:
                 # If `key` is not in `schema_overrides`, then we infer its type from the data.
                 # The column type will always be nullable by default.
-                col_type = pxt.ColumnType.infer_literal_type(value, nullable=col_name not in primary_key)
+                col_type = ts.ColumnType.infer_literal_type(value, nullable=col_name not in primary_key)
                 if col_type is None:
                     raise excs.Error(
                         f'Could not infer type for column `{col_name}`; the value in row {n} '
