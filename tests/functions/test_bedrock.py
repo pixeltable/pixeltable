@@ -23,12 +23,12 @@ class TestBedrock:
         ]
 
         t.add_computed_column(
-            output=converse(messages, model_id='us.anthropic.claude-3-haiku-20240307-v1:0', system=system)
+            output=converse(messages, model_id='anthropic.claude-3-haiku-20240307-v1:0')
         )
         t.add_computed_column(
             output2=converse(
                 messages,
-                model_id='us.anthropic.claude-3-haiku-20240307-v1:0',
+                model_id='anthropic.claude-3-haiku-20240307-v1:0',
                 system=system,
                 inference_config={'temperature': 0.6},
                 additional_model_request_fields={'top_k': 40},
