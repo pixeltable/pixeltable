@@ -277,12 +277,11 @@ class View(Table):
 
     @property
     def _effective_base_versions(self) -> list[Optional[int]]:
-        effective_base_version = (
-            self._tbl_version.effective_version
-            if self._snapshot_only
-            else self._tbl_version_path.base.tbl_version.effective_version
-        )
-        return [effective_base_version, *self._base_table._effective_base_versions]
+        effective_versions = [tv.effective_version for tv in self._tbl_version_path.get_tbl_versions()]
+        if self._snapshot_only:
+            return effective_versions
+        else:
+            return effective_versions[1:]
 
     def _table_descriptor(self) -> str:
         display_name = 'Snapshot' if self._snapshot_only else 'View'
