@@ -469,7 +469,7 @@ def drop_table(
     if isinstance(table, catalog.Table):
         # if we're dropping a table by handle, we first need to get the current path, then drop the S lock on
         # the Table record, and then get X locks in the correct order (first containing directory, then table)
-        with Env.get().begin_xact():
+        with Catalog.get().begin_xact(for_write=False):
             tbl_path = table._path()
     else:
         assert isinstance(table, str)

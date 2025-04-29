@@ -454,7 +454,7 @@ class Planner:
             key_vals = rowids
         else:
             pk_cols = target.primary_key_columns()
-            sa_key_cols = [c.sa_col for c in pk_cols]
+            sa_key_cols = [c.sa_col() for c in pk_cols]
             key_vals = [tuple(row[col].val for col in pk_cols) for row in batch]
 
         # retrieve all stored cols and all target exprs

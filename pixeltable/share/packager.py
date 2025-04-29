@@ -57,7 +57,7 @@ class TablePackager:
         self.media_files = {}
 
         # Load metadata
-        with Env.get().begin_xact():
+        with catalog.Catalog.get().begin_xact(for_write=False):
             tbl_md = catalog.Catalog.get().load_replica_md(table)
             self.md = {
                 'pxt_version': pxt.__version__,
@@ -77,7 +77,7 @@ class TablePackager:
         with open(self.tmp_dir / 'metadata.json', 'w', encoding='utf8') as fp:
             json.dump(self.md, fp)
         self.iceberg_catalog = sqlite_catalog(self.tmp_dir / 'warehouse')
-        with Env.get().begin_xact():
+        with catalog.Catalog.get().begin_xact(for_write=False):
             ancestors = (self.table, *self.table._bases)
             for t in ancestors:
                 _logger.info(f"Exporting table '{t._path}'.")

@@ -67,11 +67,11 @@ class ColumnPropertyRef(Expr):
             return None
 
         if self.prop == self.Property.ERRORTYPE:
-            assert self._col_ref.col.sa_errortype_col is not None
-            return self._col_ref.col.sa_errortype_col
+            assert self._col_ref.col.sa_errortype_col() is not None
+            return self._col_ref.col.sa_errortype_col()
         if self.prop == self.Property.ERRORMSG:
-            assert self._col_ref.col.sa_errormsg_col is not None
-            return self._col_ref.col.sa_errormsg_col
+            assert self._col_ref.col.sa_errormsg_col() is not None
+            return self._col_ref.col.sa_errormsg_col()
         if self.prop == self.Property.FILEURL:
             # the file url is stored as the column value
             return sql_elements.get(self._col_ref)

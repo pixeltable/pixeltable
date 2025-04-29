@@ -33,9 +33,10 @@ def convert_table_md(
             the original entry will be replaced, and the traversal will continue with `v'`.
     """
     with engine.begin() as conn:
-        for row in conn.execute(sql.select(Table)):
+        # avoid a SELECT * here, which breaks when we add new columns to Table
+        for row in conn.execute(sql.select(Table.id, Table.md)):
             tbl_id = row[0]
-            table_md = row[2]
+            table_md = row[1]
             assert isinstance(table_md, dict)
             updated_table_md = copy.deepcopy(table_md)
             if table_md_updater is not None:

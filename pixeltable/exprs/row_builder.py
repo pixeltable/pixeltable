@@ -452,7 +452,7 @@ class RowBuilder:
                     # we have yet to store this image
                     filepath = str(MediaStore.prepare_media_path(col.tbl.id, col.id, col.tbl.get().version))
                     data_row.flush_img(slot_idx, filepath)
-                val = data_row.get_stored_val(slot_idx, col.sa_col.type)
+                val = data_row.get_stored_val(slot_idx, col.get_sa_col_type())
                 table_row[col.store_name()] = val
                 # we unfortunately need to set these, even if there are no errors
                 table_row[col.errortype_store_name()] = None

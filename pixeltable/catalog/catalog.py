@@ -3,8 +3,10 @@ from __future__ import annotations
 import dataclasses
 import functools
 import logging
+import random
 import time
-from typing import TYPE_CHECKING, Any, Callable, Optional, TypeVar
+from contextlib import contextmanager
+from typing import TYPE_CHECKING, Any, Callable, Iterator, Optional, TypeVar
 from uuid import UUID
 
 import psycopg
@@ -14,7 +16,6 @@ from pixeltable import exceptions as excs
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
 from pixeltable.metadata import schema
-
 from .dir import Dir
 from .globals import IfExistsParam, IfNotExistsParam, MediaValidation
 from .insertable_table import InsertableTable
@@ -60,36 +61,38 @@ _MAX_RETRIES = 3
 T = TypeVar('T')
 
 
-def _retry_loop(op: Callable[..., T]) -> Callable[..., T]:
-    @functools.wraps(op)
-    def loop(*args: Any, **kwargs: Any) -> T:
-        num_remaining_retries = _MAX_RETRIES
-        while True:
-            try:
-                # in order for retry to work, we need to make sure that there aren't any prior db updates
-                # that are part of an ongoing transaction
-                assert not Env.get().in_xact()
-                with Env.get().begin_xact():
-                    return op(*args, **kwargs)
-            except sql.exc.DBAPIError as e:
-                if isinstance(e.orig, psycopg.errors.SerializationFailure):
-                    if num_remaining_retries > 0:
-                        num_remaining_retries -= 1
-                        # print(f'serialization failure:\n{e}')
-                        # print('retrying ************************************************************')
-                        time.sleep(1)
+def _retry_loop(*, for_write: bool) -> Callable[[Callable[..., T]], Callable[..., T]]:
+    def decorator(op: Callable[..., T]) -> Callable[..., T]:
+        @functools.wraps(op)
+        def loop(*args: Any, **kwargs: Any) -> T:
+            num_remaining_retries = _MAX_RETRIES
+            while True:
+                try:
+                    # in order for retry to work, we need to make sure that there aren't any prior db updates
+                    # that are part of an ongoing transaction
+                    assert not Env.get().in_xact
+                    with Catalog.get().begin_xact(for_write=for_write) as conn:
+                        return op(*args, **kwargs)
+                except sql.exc.DBAPIError as e:
+                    if isinstance(e.orig, psycopg.errors.SerializationFailure):
+                        if num_remaining_retries > 0:
+                            num_remaining_retries -= 1
+                            _logger.debug(f'Serialization failure, retrying ({num_remaining_retries} retries left)')
+                            time.sleep(random.uniform(0.1, 0.5))
+                        else:
+                            raise excs.Error(f'Serialization retry limit ({_MAX_RETRIES}) exceeded') from e
                     else:
-                        raise excs.Error(f'Serialization retry limit ({_MAX_RETRIES}) exceeded') from e
-                else:
-                    raise
+                        raise
 
-    return loop
+        return loop
+
+    return decorator
 
 
 class Catalog:
     """The functional interface to getting access to catalog objects
 
-    All interface functions must be called in the context of a transaction, started with Env.begin().
+    All interface functions must be called in the context of a transaction, started with Catalog.begin_xact().
     """
 
     _instance: Optional[Catalog] = None
@@ -99,6 +102,7 @@ class Catalog:
     # - snapshot versions: records the version of the snapshot
     _tbl_versions: dict[tuple[UUID, Optional[int]], TableVersion]
     _tbls: dict[UUID, Table]
+    _in_write_xact: bool  # True if we're in a write transaction
 
     @classmethod
     def get(cls) -> Catalog:
@@ -114,17 +118,67 @@ class Catalog:
     def __init__(self) -> None:
         self._tbl_versions = {}
         self._tbls = {}  # don't use a defaultdict here, it doesn't cooperate with the debugger
+        self._in_write_xact = False
         self._init_store()
 
-    @classmethod
-    def _lock_dir(cls, parent_id: Optional[UUID], dir_id: Optional[UUID], dir_name: Optional[str]) -> None:
-        """Update directory record(s) to sequentialize thread access. Lock is released when transaction commits.
+    @contextmanager
+    def begin_xact(self, *, tbl_id: Optional[UUID] = None, for_write: bool = False) -> Iterator[sql.Connection]:
+        """
+        Return a context manager that yields a connection to the database. Idempotent.
+
+        It is mandatory to call this method, not Env.begin_xact(), if the transaction accesses any table data
+        or metadata.
+        """
+        if Env.get()._current_conn is None:
+            num_remaining_retries = _MAX_RETRIES
+            while True:
+                try:
+                    with Env.get().begin_xact() as conn:
+                        if tbl_id is not None and for_write:
+                            # X-lock Table record
+                            conn.execute(
+                                sql.select(schema.Table).where(schema.Table.id == tbl_id).with_for_update(nowait=True))
+                            conn.execute(sql.update(schema.Table).values(lock_dummy=1).where(schema.Table.id == tbl_id))
+
+                        self._in_write_xact = for_write
+                        yield conn
+                        return
+                except sql.exc.DBAPIError as e:
+                    if isinstance(e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)):
+                        if num_remaining_retries > 0:
+                            num_remaining_retries -= 1
+                            _logger.debug(f'Serialization failure, retrying ({num_remaining_retries} retries left)')
+                            print(f'RETRYING after {type(e.orig)}')
+                            time.sleep(random.uniform(0.1, 0.5))
+                        else:
+                            raise excs.Error(f'Serialization retry limit ({_MAX_RETRIES}) exceeded') from e
+                    else:
+                        raise
+                finally:
+                    self._in_write_xact = False
+
+                    # invalidate cached current TableVersion instances
+                    for tv in self._tbl_versions.values():
+                        if tv.effective_version is None:
+                            _logger.debug(f'invalidating table version {tv.id}:{tv.version}')
+                            print(f'invalidating table version {tv.id}:{tv.version}')
+                            tv.is_validated = False
+        else:
+            yield Env.get()._current_conn
+
+    @property
+    def in_write_xact(self) -> bool:
+        return self._in_write_xact
+
+    def _xlock_dir(self, parent_id: Optional[UUID], dir_id: Optional[UUID], dir_name: Optional[str]) -> None:
+        """Force acquisition of an X-lock on a Dir record via a blind update.
+
         If dir_id is present, then all other conditions are ignored.
         Note that (parent_id==None) is a valid where condition.
         If dir_id is not specified, the user from the environment is added to the directory filters.
         """
         user = Env.get().user
-        conn = Env.get().conn
+        assert self._in_write_xact
         q = sql.update(schema.Dir).values(lock_dummy=1)
         if dir_id is not None:
             q = q.where(schema.Dir.id == dir_id)
@@ -134,7 +188,22 @@ class Catalog:
                 q = q.where(schema.Dir.md['name'].astext == dir_name)
             if user is not None:
                 q = q.where(schema.Dir.md['user'].astext == user)
-        conn.execute(q)
+        Env.get().conn.execute(q)
+
+    # def _xlock_tbl(self, tbl_id: UUID) -> None:
+    #     """Force acquisition of an X-lock on a Table record via a blind update."""
+    #     _logger.debug(f'X-locking table {tbl_id}')
+    #     assert self._in_write_xact
+    #     q = sql.select(schema.Table).where(schema.Table.id == tbl_id).with_for_update(nowait=True)
+    #     while True:
+    #         try:
+    #             Env.get().conn.execute(q)
+    #             break
+    #         except sql.exc.DBAPIError as e:
+    #             print(e)
+    #             time.sleep(0.1)
+    #     q = sql.update(schema.Table).values(lock_dummy=1).where(schema.Table.id == tbl_id)
+    #     Env.get().conn.execute(q)
 
     def get_dir_path(self, dir_id: UUID) -> Path:
         """Return path for directory with given id"""
@@ -156,7 +225,7 @@ class Catalog:
         dir_entries: dict[str, Catalog.DirEntry]
         table: Optional[schema.Table]
 
-    @_retry_loop
+    @_retry_loop(for_write=False)
     def get_dir_contents(self, dir_path: Path, recursive: bool = False) -> dict[str, DirEntry]:
         dir = self._get_schema_object(dir_path, expected=Dir, raise_if_not_exists=True)
         return self._get_dir_contents(dir._id, recursive=recursive)
@@ -183,7 +252,7 @@ class Catalog:
 
         return result
 
-    @_retry_loop
+    @_retry_loop(for_write=True)
     def move(self, path: Path, new_path: Path) -> None:
         self._move(path, new_path)
 
@@ -272,7 +341,7 @@ class Catalog:
 
         # check for subdirectory
         if for_update:
-            self._lock_dir(dir_id, None, name)
+            self._xlock_dir(dir_id, None, name)
         q = sql.select(schema.Dir).where(
             schema.Dir.parent_id == dir_id, schema.Dir.md['name'].astext == name, schema.Dir.md['user'].astext == user
         )
@@ -352,7 +421,7 @@ class Catalog:
             self._tbls[tbl_id] = tbl
         return self._tbls[tbl_id]
 
-    @_retry_loop
+    @_retry_loop(for_write=True)
     def create_table(
         self,
         path: Path,
@@ -385,7 +454,7 @@ class Catalog:
         self._tbls[tbl._id] = tbl
         return tbl
 
-    @_retry_loop
+    @_retry_loop(for_write=True)
     def create_view(
         self,
         path: Path,
@@ -431,7 +500,7 @@ class Catalog:
         self._tbls[view._id] = view
         return view
 
-    @_retry_loop
+    @_retry_loop(for_write=True)
     def create_replica(self, path: Path, md: list[schema.FullTableMd], if_exists: IfExistsParam) -> Table:
         """
         Creates table, table_version, and table_schema_version records for a replica with the given metadata.
@@ -503,6 +572,7 @@ class Catalog:
         # TODO: Handle concurrency
         dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
         assert dir is not None
+        assert self._in_write_xact
 
         conn = Env.get().conn
         tbl_id = md.tbl_md.tbl_id
@@ -580,14 +650,14 @@ class Catalog:
 
         self.store_tbl_md(UUID(tbl_id), new_tbl_md, new_version_md, new_schema_version_md)
 
-    @_retry_loop
+    @_retry_loop(for_write=False)
     def get_table(self, path: Path) -> Table:
         obj = Catalog.get()._get_schema_object(path, expected=Table, raise_if_not_exists=True)
         assert isinstance(obj, Table)
         obj._tbl_version.get().ensure_md_loaded()
         return obj
 
-    @_retry_loop
+    @_retry_loop(for_write=True)
     def drop_table(self, path: Path, if_not_exists: IfNotExistsParam, force: bool) -> None:
         _, _, src_obj = self._prepare_dir_op(
             drop_dir_path=path.parent,
@@ -636,7 +706,7 @@ class Catalog:
         del self._tbls[tbl._id]
         _logger.info(f'Dropped table `{tbl._path()}`.')
 
-    @_retry_loop
+    @_retry_loop(for_write=True)
     def create_dir(self, path: Path, if_exists: IfExistsParam, parents: bool) -> Dir:
         return self._create_dir(path, if_exists, parents)
 
@@ -671,7 +741,7 @@ class Catalog:
         Env.get().console_logger.info(f'Created directory {str(path)!r}.')
         return dir
 
-    @_retry_loop
+    @_retry_loop(for_write=True)
     def drop_dir(self, path: Path, if_not_exists: IfNotExistsParam, force: bool) -> None:
         _, _, schema_obj = self._prepare_dir_op(
             drop_dir_path=path.parent,
@@ -696,7 +766,7 @@ class Catalog:
                 raise excs.Error(f'Directory {str(dir_path)!r} is not empty.')
 
         # drop existing subdirs
-        self._lock_dir(dir_id, None, None)
+        self._xlock_dir(dir_id, None, None)
         dir_q = sql.select(schema.Dir).where(schema.Dir.parent_id == dir_id)
         for row in conn.execute(dir_q).all():
             self._drop_dir(row.id, dir_path.append(row.md['name']), force=True)
@@ -723,9 +793,40 @@ class Catalog:
         return result
 
     def get_tbl_version(self, tbl_id: UUID, effective_version: Optional[int]) -> Optional[TableVersion]:
-        if (tbl_id, effective_version) not in self._tbl_versions:
-            self._tbl_versions[tbl_id, effective_version] = self._load_tbl_version(tbl_id, effective_version)
-        return self._tbl_versions[tbl_id, effective_version]
+        # we need a transaction here, if we're not already in one; if this starts a new transaction,
+        # the returned TableVersion instance will not be validated
+        if not Env.get().in_xact:
+           x = 10
+        #assert Env.get().in_xact
+        with self.begin_xact(tbl_id=tbl_id, for_write=False) as conn:
+            tv = self._tbl_versions.get((tbl_id, effective_version))
+            if tv is None:
+                tv = self._load_tbl_version(tbl_id, effective_version)
+                self._tbl_versions[tbl_id, effective_version] = tv
+            elif not tv.is_validated:
+                assert tv.effective_version is None  # validation only applies to the live version
+                _logger.debug(f'validating metadata for table {tbl_id}:{tv.version}')
+                print(f'validating metadata for table {tbl_id}:{tv.version}')
+                q = sql.select(schema.Table.md).where(schema.Table.id == tbl_id)
+                row = conn.execute(q).one()
+                current_version = row.md['current_version']
+                # TODO: we break this assertion because we don't roll back the in-memory metadata changes when
+                # a data update fails
+                #assert current_version >= tv.version, f'{current_version} < {tv.version}'
+                if current_version > tv.version:
+                    # the cached metadata is invalid
+                    _logger.debug(
+                        f'reloading metadata for table {tbl_id} '
+                        f'(cached version: {tv.version}, current version: {current_version})'
+                    )
+                    print(
+                        f'reloading metadata for table {tbl_id} '
+                        f'(cached version: {tv.version}, current version: {current_version})'
+                    )
+                    tv = self._load_tbl_version(tbl_id, effective_version)
+                    self._tbl_versions[tbl_id, effective_version] = tv
+                tv.is_validated = True
+            return tv
 
     def add_tbl_version(self, tbl_version: TableVersion) -> None:
         """Explicitly add a TableVersion"""
@@ -743,7 +844,7 @@ class Catalog:
         """Return the Dir with the given id, or None if it doesn't exist"""
         conn = Env.get().conn
         if for_update:
-            self._lock_dir(None, dir_id, None)
+            self._xlock_dir(None, dir_id, None)
         q = sql.select(schema.Dir).where(schema.Dir.id == dir_id)
         row = conn.execute(q).one_or_none()
         if row is None:
@@ -759,7 +860,7 @@ class Catalog:
         conn = Env.get().conn
         if path.is_root:
             if for_update:
-                self._lock_dir(parent_id=None, dir_id=None, dir_name='')
+                self._xlock_dir(parent_id=None, dir_id=None, dir_name='')
             q = sql.select(schema.Dir).where(schema.Dir.parent_id.is_(None), schema.Dir.md['user'].astext == user)
             row = conn.execute(q).one_or_none()
             return schema.Dir(**row._mapping) if row is not None else None
@@ -768,7 +869,7 @@ class Catalog:
             if parent_dir is None:
                 return None
             if for_update:
-                self._lock_dir(parent_id=parent_dir.id, dir_id=None, dir_name=path.name)
+                self._xlock_dir(parent_id=parent_dir.id, dir_id=None, dir_name=path.name)
             q = sql.select(schema.Dir).where(
                 schema.Dir.parent_id == parent_dir.id,
                 schema.Dir.md['name'].astext == path.name,
@@ -913,6 +1014,7 @@ class Catalog:
         If inserting `version_md` or `schema_version_md` would be a primary key violation, an exception will be raised.
         """
         conn = Env.get().conn
+        assert self._in_write_xact
 
         if tbl_md is not None:
             result = conn.execute(

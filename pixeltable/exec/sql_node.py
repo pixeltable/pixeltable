@@ -219,6 +219,7 @@ class SqlNode(ExecNode):
             if t.id in refd_tbl_ids:
                 joined_tbls.append(t)
 
+        #print(f'input stmt: {str(stmt)}')
         first = True
         prev_tbl: Optional[catalog.TableVersionHandle] = None
         for t in joined_tbls[::-1]:
@@ -233,13 +234,25 @@ class SqlNode(ExecNode):
                     c1 == c2 for c1, c2 in zip(prev_tbl_rowid_cols, tbl_rowid_cols[: len(prev_tbl_rowid_cols)])
                 ]
                 stmt = stmt.join(t.get().store_tbl.sa_tbl, sql.and_(*rowid_clauses))
+            #print(f'stmt0: {str(stmt)}')
+
             if t.id in exact_version_only:
                 stmt = stmt.where(t.get().store_tbl.v_min_col == t.get().version)
             else:
-                stmt = stmt.where(t.get().store_tbl.v_min_col <= t.get().version).where(
-                    t.get().store_tbl.v_max_col > t.get().version
-                )
+                # stmt = (
+                #     stmt
+                #     .where(t.get().store_tbl.v_min_col <= t.get().version)
+                #     .where(t.get().store_tbl.v_max_col > t.get().version)
+                # )
+                stmt = stmt.where(t.get().store_tbl.sa_tbl.c.v_min <= t.get().version)
+                #stmt = stmt.where(t.get().store_tbl.v_min_col <= t.get().version)
+                #print(f'stmt1: {str(stmt)}')
+                stmt = stmt.where(t.get().store_tbl.sa_tbl.c.v_max > t.get().version)
+                #stmt = stmt.where(t.get().store_tbl.v_max_col > t.get().version)
+                #print(f'stmt2: {str(stmt)}')
             prev_tbl = t
+            #print(f'new stmt: {str(stmt)}')
+        #print(f'output stmt: {str(stmt)}')
         return stmt
 
     def set_where(self, where_clause: exprs.Expr) -> None:

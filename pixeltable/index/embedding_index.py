@@ -140,10 +140,10 @@ class EmbeddingIndex(IndexBase):
         """Create the index on the index value column"""
         idx = sql.Index(
             index_name,
-            index_value_col.sa_col,
+            index_value_col.sa_col(),
             postgresql_using='hnsw',
             postgresql_with={'m': 16, 'ef_construction': 64},
-            postgresql_ops={index_value_col.sa_col.name: self.PGVECTOR_OPS[self.metric]},
+            postgresql_ops={index_value_col.sa_col().name: self.PGVECTOR_OPS[self.metric]},
         )
         conn = Env.get().conn
         idx.create(bind=conn)
@@ -159,12 +159,12 @@ class EmbeddingIndex(IndexBase):
             embedding = self.image_embed.exec([item], {})
 
         if self.metric == self.Metric.COSINE:
-            return val_column.sa_col.cosine_distance(embedding) * -1 + 1
+            return val_column.sa_col().cosine_distance(embedding) * -1 + 1
         elif self.metric == self.Metric.IP:
-            return val_column.sa_col.max_inner_product(embedding) * -1
+            return val_column.sa_col().max_inner_product(embedding) * -1
         else:
             assert self.metric == self.Metric.L2
-            return val_column.sa_col.l2_distance(embedding)
+            return val_column.sa_col().l2_distance(embedding)
 
     def order_by_clause(self, val_column: catalog.Column, item: Any, is_asc: bool) -> sql.ColumnElement:
         """Create a ColumnElement that is used in an ORDER BY clause"""
@@ -179,14 +179,14 @@ class EmbeddingIndex(IndexBase):
         assert embedding is not None
 
         if self.metric == self.Metric.COSINE:
-            result = val_column.sa_col.cosine_distance(embedding)
+            result = val_column.sa_col().cosine_distance(embedding)
             result = result.desc() if is_asc else result
         elif self.metric == self.Metric.IP:
-            result = val_column.sa_col.max_inner_product(embedding)
+            result = val_column.sa_col().max_inner_product(embedding)
             result = result.desc() if is_asc else result
         else:
             assert self.metric == self.Metric.L2
-            result = val_column.sa_col.l2_distance(embedding)
+            result = val_column.sa_col().l2_distance(embedding)
         return result
 
     @classmethod

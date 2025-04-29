@@ -36,10 +36,10 @@ class Column:
     schema_version_add: Optional[int]
     schema_version_drop: Optional[int]
     _records_errors: Optional[bool]
-    sa_col: Optional[sql.schema.Column]
+    #sa_col: Optional[sql.schema.Column]
     sa_col_type: Optional[sql.sqltypes.TypeEngine]
-    sa_errormsg_col: Optional[sql.schema.Column]
-    sa_errortype_col: Optional[sql.schema.Column]
+    #sa_errormsg_col: Optional[sql.schema.Column]
+    #sa_errortype_col: Optional[sql.schema.Column]
     _value_expr: Optional[exprs.Expr]
     value_expr_dict: Optional[dict[str, Any]]
     dependent_cols: set[Column]
@@ -114,12 +114,12 @@ class Column:
         self._records_errors = records_errors
 
         # column in the stored table for the values of this Column
-        self.sa_col = None
+        #self.sa_col = None
         self.sa_col_type = sa_col_type
 
         # computed cols also have storage columns for the exception string and type
-        self.sa_errormsg_col = None
-        self.sa_errortype_col = None
+        #self.sa_errormsg_col = None
+        #self.sa_errortype_col = None
 
         self.tbl = None  # set by owning TableVersion
 
@@ -219,23 +219,37 @@ class Column:
             return
         self.value_expr.fn.source()
 
-    def create_sa_cols(self) -> None:
-        """
-        These need to be recreated for every new table schema version.
-        """
-        assert self.is_stored
-        # all storage columns are nullable (we deal with null errors in Pixeltable directly)
-        self.sa_col = sql.Column(
-            self.store_name(),
-            self.col_type.to_sa_type() if self.sa_col_type is None else self.sa_col_type,
-            nullable=True,
-        )
-        if self.is_computed or self.col_type.is_media_type():
-            self.sa_errormsg_col = sql.Column(self.errormsg_store_name(), ts.StringType().to_sa_type(), nullable=True)
-            self.sa_errortype_col = sql.Column(self.errortype_store_name(), ts.StringType().to_sa_type(), nullable=True)
+    # def create_sa_cols(self) -> None:
+    #     """
+    #     These need to be recreated for every new table schema version.
+    #     """
+    #     assert self.is_stored
+    #     # all storage columns are nullable (we deal with null errors in Pixeltable directly)
+    #     self.sa_col = sql.Column(
+    #         self.store_name(),
+    #         self.col_type.to_sa_type() if self.sa_col_type is None else self.sa_col_type,
+    #         nullable=True,
+    #     )
+    #     if self.is_computed or self.col_type.is_media_type():
+    #         self.sa_errormsg_col = sql.Column(self.errormsg_store_name(), ts.StringType().to_sa_type(), nullable=True)
+    #         self.sa_errortype_col = sql.Column(self.errortype_store_name(), ts.StringType().to_sa_type(), nullable=True)
 
     def get_sa_col_type(self) -> sql.sqltypes.TypeEngine:
         return self.col_type.to_sa_type() if self.sa_col_type is None else self.sa_col_type
+
+    def sa_col(self) -> sql.Column:
+        assert self.store_name() in self.tbl.get().store_tbl.sa_cols_by_name, self.store_name()
+        return self.tbl.get().store_tbl.sa_cols_by_name[self.store_name()]
+
+    def sa_errormsg_col(self) -> sql.Column:
+        assert self.records_errors
+        assert self.errormsg_store_name() in self.tbl.get().store_tbl.sa_cols_by_name, self.errormsg_store_name()
+        return self.tbl.get().store_tbl.sa_cols_by_name[self.errormsg_store_name()]
+
+    def sa_errortype_col(self) -> sql.Column:
+        assert self.records_errors
+        assert self.errortype_store_name() in self.tbl.get().store_tbl.sa_cols_by_name, self.errortype_store_name()
+        return self.tbl.get().store_tbl.sa_cols_by_name[self.errortype_store_name()]
 
     def store_name(self) -> str:
         assert self.id is not None

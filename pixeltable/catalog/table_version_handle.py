@@ -41,8 +41,9 @@ class TableVersionHandle:
     def get(self) -> TableVersion:
         from .catalog import Catalog
 
-        if self._tbl_version is None:
+        if self._tbl_version is None or not self._tbl_version.is_validated:
             self._tbl_version = Catalog.get().get_tbl_version(self.id, self.effective_version)
+            #print(f'self.tbl_version.isvalidated={self._tbl_version.is_validated}')
         return self._tbl_version
 
     def as_dict(self) -> dict:

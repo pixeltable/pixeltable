@@ -88,7 +88,7 @@ class Comparison(Expr):
             if len(idx_info) > 0 and not tbl.is_snapshot:
                 # there shouldn't be multiple B-tree indices on a column
                 assert len(idx_info) == 1
-                left = idx_info[0].val_col.sa_col
+                left = idx_info[0].val_col.sa_col()
 
         right = sql_elements.get(self._op2)
         if left is None or right is None:

@@ -2,6 +2,7 @@
 # rather than as a comment, so that the existence of a description can be enforced by
 # the unit tests when new versions are added.
 VERSION_NOTES = {
+    35: 'Added Table.lock_dummy',
     34: 'Set default value for is_pk field in column metadata to False',
     33: 'Add is_replica field to table metadata',
     32: 'Add the lock_dummy BIGINT column to the dirs table',

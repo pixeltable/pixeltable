@@ -88,6 +88,8 @@ class TableVersion:
     external_stores: dict[str, pxt.io.ExternalStore]
     store_tbl: 'store.StoreBase'
 
+    is_validated: bool  # used by Catalog to invalidate cached instances at the end of a transaction
+
     @dataclasses.dataclass
     class IndexInfo:
         id: int
@@ -106,8 +108,8 @@ class TableVersion:
         mutable_views: list[TableVersionHandle],
         base_path: Optional[pxt.catalog.TableVersionPath] = None,
         base: Optional[TableVersionHandle] = None,
-        # base_store_tbl: Optional['store.StoreBase'] = None,
     ):
+        self.is_validated = True  # a freshly constructed instance is always valid
         self.id = id
         self.name = tbl_md.name
         self.user = tbl_md.user
@@ -1131,8 +1133,8 @@ class TableVersion:
         set_clause: dict[sql.Column, Any] = {self.store_tbl.sa_tbl.c.v_max: schema.Table.MAX_VERSION}
         for index_info in self.idxs_by_name.values():
             # copy the index value back from the undo column and reset the undo column to NULL
-            set_clause[index_info.val_col.sa_col] = index_info.undo_col.sa_col
-            set_clause[index_info.undo_col.sa_col] = None
+            set_clause[index_info.val_col.sa_col()] = index_info.undo_col.sa_col()
+            set_clause[index_info.undo_col.sa_col()] = None
         stmt = sql.update(self.store_tbl.sa_tbl).values(set_clause).where(self.store_tbl.sa_tbl.c.v_max == self.version)
         conn.execute(stmt)
 

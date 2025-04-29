@@ -163,7 +163,7 @@ class ColumnRef(Expr):
         assert len(idx_info) == 1
         col = copy.copy(next(iter(idx_info.values())).val_col)
         col.name = f'{self.col.name}_embedding_{idx if idx is not None else ""}'
-        col.create_sa_cols()
+        #col.create_sa_cols()
         return ColumnRef(col)
 
     def default_column_name(self) -> Optional[str]:
@@ -211,7 +211,7 @@ class ColumnRef(Expr):
         return helper
 
     def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
-        return None if self.perform_validation else self.col.sa_col
+        return None if self.perform_validation else self.col.sa_col()
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         if self.perform_validation:
