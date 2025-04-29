@@ -2173,7 +2173,6 @@ class TestTable:
             COMMENT: This is an intriguing table comment."""
         )
 
-
         # test case: snapshot of base table
         s2 = pxt.create_snapshot('test_snap2', test_tbl)
         r = repr(s2)
