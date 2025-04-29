@@ -35,10 +35,10 @@ pxt.create_dir(
 # === DOCUMENT PROCESSING ===
 docs_table_path = f"{config.BASE_DIR}.documents"
 docs_schema = {
-    "doc_id": pxt.String,           # Standard string type
-    "source_uri": pxt.String,       # Explicitly store original source URL/path
-    "related_url": pxt.String, # Optional URL associated with the source (e.g., for PDFs)
-    "doc": pxt.Document,            # Pixeltable type for content + internal metadata
+    "doc_id": pxt.String,  # Standard string type
+    "source_uri": pxt.String,  # Explicitly store original source URL/path
+    "related_url": pxt.String,  # Optional URL associated with the source (e.g., for PDFs)
+    "doc": pxt.Document,  # Pixeltable type for content + internal metadata
 }
 documents = pxt.create_table(
     docs_table_path,
@@ -51,18 +51,20 @@ new_data = []
 # Iterate over the list of dictionaries in SOURCE_DATA
 for item in config.SOURCE_DATA:
     src = item.get("source")
-    related = item.get("related_url") # Get optional related URL
-    if not src: # Basic check
+    related = item.get("related_url")  # Get optional related URL
+    if not src:  # Basic check
         print(f"Warning: Skipping item in SOURCE_DATA with missing 'source': {item}")
         continue
 
     # Map source URLs/paths to the table schema
-    new_data.append({
-        "doc_id": str(uuid.uuid4()),
-        "source_uri": src,         # Store original source
-        "related_url": related,    # Store the related URL (can be None)
-        "doc": src                 # Let Pixeltable process the content from 'source'
-    })
+    new_data.append(
+        {
+            "doc_id": str(uuid.uuid4()),
+            "source_uri": src,  # Store original source
+            "related_url": related,  # Store the related URL (can be None)
+            "doc": src,  # Let Pixeltable process the content from 'source'
+        }
+    )
 if new_data:
     # Bulk insert data.
     documents.insert(new_data, on_error="ignore")
@@ -79,10 +81,10 @@ doc_chunks = pxt.create_view(
     # Use an Iterator to generate multiple output rows (chunks).
     iterator=pxt_iterators.DocumentSplitter.create(
         document=documents.doc,
-        separators='token_limit',
+        separators="token_limit",
         limit=250,
         overlap=0,
-        metadata="title,heading,sourceline"
+        metadata="title,heading,sourceline",
     ),
     # Schema is automatically inferred (+ heading, + source_uri).
     if_exists="ignore",
@@ -102,7 +104,10 @@ def search_document_chunks(query_text: str):
     """Search indexed document chunks for relevant context, filtering by similarity."""
     sim = doc_chunks.text.similarity(query_text)
     results = (
-        doc_chunks.where((sim >= config.MIN_SIMILARITY_THRESHOLD) & (pxt_str.len(doc_chunks.text) > 50))
+        doc_chunks.where(
+            (sim >= config.MIN_SIMILARITY_THRESHOLD)
+            & (pxt_str.len(doc_chunks.text) > 50)
+        )
         .order_by(sim, asc=False)
         .limit(config.NUM_CONTEXT_CHUNKS)
         .select(
@@ -111,7 +116,7 @@ def search_document_chunks(query_text: str):
             # heading=doc_chunks.heading,
             # sourceline=doc_chunks.sourceline,
             source_uri=doc_chunks.source_uri,
-            related_url=doc_chunks.related_url, # Select the new column
+            related_url=doc_chunks.related_url,  # Select the new column
             similarity=sim,
         )
     )
@@ -164,8 +169,7 @@ questions.add_computed_column(
 
 # d. Invoke Tools
 questions.add_computed_column(
-    tool_output=invoke_tools(tools, questions.llm_response_1),
-    if_exists="replace"
+    tool_output=invoke_tools(tools, questions.llm_response_1), if_exists="replace"
 )
 
 # --- Branch 2: General Knowledge ---

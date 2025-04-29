@@ -17,6 +17,7 @@ def run_duckduckgo_search(query: str, max_results: int = 5) -> Optional[List[Dic
         # print(f"Error during DuckDuckGo search: {e}")
         return None
 
+
 # Tool UDF: Fetches financial data using yfinance.
 # Integrates external Python libraries into the Pixeltable workflow.
 # Registered as a tool for the LLM via `pxt.tools()` in setup_pixeltable.py.
@@ -67,7 +68,9 @@ def fetch_financial_data(ticker: str) -> str:
         }
 
         formatted_data = [
-            f"Financial Summary for {data_points.get('Company Name', ticker)} ({data_points.get('Symbol', ticker).upper()}) - {data_points.get('Quote Type', 'N/A')}"
+            f"Financial Summary for {data_points.get('Company Name', ticker)} ("
+            f"{data_points.get('Symbol', ticker).upper()}) - "
+            f"{data_points.get('Quote Type', 'N/A')}"
         ]
         formatted_data.append("-" * 40)
 
@@ -102,9 +105,8 @@ def fetch_financial_data(ticker: str) -> str:
                         formatted_value = f"{value:,}"
                 elif key == "Dividend Yield" and isinstance(value, (int, float)):
                     formatted_value = f"{value * 100:.2f}%"
-                elif (
-                    key == "Trailing P/E"
-                    or key == "Forward P/E") and isinstance(value, (int, float)
+                elif (key in {"Trailing P/E", "Forward P/E"}) and isinstance(
+                    value, (int, float)
                 ):
                     formatted_value = f"{value:.2f}"
 
@@ -133,7 +135,7 @@ def fetch_financial_data(ticker: str) -> str:
 
     except Exception as e:
         # traceback.print_exc()  # REMOVED: Log the full error for debugging
-        return f"Error fetching financial data for {ticker}: {str(e)}."
+        return f"Error fetching financial data for {ticker}: {e!s}."
 
 
 @pxt.udf()
@@ -141,7 +143,7 @@ def format_initial_prompt(
     question_text: str, retrieved_context: Optional[List[Dict]]
 ) -> List[Dict]:
     """Formats the *initial* prompt message list for the LLM.
-       Uses related_url for source display if available.
+    Uses related_url for source display if available.
     """
     context_str = "No relevant documents found.\n"
     if retrieved_context:
@@ -160,15 +162,15 @@ def format_initial_prompt(
                 display_source = primary_id if primary_id else "Unknown Source"
 
                 if not primary_id:
-                    continue # Skip if we have neither identifier
+                    continue  # Skip if we have neither identifier
 
                 if primary_id not in sources_seen:
                     # First time seeing this source (by its primary ID)
-                    sources_seen[primary_id] = display_source # Store its display name
+                    sources_seen[primary_id] = display_source  # Store its display name
                     # Optionally add original path if related_url was used
                     source_prefix = f"Source: {display_source}"
                     if related_url and source_uri:
-                         source_prefix += f" (Original: {source_uri})"
+                        source_prefix += f" (Original: {source_uri})"
                     context_items.append(f"{source_prefix}\nContent: {text}")
                 else:
                     # Source already seen, just append content
@@ -180,7 +182,10 @@ def format_initial_prompt(
             context_str = "No processable context items found.\n"
 
     messages = [
-        {"role": "user", "content": f"""Context Documents:\n---\n{context_str}\n---\n\nQuestion: {question_text}"""}
+        {
+            "role": "user",
+            "content": f"""Context Documents:\n---\n{context_str}\n---\n\nQuestion: {question_text}""",
+        }
     ]
     return messages
 
@@ -193,7 +198,7 @@ def format_synthesis_messages(
     llm_general_response: Optional[Dict],
 ) -> List[Dict]:
     """Formats the user message for the final synthesis LLM call.
-       Uses related_url for source display if available.
+    Uses related_url for source display if available.
     """
     # 1. Format Document Context
     doc_context_str = "No relevant documents found."
@@ -213,7 +218,7 @@ def format_synthesis_messages(
                 display_source = primary_id if primary_id else "Unknown Source"
 
                 if not primary_id:
-                     continue # Skip if we have neither identifier
+                    continue  # Skip if we have neither identifier
 
                 if primary_id not in sources_seen_synthesis:
                     # First time seeing this source (by its primary ID)
@@ -221,7 +226,7 @@ def format_synthesis_messages(
                     # Optionally add original path if related_url was used
                     source_prefix = f"Source: {display_source}"
                     if related_url and source_uri:
-                         source_prefix += f" (Original: {source_uri})"
+                        source_prefix += f" (Original: {source_uri})"
                     context_items.append(f"{source_prefix}\nContent: {text}")
                 else:
                     # Source already seen, just append content
@@ -236,7 +241,7 @@ def format_synthesis_messages(
     # 2. Format Web Search Results (String conversion)
     tool_output_str = "No web search performed or failed."
     if tool_output and isinstance(tool_output, dict) and tool_output:
-        tool_output_str = f"Web Search Results Dictionary:\n{str(tool_output)}"
+        tool_output_str = f"Web Search Results Dictionary:\n{tool_output!s}"
 
     # 3. Format General Knowledge Answer
     general_answer_str = "No general knowledge answer was generated."
@@ -264,7 +269,5 @@ def format_synthesis_messages(
 
 Please synthesize the final answer based on the instructions provided in the system message, using the sources above.
 """
-    messages = [
-        {"role": "user", "content": final_content.strip()}
-    ]
+    messages = [{"role": "user", "content": final_content.strip()}]
     return messages

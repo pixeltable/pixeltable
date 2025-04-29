@@ -1,12 +1,12 @@
 import praw
-import prawcore # Import for exception handling
+import prawcore  # Import for exception handling
 import pixeltable as pxt
 import time
 import os
 from dotenv import load_dotenv
 import signal
 import sys
-import threading # Import threading
+import threading  # Import threading
 from datetime import datetime, timezone
 
 # Import centralized configuration
@@ -27,13 +27,13 @@ if not all([CLIENT_ID, CLIENT_SECRET, USER_AGENT, USERNAME, PASSWORD]):
     sys.exit(1)
 
 # --- Globals ---
-stop_event = threading.Event() # Use threading Event for signaling
+stop_event = threading.Event()  # Use threading Event for signaling
 
 
 # --- Signal Handler ---
 def signal_handler(sig, frame):
     print("\nCtrl+C detected. Signaling threads to stop...")
-    stop_event.set() # Set the event to signal threads
+    stop_event.set()  # Set the event to signal threads
 
 
 signal.signal(signal.SIGINT, signal_handler)
@@ -82,7 +82,10 @@ def format_reply(answer: str) -> str:
     """
     reply = f"{answer}\n\n---\n\n"
     github_repo_url = "https://github.com/pixeltable/pixeltable"
-    reply += f"^(This answer combines info from indexed documents and web search, powered by [Pixeltable]({github_repo_url}).)"
+    reply += (
+        f"^(This answer combines info from indexed documents and web search, "
+        f"powered by [Pixeltable]({github_repo_url}).)"
+    )
     return reply
 
 
@@ -96,23 +99,28 @@ def _update_status(table: pxt.Table, reddit_id: str, new_status: str):
         )
         print(f"        Successfully updated status for {reddit_id} to '{new_status}'.")
     except Exception as update_err:
-        print(f"        ERROR updating status for {reddit_id} to '{new_status}': {update_err}")
+        print(
+            f"        ERROR updating status for {reddit_id} to '{new_status}': {update_err}"
+        )
 
 
 # --- Main Logic ---
 
+
 def listen_for_submissions(reddit, questions_table, bot_username):
     """Listens for new submissions and inserts valid ones into Pixeltable."""
     subreddit = reddit.subreddit(TARGET_SUBREDDIT)
-    print(f"--- [Listener Thread] Started listening for submissions in r/{subreddit.display_name} ---")
+    print(
+        f"--- [Listener Thread] Started listening for submissions in r/{subreddit.display_name} ---"
+    )
     try:
         for submission in subreddit.stream.submissions(skip_existing=True):
             if stop_event.is_set():
                 print("[Listener Thread] Stop event detected, exiting listener loop.")
                 break
 
-            if submission is None: # Check if stream returned None (can happen)
-                time.sleep(1) # Avoid busy-waiting if stream pauses
+            if submission is None:  # Check if stream returned None (can happen)
+                time.sleep(1)  # Avoid busy-waiting if stream pauses
                 continue
 
             reddit_id = submission.id
@@ -144,25 +152,36 @@ def listen_for_submissions(reddit, questions_table, bot_username):
             try:
                 print(f"[Listener Thread]    Inserting {reddit_id} into Pixeltable...")
                 status = questions_table.insert([insert_data])
-                exceptions_list = getattr(status, 'exceptions', None)
+                exceptions_list = getattr(status, "exceptions", None)
                 num_exceptions = len(exceptions_list) if exceptions_list else 0
+                print(
+                    f"{status.num_rows} inserted (expected 1), "
+                    f"{num_exceptions} errors: {exceptions_list}"
+                )
                 if status.num_rows == 1 and num_exceptions == 0:
-                     print(f"[Listener Thread]    Insertion successful for {reddit_id}.")
-                else:
-                     print(f"[Listener Thread]    Insertion issue for {reddit_id}: {status.num_rows} inserted (expected 1), {num_exceptions} errors: {exceptions_list}")
+                    print(f"[Listener Thread]    Insertion successful for {reddit_id}.")
             except Exception as e:
-                print(f"[Listener Thread]    ERROR inserting {reddit_id} into Pixeltable: {e}")
+                print(
+                    f"[Listener Thread]    ERROR inserting {reddit_id} into Pixeltable: {e}"
+                )
 
             time.sleep(1)
 
     except prawcore.exceptions.RequestException as e:
-        print(f"[Listener Thread] PRAW Request Error in stream: {e}. Listener stopping.")
+        print(
+            f"[Listener Thread] PRAW Request Error in stream: {e}. Listener stopping."
+        )
     except prawcore.exceptions.ResponseException as e:
-         print(f"[Listener Thread] PRAW Response Error in stream: {e}. Listener stopping.")
+        print(
+            f"[Listener Thread] PRAW Response Error in stream: {e}. Listener stopping."
+        )
     except Exception as e:
-        print(f"[Listener Thread] Unexpected error in submission stream: {e}. Listener stopping.")
+        print(
+            f"[Listener Thread] Unexpected error in submission stream: {e}. Listener stopping."
+        )
     finally:
         print("--- [Listener Thread] Exiting --- ")
+
 
 def check_and_reply(reddit, questions_table, bot_username):
     """Periodically checks Pixeltable for answered questions and replies to all available.
@@ -181,18 +200,13 @@ def check_and_reply(reddit, questions_table, bot_username):
                 & (questions_table.status != "reply_error")
                 & (questions_table.final_answer != None)
             )
-            .select(
-                questions_table.reddit_id,
-                questions_table.final_answer
-            )
+            .select(questions_table.reddit_id, questions_table.final_answer)
             .order_by(questions_table.timestamp)
             .collect()
         )
 
         if not answered_questions_results:
-            print(
-                "    No questions found ready to be replied to."
-            )
+            print("    No questions found ready to be replied to.")
             return
 
         print(
@@ -200,7 +214,9 @@ def check_and_reply(reddit, questions_table, bot_username):
         )
         for question_data in answered_questions_results:
             if not isinstance(question_data, dict):
-                print(f"Warning: Unexpected item type in results: {type(question_data)}. Skipping.")
+                print(
+                    f"Warning: Unexpected item type in results: {type(question_data)}. Skipping."
+                )
                 continue
 
             reddit_id = question_data.get("reddit_id")
@@ -213,32 +229,42 @@ def check_and_reply(reddit, questions_table, bot_username):
             print(f"      Processing potential reply for {reddit_id}...")
 
             if not final_answer:
-                print(f"      Skipping {reddit_id}: Final answer is empty/null in Pixeltable.")
+                print(
+                    f"      Skipping {reddit_id}: Final answer is empty/null in Pixeltable."
+                )
                 _update_status(questions_table, reddit_id, "error")
                 continue
 
             try:
-                print(f"        Fetching submission {reddit_id} to check existing comments...")
+                print(
+                    f"        Fetching submission {reddit_id} to check existing comments..."
+                )
                 submission = reddit.submission(id=reddit_id)
                 if not submission:
-                     print(f"        Submission {reddit_id} not found or deleted.")
-                     _update_status(questions_table, reddit_id, "deleted")
-                     continue
+                    print(f"        Submission {reddit_id} not found or deleted.")
+                    _update_status(questions_table, reddit_id, "deleted")
+                    continue
 
                 already_replied = False
-                print(f"        Checking comments for {reddit_id} for bot user '{bot_username}'...")
+                print(
+                    f"        Checking comments for {reddit_id} for bot user '{bot_username}'..."
+                )
                 submission.comments.replace_more(limit=0)
                 for comment in submission.comments.list():
                     if comment.author and comment.author.name == bot_username:
                         already_replied = True
-                        print(f"        Bot '{bot_username}' has already commented on {reddit_id}. Skipping.")
+                        print(
+                            f"        Bot '{bot_username}' has already commented on {reddit_id}. Skipping."
+                        )
                         break
 
                 if already_replied:
                     _update_status(questions_table, reddit_id, "replied")
                     continue
 
-                print(f"        Bot has not replied to {reddit_id} yet. Proceeding with reply.")
+                print(
+                    f"        Bot has not replied to {reddit_id} yet. Proceeding with reply."
+                )
                 reply_body = format_reply(final_answer)
 
                 try:
@@ -255,11 +281,15 @@ def check_and_reply(reddit, questions_table, bot_username):
                         _update_status(questions_table, reddit_id, "reply_error")
 
                 except Exception as e:
-                    print(f"        Unexpected error during reply/update for {reddit_id}: {e}")
+                    print(
+                        f"        Unexpected error during reply/update for {reddit_id}: {e}"
+                    )
                     _update_status(questions_table, reddit_id, "reply_error")
 
             except Exception as outer_err:
-                print(f"      ERROR checking submission/comments for {reddit_id}: {outer_err}")
+                print(
+                    f"      ERROR checking submission/comments for {reddit_id}: {outer_err}"
+                )
                 _update_status(questions_table, reddit_id, "error")
                 continue
 
@@ -290,7 +320,7 @@ if __name__ == "__main__":
     listener_thread = threading.Thread(
         target=listen_for_submissions,
         args=(reddit_client, pxt_questions_table, bot_username),
-        daemon=True
+        daemon=True,
     )
     listener_thread.start()
     print("Listener thread started.")
@@ -324,6 +354,8 @@ if __name__ == "__main__":
         stop_event.set()
 
     finally:
-        print("\nMain loop finished. Waiting for listener thread to exit (if needed)...")
+        print(
+            "\nMain loop finished. Waiting for listener thread to exit (if needed)..."
+        )
         print("Reddit Bot finished.")
         sys.exit(0)
