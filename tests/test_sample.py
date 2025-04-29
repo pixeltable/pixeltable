@@ -125,9 +125,9 @@ class TestSampling:
     @classmethod
     def create_table(cls, t_rows: int, cat_count: int, with_null: bool) -> pxt.Table:
         schema = {
-            'id': pxt.IntType(nullable=False),
-            'cat1': pxt.IntType(nullable=with_null),
-            'cat2': pxt.IntType(nullable=with_null),
+            'id': ts.IntType(nullable=False),
+            'cat1': ts.IntType(nullable=with_null),
+            'cat2': ts.IntType(nullable=with_null),
         }
         rows = []
         for i in range(t_rows):
