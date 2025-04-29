@@ -110,6 +110,13 @@ class TestPandas:
         }
         assert t1.select(t1.Age).limit(5).collect()['Age'][:5] == [20, 24, 22, 22, 22]
 
+        t1a = pxt.create_table('online_foods_a', source='tests/data/datasets/onlinefoods.csv')
+        assert t1a.count() == 388
+        assert t1.show() == t1a.show()
+
+        t1a.insert('tests/data/datasets/onlinefoods.csv')
+        assert t1a.count() == 2 * 388
+
         t2 = import_csv('ibm', 'tests/data/datasets/classeurIBM.csv', primary_key='Date')
         assert t2.count() == 4263
         assert t2._schema == {
