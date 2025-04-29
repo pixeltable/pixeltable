@@ -209,7 +209,7 @@ def _df_row_to_pxt_row(
             nval = bool(val)
         elif pxt_type.is_string_type():
             nval = str(val)
-        elif pxt_type.is_timestamp_type():
+        elif pxt_type.is_date_type() or pxt_type.is_timestamp_type():
             if pd.isnull(val):
                 # pandas has the bespoke 'NaT' type for a missing timestamp; postgres is very
                 # much not-ok with it. (But if we convert it to None and then load out the

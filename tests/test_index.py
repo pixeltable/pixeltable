@@ -1,7 +1,7 @@
+import datetime
 import random
 import string
 import sys
-from datetime import datetime, timedelta
 from typing import Any, Union, _GenericAlias  # type: ignore[attr-defined]
 
 import numpy as np
@@ -799,9 +799,24 @@ class TestIndex:
 
     def test_timestamp_btree(self, reset_db: None) -> None:
         random.seed(1)
-        start = datetime(2000, 1, 1)
-        end = datetime(2020, 1, 1)
+        start = datetime.datetime(2000, 1, 1)
+        end = datetime.datetime(2020, 1, 1)
         delta = end - start
         delta_secs = int(delta.total_seconds())
-        data = [start + timedelta(seconds=random.randint(0, int(delta_secs))) for _ in range(self.BTREE_TEST_NUM_ROWS)]
+        data = [
+            start + datetime.timedelta(seconds=random.randint(0, int(delta_secs)))
+            for _ in range(self.BTREE_TEST_NUM_ROWS)
+        ]
         self.run_btree_test(data, pxt.Timestamp)
+
+    def test_date_btree(self, reset_db: None) -> None:
+        random.seed(1)
+        start = datetime.date(2000, 1, 1)
+        end = datetime.date(2100, 1, 1)
+        delta = end - start
+        delta_days = int(delta.days)
+        assert delta_days > 3 * self.BTREE_TEST_NUM_ROWS
+        data = [
+            start + datetime.timedelta(days=random.randint(0, int(delta_days))) for _ in range(self.BTREE_TEST_NUM_ROWS)
+        ]
+        self.run_btree_test(data, pxt.Date)

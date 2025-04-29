@@ -65,6 +65,10 @@ class PixeltablePytorchDataset(torch.utils.data.IterableDataset):
                 v = v.copy()
             assert v.flags['WRITEABLE']
             return v
+        elif self.column_types[k].is_date_type():
+            # pytorch default collation only supports numeric types
+            assert isinstance(v, datetime.date)
+            return v
         elif self.column_types[k].is_timestamp_type():
             # pytorch default collation only supports numeric types
             assert isinstance(v, datetime.datetime)
