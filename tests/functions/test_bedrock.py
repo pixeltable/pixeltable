@@ -2,7 +2,7 @@ import pytest
 
 import pixeltable as pxt
 from tests.conftest import DO_RERUN
-from tests.utils import skip_test_if_no_client, skip_test_if_not_installed, stock_price
+from tests.utils import skip_test_if_no_aws_credentials, skip_test_if_not_installed, stock_price
 
 
 @pytest.mark.remote_api
@@ -10,7 +10,7 @@ from tests.utils import skip_test_if_no_client, skip_test_if_not_installed, stoc
 class TestBedrock:
     def test_converse(self, reset_db: None) -> None:
         skip_test_if_not_installed('boto3')
-        skip_test_if_no_client('bedrock')
+        skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import converse
 
         t = pxt.create_table('test_tbl', {'input': pxt.String})
@@ -42,7 +42,7 @@ class TestBedrock:
 
     def test_tool_invocations(self, reset_db: None) -> None:
         skip_test_if_not_installed('boto3')
-        skip_test_if_no_client('bedrock')
+        skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import converse, invoke_tools
 
         tools = pxt.tools(stock_price)
