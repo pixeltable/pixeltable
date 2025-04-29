@@ -75,7 +75,6 @@ def converse(
         kwargs['additionalModelRequestFields'] = additional_model_request_fields
 
     if tool_config is not None:
-        print(tool_config)
         tool_config_ = {
             'tools': [
                 {
@@ -94,7 +93,6 @@ def converse(
                 for tool in tool_config
             ]
         }
-        print(tool_config_)
         kwargs['toolConfig'] = tool_config_
 
     return _bedrock_client().converse(**kwargs)
