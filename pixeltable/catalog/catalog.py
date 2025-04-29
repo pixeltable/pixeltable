@@ -161,7 +161,7 @@ class Catalog:
                     for tv in self._tbl_versions.values():
                         if tv.effective_version is None:
                             _logger.debug(f'invalidating table version {tv.id}:{tv.version}')
-                            print(f'invalidating table version {tv.id}:{tv.version}')
+                            #print(f'invalidating table version {tv.id}:{tv.version}')
                             tv.is_validated = False
         else:
             yield Env.get()._current_conn
@@ -806,23 +806,23 @@ class Catalog:
             elif not tv.is_validated:
                 assert tv.effective_version is None  # validation only applies to the live version
                 _logger.debug(f'validating metadata for table {tbl_id}:{tv.version}')
-                print(f'validating metadata for table {tbl_id}:{tv.version}')
+                #print(f'validating metadata for table {tbl_id}:{tv.version}')
                 q = sql.select(schema.Table.md).where(schema.Table.id == tbl_id)
                 row = conn.execute(q).one()
                 current_version = row.md['current_version']
-                # TODO: we break this assertion because we don't roll back the in-memory metadata changes when
-                # a data update fails
-                #assert current_version >= tv.version, f'{current_version} < {tv.version}'
-                if current_version > tv.version:
+
+                # the stored version can be behind TableVersion.version, because we don't roll back the in-memory
+                # metadata changes after a failed update operation
+                if current_version != tv.version:
                     # the cached metadata is invalid
                     _logger.debug(
                         f'reloading metadata for table {tbl_id} '
                         f'(cached version: {tv.version}, current version: {current_version})'
                     )
-                    print(
-                        f'reloading metadata for table {tbl_id} '
-                        f'(cached version: {tv.version}, current version: {current_version})'
-                    )
+                    # print(
+                    #     f'reloading metadata for table {tbl_id} '
+                    #     f'(cached version: {tv.version}, current version: {current_version})'
+                    # )
                     tv = self._load_tbl_version(tbl_id, effective_version)
                     self._tbl_versions[tbl_id, effective_version] = tv
                 tv.is_validated = True
