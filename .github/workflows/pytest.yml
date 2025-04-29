@@ -46,10 +46,11 @@ jobs:
       matrix:
         # Test with Python 3.9 and 3.12 (minimum and maximum supported versions) on every platform.
         # In most cases, test only the basic (free) platforms: ubuntu-22.04, macos-13, windows-2022.
-        # On a scheduled run, also test ubuntu-arm64 and ubuntu-x64-t4 (which cost money).
+        # On a scheduled run, also test ubuntu-x64-t4 (which costs money). ubuntu-arm64 is disabled
+        # for now; it just has too many problems.
         # A workflow_dispatch trigger can (optionally) also be used to trigger a full run on all platforms.
         os: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_on_all_platforms))
-                && fromJSON('["ubuntu-22.04", "macos-13", "windows-2022", "ubuntu-arm64", "ubuntu-x64-t4"]')
+                && fromJSON('["ubuntu-22.04", "macos-13", "windows-2022", "ubuntu-x64-t4"]')
                 || fromJSON('["ubuntu-22.04", "macos-13", "windows-2022"]') }}
         python-version: ["3.9", "3.12"]
         test-category: ["py"]
@@ -117,10 +118,11 @@ jobs:
           use-only-tar-bz2: true  # Needed to use conda with cache action
       - name: Show conda info
         run: conda info
-      - name: Install ffmpeg
-        # Needed for WhisperX
+      - name: Install tools
+        # cmake is needed for certain CI environments where it is not preinstalled.
+        # libiconv and ffmpeg are needed by WhisperX.
         if: ${{ matrix.poetry-options != '' }}
-        run: ./scripts/retry.sh 3 30 conda install -c conda-forge libiconv ffmpeg
+        run: ./scripts/retry.sh 3 30 conda install -c conda-forge 'cmake>=3.22' libiconv ffmpeg
       - name: Install ollama
         if: ${{ matrix.poetry-options != '' && matrix.os == 'ubuntu-22.04' }}
         run: |
