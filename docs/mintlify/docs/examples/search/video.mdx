@@ -21,7 +21,6 @@ Pixeltable lets you build comprehensive video search workflows combining both au
   <Step title="Define Your Workflow" icon="diagram-project">
     Create `table.py`:
     ```python
-    from datetime import datetime
     import pixeltable as pxt
     from pixeltable.functions import openai
     from pixeltable.functions.huggingface import sentence_transformer
@@ -39,8 +38,15 @@ Pixeltable lets you build comprehensive video search workflows combining both au
 
     # Create video table
     pxt.create_dir(directory, if_exists='replace_force')
-    video_index = pxt.create_table(table_name, {'video': pxt.Video, 'uploaded_at': pxt.Timestamp})
-    video_index.add_computed_column(audio_extract=extract_audio(video_index.video, format='mp3')) 
+
+    video_index = pxt.create_table(
+        table_name, 
+        {'video': pxt.Video, 'uploaded_at': pxt.Timestamp}
+    )
+
+    video_index.add_computed_column(
+        audio_extract=extract_audio(video_index.video, format='mp3')
+    ) 
 
     # Create view for frames
     frames_view = pxt.create_view(
@@ -78,7 +84,9 @@ Pixeltable lets you build comprehensive video search workflows combining both au
 
     # Audio-to-text for chunks
     chunks_view.add_computed_column(
-        transcription=openai.transcriptions(audio=chunks_view.audio_chunk, model='whisper-1')
+        transcription=openai.transcriptions(
+          audio=chunks_view.audio_chunk, model='whisper-1'
+        )
     )
 
     # Create view that chunks text into sentences
@@ -98,11 +106,11 @@ Pixeltable lets you build comprehensive video search workflows combining both au
     ```python
     from datetime import datetime
     import pixeltable as pxt
-    
+
     # Constants
     directory = 'video_index'
     table_name = f'{directory}.video'
-    
+
     # Connect to your tables and views
     video_index = pxt.get_table(table_name)
     frames_view = pxt.get_table(f'{directory}.video_frames')
@@ -117,6 +125,9 @@ Pixeltable lets you build comprehensive video search workflows combining both au
 
     video_index.insert({'video': video, 'uploaded_at': datetime.now()} for video in videos[:2])
 
+    query_text = "Summarize the conversation"
+
+    audio_sim = transcription_chunks.text.similarity(query_text)
     audio_results = (
         transcription_chunks.order_by(audio_sim, transcription_chunks.uploaded_at, asc=False)
         .limit(5)
@@ -124,16 +135,7 @@ Pixeltable lets you build comprehensive video search workflows combining both au
         .collect()
     )
 
-    # Fetch 5 most similar frames
-    frame_results = (
-        frames_view.order_by(image_sim, frames_view.uploaded_at, asc=False)
-        .limit(5)
-        .select(frames_view.image_description, frames_view.uploaded_at, similarity=image_sim)
-        .collect()
-    )
-
     print(audio_results)
-    print(frame_results)
     ```
   </Step>
 </Steps>

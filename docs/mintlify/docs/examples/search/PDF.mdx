@@ -55,19 +55,6 @@ Pixeltable PDF search works in two phases:
         column="text",
         string_embed=embed_model
     )
-
-    # Define search query
-    @pxt.query
-    def search_documents(query_text: str, limit: int):
-        sim = documents_chunks.text.similarity(query_text)
-        return (
-            documents_chunks.order_by(sim, asc=False)
-            .select(
-                documents_chunks.text,
-                similarity=sim
-            )
-            .limit(limit)
-        )
     ```
   </Step>
 
@@ -97,27 +84,19 @@ Pixeltable PDF search works in two phases:
     documents_t.insert({"pdf": url} for url in document_urls)
 
     # Search documents
-    @pxt.query
-    def find_relevant_text(query: str, top_k: int):
-        sim = documents_chunks.text.similarity(query)
-        return (
-            documents_chunks.order_by(sim, asc=False)
-            .select(
-                documents_chunks.text,
-                similarity=sim
-            )
-            .limit(top_k)
-        )
+    query = "What are the growth projections for tech companies?"
+    top_n = 3
+    sim = documents_chunks.text.similarity(query)
+    result = (
+        documents_chunks.order_by(sim, asc=False)
+        .select(documents_chunks.text, sim=sim)
+        .collect()
+    )
 
-    # Example search
-    results = find_relevant_text(
-        "What are the growth projections for tech companies?"
-    ).collect()
-    
     # Print results
-    for r in results:
-        print(f"Similarity: {r['similarity']:.3f}")
-        print(f"Text: {r['text']}\n")
+    for i in result:
+        print(f"Similarity: {i['sim']:.3f}")
+        print(f"Text: {i['text']}\n")
     ```
   </Step>
 </Steps>
@@ -149,7 +128,7 @@ Pixeltable PDF search works in two phases:
   <Card title="Auto-updating" icon="arrows-rotate">
     Self-maintaining document database:
     ```python
-    documents_t.insert({"pdf": new_url})
+    documents_t.insert([{"pdf": new_url}])
     # Chunking and embeddings update automatically
     ```
   </Card>

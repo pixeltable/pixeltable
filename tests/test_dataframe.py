@@ -10,6 +10,7 @@ import PIL.Image
 import pytest
 
 import pixeltable as pxt
+import pixeltable.type_system as ts
 from pixeltable import catalog, exceptions as excs
 from pixeltable.iterators import FrameIterator
 
@@ -509,7 +510,7 @@ class TestDataFrame:
 
         # grouping_tbl
 
-        t2 = pxt.create_table('test_tbl_2', {'name': pxt.StringType(), 'video': pxt.VideoType()})
+        t2 = pxt.create_table('test_tbl_2', {'name': ts.StringType(), 'video': ts.VideoType()})
         v2 = pxt.create_view('test_view_2', t2, iterator=FrameIterator.create(video=t2.video, fps=1))
         with pytest.raises(excs.Error) as exc_info:
             v2.select(pxt.functions.video.make_video(v2.pos, v2.frame)).group_by(t2).update({'name': 'test'})
@@ -563,7 +564,7 @@ class TestDataFrame:
             arrval = tup['c_array']
             assert isinstance(arrval, np.ndarray)
             col_type = df.schema['c_array']
-            assert isinstance(col_type, pxt.ArrayType)
+            assert isinstance(col_type, ts.ArrayType)
             assert arrval.dtype == col_type.numpy_dtype()
             assert arrval.shape == col_type.shape
             assert arrval.dtype == np.float32
@@ -739,7 +740,7 @@ class TestDataFrame:
 
         from pixeltable.ext.functions.yolox import yolo_to_coco, yolox
 
-        base_t = pxt.create_table('videos', {'video': pxt.VideoType()})
+        base_t = pxt.create_table('videos', {'video': ts.VideoType()})
         view_t = pxt.create_view('frames', base_t, iterator=FrameIterator.create(video=base_t.video, fps=1))
         view_t.add_computed_column(detections=yolox(view_t.frame, model_id='yolox_m'))
         base_t.insert(video=get_video_files()[0])

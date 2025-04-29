@@ -5,7 +5,9 @@ import pytest
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.functions as pxtf
+import pixeltable.type_system as ts
 
+from ..conftest import DO_RERUN
 from ..utils import SAMPLE_IMAGE_URL, skip_test_if_not_installed, stock_price, validate_update_status
 
 
@@ -24,7 +26,7 @@ def weather(city: str) -> Optional[str]:
 
 
 @pytest.mark.remote_api
-@pytest.mark.flaky(reruns=3, reruns_delay=8)
+@pytest.mark.flaky(reruns=3, reruns_delay=8, condition=DO_RERUN)
 class TestOpenai:
     @pytest.mark.expensive
     def test_audio(self, reset_db: None) -> None:
@@ -154,7 +156,7 @@ class TestOpenai:
         # adding a second column re-uses the existing client, with an existing connection pool
         t.add_computed_column(output2=openai.chat_completions(model='gpt-4o-mini', messages=messages))
 
-    @pytest.mark.flaky(reruns=6, reruns_delay=8)
+    @pytest.mark.flaky(reruns=6, reruns_delay=8, condition=DO_RERUN)
     def test_tool_invocations(self, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
         TestOpenai.skip_test_if_no_openai_client()
@@ -272,7 +274,8 @@ class TestOpenai:
         assert res[0]['output'] is None
         assert res[0]['tool_calls'] == {'banana_quantity': [131.17]}
 
-    def test_query_as_tool(self, reset_db: None) -> None:
+    @pytest.mark.parametrize('as_retrieval_udf', [False, True])
+    def test_query_as_tool(self, as_retrieval_udf: bool, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
         TestOpenai.skip_test_if_no_openai_client()
         from pixeltable.functions.openai import chat_completions, invoke_tools
@@ -282,20 +285,26 @@ class TestOpenai:
             [{'customer_id': 'Q371A', 'name': 'Aaron Siegel'}, {'customer_id': 'B117F', 'name': 'Marcel Kornacker'}]
         )
 
-        @pxt.query
-        def get_customer_name(customer_id: str) -> pxt.DataFrame:
-            """
-            Get the customer name for a given customer ID.
+        tools: pxt.func.Tools
+        if as_retrieval_udf:
+            tools = pxt.tools(pxt.retrieval_udf(t, name='get_customer_info', parameters=['customer_id']))
+        else:
 
-            Args:
-                customer_id - The ID of the customer to look up.
-            """
-            return t.where(t.customer_id == customer_id).select(t.name)
+            @pxt.query
+            def get_customer_info(customer_id: str) -> pxt.DataFrame:
+                """
+                Get customer information for a given customer ID.
+
+                Args:
+                    customer_id - The ID of the customer to look up.
+                """
+                return t.where(t.customer_id == customer_id).select()
+
+            tools = pxt.tools(get_customer_info)
 
         u = pxt.create_table('test_tbl', {'prompt': pxt.String})
 
         messages = [{'role': 'user', 'content': u.prompt}]
-        tools = pxt.tools(get_customer_name)
         u.add_computed_column(response=chat_completions(model='gpt-4o-mini', messages=messages, tools=tools))
         u.add_computed_column(output=u.response.choices[0].message.content)
         u.add_computed_column(tool_calls=invoke_tools(tools, u.response))
@@ -304,7 +313,7 @@ class TestOpenai:
         res = u.select(u.output, u.tool_calls).head()
 
         assert res[0]['output'] is None
-        assert res[0]['tool_calls'] == {'get_customer_name': [[{'name': 'Aaron Siegel'}]]}
+        assert res[0]['tool_calls'] == {'get_customer_info': [[{'customer_id': 'Q371A', 'name': 'Aaron Siegel'}]]}
 
     @pytest.mark.expensive
     def test_gpt_4_vision(self, reset_db: None) -> None:
@@ -348,9 +357,9 @@ class TestOpenai:
             text_3=embeddings(model='text-embedding-3-small', input=t.input, dimensions=1024, user='pixeltable')
         )
         type_info = t._schema
-        assert isinstance(type_info['ada_embed'], pxt.ArrayType)
+        assert isinstance(type_info['ada_embed'], ts.ArrayType)
         assert type_info['ada_embed'].shape == (1536,)
-        assert isinstance(type_info['text_3'], pxt.ArrayType)
+        assert isinstance(type_info['text_3'], ts.ArrayType)
         assert type_info['text_3'].shape == (1024,)
         validate_update_status(t.insert(input='Say something interesting.'), 1)
 
@@ -392,7 +401,7 @@ class TestOpenai:
         t.add_computed_column(img_2=image_generations(t.input, model='dall-e-2', size='512x512', user='pixeltable'))
         # image size information was captured correctly
         type_info = t._schema
-        assert isinstance(type_info['img_2'], pxt.ImageType)
+        assert isinstance(type_info['img_2'], ts.ImageType)
         assert type_info['img_2'].size == (512, 512)
 
         validate_update_status(t.insert(input='A friendly dinosaur playing tennis in a cornfield'), 1)

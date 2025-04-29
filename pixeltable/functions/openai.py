@@ -21,6 +21,7 @@ import numpy as np
 import PIL
 
 import pixeltable as pxt
+import pixeltable.type_system as ts
 from pixeltable import env, exprs
 from pixeltable.func import Batch, Tools
 from pixeltable.utils.code import local_public_names
@@ -666,13 +667,13 @@ async def embeddings(
 
 
 @embeddings.conditional_return_type
-def _(model: str, dimensions: Optional[int] = None) -> pxt.ArrayType:
+def _(model: str, dimensions: Optional[int] = None) -> ts.ArrayType:
     if dimensions is None:
         if model not in _embedding_dimensions_cache:
             # TODO: find some other way to retrieve a sample
-            return pxt.ArrayType((None,), dtype=pxt.FloatType(), nullable=False)
+            return ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False)
         dimensions = _embedding_dimensions_cache.get(model)
-    return pxt.ArrayType((dimensions,), dtype=pxt.FloatType(), nullable=False)
+    return ts.ArrayType((dimensions,), dtype=ts.FloatType(), nullable=False)
 
 
 #####################################
@@ -738,17 +739,17 @@ async def image_generations(
 
 
 @image_generations.conditional_return_type
-def _(size: Optional[str] = None) -> pxt.ImageType:
+def _(size: Optional[str] = None) -> ts.ImageType:
     if size is None:
-        return pxt.ImageType(size=(1024, 1024))
+        return ts.ImageType(size=(1024, 1024))
     x_pos = size.find('x')
     if x_pos == -1:
-        return pxt.ImageType()
+        return ts.ImageType()
     try:
         width, height = int(size[:x_pos]), int(size[x_pos + 1 :])
     except ValueError:
-        return pxt.ImageType()
-    return pxt.ImageType(size=(width, height))
+        return ts.ImageType()
+    return ts.ImageType(size=(width, height))
 
 
 #####################################

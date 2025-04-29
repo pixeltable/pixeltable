@@ -1,12 +1,14 @@
 import pytest
 
 import pixeltable as pxt
+import pixeltable.type_system as ts
 
+from ..conftest import DO_RERUN
 from ..utils import skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
 
 
 @pytest.mark.remote_api
-@pytest.mark.flaky(reruns=3, reruns_delay=8)
+@pytest.mark.flaky(reruns=3, reruns_delay=8, condition=DO_RERUN)
 class TestMistral:
     def test_chat_completions(self, reset_db: None) -> None:
         from pixeltable.functions.mistralai import chat_completions
@@ -80,6 +82,6 @@ class TestMistral:
 
         t.add_computed_column(embed=embeddings(t.input, model='mistral-embed'))
         validate_update_status(t.insert(input='A chunk of text that will be embedded.'), 1)
-        assert isinstance(t.embed.col_type, pxt.ArrayType)
+        assert isinstance(t.embed.col_type, ts.ArrayType)
         assert t.embed.col_type.shape == (1024,)
         assert len(t.collect()['embed'][0]) == 1024

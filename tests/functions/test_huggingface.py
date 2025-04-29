@@ -4,7 +4,9 @@ from typing import Any
 import pytest
 
 import pixeltable as pxt
+import pixeltable.type_system as ts
 
+from ..conftest import DO_RERUN
 from ..utils import (
     SAMPLE_IMAGE_URL,
     ReloadTester,
@@ -17,7 +19,7 @@ from ..utils import (
 )
 
 
-@pytest.mark.flaky(reruns=3, reruns_delay=15)  # Guard against connection errors downloading models
+@pytest.mark.flaky(reruns=3, reruns_delay=15, condition=DO_RERUN)  # Guard against connection errors downloading models
 class TestHuggingface:
     def test_hf_function(self, reset_db: None) -> None:
         skip_test_if_not_installed('sentence_transformers')
@@ -69,7 +71,7 @@ class TestHuggingface:
             t.add_computed_column(
                 **{list_col_name: sentence_transformer_list(t.input_list, model_id=model_id, normalize_embeddings=True)}
             )
-            assert t._schema[list_col_name] == pxt.JsonType(nullable=True)
+            assert t._schema[list_col_name] == ts.JsonType(nullable=True)
 
         def verify_row(row: dict[str, Any]) -> None:
             for idx, (_, d) in enumerate(zip(model_ids, num_dims)):
@@ -105,10 +107,10 @@ class TestHuggingface:
         for idx, model_id in enumerate(model_ids):
             col_name = f'embed{idx}'
             t.add_computed_column(**{col_name: cross_encoder(t.input, t.input, model_id=model_id)})
-            assert t._schema[col_name] == pxt.FloatType(nullable=True)
+            assert t._schema[col_name] == ts.FloatType(nullable=True)
             list_col_name = f'embed_list{idx}'
             t.add_computed_column(**{list_col_name: cross_encoder_list(t.input, t.input_list, model_id=model_id)})
-            assert t._schema[list_col_name] == pxt.JsonType(nullable=True)
+            assert t._schema[list_col_name] == ts.JsonType(nullable=True)
 
         def verify_row(row: dict[str, Any]) -> None:
             for idx in range(len(model_ids)):

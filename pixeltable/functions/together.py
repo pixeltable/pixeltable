@@ -16,6 +16,7 @@ import tenacity
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
+import pixeltable.type_system as ts
 from pixeltable import env
 from pixeltable.func import Batch
 from pixeltable.utils.code import local_public_names
@@ -225,12 +226,12 @@ async def embeddings(input: Batch[str], *, model: str) -> Batch[pxt.Array[(None,
 
 
 @embeddings.conditional_return_type
-def _(model: str) -> pxt.ArrayType:
+def _(model: str) -> ts.ArrayType:
     if model not in _embedding_dimensions_cache:
         # TODO: find some other way to retrieve a sample
-        return pxt.ArrayType((None,), dtype=pxt.FloatType())
+        return ts.ArrayType((None,), dtype=ts.FloatType())
     dimensions = _embedding_dimensions_cache[model]
-    return pxt.ArrayType((dimensions,), dtype=pxt.FloatType())
+    return ts.ArrayType((dimensions,), dtype=ts.FloatType())
 
 
 @pxt.udf(resource_pool='request-rate:together:images')
