@@ -32,6 +32,7 @@ def converse(
     system: Optional[list[dict[str, Any]]] = None,
     inference_config: Optional[dict] = None,
     additional_model_request_fields: Optional[dict] = None,
+    tool_config: Optional[list[dict]] = None,
 ) -> dict:
     """
     Generate a conversation response.
@@ -64,17 +65,62 @@ def converse(
         ... tbl.add_computed_column(response=messages(msgs, model_id='anthropic.claude-3-haiku-20240307-v1:0'))
     """
 
-    if system is None:
-        system = []
-    if inference_config is None:
-        inference_config = {}
-    if additional_model_request_fields is None:
-        additional_model_request_fields = {}
+    kwargs = {
+        'messages': messages,
+        'modelId': model_id
+    }
 
-    return _bedrock_client().converse(
-        modelId=model_id,
-        messages=messages,
-        system=system,
-        inferenceConfig=inference_config,
-        additionalModelRequestFields=additional_model_request_fields,
-    )
+    if system is not None:
+        kwargs['system'] = system
+    if inference_config is not None:
+        kwargs['inferenceConfig'] = inference_config
+    if additional_model_request_fields is not None:
+        kwargs['additionalModelRequestFields'] = additional_model_request_fields
+
+    if tool_config is not None:
+        print(tool_config)
+        tool_config_ = {
+            'tools': [
+                {'toolSpec': {
+                    'name': tool['name'],
+                    'description': tool['description'],
+                    'inputSchema': {
+                        'json': {
+                            'type': 'object',
+                            'properties': tool['parameters']['properties'],
+                            'required': tool['required'],
+                        }
+                    },
+                }}
+                for tool in tool_config
+            ]
+        }
+        print(tool_config_)
+        kwargs['toolConfig'] = tool_config_
+
+    return _bedrock_client().converse(**kwargs)
+
+
+def invoke_tools(tools: Tools, response: exprs.Expr) -> exprs.InlineDict:
+    """Converts an Anthropic response dict to Pixeltable tool invocation format and calls `tools._invoke()`."""
+    return tools._invoke(_bedrock_response_to_pxt_tool_calls(response))
+
+
+@pxt.udf
+def _bedrock_response_to_pxt_tool_calls(response: dict) -> Optional[dict]:
+    if response.get('stopReason') != 'tool_use':
+        return None
+
+    pxt_tool_calls: dict[str, list[dict[str, Any]]] = {}
+    for message in response['output']['message']['content']:
+        if 'toolUse' in message:
+            tool_call = message['toolUse']
+            tool_name = tool_call['name']
+            if tool_name not in pxt_tool_calls:
+                pxt_tool_calls[tool_name] = []
+            pxt_tool_calls[tool_name].append({'args': tool_call['input']})
+
+    if len(pxt_tool_calls) == 0:
+        return None
+
+    return pxt_tool_calls

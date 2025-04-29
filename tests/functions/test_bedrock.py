@@ -1,8 +1,9 @@
+from typing import Optional
 import pytest
 
 import pixeltable as pxt
 from tests.conftest import DO_RERUN
-from tests.utils import skip_test_if_no_client, skip_test_if_not_installed
+from tests.utils import skip_test_if_no_client, skip_test_if_not_installed, stock_price
 
 
 @pytest.mark.remote_api
@@ -41,3 +42,20 @@ class TestBedrock:
         results = t.collect()[0]
         assert 'Katy Perry' in results['response']
         assert 'Katy Perry' in results['response2']
+
+    def test_tool_invocations(self, reset_db: None) -> None:
+        skip_test_if_not_installed('boto3')
+        skip_test_if_no_client('bedrock')
+        from pixeltable.functions.bedrock import converse, invoke_tools
+
+        tools = pxt.tools(stock_price)
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        messages = [{'role': 'user', 'content': [{'text': t.input}]}]
+        t.add_computed_column(
+            response=converse(messages, model_id='anthropic.claude-3-haiku-20240307-v1:0', tool_config=tools)
+        )
+        t.insert(input='What is the stock price of NVDA today?')
+        t.add_computed_column(tool_calls=invoke_tools(tools, t.response))
+
+        results = t.collect()[0]
+        assert results['tool_calls']['stock_price'] == [131.17]
