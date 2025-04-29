@@ -1,4 +1,3 @@
-from typing import Optional
 import pytest
 
 import pixeltable as pxt
@@ -23,9 +22,7 @@ class TestBedrock:
             }
         ]
 
-        t.add_computed_column(
-            output=converse(messages, model_id='anthropic.claude-3-haiku-20240307-v1:0')
-        )
+        t.add_computed_column(output=converse(messages, model_id='anthropic.claude-3-haiku-20240307-v1:0'))
         t.add_computed_column(
             output2=converse(
                 messages,

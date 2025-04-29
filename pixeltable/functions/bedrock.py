@@ -7,7 +7,6 @@ from pixeltable.func import Tools
 from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
-    import boto3
     from botocore.client import BaseClient
 
 _logger = logging.getLogger('pixeltable')
@@ -20,7 +19,8 @@ def _() -> 'BaseClient':
     return boto3.client(service_name='bedrock-runtime')
 
 
-def _bedrock_client() -> 'BaseClient':
+# boto3 typing is weird; type information is dynamically defined, so the best we can do for the static checker is `Any`
+def _bedrock_client() -> Any:
     return env.Env.get().get_client('bedrock')
 
 
@@ -65,10 +65,7 @@ def converse(
         ... tbl.add_computed_column(response=messages(msgs, model_id='anthropic.claude-3-haiku-20240307-v1:0'))
     """
 
-    kwargs = {
-        'messages': messages,
-        'modelId': model_id
-    }
+    kwargs: dict[str, Any] = {'messages': messages, 'modelId': model_id}
 
     if system is not None:
         kwargs['system'] = system
@@ -81,17 +78,19 @@ def converse(
         print(tool_config)
         tool_config_ = {
             'tools': [
-                {'toolSpec': {
-                    'name': tool['name'],
-                    'description': tool['description'],
-                    'inputSchema': {
-                        'json': {
-                            'type': 'object',
-                            'properties': tool['parameters']['properties'],
-                            'required': tool['required'],
-                        }
-                    },
-                }}
+                {
+                    'toolSpec': {
+                        'name': tool['name'],
+                        'description': tool['description'],
+                        'inputSchema': {
+                            'json': {
+                                'type': 'object',
+                                'properties': tool['parameters']['properties'],
+                                'required': tool['required'],
+                            }
+                        },
+                    }
+                }
                 for tool in tool_config
             ]
         }
@@ -124,3 +123,10 @@ def _bedrock_response_to_pxt_tool_calls(response: dict) -> Optional[dict]:
         return None
 
     return pxt_tool_calls
+
+
+__all__ = local_public_names(__name__)
+
+
+def __dir__() -> list[str]:
+    return __all__
