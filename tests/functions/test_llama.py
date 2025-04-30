@@ -63,29 +63,22 @@ class TestLlama:
         test_model = 'Llama-4-Scout-17B-16E-Instruct-FP8'
 
         # Define the prompt and expected schema
-        json_prompt = "Extract the name and day from: Alice went to the park on Friday."
+        json_prompt = 'Extract the name and day from: Alice went to the park on Friday.'
         event_schema = {
-            "type": "object",
-            "properties": {
-                "name": {"type": "string"},
-                "day_of_week": {"type": "string"}
-            },
-            "required": ["name", "day_of_week"]
+            'type': 'object',
+            'properties': {'name': {'type': 'string'}, 'day_of_week': {'type': 'string'}},
+            'required': ['name', 'day_of_week'],
         }
         response_format_arg = {'type': 'json_schema', 'json_schema': {'schema': event_schema}}
 
         msgs = [
             {'role': 'system', 'content': 'Extract information into the specified JSON format.'},
-            {'role': 'user', 'content': json_prompt}
+            {'role': 'user', 'content': json_prompt},
         ]
 
         # Note: messages are static here, not dependent on t.input for this specific test
         t.add_computed_column(
-            json_output_raw=chat_completions(
-                model=test_model,
-                messages=msgs,
-                response_format=response_format_arg
-            )
+            json_output_raw=chat_completions(model=test_model, messages=msgs, response_format=response_format_arg)
         )
 
         # Insert a dummy row to trigger computation (input value doesn't matter here)
@@ -106,9 +99,9 @@ class TestLlama:
             assert 'day_of_week' in parsed_content
             assert parsed_content['day_of_week'].lower() == 'friday'
         except json.JSONDecodeError:
-            pytest.fail(f"Output content is not valid JSON: {message['content']}")
+            pytest.fail(f'Output content is not valid JSON: {message["content"]}')
         except AssertionError as e:
-            pytest.fail(f"JSON content validation failed: {e}. Content was: {message['content']}")
+            pytest.fail(f'JSON content validation failed: {e}. Content was: {message["content"]}')
 
     def test_tool_invocations(self, reset_db: None) -> None:
         """Tests the chat_completions function with tool calling."""
@@ -127,13 +120,7 @@ class TestLlama:
         messages = [{'role': 'user', 'content': t.prompt}]
 
         # 1. Get LLM request for tool call
-        t.add_computed_column(
-            llm_tool_request=chat_completions(
-                model=test_model,
-                messages=messages,
-                tools=tools_pxt
-            )
-        )
+        t.add_computed_column(llm_tool_request=chat_completions(model=test_model, messages=messages, tools=tools_pxt))
 
         # 2. Invoke the tool based on the request
         t.add_computed_column(tool_output=invoke_tools(tools=tools_pxt, response=t.llm_tool_request))

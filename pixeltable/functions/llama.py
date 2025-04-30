@@ -6,6 +6,7 @@ import httpx
 
 import pixeltable as pxt
 from pixeltable import env
+
 # from pixeltable.type_system import JsonType
 from pixeltable.utils.code import local_public_names
 from pixeltable import exprs
