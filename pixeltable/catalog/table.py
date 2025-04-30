@@ -220,6 +220,10 @@ class Table(SchemaObject):
         """
         return self._df().group_by(*items)
 
+    def distinct(self) -> 'pxt.dataframe.DataFrameResultSet':
+        """Return table rows containing unique values across all columns."""
+        return self._df().distinct()
+
     def limit(self, n: int) -> 'pxt.DataFrame':
         return self._df().limit(n)
 

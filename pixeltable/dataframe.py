@@ -848,6 +848,29 @@ class DataFrame:
             limit=self.limit_val,
         )
 
+    def distinct(self) -> DataFrameResultSet:
+        """
+        Remove duplicate rows from this DataFrame.
+
+        Note that grouping will be applied to the rows based on the select clause of this Dataframe.
+        In the absence of a select clause, by default, all columns are selected in the grouping.
+
+        Examples:
+            Get all unqiue addresses from table `addresses`.
+
+            >>> results = addresses.distinct()
+
+            Get all distinct cities in table `addresses`
+
+            >>> results = addresses.city.distinct()
+
+            Get distinct locations (street, city) in the state of `CA`
+
+            >>> results = addresses.select(addresses.street, addresses.city).where(addresses.state == 'CA').distinct()
+        """
+        exps, _ = self._normalize_select_list(self._from_clause.tbls, self.select_list)
+        return self.group_by(*exps).collect()
+
     def order_by(self, *expr_list: exprs.Expr, asc: bool = True) -> DataFrame:
         """Add an order-by clause to this DataFrame.
 

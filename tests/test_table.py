@@ -2359,3 +2359,54 @@ class TestTable:
                 assert np.array_equal(a1, a2)
 
         reload_tester.run_reload_test()
+
+    def test_distinct(self, reset_db: None, reload_tester: ReloadTester) -> None:
+        schema = {'c1': pxt.String, 'c2': pxt.Int, 'c3': pxt.Float, 'c4': pxt.Timestamp, 'c5': pxt.Json}
+        t = pxt.create_table('test_distinct', schema)
+        results = t.distinct()
+        assert len(results) == 0
+        rows = [
+            {'c1': 'SF', 'c2': 100, 'c3': 3.14, 'c4': datetime.datetime(2024, 7, 2), 'c5': {'k1': 'v1'}},
+            {'c1': 'SF', 'c2': 100, 'c3': 3.14, 'c4': datetime.datetime(2024, 7, 2), 'c5': {'k1': 'v1'}},
+            {'c1': 'SF', 'c2': 101, 'c3': 3.14, 'c4': datetime.datetime(2024, 7, 21), 'c5': {'k2': 'v2'}},
+            {'c1': 'SF', 'c2': 101, 'c3': 3.15, 'c4': datetime.datetime.now(), 'c5': {'k3': 'v3'}},
+            {'c1': 'LA', 'c2': 101, 'c3': 3.16, 'c4': datetime.datetime(2024, 7, 20), 'c5': {'k1': 'v1'}},
+            {'c1': 'LA', 'c2': 104, 'c3': 3.13, 'c4': datetime.datetime(2024, 7, 22), 'c5': {'k2': 'v2'}},
+            {'c1': 'LA', 'c2': 104, 'c3': 3.13, 'c4': datetime.datetime(2024, 7, 22), 'c5': {'k1': 'v1'}},
+        ]
+        t.insert(rows)
+
+        # select all columns
+        results = t.select().distinct()
+        assert len(results) == 6
+
+        # Test column refs
+        assert len(t.c1.distinct()) == 2
+        assert len(t.c2.distinct()) == 3
+        assert len(t.c3.distinct()) == 4
+        assert len(t.c4.distinct()) == 5
+        assert len(t.c5.distinct()) == 3
+
+        # Test select columns clauses
+        assert len(t.select(t.c1, t.c3).distinct()) == 4
+        assert len(t.select(t.c1, t.c2).distinct()) == 4
+        assert len(t.select(t.c2, t.c3).distinct()) == 5
+        assert len(t.select(t.c1, t.c4).distinct()) == 5
+        assert len(t.select(t.c1, t.c5).distinct()) == 5
+        assert len(t.select(t.c4, t.c5).distinct()) == 6
+
+        # Test expressions
+        assert len(t.select(t.c2 // 10).distinct()) == 1
+        assert len(t.select(t.c2 % 10).distinct()) == 3
+        assert len(t.select((t.c2 + 100 * t.c3) // 100).distinct()) == 1
+        assert len(t.select(t.c1 + '.pxt', t.c2 - 100).distinct()) == 4
+
+        # Test with filtering
+        results = t.select(t.c1).where(t.c2 == 101).distinct()
+        assert len(results) == 2
+        results = t.select(t.c4).where(t.c2 == 101).distinct()
+        assert len(results) == 3
+
+        # Test with group by clause
+        with pytest.raises(excs.Error, match='Group-by already specified'):
+            t.select(t.c1, t.c3).group_by(t.c2).distinct()
