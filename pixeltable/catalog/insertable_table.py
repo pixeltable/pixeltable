@@ -233,3 +233,14 @@ class InsertableTable(Table):
 
         with Catalog.get().begin_xact(tbl_id=self._id, for_write=True):
             return self._tbl_version.get().delete(where=where)
+
+    @property
+    def _base_table(self) -> Optional['Table']:
+        return None
+
+    @property
+    def _effective_base_versions(self) -> list[Optional[int]]:
+        return []
+
+    def _table_descriptor(self) -> str:
+        return f'Table {self._path()!r}'

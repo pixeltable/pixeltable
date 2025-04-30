@@ -103,5 +103,6 @@ class TestReplica:
         r51 = Catalog.get().create_replica(Path('replica_s51'), s51_md, if_exists=IfExistsParam.ERROR)
 
         with Catalog.get().begin_xact(for_write=False):
-            assert len(r51._bases) == 4
-            assert len(r61._bases) == 5
+            assert len(r51._base_tables) == 4
+            assert len(r61._base_tables) == 6
+
