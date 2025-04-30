@@ -1,6 +1,6 @@
 import pixeltable as pxt
-from pixeltable.functions import string as pxt_str
 import time
+
 
 def run_user_workflow_test() -> None:
     """Performs a Pixeltable workflow test with timing:
@@ -35,7 +35,7 @@ def run_user_workflow_test() -> None:
 
     # --- Step 1: Import Hugging Face Dataset (All Splits) ---
     print('\n--- Step 1: Import Hugging Face Dataset (All Splits) ---')
-    import datasets # type: ignore
+    import datasets  # type: ignore
     images_tbl = None
     step1_start_time = time.monotonic()
     dataset_dict = None
@@ -57,18 +57,17 @@ def run_user_workflow_test() -> None:
             column_name_for_split='split_name',
             if_exists='replace',
         )
-        print(f'   Import initiated...')
+        print('   Import initiated...')
 
     except Exception as e:
         print(f'   ERROR importing Hugging Face dataset: {e}')
-        print(f"   Ensure dataset 'lscpku/RefCOCO_rec' exists and dependencies are installed.")
+        print("   Ensure dataset 'lscpku/RefCOCO_rec' exists and dependencies are installed.")
         images_tbl = None
     finally:
         duration_step1 = time.monotonic() - step1_start_time
         print(f'--- Step 1 Duration: {duration_step1:.2f} seconds ---')
         if images_tbl is None:
-             print('   Halting test due to failure in Step 1.')
-             return
+            print('   Halting test due to failure in Step 1.')
 
     # --- Step 1b: Count Imported Rows ---
     print("\n--- Step 1b: Count Imported Rows ---")
@@ -80,7 +79,8 @@ def run_user_workflow_test() -> None:
         print(f"   Final imported row count: {imported_rows_count}")
         if imported_rows_count < total_rows_in_source:
             print(
-                f"   Warning: Final count ({imported_rows_count}) is less than source ({total_rows_in_source}) due to on_error='ignore' during import."
+                f"   Warning: Final count ({imported_rows_count}) is less than source ({total_rows_in_source}) "
+                f"due to on_error='ignore' during import."
             )
         count_successful = True
     except Exception as e:
@@ -89,8 +89,11 @@ def run_user_workflow_test() -> None:
         duration_step1b = time.monotonic() - step1b_start_time
         print(f'--- Step 1b Duration: {duration_step1b:.2f} seconds ---')
         if not count_successful:
-             print('   Halting test due to failure in Step 1b.')
-             return
+            print('   Halting test due to failure in Step 1b.')
+
+    if not count_successful:
+        print('   Halting test due to failure in Step 1b.')
+        return
 
     # --- Step 2: Create Embedding Index ---
     print('\n--- Step 2: Create Embedding Index ---')
@@ -110,8 +113,11 @@ def run_user_workflow_test() -> None:
         duration_step2 = time.monotonic() - step2_start_time
         print(f'--- Step 2 Duration: {duration_step2:.2f} seconds ---')
         if not index_creation_successful:
-             print('   Halting test due to failure in Step 2.')
-             return
+            print('   Halting test due to failure in Step 2.')
+
+    if not index_creation_successful:
+        print('   Halting test due to failure in Step 2.')
+        return
 
     # --- Step 3: Similarity Search Query ---
     print('\n--- Step 3: Similarity Search Query ---')
@@ -129,7 +135,7 @@ def run_user_workflow_test() -> None:
         print(f'\n--- Similarity Query Results (Top {min(len(results_rs), 5)}) ---')
         print(results_rs)
     except Exception as e:
-         print(f'   ERROR during similarity query execution: {e}')
+        print(f'   ERROR during similarity query execution: {e}')
     finally:
         duration_step3 = time.monotonic() - step3_start_time
         print(f'--- Step 3 Duration: {duration_step3:.2f} seconds ---')
@@ -149,7 +155,7 @@ def run_user_workflow_test() -> None:
         print(f'\n--- Metadata Filter Query Results (width > {filter_width}, {len(filter_results_rs)} rows) ---')
         print(filter_results_rs)
     except Exception as e:
-         print(f'   ERROR during filter query execution: {e}')
+        print(f'   ERROR during filter query execution: {e}')
     finally:
         duration_step3b = time.monotonic() - step3b_start_time
         print(f'--- Step 3b Duration: {duration_step3b:.2f} seconds ---')
@@ -160,7 +166,7 @@ def run_user_workflow_test() -> None:
     computed_col_successful = False
     try:
         images_tbl.add_computed_column(is_jpg=images_tbl.file_name.endswith('.jpg'))
-        print(f"   Added computed column 'is_jpg'. Waiting for population...")
+        print("   Added computed column 'is_jpg'. Waiting for population...")
         print(images_tbl.head(3))
         computed_col_successful = True
     except Exception as e:
@@ -169,8 +175,11 @@ def run_user_workflow_test() -> None:
         duration_step4 = time.monotonic() - step4_start_time
         print(f'--- Step 4 Duration: {duration_step4:.2f} seconds ---')
         if not computed_col_successful:
-             print('   Halting test due to failure in Step 4.')
-             return
+            print('   Halting test due to failure in Step 4.')
+
+    if not computed_col_successful:
+        print('   Halting test due to failure in Step 4.')
+        return
 
     # --- Step 5: Update Rows ---
     print('\n--- Step 5: Update Rows ---')
@@ -195,7 +204,7 @@ def run_user_workflow_test() -> None:
     deleted_rows_count = 0
     try:
         delete_filter = images_tbl.image_width >= 480
-        print(f'   Deleting rows where image_width >= 480...')
+        print('   Deleting rows where image_width >= 480...')
         status = images_tbl.delete(where=delete_filter)
         deleted_rows_count = status.num_rows
         print(f'   Delete operation completed. Rows deleted: {deleted_rows_count}')
@@ -233,8 +242,11 @@ def run_user_workflow_test() -> None:
         duration_step7 = time.monotonic() - step7_start_time
         print(f'--- Step 7 Duration: {duration_step7:.2f} seconds ---')
         if filtered_no_image_view is None:
-             print('   Halting test due to failure in Step 7.')
-             return
+            print('   Halting test due to failure in Step 7.')
+
+    if filtered_no_image_view is None:
+        print('   Halting test due to failure in Step 7.')
+        return
 
     # --- Step 8: Query View (Filtered, No Image) ---
     print("\n--- Step 8: Query View (Filtered, No Image) ---")
@@ -242,7 +254,7 @@ def run_user_workflow_test() -> None:
     try:
         view_count = filtered_no_image_view.count()
         print(f"   Querying view '{view_name}'. Count: {view_count}")
-        print(f'   View head:')
+        print('   View head:')
         print(filtered_no_image_view.head(3))
     except Exception as e:
         print(f'   ERROR querying view: {e}')
@@ -252,36 +264,78 @@ def run_user_workflow_test() -> None:
 
     # --- Final Summary ---
     total_duration = time.monotonic() - total_start_time
-    print(f"\n--- Test finished. Pixeltable resources are in directory: 'user_workflow_hf_import_test_dir' ---")
+    print("\n--- Test finished. Pixeltable resources are in directory: 'user_workflow_hf_import_test_dir' ---")
 
     # Print Key Test Parameters
     print('\n--- Test Parameters ---')
     print(f"Dataset:                  {'lscpku/RefCOCO_rec'}")
-    print(f'Rows Imported:            All Splits')
+    print('Rows Imported:            All Splits')
     print(f"Embedding Model:        {'openai/clip-vit-base-patch32'}")
 
     # Print summary table
     print('\n--- Execution Time Summary ---')
-    print(f"| {'Step':<30} | {'Duration (min)':<15} | {'Duration (s)':<15} | {'Duration (ms)':<15} | {'Rows Affected':<15} |")
-    print(f"|{'-'*32}|{'-'*17}|{'-'*17}|{'-'*17}|{'-'*17}|")
-    print(f"| {'0: Setup Directory':<30} | {duration_step0/60:<15.2f} | {duration_step0:<15.2f} | {duration_step0*1000:<15.0f} | {'-':<15} |")
-    print(f"| {'1: Import Dataset':<30} | {duration_step1/60:<15.2f} | {duration_step1:<15.2f} | {duration_step1*1000:<15.0f} | {'-':<15} |")
+    header = (
+        f"| {'Step':<30} | {'Duration (min)':<15} | {'Duration (s)':<15} | "
+        f"{'Duration (ms)':<15} | {'Rows Affected':<15} |"
+    )
+    separator = f"|{'-' * 32}|{'-' * 17}|{'-' * 17}|{'-' * 17}|{'-' * 17}|"
+    print(header)
+    print(separator)
+    print(
+        f"| {'0: Setup Directory':<30} | {duration_step0 / 60:<15.2f} | {duration_step0:<15.2f} | "
+        f"{duration_step0 * 1000:<15.0f} | {'-':<15} |"
+    )
+    print(
+        f"| {'1: Import Dataset':<30} | {duration_step1 / 60:<15.2f} | {duration_step1:<15.2f} | "
+        f"{duration_step1 * 1000:<15.0f} | {'-':<15} |"
+    )
     imported_count_str = str(imported_rows_count) if count_successful else 'FAIL'
-    print(f"| {'1b: Count Imported Rows':<30} | {duration_step1b/60:<15.2f} | {duration_step1b:<15.2f} | {duration_step1b*1000:<15.0f} | {imported_count_str:<15} |")
-    print(f"| {'2: Create Embedding Index':<30} | {duration_step2/60:<15.2f} | {duration_step2:<15.2f} | {duration_step2*1000:<15.0f} | {'-':<15} |")
-    print(f"| {'3: Similarity Search':<30} | {duration_step3/60:<15.2f} | {duration_step3:<15.2f} | {duration_step3*1000:<15.0f} | {'-':<15} |")
-    print(f"| {'3b: Metadata Filter':<30} | {duration_step3b/60:<15.2f} | {duration_step3b:<15.2f} | {duration_step3b*1000:<15.0f} | {'-':<15} |")
-    print(f"| {'4: Add Computed Column':<30} | {duration_step4/60:<15.2f} | {duration_step4:<15.2f} | {duration_step4*1000:<15.0f} | {'-':<15} |")
-    print(f"| {'5: Update Rows':<30} | {duration_step5/60:<15.2f} | {duration_step5:<15.2f} | {duration_step5*1000:<15.0f} | {updated_rows_count:<15} |")
-    print(f"| {'6: Delete Rows':<30} | {duration_step6/60:<15.2f} | {duration_step6:<15.2f} | {duration_step6*1000:<15.0f} | {deleted_rows_count:<15} |")
+    print(
+        f"| {'1b: Count Imported Rows':<30} | {duration_step1b / 60:<15.2f} | {duration_step1b:<15.2f} | "
+        f"{duration_step1b * 1000:<15.0f} | {imported_count_str:<15} |"
+    )
+    print(
+        f"| {'2: Create Embedding Index':<30} | {duration_step2 / 60:<15.2f} | {duration_step2:<15.2f} | "
+        f"{duration_step2 * 1000:<15.0f} | {'-':<15} |"
+    )
+    print(
+        f"| {'3: Similarity Search':<30} | {duration_step3 / 60:<15.2f} | {duration_step3:<15.2f} | "
+        f"{duration_step3 * 1000:<15.0f} | {'-':<15} |"
+    )
+    print(
+        f"| {'3b: Metadata Filter':<30} | {duration_step3b / 60:<15.2f} | {duration_step3b:<15.2f} | "
+        f"{duration_step3b * 1000:<15.0f} | {'-':<15} |"
+    )
+    print(
+        f"| {'4: Add Computed Column':<30} | {duration_step4 / 60:<15.2f} | {duration_step4:<15.2f} | "
+        f"{duration_step4 * 1000:<15.0f} | {'-':<15} |"
+    )
+    print(
+        f"| {'5: Update Rows':<30} | {duration_step5 / 60:<15.2f} | {duration_step5:<15.2f} | "
+        f"{duration_step5 * 1000:<15.0f} | {updated_rows_count:<15} |"
+    )
+    print(
+        f"| {'6: Delete Rows':<30} | {duration_step6 / 60:<15.2f} | {duration_step6:<15.2f} | "
+        f"{duration_step6 * 1000:<15.0f} | {deleted_rows_count:<15} |"
+    )
     view_count_str = str(filtered_no_image_view.count()) if filtered_no_image_view is not None else 'FAIL'
-    print(f"| {'7: Create View (No Img)':<30} | {duration_step7/60:<15.2f} | {duration_step7:<15.2f} | {duration_step7*1000:<15.0f} | {view_count_str:<15} |")
-    print(f"| {'8: Query View (No Img)':<30} | {duration_step8/60:<15.2f} | {duration_step8:<15.2f} | {duration_step8*1000:<15.0f} | {'-':<15} |")
-    print(f"|{'-'*32}|{'-'*17}|{'-'*17}|{'-'*17}|{'-'*17}|")
-    print(f"| {'Total Execution Time':<30} | {total_duration/60:<15.2f} | {total_duration:<15.2f} | {total_duration*1000:<15.0f} | {'-':<15} |")
-    print(f"|{'-'*32}|{'-'*17}|{'-'*17}|{'-'*17}|{'-'*17}|")
+    print(
+        f"| {'7: Create View (No Img)':<30} | {duration_step7 / 60:<15.2f} | {duration_step7:<15.2f} | "
+        f"{duration_step7 * 1000:<15.0f} | {view_count_str:<15} |"
+    )
+    print(
+        f"| {'8: Query View (No Img)':<30} | {duration_step8 / 60:<15.2f} | {duration_step8:<15.2f} | "
+        f"{duration_step8 * 1000:<15.0f} | {'-':<15} |"
+    )
+    print(separator)
+    print(
+        f"| {'Total Execution Time':<30} | {total_duration / 60:<15.2f} | {total_duration:<15.2f} | "
+        f"{total_duration * 1000:<15.0f} | {'-':<15} |"
+    )
+    print(separator)
 
     print('\nUser workflow test completed.')
+
 
 if __name__ == '__main__':
     run_user_workflow_test()
