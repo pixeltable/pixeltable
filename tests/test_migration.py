@@ -282,6 +282,8 @@ class TestMigration:
             v['fn']['path'] = replacement_batched_udf.self_path
             v['fn']['signature'] = replacement_batched_udf.signature.as_dict()
 
+        return k, v
+
     @classmethod
     def _run_v30_tests(cls) -> None:
         with Env.get().engine.begin() as conn:

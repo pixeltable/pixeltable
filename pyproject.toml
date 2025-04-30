@@ -142,8 +142,6 @@ openpyxl = ">=3.1"  # Excel (.xlsx) support
 openai-whisper = ">=20240930"
 # Don't include whisperx on Intel Mac instances
 whisperx = { version = ">=3.3.1", python = "<3.13", markers = "sys_platform != 'darwin' or platform_machine != 'x86_64'" }
-# We need to lock a specific onnxruntime version in order for whisperx to work on Python 3.9
-onnxruntime = { version = "==1.18.0", markers = "sys_platform != 'darwin' or platform_machine != 'x86_64'" }
 label-studio-sdk = "^0.0.32"
 fiftyone = "^1.0.0"
 ollama = ">=0.4.0"
@@ -216,6 +214,7 @@ select = ["B", "C", "E", "F", "ICN", "N", "PL", "PYI", "RUF", "SIM", "TD002", "W
 ignore = [
     "B023",  # Function definition does not bind to loop variable (appears to generate false positives)
     "B027",  # Empty method in abstract base class (I'm not sure why this should be a problem)
+    "B905",  # `zip()` without an explicit `strict=` parameter
     # A bunch of rules that are just plain fussy about code complexity:
     "C901", "PLR0904", "PLR0911", "PLR0912", "PLR0913", "PLR0914", "PLR0915", "PLR0916", "PLR0917", "PLR1702",
     "E711",  # None comparison (x == None); needed for Pandas/Pixeltable expressions

@@ -115,7 +115,7 @@ class ExprEvalNode(ExecNode):
         """
         assert not self.input_complete
         try:
-            batch = await self.input_iter.__anext__()
+            batch = await anext(self.input_iter)
             assert self.next_input_batch is None
             if self.current_input_batch is None:
                 self.current_input_batch = batch
