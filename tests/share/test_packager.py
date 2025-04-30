@@ -92,8 +92,8 @@ class TestPackager:
         scope_tbl: Optional[pxt.Table] = None,  # If specified, use instead of `tbl` to select rows
         expected_cols: Optional[int] = None,
     ) -> None:
-        parquet_file = bundle_path / 'tables' / f'tbl_{t._id.hex}.parquet'
-        parquet_table = pq.read_table(str(parquet_file))
+        parquet_dir = bundle_path / 'tables' / f'tbl_{t._id.hex}'
+        parquet_table = pq.read_table(str(parquet_dir))
         parquet_data = parquet_table.to_pandas()
 
         if expected_cols is not None:

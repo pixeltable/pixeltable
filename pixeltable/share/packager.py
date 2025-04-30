@@ -148,7 +148,10 @@ class TablePackager:
             df = self.table._df().group_by(tv).select(**select_exprs)
 
         parquet_schema = self.__to_parquet_schema(df._schema)
-        parquet_file = self.tables_dir / f'tbl_{tv.id.hex}.parquet'
+        # The parquet file naming scheme anticipates future support for partitioning.
+        parquet_dir = self.tables_dir / f'tbl_{tv.id.hex}'
+        parquet_dir.mkdir()
+        parquet_file = parquet_dir / f'tbl_{tv.id.hex}.00000.parquet'
         _logger.info(f'Creating parquet table: {parquet_file}')
 
         # Populate the Parquet table with data.
@@ -327,8 +330,8 @@ class TableRestorer:
         Import the Parquet table into the Pixeltable catalog.
         """
         tbl_id = uuid.UUID(tbl_md.tbl_md.tbl_id)
-        parquet_file = bundle_path / 'tables' / f'tbl_{tbl_id.hex}.parquet'
-        parquet_table = pq.read_table(str(parquet_file))
+        parquet_dir = bundle_path / 'tables' / f'tbl_{tbl_id.hex}'
+        parquet_table = pq.read_table(str(parquet_dir))
 
         for batch in parquet_table.to_batches():
             pydict = batch.to_pydict()
