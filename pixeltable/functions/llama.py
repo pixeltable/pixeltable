@@ -1,3 +1,4 @@
+import logging
 import json
 from typing import TYPE_CHECKING, Any, Optional, Union, cast
 
@@ -14,6 +15,8 @@ from .openai import _opt
 
 if TYPE_CHECKING:
     import openai
+
+_logger = logging.getLogger('pixeltable')
 
 
 # TODO: Implement client registration and chat_completions UDF
@@ -203,7 +206,7 @@ def _llama_response_to_pxt_tool_calls(response: dict) -> Optional[dict]:
                 pxt_tool_calls[tool_name] = []
             pxt_tool_calls[tool_name].append({'args': arguments})
         except json.JSONDecodeError:
-            _logger.warning(f'Could not decode tool arguments for tool {tool_name}: {arguments_str}')
+            # _logger.warning(f'Could not decode tool arguments for tool {tool_name}: {arguments_str}')
             continue  # Skip if arguments are not valid JSON
 
     return pxt_tool_calls if pxt_tool_calls else None
