@@ -11,6 +11,7 @@ from . import (
     huggingface,
     image,
     json,
+    llama,
     llama_cpp,
     math,
     mistralai,
