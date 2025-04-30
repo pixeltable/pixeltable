@@ -93,8 +93,8 @@ class TestPackager:
     def __validate_metadata(self, md: dict, tbl: pxt.Table) -> None:
         assert md['pxt_version'] == pxt.__version__
         assert md['pxt_md_version'] == metadata.VERSION
-        assert len(md['md']['tables']) == len(tbl._bases) + 1
-        for t_md, t in zip(md['md']['tables'], (tbl, *tbl._bases)):
+        assert len(md['md']['tables']) == len(tbl._base_tables) + 1
+        for t_md, t in zip(md['md']['tables'], (tbl, *tbl._base_tables)):
             assert t_md['table_id'] == str(t._tbl_version.id)
 
     def __check_iceberg_tbl(

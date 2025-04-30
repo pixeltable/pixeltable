@@ -262,7 +262,7 @@ def from_table(
     """
     from pixeltable import exprs
 
-    ancestors = [tbl, *tbl._bases]
+    ancestors = [tbl, *tbl._base_tables]
     ancestors.reverse()  # We must traverse the ancestors in order from base to derived
 
     subst: dict[exprs.Expr, exprs.Expr] = {}
