@@ -1,5 +1,6 @@
-import pixeltable as pxt
 import time
+
+import pixeltable as pxt
 
 
 def run_user_workflow_test() -> None:
