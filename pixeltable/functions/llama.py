@@ -1,16 +1,15 @@
-import logging
 import json
+import logging
 from typing import TYPE_CHECKING, Any, Optional, cast
 
 import httpx
 
 import pixeltable as pxt
-from pixeltable import env
+from pixeltable import env, exprs
+from pixeltable.func import Tools
 
 # from pixeltable.type_system import JsonType
 from pixeltable.utils.code import local_public_names
-from pixeltable import exprs
-from pixeltable.func import Tools
 
 from .openai import _opt
 

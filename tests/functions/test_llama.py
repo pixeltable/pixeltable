@@ -108,6 +108,7 @@ class TestLlama:
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('llama')
         from pixeltable.functions.llama import chat_completions, invoke_tools
+
         from ..utils import stock_price  # Import dummy tool from test utils
 
         # Register the tool
