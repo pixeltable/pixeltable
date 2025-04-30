@@ -424,6 +424,17 @@ def skip_test_if_no_client(client_name: str) -> None:
         pytest.skip(str(exc))
 
 
+def skip_test_if_no_aws_credentials() -> None:
+    import boto3
+    from botocore.exceptions import NoCredentialsError
+
+    try:
+        cl = boto3.client('s3')
+        cl.list_buckets()
+    except NoCredentialsError as exc:
+        pytest.skip(str(exc))
+
+
 def validate_update_status(status: UpdateStatus, expected_rows: Optional[int] = None) -> None:
     assert status.num_excs == 0
     if expected_rows is not None:

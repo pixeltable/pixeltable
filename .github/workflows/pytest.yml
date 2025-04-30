@@ -31,6 +31,9 @@ env:
   CMAKE_POLICY_VERSION_MINIMUM: 3.5
   # API keys for various services. In a PR, these secrets will be empty.
   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_DEFAULT_REGION: us-west-2
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
   DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
   FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}
   GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
