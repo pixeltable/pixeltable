@@ -850,7 +850,7 @@ class DataFrame:
 
     def distinct(self) -> DataFrameResultSet:
         """
-        Remove duplicate rows from this DataFrame.
+        Remove duplicate rows from this DataFrame and return unique rows.
 
         Note that grouping will be applied to the rows based on the select clause of this Dataframe.
         In the absence of a select clause, by default, all columns are selected in the grouping.
