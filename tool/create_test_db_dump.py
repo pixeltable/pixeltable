@@ -25,9 +25,9 @@ _logger = logging.getLogger('pixeltable')
 
 class Dumper:
     def __init__(self, output_dir: str = 'target', db_name: str = 'pxtdump') -> None:
-        if sys.version_info >= (3, 10):
+        if sys.version_info >= (3, 11):
             raise RuntimeError(
-                'This script must be run on Python 3.9. '
+                'This script must be run on Python 3.10. '
                 'DB dumps are incompatible across versions due to issues with pickling anonymous UDFs.'
             )
 
