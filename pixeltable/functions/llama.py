@@ -7,7 +7,6 @@ import httpx
 import pixeltable as pxt
 from pixeltable import env, exprs
 from pixeltable.func import Tools
-
 from pixeltable.utils.code import local_public_names
 
 from .openai import _opt
