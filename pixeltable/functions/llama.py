@@ -1,12 +1,12 @@
 import logging
 import json
-from typing import TYPE_CHECKING, Any, Optional, Union, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 import httpx
 
 import pixeltable as pxt
 from pixeltable import env
-from pixeltable.type_system import JsonType
+# from pixeltable.type_system import JsonType
 from pixeltable.utils.code import local_public_names
 from pixeltable import exprs
 from pixeltable.func import Tools
@@ -170,7 +170,7 @@ async def chat_completions(
 
 
 def invoke_tools(tools: Tools, response: exprs.Expr) -> exprs.InlineDict:
-    """Converts a Llama (OpenAI-compatible) response dict to Pixeltable tool invocation format and calls `tools._invoke()`."""
+    """Converts a Llama/OpenAI-compatible response to Pixeltable tool format and calls `tools._invoke()`."""
     return tools._invoke(_llama_response_to_pxt_tool_calls(response))
 
 

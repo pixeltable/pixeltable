@@ -2,7 +2,7 @@ import pytest
 
 import pixeltable as pxt
 
-from ..conftest import DO_RERUN
+# from ..conftest import DO_RERUN
 from ..utils import skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
 
 
@@ -30,7 +30,7 @@ class TestLlama:
             chat_output_params=chat_completions(
                 model=test_model,
                 messages=msgs,
-                max_tokens=50, # Keep small for testing
+                max_tokens=50,  # Keep small for testing
                 temperature=0.7,
                 top_p=0.8,
             )
@@ -46,7 +46,8 @@ class TestLlama:
         # Check presence of expected keys
         assert 'id' in result['chat_output'][0]
         assert 'model' in result['chat_output'][0]
-        assert result['chat_output'][0]['model'].lower().startswith('llama-4-scout-17b-16e-instruct-fp8') # Check model name, allow for variations
+        # Check model name, allow for variations
+        assert result['chat_output'][0]['model'].lower().startswith('llama-4-scout-17b-16e-instruct-fp8')
         assert 'usage' in result['chat_output'][0]
 
     def test_chat_completions_json(self, reset_db: None) -> None:
@@ -114,7 +115,7 @@ class TestLlama:
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('llama')
         from pixeltable.functions.llama import chat_completions, invoke_tools
-        from ..utils import stock_price # Import dummy tool from test utils
+        from ..utils import stock_price  # Import dummy tool from test utils
 
         # Register the tool
         tools_pxt = pxt.tools(stock_price)
@@ -151,7 +152,7 @@ class TestLlama:
         tool_call = message['tool_calls'][0]
         assert tool_call['type'] == 'function'
         assert tool_call['function']['name'] == 'stock_price'
-        assert 'NVDA' in tool_call['function']['arguments'] # Basic check for argument presence
+        assert 'NVDA' in tool_call['function']['arguments']  # Basic check for argument presence
 
         # Check tool execution output
         tool_output_data = result['tool_output'][0]
