@@ -80,8 +80,8 @@ class TestPackager:
     def __validate_metadata(self, md: dict, tbl: pxt.Table) -> None:
         assert md['pxt_version'] == pxt.__version__
         assert md['pxt_md_version'] == metadata.VERSION
-        assert len(md['md']['tables']) == len(tbl._bases) + 1
-        for t_md, t in zip(md['md']['tables'], (tbl, *tbl._bases)):
+        assert len(md['md']['tables']) == len(tbl._base_tables) + 1
+        for t_md, t in zip(md['md']['tables'], (tbl, *tbl._base_tables)):
             assert t_md['table_id'] == str(t._tbl_version.id)
 
     def __check_parquet_tbl(
@@ -207,7 +207,10 @@ class TestPackager:
         self.__do_round_trip(snapshot)
 
         # Double-check that the iterator view and its base table have the correct number of rows
-        v_replica = pxt.get_table('new_replica')
+        snapshot_replica = pxt.get_table('new_replica')
+        assert snapshot_replica._snapshot_only
+        assert snapshot_replica.count() == snapshot_row_count
+        v_replica = snapshot_replica.base_table
         assert v_replica.count() == snapshot_row_count
         t_replica = v_replica.base_table
         assert t_replica.count() == 2
