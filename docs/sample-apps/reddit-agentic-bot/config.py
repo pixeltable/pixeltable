@@ -1,33 +1,28 @@
 # config.py
 
 # Pixeltable directory structure
-BASE_DIR = "reddit_bot_data"
+BASE_DIR = 'reddit_bot_data'
 
 # Embedding model choice
 # Example: "text-embedding-ada-002" (OpenAI)
 # Example: "sentence-transformers/all-MiniLM-L6-v2" (Local Hugging Face)
-EMBEDDING_MODEL_ID = "intfloat/multilingual-e5-large-instruct"
+EMBEDDING_MODEL_ID = 'intfloat/multilingual-e5-large-instruct'
 
 # LLM model for answering (ensure it supports tool calling if using that approach)
 # Example: "gpt-4o-mini" (OpenAI)
 # Example: "mistralai/Mistral-7B-Instruct-v0.1"
-LLM_MODEL_ID = "claude-3-5-sonnet-latest"
+LLM_MODEL_ID = 'claude-3-5-sonnet-latest'
 
 # Similarity search parameters
 NUM_CONTEXT_CHUNKS = 10  # Number of relevant chunks to retrieve
-MIN_SIMILARITY_THRESHOLD = (
-    0.80  # Minimum similarity score for a chunk to be considered relevant
-)
+MIN_SIMILARITY_THRESHOLD = 0.80  # Minimum similarity score for a chunk to be considered relevant
 
 # Source Data for initial ingestion (Optional, can be empty)
 # Used by setup_pixeltable.py
 SOURCE_DATA = [
     # Format: {"source": "URL_or_path", "related_url": "optional_associated_URL"}
-    {
-        "source": "content/pixeltable_readme.md",
-        "related_url": "https://github.com/pixeltable/pixeltable",
-    },
-    {"source": "https://en.wikipedia.org/wiki/Artificial_intelligence"},
+    {'source': 'content/pixeltable_readme.md', 'related_url': 'https://github.com/pixeltable/pixeltable'},
+    {'source': 'https://en.wikipedia.org/wiki/Artificial_intelligence'},
 ]
 
 # System message for the LLM (First Pass - Tool Selection / Initial Reasoning)
@@ -102,7 +97,7 @@ Follow these steps:
 
 # Subreddit for the bot to monitor
 # Used by reddit_bot.py
-TARGET_SUBREDDIT = "YOUR_TARGET_SUBREDDIT"  # Example: "test" or your target
+TARGET_SUBREDDIT = 'YOUR_TARGET_SUBREDDIT'  # Example: "test" or your target
 
 # Bot loop parameters (used by reddit_bot.py)
 CHECK_INTERVAL = 30  # Seconds between checking for replies
