@@ -8,7 +8,6 @@ import pixeltable as pxt
 from pixeltable import env, exprs
 from pixeltable.func import Tools
 
-# from pixeltable.type_system import JsonType
 from pixeltable.utils.code import local_public_names
 
 from .openai import _opt
@@ -17,9 +16,6 @@ if TYPE_CHECKING:
     import openai
 
 _logger = logging.getLogger('pixeltable')
-
-
-# TODO: Implement client registration and chat_completions UDF
 
 
 @env.register_client('llama')
