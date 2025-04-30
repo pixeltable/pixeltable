@@ -36,6 +36,7 @@ def run_user_workflow_test() -> None:
     # --- Step 1: Import Hugging Face Dataset (All Splits) ---
     print('\n--- Step 1: Import Hugging Face Dataset (All Splits) ---')
     import datasets  # type: ignore
+
     images_tbl = None
     step1_start_time = time.monotonic()
     dataset_dict = None
@@ -70,16 +71,16 @@ def run_user_workflow_test() -> None:
             print('   Halting test due to failure in Step 1.')
 
     # --- Step 1b: Count Imported Rows ---
-    print("\n--- Step 1b: Count Imported Rows ---")
+    print('\n--- Step 1b: Count Imported Rows ---')
     step1b_start_time = time.monotonic()
     imported_rows_count = 0
     count_successful = False
     try:
         imported_rows_count = images_tbl.count()
-        print(f"   Final imported row count: {imported_rows_count}")
+        print(f'   Final imported row count: {imported_rows_count}')
         if imported_rows_count < total_rows_in_source:
             print(
-                f"   Warning: Final count ({imported_rows_count}) is less than source ({total_rows_in_source}) "
+                f'   Warning: Final count ({imported_rows_count}) is less than source ({total_rows_in_source}) '
                 f"due to on_error='ignore' during import."
             )
         count_successful = True
@@ -98,13 +99,11 @@ def run_user_workflow_test() -> None:
     # --- Step 2: Create Embedding Index ---
     print('\n--- Step 2: Create Embedding Index ---')
     from pixeltable.functions.huggingface import clip
+
     step2_start_time = time.monotonic()
     index_creation_successful = False
     try:
-        images_tbl.add_embedding_index(
-            'image',
-            embedding=clip.using(model_id='openai/clip-vit-base-patch32')
-        )
+        images_tbl.add_embedding_index('image', embedding=clip.using(model_id='openai/clip-vit-base-patch32'))
         _ = images_tbl.count()
         index_creation_successful = True
     except Exception as e:
@@ -170,7 +169,7 @@ def run_user_workflow_test() -> None:
         print(images_tbl.head(3))
         computed_col_successful = True
     except Exception as e:
-        print(f"   ERROR adding computed column: {e}")
+        print(f'   ERROR adding computed column: {e}')
     finally:
         duration_step4 = time.monotonic() - step4_start_time
         print(f'--- Step 4 Duration: {duration_step4:.2f} seconds ---')
@@ -215,25 +214,17 @@ def run_user_workflow_test() -> None:
         print(f'--- Step 6 Duration: {duration_step6:.2f} seconds ---')
 
     # --- Step 7: Create View (Filtered, No Image) ---
-    print("\n--- Step 7: Create View (Filtered, No Image) ---")
+    print('\n--- Step 7: Create View (Filtered, No Image) ---')
     view_name = 'user_workflow_hf_import_test_dir.filtered_no_image_view'
     filtered_no_image_view = None
     step7_start_time = time.monotonic()
     try:
         view_filter = images_tbl.image_width < 480
         filtered_table_for_view = images_tbl.where(view_filter).select(
-            images_tbl.file_name,
-            images_tbl.answer,
-            images_tbl.image_width,
-            images_tbl.split_name,
-            images_tbl.is_jpg
+            images_tbl.file_name, images_tbl.answer, images_tbl.image_width, images_tbl.split_name, images_tbl.is_jpg
         )
         print(f"   Creating view '{view_name}' from table filtered where image_width < 480 (excluding image col)...")
-        filtered_no_image_view = pxt.create_view(
-            view_name,
-            filtered_table_for_view,
-            if_exists='replace',
-        )
+        filtered_no_image_view = pxt.create_view(view_name, filtered_table_for_view, if_exists='replace')
         print(f"   View '{view_name}' created successfully.")
     except Exception as e:
         print(f'   ERROR creating view: {e}')
@@ -249,7 +240,7 @@ def run_user_workflow_test() -> None:
         return
 
     # --- Step 8: Query View (Filtered, No Image) ---
-    print("\n--- Step 8: Query View (Filtered, No Image) ---")
+    print('\n--- Step 8: Query View (Filtered, No Image) ---')
     step8_start_time = time.monotonic()
     try:
         view_count = filtered_no_image_view.count()
@@ -268,69 +259,69 @@ def run_user_workflow_test() -> None:
 
     # Print Key Test Parameters
     print('\n--- Test Parameters ---')
-    print(f"Dataset:                  {'lscpku/RefCOCO_rec'}")
+    print(f'Dataset:                  {"lscpku/RefCOCO_rec"}')
     print('Rows Imported:            All Splits')
-    print(f"Embedding Model:        {'openai/clip-vit-base-patch32'}")
+    print(f'Embedding Model:        {"openai/clip-vit-base-patch32"}')
 
     # Print summary table
     print('\n--- Execution Time Summary ---')
     header = (
-        f"| {'Step':<30} | {'Duration (min)':<15} | {'Duration (s)':<15} | "
-        f"{'Duration (ms)':<15} | {'Rows Affected':<15} |"
+        f'| {"Step":<30} | {"Duration (min)":<15} | {"Duration (s)":<15} | '
+        f'{"Duration (ms)":<15} | {"Rows Affected":<15} |'
     )
-    separator = f"|{'-' * 32}|{'-' * 17}|{'-' * 17}|{'-' * 17}|{'-' * 17}|"
+    separator = f'|{"-" * 32}|{"-" * 17}|{"-" * 17}|{"-" * 17}|{"-" * 17}|'
     print(header)
     print(separator)
     print(
-        f"| {'0: Setup Directory':<30} | {duration_step0 / 60:<15.2f} | {duration_step0:<15.2f} | "
-        f"{duration_step0 * 1000:<15.0f} | {'-':<15} |"
+        f'| {"0: Setup Directory":<30} | {duration_step0 / 60:<15.2f} | {duration_step0:<15.2f} | '
+        f'{duration_step0 * 1000:<15.0f} | {"-":<15} |'
     )
     print(
-        f"| {'1: Import Dataset':<30} | {duration_step1 / 60:<15.2f} | {duration_step1:<15.2f} | "
-        f"{duration_step1 * 1000:<15.0f} | {'-':<15} |"
+        f'| {"1: Import Dataset":<30} | {duration_step1 / 60:<15.2f} | {duration_step1:<15.2f} | '
+        f'{duration_step1 * 1000:<15.0f} | {"-":<15} |'
     )
     imported_count_str = str(imported_rows_count) if count_successful else 'FAIL'
     print(
-        f"| {'1b: Count Imported Rows':<30} | {duration_step1b / 60:<15.2f} | {duration_step1b:<15.2f} | "
-        f"{duration_step1b * 1000:<15.0f} | {imported_count_str:<15} |"
+        f'| {"1b: Count Imported Rows":<30} | {duration_step1b / 60:<15.2f} | {duration_step1b:<15.2f} | '
+        f'{duration_step1b * 1000:<15.0f} | {imported_count_str:<15} |'
     )
     print(
-        f"| {'2: Create Embedding Index':<30} | {duration_step2 / 60:<15.2f} | {duration_step2:<15.2f} | "
-        f"{duration_step2 * 1000:<15.0f} | {'-':<15} |"
+        f'| {"2: Create Embedding Index":<30} | {duration_step2 / 60:<15.2f} | {duration_step2:<15.2f} | '
+        f'{duration_step2 * 1000:<15.0f} | {"-":<15} |'
     )
     print(
-        f"| {'3: Similarity Search':<30} | {duration_step3 / 60:<15.2f} | {duration_step3:<15.2f} | "
-        f"{duration_step3 * 1000:<15.0f} | {'-':<15} |"
+        f'| {"3: Similarity Search":<30} | {duration_step3 / 60:<15.2f} | {duration_step3:<15.2f} | '
+        f'{duration_step3 * 1000:<15.0f} | {"-":<15} |'
     )
     print(
-        f"| {'3b: Metadata Filter':<30} | {duration_step3b / 60:<15.2f} | {duration_step3b:<15.2f} | "
-        f"{duration_step3b * 1000:<15.0f} | {'-':<15} |"
+        f'| {"3b: Metadata Filter":<30} | {duration_step3b / 60:<15.2f} | {duration_step3b:<15.2f} | '
+        f'{duration_step3b * 1000:<15.0f} | {"-":<15} |'
     )
     print(
-        f"| {'4: Add Computed Column':<30} | {duration_step4 / 60:<15.2f} | {duration_step4:<15.2f} | "
-        f"{duration_step4 * 1000:<15.0f} | {'-':<15} |"
+        f'| {"4: Add Computed Column":<30} | {duration_step4 / 60:<15.2f} | {duration_step4:<15.2f} | '
+        f'{duration_step4 * 1000:<15.0f} | {"-":<15} |'
     )
     print(
-        f"| {'5: Update Rows':<30} | {duration_step5 / 60:<15.2f} | {duration_step5:<15.2f} | "
-        f"{duration_step5 * 1000:<15.0f} | {updated_rows_count:<15} |"
+        f'| {"5: Update Rows":<30} | {duration_step5 / 60:<15.2f} | {duration_step5:<15.2f} | '
+        f'{duration_step5 * 1000:<15.0f} | {updated_rows_count:<15} |'
     )
     print(
-        f"| {'6: Delete Rows':<30} | {duration_step6 / 60:<15.2f} | {duration_step6:<15.2f} | "
-        f"{duration_step6 * 1000:<15.0f} | {deleted_rows_count:<15} |"
+        f'| {"6: Delete Rows":<30} | {duration_step6 / 60:<15.2f} | {duration_step6:<15.2f} | '
+        f'{duration_step6 * 1000:<15.0f} | {deleted_rows_count:<15} |'
     )
     view_count_str = str(filtered_no_image_view.count()) if filtered_no_image_view is not None else 'FAIL'
     print(
-        f"| {'7: Create View (No Img)':<30} | {duration_step7 / 60:<15.2f} | {duration_step7:<15.2f} | "
-        f"{duration_step7 * 1000:<15.0f} | {view_count_str:<15} |"
+        f'| {"7: Create View (No Img)":<30} | {duration_step7 / 60:<15.2f} | {duration_step7:<15.2f} | '
+        f'{duration_step7 * 1000:<15.0f} | {view_count_str:<15} |'
     )
     print(
-        f"| {'8: Query View (No Img)':<30} | {duration_step8 / 60:<15.2f} | {duration_step8:<15.2f} | "
-        f"{duration_step8 * 1000:<15.0f} | {'-':<15} |"
+        f'| {"8: Query View (No Img)":<30} | {duration_step8 / 60:<15.2f} | {duration_step8:<15.2f} | '
+        f'{duration_step8 * 1000:<15.0f} | {"-":<15} |'
     )
     print(separator)
     print(
-        f"| {'Total Execution Time':<30} | {total_duration / 60:<15.2f} | {total_duration:<15.2f} | "
-        f"{total_duration * 1000:<15.0f} | {'-':<15} |"
+        f'| {"Total Execution Time":<30} | {total_duration / 60:<15.2f} | {total_duration:<15.2f} | '
+        f'{total_duration * 1000:<15.0f} | {"-":<15} |'
     )
     print(separator)
 
