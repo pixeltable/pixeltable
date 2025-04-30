@@ -2,7 +2,7 @@ import pixeltable as pxt
 from pixeltable.functions import string as pxt_str
 import time
 
-def run_user_workflow_test():
+def run_user_workflow_test() -> None:
     """Performs a Pixeltable workflow test with timing:
     Imports, counts, embeds, queries, adds col, updates, deletes, views.
     """
@@ -35,7 +35,7 @@ def run_user_workflow_test():
 
     # --- Step 1: Import Hugging Face Dataset (All Splits) ---
     print('\n--- Step 1: Import Hugging Face Dataset (All Splits) ---')
-    import datasets
+    import datasets # type: ignore
     images_tbl = None
     step1_start_time = time.monotonic()
     dataset_dict = None
