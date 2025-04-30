@@ -159,4 +159,4 @@ class TestLlama:
         assert isinstance(tool_output_data, dict)
         assert 'stock_price' in tool_output_data
         # Check if the tool returned the expected value (list because invoke_tools aggregates results)
-        assert tool_output_data['stock_price'] == [131.17] 
+        assert tool_output_data['stock_price'] == [131.17]
