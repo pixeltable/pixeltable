@@ -183,7 +183,14 @@ class FnCallEvaluator(Evaluator):
                 # check for cancellation before starting something potentially long-running
                 if asyncio.current_task().cancelled() or self.dispatcher.exc_event.is_set():
                     return
-                result_batch = self.fn.exec_batch(batched_call_args.batch_args, batched_call_args.batch_kwargs)
+                # Run the potentially blocking sync function in the default thread pool executor
+                loop = asyncio.get_running_loop()
+                result_batch = await loop.run_in_executor(
+                    None,  # Use default executor
+                    self.fn.exec_batch,
+                    batched_call_args.batch_args,
+                    batched_call_args.batch_kwargs
+                )
         except Exception as exc:
             _, _, exc_tb = sys.exc_info()
             for row in batched_call_args.rows:
