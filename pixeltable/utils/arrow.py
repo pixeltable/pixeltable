@@ -135,7 +135,10 @@ def _ar_val_to_pxt_val(val: Any, pxt_type: ts.ColumnType) -> Any:
             return val
     elif pxt_type.is_array_type():
         return pxt_type.create_literal(val)
-    raise ValueError(f'Unsupported type {pxt_type} for value {val}')
+    raise ValueError(
+        f"INTERNAL ERROR in _ar_val_to_pxt_val: Cannot convert Arrow value to Pixeltable type '{{pxt_type}}'. "
+        f"This type is not handled by this conversion function."
+    )
 
 
 def iter_tuples2(

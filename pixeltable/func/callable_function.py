@@ -205,7 +205,11 @@ class CallableFunction(Function):
                 # since in that case the FunctionCall is part of an unresolved template; the check will be done again
                 # when the template is fully resolved.
                 if param.name in bound_args and not isinstance(bound_args[param.name], (exprs.Literal, exprs.Variable)):
-                    raise ValueError(f'{self.display_name}(): parameter {param.name} must be a constant value')
+                    raise ValueError(
+                        f"ERROR calling batched UDF '{self.display_name}': The parameter '{param.name}' is marked as constant "
+                        f"but received a non-constant argument (e.g., a column value). Constant parameters must be given "
+                        f"literal values (like numbers, strings, etc.)."
+                    )
 
     def __repr__(self) -> str:
         return f'<Pixeltable UDF {self.name}>'

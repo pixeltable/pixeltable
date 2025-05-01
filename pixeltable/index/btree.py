@@ -33,7 +33,11 @@ class BtreeIndex(IndexBase):
 
     def __init__(self, c: 'catalog.Column'):
         if not c.col_type.is_scalar_type() and not c.col_type.is_media_type():
-            raise excs.Error(f'Index on column {c.name}: B-tree index requires scalar or media type, got {c.col_type}')
+            raise excs.Error(
+                f"ERROR creating B-tree index on column '{c.name}': A B-tree index requires the column type to be "
+                f"scalar (like Int, Float, String, Bool, Timestamp) or media (Image, Video, Audio, Document), "
+                f"but found type {c.col_type}."
+            )
         if c.col_type.is_media_type():
             # an index on a media column is an index on the file url
             # no validation for media columns: we're only interested in the string value

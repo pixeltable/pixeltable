@@ -41,7 +41,7 @@ def md_from_dict(data_class_type: type[T], data: Any) -> T:
         elif origin is tuple:
             return tuple(md_from_dict(arg_type, elem) for arg_type, elem in zip(type_args, data))  # type: ignore[return-value]
         else:
-            raise AssertionError(origin)
+            raise AssertionError(f"INTERNAL ERROR: Unhandled metadata type origin during deserialization: {origin}")
     else:
         return data
 

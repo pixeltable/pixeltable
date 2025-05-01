@@ -36,7 +36,7 @@ class ComparisonOperator(enum.Enum):
             return '>'
         if self == self.GE:
             return '>='
-        raise AssertionError()
+        raise AssertionError(f"INTERNAL ERROR: Unhandled ComparisonOperator in __str__: {self.name}")
 
     def reverse(self) -> ComparisonOperator:
         if self == self.LT:
@@ -62,7 +62,7 @@ class LogicalOperator(enum.Enum):
             return '|'
         if self == self.NOT:
             return '~'
-        raise AssertionError()
+        raise AssertionError(f"INTERNAL ERROR: Unhandled LogicalOperator in __str__: {self.name}")
 
 
 class ArithmeticOperator(enum.Enum):
@@ -86,7 +86,7 @@ class ArithmeticOperator(enum.Enum):
             return '%'
         if self == self.FLOORDIV:
             return '//'
-        raise AssertionError()
+        raise AssertionError(f"INTERNAL ERROR: Unhandled ArithmeticOperator in __str__: {self.name}")
 
 
 class StringOperator(enum.Enum):
@@ -98,4 +98,4 @@ class StringOperator(enum.Enum):
             return '+'
         if self == self.REPEAT:
             return '*'
-        raise AssertionError()
+        raise AssertionError(f"INTERNAL ERROR: Unhandled StringOperator in __str__: {self.name}")

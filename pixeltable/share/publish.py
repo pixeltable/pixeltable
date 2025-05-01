@@ -41,7 +41,10 @@ def publish_snapshot(dest_tbl_uri: str, src_tbl: pxt.Table) -> str:
     if parsed_location.scheme == 's3':
         _upload_bundle_to_s3(bundle, parsed_location)
     else:
-        raise excs.Error(f'Unsupported destination: {destination_uri}')
+        raise excs.Error(
+            f"ERROR publishing snapshot: The destination URI scheme is not supported: '{{destination_uri}}'. "
+            "Currently, only S3 destinations (starting with 's3://') are supported for publishing."
+        )
 
     Env.get().console_logger.info('Finalizing snapshot ...')
 

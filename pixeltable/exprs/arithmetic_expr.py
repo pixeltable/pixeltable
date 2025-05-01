@@ -95,7 +95,7 @@ class ArithmeticExpr(Expr):
                 return sql.sql.expression.cast(sql.func.floor(left / nullif), self.col_type.to_sa_type())
             if self.col_type.is_float_type():
                 return sql.sql.expression.cast(sql.func.floor(left / nullif), self.col_type.to_sa_type())
-        raise AssertionError()
+        raise AssertionError(f"INTERNAL ERROR: Unhandled arithmetic operator in ArithmeticExpr.sql_expr(): {self.operator.name}")
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         op1_val = data_row[self._op1.slot_idx]

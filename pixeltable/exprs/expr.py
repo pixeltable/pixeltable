@@ -533,7 +533,7 @@ class Expr(abc.ABC):
 
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr]) -> Self:
-        raise AssertionError(f'not implemented: {cls.__name__}')
+        raise AssertionError(f"INTERNAL ERROR: Expr subclass '{cls.__name__}' must implement _from_dict() for deserialization.")
 
     def isin(self, value_set: Any) -> 'exprs.InPredicate':
         from .in_predicate import InPredicate
@@ -606,8 +606,13 @@ class Expr(abc.ABC):
                 return method_ref
 
     def __bool__(self) -> bool:
+        # We disallow using Exprs in boolean contexts because it's ambiguous what that should mean.
+        # For example, should `if tbl.col:` be true if all values are true, or if at least one value is true?
+        # Instead, we require explicit comparisons, such as `if tbl.col == True:` or `if tbl.col != 0:`.
         raise TypeError(
-            f'Pixeltable expressions cannot be used in conjunction with Python boolean operators (and/or/not)\n{self!r}'
+            "ERROR: Cannot directly evaluate this Pixeltable Expression as a boolean (e.g., in an `if` statement). "
+            "Pixeltable expressions represent potential values across many rows. "
+            "To check for truthiness, use explicit comparisons like `(expr == True)` or `(expr != 0)`."
         )
 
     def __lt__(self, other: object) -> 'exprs.Comparison':
@@ -638,18 +643,19 @@ class Expr(abc.ABC):
         return self._make_comparison(ComparisonOperator.GE, other)
 
     def _make_comparison(self, op: ComparisonOperator, other: object) -> 'exprs.Comparison':
-        """
-        other: Union[Expr, LiteralPythonTypes]
-        """
-        # TODO: check for compatibility
         from .comparison import Comparison
         from .literal import Literal
 
-        if isinstance(other, Expr):
-            return Comparison(op, self, other)
-        if isinstance(other, typing.get_args(LiteralPythonTypes)):
-            return Comparison(op, self, Literal(other))
-        raise TypeError(f'Other must be Expr or literal: {type(other)}')
+        if not isinstance(other, Expr):
+            other_lit = Literal.from_object(other)
+            if other_lit is None:
+                op_symbol = op.symbol()
+                raise TypeError(
+                    f"ERROR during comparison ({op_symbol}): Right operand must be an Expression or a literal value "
+                    f"(like a number or string), but received type {{type(other).__name__}}."
+                )
+            other = other_lit
+        return Comparison(op, self, other)
 
     def __neg__(self) -> 'exprs.ArithmeticExpr':
         return self._make_arithmetic_expr(ArithmeticOperator.MUL, -1)
@@ -699,81 +705,92 @@ class Expr(abc.ABC):
         return self._rmake_arithmetic_expr(ArithmeticOperator.FLOORDIV, other)
 
     def _make_string_expr(self, op: StringOperator, other: object) -> 'exprs.StringOp':
-        """
-        Make left-handed version of string expression.
-        """
-        from .literal import Literal
         from .string_op import StringOp
+        from .literal import Literal
 
-        if isinstance(other, Expr):
-            return StringOp(op, self, other)
-        if isinstance(other, typing.get_args(LiteralPythonTypes)):
-            return StringOp(op, self, Literal(other))
-        raise TypeError(f'Other must be Expr or literal: {type(other)}')
+        if not isinstance(other, Expr):
+            other_lit = Literal.from_object(other)
+            if other_lit is None:
+                op_symbol = op.symbol()
+                raise TypeError(
+                    f"ERROR during string/array operation ({op_symbol}): Operand must be an Expression or a compatible literal "
+                    f"(string for +, int for *), but received type {{type(other).__name__}}."
+                )
+            other = other_lit
+        return StringOp(op, self, other)
 
     def _rmake_string_expr(self, op: StringOperator, other: object) -> 'exprs.StringOp':
-        """
-        Right-handed version of _make_string_expr. other must be a literal; if it were an Expr,
-        the operation would have already been evaluated in its left-handed form.
-        """
-        from .literal import Literal
         from .string_op import StringOp
+        from .literal import Literal
 
-        assert not isinstance(other, Expr)  # Else the left-handed form would have evaluated first
-        if isinstance(other, typing.get_args(LiteralPythonTypes)):
-            return StringOp(op, Literal(other), self)
-        raise TypeError(f'Other must be Expr or literal: {type(other)}')
+        if not isinstance(other, Expr):
+            other_lit = Literal.from_object(other)
+            if other_lit is None:
+                op_symbol = op.symbol()
+                raise TypeError(
+                    f"ERROR during string/array operation ({op_symbol}): Left operand must be an Expression or a compatible literal "
+                    f"(string for +, int for *), but received type {{type(other).__name__}}."
+                )
+            other = other_lit
+        return StringOp(op, other, self)
 
     def _make_arithmetic_expr(self, op: ArithmeticOperator, other: object) -> 'exprs.ArithmeticExpr':
-        """
-        other: Union[Expr, LiteralPythonTypes]
-        """
-        # TODO: check for compatibility
         from .arithmetic_expr import ArithmeticExpr
         from .literal import Literal
 
-        if isinstance(other, Expr):
-            return ArithmeticExpr(op, self, other)
-        if isinstance(other, typing.get_args(LiteralPythonTypes)):
-            return ArithmeticExpr(op, self, Literal(other))
-        raise TypeError(f'Other must be Expr or literal: {type(other)}')
+        if not isinstance(other, Expr):
+            other_lit = Literal.from_object(other)
+            if other_lit is None or not other_lit.col_type.is_numeric_type():
+                op_symbol = op.symbol()
+                raise TypeError(
+                    f"ERROR during arithmetic operation ({op_symbol}): Operand must be an Expression or a numeric literal, "
+                    f"but received type {{type(other).__name__}}."
+                )
+            other = other_lit
+        return ArithmeticExpr(op, self, other)
 
     def _rmake_arithmetic_expr(self, op: ArithmeticOperator, other: object) -> 'exprs.ArithmeticExpr':
-        """
-        Right-handed version of _make_arithmetic_expr. other must be a literal; if it were an Expr,
-        the operation would have already been evaluated in its left-handed form.
-        """
-        # TODO: check for compatibility
         from .arithmetic_expr import ArithmeticExpr
         from .literal import Literal
 
-        assert not isinstance(other, Expr)  # Else the left-handed form would have evaluated first
-        if isinstance(other, typing.get_args(LiteralPythonTypes)):
-            return ArithmeticExpr(op, Literal(other), self)
-        raise TypeError(f'Other must be Expr or literal: {type(other)}')
+        if not isinstance(other, Expr):
+            other_lit = Literal.from_object(other)
+            if other_lit is None or not other_lit.col_type.is_numeric_type():
+                op_symbol = op.symbol()
+                raise TypeError(
+                    f"ERROR during arithmetic operation ({op_symbol}): Left operand must be an Expression or a numeric literal, "
+                    f"but received type {{type(other).__name__}}."
+                )
+            other = other_lit
+        return ArithmeticExpr(op, other, self)
 
     def __and__(self, other: object) -> Expr:
+        # TODO: check for compatibility
         if not isinstance(other, Expr):
-            raise TypeError(f'Other needs to be an expression: {type(other)}')
+            raise TypeError(f"ERROR in logical AND (&): Right operand must be a Pixeltable Expression, but received type {{type(other).__name__}}.")
         if not other.col_type.is_bool_type():
-            raise TypeError(f'Other needs to be an expression that returns a boolean: {other.col_type}')
-        from .compound_predicate import CompoundPredicate
+            raise TypeError(f'ERROR in logical AND (&): Right operand must be an Expression that returns Boolean, but returns {{other.col_type}}.')
+        from .logical_op import LogicalOp
 
-        return CompoundPredicate(LogicalOperator.AND, [self, other])
+        return LogicalOp(LogicalOperator.AND, self, other)
 
     def __or__(self, other: object) -> Expr:
+        # TODO: check for compatibility
         if not isinstance(other, Expr):
-            raise TypeError(f'Other needs to be an expression: {type(other)}')
+            raise TypeError(f"ERROR in logical OR (|): Right operand must be a Pixeltable Expression, but received type {{type(other).__name__}}.")
         if not other.col_type.is_bool_type():
-            raise TypeError(f'Other needs to be an expression that returns a boolean: {other.col_type}')
-        from .compound_predicate import CompoundPredicate
+            raise TypeError(f'ERROR in logical OR (|): Right operand must be an Expression that returns Boolean, but returns {{other.col_type}}.')
+        from .logical_op import LogicalOp
 
-        return CompoundPredicate(LogicalOperator.OR, [self, other])
+        return LogicalOp(LogicalOperator.OR, self, other)
 
     def __invert__(self) -> Expr:
-        from .compound_predicate import CompoundPredicate
+        # TODO: check for compatibility
+        if not self.col_type.is_bool_type():
+            raise TypeError(f"ERROR in logical NOT (~): Operand must be an Expression that returns Boolean, but returns {{self.col_type}}.")
+        from .logical_op import LogicalOp
 
-        return CompoundPredicate(LogicalOperator.NOT, [self])
+        return LogicalOp(LogicalOperator.NOT, self)
 
     def split_conjuncts(self, condition: Callable[[Expr], bool]) -> tuple[list[Expr], Optional[Expr]]:
         """

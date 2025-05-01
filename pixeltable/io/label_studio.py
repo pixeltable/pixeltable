@@ -177,7 +177,7 @@ class LabelStudioProject(Project):
             # Send media to Label Studio by file reference (local file or URL).
             return self.__update_tasks_by_files(t, existing_tasks, t_data_cols, t_rl_cols, rl_info)
         else:
-            raise AssertionError()
+            raise AssertionError(f"INTERNAL ERROR: Unexpected media_import_method in LabelStudioProject: '{self.media_import_method}'")
 
     def __update_tasks_by_post(
         self,

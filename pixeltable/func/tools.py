@@ -69,7 +69,7 @@ class Tool(pydantic.BaseModel):
             return _extract_float_tool_arg(kwargs, param_name=param.name)
         if param.col_type.is_bool_type():
             return _extract_bool_tool_arg(kwargs, param_name=param.name)
-        raise AssertionError()
+        raise AssertionError(f"INTERNAL ERROR: Unsupported parameter type in tool '{self.name or self.fn.name}': {param.col_type}")
 
 
 class ToolChoice(pydantic.BaseModel):

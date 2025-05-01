@@ -55,12 +55,12 @@ class EmbeddingIndex(IndexBase):
         image_embed: Optional[func.Function] = None,
     ):
         if embed is None and string_embed is None and image_embed is None:
-            raise excs.Error('At least one of `embed`, `string_embed`, or `image_embed` must be specified')
+            raise excs.Error('ERROR creating embedding index: You must specify at least one embedding function using the `embed`, `string_embed`, or `image_embed` parameters.')
         metric_names = [m.name.lower() for m in self.Metric]
         if metric.lower() not in metric_names:
-            raise excs.Error(f'Invalid metric {metric}, must be one of {metric_names}')
+            raise excs.Error(f"ERROR creating embedding index: Invalid similarity `metric` '{{metric}}'. Available metrics are: {{', '.join(metric_names)}}.")
         if not c.col_type.is_string_type() and not c.col_type.is_image_type():
-            raise excs.Error('Embedding index requires string or image column')
+            raise excs.Error('ERROR creating embedding index: An embedding index can only be created on a column of type String or Image.')
 
         self.string_embed = None
         self.image_embed = None
@@ -74,8 +74,8 @@ class EmbeddingIndex(IndexBase):
             self.string_embed = self._resolve_embedding_fn(string_embed, ts.ColumnType.Type.STRING)
             if self.string_embed is None:
                 raise excs.Error(
-                    f'The function `{string_embed.name}` is not a valid string embedding: '
-                    'it must take a single string parameter'
+                    f"ERROR creating embedding index: The function provided for `string_embed` ('{{string_embed.name}}') is not valid. "
+                    'It must accept a single parameter of type String.'
                 )
         elif embed is not None:
             # `embed` is specified; see if it has a string signature.
@@ -86,8 +86,8 @@ class EmbeddingIndex(IndexBase):
             self.image_embed = self._resolve_embedding_fn(image_embed, ts.ColumnType.Type.IMAGE)
             if self.image_embed is None:
                 raise excs.Error(
-                    f'The function `{image_embed.name}` is not a valid image embedding: '
-                    'it must take a single image parameter'
+                    f"ERROR creating embedding index: The function provided for `image_embed` ('{{image_embed.name}}') is not valid. "
+                    'It must accept a single parameter of type Image.'
                 )
         elif embed is not None:
             # `embed` is specified; see if it has an image signature.
@@ -98,7 +98,8 @@ class EmbeddingIndex(IndexBase):
             # contains no matching signatures.
             assert embed is not None
             raise excs.Error(
-                f'The function `{embed.name}` is not a valid embedding: it must take a single string or image parameter'
+                f"ERROR creating embedding index: The function provided for `embed` ('{{embed.name}}') is not valid. "
+                'It must accept a single parameter of type String or Image.'
             )
 
         # Now validate the return types of the embedding functions.
@@ -110,9 +111,9 @@ class EmbeddingIndex(IndexBase):
             self._validate_embedding_fn(self.image_embed)
 
         if c.col_type.is_string_type() and self.string_embed is None:
-            raise excs.Error(f"Text embedding function is required for column {c.name} (parameter 'string_embed')")
+            raise excs.Error(f"ERROR creating embedding index on column '{{c.name}}': This column has type String, so a string embedding function must be provided via the `string_embed` or `embed` parameter.")
         if c.col_type.is_image_type() and self.image_embed is None:
-            raise excs.Error(f"Image embedding function is required for column {c.name} (parameter 'image_embed')")
+            raise excs.Error(f"ERROR creating embedding index on column '{{c.name}}': This column has type Image, so an image embedding function must be provided via the `image_embed` or `embed` parameter.")
 
         self.metric = self.Metric[metric.upper()]
         self.value_expr = (
@@ -231,15 +232,15 @@ class EmbeddingIndex(IndexBase):
 
         if not isinstance(return_type, ts.ArrayType):
             raise excs.Error(
-                f'The function `{embed_fn.name}` is not a valid embedding: '
-                f'it must return an array, but returns {return_type}'
+                f"ERROR creating embedding index: The embedding function '{{embed_fn.name}}' must return an array "
+                f"(NumPy array or list of numbers), but it returned a value of type {{return_type}}."
             )
 
         shape = return_type.shape
         if len(shape) != 1 or shape[0] is None:
             raise excs.Error(
-                f'The function `{embed_fn.name}` is not a valid embedding: '
-                f'it must return a 1-dimensional array of a specific length, but returns {return_type}'
+                f"ERROR creating embedding index: The embedding function '{{embed_fn.name}}' must return a 1-dimensional array "
+                f"(e.g., `[0.1, 0.2, ...]`) of a fixed length, but it returned an array with shape {{return_type.shape}}."
             )
 
     def as_dict(self) -> dict:

@@ -59,7 +59,7 @@ class MethodRef(Expr):
         return None
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
-        raise AssertionError('MethodRef cannot be evaluated directly')
+        raise AssertionError(f"INTERNAL ERROR: Attempted to evaluate MethodRef '{self}' directly. Method references must be called with arguments first.")
 
     def __repr__(self) -> str:
         return f'{self.base_expr}.{self.method_name}'

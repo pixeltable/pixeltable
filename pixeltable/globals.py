@@ -127,10 +127,10 @@ def create_table(
     from pixeltable.io.utils import normalize_primary_key_parameter
 
     if (schema is None) == (source is None):
-        raise excs.Error('Must provide either a `schema` or a `source`')
+        raise excs.Error('ERROR creating table: You must provide either a `schema` dictionary or a `source` object (like a file path, iterator, or DataFrame).')
 
     if schema is not None and (len(schema) == 0 or not isinstance(schema, dict)):
-        raise excs.Error('`schema` must be a non-empty dictionary')
+        raise excs.Error('ERROR creating table: The `schema` argument must be a non-empty dictionary mapping column names to types (e.g., {\'col1\': pxt.Int}).')
 
     path_obj = catalog.Path(path_str)
     if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
@@ -258,7 +258,7 @@ def create_view(
         where = base.where_clause
         select_list = base.select_list
     else:
-        raise excs.Error('`base` must be an instance of `Table` or `DataFrame`')
+        raise excs.Error('ERROR creating view: The `base` argument must be a Pixeltable Table, View, Snapshot, or DataFrame object.')
     assert isinstance(base, (catalog.Table, DataFrame))
 
     path_obj = catalog.Path(path)

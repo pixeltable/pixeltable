@@ -174,14 +174,14 @@ class JsonMapperDispatch(Expr):
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         # eval is handled by JsonMapperDispatcher
-        raise AssertionError('this should never be called')
+        raise AssertionError(f"INTERNAL ERROR: JsonMapperDispatch.eval() should never be called.")
 
     def _as_dict(self) -> dict:
         """
         JsonMapperDispatch instances are only created by the JsonMapper c'tor and never need to be serialized.
         """
-        raise AssertionError('this should never be called')
+        raise AssertionError(f"INTERNAL ERROR: JsonMapperDispatch._as_dict() should never be called.")
 
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr]) -> JsonMapperDispatch:
-        raise AssertionError('this should never be called')
+        raise AssertionError(f"INTERNAL ERROR: JsonMapperDispatch._from_dict() should never be called.")

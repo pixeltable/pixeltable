@@ -162,11 +162,18 @@ def retrieval_udf(
     else:
         for param in parameters:
             if isinstance(param, str) and param not in table.columns:
-                raise excs.Error(f'The specified parameter {param!r} is not a column of the table {table._path!r}')
+                raise excs.Error(
+                    f"ERROR creating retrieval UDF for table '{table._path}': "
+                    f"The specified parameter '{param}' is not a valid column name in this table."
+                )
         col_refs = [table[param] if isinstance(param, str) else param for param in parameters]
 
     if len(col_refs) == 0:
-        raise excs.Error('Parameter list cannot be empty.')
+        raise excs.Error(
+            f"ERROR creating retrieval UDF for table '{table._path}': You must specify at least one column in the "
+            f"`parameters` argument, or the table must contain at least one non-computed column if `parameters` "
+            f"is not specified."
+        )
 
     # Construct the dataframe
     predicates = [col_ref == exprs.Variable(col_ref.col.name, col_ref.col.col_type) for col_ref in col_refs]

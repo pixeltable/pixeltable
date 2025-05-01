@@ -100,7 +100,11 @@ def extract_audio(
         codec: The codec to use for the audio stream. If not provided, a default codec will be used.
     """
     if format not in _format_defaults:
-        raise ValueError(f'extract_audio(): unsupported audio format: {format}')
+        valid_formats = ", ".join([f"'{f}'" for f in _format_defaults.keys()])
+        raise ValueError(
+            f"ERROR in extract_audio(): Unsupported audio format specified: '{{format}}'. "
+            f"Supported formats are: {{valid_formats}}."
+        )
     default_codec, ext = _format_defaults[format]
 
     with av.open(video_path) as container:

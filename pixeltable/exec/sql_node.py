@@ -313,7 +313,10 @@ class SqlNode(ExecNode):
                     elif e.col_type.is_float_type():
                         output_row[slot_idx] = float(sql_row[i])
                     else:
-                        raise RuntimeError(f'Unexpected Decimal value for {e}')
+                        raise RuntimeError(
+                            f"INTERNAL ERROR during SQL execution: Received an unexpected Decimal value from the database "
+                            f"for expression '{{e}}', which has Pixeltable type {{e.col_type}}. Expected Int or Float."
+                        )
                 else:
                     output_row[slot_idx] = sql_row[i]
 

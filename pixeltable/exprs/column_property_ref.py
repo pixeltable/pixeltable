@@ -95,7 +95,7 @@ class ColumnPropertyRef(Expr):
             else:
                 data_row[self.slot_idx] = str(exc)
         else:
-            raise AssertionError()
+            raise AssertionError(f"INTERNAL ERROR: Unhandled property in ColumnPropertyRef.eval(): {self.prop.name}")
 
     def _as_dict(self) -> dict:
         return {'prop': self.prop.value, **super()._as_dict()}

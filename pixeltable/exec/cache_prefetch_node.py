@@ -255,7 +255,7 @@ class CachePrefetchNode(ExecNode):
                     data = resp.read()
                     f.write(data)
             else:
-                raise AssertionError(f'Unsupported URL scheme: {parsed.scheme}')
+                raise AssertionError(f'INTERNAL ERROR: __fetch_url encountered an unsupported URL scheme: {parsed.scheme}')
             _logger.debug(f'Downloaded {url} to {tmp_path}')
             return tmp_path, None
         except Exception as e:

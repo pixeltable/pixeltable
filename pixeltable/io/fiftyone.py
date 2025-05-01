@@ -124,7 +124,7 @@ class PxtImageDatasetImporter(foud.LabeledImageDatasetImporter):
             elif label_cls is fo.Detections:
                 label = fo.Detections(detections=self.__as_fo_detections(label_data))
             else:
-                raise AssertionError()
+                raise AssertionError(f"INTERNAL ERROR: Unexpected FiftyOne label class encountered: {label_cls}")
             labels[label_name] = label
 
         return file, metadata, labels
