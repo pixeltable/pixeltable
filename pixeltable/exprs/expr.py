@@ -770,9 +770,9 @@ class Expr(abc.ABC):
             raise TypeError(f"ERROR in logical AND (&): Right operand must be a Pixeltable Expression, but received type {{type(other).__name__}}.")
         if not other.col_type.is_bool_type():
             raise TypeError(f'ERROR in logical AND (&): Right operand must be an Expression that returns Boolean, but returns {{other.col_type}}.')
-        from .logical_op import LogicalOp
+        from .compound_predicate import CompoundPredicate
 
-        return LogicalOp(LogicalOperator.AND, self, other)
+        return CompoundPredicate(LogicalOperator.AND, [self, other])
 
     def __or__(self, other: object) -> Expr:
         # TODO: check for compatibility
@@ -780,17 +780,17 @@ class Expr(abc.ABC):
             raise TypeError(f"ERROR in logical OR (|): Right operand must be a Pixeltable Expression, but received type {{type(other).__name__}}.")
         if not other.col_type.is_bool_type():
             raise TypeError(f'ERROR in logical OR (|): Right operand must be an Expression that returns Boolean, but returns {{other.col_type}}.')
-        from .logical_op import LogicalOp
+        from .compound_predicate import CompoundPredicate
 
-        return LogicalOp(LogicalOperator.OR, self, other)
+        return CompoundPredicate(LogicalOperator.OR, [self, other])
 
     def __invert__(self) -> Expr:
         # TODO: check for compatibility
         if not self.col_type.is_bool_type():
             raise TypeError(f"ERROR in logical NOT (~): Operand must be an Expression that returns Boolean, but returns {{self.col_type}}.")
-        from .logical_op import LogicalOp
+        from .compound_predicate import CompoundPredicate
 
-        return LogicalOp(LogicalOperator.NOT, self)
+        return CompoundPredicate(LogicalOperator.NOT, [self])
 
     def split_conjuncts(self, condition: Callable[[Expr], bool]) -> tuple[list[Expr], Optional[Expr]]:
         """
