@@ -653,8 +653,8 @@ class Expr(abc.ABC):
             if other_lit is None:
                 op_symbol = str(op)
                 raise TypeError(
-                    f"ERROR during comparison ({op_symbol}): Right operand must be an Expression or a literal value "
-                    "(like a number or string), but received type {{type(other).__name__}}."
+                    f'ERROR during comparison ({op_symbol}): Right operand must be an Expression or a literal value '
+                    '(like a number or string), but received type {{type(other).__name__}}.'
                 )
             other = other_lit
         return Comparison(op, self, other)
@@ -715,9 +715,9 @@ class Expr(abc.ABC):
             if other_lit is None:
                 op_symbol = str(op)
                 raise TypeError(
-                    f"ERROR during string/array operation ({op_symbol}): Operand must be an "
-                    "Expression or a compatible literal (string for +, int for *), "
-                    f"but received type {{type(other).__name__}}."
+                    f'ERROR during string/array operation ({op_symbol}): Operand must be an '
+                    'Expression or a compatible literal (string for +, int for *), '
+                    f'but received type {{type(other).__name__}}.'
                 )
             other = other_lit
         return StringOp(op, self, other)
@@ -731,9 +731,9 @@ class Expr(abc.ABC):
             if other_lit is None:
                 op_symbol = str(op)
                 raise TypeError(
-                    f"ERROR during string/array operation ({op_symbol}): Left operand must be an "
-                    "Expression or a compatible literal (string for +, int for *), "
-                    f"but received type {{type(other).__name__}}."
+                    f'ERROR during string/array operation ({op_symbol}): Left operand must be an '
+                    'Expression or a compatible literal (string for +, int for *), '
+                    f'but received type {{type(other).__name__}}.'
                 )
             other = other_lit
         return StringOp(op, other, self)
@@ -747,9 +747,9 @@ class Expr(abc.ABC):
             if other_lit is None or not other_lit.col_type.is_numeric_type():
                 op_symbol = str(op)
                 raise TypeError(
-                    f"ERROR during arithmetic operation ({op_symbol}): Operand must be an "
-                    "Expression or a numeric literal, "
-                    f"but received type {{type(other).__name__}}."
+                    f'ERROR during arithmetic operation ({op_symbol}): Operand must be an '
+                    'Expression or a numeric literal, '
+                    f'but received type {{type(other).__name__}}.'
                 )
             other = other_lit
         return ArithmeticExpr(op, self, other)
@@ -763,9 +763,9 @@ class Expr(abc.ABC):
             if other_lit is None or not other_lit.col_type.is_numeric_type():
                 op_symbol = str(op)
                 raise TypeError(
-                    f"ERROR during arithmetic operation ({op_symbol}): Left operand must be an "
-                    "Expression or a numeric literal, "
-                    f"but received type {{type(other).__name__}}."
+                    f'ERROR during arithmetic operation ({op_symbol}): Left operand must be an '
+                    'Expression or a numeric literal, '
+                    f'but received type {{type(other).__name__}}.'
                 )
             other = other_lit
         return ArithmeticExpr(op, other, self)

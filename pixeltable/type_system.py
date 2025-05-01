@@ -973,7 +973,7 @@ class ArrayType(ColumnType):
             else:
                 raise TypeError(
                     "ERROR: The dtype '{{val.dtype}}' of the provided NumPy array is not supported "
-                    "by Pixeltable ArrayType. "
+                    'by Pixeltable ArrayType. '
                     'Supported dtypes correspond to Int, Float, Bool, String.'
                 )
 
