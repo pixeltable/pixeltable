@@ -110,7 +110,7 @@ class TestOpenai:
         # `t.chat_output_4.errormsg` etc.
         with pytest.raises(excs.ExprEvalError) as exc_info:
             t.insert(input='Say something interesting.')
-        assert "\\'messages\\' must contain the word \\'json\\'" in str(exc_info.value)
+        assert "'messages' must contain the word 'json'" in str(exc_info.value.__cause__)
 
     @pytest.mark.expensive
     def test_reasoning_models(self, reset_db: None) -> None:

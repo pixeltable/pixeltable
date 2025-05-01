@@ -85,7 +85,6 @@ class TestTogether:
         assert len(t.collect()['embed'][0]) > 0
 
     @pytest.mark.expensive
-    @pytest.mark.skip(reason='Currently down')
     def test_image_generations(self, reset_db: None) -> None:
         skip_test_if_not_installed('together')
         TestTogether.skip_test_if_no_together_client()
