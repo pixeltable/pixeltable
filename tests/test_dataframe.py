@@ -362,6 +362,10 @@ class TestDataFrame:
         with pytest.raises(excs.Error) as exc_info:
             _ = t.order_by(t.c2).head(10)
         assert 'cannot be used with order_by' in str(exc_info.value)
+        # group_by() is an error
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.group_by(t.c2).head(10)
+        assert 'cannot be used with group_by' in str(exc_info.value)
 
         res = t.tail().to_pandas()
         assert np.all(res.c2 == list(range(90, 100)))
@@ -371,6 +375,10 @@ class TestDataFrame:
         with pytest.raises(excs.Error) as exc_info:
             _ = t.order_by(t.c2).tail(10)
         assert 'cannot be used with order_by' in str(exc_info.value)
+        # group_by() is an error
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.group_by(t.c2).tail(10)
+        assert 'cannot be used with group_by' in str(exc_info.value)
 
     def test_repr(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
@@ -770,3 +778,89 @@ class TestDataFrame:
         with pytest.raises(excs.Error) as exc_info:
             _ = view_t.select(view_t.detections).to_coco_dataset()
         assert 'missing key "image"' in str(exc_info.value).lower()
+
+    def test_distinct(self, reset_db: None, reload_tester: ReloadTester) -> None:
+        schema = {'c1': pxt.String, 'c2': pxt.Int, 'c3': pxt.Float, 'c4': pxt.Timestamp, 'c5': pxt.Json}
+        t = pxt.create_table('test_distinct', schema)
+        results = t.distinct().collect()
+        assert len(results) == 0
+        rows = [
+            {'c1': 'SF', 'c2': 100, 'c3': 3.14, 'c4': datetime.datetime(2024, 7, 2), 'c5': {'k1': 'v1'}},
+            {'c1': 'SF', 'c2': 100, 'c3': 3.14, 'c4': datetime.datetime(2024, 7, 2), 'c5': {'k1': 'v1'}},
+            {'c1': 'SF', 'c2': 101, 'c3': 3.14, 'c4': datetime.datetime(2024, 7, 21), 'c5': {'k2': 'v2'}},
+            {'c1': 'SF', 'c2': 101, 'c3': 3.15, 'c4': datetime.datetime.now(), 'c5': {'k3': 'v3'}},
+            {'c1': 'LA', 'c2': 101, 'c3': 3.16, 'c4': datetime.datetime(2024, 7, 20), 'c5': {'k1': 'v1'}},
+            {'c1': 'LA', 'c2': 104, 'c3': 3.13, 'c4': datetime.datetime(2024, 7, 22), 'c5': {'k2': 'v2'}},
+            {'c1': 'LA', 'c2': 104, 'c3': 3.13, 'c4': datetime.datetime(2024, 7, 22), 'c5': {'k1': 'v1'}},
+        ]
+        t.insert(rows)
+
+        # select all columns
+        results = t.select().distinct().collect()
+        assert len(results) == 6
+
+        # Test column refs
+        assert len(t.c1.distinct().collect()) == 2
+        assert len(t.c2.distinct().collect()) == 3
+        assert len(t.c3.distinct().collect()) == 4
+        assert len(t.c4.distinct().collect()) == 5
+        assert len(t.c5.distinct().collect()) == 3
+
+        # Test select columns clauses
+        assert len(t.select(t.c1, t.c3).distinct().collect()) == 4
+        assert len(t.select(t.c1, t.c2).distinct().collect()) == 4
+        assert len(t.select(t.c2, t.c3).distinct().collect()) == 5
+        assert len(t.select(t.c1, t.c4).distinct().collect()) == 5
+        assert len(t.select(t.c1, t.c5).distinct().collect()) == 5
+        assert len(t.select(t.c4, t.c5).distinct().collect()) == 6
+
+        # Test expressions
+        assert len(t.select(t.c2 // 10).distinct().collect()) == 1
+        assert len(t.select(t.c2 % 10).distinct().collect()) == 3
+        assert len(t.select((t.c2 + 100 * t.c3) // 100).distinct().collect()) == 1
+        assert len(t.select(t.c1 + '.pxt', t.c2 - 100).distinct().collect()) == 4
+
+        # Test with filtering
+        results = t.select(t.c1).where(t.c2 == 101).distinct().collect()
+        assert len(results) == 2
+        results = t.select(t.c4).where(t.c2 == 101).distinct().collect()
+        assert len(results) == 3
+
+        # Test order_by, limit
+        results = t.select().distinct().limit(2).collect()
+        assert len(results) == 2
+        results = t.select(t.c1).distinct().order_by(t.c1).limit(1).collect()
+        assert len(results) == 1
+        assert results[0]['c1'] == 'LA'
+        results = t.select(t.c1).distinct().order_by(t.c1, asc=False).limit(1).collect()
+        assert len(results) == 1
+        assert results[0]['c1'] == 'SF'
+        results = t.select(t.c4).distinct().show()
+        assert len(results) == 5
+
+        # Test head, tail, group by - which will not work
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.select(t.c1, t.c3).distinct().head(2)
+        assert 'head() cannot be used with group_by' in str(exc_info.value)
+        with pytest.raises(excs.Error) as exc_info:
+            _ = t.select(t.c1, t.c3).distinct().tail(2)
+        assert 'tail() cannot be used with group_by' in str(exc_info.value)
+        with pytest.raises(excs.Error) as exc_info:
+            t.select(t.c1, t.c3).group_by(t.c2).distinct()
+        assert 'Group-by already specified' in str(exc_info.value)
+
+        with pytest.raises(excs.Error) as exc_info:
+            t.distinct().distinct()
+        assert 'Group-by already specified' in str(exc_info.value)
+
+        # select after distinct
+        results = t.distinct().select(t.c1).collect()
+        assert len(results) == 6
+        assert len(results.schema) == 1
+        assert 'c1' in results.schema
+        results = t.distinct().select(t.c1, t.c3, t.c4).collect()
+        assert len(results) == 6
+        assert len(results.schema) == 3
+        assert 'c1' in results.schema
+        assert 'c3' in results.schema
+        assert 'c4' in results.schema
