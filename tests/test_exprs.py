@@ -904,20 +904,20 @@ class TestExprs:
             assert orig_img.size == retrieved_img.size
 
         # Try inserting a non-image
-        with pytest.raises(
-            excs.ExprEvalError, match=r'data URL could not be decoded into a valid image: data:text/plain,Hello there.'
-        ):
+        with pytest.raises(excs.ExprEvalError) as exc_info:
             t.insert(url='data:text/plain,Hello there.')
+        assert (
+            str(exc_info.value.__cause__)
+            == 'data URL could not be decoded into a valid image: data:text/plain,Hello there.'
+        )
 
         # Try inserting a bad image
-        with pytest.raises(
-            excs.ExprEvalError,
-            match=(
-                r'data URL could not be decoded into a valid image: '
-                r'data:image/jpeg;base64,dGhlc2UgYXJlIHNvbWUgYmFkIGp...'
-            ),
-        ):
+        with pytest.raises(excs.ExprEvalError) as exc_info:
             t.insert(url=url_encoded_images[0])
+        assert (
+            str(exc_info.value.__cause__) == 'data URL could not be decoded into a valid image: '
+            'data:image/jpeg;base64,dGhlc2UgYXJlIHNvbWUgYmFkIGp...'
+        )
 
     def test_apply(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
