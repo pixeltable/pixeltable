@@ -405,9 +405,12 @@ class ColumnType:
         if isinstance(val, str):
             path = parse_local_file_path(val)
             if path is not None and not path.is_file():
-                raise TypeError(f'ERROR: File not found at local path: {{path}}')
+                raise TypeError('ERROR: File not found at local path: {{path}}')
         elif not isinstance(val, bytes):
-            raise TypeError(f'ERROR: Expected a file path (string) or bytes for media type, but received type {{type(val).__name__}}.')
+            raise TypeError(
+                'ERROR: Expected a file path (string) or bytes for media type, '
+                'but received type {{type(val).__name__}}.'
+            )
 
     @abc.abstractmethod
     def _validate_literal(self, val: Any) -> None:
@@ -504,7 +507,7 @@ class InvalidType(ColumnType):
         return str(val)
 
     def _validate_literal(self, val: Any) -> None:
-        raise AssertionError("INTERNAL ERROR: _validate_literal should not be called on InvalidType.")
+        raise AssertionError('INTERNAL ERROR: _validate_literal should not be called on InvalidType.')
 
 
 class StringType(ColumnType):
@@ -527,7 +530,9 @@ class StringType(ColumnType):
     def _validate_literal(self, val: Any) -> None:
         # bool is not subclass of str
         if not isinstance(val, str):
-            raise TypeError(f"ERROR: Expected type String for literal value, but received type '{{val.__class__.__name__}}'.")
+            raise TypeError(
+                "ERROR: Expected type String for literal value, but received type '{{val.__class__.__name__}}'."
+            )
 
     def _create_literal(self, val: Any) -> Any:
         # Replace null byte within python string with space to avoid issues with Postgres.
@@ -550,9 +555,9 @@ class IntType(ColumnType):
     def _validate_literal(self, val: Any) -> None:
         # bool is subclass of int, so we need to check for it explicitly first
         if isinstance(val, bool):
-            raise TypeError(f'ERROR: Expected type Int, but received type Bool.')
+            raise TypeError('ERROR: Expected type Int, but received type Bool.')
         if not isinstance(val, int):
-            raise TypeError(f'ERROR: Expected type Int, but received type {{val.__class__.__name__}}.')
+            raise TypeError('ERROR: Expected type Int, but received type {{val.__class__.__name__}}.')
 
 
 class FloatType(ColumnType):
@@ -569,7 +574,7 @@ class FloatType(ColumnType):
     def _validate_literal(self, val: Any) -> None:
         # bool is not subclass of float
         if not isinstance(val, (float, int)) or isinstance(val, bool):
-            raise TypeError(f'ERROR: Expected type Float, but received type {{val.__class__.__name__}}.')
+            raise TypeError('ERROR: Expected type Float, but received type {{val.__class__.__name__}}.')
 
     def _create_literal(self, val: Any) -> Any:
         if isinstance(val, int):
@@ -591,7 +596,7 @@ class BoolType(ColumnType):
     def _validate_literal(self, val: Any) -> None:
         # bool is subclass of int, so we need to check for it explicitly
         if not isinstance(val, bool):
-            raise TypeError(f'ERROR: Expected type Bool, but received type {{val.__class__.__name__}}.')
+            raise TypeError('ERROR: Expected type Bool, but received type {{val.__class__.__name__}}.')
 
     def _create_literal(self, val: Any) -> Any:
         if isinstance(val, int):
@@ -612,7 +617,7 @@ class TimestampType(ColumnType):
 
     def _validate_literal(self, val: Any) -> None:
         if not isinstance(val, datetime.datetime):
-            raise TypeError(f'ERROR: Expected type Timestamp, but received type {{val.__class__.__name__}}.')
+            raise TypeError('ERROR: Expected type Timestamp, but received type {{val.__class__.__name__}}.')
 
     def _create_literal(self, val: Any) -> Any:
         if isinstance(val, str):
@@ -676,8 +681,8 @@ class JsonType(ColumnType):
             val = val.model_dump()
         if not self.__is_valid_json(val):
             raise TypeError(
-                f"ERROR: Value cannot be represented as JSON. Allowed types are string, int, float, bool, list, "
-                f"dict, tuple, None, or Pydantic models. Received type: {{type(val).__name__}}."
+                'ERROR: Value cannot be represented as JSON. Allowed types are string, int, float, bool, list, '
+                'dict, tuple, None, or Pydantic models. Received type: {{type(val).__name__}}.'
             )
         if self.__validator is not None:
             self.__validator.validate(val)
@@ -953,22 +958,23 @@ class ArrayType(ColumnType):
 
     def _validate_literal(self, val: Any) -> None:
         if not isinstance(val, np.ndarray):
-            raise TypeError(f"ERROR: Expected a NumPy array, but received type {{val.__class__.__name__}}.")
+            raise TypeError('ERROR: Expected a NumPy array, but received type {{val.__class__.__name__}}.')
         if not self.is_valid_literal(val):
             if self.shape is not None:
                 raise TypeError(
-                    f"ERROR: NumPy array shape or dtype mismatch. Expected shape={{self.shape}}, dtype={{self.numpy_dtype()}}, "
-                    f"but received shape={{val.shape}}, dtype={{val.dtype}}."
+                    'ERROR: NumPy array shape or dtype mismatch. Expected shape={{self.shape}}, '
+                    'dtype={{self.numpy_dtype()}}, but received shape={{val.shape}}, dtype={{val.dtype}}.'
                 )
             elif self.dtype is not None:
                 raise TypeError(
-                    f"ERROR: NumPy array dtype mismatch. Expected dtype={{self.numpy_dtype()}}, "
-                    f"but received dtype={{val.dtype}}."
+                    'ERROR: NumPy array dtype mismatch. Expected dtype={{self.numpy_dtype()}}, '
+                    'but received dtype={{val.dtype}}.'
                 )
             else:
                 raise TypeError(
-                    f"ERROR: The dtype '{{val.dtype}}' of the provided NumPy array is not supported by Pixeltable ArrayType. "
-                    f"Supported dtypes correspond to Int, Float, Bool, String."
+                    "ERROR: The dtype '{{val.dtype}}' of the provided NumPy array is not supported "
+                    "by Pixeltable ArrayType. "
+                    'Supported dtypes correspond to Int, Float, Bool, String.'
                 )
 
     def _create_literal(self, val: Any) -> Any:
@@ -993,7 +999,7 @@ class ArrayType(ColumnType):
             return np.dtype(np.bool_)
         if self.dtype == self.Type.STRING:
             return np.dtype(np.str_)
-        raise AssertionError(f"INTERNAL ERROR: Unexpected Pixeltable dtype in ArrayType.numpy_dtype(): {self.dtype}")
+        raise AssertionError(f'INTERNAL ERROR: Unexpected Pixeltable dtype in ArrayType.numpy_dtype(): {self.dtype}')
 
 
 class ImageType(ColumnType):
@@ -1202,7 +1208,7 @@ class DocumentType(ColumnType):
                     valid_formats = ', '.join([f.name for f in self.DocumentFormat])
                     raise ValueError(
                         f"ERROR initializing DocumentType: Invalid document format specified: '{type_str}'. "
-                        f"Valid formats are: {valid_formats}."
+                        f'Valid formats are: {valid_formats}.'
                     )
             self._doc_formats = [self.DocumentFormat[type_str.upper()] for type_str in type_strs]
         else:
@@ -1266,8 +1272,9 @@ class _PxtType:
 
     def __init__(self) -> None:
         raise TypeError(
-            f"ERROR: Pixeltable type `{{type(self).__name__}}` cannot be instantiated directly. "
-            f"Use it as a type hint (e.g., `pxt.{{type(self).__name__}}`) or with parameters (e.g., `pxt.{{type(self).__name__}}[...]`)."
+            'ERROR: Pixeltable type `{{type(self).__name__}}` cannot be instantiated directly. '
+            'Use it as a type hint (e.g., `pxt.{{type(self).__name__}}`) or with parameters '
+            '(e.g., `pxt.{{type(self).__name__}}[...]`).'
         )
 
     @classmethod
@@ -1281,7 +1288,10 @@ class Json(_PxtType):
         `item` (the type subscript) must be a `dict` representing a valid JSON Schema.
         """
         if not isinstance(item, dict):
-            raise TypeError('ERROR defining Json type: The parameter within the square brackets `[...]` must be a dictionary representing a valid JSON schema.')
+            raise TypeError(
+                'ERROR defining Json type: The parameter within the square brackets `[...]` '
+                'must be a dictionary representing a valid JSON schema.'
+            )
 
         # The JsonType initializer will validate the JSON Schema.
         return typing.Annotated[Any, JsonType(json_schema=item, nullable=False)]
@@ -1303,20 +1313,29 @@ class Array(np.ndarray, _PxtType):
         shape: Optional[tuple] = None
         dtype: Optional[ColumnType] = None
         if not any(isinstance(param, (type, _AnnotatedAlias)) for param in params):
-            raise TypeError('ERROR defining Array type: The parameters `[...]` must include a Pixeltable dtype (e.g., `pxt.Int`, `pxt.Float`).')
+            raise TypeError(
+                'ERROR defining Array type: The parameters `[...]` must include a Pixeltable dtype '
+                '(e.g., `pxt.Int`, `pxt.Float`).'
+            )
         for param in params:
             if isinstance(param, tuple):
                 if not all(n is None or (isinstance(n, int) and n >= 1) for n in param):
-                    raise TypeError(f"ERROR defining Array type: Invalid shape parameter '{{param}}'. Shape must be a tuple of positive integers or None (e.g., `(100, None, 3)`).")
+                    raise TypeError(
+                        "ERROR defining Array type: Invalid shape parameter '{{param}}'. Shape must be a tuple "
+                        'of positive integers or None (e.g., `(100, None, 3)`).'
+                    )
                 if shape is not None:
-                    raise TypeError(f"ERROR defining Array type: Duplicate shape parameter provided: '{{param}}'.")
+                    raise TypeError("ERROR defining Array type: Duplicate shape parameter provided: '{{param}}'.")
                 shape = param
             elif isinstance(param, (type, _AnnotatedAlias)):
                 if dtype is not None:
-                    raise TypeError(f"ERROR defining Array type: Duplicate dtype parameter provided: '{{param}}'.")
+                    raise TypeError("ERROR defining Array type: Duplicate dtype parameter provided: '{{param}}'.")
                 dtype = ColumnType.normalize_type(param, allow_builtin_types=False)
             else:
-                raise TypeError(f"ERROR defining Array type: Invalid parameter '{{param}}'. Parameters must be a shape tuple (e.g., `(100, 100)`) and/or a Pixeltable dtype (e.g., `pxt.Int`).")
+                raise TypeError(
+                    "ERROR defining Array type: Invalid parameter '{{param}}'. Parameters must be a shape tuple "
+                    '(e.g., `(100, 100)`) and/or a Pixeltable dtype (e.g., `pxt.Int`).'
+                )
         return typing.Annotated[np.ndarray, ArrayType(shape=shape, dtype=dtype, nullable=False)]
 
     @classmethod
@@ -1346,22 +1365,32 @@ class Image(PIL.Image.Image, _PxtType):
         for param in params:
             if isinstance(param, tuple):
                 if (
-                    len(param) != 2
+                    not isinstance(param, tuple)
+                    or len(param) != 2
                     or not isinstance(param[0], (int, type(None)))
                     or not isinstance(param[1], (int, type(None)))
                 ):
-                    raise TypeError(f"ERROR defining Image type: Invalid size parameter '{{param}}'. Size must be a 2-tuple of positive integers or None (e.g., `(640, 480)`).")
+                    raise TypeError(
+                        "ERROR defining Image type: Invalid size parameter '{{param}}'. Size must be a 2-tuple "
+                        'of positive integers or None (e.g., `(640, 480)`).'
+                    )
                 if size is not None:
-                    raise TypeError(f"ERROR defining Image type: Duplicate size parameter provided: '{{param}}'.")
+                    raise TypeError("ERROR defining Image type: Duplicate size parameter provided: '{{param}}'.")
                 size = param
             elif isinstance(param, str):
                 if param not in PIL.Image.MODES:
-                    raise TypeError(f"ERROR defining Image type: Invalid mode parameter '{{param!r}}'. See PIL.Image.MODES for valid modes.")
+                    raise TypeError(
+                        "ERROR defining Image type: Invalid mode parameter '{{param!r}}'. "
+                        'See PIL.Image.MODES for valid modes.'
+                    )
                 if mode is not None:
-                    raise TypeError(f"ERROR defining Image type: Duplicate mode parameter provided: '{{param!r}}'.")
+                    raise TypeError("ERROR defining Image type: Duplicate mode parameter provided: '{{param!r}}'.")
                 mode = param
             else:
-                raise TypeError(f"ERROR defining Image type: Invalid parameter '{{param}}'. Parameters must be a size tuple (e.g., `(640, 480)`) and/or a mode string (e.g., `'RGB'`).")
+                raise TypeError(
+                    "ERROR defining Image type: Invalid parameter '{{param}}'. Parameters must be a size tuple "
+                    "(e.g., `(640, 480)`) and/or a mode string (e.g., `'RGB'`)."
+                )
         return typing.Annotated[PIL.Image.Image, ImageType(size=size, mode=mode, nullable=False)]
 
     @classmethod

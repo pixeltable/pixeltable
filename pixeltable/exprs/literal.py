@@ -24,10 +24,10 @@ class Literal(Expr):
             col_type = ts.ColumnType.infer_literal_type(val)
             if col_type is None:
                 raise TypeError(
-                    f"ERROR: Cannot create a Pixeltable Literal from the provided value. "
-                    f"The type '{{type(val).__name__}}' is not automatically convertible to a Pixeltable type. "
-                    f"Supported Python types for automatic conversion are: str, int, float, bool, datetime.datetime, "
-                    f"PIL.Image.Image, np.ndarray, list, tuple, dict, or Pydantic models."
+                    'ERROR: Cannot create a Pixeltable Literal from the provided value. '
+                    "The type '{{type(val).__name__}}' is not automatically convertible to a Pixeltable type. "
+                    'Supported Python types for automatic conversion are: str, int, float, bool, datetime.datetime, '
+                    'PIL.Image.Image, np.ndarray, list, tuple, dict, or Pydantic models.'
                 )
         super().__init__(col_type)
         if isinstance(val, datetime.datetime):

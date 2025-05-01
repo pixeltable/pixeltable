@@ -40,7 +40,9 @@ class OnErrorParameter(enum.Enum):
     def fail_on_exception(cls, v: Any) -> bool:
         if not cls.is_valid(v):
             valid_options = ' or '.join([f"'{c.value}'" for c in cls])
-            raise ValueError(f"ERROR: Invalid value '{{v}}' for the `on_error` parameter. Valid options are: {{valid_options}}.")
+            raise ValueError(
+                f"ERROR: Invalid value '{v}' for the `on_error` parameter. Valid options are: {valid_options}."
+            )
         if isinstance(v, str):
             return v.lower() != cls.IGNORE.value
         return True

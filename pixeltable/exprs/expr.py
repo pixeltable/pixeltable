@@ -17,7 +17,7 @@ from typing_extensions import Self, _AnnotatedAlias
 from pixeltable import catalog, exceptions as excs, func, type_system as ts
 
 from .data_row import DataRow
-from .globals import ArithmeticOperator, ComparisonOperator, LiteralPythonTypes, LogicalOperator, StringOperator
+from .globals import ArithmeticOperator, ComparisonOperator, LogicalOperator, StringOperator
 
 if TYPE_CHECKING:
     from pixeltable import exprs
@@ -192,7 +192,7 @@ class Expr(abc.ABC):
             return False
         return all(a[i].equals(b[i]) for i in range(len(a)))
 
-    def copy(self: T) -> T:
+    def copy(self: Self) -> Self:
         """
         Creates a copy that can be evaluated separately: it doesn't share any eval context (slot_idx)
         but shares everything else (catalog objects, etc.)
@@ -533,7 +533,9 @@ class Expr(abc.ABC):
 
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr]) -> Self:
-        raise AssertionError(f"INTERNAL ERROR: Expr subclass '{cls.__name__}' must implement _from_dict() for deserialization.")
+        raise AssertionError(
+            f"INTERNAL ERROR: Expr subclass '{cls.__name__}' must implement _from_dict() for deserialization."
+        )
 
     def isin(self, value_set: Any) -> 'exprs.InPredicate':
         from .in_predicate import InPredicate
@@ -610,9 +612,9 @@ class Expr(abc.ABC):
         # For example, should `if tbl.col:` be true if all values are true, or if at least one value is true?
         # Instead, we require explicit comparisons, such as `if tbl.col == True:` or `if tbl.col != 0:`.
         raise TypeError(
-            "ERROR: Cannot directly evaluate this Pixeltable Expression as a boolean (e.g., in an `if` statement). "
-            "Pixeltable expressions represent potential values across many rows. "
-            "To check for truthiness, use explicit comparisons like `(expr == True)` or `(expr != 0)`."
+            'ERROR: Cannot directly evaluate this Pixeltable Expression as a boolean (e.g., in an `if` statement). '
+            'Pixeltable expressions represent potential values across many rows. '
+            'To check for truthiness, use explicit comparisons like `(expr == True)` or `(expr != 0)`.'
         )
 
     def __lt__(self, other: object) -> 'exprs.Comparison':
@@ -652,7 +654,7 @@ class Expr(abc.ABC):
                 op_symbol = str(op)
                 raise TypeError(
                     f"ERROR during comparison ({op_symbol}): Right operand must be an Expression or a literal value "
-                    f"(like a number or string), but received type {{type(other).__name__}}."
+                    "(like a number or string), but received type {{type(other).__name__}}."
                 )
             other = other_lit
         return Comparison(op, self, other)
@@ -713,8 +715,9 @@ class Expr(abc.ABC):
             if other_lit is None:
                 op_symbol = str(op)
                 raise TypeError(
-                    f"ERROR during string/array operation ({op_symbol}): Operand must be an Expression or a compatible literal "
-                    f"(string for +, int for *), but received type {{type(other).__name__}}."
+                    f"ERROR during string/array operation ({op_symbol}): Operand must be an "
+                    "Expression or a compatible literal (string for +, int for *), "
+                    f"but received type {{type(other).__name__}}."
                 )
             other = other_lit
         return StringOp(op, self, other)
@@ -728,8 +731,9 @@ class Expr(abc.ABC):
             if other_lit is None:
                 op_symbol = str(op)
                 raise TypeError(
-                    f"ERROR during string/array operation ({op_symbol}): Left operand must be an Expression or a compatible literal "
-                    f"(string for +, int for *), but received type {{type(other).__name__}}."
+                    f"ERROR during string/array operation ({op_symbol}): Left operand must be an "
+                    "Expression or a compatible literal (string for +, int for *), "
+                    f"but received type {{type(other).__name__}}."
                 )
             other = other_lit
         return StringOp(op, other, self)
@@ -743,7 +747,8 @@ class Expr(abc.ABC):
             if other_lit is None or not other_lit.col_type.is_numeric_type():
                 op_symbol = str(op)
                 raise TypeError(
-                    f"ERROR during arithmetic operation ({op_symbol}): Operand must be an Expression or a numeric literal, "
+                    f"ERROR during arithmetic operation ({op_symbol}): Operand must be an "
+                    "Expression or a numeric literal, "
                     f"but received type {{type(other).__name__}}."
                 )
             other = other_lit
@@ -758,7 +763,8 @@ class Expr(abc.ABC):
             if other_lit is None or not other_lit.col_type.is_numeric_type():
                 op_symbol = str(op)
                 raise TypeError(
-                    f"ERROR during arithmetic operation ({op_symbol}): Left operand must be an Expression or a numeric literal, "
+                    f"ERROR during arithmetic operation ({op_symbol}): Left operand must be an "
+                    "Expression or a numeric literal, "
                     f"but received type {{type(other).__name__}}."
                 )
             other = other_lit
@@ -767,9 +773,15 @@ class Expr(abc.ABC):
     def __and__(self, other: object) -> Expr:
         # TODO: check for compatibility
         if not isinstance(other, Expr):
-            raise TypeError(f"ERROR in logical AND (&): Right operand must be a Pixeltable Expression, but received type {{type(other).__name__}}.")
+            raise TypeError(
+                'ERROR in logical AND (&): Right operand must be a Pixeltable Expression, '
+                'but received type {{type(other).__name__}}.'
+            )
         if not other.col_type.is_bool_type():
-            raise TypeError(f'ERROR in logical AND (&): Right operand must be an Expression that returns Boolean, but returns {{other.col_type}}.')
+            raise TypeError(
+                'ERROR in logical AND (&): Right operand must be an Expression that returns Boolean, '
+                'but returns {{other.col_type}}.'
+            )
         from .compound_predicate import CompoundPredicate
 
         return CompoundPredicate(LogicalOperator.AND, [self, other])
@@ -777,9 +789,15 @@ class Expr(abc.ABC):
     def __or__(self, other: object) -> Expr:
         # TODO: check for compatibility
         if not isinstance(other, Expr):
-            raise TypeError(f"ERROR in logical OR (|): Right operand must be a Pixeltable Expression, but received type {{type(other).__name__}}.")
+            raise TypeError(
+                'ERROR in logical OR (|): Right operand must be a Pixeltable Expression, '
+                'but received type {{type(other).__name__}}.'
+            )
         if not other.col_type.is_bool_type():
-            raise TypeError(f'ERROR in logical OR (|): Right operand must be an Expression that returns Boolean, but returns {{other.col_type}}.')
+            raise TypeError(
+                'ERROR in logical OR (|): Right operand must be an Expression that returns Boolean, '
+                'but returns {{other.col_type}}.'
+            )
         from .compound_predicate import CompoundPredicate
 
         return CompoundPredicate(LogicalOperator.OR, [self, other])
@@ -787,7 +805,10 @@ class Expr(abc.ABC):
     def __invert__(self) -> Expr:
         # TODO: check for compatibility
         if not self.col_type.is_bool_type():
-            raise TypeError(f"ERROR in logical NOT (~): Operand must be an Expression that returns Boolean, but returns {{self.col_type}}.")
+            raise TypeError(
+                'ERROR in logical NOT (~): Operand must be an Expression that returns Boolean, '
+                'but returns {{self.col_type}}.'
+            )
         from .compound_predicate import CompoundPredicate
 
         return CompoundPredicate(LogicalOperator.NOT, [self])

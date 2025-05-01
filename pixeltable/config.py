@@ -33,9 +33,9 @@ class Config:
         self.__home = Path(os.environ.get('PIXELTABLE_HOME', str(Path.home() / '.pixeltable')))
         if self.__home.exists() and not self.__home.is_dir():
             raise RuntimeError(
-                f"ERROR initializing Pixeltable: The Pixeltable home path ('{{self.__home}}') must be a directory, "
-                f"but it currently points to a file. Pixeltable uses this directory to store database files and configuration. "
-                f"Check the path or the `PIXELTABLE_HOME` environment variable."
+                "ERROR initializing Pixeltable: The Pixeltable home path ('{{self.__home}}') must be a directory, "
+                'but it currently points to a file. Pixeltable uses this directory to store database files '
+                'and configuration. Check the path or the `PIXELTABLE_HOME` environment variable.'
             )
         if not self.__home.exists():
             print(f'Creating a Pixeltable instance at: {self.__home}')

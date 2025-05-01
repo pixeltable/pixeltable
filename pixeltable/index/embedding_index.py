@@ -45,6 +45,7 @@ class EmbeddingIndex(IndexBase):
     string_embed_signature_idx: int
     image_embed_signature_idx: int
     index_col_type: pgvector.sqlalchemy.Vector
+    embedding_dim: int
 
     def __init__(
         self,
@@ -55,12 +56,21 @@ class EmbeddingIndex(IndexBase):
         image_embed: Optional[func.Function] = None,
     ):
         if embed is None and string_embed is None and image_embed is None:
-            raise excs.Error('ERROR creating embedding index: You must specify at least one embedding function using the `embed`, `string_embed`, or `image_embed` parameters.')
+            raise excs.Error(
+                'ERROR creating embedding index: You must specify at least one embedding function using the '
+                '`embed`, `string_embed`, or `image_embed` parameters.'
+            )
         metric_names = [m.name.lower() for m in self.Metric]
         if metric.lower() not in metric_names:
-            raise excs.Error(f"ERROR creating embedding index: Invalid similarity `metric` '{{metric}}'. Available metrics are: {{', '.join(metric_names)}}.")
+            raise excs.Error(
+                "ERROR creating embedding index: Invalid similarity `metric` '{{metric}}'. "
+                "Available metrics are: {{', '.join(metric_names)}}."
+            )
         if not c.col_type.is_string_type() and not c.col_type.is_image_type():
-            raise excs.Error('ERROR creating embedding index: An embedding index can only be created on a column of type String or Image.')
+            raise excs.Error(
+                'ERROR creating embedding index: An embedding index can only be created on a column of type '
+                'String or Image.'
+            )
 
         self.string_embed = None
         self.image_embed = None
@@ -74,8 +84,8 @@ class EmbeddingIndex(IndexBase):
             self.string_embed = self._resolve_embedding_fn(string_embed, ts.ColumnType.Type.STRING)
             if self.string_embed is None:
                 raise excs.Error(
-                    f"ERROR creating embedding index: The function provided for `string_embed` ('{{string_embed.name}}') is not valid. "
-                    'It must accept a single parameter of type String.'
+                    'ERROR creating embedding index: The function provided for `string_embed` '
+                    "('{{string_embed.name}}') is not valid. It must accept a single parameter of type String."
                 )
         elif embed is not None:
             # `embed` is specified; see if it has a string signature.
@@ -86,8 +96,8 @@ class EmbeddingIndex(IndexBase):
             self.image_embed = self._resolve_embedding_fn(image_embed, ts.ColumnType.Type.IMAGE)
             if self.image_embed is None:
                 raise excs.Error(
-                    f"ERROR creating embedding index: The function provided for `image_embed` ('{{image_embed.name}}') is not valid. "
-                    'It must accept a single parameter of type Image.'
+                    'ERROR creating embedding index: The function provided for `image_embed` '
+                    "('{{image_embed.name}}') is not valid. It must accept a single parameter of type Image."
                 )
         elif embed is not None:
             # `embed` is specified; see if it has an image signature.
@@ -98,7 +108,7 @@ class EmbeddingIndex(IndexBase):
             # contains no matching signatures.
             assert embed is not None
             raise excs.Error(
-                f"ERROR creating embedding index: The function provided for `embed` ('{{embed.name}}') is not valid. "
+                "ERROR creating embedding index: The function provided for `embed` ('{{embed.name}}') is not valid. "
                 'It must accept a single parameter of type String or Image.'
             )
 
@@ -111,9 +121,15 @@ class EmbeddingIndex(IndexBase):
             self._validate_embedding_fn(self.image_embed)
 
         if c.col_type.is_string_type() and self.string_embed is None:
-            raise excs.Error(f"ERROR creating embedding index on column '{{c.name}}': This column has type String, so a string embedding function must be provided via the `string_embed` or `embed` parameter.")
+            raise excs.Error(
+                "ERROR creating embedding index on column '{{c.name}}': This column has type String, so a string "
+                'embedding function must be provided via the `string_embed` or `embed` parameter.'
+            )
         if c.col_type.is_image_type() and self.image_embed is None:
-            raise excs.Error(f"ERROR creating embedding index on column '{{c.name}}': This column has type Image, so an image embedding function must be provided via the `image_embed` or `embed` parameter.")
+            raise excs.Error(
+                "ERROR creating embedding index on column '{{c.name}}': This column has type Image, so an image "
+                'embedding function must be provided via the `image_embed` or `embed` parameter.'
+            )
 
         self.metric = self.Metric[metric.upper()]
         self.value_expr = (
@@ -125,6 +141,7 @@ class EmbeddingIndex(IndexBase):
         vector_size = self.value_expr.col_type.shape[0]
         assert vector_size is not None
         self.index_col_type = pgvector.sqlalchemy.Vector(vector_size)
+        self.embedding_dim = vector_size
 
     def index_value_expr(self) -> exprs.Expr:
         """Return expression that computes the value that goes into the index"""
@@ -232,16 +249,18 @@ class EmbeddingIndex(IndexBase):
 
         if not isinstance(return_type, ts.ArrayType):
             raise excs.Error(
-                f"ERROR creating embedding index: The embedding function '{{embed_fn.name}}' must return an array "
-                f"(NumPy array or list of numbers), but it returned a value of type {{return_type}}."
+                "ERROR creating embedding index: The embedding function '{{embed_fn.name}}' must return an array "
+                '(NumPy array or list of numbers), but it returned a value of type {{return_type}}.'
             )
-
         shape = return_type.shape
         if len(shape) != 1 or shape[0] is None:
             raise excs.Error(
-                f"ERROR creating embedding index: The embedding function '{{embed_fn.name}}' must return a 1-dimensional array "
-                f"(e.g., `[0.1, 0.2, ...]`) of a fixed length, but it returned an array with shape {{return_type.shape}}."
+                "ERROR creating embedding index: The embedding function '{{embed_fn.name}}' must return a "
+                '1-dimensional array (e.g., `[0.1, 0.2, ...]`) of a fixed length, '
+                'but it returned an array with shape {{return_type.shape}}.'
             )
+
+        cls.embedding_dim = shape[0]
 
     def as_dict(self) -> dict:
         return {

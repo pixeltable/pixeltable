@@ -290,7 +290,10 @@ class FunctionCall(Expr):
             elif isinstance(idx, dict):
                 bound_args[name] = Expr.from_object({k: self.components[i] for k, i in idx.items()})
             else:
-                raise AssertionError(f"INTERNAL ERROR: Unexpected type '{type(idx).__name__}' found for parameter '{name}' in FunctionCall.bound_idxs.")
+                raise AssertionError(
+                    f"INTERNAL ERROR: Unexpected type '{type(idx).__name__}' found for parameter '{name}' "
+                    f'in FunctionCall.bound_idxs.'
+                )
         return bound_args
 
     def substitute(self, spec: dict[Expr, Expr]) -> Expr:

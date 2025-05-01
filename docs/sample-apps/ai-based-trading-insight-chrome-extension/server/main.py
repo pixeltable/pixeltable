@@ -5,7 +5,7 @@ import logging
 import os
 import re
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Optional
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
@@ -358,7 +358,7 @@ async def analyze_screenshot(request: ScreenshotRequest):
         }
 
     except Exception as e:
-        logger.error(f'Analysis error for request {request_id if "request_id" in locals() else "unknown"}: {str(e)}')
+        logger.error(f'Analysis error for request {request_id if "request_id" in locals() else "unknown"}: {e!s}')
         raise HTTPException(status_code=500, detail=str(e))
 
 

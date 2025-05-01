@@ -127,8 +127,8 @@ def _parse_header_duration(duration_str: str) -> datetime.timedelta:
     match = _header_duration_pattern.match(duration_str)
     if not match:
         raise ValueError(
-            f"INTERNAL ERROR parsing OpenAI rate limit header: Duration string '{{duration_str}}' "
-            f"did not match expected format (e.g., '1d2h3ms' or '5m6.7s')."
+            "INTERNAL ERROR parsing OpenAI rate limit header: Duration string '{{duration_str}}' "
+            "did not match expected format (e.g., '1d2h3ms' or '5m6.7s')."
         )
 
     days = int(match.group(1) or 0)

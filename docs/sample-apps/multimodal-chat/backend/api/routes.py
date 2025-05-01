@@ -184,9 +184,9 @@ async def upload_file(file: UploadFile = File(...)):
     """Upload and process document files with Pixeltable's native support."""
     logger.info(f'Received file upload request: {file.filename}, type: {file.content_type}')
 
-    if not file.content_type in ALLOWED_TYPES['document']:
+    if file.content_type not in ALLOWED_TYPES['document']:
         raise HTTPException(
-            status_code=400, detail=f'Invalid document format. Supported formats are: PDF, MD, HTML, TXT, XML'
+            status_code=400, detail='Invalid document format. Supported formats are: PDF, MD, HTML, TXT, XML'
         )
 
     try:
@@ -213,10 +213,10 @@ async def upload_file(file: UploadFile = File(...)):
         )
 
     except Exception as e:
-        logger.error(f'Error processing file: {str(e)}')
+        logger.error(f'Error processing file: {e!s}')
         if file_path.exists():
             file_path.unlink()
-        raise HTTPException(500, f'Error processing file: {str(e)}')
+        raise HTTPException(500, f'Error processing file: {e!s}')
 
 
 @router.get('/api/files')
@@ -281,7 +281,7 @@ async def list_files():
 
     except Exception as e:
         logger.error(f'Error listing files: {e}')
-        raise HTTPException(500, f'Error listing files: {str(e)}')
+        raise HTTPException(500, f'Error listing files: {e!s}')
 
 
 @router.post('/api/videos/upload')
@@ -321,7 +321,7 @@ async def upload_video(file: UploadFile = File(...)):
         logger.error(f'Error uploading video: {e}')
         if file_path.exists():
             file_path.unlink()
-        raise HTTPException(500, f'Error uploading video: {str(e)}')
+        raise HTTPException(500, f'Error uploading video: {e!s}')
 
 
 @router.post('/api/audio/upload')
@@ -355,7 +355,7 @@ async def upload_audio(file: UploadFile = File(...)):
         logger.error(f'Error uploading audio: {e}')
         if file_path.exists():
             file_path.unlink()
-        raise HTTPException(500, f'Error uploading audio: {str(e)}')
+        raise HTTPException(500, f'Error uploading audio: {e!s}')
 
 
 async def get_answer(question: str) -> str:
@@ -383,7 +383,7 @@ async def get_answer(question: str) -> str:
 
     except Exception as e:
         logger.error(f'Error getting answer: {e}')
-        raise HTTPException(status_code=500, detail=f'Failed to generate response: {str(e)}')
+        raise HTTPException(status_code=500, detail=f'Failed to generate response: {e!s}')
 
 
 @router.post('/api/chat')

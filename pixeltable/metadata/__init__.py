@@ -60,9 +60,9 @@ def upgrade_md(engine: sql.engine.Engine) -> None:
         while md_version < VERSION:
             if md_version not in converter_cbs:
                 raise RuntimeError(
-                    f"INTERNAL ERROR: Pixeltable is attempting to upgrade its internal metadata from version {md_version}, "
-                    f"but no upgrade converter was found for this version. This indicates an issue with the Pixeltable "
-                    f"installation. Please report this error."
+                    f'INTERNAL ERROR: Pixeltable is attempting to upgrade its internal metadata '
+                    f'from version {md_version}, but no upgrade converter was found for this version. '
+                    f'This indicates an issue with the Pixeltable installation. Please report this error.'
                 )
             # We can't use the console logger in Env, because Env might not have been initialized yet.
             _console_logger.info(f'Converting metadata from version {md_version} to {md_version + 1}')

@@ -339,15 +339,15 @@ def draw_bounding_boxes(
         labels = [None] * num_boxes
     elif len(labels) != num_boxes:
         raise ValueError(
-            f"ERROR in draw_bounding_boxes(): The number of provided `labels` ({{len(labels)}}) "
-            f"must match the number of `boxes` ({{num_boxes}})."
+            'ERROR in draw_bounding_boxes(): The number of provided `labels` ({{len(labels)}}) '
+            'must match the number of `boxes` ({{num_boxes}}).'
         )
 
     if box_colors is not None:
         if len(box_colors) != num_boxes:
             raise ValueError(
-                f"ERROR in draw_bounding_boxes(): The number of provided `box_colors` ({{len(box_colors)}}) "
-                f"must match the number of `boxes` ({{num_boxes}})."
+                'ERROR in draw_bounding_boxes(): The number of provided `box_colors` ({{len(box_colors)}}) '
+                'must match the number of `boxes` ({{num_boxes}}).'
             )
     elif color is not None:
         box_colors = [color] * num_boxes

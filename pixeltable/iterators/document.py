@@ -164,7 +164,11 @@ class DocumentSplitter(ComponentIterator):
             assert self._doc_handle.txt_doc is not None
             self._sections = self._txt_sections()
         else:
-            raise AssertionError(f"INTERNAL ERROR: Unsupported document format encountered in DocumentSplitter: '{self._doc_handle.format}'. Supported formats are HTML, Markdown, PDF, and TXT.")
+            raise AssertionError(
+                f"INTERNAL ERROR: Unsupported document format encountered in DocumentSplitter: "
+                f"'{self._doc_handle.format}'. "
+                f"Supported formats are HTML, Markdown, PDF, and TXT."
+            )
 
         if Separator.SENTENCE in self._separators:
             self._sections = self._sentence_sections(self._sections)

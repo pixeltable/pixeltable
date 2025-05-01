@@ -4,7 +4,6 @@ from datetime import datetime
 
 import discord
 import numpy as np
-from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
 from message_formatter import MessageFormatter
@@ -69,7 +68,7 @@ class PixelTableBot:
             self.logger.info('Successfully initialized Pixeltable tables and views')
 
         except Exception as e:
-            self.logger.error(f'Failed to initialize Pixeltable: {str(e)}')
+            self.logger.error(f'Failed to initialize Pixeltable: {e!s}')
             raise
 
     def setup_chat_columns(self):
@@ -128,7 +127,7 @@ class PixelTableBot:
             )
 
         except Exception as e:
-            self.logger.error(f'Failed to set up chat columns: {str(e)}')
+            self.logger.error(f'Failed to set up chat columns: {e!s}')
             raise
 
     def setup_bot_events(self):
@@ -159,7 +158,7 @@ class PixelTableBot:
                         ]
                     )
             except Exception as e:
-                self.logger.error(f'Failed to store message: {str(e)}')
+                self.logger.error(f'Failed to store message: {e!s}')
 
         @self.bot.command(name='search')
         async def search(ctx, *, query: str):
@@ -188,7 +187,7 @@ class PixelTableBot:
                 await response_message.edit(content=None, embed=embed)
 
             except Exception as e:
-                self.logger.error(f'Search failed: {str(e)}')
+                self.logger.error(f'Search failed: {e!s}')
                 error_embed = self.formatter.create_error_embed(str(e))
                 await response_message.edit(content=None, embed=error_embed)
 
@@ -222,7 +221,7 @@ class PixelTableBot:
                 await response_message.edit(content=None, embed=embed)
 
             except Exception as e:
-                self.logger.error(f'Chat failed: {str(e)}')
+                self.logger.error(f'Chat failed: {e!s}')
                 error_embed = self.formatter.create_error_embed(str(e))
                 await response_message.edit(content=None, embed=error_embed)
 
@@ -231,7 +230,7 @@ class PixelTableBot:
         try:
             self.bot.run(token)
         except Exception as e:
-            logger.error(f'Failed to start bot: {str(e)}')
+            logger.error(f'Failed to start bot: {e!s}')
             raise
 
 
@@ -245,7 +244,7 @@ def main():
         bot = PixelTableBot()
         bot.run(token)
     except Exception as e:
-        logging.error(f'Bot execution failed: {str(e)}')
+        logging.error(f'Bot execution failed: {e!s}')
         raise
 
 

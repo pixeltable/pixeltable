@@ -35,8 +35,8 @@ class BtreeIndex(IndexBase):
         if not c.col_type.is_scalar_type() and not c.col_type.is_media_type():
             raise excs.Error(
                 f"ERROR creating B-tree index on column '{c.name}': A B-tree index requires the column type to be "
-                f"scalar (like Int, Float, String, Bool, Timestamp) or media (Image, Video, Audio, Document), "
-                f"but found type {c.col_type}."
+                f'scalar (like Int, Float, String, Bool, Timestamp) or media (Image, Video, Audio, Document), '
+                f'but found type {c.col_type}.'
             )
         if c.col_type.is_media_type():
             # an index on a media column is an index on the file url

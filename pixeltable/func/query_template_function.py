@@ -171,8 +171,8 @@ def retrieval_udf(
     if len(col_refs) == 0:
         raise excs.Error(
             f"ERROR creating retrieval UDF for table '{table._path}': You must specify at least one column in the "
-            f"`parameters` argument, or the table must contain at least one non-computed column if `parameters` "
-            f"is not specified."
+            f'`parameters` argument, or the table must contain at least one non-computed column if `parameters` '
+            f'is not specified.'
         )
 
     # Construct the dataframe

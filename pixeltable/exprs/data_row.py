@@ -164,7 +164,10 @@ class DataRow:
         if not self.has_val[index]:
             # This is a sufficiently cheap and sensitive validation that it makes sense to keep the assertion around
             # even if python is running with -O.
-            raise AssertionError(f"INTERNAL ERROR: Attempted to access DataRow slot {index} before its value was computed (has_val[{index}] is False).")
+            raise AssertionError(
+                f'INTERNAL ERROR: Attempted to access DataRow slot {index} before its value was computed '
+                f'(has_val[{index}] is False).'
+            )
 
         if self.file_urls[index] is not None and index in self.img_slot_idxs:
             # if we need to load this from a file, it should have been materialized locally

@@ -75,7 +75,7 @@ class ComponentIterationNode(ExecNode):
         return True
 
     def __populate_output_row(self, output_row: exprs.DataRow, pos: int, component_dict: dict) -> None:
-        pk = output_row.pk[:-1] + (pos,) + output_row.pk[-1:]
+        pk = (*output_row.pk[:-1], pos, *output_row.pk[-1:])
         output_row.set_pk(pk)
         # verify and copy component_dict fields to their respective slots in output_row
         for field_name, field_val in component_dict.items():

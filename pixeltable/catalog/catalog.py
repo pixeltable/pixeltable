@@ -280,7 +280,10 @@ class Catalog:
         # The condition below can occur if there is a synchronization failure across multiple processes
         # It indicates database inconsistency.
         if len(rows) > 1:
-            raise AssertionError(f"INTERNAL ERROR: Found duplicate directory entries for name '{name}' in parent directory ID {dir_id}. Expected at most one.")
+            raise AssertionError(
+                f"INTERNAL ERROR: Found duplicate directory entries for name '{name}' "
+                f'in parent directory ID {dir_id}. Expected at most one.'
+            )
         if len(rows) == 1:
             dir_record = schema.Dir(**rows[0]._mapping)
             return Dir(dir_record.id, dir_record.parent_id, name)

@@ -420,7 +420,10 @@ def pad(self: str, width: int, side: str = 'left', fillchar: str = ' ') -> str:
     elif side == 'both':
         return self.center(width, fillchar)
     else:
-        raise ValueError(f"ERROR in pad(): Invalid value '{side}' for the `side` parameter. Valid options are: 'left', 'right', or 'both'.")
+        raise ValueError(
+            f"ERROR in pad(): Invalid value '{side}' for the `side` parameter. "
+            f"Valid options are: 'left', 'right', or 'both'."
+        )
 
 
 @pxt.udf(is_method=True)

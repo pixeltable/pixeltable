@@ -206,9 +206,20 @@ class CallableFunction(Function):
                 # when the template is fully resolved.
                 if param.name in bound_args and not isinstance(bound_args[param.name], (exprs.Literal, exprs.Variable)):
                     raise ValueError(
-                        f"ERROR calling batched UDF '{self.display_name}': The parameter '{param.name}' is marked as constant "
-                        f"but received a non-constant argument (e.g., a column value). Constant parameters must be given "
-                        f"literal values (like numbers, strings, etc.)."
+                        f"ERROR calling batched UDF '{self.display_name}': The parameter '{param.name}' "
+                        f'is marked as constant but received a non-constant argument (e.g., a column value). '
+                        f'Constant parameters must be given literal values (like numbers, strings, etc.).'
+                    )
+                # Combine nested if (SIM102)
+                if (
+                    param.kind == inspect.Parameter.KEYWORD_ONLY
+                    and param.name in bound_args
+                    and isinstance(bound_args[param.name], (exprs.Literal, exprs.Variable))
+                ):
+                    # Check that keyword-only parameters are not given as positional arguments
+                    raise ValueError(
+                        f"ERROR calling batched UDF '{self.display_name}': The parameter '{param.name}' "
+                        f'is marked as keyword-only but received a positional argument.'
                     )
 
     def __repr__(self) -> str:

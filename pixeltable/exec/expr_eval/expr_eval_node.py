@@ -197,8 +197,10 @@ class ExprEvalNode(ExecNode):
                     break
             if pool_name not in self.schedulers:
                 raise RuntimeError(
-                    f"INTERNAL ERROR: Could not find a registered scheduler implementation for the resource pool named '{pool_name}'. "
-                    f"This may indicate an issue with Pixeltable's internal configuration or a missing scheduler plugin."
+                    f'INTERNAL ERROR: Could not find a registered scheduler implementation '
+                    f"for the resource pool named '{pool_name}'. "
+                    f"This may indicate an issue with Pixeltable's internal configuration "
+                    f'or a missing scheduler plugin.'
                 )
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
