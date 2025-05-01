@@ -199,11 +199,6 @@ class TableVersion:
             base=base,
         )
 
-    def create_handle(self) -> TableVersionHandle:
-        from .table_version_handle import TableVersionHandle
-
-        return TableVersionHandle(self.id, self.effective_version, tbl_version=self)
-
     @classmethod
     def create(
         cls,
@@ -363,7 +358,7 @@ class TableVersion:
                 schema_version_drop=col_md.schema_version_drop,
                 value_expr_dict=col_md.value_expr,
             )
-            col.tbl = self.create_handle()
+            col.tbl = self
             self.cols.append(col)
 
             # populate the lookup structures before Expr.from_dict()
@@ -505,7 +500,7 @@ class TableVersion:
             schema_version_drop=None,
             records_errors=idx.records_value_errors(),
         )
-        val_col.tbl = self.create_handle()
+        val_col.tbl = self
         val_col.col_type = val_col.col_type.copy(nullable=True)
         self.next_col_id += 1
 
@@ -519,7 +514,7 @@ class TableVersion:
             schema_version_drop=None,
             records_errors=False,
         )
-        undo_col.tbl = self.create_handle()
+        undo_col.tbl = self
         undo_col.col_type = undo_col.col_type.copy(nullable=True)
         self.next_col_id += 1
         return val_col, undo_col
@@ -605,7 +600,7 @@ class TableVersion:
         assert all(col.stored is not None for col in cols)
         assert all(col.name not in self.cols_by_name for col in cols)
         for col in cols:
-            col.tbl = self.create_handle()
+            col.tbl = self
             col.id = self.next_col_id
             self.next_col_id += 1
 
@@ -712,7 +707,7 @@ class TableVersion:
             num_rows=row_count,
             num_computed_values=row_count,
             num_excs=num_excs,
-            cols_with_excs=[f'{col.tbl.get().name}.{col.name}' for col in cols_with_excs if col.name is not None],
+            cols_with_excs=[f'{col.tbl.name}.{col.name}' for col in cols_with_excs if col.name is not None],
         )
 
     def drop_column(self, col: Column) -> None:
@@ -819,7 +814,7 @@ class TableVersion:
         """
         from pixeltable.plan import Planner
 
-        assert self.is_insertable()
+        assert self.is_insertable
         assert (rows is None) != (df is None)  # Exactly one must be specified
         if rows is not None:
             plan = Planner.create_insert_plan(self, rows, ignore_errors=not fail_on_exception)
@@ -1025,7 +1020,7 @@ class TableVersion:
             base_versions = [None if plan is None else self.version, *base_versions]  # don't update in place
             # propagate to views
             for view in self.mutable_views:
-                recomputed_cols = [col for col in recomputed_view_cols if col.tbl == view]
+                recomputed_cols = [col for col in recomputed_view_cols if col.tbl.id == view.id]
                 plan = None
                 if len(recomputed_cols) > 0:
                     from pixeltable.plan import Planner
@@ -1046,7 +1041,7 @@ class TableVersion:
         Args:
             where: a predicate to filter rows to delete.
         """
-        assert self.is_insertable()
+        assert self.is_insertable
         from pixeltable.exprs import Expr
         from pixeltable.plan import Planner
 
@@ -1133,8 +1128,8 @@ class TableVersion:
         set_clause: dict[sql.Column, Any] = {self.store_tbl.sa_tbl.c.v_max: schema.Table.MAX_VERSION}
         for index_info in self.idxs_by_name.values():
             # copy the index value back from the undo column and reset the undo column to NULL
-            set_clause[index_info.val_col.sa_col()] = index_info.undo_col.sa_col()
-            set_clause[index_info.undo_col.sa_col()] = None
+            set_clause[index_info.val_col.sa_col] = index_info.undo_col.sa_col
+            set_clause[index_info.undo_col.sa_col] = None
         stmt = sql.update(self.store_tbl.sa_tbl).values(set_clause).where(self.store_tbl.sa_tbl.c.v_max == self.version)
         conn.execute(stmt)
 
@@ -1253,6 +1248,7 @@ class TableVersion:
     def is_component_view(self) -> bool:
         return self.iterator_cls is not None
 
+    @property
     def is_insertable(self) -> bool:
         """Returns True if this corresponds to an InsertableTable"""
         return not self.is_snapshot and not self.is_view

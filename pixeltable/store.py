@@ -12,7 +12,6 @@ from typing import Any, Iterator, Literal, Optional, Union
 import sqlalchemy as sql
 from tqdm import TqdmWarning, tqdm
 
-import pixeltable.type_system as ts
 from pixeltable import catalog, exceptions as excs, exprs
 from pixeltable.env import Env
 from pixeltable.exec import ExecNode
@@ -36,7 +35,6 @@ class StoreBase:
     tbl_version: catalog.TableVersionHandle
     sa_md: sql.MetaData
     sa_tbl: Optional[sql.Table]
-    sa_cols_by_name: dict[str, sql.Column]  # key: store column name
     _pk_cols: list[sql.Column]
     v_min_col: sql.Column
     v_max_col: sql.Column
@@ -50,11 +48,11 @@ class StoreBase:
         )
         self.sa_md = sql.MetaData()
         self.sa_tbl = None
-        self.sa_cols_by_name = {}
         # We need to declare a `base` variable here, even though it's only defined for instances of `StoreView`,
         # since it's referenced by various methods of `StoreBase`
         self.base = tbl_version.base.get().store_tbl if tbl_version.base is not None else None
-        self.create_sa_tbl()
+        # we're passing in tbl_version to avoid a circular call to TableVersionHandle.get()
+        self.create_sa_tbl(tbl_version)
 
     def pk_columns(self) -> list[sql.Column]:
         return self._pk_cols
@@ -76,27 +74,20 @@ class StoreBase:
         self._pk_cols = [*rowid_cols, self.v_min_col]
         return [*rowid_cols, self.v_min_col, self.v_max_col]
 
-    def create_sa_tbl(self) -> None:
+    def create_sa_tbl(self, tbl_version: Optional[catalog.TableVersion] = None) -> None:
         """Create self.sa_tbl from self.tbl_version."""
+        if tbl_version is None:
+            tbl_version = self.tbl_version.get()
         system_cols = self._create_system_columns()
-        all_cols = [*system_cols]
-        for pxt_col in [c for c in self.tbl_version.get().cols if c.is_stored]:
+        all_cols = system_cols.copy()
+        for col in [c for c in tbl_version.cols if c.is_stored]:
             # re-create sql.Column for each column, regardless of whether it already has sa_col set: it was bound
             # to the last sql.Table version we created and cannot be reused
-            #pxt_col.create_sa_cols()
-            col_name = pxt_col.store_name()
-            sa_col: sql.Column = sql.Column(col_name, pxt_col.get_sa_col_type(), nullable=True)
-            self.sa_cols_by_name[col_name] = sa_col
-            all_cols.append(sa_col)
-            if pxt_col.records_errors:
-                errormsg_col_name = pxt_col.errormsg_store_name()
-                errormsg_col = sql.Column(errormsg_col_name, ts.StringType().to_sa_type(), nullable=True)
-                self.sa_cols_by_name[errormsg_col_name] = errormsg_col
-                all_cols.append(errormsg_col)
-                errortype_col_name = pxt_col.errortype_store_name()
-                errortype_col = sql.Column(errortype_col_name, ts.StringType().to_sa_type(), nullable=True)
-                self.sa_cols_by_name[errortype_col_name] = errortype_col
-                all_cols.append(errortype_col)
+            col.create_sa_cols()
+            all_cols.append(col.sa_col)
+            if col.records_errors:
+                all_cols.append(col.sa_errormsg_col)
+                all_cols.append(col.sa_errortype_col)
 
         if self.sa_tbl is not None:
             # if we're called in response to a schema change, we need to remove the old table first
@@ -107,13 +98,13 @@ class StoreBase:
         # - base x view joins can be executed as merge joins
         # - speeds up ORDER BY rowid DESC
         # - allows filtering for a particular table version in index scan
-        idx_name = f'sys_cols_idx_{self.tbl_version.id.hex}'
+        idx_name = f'sys_cols_idx_{tbl_version.id.hex}'
         idxs.append(sql.Index(idx_name, *system_cols))
 
         # v_min/v_max indices: speeds up base table scans needed to propagate a base table insert or delete
-        idx_name = f'vmin_idx_{self.tbl_version.id.hex}'
+        idx_name = f'vmin_idx_{tbl_version.id.hex}'
         idxs.append(sql.Index(idx_name, self.v_min_col, postgresql_using=Env.get().dbms.version_index_type))
-        idx_name = f'vmax_idx_{self.tbl_version.id.hex}'
+        idx_name = f'vmax_idx_{tbl_version.id.hex}'
         idxs.append(sql.Index(idx_name, self.v_max_col, postgresql_using=Env.get().dbms.version_index_type))
 
         self.sa_tbl = sql.Table(self._storage_name(), self.sa_md, *all_cols, *idxs)
@@ -249,18 +240,13 @@ class StoreBase:
         tmp_name = f'temp_{self._storage_name()}'
         tmp_pk_cols = [sql.Column(col.name, col.type, primary_key=True) for col in self.pk_columns()]
         tmp_cols = tmp_pk_cols.copy()
-        tmp_val_col = sql.Column(col.sa_col().name, col.sa_col().type)
+        tmp_val_col = sql.Column(col.sa_col.name, col.sa_col.type)
         tmp_cols.append(tmp_val_col)
-
         # add error columns if the store column records errors
-        sa_errortype_col: Optional[sql.Column] = None
-        sa_errormsg_col: Optional[sql.Column] = None
         if col.records_errors:
-            sa_errortype_col = col.sa_errortype_col()
-            tmp_errortype_col = sql.Column(sa_errortype_col.name, sa_errortype_col.type)
+            tmp_errortype_col = sql.Column(col.sa_errortype_col.name, col.sa_errortype_col.type)
             tmp_cols.append(tmp_errortype_col)
-            sa_errormsg_col = col.sa_errormsg_col()
-            tmp_errormsg_col = sql.Column(sa_errormsg_col.name, sa_errormsg_col.type)
+            tmp_errormsg_col = sql.Column(col.sa_errormsg_col.name, col.sa_errormsg_col.type)
             tmp_cols.append(tmp_errormsg_col)
         tmp_tbl = sql.Table(tmp_name, self.sa_md, *tmp_cols, prefixes=['TEMPORARY'])
         conn = Env.get().conn
@@ -288,21 +274,21 @@ class StoreBase:
                             # we store a NULL value and record the exception/exc type
                             error_type = type(value_exc).__name__
                             error_msg = str(value_exc)
-                            tbl_row[col.sa_col().name] = None
-                            tbl_row[sa_errortype_col.name] = error_type
-                            tbl_row[sa_errormsg_col.name] = error_msg
+                            tbl_row[col.sa_col.name] = None
+                            tbl_row[col.sa_errortype_col.name] = error_type
+                            tbl_row[col.sa_errormsg_col.name] = error_msg
                         else:
                             if col.col_type.is_image_type() and result_row.file_urls[value_expr_slot_idx] is None:
                                 # we have yet to store this image
-                                filepath = str(MediaStore.prepare_media_path(col.tbl.id, col.id, col.tbl.get().version))
+                                filepath = str(MediaStore.prepare_media_path(col.tbl.id, col.id, col.tbl.version))
                                 result_row.flush_img(value_expr_slot_idx, filepath)
-                            val = result_row.get_stored_val(value_expr_slot_idx, col.sa_col().type)
+                            val = result_row.get_stored_val(value_expr_slot_idx, col.sa_col.type)
                             if col.col_type.is_media_type():
                                 val = self._move_tmp_media_file(val, col, result_row.pk[-1])
-                            tbl_row[col.sa_col().name] = val
+                            tbl_row[col.sa_col.name] = val
                             if col.records_errors:
-                                tbl_row[sa_errortype_col.name] = None
-                                tbl_row[sa_errormsg_col.name] = None
+                                tbl_row[col.sa_errortype_col.name] = None
+                                tbl_row[col.sa_errormsg_col.name] = None
 
                     tbl_rows.append(tbl_row)
                 conn.execute(sql.insert(tmp_tbl), tbl_rows)
@@ -311,10 +297,10 @@ class StoreBase:
             update_stmt = sql.update(self.sa_tbl)
             for pk_col, tmp_pk_col in zip(self.pk_columns(), tmp_pk_cols):
                 update_stmt = update_stmt.where(pk_col == tmp_pk_col)
-            update_stmt = update_stmt.values({col.sa_col(): tmp_val_col})
+            update_stmt = update_stmt.values({col.sa_col: tmp_val_col})
             if col.records_errors:
                 update_stmt = update_stmt.values(
-                    {sa_errortype_col: tmp_errortype_col, sa_errormsg_col: tmp_errormsg_col}
+                    {col.sa_errortype_col: tmp_errortype_col, col.sa_errormsg_col: tmp_errormsg_col}
                 )
             log_explain(_logger, update_stmt, conn)
             conn.execute(update_stmt)
@@ -374,7 +360,7 @@ class StoreBase:
                             if progress_bar is None:
                                 warnings.simplefilter('ignore', category=TqdmWarning)
                                 progress_bar = tqdm(
-                                    desc=f'Inserting rows into {self.tbl_version.get().name!r}',
+                                    desc=f'Inserting rows into `{self.tbl_version.get().name}`',
                                     unit=' rows',
                                     ncols=100,
                                     file=sys.stdout,
@@ -434,9 +420,9 @@ class StoreBase:
         set_clause: dict[sql.Column, Union[int, sql.Column]] = {self.v_max_col: current_version}
         for index_info in self.tbl_version.get().idxs_by_name.values():
             # copy value column to undo column
-            set_clause[index_info.undo_col.sa_col()] = index_info.val_col.sa_col()
+            set_clause[index_info.undo_col.sa_col] = index_info.val_col.sa_col
             # set value column to NULL
-            set_clause[index_info.val_col.sa_col()] = None
+            set_clause[index_info.val_col.sa_col] = None
         stmt = (
             sql.update(self.sa_tbl)
             .values(set_clause)
@@ -508,10 +494,12 @@ class StoreComponentView(StoreView):
         self.rowid_cols.append(self.pos_col)
         return self.rowid_cols
 
-    def create_sa_tbl(self) -> None:
-        super().create_sa_tbl()
+    def create_sa_tbl(self, tbl_version: Optional[catalog.TableVersion] = None) -> None:
+        if tbl_version is None:
+            tbl_version = self.tbl_version.get()
+        super().create_sa_tbl(tbl_version)
         # we need to fix up the 'pos' column in TableVersion
-        self.sa_cols_by_name[self.pos_col.name] = self.pos_col
+        tbl_version.cols_by_name['pos'].sa_col = self.pos_col
 
     def _rowid_join_predicate(self) -> sql.ColumnElement[bool]:
         return sql.and_(

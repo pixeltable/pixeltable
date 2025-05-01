@@ -1603,6 +1603,8 @@ class TestTable:
         # c3 is now stored
         t.add_computed_column(c3=t.img.rotate(90))
         self._test_computed_img_cols(t, stores_img_col=True)
+        _ = t.select(t.c3).collect()
+        self._test_computed_img_cols(t, stores_img_col=True)
         _ = t.select(t.c3.errortype).collect()
 
         # computed img col with exceptions

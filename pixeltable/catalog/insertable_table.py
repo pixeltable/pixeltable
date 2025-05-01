@@ -138,8 +138,8 @@ class InsertableTable(Table):
         print_stats: bool = False,
         **kwargs: Any,
     ) -> UpdateStatus:
-        from pixeltable.io.table_data_conduit import UnkTableDataConduit
         from pixeltable.catalog import Catalog
+        from pixeltable.io.table_data_conduit import UnkTableDataConduit
 
         with Catalog.get().begin_xact(tbl_id=self._id, for_write=True):
             table = self

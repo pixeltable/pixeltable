@@ -273,7 +273,7 @@ def create_view(
             if col_name in [c.name for c in tbl_version_path.columns()]:
                 raise excs.Error(
                     f'Column {col_name!r} already exists in the base table '
-                    f'{tbl_version_path.get_column(col_name).tbl.get().name}.'
+                    f'{tbl_version_path.get_column(col_name).tbl.name}.'
                 )
 
     return Catalog.get().create_view(

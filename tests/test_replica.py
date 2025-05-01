@@ -105,4 +105,3 @@ class TestReplica:
         with Catalog.get().begin_xact(for_write=False):
             assert len(r51._base_tables) == 4
             assert len(r61._base_tables) == 6
-

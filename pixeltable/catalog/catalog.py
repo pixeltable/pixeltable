@@ -16,6 +16,7 @@ from pixeltable import exceptions as excs
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
 from pixeltable.metadata import schema
+
 from .dir import Dir
 from .globals import IfExistsParam, IfNotExistsParam, MediaValidation
 from .insertable_table import InsertableTable
@@ -71,7 +72,7 @@ def _retry_loop(*, for_write: bool) -> Callable[[Callable[..., T]], Callable[...
                     # in order for retry to work, we need to make sure that there aren't any prior db updates
                     # that are part of an ongoing transaction
                     assert not Env.get().in_xact
-                    with Catalog.get().begin_xact(for_write=for_write) as conn:
+                    with Catalog.get().begin_xact(for_write=for_write):
                         return op(*args, **kwargs)
                 except sql.exc.DBAPIError as e:
                     if isinstance(e.orig, psycopg.errors.SerializationFailure):
@@ -129,7 +130,7 @@ class Catalog:
         It is mandatory to call this method, not Env.begin_xact(), if the transaction accesses any table data
         or metadata.
         """
-        if Env.get()._current_conn is None:
+        if not Env.get().in_xact:
             num_remaining_retries = _MAX_RETRIES
             while True:
                 try:
@@ -137,7 +138,8 @@ class Catalog:
                         if tbl_id is not None and for_write:
                             # X-lock Table record
                             conn.execute(
-                                sql.select(schema.Table).where(schema.Table.id == tbl_id).with_for_update(nowait=True))
+                                sql.select(schema.Table).where(schema.Table.id == tbl_id).with_for_update(nowait=True)
+                            )
                             conn.execute(sql.update(schema.Table).values(lock_dummy=1).where(schema.Table.id == tbl_id))
 
                         self._in_write_xact = for_write
@@ -161,10 +163,10 @@ class Catalog:
                     for tv in self._tbl_versions.values():
                         if tv.effective_version is None:
                             _logger.debug(f'invalidating table version {tv.id}:{tv.version}')
-                            #print(f'invalidating table version {tv.id}:{tv.version}')
+                            # print(f'invalidating table version {tv.id}:{tv.version}')
                             tv.is_validated = False
         else:
-            yield Env.get()._current_conn
+            yield Env.get().conn
 
     @property
     def in_write_xact(self) -> bool:
@@ -796,8 +798,8 @@ class Catalog:
         # we need a transaction here, if we're not already in one; if this starts a new transaction,
         # the returned TableVersion instance will not be validated
         if not Env.get().in_xact:
-           x = 10
-        #assert Env.get().in_xact
+            x = 10
+        # assert Env.get().in_xact
         with self.begin_xact(tbl_id=tbl_id, for_write=False) as conn:
             tv = self._tbl_versions.get((tbl_id, effective_version))
             if tv is None:
@@ -806,7 +808,7 @@ class Catalog:
             elif not tv.is_validated:
                 assert tv.effective_version is None  # validation only applies to the live version
                 _logger.debug(f'validating metadata for table {tbl_id}:{tv.version}')
-                #print(f'validating metadata for table {tbl_id}:{tv.version}')
+                # print(f'validating metadata for table {tbl_id}:{tv.version}')
                 q = sql.select(schema.Table.md).where(schema.Table.id == tbl_id)
                 row = conn.execute(q).one()
                 current_version = row.md['current_version']

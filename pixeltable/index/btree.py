@@ -55,7 +55,7 @@ class BtreeIndex(IndexBase):
 
     def create_index(self, index_name: str, index_value_col: 'catalog.Column') -> None:
         """Create the index on the index value column"""
-        idx = sql.Index(index_name, index_value_col.sa_col(), postgresql_using='btree')
+        idx = sql.Index(index_name, index_value_col.sa_col, postgresql_using='btree')
         conn = Env.get().conn
         idx.create(bind=conn)
 

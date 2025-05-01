@@ -1,7 +1,7 @@
 # Script that runs an infinite sequence of random directory operations.
 
-import time
 import random
+import time
 from typing import Optional
 
 import pixeltable as pxt
@@ -43,7 +43,6 @@ def random_tbl_op(t: pxt.Table) -> None:
             col_name = f'computed_{num_cols}'
             t.add_computed_column(**{col_name: t.c1 + num_cols}, if_exists='ignore')
             print(f'added column {col_name}')
-
 
 
 def main() -> None:

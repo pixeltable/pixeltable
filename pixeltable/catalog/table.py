@@ -7,6 +7,7 @@ import logging
 from keyword import iskeyword as is_python_keyword
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable, Literal, Optional, Union, overload
+
 from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
 from uuid import UUID
 
@@ -16,6 +17,10 @@ import sqlalchemy as sql
 import pixeltable as pxt
 from pixeltable import catalog, env, exceptions as excs, exprs, index, type_system as ts
 from pixeltable.metadata import schema
+
+from ..exprs import ColumnRef
+from ..utils.description_helper import DescriptionHelper
+from ..utils.filecache import FileCache
 from .column import Column
 from .globals import (
     _ROWID_COLUMN_NAME,
@@ -29,9 +34,6 @@ from .globals import (
 from .schema_object import SchemaObject
 from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
-from ..exprs import ColumnRef
-from ..utils.description_helper import DescriptionHelper
-from ..utils.filecache import FileCache
 
 if TYPE_CHECKING:
     import torch.utils.data
@@ -189,6 +191,7 @@ class Table(SchemaObject):
         See [`DataFrame.select`][pixeltable.DataFrame.select] for more details.
         """
         from pixeltable.catalog import Catalog
+
         with Catalog.get().begin_xact(for_write=False):
             return self._df().select(*items, **named_items)
 
@@ -198,6 +201,7 @@ class Table(SchemaObject):
         See [`DataFrame.where`][pixeltable.DataFrame.where] for more details.
         """
         from pixeltable.catalog import Catalog
+
         with Catalog.get().begin_xact(for_write=False):
             return self._df().where(pred)
 
@@ -210,6 +214,7 @@ class Table(SchemaObject):
     ) -> 'pxt.DataFrame':
         """Join this table with another table."""
         from pixeltable.catalog import Catalog
+
         with Catalog.get().begin_xact(for_write=False):
             return self._df().join(other, on=on, how=how)
 
@@ -219,6 +224,7 @@ class Table(SchemaObject):
         See [`DataFrame.order_by`][pixeltable.DataFrame.order_by] for more details.
         """
         from pixeltable.catalog import Catalog
+
         with Catalog.get().begin_xact(for_write=False):
             return self._df().order_by(*items, asc=asc)
 
@@ -228,6 +234,7 @@ class Table(SchemaObject):
         See [`DataFrame.group_by`][pixeltable.DataFrame.group_by] for more details.
         """
         from pixeltable.catalog import Catalog
+
         with Catalog.get().begin_xact(for_write=False):
             return self._df().group_by(*items)
 
@@ -310,6 +317,7 @@ class Table(SchemaObject):
         Constructs a list of descriptors for this table that can be pretty-printed.
         """
         from pixeltable.catalog import Catalog
+
         with Catalog.get().begin_xact(for_write=False):
             helper = DescriptionHelper()
             helper.append(self._table_descriptor())
@@ -614,33 +622,33 @@ class Table(SchemaObject):
         """
         from pixeltable.catalog import Catalog
 
-        self._check_is_dropped()
-        if self.get_metadata()['is_snapshot']:
-            raise excs.Error('Cannot add column to a snapshot.')
-        if len(kwargs) != 1:
-            raise excs.Error(
-                f'add_computed_column() requires exactly one keyword argument of the form '
-                '"column-name=type|value-expression"; '
-                f'got {len(kwargs)} arguments instead ({", ".join(list(kwargs.keys()))})'
-            )
-        col_name, spec = next(iter(kwargs.items()))
-        if not is_valid_identifier(col_name):
-            raise excs.Error(f'Invalid column name: {col_name!r}')
-
-        col_schema: dict[str, Any] = {'value': spec}
-        if stored is not None:
-            col_schema['stored'] = stored
-
-        # Raise an error if the column expression refers to a column error property
-        if isinstance(spec, exprs.Expr):
-            for e in spec.subexprs(expr_class=exprs.ColumnPropertyRef, traverse_matches=False):
-                if e.is_error_prop():
-                    raise excs.Error(
-                        'Use of a reference to an error property of another column is not allowed in a computed '
-                        f'column. The specified computation for this column contains this reference: `{e!r}`'
-                    )
-
         with Catalog.get().begin_xact(tbl_id=self._id, for_write=True):
+            self._check_is_dropped()
+            if self.get_metadata()['is_snapshot']:
+                raise excs.Error('Cannot add column to a snapshot.')
+            if len(kwargs) != 1:
+                raise excs.Error(
+                    f'add_computed_column() requires exactly one keyword argument of the form '
+                    '"column-name=type|value-expression"; '
+                    f'got {len(kwargs)} arguments instead ({", ".join(list(kwargs.keys()))})'
+                )
+            col_name, spec = next(iter(kwargs.items()))
+            if not is_valid_identifier(col_name):
+                raise excs.Error(f'Invalid column name: {col_name!r}')
+
+            col_schema: dict[str, Any] = {'value': spec}
+            if stored is not None:
+                col_schema['stored'] = stored
+
+            # Raise an error if the column expression refers to a column error property
+            if isinstance(spec, exprs.Expr):
+                for e in spec.subexprs(expr_class=exprs.ColumnPropertyRef, traverse_matches=False):
+                    if e.is_error_prop():
+                        raise excs.Error(
+                            'Use of a reference to an error property of another column is not allowed in a computed '
+                            f'column. The specified computation for this column contains this reference: `{e!r}`'
+                        )
+
             # handle existing columns based on if_exists parameter
             cols_to_ignore = self._ignore_or_drop_existing_columns(
                 [col_name], IfExistsParam.validated(if_exists, 'if_exists')
@@ -1177,7 +1185,7 @@ class Table(SchemaObject):
         else:
             if col.tbl.id != self._tbl_version.id:
                 raise excs.Error(
-                    f'Column {col.name!r}: cannot drop index from column that belongs to base ({col.tbl.get().name}!r)'
+                    f'Column {col.name!r}: cannot drop index from column that belongs to base ({col.tbl.name}!r)'
                 )
             idx_info_list = [info for info in self._tbl_version.get().idxs_by_name.values() if info.col.id == col.id]
             if _idx_class is not None:

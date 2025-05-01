@@ -36,14 +36,17 @@ class Column:
     schema_version_add: Optional[int]
     schema_version_drop: Optional[int]
     _records_errors: Optional[bool]
-    #sa_col: Optional[sql.schema.Column]
+    sa_col: Optional[sql.schema.Column]
     sa_col_type: Optional[sql.sqltypes.TypeEngine]
-    #sa_errormsg_col: Optional[sql.schema.Column]
-    #sa_errortype_col: Optional[sql.schema.Column]
+    sa_errormsg_col: Optional[sql.schema.Column]
+    sa_errortype_col: Optional[sql.schema.Column]
     _value_expr: Optional[exprs.Expr]
     value_expr_dict: Optional[dict[str, Any]]
     dependent_cols: set[Column]
-    tbl: Optional[TableVersionHandle]
+    # we store a TableVersion here, not a TableVersionHandle, because this column is owned by that TableVersion instance
+    # (re-resolving it later to a different instance doesn't make sense)
+    tbl: Optional[TableVersion]
+    #tbl: Optional[TableVersionHandle]
 
     def __init__(
         self,
@@ -114,12 +117,12 @@ class Column:
         self._records_errors = records_errors
 
         # column in the stored table for the values of this Column
-        #self.sa_col = None
+        self.sa_col = None
         self.sa_col_type = sa_col_type
 
         # computed cols also have storage columns for the exception string and type
-        #self.sa_errormsg_col = None
-        #self.sa_errortype_col = None
+        self.sa_errormsg_col = None
+        self.sa_errortype_col = None
 
         self.tbl = None  # set by owning TableVersion
 
@@ -137,7 +140,7 @@ class Column:
                 message = (
                     dedent(
                         f"""
-                        The computed column {self.name!r} in table {self.tbl.get().name!r} is no longer valid.
+                        The computed column {self.name!r} in table {self.tbl.name!r} is no longer valid.
                         {{validation_error}}
                         You can continue to query existing data from this column, but evaluating it on new data will raise an error.
                         """  # noqa: E501
@@ -172,7 +175,7 @@ class Column:
 
     def get_idx_info(self) -> dict[str, 'TableVersion.IndexInfo']:
         assert self.tbl is not None
-        return {name: info for name, info in self.tbl.get().idxs_by_name.items() if info.col == self}
+        return {name: info for name, info in self.tbl.idxs_by_name.items() if info.col == self}
 
     @property
     def is_computed(self) -> bool:
@@ -195,14 +198,14 @@ class Column:
     @property
     def qualified_name(self) -> str:
         assert self.tbl is not None
-        return f'{self.tbl.get().name}.{self.name}'
+        return f'{self.tbl.name}.{self.name}'
 
     @property
     def media_validation(self) -> MediaValidation:
         if self._media_validation is not None:
             return self._media_validation
         assert self.tbl is not None
-        return self.tbl.get().media_validation
+        return self.tbl.media_validation
 
     @property
     def is_required_for_insert(self) -> bool:
@@ -219,37 +222,23 @@ class Column:
             return
         self.value_expr.fn.source()
 
-    # def create_sa_cols(self) -> None:
-    #     """
-    #     These need to be recreated for every new table schema version.
-    #     """
-    #     assert self.is_stored
-    #     # all storage columns are nullable (we deal with null errors in Pixeltable directly)
-    #     self.sa_col = sql.Column(
-    #         self.store_name(),
-    #         self.col_type.to_sa_type() if self.sa_col_type is None else self.sa_col_type,
-    #         nullable=True,
-    #     )
-    #     if self.is_computed or self.col_type.is_media_type():
-    #         self.sa_errormsg_col = sql.Column(self.errormsg_store_name(), ts.StringType().to_sa_type(), nullable=True)
-    #         self.sa_errortype_col = sql.Column(self.errortype_store_name(), ts.StringType().to_sa_type(), nullable=True)
+    def create_sa_cols(self) -> None:
+        """
+        These need to be recreated for every new table schema version.
+        """
+        assert self.is_stored
+        # all storage columns are nullable (we deal with null errors in Pixeltable directly)
+        self.sa_col = sql.Column(
+            self.store_name(),
+            self.col_type.to_sa_type() if self.sa_col_type is None else self.sa_col_type,
+            nullable=True,
+        )
+        if self.is_computed or self.col_type.is_media_type():
+            self.sa_errormsg_col = sql.Column(self.errormsg_store_name(), ts.StringType().to_sa_type(), nullable=True)
+            self.sa_errortype_col = sql.Column(self.errortype_store_name(), ts.StringType().to_sa_type(), nullable=True)
 
     def get_sa_col_type(self) -> sql.sqltypes.TypeEngine:
         return self.col_type.to_sa_type() if self.sa_col_type is None else self.sa_col_type
-
-    def sa_col(self) -> sql.Column:
-        assert self.store_name() in self.tbl.get().store_tbl.sa_cols_by_name, self.store_name()
-        return self.tbl.get().store_tbl.sa_cols_by_name[self.store_name()]
-
-    def sa_errormsg_col(self) -> sql.Column:
-        assert self.records_errors
-        assert self.errormsg_store_name() in self.tbl.get().store_tbl.sa_cols_by_name, self.errormsg_store_name()
-        return self.tbl.get().store_tbl.sa_cols_by_name[self.errormsg_store_name()]
-
-    def sa_errortype_col(self) -> sql.Column:
-        assert self.records_errors
-        assert self.errortype_store_name() in self.tbl.get().store_tbl.sa_cols_by_name, self.errortype_store_name()
-        return self.tbl.get().store_tbl.sa_cols_by_name[self.errortype_store_name()]
 
     def store_name(self) -> str:
         assert self.id is not None
@@ -266,7 +255,7 @@ class Column:
         return f'{self.name}: {self.col_type}'
 
     def __repr__(self) -> str:
-        return f'Column({self.id!r}, {self.name!r}, tbl={self.tbl.get().name!r})'
+        return f'Column({self.id!r}, {self.name!r}, tbl={self.tbl.name!r})'
 
     def __hash__(self) -> int:
         # TODO(aaron-siegel): This and __eq__ do not capture the table version. We need to rethink the Column

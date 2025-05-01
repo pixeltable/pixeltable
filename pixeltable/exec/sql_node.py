@@ -143,6 +143,9 @@ class SqlNode(ExecNode):
             assert self.tbl is not None
             sql_select_list += self.tbl.tbl_version.get().store_tbl.pk_columns()
         stmt = sql.select(*sql_select_list)
+        x = [f'{e.name}: {id(e.table)}' for e in sql_select_list if isinstance(e, sql.Column)]
+        print(f'select list: {", ".join(x)}')
+        #_logger.debug(f'select list: {", ".join(x)}')
 
         where_clause_element = (
             self.sql_elements.get(self.where_clause) if self.where_clause is not None else self.where_clause_element
@@ -219,40 +222,41 @@ class SqlNode(ExecNode):
             if t.id in refd_tbl_ids:
                 joined_tbls.append(t)
 
-        #print(f'input stmt: {str(stmt)}')
+        print(f'input stmt: {str(stmt)}')
         first = True
-        prev_tbl: Optional[catalog.TableVersionHandle] = None
+        prev_tv: Optional[catalog.TableVersion] = None
         for t in joined_tbls[::-1]:
+            tv = t.get()
             if first:
-                stmt = stmt.select_from(t.get().store_tbl.sa_tbl)
+                stmt = stmt.select_from(tv.store_tbl.sa_tbl)
                 first = False
             else:
-                # join tbl to prev_tbl on prev_tbl's rowid cols
-                prev_tbl_rowid_cols = prev_tbl.get().store_tbl.rowid_columns()
-                tbl_rowid_cols = t.get().store_tbl.rowid_columns()
+                # join tv to prev_tv on prev_tv's rowid cols
+                prev_tbl_rowid_cols = prev_tv.store_tbl.rowid_columns()
+                tbl_rowid_cols = tv.store_tbl.rowid_columns()
                 rowid_clauses = [
                     c1 == c2 for c1, c2 in zip(prev_tbl_rowid_cols, tbl_rowid_cols[: len(prev_tbl_rowid_cols)])
                 ]
-                stmt = stmt.join(t.get().store_tbl.sa_tbl, sql.and_(*rowid_clauses))
-            #print(f'stmt0: {str(stmt)}')
+                stmt = stmt.join(tv.store_tbl.sa_tbl, sql.and_(*rowid_clauses))
+            print(f'stmt0: {str(stmt)}')
 
             if t.id in exact_version_only:
-                stmt = stmt.where(t.get().store_tbl.v_min_col == t.get().version)
+                stmt = stmt.where(tv.store_tbl.v_min_col == tv.version)
             else:
                 # stmt = (
                 #     stmt
-                #     .where(t.get().store_tbl.v_min_col <= t.get().version)
-                #     .where(t.get().store_tbl.v_max_col > t.get().version)
+                #     .where(tv.store_tbl.v_min_col <= tv.version)
+                #     .where(tv.store_tbl.v_max_col > tv.version)
                 # )
-                stmt = stmt.where(t.get().store_tbl.sa_tbl.c.v_min <= t.get().version)
-                #stmt = stmt.where(t.get().store_tbl.v_min_col <= t.get().version)
-                #print(f'stmt1: {str(stmt)}')
-                stmt = stmt.where(t.get().store_tbl.sa_tbl.c.v_max > t.get().version)
-                #stmt = stmt.where(t.get().store_tbl.v_max_col > t.get().version)
-                #print(f'stmt2: {str(stmt)}')
-            prev_tbl = t
-            #print(f'new stmt: {str(stmt)}')
-        #print(f'output stmt: {str(stmt)}')
+                stmt = stmt.where(tv.store_tbl.sa_tbl.c.v_min <= tv.version)
+                # stmt = stmt.where(tv.store_tbl.v_min_col <= tv.version)
+                print(f'stmt1: {str(stmt)}')
+                stmt = stmt.where(tv.store_tbl.sa_tbl.c.v_max > tv.version)
+                # stmt = stmt.where(tv.store_tbl.v_max_col > tv.version)
+                print(f'stmt2: {str(stmt)}')
+            prev_tv = tv
+            # print(f'new stmt: {str(stmt)}')
+        # print(f'output stmt: {str(stmt)}')
         return stmt
 
     def set_where(self, where_clause: exprs.Expr) -> None:
