@@ -1,0 +1,15 @@
+# Environments
+.env
+.venv/
+venv/
+
+# Python Cache
+__pycache__/
+*.pyc
+
+# Ruff Cache
+.ruff_cache/
+
+# OS-specific
+.DS_Store
+Thumbs.db

@@ -28,7 +28,7 @@ jobs:
         python-version: ["3.10", "3.12"]
         package-configs:
           - ""
-          - "pyarrow sentence-transformers sentencepiece soundfile torch torchaudio torchvision transformers"
+          - "pyarrow sentence-transformers sentencepiece soundfile torch torchaudio torchvision 'transformers<4.51'"  # transformers 4.51 has bugs
           - "anthropic fireworks-ai google-generativeai mistralai openai replicate together"
           - "huggingface-hub llama-cpp-python"
           - "datasets boto3 openpyxl tiktoken pymupdf mistune 'spacy<3.8'"  # spacy 3.8 is problematic on python 3.12
