@@ -513,9 +513,9 @@ class DataFrame:
                 (select list, where clause, ...) vertically.
         """
         if getattr(builtins, '__IPYTHON__', False):
-            from IPython.display import display
+            from IPython.display import Markdown, display
 
-            display(self._repr_html_())
+            display(Markdown(self._repr_html_()))
         else:
             print(repr(self))
 

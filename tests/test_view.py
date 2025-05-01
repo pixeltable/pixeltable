@@ -45,7 +45,7 @@ class TestView:
 
     def test_errors(self, reset_db: None) -> None:
         t = self.create_tbl()
-        assert t._base is None
+        assert t._base_table is None
 
         v = pxt.create_view('test_view', t)
         with pytest.raises(excs.Error) as exc_info:
@@ -66,7 +66,7 @@ class TestView:
 
     def test_basic(self, reset_db: None) -> None:
         t = self.create_tbl()
-        assert t._base is None
+        assert t._base_table is None
 
         # create view with filter and computed columns
         schema = {'v1': t.c3 * 2.0, 'v2': t.c6.f5}
@@ -85,7 +85,7 @@ class TestView:
         v.add_computed_column(v4=v.v2[0])
 
         def check_view(t: pxt.Table, v: pxt.Table) -> None:
-            assert v._base == t
+            assert v._base_table == t
             assert v.count() == t.where(t.c2 < 10).count()
             assert_resultset_eq(
                 v.select(v.v1).order_by(v.c2).collect(), t.select(t.c3 * 2.0).where(t.c2 < 10).order_by(t.c2).collect()

@@ -9,6 +9,7 @@ import PIL.Image
 import pytest
 
 import pixeltable as pxt
+import pixeltable.type_system as ts
 from pixeltable import func
 from pixeltable.functions.huggingface import clip
 
@@ -372,7 +373,7 @@ class TestIndex:
             new_rows.append(row)
 
         # create table with fewer rows to speed up testing
-        schema = {'pkey': pxt.IntType(nullable=False), 'img': pxt.Image, 'category': pxt.String, 'split': pxt.String}
+        schema = {'pkey': ts.IntType(nullable=False), 'img': pxt.Image, 'category': pxt.String, 'split': pxt.String}
         tbl_name = 'update_test'
         img_t = pxt.create_table(tbl_name, schema, primary_key='pkey')
         img_t.insert(new_rows)
@@ -426,8 +427,9 @@ class TestIndex:
             img_t.drop_embedding_index(column=img_t.category)
 
         img_t.add_computed_column(simmy=img_t.category.similarity('red_truck', idx='cat_idx'))
-        with pytest.raises(pxt.ExprEvalError, match='cannot be used in a computed column'):
+        with pytest.raises(pxt.ExprEvalError) as exc_info:
             img_t.insert([rows[7]])
+        assert 'cannot be used in a computed column' in str(exc_info.value.__cause__)
 
         img_t.drop_column('simmy')
         img_t.drop_column('ebd_copy')

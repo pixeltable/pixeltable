@@ -5,6 +5,7 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
+import pixeltable.type_system as ts
 from pixeltable.exprs import ColumnRef
 from pixeltable.io.external_store import MockProject, Project
 from pixeltable.type_system import ColumnType
@@ -17,8 +18,8 @@ class TestProject:
     def test_validation(self, reset_db: None) -> None:
         schema = {'col1': pxt.String, 'col2': pxt.Image, 'col3': pxt.String, 'col4': pxt.Video}
         t = pxt.create_table('test_store', schema)
-        export_cols = {'export1': pxt.StringType(), 'export2': pxt.ImageType()}
-        import_cols = {'import1': pxt.StringType(), 'import2': pxt.VideoType()}
+        export_cols = {'export1': ts.StringType(), 'export2': ts.ImageType()}
+        import_cols = {'import1': ts.StringType(), 'import2': ts.VideoType()}
 
         # Nonexistent local column
         with pytest.raises(excs.Error) as exc_info:
@@ -70,12 +71,12 @@ class TestProject:
         t3 = pxt.create_table('test_store_3', schema3)
 
         export_img_cols: dict[str, ColumnType] = {
-            'export_img': pxt.ImageType(),
-            'export_spec_img': pxt.ImageType(512, 512),
+            'export_img': ts.ImageType(),
+            'export_spec_img': ts.ImageType(512, 512),
         }
         import_img_cols: dict[str, ColumnType] = {
-            'import_img': pxt.ImageType(),
-            'import_spec_img': pxt.ImageType(512, 512),
+            'import_img': ts.ImageType(),
+            'import_spec_img': ts.ImageType(512, 512),
         }
 
         # Can export/import from sub to supertype
@@ -152,8 +153,8 @@ class TestProject:
         store1 = MockProject.create(
             t,
             'store1',
-            {'push_img': pxt.ImageType(), 'push_other_img': pxt.ImageType()},
-            {'pull_str': pxt.StringType()},
+            {'push_img': ts.ImageType(), 'push_other_img': ts.ImageType()},
+            {'pull_str': ts.StringType()},
             {'rot_img': 'push_img', 'rot_other_img': 'push_other_img'},
         )
         t._link_external_store(store1)
@@ -178,7 +179,7 @@ class TestProject:
         t.rename_column('rot_img', 'rot_img_renamed')
         assert t.rot_img_renamed.col in store1.stored_proxies
         store2 = MockProject.create(
-            t, 'store2', {'push_img': pxt.ImageType()}, {'pull_str': pxt.StringType()}, {'rot_img_renamed': 'push_img'}
+            t, 'store2', {'push_img': ts.ImageType()}, {'pull_str': ts.StringType()}, {'rot_img_renamed': 'push_img'}
         )
         t._link_external_store(store2)
         # Ensure the stored proxy is created just once (for both external stores)
@@ -206,8 +207,8 @@ class TestProject:
         storev1 = MockProject.create(
             v1,
             'storev1',
-            {'push_img': pxt.ImageType(), 'push_other_img': pxt.ImageType()},
-            {'pull_str': pxt.StringType()},
+            {'push_img': ts.ImageType(), 'push_other_img': ts.ImageType()},
+            {'pull_str': ts.StringType()},
             {'rot_img_renamed': 'push_img', 'rot_other_img': 'push_other_img'},
         )
         v1._link_external_store(storev1)
@@ -222,7 +223,7 @@ class TestProject:
         assert storev1.stored_proxies[t.rot_img_renamed.col].tbl.id == v1._id
 
         storev2 = MockProject.create(
-            t, 'storev2', {'push_img': pxt.ImageType()}, {'pull_str': pxt.StringType()}, {'rot_img_renamed': 'push_img'}
+            t, 'storev2', {'push_img': ts.ImageType()}, {'pull_str': ts.StringType()}, {'rot_img_renamed': 'push_img'}
         )
 
         v2 = pxt.create_view('test_view_2', t)

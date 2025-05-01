@@ -16,6 +16,7 @@ from typing import Optional
 import PIL.Image
 
 import pixeltable as pxt
+import pixeltable.type_system as ts
 from pixeltable.exprs import Expr
 from pixeltable.utils.code import local_public_names
 
@@ -88,10 +89,10 @@ def convert(self: PIL.Image.Image, mode: str) -> PIL.Image.Image:
 
 
 @convert.conditional_return_type
-def _(self: Expr, mode: str) -> pxt.ColumnType:
+def _(self: Expr, mode: str) -> ts.ColumnType:
     input_type = self.col_type
-    assert isinstance(input_type, pxt.ImageType)
-    return pxt.ImageType(size=input_type.size, mode=mode, nullable=input_type.nullable)
+    assert isinstance(input_type, ts.ImageType)
+    return ts.ImageType(size=input_type.size, mode=mode, nullable=input_type.nullable)
 
 
 # Image.crop()
@@ -108,14 +109,12 @@ def crop(self: PIL.Image.Image, box: tuple[int, int, int, int]) -> PIL.Image.Ima
 
 
 @crop.conditional_return_type
-def _(self: Expr, box: tuple[int, int, int, int]) -> pxt.ColumnType:
+def _(self: Expr, box: tuple[int, int, int, int]) -> ts.ColumnType:
     input_type = self.col_type
-    assert isinstance(input_type, pxt.ImageType)
+    assert isinstance(input_type, ts.ImageType)
     if (isinstance(box, (list, tuple))) and len(box) == 4 and all(isinstance(x, int) for x in box):
-        return pxt.ImageType(
-            size=(box[2] - box[0], box[3] - box[1]), mode=input_type.mode, nullable=input_type.nullable
-        )
-    return pxt.ImageType(mode=input_type.mode, nullable=input_type.nullable)  # we can't compute the size statically
+        return ts.ImageType(size=(box[2] - box[0], box[3] - box[1]), mode=input_type.mode, nullable=input_type.nullable)
+    return ts.ImageType(mode=input_type.mode, nullable=input_type.nullable)  # we can't compute the size statically
 
 
 # Image.getchannel()
@@ -134,10 +133,10 @@ def getchannel(self: PIL.Image.Image, channel: int) -> PIL.Image.Image:
 
 
 @getchannel.conditional_return_type
-def _(self: Expr) -> pxt.ColumnType:
+def _(self: Expr) -> ts.ColumnType:
     input_type = self.col_type
-    assert isinstance(input_type, pxt.ImageType)
-    return pxt.ImageType(size=input_type.size, mode='L', nullable=input_type.nullable)
+    assert isinstance(input_type, ts.ImageType)
+    return ts.ImageType(size=input_type.size, mode='L', nullable=input_type.nullable)
 
 
 @pxt.udf(is_method=True)
@@ -183,10 +182,10 @@ def resize(self: PIL.Image.Image, size: tuple[int, int]) -> PIL.Image.Image:
 
 
 @resize.conditional_return_type
-def _(self: Expr, size: tuple[int, int]) -> pxt.ColumnType:
+def _(self: Expr, size: tuple[int, int]) -> ts.ColumnType:
     input_type = self.col_type
-    assert isinstance(input_type, pxt.ImageType)
-    return pxt.ImageType(size=size, mode=input_type.mode, nullable=input_type.nullable)
+    assert isinstance(input_type, ts.ImageType)
+    return ts.ImageType(size=size, mode=input_type.mode, nullable=input_type.nullable)
 
 
 # Image.rotate()
@@ -237,7 +236,7 @@ def transpose(self: PIL.Image.Image, method: int) -> PIL.Image.Image:
 @rotate.conditional_return_type
 @effect_spread.conditional_return_type
 @transpose.conditional_return_type
-def _(self: Expr) -> pxt.ColumnType:
+def _(self: Expr) -> ts.ColumnType:
     return self.col_type
 
 

@@ -10,6 +10,7 @@ import numpy as np
 from pyiceberg.table import Table as IcebergTable
 
 import pixeltable as pxt
+import pixeltable.type_system as ts
 from pixeltable import exprs, metadata
 from pixeltable.env import Env
 from pixeltable.share.packager import TablePackager
@@ -92,8 +93,8 @@ class TestPackager:
     def __validate_metadata(self, md: dict, tbl: pxt.Table) -> None:
         assert md['pxt_version'] == pxt.__version__
         assert md['pxt_md_version'] == metadata.VERSION
-        assert len(md['md']['tables']) == len(tbl._bases) + 1
-        for t_md, t in zip(md['md']['tables'], (tbl, *tbl._bases)):
+        assert len(md['md']['tables']) == len(tbl._base_tables) + 1
+        for t_md, t in zip(md['md']['tables'], (tbl, *tbl._base_tables)):
             assert t_md['table_id'] == str(t._tbl_version.id)
 
     def __check_iceberg_tbl(
@@ -111,7 +112,7 @@ class TestPackager:
 
         # Only check columns defined in the table (not ancestors)
         select_exprs: dict[str, exprs.Expr] = {}
-        actual_col_types: list[pxt.ColumnType] = []
+        actual_col_types: list[ts.ColumnType] = []
         for col_name, col in t._tbl_version.get().cols_by_name.items():
             if not col.is_stored:
                 continue
@@ -122,9 +123,9 @@ class TestPackager:
             actual_col_types.append(col.col_type)
             if col.records_errors:
                 select_exprs[f'{col_name}_errortype'] = t[col_name].errortype
-                actual_col_types.append(pxt.StringType())
+                actual_col_types.append(ts.StringType())
                 select_exprs[f'{col_name}_errormsg'] = t[col_name].errormsg
-                actual_col_types.append(pxt.StringType())
+                actual_col_types.append(ts.StringType())
 
         scope_tbl = scope_tbl or t
         pxt_data = scope_tbl.select(**select_exprs).collect()

@@ -14,6 +14,7 @@ import PIL.Image
 import pytest
 
 import pixeltable as pxt
+import pixeltable.type_system as ts
 import pixeltable.utils.s3 as s3_util
 from pixeltable import catalog, exceptions as excs
 from pixeltable.catalog.globals import UpdateStatus
@@ -22,26 +23,26 @@ from pixeltable.env import Env
 from pixeltable.io import SyncStatus
 
 
-def make_default_type(t: pxt.ColumnType.Type) -> pxt.ColumnType:
-    if t == pxt.ColumnType.Type.STRING:
-        return pxt.StringType()
-    if t == pxt.ColumnType.Type.INT:
-        return pxt.IntType()
-    if t == pxt.ColumnType.Type.FLOAT:
-        return pxt.FloatType()
-    if t == pxt.ColumnType.Type.BOOL:
-        return pxt.BoolType()
-    if t == pxt.ColumnType.Type.TIMESTAMP:
-        return pxt.TimestampType()
+def make_default_type(t: ts.ColumnType.Type) -> ts.ColumnType:
+    if t == ts.ColumnType.Type.STRING:
+        return ts.StringType()
+    if t == ts.ColumnType.Type.INT:
+        return ts.IntType()
+    if t == ts.ColumnType.Type.FLOAT:
+        return ts.FloatType()
+    if t == ts.ColumnType.Type.BOOL:
+        return ts.BoolType()
+    if t == ts.ColumnType.Type.TIMESTAMP:
+        return ts.TimestampType()
     raise AssertionError()
 
 
 def make_tbl(name: str = 'test', col_names: Optional[list[str]] = None) -> pxt.Table:
     if col_names is None:
         col_names = ['c1']
-    schema: dict[str, pxt.ColumnType] = {}
+    schema: dict[str, ts.ColumnType] = {}
     for i, col_name in enumerate(col_names):
-        schema[f'{col_name}'] = make_default_type(pxt.ColumnType.Type(i % 5))
+        schema[f'{col_name}'] = make_default_type(ts.ColumnType.Type(i % 5))
     return pxt.create_table(name, schema)
 
 
@@ -102,7 +103,7 @@ def create_table_data(
         if col_type.is_json_type():
             col_data = [sample_dict] * num_rows
         if col_type.is_array_type():
-            assert isinstance(col_type, pxt.ArrayType)
+            assert isinstance(col_type, ts.ArrayType)
             col_data = [np.ones(col_type.shape, dtype=col_type.numpy_dtype()) for i in range(num_rows)]
         if col_type.is_image_type():
             image_path = get_image_files()[0]
@@ -220,12 +221,12 @@ def create_scalars_tbl(num_rows: int, seed: int = 0, percent_nulls: int = 10) ->
     assert percent_nulls >= 0 and percent_nulls <= 100
     rng = np.random.default_rng(seed)
     schema = {
-        'row_id': pxt.IntType(nullable=False),  # used for row selection
-        'c_bool': pxt.BoolType(nullable=True),
-        'c_float': pxt.FloatType(nullable=True),
-        'c_int': pxt.IntType(nullable=True),
-        'c_string': pxt.StringType(nullable=True),
-        'c_timestamp': pxt.TimestampType(nullable=True),
+        'row_id': ts.IntType(nullable=False),  # used for row selection
+        'c_bool': ts.BoolType(nullable=True),
+        'c_float': ts.FloatType(nullable=True),
+        'c_int': ts.IntType(nullable=True),
+        'c_string': ts.StringType(nullable=True),
+        'c_timestamp': ts.TimestampType(nullable=True),
     }
     tbl = pxt.create_table('scalars_tbl', schema)
 
@@ -420,6 +421,17 @@ def skip_test_if_no_client(client_name: str) -> None:
     try:
         _ = Env.get().get_client(client_name)
     except excs.Error as exc:
+        pytest.skip(str(exc))
+
+
+def skip_test_if_no_aws_credentials() -> None:
+    import boto3
+    from botocore.exceptions import NoCredentialsError
+
+    try:
+        cl = boto3.client('s3')
+        cl.list_buckets()
+    except NoCredentialsError as exc:
         pytest.skip(str(exc))
 
 

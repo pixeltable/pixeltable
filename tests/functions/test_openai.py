@@ -5,6 +5,7 @@ import pytest
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.functions as pxtf
+import pixeltable.type_system as ts
 
 from ..conftest import DO_RERUN
 from ..utils import SAMPLE_IMAGE_URL, skip_test_if_not_installed, stock_price, validate_update_status
@@ -109,7 +110,7 @@ class TestOpenai:
         # `t.chat_output_4.errormsg` etc.
         with pytest.raises(excs.ExprEvalError) as exc_info:
             t.insert(input='Say something interesting.')
-        assert "\\'messages\\' must contain the word \\'json\\'" in str(exc_info.value)
+        assert "'messages' must contain the word 'json'" in str(exc_info.value.__cause__)
 
     @pytest.mark.expensive
     def test_reasoning_models(self, reset_db: None) -> None:
@@ -356,9 +357,9 @@ class TestOpenai:
             text_3=embeddings(model='text-embedding-3-small', input=t.input, dimensions=1024, user='pixeltable')
         )
         type_info = t._schema
-        assert isinstance(type_info['ada_embed'], pxt.ArrayType)
+        assert isinstance(type_info['ada_embed'], ts.ArrayType)
         assert type_info['ada_embed'].shape == (1536,)
-        assert isinstance(type_info['text_3'], pxt.ArrayType)
+        assert isinstance(type_info['text_3'], ts.ArrayType)
         assert type_info['text_3'].shape == (1024,)
         validate_update_status(t.insert(input='Say something interesting.'), 1)
 
@@ -400,7 +401,7 @@ class TestOpenai:
         t.add_computed_column(img_2=image_generations(t.input, model='dall-e-2', size='512x512', user='pixeltable'))
         # image size information was captured correctly
         type_info = t._schema
-        assert isinstance(type_info['img_2'], pxt.ImageType)
+        assert isinstance(type_info['img_2'], ts.ImageType)
         assert type_info['img_2'].size == (512, 512)
 
         validate_update_status(t.insert(input='A friendly dinosaur playing tennis in a cornfield'), 1)
