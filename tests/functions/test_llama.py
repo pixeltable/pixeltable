@@ -1,11 +1,13 @@
 import pytest
-import json
 import pixeltable as pxt
-from pixeltable.functions.llama import chat_completions, invoke_tools
-from ..utils import skip_test_if_no_client, skip_test_if_not_installed, validate_update_status, stock_price
+from pixeltable.functions import llama # Changed import
+from ..utils import skip_test_if_no_client, skip_test_if_not_installed, validate_update_status # Removed stock_price
+from ..conftest import DO_RERUN # Added
+from .tool_utils import run_tool_invocations_test # Added
 
 
 @pytest.mark.remote_api
+@pytest.mark.flaky(reruns=3, reruns_delay=8, condition=DO_RERUN) # Added flaky decorator
 class TestLlama:
     def test_chat_completions(self, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
@@ -83,34 +85,24 @@ class TestLlama:
             pytest.fail(f'JSON content validation failed: {e}. Content was: {message["content"]}')
 
     def test_tool_invocations(self, reset_db: None) -> None:
-        """Tests the chat_completions function with tool calling."""
-        skip_test_if_not_installed('openai')
+        """Tests the chat_completions function with tool calling using the common test helper."""
+        skip_test_if_not_installed('openai')  # For pxt.tools and tool_utils
         skip_test_if_no_client('llama')
 
-        tools_pxt = pxt.tools(stock_price)
         test_model = 'Llama-4-Scout-17B-16E-Instruct-FP8'
 
-        t = pxt.create_table('test_llama_tool_tbl', {'prompt': pxt.String})
-        messages = [{'role': 'user', 'content': t.prompt}]
+        def make_table(tools: pxt.func.Tools, tool_choice: pxt.func.ToolChoice) -> pxt.Table:
+            t = pxt.create_table('test_tbl', {'prompt': pxt.String}, if_exists='replace')
+            messages = [{'role': 'user', 'content': t.prompt}]
+            t.add_computed_column(
+                response=llama.chat_completions(
+                    model=test_model,
+                    messages=messages,
+                    tools=tools,
+                    tool_choice=tool_choice # Pass ToolChoice object directly
+                )
+            )
+            t.add_computed_column(tool_calls=llama.invoke_tools(tools, t.response))
+            return t
 
-        t.add_computed_column(llm_tool_request=chat_completions(model=test_model, messages=messages, tools=tools_pxt))
-        t.add_computed_column(tool_output=invoke_tools(tools=tools_pxt, response=t.llm_tool_request))
-
-        validate_update_status(t.insert(prompt='What is the stock price of NVDA?'), 1)
-        result = t.collect()
-
-        request_data = result['llm_tool_request'][0]
-        assert 'choices' in request_data
-        message = request_data['choices'][0]['message']
-        assert 'tool_calls' in message
-        assert message['tool_calls'] is not None
-        assert len(message['tool_calls']) == 1
-        tool_call = message['tool_calls'][0]
-        assert tool_call['type'] == 'function'
-        assert tool_call['function']['name'] == 'stock_price'
-        assert 'NVDA' in tool_call['function']['arguments']
-
-        tool_output_data = result['tool_output'][0]
-        assert isinstance(tool_output_data, dict)
-        assert 'stock_price' in tool_output_data
-        assert tool_output_data['stock_price'] == [131.17]
+        run_tool_invocations_test(make_table, test_random_question=True)

@@ -53,7 +53,7 @@ def pxt_test_harness() -> Iterator[None]:
 
 
 @pytest.fixture(scope='session')
-def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None:
+def init_env(tmp_path_factory: pytest.TempPathFactory, request: pytest.FixtureRequest) -> None:
     os.chdir(os.path.dirname(os.path.dirname(__file__)))  # Project root directory
 
     # Set the relevant env vars for the test db.
@@ -64,7 +64,8 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None:
     home_dir = str(tmp_path_factory.mktemp('base') / '.pixeltable')
     os.environ['PIXELTABLE_HOME'] = home_dir
     os.environ['PIXELTABLE_CONFIG'] = str(shared_home / 'config.toml')
-    os.environ['PIXELTABLE_DB'] = f'test_{worker_id}'
+    worker_id_str = getattr(request.config, 'workerinput', {}).get('workerid', 'main') if hasattr(request.config, 'workerinput') else 'main'
+    os.environ['PIXELTABLE_DB'] = f'test_{worker_id_str}'
     os.environ['PIXELTABLE_PGDATA'] = str(shared_home / 'pgdata')
 
     # Ensure the shared home directory exists.
