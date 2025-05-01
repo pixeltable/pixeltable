@@ -80,6 +80,9 @@ class Literal(Expr):
         # how to interpret them unambiguously
         if self.col_type.is_timestamp_type():
             assert isinstance(self.val, datetime.datetime)
+            assert self.val.tzinfo == datetime.timezone.utc  # Must be UTC in a literal
+            # Convert to ISO format in UTC (in keeping with the principle: all timestamps are
+            # stored as UTC in the database)
             encoded_val = self.val.isoformat()
             return {'val': encoded_val, 'val_t': self.col_type._type.name, **super()._as_dict()}
         elif self.col_type.is_date_type():

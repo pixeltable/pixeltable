@@ -131,7 +131,7 @@ def _ar_val_to_pxt_val(val: Any, pxt_type: ts.ColumnType) -> Any:
         return str(val)
     elif pxt_type.is_date_type():
         if isinstance(val, str):
-            return datetime.datetime.fromisoformat(val).date()
+            return datetime.date.fromisoformat(val)
         if isinstance(val, datetime.date):
             return val
     elif pxt_type.is_timestamp_type():

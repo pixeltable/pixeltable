@@ -88,7 +88,6 @@ class ColumnType:
         (Type.BOOL, Type.INT): Type.INT,
         (Type.BOOL, Type.FLOAT): Type.FLOAT,
         (Type.INT, Type.FLOAT): Type.FLOAT,
-        (Type.DATE, Type.TIMESTAMP): Type.TIMESTAMP,
     }
 
     def __init__(self, t: Type, nullable: bool = False):
@@ -940,7 +939,7 @@ class ArrayType(ColumnType):
             return StringType(nullable=nullable)
 
         if np.issubdtype(dtype, np.datetime64):
-            unit = str(dtype).split('[')[-1].split(']')[0]
+            unit, _ = np.datetime_data(dtype)
             if unit in ['D', 'M', 'Y']:
                 return DateType(nullable=nullable)
             else:
