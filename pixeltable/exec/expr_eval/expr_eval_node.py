@@ -285,7 +285,6 @@ class ExprEvalNode(ExecNode):
 
                 if self.exc_event.is_set():
                     # we got an exception that we need to propagate through __iter__()
-                    _logger.debug(f'Propagating exception {self.error}')
                     if isinstance(self.error, excs.ExprEvalError):
                         raise self.error from self.error.exc
                     else:
