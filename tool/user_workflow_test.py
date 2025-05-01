@@ -1,7 +1,8 @@
 import time
 
-import pixeltable as pxt
 from tabulate import tabulate  # type: ignore
+
+import pixeltable as pxt
 
 
 def run_user_workflow_test() -> None:
