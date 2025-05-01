@@ -6365,14 +6365,14 @@ test = ["mypy", "psycopg[binary] (>=3.1.18)", "pytest", "sqlalchemy (>=2)", "sql
 
 [[package]]
 name = "pixeltable-yolox"
-version = "0.4.0"
+version = "0.4.2"
 description = "Lightweight, open-source, high-performance Yolo implementation"
 optional = false
 python-versions = "<4.0,>=3.9"
 groups = ["dev"]
 files = [
-    {file = "pixeltable_yolox-0.4.0-py3-none-any.whl", hash = "sha256:25d80adb84f7778a4c17201e10129fc4e4578867c9662050d17aee5df1965ee3"},
-    {file = "pixeltable_yolox-0.4.0.tar.gz", hash = "sha256:e5d3f2f7af5c6e94ba5844d41d25e90f6b0ed1ae6c76b6d98c8df1da20fd5c59"},
+    {file = "pixeltable_yolox-0.4.2-py3-none-any.whl", hash = "sha256:3482e555047d5421fd45e2e42e15dd293676abe63aadfa16aa197bf7a25fec42"},
+    {file = "pixeltable_yolox-0.4.2.tar.gz", hash = "sha256:e67e5643c93bac8f4132198a284533acd15f67b154bc700120b73c69c0d20f7c"},
 ]
 
 [package.dependencies]
@@ -11289,4 +11289,4 @@ multidict = ">=4.0"
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<4.0"
-content-hash = "a4f727d69f16763f8d2dcb1f3504151dabb1a2ce5c5efe114fb6f7b504778cc9"
+content-hash = "c429af7689bc6c19da934d8c811fa5941f4136a97f3710de2da9759780d80b81"

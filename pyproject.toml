@@ -8,7 +8,7 @@ dynamic = ["version"]
 description = "AI Data Infrastructure: Declarative, Multimodal, and Incremental"
 license = "Apache-2.0"
 readme = "README.md"
-requires-python = ">=3.10,<4.0"
+requires-python = ">=3.10"
 authors = [{ name = "Pixeltable, Inc.", email = "contact@pixeltable.com>" }]
 keywords = [
     "data-science", "machine-learning", "database", "ai", "computer-vision",
@@ -80,6 +80,11 @@ exclude = [
 requires-poetry = ">=2.0"
 version = "0.0.0"
 
+[tool.poetry.dependencies]
+# This is necessary because some dependencies explicitly require python "<4.0", so we need to assert "<4.0" for version
+# locking purposes, but we want to keep that requirement out of the `requires-python` declaration above.
+python = ">=3.10,<4.0"
+
 [tool.poetry.group.dev]
 optional = true
 
@@ -146,7 +151,7 @@ label-studio-sdk = "^0.0.32"
 fiftyone = "^1.0.0"
 ollama = ">=0.4.0"
 llama-cpp-python = { version = ">=0.3.7", platform = "!=win32" }  # Windows build of llama_cpp has issues in CI
-pixeltable-yolox = "==0.4.0"
+pixeltable-yolox = "==0.4.2"
 
 [tool.poetry.plugins."mkdocstrings.python.templates"]
 extension-name = "tool.doc_plugins.mkdocstrings:get_templates_path"
