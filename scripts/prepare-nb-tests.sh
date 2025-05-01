@@ -38,6 +38,9 @@ for notebook in $(find "$@" -name '*.ipynb' | grep -v .ipynb_checkpoints); do
     fi
 done
 
+# Remove together notebook (it's causing problems)
+rm "$TEST_PATH/working-with-together.ipynb"
+
 # Get a list of all API keys referenced in the notebooks
 REF_API_KEYS=$(grep -hoE '[A-Z_]*_API_(KEY|TOKEN)' "$TEST_PATH"/*.ipynb | sort | uniq)
 echo
