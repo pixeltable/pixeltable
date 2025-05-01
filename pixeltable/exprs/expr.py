@@ -649,7 +649,7 @@ class Expr(abc.ABC):
         if not isinstance(other, Expr):
             other_lit = Literal.from_object(other)
             if other_lit is None:
-                op_symbol = op.symbol()
+                op_symbol = str(op)
                 raise TypeError(
                     f"ERROR during comparison ({op_symbol}): Right operand must be an Expression or a literal value "
                     f"(like a number or string), but received type {{type(other).__name__}}."
@@ -711,7 +711,7 @@ class Expr(abc.ABC):
         if not isinstance(other, Expr):
             other_lit = Literal.from_object(other)
             if other_lit is None:
-                op_symbol = op.symbol()
+                op_symbol = str(op)
                 raise TypeError(
                     f"ERROR during string/array operation ({op_symbol}): Operand must be an Expression or a compatible literal "
                     f"(string for +, int for *), but received type {{type(other).__name__}}."
@@ -726,7 +726,7 @@ class Expr(abc.ABC):
         if not isinstance(other, Expr):
             other_lit = Literal.from_object(other)
             if other_lit is None:
-                op_symbol = op.symbol()
+                op_symbol = str(op)
                 raise TypeError(
                     f"ERROR during string/array operation ({op_symbol}): Left operand must be an Expression or a compatible literal "
                     f"(string for +, int for *), but received type {{type(other).__name__}}."
@@ -741,7 +741,7 @@ class Expr(abc.ABC):
         if not isinstance(other, Expr):
             other_lit = Literal.from_object(other)
             if other_lit is None or not other_lit.col_type.is_numeric_type():
-                op_symbol = op.symbol()
+                op_symbol = str(op)
                 raise TypeError(
                     f"ERROR during arithmetic operation ({op_symbol}): Operand must be an Expression or a numeric literal, "
                     f"but received type {{type(other).__name__}}."
@@ -756,7 +756,7 @@ class Expr(abc.ABC):
         if not isinstance(other, Expr):
             other_lit = Literal.from_object(other)
             if other_lit is None or not other_lit.col_type.is_numeric_type():
-                op_symbol = op.symbol()
+                op_symbol = str(op)
                 raise TypeError(
                     f"ERROR during arithmetic operation ({op_symbol}): Left operand must be an Expression or a numeric literal, "
                     f"but received type {{type(other).__name__}}."
