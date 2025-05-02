@@ -820,6 +820,8 @@ class DataFrame:
         """
         if self.group_by_clause is not None:
             raise excs.Error('Group-by already specified')
+        if self.select_list is None:
+            raise excs.Error('select() must be specified before group_by()')
         grouping_tbl: Optional[catalog.TableVersion] = None
         group_by_clause: Optional[list[exprs.Expr]] = None
         for item in grouping_items:
