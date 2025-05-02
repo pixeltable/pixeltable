@@ -62,19 +62,27 @@ If you have a framework that you want us to integrate with, please reach out and
   </Card>
 
    <Card
-    title="Deepseek"
-    icon="brain"
+    title="DeepSeek"
+    icon="robot"
     href="https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/integrations/working-with-deepseek.ipynb"
   >
-    Leverage powerful language and code models for text and code generation
+    Leverage DeepSeek's powerful language and code models for text and code generation
   </Card>
 
    <Card
-    title="Llama API"
-    icon="brain"
+    title="AWS Bedrock"
+    icon="aws"
+    href="https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/integrations/working-with-bedrock.ipynb"
+  >
+    Access a variety of AI models through AWS Bedrock's unified API
+  </Card>
+
+   <Card
+    title="Meta Llama"
+    icon="microchip"
     href="https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/integrations/working-with-llama.ipynb"
   >
-    Access Meta's Llama models via their OpenAI-compatible API endpoint
+    Access Meta's Llama models for text generation and embeddings
   </Card>
 
 </CardGroup>
@@ -99,7 +107,7 @@ If you have a framework that you want us to integrate with, please reach out and
   </Card>
 </CardGroup>
 
-## Computer Vision 
+## Computer Vision
 
 <CardGroup cols={2}>
   <Card
@@ -147,7 +155,7 @@ If you have a framework that you want us to integrate with, please reach out and
 <Card
   title="Pandas"
   icon="table"
-  href="#"
+  href="https://github.com/pixeltable/pixeltable/blob/main/docs/notebooks/fundamentals/tables-and-data-operations.ipynb"
 >
   Import and Export from and to Pandas DataFrames if needed
 </Card>
@@ -175,7 +183,7 @@ If you have a framework that you want us to integrate with, please reach out and
   <Accordion title="Computer Vision">
     ```python
     from pixeltable.functions.yolox import yolox
-    
+
     # Add object detection to video frames
     frames_view.add_computed_column(
         detections=yolox(
@@ -189,7 +197,7 @@ If you have a framework that you want us to integrate with, please reach out and
   <Accordion title="Audio Processing">
     ```python
     from pixeltable.functions import openai
-    
+
     # Transcribe audio files
     audio_table.add_computed_column(
         transcription=openai.transcriptions(
@@ -207,11 +215,11 @@ If you have a framework that you want us to integrate with, please reach out and
   <Step title="Easy Setup">
     Most integrations work out-of-the-box with simple API configuration
   </Step>
-  
+
   <Step title="Computed Columns">
     Use integrations directly in computed columns for automated processing
   </Step>
-  
+
   <Step title="Batch Processing">
     Efficient handling of batch operations with automatic optimization
   </Step>
