@@ -72,7 +72,6 @@ def clone_snapshot(dest_tbl_uri: str) -> list[FullTableMd]:
     if response.status_code != 200:
         raise excs.Error(f'Error cloning snapshot: {response.text}')
     response_json = response.json()
-    print(response_json)
     if not isinstance(response_json, dict) or 'table_uri' not in response_json:
         raise excs.Error(f'Unexpected response from server.\n{response_json}')
     return [FullTableMd.from_dict(t) for t in response_json['md']['tables']]
