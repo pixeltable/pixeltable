@@ -128,7 +128,7 @@ def export_parquet(
                     elif col_type.is_bool_type():
                         length = 1
                     elif col_type.is_date_type():
-                        length = 8
+                        length = 4
                     elif col_type.is_timestamp_type():
                         val = val.astimezone(datetime.timezone.utc)
                         length = 8
