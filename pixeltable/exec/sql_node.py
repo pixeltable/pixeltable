@@ -145,7 +145,7 @@ class SqlNode(ExecNode):
         stmt = sql.select(*sql_select_list)
         x = [f'{e.name}: {id(e.table)}' for e in sql_select_list if isinstance(e, sql.Column)]
         print(f'select list: {", ".join(x)}')
-        #_logger.debug(f'select list: {", ".join(x)}')
+        # _logger.debug(f'select list: {", ".join(x)}')
 
         where_clause_element = (
             self.sql_elements.get(self.where_clause) if self.where_clause is not None else self.where_clause_element

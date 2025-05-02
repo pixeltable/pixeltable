@@ -289,7 +289,7 @@ class Planner:
 
         # create InMemoryDataNode for 'rows'
         plan: exec.ExecNode = exec.InMemoryDataNode(
-            TableVersionHandle(tbl.id, tbl.effective_version), rows, row_builder, tbl.next_rowid
+            TableVersionHandle(tbl.id, tbl.effective_version), rows, row_builder, tbl.next_row_id
         )
 
         media_input_col_info = [

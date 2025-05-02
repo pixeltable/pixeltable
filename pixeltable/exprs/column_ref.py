@@ -54,9 +54,7 @@ class ColumnRef(Expr):
         self.col_id = col.id
         self.tbl_version = catalog.TableVersionHandle(col.tbl.id, col.tbl.effective_version)
         self.col = col
-        self.is_unstored_iter_col = (
-            col.tbl.is_component_view and col.tbl.is_iterator_column(col) and not col.is_stored
-        )
+        self.is_unstored_iter_col = col.tbl.is_component_view and col.tbl.is_iterator_column(col) and not col.is_stored
         self.iter_arg_ctx = None
         # number of rowid columns in the base table
         self.base_rowid_len = col.tbl.base.get().num_rowid_columns() if self.is_unstored_iter_col else 0
@@ -215,7 +213,7 @@ class ColumnRef(Expr):
         return helper
 
     def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
-        #return None if self.perform_validation else self.col.sa_col
+        # return None if self.perform_validation else self.col.sa_col
         if self.perform_validation:
             return None
         # make sure we have an sa_col for the validated TableVersion

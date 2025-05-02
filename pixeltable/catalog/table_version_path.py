@@ -6,6 +6,7 @@ from uuid import UUID
 
 from pixeltable.env import Env
 from pixeltable.metadata import schema
+
 from .column import Column
 from .table_version import TableVersion
 from .table_version_handle import TableVersionHandle
@@ -62,7 +63,7 @@ class TableVersionPath:
                 # nothing to refresh
                 return
         elif self._cached_tbl_version is not None:
-                return
+            return
 
         with Catalog.get().begin_xact(for_write=False):
             self._cached_tbl_version = self.tbl_version.get()

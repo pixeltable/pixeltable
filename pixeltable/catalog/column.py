@@ -46,7 +46,7 @@ class Column:
     # we store a TableVersion here, not a TableVersionHandle, because this column is owned by that TableVersion instance
     # (re-resolving it later to a different instance doesn't make sense)
     tbl: Optional[TableVersion]
-    #tbl: Optional[TableVersionHandle]
+    # tbl: Optional[TableVersionHandle]
 
     def __init__(
         self,

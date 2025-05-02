@@ -164,7 +164,7 @@ class Project(ExternalStore, abc.ABC):
         )
         # TODO: this needs to go through TableVersion.add_columns()
         proxy_col.tbl = tbl_version
-        #proxy_col.tbl = TableVersionHandle(tbl_version.id, tbl_version.effective_version, tbl_version=tbl_version)
+        # proxy_col.tbl = TableVersionHandle(tbl_version.id, tbl_version.effective_version, tbl_version=tbl_version)
         tbl_version.next_col_id += 1
         self.stored_proxies[col] = proxy_col
         return proxy_col
