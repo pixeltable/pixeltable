@@ -1,6 +1,6 @@
 # 🤖 Reddit Agentic/RAG Bot with Pixeltable
 
-A Reddit bot powered by [Pixeltable](https://pixeltable.com/) that automatically answers questions in specified subreddits using Retrieval-Augmented Generation (RAG) and tools. You can see it in action and try it at: https://www.reddit.com/r/Pixeltable/.
+A Reddit bot powered by [Pixeltable](https://pixeltable.com/) that automatically answers questions in specified subreddits using Retrieval-Augmented Generation (RAG) and tools.
 
 ## ✨ Core Workflow
 
