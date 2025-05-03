@@ -1460,6 +1460,7 @@ class Table(SchemaObject):
                 raise excs.Error(f'Table `{self._name}` already has an external store with that name: {store.name}')
             _logger.info(f'Linking external store `{store.name}` to table `{self._name}`')
 
+            store.link(self._tbl_version.get())  # might call tbl_version.add_columns()
             self._tbl_version.get().link_external_store(store)
             env.Env.get().console_logger.info(f'Linked external store `{store.name}` to table `{self._name}`.')
 
@@ -1494,12 +1495,16 @@ class Table(SchemaObject):
 
             # Validation
             if not ignore_errors:
-                for store in stores:
-                    if store not in all_stores:
-                        raise excs.Error(f'Table `{self._name}` has no external store with that name: {store}')
+                for store_name in stores:
+                    if store_name not in all_stores:
+                        raise excs.Error(f'Table `{self._name}` has no external store with that name: {store_name}')
 
-            for store in stores:
-                self._tbl_version.get().unlink_external_store(store, delete_external_data=delete_external_data)
+            for store_name in stores:
+                store = self._tbl_version.get().external_stores[store_name]
+                store.unlink(self._tbl_version.get())  # might call tbl_version.drop_columns()
+                self._tbl_version.get().unlink_external_store(store)
+                if delete_external_data and isinstance(store, pxt.io.external_store.Project):
+                    store.delete()
                 env.Env.get().console_logger.info(f'Unlinked external store from table `{self._name}`: {store}')
 
     def sync(

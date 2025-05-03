@@ -180,7 +180,6 @@ class TableVersion:
         self.cols = []
         self.cols_by_name = {}
         self.cols_by_id = {}
-        # self.idx_md = tbl_md.index_md
         self.idxs_by_name = {}
         self.external_stores = {}
 
@@ -304,7 +303,7 @@ class TableVersion:
                 assert status is None or status.num_excs == 0
 
         # we re-create the tbl_record here, now that we have new index metadata
-        tbl_record = schema.Table(id=tbl_id, dir_id=dir_id, md=dataclasses.asdict(tbl_version._create_tbl_md()))
+        tbl_record = schema.Table(id=tbl_id, dir_id=dir_id, md=dataclasses.asdict(tbl_version.tbl_md))
         session.add(tbl_record)
         session.add(tbl_version_record)
         session.add(schema_version_record)
@@ -613,7 +612,7 @@ class TableVersion:
 
         # we're creating a new schema version
         self.version += 1
-        preceding_schema_version = self.schema_version
+        self.preceding_schema_version = self.schema_version
         self.schema_version = self.version
         index_cols: dict[Column, tuple[index.BtreeIndex, Column, Column]] = {}
         all_cols: list[Column] = []
@@ -630,7 +629,7 @@ class TableVersion:
         # Create indices and their md records
         for col, (idx, val_col, undo_col) in index_cols.items():
             self._create_index(col, val_col, undo_col, idx_name=None, idx=idx)
-        self._update_md(time.time(), preceding_schema_version=preceding_schema_version)
+        self._store_md(new_version=True, new_version_ts=time.time(), new_schema_version=True)
         _logger.info(f'Added columns {[col.name for col in cols]} to table {self.name}, new version: {self.version}')
 
         msg = (
@@ -667,6 +666,23 @@ class TableVersion:
             if col.value_expr is not None:
                 col.check_value_expr()
                 self._record_refd_columns(col)
+
+            # also add to stored md
+            self._tbl_md.column_md[col.id] = schema.ColumnMd(
+                id=col.id,
+                col_type=col.col_type.as_dict(),
+                is_pk=col.is_pk,
+                schema_version_add=col.schema_version_add,
+                schema_version_drop=col.schema_version_drop,
+                value_expr=col.value_expr.as_dict() if col.value_expr is not None else None,
+                stored=col.stored,
+            )
+            if col.name is not None:
+                self._schema_version_md.columns[col.id] = schema.SchemaColumn(
+                    name=col.name,
+                    pos=len(self.cols_by_name),
+                    media_validation=col._media_validation.name.lower() if col._media_validation is not None else None,
+                )
 
             if col.is_stored:
                 self.store_tbl.add_column(col)
@@ -724,7 +740,7 @@ class TableVersion:
 
         # we're creating a new schema version
         self.version += 1
-        preceding_schema_version = self.schema_version
+        self.preceding_schema_version = self.schema_version
         self.schema_version = self.version
 
         # drop this column and all dependent index columns and indices
@@ -734,15 +750,17 @@ class TableVersion:
             if idx_info.col != col:
                 continue
             dropped_cols.extend([idx_info.val_col, idx_info.undo_col])
-            idx_md = self.idx_md[idx_info.id]
+            idx_md = self._tbl_md.index_md[idx_info.id]
             idx_md.schema_version_drop = self.schema_version
             assert idx_md.name in self.idxs_by_name
             dropped_idx_names.append(idx_md.name)
+
         # update idxs_by_name
         for idx_name in dropped_idx_names:
             del self.idxs_by_name[idx_name]
+
         self._drop_columns(dropped_cols)
-        self._update_md(time.time(), preceding_schema_version=preceding_schema_version)
+        self._store_md(new_version=True, new_version_ts=time.time(), new_schema_version=True)
         _logger.info(f'Dropped column {col.name} from table {self.name}, new version: {self.version}')
 
     def _drop_columns(self, cols: Iterable[Column]) -> None:
@@ -763,6 +781,13 @@ class TableVersion:
                 del self.cols_by_name[col.name]
             assert col.id in self.cols_by_id
             del self.cols_by_id[col.id]
+            # update stored md
+            self._tbl_md.column_md[col.id].schema_version_drop = col.schema_version_drop
+            del self._schema_version_md.columns[col.id]
+
+        # update positions
+        for pos, schema_col in enumerate(self._schema_version_md.columns.values()):
+            schema_col.pos = pos
 
         self.store_tbl.create_sa_tbl()
 
@@ -782,10 +807,10 @@ class TableVersion:
 
         # we're creating a new schema version
         self.version += 1
-        preceding_schema_version = self.schema_version
+        self.preceding_schema_version = self.schema_version
         self.schema_version = self.version
 
-        self._update_md(time.time(), preceding_schema_version=preceding_schema_version)
+        self._store_md(new_version=True, new_version_ts=time.time(), new_schema_version=True)
         _logger.info(f'Renamed column {old_name} to {new_name} in table {self.name}, new version: {self.version}')
 
     def set_comment(self, new_comment: Optional[str]) -> None:
@@ -804,9 +829,9 @@ class TableVersion:
     def _create_schema_version(self) -> None:
         # we're creating a new schema version
         self.version += 1
-        preceding_schema_version = self.schema_version
+        self.preceding_schema_version = self.schema_version
         self.schema_version = self.version
-        self._update_md(time.time(), preceding_schema_version=preceding_schema_version)
+        self._store_md(new_version=True, new_version_ts=time.time(), new_schema_version=True)
         _logger.info(f'[{self.name}] Updating table schema to version: {self.version}')
 
     def insert(
@@ -857,7 +882,7 @@ class TableVersion:
         result.num_excs = num_excs
         result.num_computed_values += exec_plan.ctx.num_computed_exprs * num_rows
         result.cols_with_excs = [f'{self.name}.{self.cols_by_id[cid].name}' for cid in cols_with_excs]
-        self._update_md(timestamp)
+        self._store_md(new_version=True, new_version_ts=time.time(), new_schema_version=False)
 
         # update views
         for view in self.mutable_views:
@@ -1021,7 +1046,7 @@ class TableVersion:
             self.store_tbl.delete_rows(
                 self.version, base_versions=base_versions, match_on_vmin=True, where_clause=where_clause
             )
-            self._update_md(timestamp)
+            self._store_md(new_version=True, new_version_ts=timestamp, new_schema_version=False)
 
         if cascade:
             base_versions = [None if plan is None else self.version, *base_versions]  # don't update in place
@@ -1083,7 +1108,7 @@ class TableVersion:
         if num_rows > 0:
             # we're creating a new version
             self.version += 1
-            self._update_md(timestamp)
+            self._store_md(new_version=True, new_version_ts=timestamp, new_schema_version=False)
         for view in self.mutable_views:
             num_rows += view.get().propagate_delete(
                 where=None, base_versions=[self.version, *base_versions], timestamp=timestamp
@@ -1107,7 +1132,10 @@ class TableVersion:
         del self.cols_by_id[col.id]
 
     def _revert(self) -> None:
-        """Reverts this table version and propagates to views"""
+        """
+        Reverts this table version and propagates to views
+        TODO: implement this by letting the catalog reload the stored md, rather than fixing it up here
+        """
         conn = Env.get().conn
         # make sure we don't have a snapshot referencing this version
         # (unclear how to express this with sqlalchemy)
@@ -1152,11 +1180,11 @@ class TableVersion:
 
             # remove newly-added indices from the lookup structures
             # (the value and undo columns got removed in the preceding step)
-            added_idx_md = [md for md in self.idx_md.values() if md.schema_version_add == self.schema_version]
+            added_idx_md = [md for md in self._tbl_md.index_md.values() if md.schema_version_add == self.schema_version]
             if len(added_idx_md) > 0:
                 next_idx_id = min(md.id for md in added_idx_md)
                 for md in added_idx_md:
-                    del self.idx_md[md.id]
+                    del self._tbl_md.index_md[md.id]
                     del self.idxs_by_name[md.name]
                 self.next_idx_id = next_idx_id
 
@@ -1166,7 +1194,7 @@ class TableVersion:
                 col.schema_version_drop = None
 
             # make newly-dropped indices visible again
-            dropped_idx_md = [md for md in self.idx_md.values() if md.schema_version_drop == self.schema_version]
+            dropped_idx_md = [md for md in self._tbl_md.index_md.values() if md.schema_version_drop == self.schema_version]
             for md in dropped_idx_md:
                 md.schema_version_drop = None
 
@@ -1225,19 +1253,27 @@ class TableVersion:
             self.external_stores[store.name] = store
 
     def link_external_store(self, store: pxt.io.ExternalStore) -> None:
-        store.link(self)  # May result in additional metadata changes
+        #store.link(self)  # May result in additional metadata changes
+        self.version += 1
+        self.preceding_schema_version = self.schema_version
+        self.schema_version = self.version
+
         self.external_stores[store.name] = store
-        self._update_md(time.time(), update_tbl_version=False)
+        self._tbl_md.external_stores.append(
+            {'class': f'{type(store).__module__}.{type(store).__qualname__}', 'md': store.as_dict()}
+        )
+        self._store_md(new_version=True, new_version_ts=time.time(), new_schema_version=True)
 
-    def unlink_external_store(self, store_name: str, delete_external_data: bool) -> None:
-        assert store_name in self.external_stores
-        store = self.external_stores[store_name]
-        store.unlink(self)  # May result in additional metadata changes
-        del self.external_stores[store_name]
-        self._update_md(time.time(), update_tbl_version=False)
-
-        if delete_external_data and isinstance(store, pxt.io.external_store.Project):
-            store.delete()
+    def unlink_external_store(self, store: pxt.io.ExternalStore) -> None:
+        del self.external_stores[store.name]
+        self.version += 1
+        self.preceding_schema_version = self.schema_version
+        self.schema_version = self.version
+        idx = next(
+            i for i, store_md in enumerate(self._tbl_md.external_stores) if store_md['name'] == store.name
+        )
+        self._tbl_md.external_stores.pop(idx)
+        self._store_md(new_version=True, new_version_ts=time.time(), new_schema_version=True)
 
     @property
     def tbl_md(self) -> schema.TableMd:
