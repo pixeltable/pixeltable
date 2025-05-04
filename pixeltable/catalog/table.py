@@ -61,11 +61,6 @@ class Table(SchemaObject):
         self._is_dropped = False
         self.__tbl_version_path = tbl_version_path
 
-    # @property
-    # def _has_dependents(self) -> bool:
-    #     """Returns True if this table has any dependent views, or snapshots."""
-    #     return len(self._get_views(recursive=False)) > 0
-
     def _move(self, new_name: str, new_dir_id: UUID) -> None:
         self._check_is_dropped()
         super()._move(new_name, new_dir_id)
@@ -1442,6 +1437,8 @@ class Table(SchemaObject):
             if self._tbl_version_path.is_snapshot():
                 raise excs.Error('Cannot revert a snapshot')
             self._tbl_version.get().revert()
+            # remove cached md in order to force a reload on the next operation
+            self.__tbl_version_path.clear_cached_md()
 
     @property
     def external_stores(self) -> list[str]:

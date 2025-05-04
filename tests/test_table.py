@@ -112,6 +112,7 @@ class TestTable:
             pxt.list_tables('dir2')
 
         # test loading with new client
+        _ = tbl.select().collect()
         _ = reload_tester.run_query(tbl.select())
         reload_tester.run_reload_test()
 
@@ -927,6 +928,7 @@ class TestTable:
         skip_test_if_not_installed('boto3')
         tbl = pxt.create_table('test_tbl', {'payload': pxt.Int, 'video': pxt.Video})
         view = pxt.create_view('test_view', tbl, iterator=FrameIterator.create(video=tbl.video, fps=0))
+        print(f'a: {MediaStore.count(view._id)}')
         view.add_computed_column(c1=view.frame.rotate(30), stored=True)
         view.add_computed_column(c2=view.c1.rotate(40), stored=False)
         view.add_computed_column(c3=view.c2.rotate(50), stored=True)
@@ -940,14 +942,17 @@ class TestTable:
         reload_catalog()
         tbl = pxt.get_table('test_tbl')
         view = pxt.get_table('test_view')
+        print(f'b: {MediaStore.count(view._id)}')
         # we're inserting only a single row and the video column is not in position 0
         url = 's3://multimedia-commons/data/videos/mp4/ffe/ff3/ffeff3c6bf57504e7a6cecaff6aefbc9.mp4'
         status = tbl.insert(payload=1, video=url)
+        print(f'c: {MediaStore.count(view._id)}')
         assert status.num_excs == 0
         # * 2: we have 2 stored img cols
         assert MediaStore.count(view._id) == view.count() * 2
         # also insert a local file
         tbl.insert(payload=1, video=get_video_files()[0])
+        print(f'd: {MediaStore.count(view._id)}')
         assert MediaStore.count(view._id) == view.count() * 2
 
         # TODO: test inserting Nulls
@@ -956,7 +961,9 @@ class TestTable:
 
         # revert() clears stored images
         tbl.revert()
+        print(f'e: {MediaStore.count(view._id)}')
         tbl.revert()
+        print(f'f: {MediaStore.count(view._id)}')
         assert MediaStore.count(view._id) == 0
 
         with pytest.raises(excs.Error, match=r'because the following columns depend on it:\nc1'):
@@ -2154,7 +2161,7 @@ class TestTable:
         s1 = pxt.create_snapshot('test_snap1', v2)
         r = repr(s1)
         assert strip_lines(r) == strip_lines(
-            """Snapshot 'test_snap1' (of 'test_subview:2', 'test_view:0', 'test_tbl:2')
+            """Snapshot 'test_snap1' (of 'test_subview:3', 'test_view:0', 'test_tbl:2')
             Where: ~(c1 == None)
 
             Column Name                          Type           Computed With

@@ -564,7 +564,8 @@ class ReloadTester:
 
     def run_reload_test(self, clear: bool = True) -> None:
         reload_catalog()
-        for df_dict, result_set in self.df_info:
+        # enumerate(): the list index is useful for debugging
+        for _idx, (df_dict, result_set) in enumerate(self.df_info):
             df = pxt.DataFrame.from_dict(df_dict)
             new_result_set = df.collect()
             try:

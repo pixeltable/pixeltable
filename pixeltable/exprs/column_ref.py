@@ -217,8 +217,14 @@ class ColumnRef(Expr):
         if self.perform_validation:
             return None
         # make sure we have an sa_col for the validated TableVersion
+        if self.tbl_version._tbl_version is None:
+            x = 10
         tv = self.tbl_version.get()
+        assert tv.is_validated
         col = tv.cols_by_id[self.col_id]
+        print(f'tv={id(tv)} col={col.name} sa_tbl={id(tv.store_tbl.sa_tbl)}')
+        # x = ', '.join([f'{k}:{id(v)}' for k, v in catalog.Catalog.get()._tbl_versions.items()])
+        # print(f'catalog: {x}')
         return col.sa_col
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:

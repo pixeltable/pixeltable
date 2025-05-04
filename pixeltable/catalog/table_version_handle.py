@@ -41,9 +41,25 @@ class TableVersionHandle:
     def get(self) -> TableVersion:
         from .catalog import Catalog
 
+        cat = Catalog.get()
         if self._tbl_version is None or not self._tbl_version.is_validated:
-            self._tbl_version = Catalog.get().get_tbl_version(self.id, self.effective_version)
+            if self.effective_version is not None and self._tbl_version is not None:
+                # this is a snapshot version; we need to make sure we refer to the instance cached
+                # in Catalog, in order to avoid mixing sa_tbl instances in the same transaction
+                # (which will lead to duplicates in the From clause generated in SqlNode.create_from_clause())
+                assert (self.id, self.effective_version) in cat._tbl_versions
+                self._tbl_version = cat._tbl_versions[self.id, self.effective_version]
+                self._tbl_version.is_validated = True
+            else:
+                self._tbl_version = Catalog.get().get_tbl_version(self.id, self.effective_version)
+            # assert self._tbl_version.is_validated
             # print(f'self.tbl_version.isvalidated={self._tbl_version.is_validated}')
+        if self.effective_version is None:
+            # make sure we don't see a discarded instance of a live TableVersion
+            tvs = list(Catalog.get()._tbl_versions.values())
+            if self._tbl_version not in tvs:
+                x = 10
+            assert self._tbl_version in tvs
         return self._tbl_version
 
     def as_dict(self) -> dict:

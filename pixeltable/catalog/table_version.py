@@ -51,6 +51,9 @@ class TableVersion:
 
     Instances of TableVersion should not be stored as member variables (ie, used across transaction boundaries).
     Use a TableVersionHandle instead.
+
+    Only TableVersion and Catalog interact directly with stored metadata. Everything else needs to go through these
+    two classes.
     """
 
     id: UUID
@@ -59,26 +62,16 @@ class TableVersion:
     _tbl_md: schema.TableMd
     _schema_version_md: schema.TableSchemaVersionMd
 
-    # name: str
-    # user: Optional[str]
     effective_version: Optional[int]
-    # is_replica: bool
-    version: int
-    # comment: str
-    # media_validation: MediaValidation
-    # num_retained_versions: int
-    # schema_version: int
-    # view_md: Optional[schema.ViewMd]
     path: Optional[pxt.catalog.TableVersionPath]  # only set for live tables; needed to resolve computed cols
     base: Optional[TableVersionHandle]  # only set for views
-    # next_col_id: int
-    # next_idx_id: int
-    # next_rowid: int
     predicate: Optional[exprs.Expr]
-    mutable_views: list[TableVersionHandle]  # target for data operation propagation (only set for live tables)
     iterator_cls: Optional[type[ComponentIterator]]
     iterator_args: Optional[exprs.InlineDict]
     num_iterator_cols: int
+
+    # target for data operation propagation (only set for non-snapshots, and only records non-snapshot views)
+    mutable_views: set[TableVersionHandle]
 
     # contains complete history of columns, incl dropped ones
     cols: list[Column]
@@ -92,7 +85,10 @@ class TableVersion:
     external_stores: dict[str, pxt.io.ExternalStore]
     store_tbl: 'store.StoreBase'
 
-    is_validated: bool  # used by Catalog to invalidate cached instances at the end of a transaction
+    # used by Catalog to invalidate cached instances at the end of a transaction;
+    # True if this instance reflects the state of stored metadata in the context of this transaction and
+    # it is the instance cached in Catalog
+    is_validated: bool
 
     @dataclasses.dataclass
     class IndexInfo:
@@ -117,16 +113,7 @@ class TableVersion:
         self.id = id
         self._tbl_md = copy.deepcopy(tbl_md)
         self._schema_version_md = copy.deepcopy(schema_version_md)
-        # self.name = tbl_md.name
-        # self.user = tbl_md.user
         self.effective_version = effective_version
-        self.version = tbl_md.current_version if effective_version is None else effective_version
-        # self.is_replica = tbl_md.is_replica
-        # self.comment = schema_version_md.comment
-        # self.num_retained_versions = schema_version_md.num_retained_versions
-        # self.schema_version = schema_version_md.schema_version
-        # self.view_md = tbl_md.view_md  # save this as-is, it's needed for _create_md()
-        # self.media_validation = MediaValidation[schema_version_md.media_validation.upper()]
         assert not (self.is_view and base is None)
         self.base = base
 
@@ -142,22 +129,11 @@ class TableVersion:
                 assert base_path is not None
             self.path = TableVersionPath(self_handle, base=base_path)
 
-        # if self.is_snapshot:
-        #     self.next_col_id = -1
-        #     self.next_idx_id = -1  # TODO: can snapshots have separate indices?
-        #     self.next_rowid = -1
-        # else:
-        #     assert tbl_md.current_version == self.version
-        #     self.next_col_id = tbl_md.next_col_id
-        #     self.next_idx_id = tbl_md.next_idx_id
-        #     self.next_rowid = tbl_md.next_row_id
-
         # view-specific initialization
         from pixeltable import exprs
 
         predicate_dict = None if self.view_md is None or self.view_md.predicate is None else self.view_md.predicate
         self.predicate = exprs.Expr.from_dict(predicate_dict) if predicate_dict is not None else None
-        self.mutable_views = mutable_views
 
         # component view-specific initialization
         self.iterator_cls = None
@@ -172,21 +148,27 @@ class TableVersion:
             self.num_iterator_cols = len(output_schema)
             assert tbl_md.view_md.iterator_args is not None
 
-        # register this table version now so that it's available when we're re-creating value exprs
-        cat = pxt.catalog.Catalog.get()
-        cat.add_tbl_version(self)
+        self.mutable_views = set(mutable_views)
+        if not self.is_mutable and len(self.mutable_views) > 0:
+            x = 10
 
-        # init schema after we determined whether we're a component view, and before we create the store table
         self.cols = []
         self.cols_by_name = {}
         self.cols_by_id = {}
         self.idxs_by_name = {}
         self.external_stores = {}
 
-        self._init_schema(tbl_md, schema_version_md)
+    def init(self) -> None:
+        """
+        Initialize schema-related in-memory metadata separately, now that this TableVersion instance is visible
+        in Catalog.
+        """
+        from .catalog import Catalog
 
-        # Init external stores (this needs to happen after the schema is created)
-        self._init_external_stores(tbl_md)
+        assert (self.id, self.effective_version) in Catalog.get()._tbl_versions
+        self._init_schema()
+        # init external stores; this needs to happen after the schema is created
+        self._init_external_stores()
 
     def __hash__(self) -> int:
         return hash(self.id)
@@ -294,8 +276,19 @@ class TableVersion:
         tbl_version = cls(
             tbl_record.id, table_md, effective_version, schema_version_md, [], base_path=base_path, base=base
         )
-
+        # TODO: break this up, so that Catalog.create_table() registers tbl_version
+        cat = pxt.catalog.Catalog.get()
+        cat._tbl_versions[tbl_record.id, effective_version] = tbl_version
+        tbl_version.init()
         tbl_version.store_tbl.create()
+        is_mutable = not is_snapshot and not table_md.is_replica
+        if base is not None and base.get().is_mutable and is_mutable:
+            from .table_version_handle import TableVersionHandle
+
+            handle = TableVersionHandle(tbl_version.id, effective_version)
+            assert handle not in base.get().mutable_views
+            base.get().mutable_views.add(handle)
+
         if view_md is None or not view_md.is_snapshot:
             # add default indices, after creating the store table
             for col in tbl_version.cols_by_name.values():
@@ -312,6 +305,14 @@ class TableVersion:
     def drop(self) -> None:
         from .catalog import Catalog
 
+        if self.is_view and self.is_mutable:
+            # update mutable_views
+            from .table_version_handle import TableVersionHandle
+
+            assert self.base is not None
+            if self.base.get().is_mutable:
+                self.base.get().mutable_views.remove(TableVersionHandle.create(self))
+
         cat = Catalog.get()
         # delete this table and all associated data
         MediaStore.delete(self.id)
@@ -321,24 +322,24 @@ class TableVersion:
         # de-register table version from catalog
         cat.remove_tbl_version(self)
 
-    def _init_schema(self, tbl_md: schema.TableMd, schema_version_md: schema.TableSchemaVersionMd) -> None:
+    def _init_schema(self) -> None:
         # create columns first, so the indices can reference them
-        self._init_cols(tbl_md, schema_version_md)
+        self._init_cols()
         if not self.is_snapshot:
-            self._init_idxs(tbl_md)
+            self._init_idxs()
         # create the sa schema only after creating the columns and indices
         self._init_sa_schema()
 
-    def _init_cols(self, tbl_md: schema.TableMd, schema_version_md: schema.TableSchemaVersionMd) -> None:
+    def _init_cols(self) -> None:
         """Initialize self.cols with the columns visible in our effective version"""
         self.cols = []
         self.cols_by_name = {}
         self.cols_by_id = {}
         # Sort columns in column_md by the position specified in col_md.id to guarantee that all references
         # point backward.
-        sorted_column_md = sorted(tbl_md.column_md.values(), key=lambda item: item.id)
+        sorted_column_md = sorted(self.tbl_md.column_md.values(), key=lambda item: item.id)
         for col_md in sorted_column_md:
-            schema_col_md = schema_version_md.columns.get(col_md.id)
+            schema_col_md = self.schema_version_md.columns.get(col_md.id)
             col_name = schema_col_md.name if schema_col_md is not None else None
             media_val = (
                 MediaValidation[schema_col_md.media_validation.upper()]
@@ -375,12 +376,12 @@ class TableVersion:
             if not self.is_snapshot and col_md.value_expr is not None:
                 self._record_refd_columns(col)
 
-    def _init_idxs(self, tbl_md: schema.TableMd) -> None:
+    def _init_idxs(self) -> None:
         # self.idx_md = tbl_md.index_md
         self.idxs_by_name = {}
         import pixeltable.index as index_module
 
-        for md in tbl_md.index_md.values():
+        for md in self.tbl_md.index_md.values():
             if md.schema_version_add > self.schema_version or (
                 md.schema_version_drop is not None and md.schema_version_drop <= self.schema_version
             ):
@@ -783,7 +784,8 @@ class TableVersion:
             del self.cols_by_id[col.id]
             # update stored md
             self._tbl_md.column_md[col.id].schema_version_drop = col.schema_version_drop
-            del self._schema_version_md.columns[col.id]
+            if col.name is not None:
+                del self._schema_version_md.columns[col.id]
 
         # update positions
         for pos, schema_col in enumerate(self._schema_version_md.columns.values()):
@@ -804,6 +806,7 @@ class TableVersion:
         del self.cols_by_name[old_name]
         col.name = new_name
         self.cols_by_name[new_name] = col
+        self._schema_version_md.columns[col.id].name = new_name
 
         # we're creating a new schema version
         self.version += 1
@@ -1133,8 +1136,10 @@ class TableVersion:
 
     def _revert(self) -> None:
         """
-        Reverts this table version and propagates to views
-        TODO: implement this by letting the catalog reload the stored md, rather than fixing it up here
+        Reverts the stored metadata for this table version and propagates to views.
+
+        Doesn't attempt to revert the in-memory metadata, but instead invalidates this TableVersion instance
+        and relies on Catalog to reload it
         """
         conn = Env.get().conn
         # make sure we don't have a snapshot referencing this version
@@ -1168,92 +1173,77 @@ class TableVersion:
         stmt = sql.update(self.store_tbl.sa_tbl).values(set_clause).where(self.store_tbl.sa_tbl.c.v_max == self.version)
         conn.execute(stmt)
 
-        # revert schema changes
+        # revert schema changes:
+        # - undo changes to self._tbl_md and write that back
+        # - delete newly-added TableVersion/TableSchemaVersion records
         if self.version == self.schema_version:
-            # delete newly-added columns
+            # physically delete newly-added columns and remove them from the stored md
             added_cols = [col for col in self.cols if col.schema_version_add == self.schema_version]
             if len(added_cols) > 0:
-                next_col_id = min(col.id for col in added_cols)
+                self._tbl_md.next_col_id = min(col.id for col in added_cols)
                 for col in added_cols:
-                    self._delete_column(col)
-                self.next_col_id = next_col_id
+                    if col.is_stored:
+                        self.store_tbl.drop_column(col)
+                    del self._tbl_md.column_md[col.id]
 
             # remove newly-added indices from the lookup structures
             # (the value and undo columns got removed in the preceding step)
             added_idx_md = [md for md in self._tbl_md.index_md.values() if md.schema_version_add == self.schema_version]
             if len(added_idx_md) > 0:
-                next_idx_id = min(md.id for md in added_idx_md)
+                self._tbl_md.next_idx_id = min(md.id for md in added_idx_md)
                 for md in added_idx_md:
+                    # TODO: drop the index
                     del self._tbl_md.index_md[md.id]
-                    del self.idxs_by_name[md.name]
-                self.next_idx_id = next_idx_id
 
             # make newly-dropped columns visible again
-            dropped_cols = [col for col in self.cols if col.schema_version_drop == self.schema_version]
-            for col in dropped_cols:
-                col.schema_version_drop = None
+            dropped_col_md = [
+                md for md in self._tbl_md.column_md.values() if md.schema_version_drop == self.schema_version
+            ]
+            for col_md in dropped_col_md:
+                col_md.schema_version_drop = None
 
             # make newly-dropped indices visible again
-            dropped_idx_md = [md for md in self._tbl_md.index_md.values() if md.schema_version_drop == self.schema_version]
-            for md in dropped_idx_md:
-                md.schema_version_drop = None
-
-            session = Env.get().session
-            # we need to determine the preceding schema version and reload the schema
-            schema_version_md_dict = (
-                session.query(schema.TableSchemaVersion.md)
-                .where(schema.TableSchemaVersion.tbl_id == self.id)
-                .where(schema.TableSchemaVersion.schema_version == self.schema_version)
-                .scalar()
-            )
-            preceding_schema_version = schema_version_md_dict['preceding_schema_version']
-            preceding_schema_version_md_dict = (
-                session.query(schema.TableSchemaVersion.md)
-                .where(schema.TableSchemaVersion.tbl_id == self.id)
-                .where(schema.TableSchemaVersion.schema_version == preceding_schema_version)
-                .scalar()
-            )
-            preceding_schema_version_md = schema.md_from_dict(
-                schema.TableSchemaVersionMd, preceding_schema_version_md_dict
-            )
-            tbl_md = self._create_tbl_md()
-            self._init_schema(tbl_md, preceding_schema_version_md)
+            dropped_idx_md = [
+                md for md in self._tbl_md.index_md.values() if md.schema_version_drop == self.schema_version
+            ]
+            for idx_md in dropped_idx_md:
+                idx_md.schema_version_drop = None
 
             conn.execute(
                 sql.delete(schema.TableSchemaVersion.__table__)
                 .where(schema.TableSchemaVersion.tbl_id == self.id)
                 .where(schema.TableSchemaVersion.schema_version == self.schema_version)
             )
-            self.schema_version = preceding_schema_version
-            self.comment = preceding_schema_version_md.comment
-            self.num_retained_versions = preceding_schema_version_md.num_retained_versions
+            self._tbl_md.current_schema_version = self._schema_version_md.preceding_schema_version
 
         conn.execute(
             sql.delete(schema.TableVersion.__table__)
             .where(schema.TableVersion.tbl_id == self.id)
             .where(schema.TableVersion.version == self.version)
         )
+
         self.version -= 1
-        conn.execute(
-            sql.update(schema.Table.__table__)
-            .values({schema.Table.md: dataclasses.asdict(self._create_tbl_md())})
-            .where(schema.Table.id == self.id)
-        )
+        self._store_md(new_version=False, new_version_ts=0, new_schema_version=False)
 
         # propagate to views
+        views_str = ', '.join([str(v.id) for v in self.mutable_views])
+        print(f'revert(): mutable_views={views_str}')
         for view in self.mutable_views:
             view.get()._revert()
+
+        # force reload on next operation
+        self.is_validated = False
+        pxt.catalog.Catalog.get().remove_tbl_version(self)
         _logger.info(f'TableVersion {self.name}: reverted to version {self.version}')
 
-    def _init_external_stores(self, tbl_md: schema.TableMd) -> None:
-        for store_md in tbl_md.external_stores:
+    def _init_external_stores(self) -> None:
+        for store_md in self.tbl_md.external_stores:
             store_cls = resolve_symbol(store_md['class'])
             assert isinstance(store_cls, type) and issubclass(store_cls, pxt.io.ExternalStore)
             store = store_cls.from_dict(store_md['md'])
             self.external_stores[store.name] = store
 
     def link_external_store(self, store: pxt.io.ExternalStore) -> None:
-        #store.link(self)  # May result in additional metadata changes
         self.version += 1
         self.preceding_schema_version = self.schema_version
         self.schema_version = self.version
@@ -1269,9 +1259,7 @@ class TableVersion:
         self.version += 1
         self.preceding_schema_version = self.schema_version
         self.schema_version = self.version
-        idx = next(
-            i for i, store_md in enumerate(self._tbl_md.external_stores) if store_md['name'] == store.name
-        )
+        idx = next(i for i, store_md in enumerate(self._tbl_md.external_stores) if store_md['name'] == store.name)
         self._tbl_md.external_stores.pop(idx)
         self._store_md(new_version=True, new_version_ts=time.time(), new_schema_version=True)
 
@@ -1305,6 +1293,7 @@ class TableVersion:
 
     @comment.setter
     def comment(self, c: str) -> None:
+        assert self.effective_version is None
         self._schema_version_md.comment = c
 
     @property
@@ -1313,7 +1302,18 @@ class TableVersion:
 
     @num_retained_versions.setter
     def num_retained_versions(self, n: int) -> None:
+        assert self.effective_version is None
         self._schema_version_md.num_retained_versions = n
+
+    @property
+    def version(self) -> int:
+        # if this is a snapshot instance, we need to ignore current_version
+        return self._tbl_md.current_version if self.effective_version is None else self.effective_version
+
+    @version.setter
+    def version(self, version: int) -> None:
+        assert self.effective_version is None
+        self._tbl_md.current_version = version
 
     @property
     def schema_version(self) -> int:
@@ -1321,8 +1321,9 @@ class TableVersion:
 
     @schema_version.setter
     def schema_version(self, version: int) -> None:
-        self._schema_version_md.schema_version = version
+        assert self.effective_version is None
         self._tbl_md.current_schema_version = version
+        self._schema_version_md.schema_version = version
 
     @property
     def preceding_schema_version(self) -> int:
@@ -1330,6 +1331,7 @@ class TableVersion:
 
     @preceding_schema_version.setter
     def preceding_schema_version(self, v: int) -> None:
+        assert self.effective_version is None
         self._schema_version_md.preceding_schema_version = v
 
     @property
@@ -1342,6 +1344,7 @@ class TableVersion:
 
     @next_col_id.setter
     def next_col_id(self, id: int) -> None:
+        assert self.effective_version is None
         self._tbl_md.next_col_id = id
 
     @property
@@ -1350,6 +1353,7 @@ class TableVersion:
 
     @next_idx_id.setter
     def next_idx_id(self, id: int) -> None:
+        assert self.effective_version is None
         self._tbl_md.next_idx_id = id
 
     @property
@@ -1358,11 +1362,16 @@ class TableVersion:
 
     @next_row_id.setter
     def next_row_id(self, id: int) -> None:
+        assert self.effective_version is None
         self._tbl_md.next_row_id = id
 
     @property
     def is_snapshot(self) -> bool:
         return self.effective_version is not None
+
+    @property
+    def is_mutable(self) -> bool:
+        return self.effective_version is not None and not self.is_replica
 
     @property
     def is_view(self) -> bool:

@@ -134,18 +134,33 @@ class SqlNode(ExecNode):
         self.where_clause_element = None
         self.order_by_clause = []
 
+        if self.tbl is not None:
+            tv = self.tbl.tbl_version._tbl_version
+            if tv is not None:
+                assert tv.is_validated
+            print(f'sqlnode tv={id(tv) if tv is not None else None}')
+            x = ', '.join([f'{k}:{id(v)}' for k, v in catalog.Catalog.get()._tbl_versions.items()])
+            print(f'sqlnode catalog: {x}')
+
     def _create_stmt(self) -> sql.Select:
         """Create Select from local state"""
 
         assert self.sql_elements.contains_all(self.select_list)
         sql_select_list = [self.sql_elements.get(e) for e in self.select_list]
-        if self.set_pk:
-            assert self.tbl is not None
-            sql_select_list += self.tbl.tbl_version.get().store_tbl.pk_columns()
-        stmt = sql.select(*sql_select_list)
         x = [f'{e.name}: {id(e.table)}' for e in sql_select_list if isinstance(e, sql.Column)]
         print(f'select list: {", ".join(x)}')
-        # _logger.debug(f'select list: {", ".join(x)}')
+        if self.set_pk:
+            assert self.tbl is not None
+            assert self.tbl.tbl_version.get().is_validated
+            print(f'tv={id(self.tbl.tbl_version.get())}')
+            print(f'sa_tbl={id(self.tbl.tbl_version.get().store_tbl.sa_tbl)}')
+            print(f'rowid sa_tbl={id(self.tbl.tbl_version.get().store_tbl.pk_columns()[0].table)}')
+            sql_select_list += self.tbl.tbl_version.get().store_tbl.pk_columns()
+            x = [f'{e.name}: {id(e.table)}' for e in sql_select_list if isinstance(e, sql.Column)]
+            print(f'select list: {", ".join(x)}')
+        stmt = sql.select(*sql_select_list)
+        if self.tbl is not None:
+            print(f'sa tbl: {id(self.tbl.tbl_version.get().store_tbl.sa_tbl)}')
 
         where_clause_element = (
             self.sql_elements.get(self.where_clause) if self.where_clause is not None else self.where_clause_element

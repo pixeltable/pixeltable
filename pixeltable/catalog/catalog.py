@@ -122,6 +122,53 @@ class Catalog:
         self._in_write_xact = False
         self._init_store()
 
+    def validate(self) -> None:
+        """Validate structural consistency of cached metadata"""
+        for (tbl_id, effective_version), tbl_version in self._tbl_versions.items():
+            assert tbl_id == tbl_version.id, f'{tbl_id} != {tbl_version.id}'
+            assert tbl_version.effective_version == tbl_version.version or tbl_version.effective_version is None, (
+                f'{tbl_version.effective_version} != {tbl_version.version} for id {tbl_id}'
+            )
+            assert effective_version == tbl_version.effective_version, (
+                f'{effective_version} != {tbl_version.effective_version} for id {tbl_id}'
+            )
+            if len(tbl_version.mutable_views) > 0 and not tbl_version.is_mutable:
+                x = 10
+            assert len(tbl_version.mutable_views) == 0 or tbl_version.is_mutable, (
+                f'snapshot_id={tbl_version.id} mutable_views={tbl_version.mutable_views}'
+            )
+
+            if tbl_version.is_view and tbl_version.is_mutable:
+                # make sure this mutable view is recorded in a mutable base
+                base = tbl_version.base
+                assert base is not None
+                if base.effective_version is None:
+                    assert (base.id, None) in self._tbl_versions
+                    assert TableVersionHandle.create(tbl_version) in self._tbl_versions[base.id, None].mutable_views
+
+        # validate mutable tables
+        for tbl in self._tbls.values():
+            is_snapshot = tbl._tbl_version.effective_version is not None
+            if is_snapshot:
+                continue
+            if (tbl._tbl_version.id, None) not in self._tbl_versions:
+                # we might have ejected the corresponding TableVersion instance
+                continue
+
+            tbl_version = self._tbl_versions[tbl._tbl_version.id, None]
+            if len(tbl_version.mutable_views) > 0:
+                # make sure we also loaded mutable view metadata, which is needed to detect column dependencies
+                for v in tbl_version.mutable_views:
+                    assert v.effective_version is None
+                    if (v.id, None) not in self._tbl_versions:
+                        x = 10
+                    if v.id not in self._tbls:
+                        x = 10
+                        print(self._tbls.keys())
+                        print(self._tbl_versions.keys())
+                    assert v.id in self._tbls, f'{v.id}'
+                    assert (v.id, None) in self._tbl_versions, f'{v.id}'
+
     @contextmanager
     def begin_xact(self, *, tbl_id: Optional[UUID] = None, for_write: bool = False) -> Iterator[sql.Connection]:
         """
@@ -161,10 +208,14 @@ class Catalog:
 
                     # invalidate cached current TableVersion instances
                     for tv in self._tbl_versions.values():
+                        tv.is_validated = False
                         if tv.effective_version is None:
                             _logger.debug(f'invalidating table version {tv.id}:{tv.version}')
                             # print(f'invalidating table version {tv.id}:{tv.version}')
                             tv.is_validated = False
+
+                    if _logger.isEnabledFor(logging.DEBUG):
+                        self.validate()
         else:
             yield Env.get().conn
 
@@ -367,7 +418,7 @@ class Catalog:
         tbl_id = conn.execute(q).scalar_one_or_none()
         if tbl_id is not None:
             if tbl_id not in self._tbls:
-                self._tbls[tbl_id] = self._load_tbl(tbl_id)
+                _ = self._load_tbl(tbl_id)
             return self._tbls[tbl_id]
 
         return None
@@ -420,7 +471,12 @@ class Catalog:
             tbl = self._load_tbl(tbl_id)
             if tbl is None:
                 return None
-            self._tbls[tbl_id] = tbl
+            # if this is a mutable table, we also need to have its mutable views loaded, in order to track column
+            # dependencies
+            tbl_version = tbl._tbl_version.get()
+            if not tbl_version.is_snapshot:
+                for v in tbl_version.mutable_views:
+                    _ = self.get_table_by_id(v.id)
         return self._tbls[tbl_id]
 
     @_retry_loop(for_write=True)
@@ -566,7 +622,7 @@ class Catalog:
 
         # Update the catalog (as a final step, after all DB operations completed successfully).
         # Only the table being replicated is actually made visible in the catalog.
-        self._tbls[tbl_id] = self._load_tbl(tbl_id)
+        _ = self._load_tbl(tbl_id)
         return self._tbls[tbl_id]
 
     def __store_replica_md(self, path: Path, md: schema.FullTableMd) -> None:
@@ -654,9 +710,18 @@ class Catalog:
 
     @_retry_loop(for_write=False)
     def get_table(self, path: Path) -> Table:
+        obj = self._get_table(path)
+        return obj
+
+    def _get_table(self, path: Path) -> Table:
         obj = Catalog.get()._get_schema_object(path, expected=Table, raise_if_not_exists=True)
         assert isinstance(obj, Table)
-        obj._tbl_version.get().ensure_md_loaded()
+        tbl_version = obj._tbl_version.get()
+        tbl_version.ensure_md_loaded()
+        if not (isinstance(obj, View) and obj._snapshot_only):
+            # if this table has mutable views, we need to load those as well, in order to record column dependencies
+            for v in tbl_version.mutable_views:
+                self.get_table_by_id(v.id)
         return obj
 
     @_retry_loop(for_write=True)
@@ -804,9 +869,8 @@ class Catalog:
             tv = self._tbl_versions.get((tbl_id, effective_version))
             if tv is None:
                 tv = self._load_tbl_version(tbl_id, effective_version)
-                self._tbl_versions[tbl_id, effective_version] = tv
-            elif not tv.is_validated:
-                assert tv.effective_version is None  # validation only applies to the live version
+            elif not tv.is_validated and effective_version is None:
+                # we validate live instances by comparing our cached version number to the stored current version
                 _logger.debug(f'validating metadata for table {tbl_id}:{tv.version}')
                 # print(f'validating metadata for table {tbl_id}:{tv.version}')
                 q = sql.select(schema.Table.md).where(schema.Table.id == tbl_id)
@@ -826,17 +890,9 @@ class Catalog:
                     #     f'(cached version: {tv.version}, current version: {current_version})'
                     # )
                     tv = self._load_tbl_version(tbl_id, effective_version)
-                    self._tbl_versions[tbl_id, effective_version] = tv
-                tv.is_validated = True
-            return tv
 
-    def add_tbl_version(self, tbl_version: TableVersion) -> None:
-        """Explicitly add a TableVersion"""
-        self._tbl_versions[tbl_version.id, tbl_version.effective_version] = tbl_version
-        # if this is a mutable view, also record it in the base
-        if tbl_version.is_view and tbl_version.effective_version is None:
-            base = tbl_version.base.get()
-            base.mutable_views.append(TableVersionHandle(tbl_version.id, tbl_version.effective_version))
+            tv.is_validated = True
+            return tv
 
     def remove_tbl_version(self, tbl_version: TableVersion) -> None:
         assert (tbl_version.id, tbl_version.effective_version) in self._tbl_versions
@@ -881,6 +937,7 @@ class Catalog:
             return schema.Dir(**row._mapping) if row is not None else None
 
     def _load_tbl(self, tbl_id: UUID) -> Optional[Table]:
+        """Loads metadata for the table with the given id and caches it."""
         _logger.info(f'Loading table {tbl_id}')
         from .insertable_table import InsertableTable
         from .view import View
@@ -909,8 +966,9 @@ class Catalog:
         if view_md is None:
             # this is a base table
             if (tbl_id, None) not in self._tbl_versions:
-                self._tbl_versions[tbl_id, None] = self._load_tbl_version(tbl_id, None)
+                _ = self._load_tbl_version(tbl_id, None)
             tbl = InsertableTable(tbl_record.dir_id, TableVersionHandle(tbl_id, None))
+            self._tbls[tbl_id] = tbl
             return tbl
 
         # this is a view; determine the sequence of TableVersions to load
@@ -930,11 +988,12 @@ class Catalog:
         view_path: Optional[TableVersionPath] = None
         for id, effective_version in tbl_version_path[::-1]:
             if (id, effective_version) not in self._tbl_versions:
-                self._tbl_versions[id, effective_version] = self._load_tbl_version(id, effective_version)
+                _ = self._load_tbl_version(id, effective_version)
             view_path = TableVersionPath(TableVersionHandle(id, effective_version), base=base_path)
             base_path = view_path
         view = View(tbl_id, tbl_record.dir_id, tbl_md.name, view_path, snapshot_only=pure_snapshot)
         # TODO: also load mutable views
+        self._tbls[tbl_id] = view
         return view
 
     def load_tbl_md(self, tbl_id: UUID, effective_version: Optional[int]) -> schema.FullTableMd:
@@ -991,6 +1050,8 @@ class Catalog:
             )
 
         row = conn.execute(q).one_or_none()
+        if row is None:
+            x = 10
         assert row is not None, f'Table record not found: {tbl_id}:{effective_version}'
         tbl_record, version_record, schema_version_record = _unpack_row(
             row, [schema.Table, schema.TableVersion, schema.TableSchemaVersion]
@@ -1019,6 +1080,12 @@ class Catalog:
         assert self._in_write_xact
 
         if tbl_md is not None:
+            assert tbl_md.tbl_id == str(tbl_id)
+            if version_md is not None:
+                assert tbl_md.current_version == version_md.version
+                assert tbl_md.current_schema_version == version_md.schema_version
+            if schema_version_md is not None:
+                assert tbl_md.current_schema_version == schema_version_md.schema_version
             result = conn.execute(
                 sql.update(schema.Table.__table__)
                 .values({schema.Table.md: dataclasses.asdict(tbl_md)})
@@ -1027,6 +1094,9 @@ class Catalog:
             assert result.rowcount == 1, result.rowcount
 
         if version_md is not None:
+            assert version_md.tbl_id == str(tbl_id)
+            if schema_version_md is not None:
+                assert version_md.schema_version == schema_version_md.schema_version
             conn.execute(
                 sql.insert(schema.TableVersion.__table__).values(
                     tbl_id=tbl_id, version=version_md.version, md=dataclasses.asdict(version_md)
@@ -1034,6 +1104,7 @@ class Catalog:
             )
 
         if schema_version_md is not None:
+            assert schema_version_md.tbl_id == str(tbl_id)
             conn.execute(
                 sql.insert(schema.TableSchemaVersion.__table__).values(
                     tbl_id=tbl_id,
@@ -1080,50 +1151,58 @@ class Catalog:
         return md
 
     def _load_tbl_version(self, tbl_id: UUID, effective_version: Optional[int]) -> Optional[TableVersion]:
+        """Creates TableVersion instance from stored metadata and registers it in _tbl_versions."""
         tbl_md, _, schema_version_md = self.load_tbl_md(tbl_id, effective_version)
         view_md = tbl_md.view_md
 
-        _logger.info(f'Loading table version: {tbl_id}:{effective_version}')
+        _logger.info(f'Loading table version: {tbl_id}:{effective_version}; current_version={tbl_md.current_version}')
         conn = Env.get().conn
 
-        # load mutable view ids
-        q = sql.select(schema.Table.id).where(
-            sql.text(
-                f"md->'view_md'->'base_versions'->0->>0 = {tbl_id.hex!r} "
-                "AND md->'view_md'->'base_versions'->0->1 IS NULL"
+        # load mutable view ids for mutable TableVersions
+        mutable_view_ids: list[UUID] = []
+        if effective_version is None and not tbl_md.is_replica:
+            q = sql.select(schema.Table.id).where(
+                sql.text(
+                    f"md->'view_md'->'base_versions'->0->>0 = {tbl_id.hex!r} "
+                    "AND md->'view_md'->'base_versions'->0->>1 IS NULL"
+                )
             )
-        )
-        mutable_view_ids = [r[0] for r in conn.execute(q).all()]
+            mutable_view_ids = [r[0] for r in conn.execute(q).all()]
+        print(f'mutable views ids: {mutable_view_ids}')
         mutable_views = [TableVersionHandle(id, None) for id in mutable_view_ids]
 
+        tbl_version: TableVersion
         if view_md is None:
             # this is a base table
             tbl_version = TableVersion(
                 tbl_id, tbl_md, effective_version, schema_version_md, mutable_views=mutable_views
             )
-            return tbl_version
-
-        assert len(view_md.base_versions) > 0  # a view needs to have a base
-        pure_snapshot = view_md.is_snapshot and view_md.predicate is None and len(schema_version_md.columns) == 0
-        assert not pure_snapshot  # a pure snapshot doesn't have a physical table backing it, no point in loading it
-
-        base: TableVersionHandle
-        base_path: Optional[TableVersionPath] = None  # needed for live view
-        if view_md.is_snapshot:
-            base = TableVersionHandle(UUID(view_md.base_versions[0][0]), view_md.base_versions[0][1])
         else:
-            base_path = TableVersionPath.from_md(tbl_md.view_md.base_versions)
-            base = base_path.tbl_version
+            assert len(view_md.base_versions) > 0  # a view needs to have a base
+            pure_snapshot = view_md.is_snapshot and view_md.predicate is None and len(schema_version_md.columns) == 0
+            assert not pure_snapshot  # a pure snapshot doesn't have a physical table backing it, no point in loading it
 
-        tbl_version = TableVersion(
-            tbl_id,
-            tbl_md,
-            effective_version,
-            schema_version_md,
-            base_path=base_path,
-            base=base,
-            mutable_views=mutable_views,
-        )
+            base: TableVersionHandle
+            base_path: Optional[TableVersionPath] = None  # needed for live view
+            if view_md.is_snapshot:
+                base = TableVersionHandle(UUID(view_md.base_versions[0][0]), view_md.base_versions[0][1])
+            else:
+                base_path = TableVersionPath.from_md(tbl_md.view_md.base_versions)
+                base = base_path.tbl_version
+
+            tbl_version = TableVersion(
+                tbl_id,
+                tbl_md,
+                effective_version,
+                schema_version_md,
+                base_path=base_path,
+                base=base,
+                mutable_views=mutable_views,
+            )
+
+        self._tbl_versions[tbl_id, effective_version] = tbl_version
+        tbl_version.init()
+
         return tbl_version
 
     def _init_store(self) -> None:
