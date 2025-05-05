@@ -121,6 +121,7 @@ black = ">=24.4"  # Needed for mkdocs
 # other
 pycocotools = "^2.0.7"
 ipykernel = "^6.27.1"
+tabulate = ">=0.9"
 nbmake = "^1.4.6"
 # packages required by various optional pieces of the codebase
 mistune = "^3.0.2"

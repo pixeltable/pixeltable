@@ -73,10 +73,11 @@ jobs:
         with:
           miniconda-version: latest
           activate-environment: pxt
-          python-version: ${{ matrix.python-version }}
           use-only-tar-bz2: true  # Needed to use conda with cache action
-      - name: Show conda info
-        run: conda info
+      - name: Install python
+        run: |
+          conda install -y python=${{ matrix.python-version }} pip=25.0
+          conda info
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
