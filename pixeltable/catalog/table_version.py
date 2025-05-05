@@ -1125,15 +1125,6 @@ class TableVersion:
             raise excs.Error('Cannot revert version 0')
         self._revert()
 
-    def _delete_column(self, col: Column) -> None:
-        """Physically remove the column from the schema and the store table"""
-        if col.is_stored:
-            self.store_tbl.drop_column(col)
-        self.cols.remove(col)
-        if col.name is not None:
-            del self.cols_by_name[col.name]
-        del self.cols_by_id[col.id]
-
     def _revert(self) -> None:
         """
         Reverts the stored metadata for this table version and propagates to views.
@@ -1259,7 +1250,7 @@ class TableVersion:
         self.version += 1
         self.preceding_schema_version = self.schema_version
         self.schema_version = self.version
-        idx = next(i for i, store_md in enumerate(self._tbl_md.external_stores) if store_md['name'] == store.name)
+        idx = next(i for i, store_md in enumerate(self._tbl_md.external_stores) if store_md['md']['name'] == store.name)
         self._tbl_md.external_stores.pop(idx)
         self._store_md(new_version=True, new_version_ts=time.time(), new_schema_version=True)
 
@@ -1371,7 +1362,7 @@ class TableVersion:
 
     @property
     def is_mutable(self) -> bool:
-        return self.effective_version is not None and not self.is_replica
+        return not self.is_snapshot and not self.is_replica
 
     @property
     def is_view(self) -> bool:

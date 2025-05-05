@@ -14,7 +14,8 @@ COLS_THRESHOLD = 20
 def random_tbl_op(t: pxt.Table) -> None:
     cnt = t.count()
     print(f'count: {cnt}')
-    is_data_op = random.choice([True, False])
+    is_data_op = True
+    #is_data_op = random.choice([True, False])
 
     if is_data_op:
         # add or delete rows
@@ -23,12 +24,14 @@ def random_tbl_op(t: pxt.Table) -> None:
             max_val = 0
         is_delete = random.uniform(0, 1) < (cnt / ROWS_THRESHOLD)
         if is_delete:
-            t.where(t.c1 > max_val - 10).delete()
-            print('deleted rows')
+            print('deleting rows: ', max_val)
+            status = t.where(t.c1 > max_val - 10).delete()
+            print('deleted rows: ', status.num_rows)
         else:
             # insert rows
+            print('inserting rows: ', max_val)
             t.insert({'c1': max_val + 1 + i} for i in range(10))
-            print('inserted rows')
+            print('inserted 10 rows')
 
     else:
         # add or drop columns

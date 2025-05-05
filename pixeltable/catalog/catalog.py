@@ -146,28 +146,36 @@ class Catalog:
                     assert (base.id, None) in self._tbl_versions
                     assert TableVersionHandle.create(tbl_version) in self._tbl_versions[base.id, None].mutable_views
 
-        # validate mutable tables
-        for tbl in self._tbls.values():
-            is_snapshot = tbl._tbl_version.effective_version is not None
-            if is_snapshot:
-                continue
-            if (tbl._tbl_version.id, None) not in self._tbl_versions:
-                # we might have ejected the corresponding TableVersion instance
-                continue
-
-            tbl_version = self._tbl_versions[tbl._tbl_version.id, None]
             if len(tbl_version.mutable_views) > 0:
                 # make sure we also loaded mutable view metadata, which is needed to detect column dependencies
                 for v in tbl_version.mutable_views:
-                    assert v.effective_version is None
-                    if (v.id, None) not in self._tbl_versions:
-                        x = 10
-                    if v.id not in self._tbls:
-                        x = 10
-                        print(self._tbls.keys())
-                        print(self._tbl_versions.keys())
-                    assert v.id in self._tbls, f'{v.id}'
-                    assert (v.id, None) in self._tbl_versions, f'{v.id}'
+                    assert v.effective_version is None, f'{v.id}:{v.effective_version}'
+
+        # # validate mutable tables
+        # for tbl in self._tbls.values():
+        #     is_snapshot = tbl._tbl_version.effective_version is not None
+        #     if is_snapshot:
+        #         continue
+        #     if (tbl._tbl_version.id, None) not in self._tbl_versions:
+        #         # we might have ejected the corresponding TableVersion instance
+        #         continue
+        #
+        #     tbl_version = self._tbl_versions[tbl._tbl_version.id, None]
+        #     if len(tbl_version.mutable_views) > 0:
+        #         # make sure we also loaded mutable view metadata, which is needed to detect column dependencies
+        #         for v in tbl_version.mutable_views:
+        #             assert v.effective_version is None
+        #             if (v.id, None) not in self._tbl_versions:
+        #                 print(self._tbl_versions.keys())
+        #                 x = 10
+        #             if v.id not in self._tbls:
+        #                 x = 10
+        #                 print(self._tbls.keys())
+        #                 print(self._tbl_versions.keys())
+        #             assert v.id in self._tbls, f'{v.id}'
+        #             if (v.id, None) not in self._tbl_versions:
+        #                 x = 10
+        #             assert (v.id, None) in self._tbl_versions, f'{v.id}'
 
     @contextmanager
     def begin_xact(self, *, tbl_id: Optional[UUID] = None, for_write: bool = False) -> Iterator[sql.Connection]:

@@ -108,6 +108,7 @@ class StoreBase:
         idxs.append(sql.Index(idx_name, self.v_max_col, postgresql_using=Env.get().dbms.version_index_type))
 
         self.sa_tbl = sql.Table(self._storage_name(), self.sa_md, *all_cols, *idxs)
+        print(f'created sa tbl for {str(tbl_version.id)} (id={id(self.sa_tbl)})')
         _logger.debug(f'created sa tbl for {str(tbl_version.id)} (id={id(self.sa_tbl)})')
 
     @abc.abstractmethod
@@ -424,13 +425,23 @@ class StoreBase:
             set_clause[index_info.undo_col.sa_col] = index_info.val_col.sa_col
             # set value column to NULL
             set_clause[index_info.val_col.sa_col] = None
-        stmt = (
-            sql.update(self.sa_tbl)
-            .values(set_clause)
-            .where(where_clause)
-            .where(rowid_join_clause)
-            .where(base_versions_clause)
-        )
+        # stmt = (
+        #     sql.update(self.sa_tbl)
+        #     .values(set_clause)
+        #     .where(where_clause)
+        #     .where(rowid_join_clause)
+        #     .where(base_versions_clause)
+        # )
+        stmt = sql.update(self.sa_tbl)
+        stmt = stmt.values(set_clause)
+        print(f'set_clause: {str(stmt)}')
+        stmt = stmt.where(where_clause)
+        print(f'where_clause: {str(stmt)}')
+        stmt = stmt.where(rowid_join_clause)
+        print(str(rowid_join_clause))
+        print(f'rowid_join_clause: {str(stmt)}')
+        stmt = stmt.where(base_versions_clause)
+        print(f'base_versions_clause: {str(stmt)}')
         conn = Env.get().conn
         log_explain(_logger, stmt, conn)
         status = conn.execute(stmt)
