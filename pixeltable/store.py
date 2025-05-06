@@ -432,6 +432,26 @@ class StoreBase:
         status = conn.execute(stmt)
         return status.rowcount
 
+    def dump_rows(self, version: int, filter_view: StoreBase, filter_view_version: int) -> Iterator[dict[str, Any]]:
+        filter_predicate = sql.and_(
+            filter_view.v_min_col <= filter_view_version,
+            filter_view.v_max_col > filter_view_version,
+            *[c1 == c2 for c1, c2 in zip(self.rowid_columns(), filter_view.rowid_columns())]
+        )
+        stmt = (
+            sql.select('*')
+            .select_from(self.sa_tbl)
+            .where(self.v_min_col <= version)
+            .where(self.v_max_col > version)
+            .where(sql.exists().where(filter_predicate))
+        )
+        conn = Env.get().conn
+        _logger.debug(stmt)
+        log_explain(_logger, stmt, conn)
+        result = conn.execute(stmt)
+        for row in result:
+            yield dict(zip(result.keys(), row))
+
     def insert_replica_rows(self, rows: list[dict[str, Any]]) -> None:
         """
         When instantiating a replica, we can't rely on the usual insertion code path, which contains error handling

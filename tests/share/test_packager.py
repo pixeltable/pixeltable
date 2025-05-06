@@ -189,7 +189,7 @@ class TestPackager:
     def test_views_round_trip(self, test_tbl: pxt.Table) -> None:
         v1 = pxt.create_view('v1', test_tbl, additional_columns={'x1': pxt.Int})
         v1.update({'x1': test_tbl.c2 * 10})
-        v2 = pxt.create_view('v2', v1, additional_columns={'x2': pxt.Int})
+        v2 = pxt.create_view('v2', v1.where(v1.c2 % 3 == 0), additional_columns={'x2': pxt.Int})
         v2.update({'x2': v1.x1 + 8})
         snapshot = pxt.create_snapshot('snapshot', v2)
         self.__do_round_trip(snapshot)

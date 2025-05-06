@@ -12,6 +12,7 @@ import more_itertools
 import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
+import sqlalchemy as sql
 
 import pixeltable as pxt
 from pixeltable import catalog, exceptions as excs, exprs, metadata, type_system as ts
@@ -83,71 +84,27 @@ class TablePackager:
         self.tables_dir.mkdir()
         with Env.get().begin_xact():
             for tvp in self.table._tbl_version_path.ancestors:
-                _logger.info(f"Exporting table '{tvp.tbl_version.get().name}'.")
-                self.__export_table(tvp)
+                _logger.info(f"Exporting table '{tvp.tbl_version.get().name}:{tvp.tbl_version.get().version}'.")
+                self.__export_table(tvp.tbl_version.get())
         _logger.info('Building archive.')
         bundle_path = self.__build_tarball()
         _logger.info(f'Packaging complete: {bundle_path}')
         return bundle_path
 
-    def __export_table(self, tvp: catalog.TableVersionPath) -> None:
+    def __export_table(self, tv: catalog.TableVersion) -> None:
         """
         Exports the data from `t` into a Parquet table.
         """
-        import pixeltable.functions as pxtf
-
-        # First generate a select list for the data we want to extract from `t`. This includes:
-        # - all stored columns, including computed columns;
-        # - errortype and errormsg fields whenever they're defined;
-        # - primary key columns (rowid components and vmin).
-        # We select only those columns that are defined in this table (columns inherited from ancestor tables will be
-        # handled separately).
-        # For media columns, we substitute `col.fileurl` so that we always get the URL (which may be a file:// URL;
-        # these will be specially handled later)
-        select_exprs: dict[str, exprs.Expr] = {}
-
-        # As we generate the select list, we construct a separate list of column types. We can't rely on df._schema
-        # to get the column types, since we'll be substituting `fileurl`s for media columns.
-        actual_col_types: list[ts.ColumnType] = []
-
-        tv = tvp.tbl_version.get()
-        for col_name, col in tv.cols_by_name.items():
-            if not col.is_stored:
-                continue
-            col_ref = exprs.ColumnRef(col)
+        sql_types = {
+            col.name: col.type
+            for col in tv.store_tbl.sa_tbl.columns
+        }
+        media_cols: set[str] = set()
+        for col in tv.cols_by_name.values():
             if col.col_type.is_media_type():
-                select_exprs[f'val_{col_name}'] = col_ref.fileurl
-            else:
-                select_exprs[f'val_{col_name}'] = col_ref
-            actual_col_types.append(col.col_type)
-            if col.records_errors:
-                select_exprs[f'errortype_{col_name}'] = col_ref.errortype
-                actual_col_types.append(ts.StringType())
-                select_exprs[f'errormsg_{col_name}'] = col_ref.errormsg
-                actual_col_types.append(ts.StringType())
+                media_cols.add(col.store_name())
 
-        # Add columns for the primary key components of the base table rows.
-        # We need to use a VminRef for the vmin component, to ensure we get the correct vmin for the base table
-        # (which may be different from the vmin of the primary table).
-        # We also explicitly select the rowid components, in order to use them with the group_by() / any_value()
-        # pattern to deduplicate in SQL (see below).
-        rowid_len = len(tv.store_tbl.rowid_columns())
-        for idx in range(rowid_len):
-            select_exprs[f'pk_{idx}'] = exprs.RowidRef(tvp.tbl_version, idx)
-        select_exprs['pk_vmin'] = exprs.VminRef(tvp.tbl_version)
-
-        if tv.id == self.table._tbl_version.id:
-            # Selecting from the primary table: just a simple select statement
-            df = self.table.select(**select_exprs)
-        else:
-            # Selecting from an ancestor table: in this case we still need to run the select() with `self.table` as the
-            # context, not the base TableVersionPath, so that we export only those rows that are actually present in
-            # `self.table`. The group_by() is needed to handle the case of iterator views correctly; it ensures that
-            # records of the base table are appropriately deduplicated on rowid.
-            select_exprs = {name: pxtf.any_value(expr) for name, expr in select_exprs.items()}
-            df = self.table._df().group_by(tv).select(**select_exprs)
-
-        parquet_schema = self.__to_parquet_schema(df._schema)
+        parquet_schema = self.__to_parquet_schema(tv.store_tbl.sa_tbl)
         # The parquet file naming scheme anticipates future support for partitioning.
         parquet_dir = self.tables_dir / f'tbl_{tv.id.hex}'
         parquet_dir.mkdir()
@@ -160,7 +117,9 @@ class TablePackager:
         # We use snappy compression for the Parquet tables; the entire bundle will be bzip2-compressed later, so
         # faster compression should provide good performance while still reducing temporary storage utilization.
         parquet_writer = pq.ParquetWriter(parquet_file, parquet_schema, compression='SNAPPY')
-        for pa_table in self.__to_pa_tables(df, rowid_len, actual_col_types, parquet_schema):
+        filter_tv = self.table._tbl_version.get()
+        row_iter = tv.store_tbl.dump_rows(tv.version, filter_tv.store_tbl, filter_tv.version)
+        for pa_table in self.__to_pa_tables(row_iter, sql_types, media_cols, parquet_schema):
             parquet_writer.write_table(pa_table)
         parquet_writer.close()
 
@@ -173,28 +132,36 @@ class TablePackager:
     # - Media columns are handled specially as indicated above
 
     @classmethod
-    def __to_parquet_schema(cls, pxt_schema: dict[str, ts.ColumnType]) -> pa.Schema:
+    def __to_parquet_schema(cls, store_tbl: sql.Table) -> pa.Schema:
         entries = [
-            (col_name, cls.__to_parquet_type(col_type))
-            for col_name, col_type in pxt_schema.items()
-            if not col_name.startswith('pk_')
+            (col_name, cls.__to_parquet_type(col.type))
+            for col_name, col in store_tbl.columns.items()
         ]
-        entries.append(('pk', pa.list_(pa.int64())))
         return pa.schema(entries)  # type: ignore[arg-type]
 
     @classmethod
-    def __to_parquet_type(cls, col_type: ts.ColumnType) -> pa.DataType:
-        if col_type.is_array_type():
-            return pa.binary()
-        if col_type.is_media_type():
+    def __to_parquet_type(cls, col_type: sql.types.TypeEngine[Any]) -> pa.DataType:
+        if isinstance(col_type, sql.String):
             return pa.string()
-        return PXT_TO_PA_TYPES.get(col_type.__class__)
+        if isinstance(col_type, sql.Boolean):
+            return pa.bool_()
+        if isinstance(col_type, sql.BigInteger):
+            return pa.int64()
+        if isinstance(col_type, sql.Float):
+            return pa.float32()
+        if isinstance(col_type, sql.TIMESTAMP):
+            return pa.timestamp('us')
+        if isinstance(col_type, sql.JSON):
+            return pa.string()  # JSON will be exported as strings
+        if isinstance(col_type, sql.LargeBinary):
+            return pa.binary()
+        raise AssertionError(f'Unrecognized SQL type: {col_type} (type {type(col_type)})')
 
     def __to_pa_tables(
         self,
-        df: DataFrame,
-        rowid_len: int,
-        actual_col_types: list[ts.ColumnType],
+        row_iter: Iterator[tuple[str, Any]],
+        sql_types: dict[str, sql.types.TypeEngine[Any]],
+        media_cols: set[str],
         arrow_schema: pa.Schema,
         batch_size: int = 1_000,
     ) -> Iterator[pa.Table]:
@@ -202,41 +169,31 @@ class TablePackager:
         Load a DataFrame as a sequence of pyarrow tables. The pyarrow tables are batched into smaller chunks
         to avoid excessive memory usage.
         """
-        for rows in more_itertools.batched(self.__to_pa_rows(df, rowid_len, actual_col_types), batch_size):
-            cols = {
-                col_name: [row[idx] for row in rows]
-                for idx, col_name in enumerate(df._schema.keys())
-                if not col_name.startswith('pk_')
-            }
-            cols['pk'] = [row[-1] for row in rows]
+        for rows in more_itertools.batched(row_iter, batch_size):
+            cols = {}
+            for name, sql_type in sql_types.items():
+                is_media_col = name in media_cols
+                values = [self.__to_pa_value(row.get(name), sql_type, is_media_col) for row in rows]
+                cols[name] = values
+            print(list(cols.keys()))
+            print([(name, v[0]) for name, v in cols.items()])
             yield pa.Table.from_pydict(cols, schema=arrow_schema)
 
-    def __to_pa_rows(self, df: DataFrame, rowid_len: int, actual_col_types: list[ts.ColumnType]) -> Iterator[list]:
-        val_exprs = df._select_list_exprs[: -rowid_len - 1]
-        pk_exprs = df._select_list_exprs[-rowid_len - 1 :]
-        for row in df._exec():
-            vals = [row[e.slot_idx] for e in val_exprs]
-            assert len(vals) == len(actual_col_types)
-            result = [self.__to_pa_value(val, col_type) for val, col_type in zip(vals, actual_col_types)]
-            pk = tuple(row[e.slot_idx] for e in pk_exprs)
-            result.append(pk)
-            yield result
-
-    def __to_pa_value(self, val: Any, col_type: ts.ColumnType) -> Any:
+    def __to_pa_value(self, val: Any, sql_type: sql.types.TypeEngine[Any], is_media_col: bool) -> Any:
         if val is None:
             return None
-        if col_type.is_array_type():
-            # Export arrays as binary
-            assert isinstance(val, np.ndarray)
-            arr = io.BytesIO()
-            np.save(arr, val)
-            return arr.getvalue()
-        if col_type.is_json_type():
+        # if col_type.is_array_type():
+        #     # Export arrays as binary
+        #     assert isinstance(val, np.ndarray)
+        #     arr = io.BytesIO()
+        #     np.save(arr, val)
+        #     return arr.getvalue()
+        if isinstance(sql_type, sql.JSON):
             # Export JSON as strings
             return json.dumps(val)
-        if col_type.is_media_type():
+        if is_media_col:
             # Handle media files as described above
-            assert isinstance(val, str)  # Media columns are always referenced by `fileurl`
+            assert isinstance(val, str)
             return self.__process_media_url(val)
         return val
 
