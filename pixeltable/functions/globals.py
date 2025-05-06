@@ -47,29 +47,6 @@ def _(val: sql.ColumnElement) -> Optional[sql.ColumnElement]:
 
 @func.uda(
     allows_window=True,
-    type_substitutions=tuple({T: Optional[t]} for t in ts.ALL_PIXELTABLE_TYPES),  # type: ignore[misc]
-)
-class any_value(func.Aggregator, typing.Generic[T]):
-    result: T
-
-    def __init__(self) -> None:
-        self.result = None
-
-    def update(self, val: T) -> None:
-        if self.result is None and val is not None:
-            self.result = val
-
-    def value(self) -> T:
-        return self.result
-
-
-@any_value.to_sql
-def _(val: sql.ColumnElement) -> Optional[sql.ColumnElement]:
-    return sql.sql.func.any_value(val)
-
-
-@func.uda(
-    allows_window=True,
     # Allow counting non-null values of any type
     # TODO: should we have an "Any" type that can be used here?
     type_substitutions=tuple({T: Optional[t]} for t in ts.ALL_PIXELTABLE_TYPES),  # type: ignore[misc]

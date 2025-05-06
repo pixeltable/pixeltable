@@ -21,7 +21,7 @@ from .literal import Literal
 from .method_ref import MethodRef
 from .object_ref import ObjectRef
 from .row_builder import ColumnSlotIdx, ExecProfile, RowBuilder
-from .rowid_ref import RowidRef, VminRef
+from .rowid_ref import RowidRef
 from .similarity_expr import SimilarityExpr
 from .sql_element_cache import SqlElementCache
 from .string_op import StringOp

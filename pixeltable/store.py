@@ -7,7 +7,7 @@ import sys
 import urllib.parse
 import urllib.request
 import warnings
-from typing import Any, Iterable, Iterator, Literal, Optional, Union
+from typing import Any, Iterator, Literal, Optional, Union
 
 import sqlalchemy as sql
 from tqdm import TqdmWarning, tqdm
@@ -436,7 +436,7 @@ class StoreBase:
         filter_predicate = sql.and_(
             filter_view.v_min_col <= filter_view_version,
             filter_view.v_max_col > filter_view_version,
-            *[c1 == c2 for c1, c2 in zip(self.rowid_columns(), filter_view.rowid_columns())]
+            *[c1 == c2 for c1, c2 in zip(self.rowid_columns(), filter_view.rowid_columns())],
         )
         stmt = (
             sql.select('*')

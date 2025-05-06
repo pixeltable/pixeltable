@@ -1,5 +1,4 @@
 import datetime
-import io
 import json
 import logging
 import tarfile
@@ -10,17 +9,14 @@ from pathlib import Path
 from typing import Any, Iterator, Optional
 
 import more_itertools
-import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 import sqlalchemy as sql
 
 import pixeltable as pxt
-from pixeltable import catalog, exceptions as excs, exprs, metadata, type_system as ts
-from pixeltable.dataframe import DataFrame
+from pixeltable import catalog, exceptions as excs, metadata
 from pixeltable.env import Env
 from pixeltable.metadata import schema
-from pixeltable.utils.arrow import PXT_TO_PA_TYPES
 from pixeltable.utils.media_store import MediaStore
 
 _logger = logging.getLogger('pixeltable')
@@ -96,10 +92,7 @@ class TablePackager:
         """
         Exports the data from `t` into a Parquet table.
         """
-        sql_types = {
-            col.name: col.type
-            for col in tv.store_tbl.sa_tbl.columns
-        }
+        sql_types = {col.name: col.type for col in tv.store_tbl.sa_tbl.columns}
         media_cols: set[str] = set()
         for col in tv.cols_by_name.values():
             if col.is_stored and col.col_type.is_media_type():
@@ -134,10 +127,7 @@ class TablePackager:
 
     @classmethod
     def __to_parquet_schema(cls, store_tbl: sql.Table) -> pa.Schema:
-        entries = [
-            (col_name, cls.__to_parquet_type(col.type))
-            for col_name, col in store_tbl.columns.items()
-        ]
+        entries = [(col_name, cls.__to_parquet_type(col.type)) for col_name, col in store_tbl.columns.items()]
         return pa.schema(entries)  # type: ignore[arg-type]
 
     @classmethod
@@ -160,7 +150,7 @@ class TablePackager:
 
     def __to_pa_tables(
         self,
-        row_iter: Iterator[tuple[str, Any]],
+        row_iter: Iterator[dict[str, Any]],
         sql_types: dict[str, sql.types.TypeEngine[Any]],
         media_cols: set[str],
         arrow_schema: pa.Schema,
@@ -294,14 +284,10 @@ class TableRestorer:
             rows = self.__from_pa_pydict(tv, pydict)
             tv.store_tbl.load_rows(rows)
 
-    def __from_pa_pydict(
-        self,
-        tv: catalog.TableVersion,
-        pydict: dict[str, Any],
-    ) -> list[dict[str, Any]]:
+    def __from_pa_pydict(self, tv: catalog.TableVersion, pydict: dict[str, Any]) -> list[dict[str, Any]]:
         # Data conversions from pyarrow to Pixeltable
         sql_types: dict[str, sql.types.TypeEngine[Any]] = {}
-        for col_name in pydict.keys():
+        for col_name in pydict:
             assert col_name in tv.store_tbl.sa_tbl.columns
             sql_types[col_name] = tv.store_tbl.sa_tbl.columns[col_name].type
         media_col_ids: dict[str, int] = {}
@@ -320,7 +306,9 @@ class TableRestorer:
 
         return rows
 
-    def __from_pa_value(self, tv: catalog.TableVersion, val: Any, sql_type: sql.types.TypeEngine[Any], media_col_id: Optional[int]) -> Any:
+    def __from_pa_value(
+        self, tv: catalog.TableVersion, val: Any, sql_type: sql.types.TypeEngine[Any], media_col_id: Optional[int]
+    ) -> Any:
         if val is None:
             return None
         # if col_type.is_array_type():
