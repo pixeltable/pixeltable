@@ -176,8 +176,6 @@ class TablePackager:
                 is_media_col = name in media_cols
                 values = [self.__to_pa_value(row.get(name), sql_type, is_media_col) for row in rows]
                 cols[name] = values
-            print(list(cols.keys()))
-            print([(name, v[0]) for name, v in cols.items()])
             yield pa.Table.from_pydict(cols, schema=arrow_schema)
 
     def __to_pa_value(self, val: Any, sql_type: sql.types.TypeEngine[Any], is_media_col: bool) -> Any:

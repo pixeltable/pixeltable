@@ -68,8 +68,7 @@ class TestPackager:
         metadata = json.loads((dest / 'metadata.json').read_text())
         self.__validate_metadata(metadata, t)
 
-        expected_cols = 1 + 3 * 3  # pk plus three stored media/computed columns with error columns
-        self.__check_parquet_tbl(t, dest, media_dir=(dest / 'media'), expected_cols=expected_cols)
+        self.__check_parquet_tbl(t, dest, media_dir=(dest / 'media'), expected_cols=16)
 
     def __extract_bundle(self, bundle_path: Path) -> Path:
         tmp_dir = Path(Env.get().create_tmp_path())
@@ -106,14 +105,14 @@ class TestPackager:
             if not col.is_stored:
                 continue
             if col.col_type.is_media_type():
-                select_exprs[f'val_{col_name}'] = t[col_name].fileurl
+                select_exprs[col.store_name()] = t[col_name].fileurl
             else:
-                select_exprs[f'val_{col_name}'] = t[col_name]
+                select_exprs[col.store_name()] = t[col_name]
             actual_col_types.append(col.col_type)
             if col.records_errors:
-                select_exprs[f'errortype_{col_name}'] = t[col_name].errortype
+                select_exprs[col.errortype_store_name()] = t[col_name].errortype
                 actual_col_types.append(ts.StringType())
-                select_exprs[f'errormsg_{col_name}'] = t[col_name].errormsg
+                select_exprs[col.errormsg_store_name()] = t[col_name].errormsg
                 actual_col_types.append(ts.StringType())
 
         scope_tbl = scope_tbl or t
