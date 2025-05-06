@@ -149,8 +149,7 @@ class TableVersion:
             assert tbl_md.view_md.iterator_args is not None
 
         self.mutable_views = set(mutable_views)
-        if not self.is_mutable and len(self.mutable_views) > 0:
-            x = 10
+        assert self.is_mutable or len(self.mutable_views) == 0
 
         self.cols = []
         self.cols_by_name = {}
@@ -417,9 +416,6 @@ class TableVersion:
             self.store_tbl = StoreTable(self)
 
     def _store_md(self, new_version: bool, new_version_ts: float, new_schema_version: bool) -> None:
-        # def _update_md(
-        #         self, timestamp: float, update_tbl_version: bool = True, preceding_schema_version: Optional[int] = None
-        # ) -> None:
         """Writes table metadata to the database.
 
         Args:
@@ -582,7 +578,7 @@ class TableVersion:
 
         # we're creating a new schema version
         self.version += 1
-        preceding_schema_version = self.schema_version
+        self.preceding_schema_version = self.schema_version
         self.schema_version = self.version
         idx_md = self._tbl_md.index_md[idx_id]
         idx_md.schema_version_drop = self.schema_version
@@ -1104,7 +1100,15 @@ class TableVersion:
         Returns:
             number of deleted rows
         """
+        # print(f'calling sql_expr()')
         sql_where_clause = where.sql_expr(exprs.SqlElementCache()) if where is not None else None
+        # #print(f'sql_where_clause={str(sql_where_clause) if sql_where_clause is not None else None}')
+        # sql_cols: list[sql.Column] = []
+        # def collect_cols(col) -> None:
+        #     sql_cols.append(col)
+        # sql.sql.visitors.traverse(sql_where_clause, {}, {'column': collect_cols})
+        # x = [f'{str(c)}:{hash(c)}:{id(c.table)}' for c in sql_cols]
+        # print(f'where_clause cols: {x}')
         num_rows = self.store_tbl.delete_rows(
             self.version + 1, base_versions=base_versions, match_on_vmin=False, where_clause=sql_where_clause
         )

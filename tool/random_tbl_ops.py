@@ -2,7 +2,6 @@
 
 import random
 import time
-from typing import Optional
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
@@ -15,23 +14,31 @@ def random_tbl_op(t: pxt.Table) -> None:
     cnt = t.count()
     print(f'count: {cnt}')
     is_data_op = True
-    #is_data_op = random.choice([True, False])
+    # is_data_op = random.choice([True, False])
 
     if is_data_op:
         # add or delete rows
         max_val = t.select(pxtf.max(t.c1)).collect()[0, 0]
         if max_val is None:
             max_val = 0
+        is_update = random.uniform(0, 1) < 0.1
+        if is_update:
+            # update rows
+            print(f'updating rows: c1 > {max_val - 10}')
+            status = t.where(t.c1 > max_val - 10).update({'c1': t.c1 + 1})
+            print(f'updated {status.num_rows} rows')
+            return
+
         is_delete = random.uniform(0, 1) < (cnt / ROWS_THRESHOLD)
         if is_delete:
-            print('deleting rows: ', max_val)
+            print(f'deleting rows: c1 > {max_val - 10}')
             status = t.where(t.c1 > max_val - 10).delete()
-            print('deleted rows: ', status.num_rows)
+            print(f'deleted {status.num_rows} rows')
         else:
             # insert rows
-            print('inserting rows: ', max_val)
-            t.insert({'c1': max_val + 1 + i} for i in range(10))
-            print('inserted 10 rows')
+            print(f'inserting rows: {max_val + 1} - {max_val + 10}')
+            status = t.insert({'c1': max_val + 1 + i} for i in range(10))
+            print(f'inserted {status.num_rows} rows')
 
     else:
         # add or drop columns
@@ -51,6 +58,7 @@ def random_tbl_op(t: pxt.Table) -> None:
 def main() -> None:
     pxt.init()
     t = pxt.create_table('random_tbl', schema={'c1': pxt.Int}, if_exists='ignore')
+    t.add_computed_column(computed1=t.c1 + 10, if_exists='ignore')
 
     while True:
         random_tbl_op(t)

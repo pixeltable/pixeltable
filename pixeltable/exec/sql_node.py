@@ -138,29 +138,17 @@ class SqlNode(ExecNode):
             tv = self.tbl.tbl_version._tbl_version
             if tv is not None:
                 assert tv.is_validated
-            #print(f'sqlnode tv={id(tv) if tv is not None else None}')
-            x = ', '.join([f'{k}:{id(v)}' for k, v in catalog.Catalog.get()._tbl_versions.items()])
-            #print(f'sqlnode catalog: {x}')
 
     def _create_stmt(self) -> sql.Select:
         """Create Select from local state"""
 
         assert self.sql_elements.contains_all(self.select_list)
         sql_select_list = [self.sql_elements.get(e) for e in self.select_list]
-        x = [f'{e.name}: {id(e.table)}' for e in sql_select_list if isinstance(e, sql.Column)]
-        #print(f'select list: {", ".join(x)}')
         if self.set_pk:
             assert self.tbl is not None
             assert self.tbl.tbl_version.get().is_validated
-            #print(f'tv={id(self.tbl.tbl_version.get())}')
-            #print(f'sa_tbl={id(self.tbl.tbl_version.get().store_tbl.sa_tbl)}')
-            #print(f'rowid sa_tbl={id(self.tbl.tbl_version.get().store_tbl.pk_columns()[0].table)}')
             sql_select_list += self.tbl.tbl_version.get().store_tbl.pk_columns()
-            x = [f'{e.name}: {id(e.table)}' for e in sql_select_list if isinstance(e, sql.Column)]
-            #print(f'select list: {", ".join(x)}')
         stmt = sql.select(*sql_select_list)
-        #if self.tbl is not None:
-            #print(f'sa tbl: {id(self.tbl.tbl_version.get().store_tbl.sa_tbl)}')
 
         where_clause_element = (
             self.sql_elements.get(self.where_clause) if self.where_clause is not None else self.where_clause_element
@@ -237,7 +225,6 @@ class SqlNode(ExecNode):
             if t.id in refd_tbl_ids:
                 joined_tbls.append(t)
 
-        #print(f'input stmt: {str(stmt)}')
         first = True
         prev_tv: Optional[catalog.TableVersion] = None
         for t in joined_tbls[::-1]:
@@ -253,25 +240,14 @@ class SqlNode(ExecNode):
                     c1 == c2 for c1, c2 in zip(prev_tbl_rowid_cols, tbl_rowid_cols[: len(prev_tbl_rowid_cols)])
                 ]
                 stmt = stmt.join(tv.store_tbl.sa_tbl, sql.and_(*rowid_clauses))
-            #print(f'stmt0: {str(stmt)}')
 
             if t.id in exact_version_only:
                 stmt = stmt.where(tv.store_tbl.v_min_col == tv.version)
             else:
-                # stmt = (
-                #     stmt
-                #     .where(tv.store_tbl.v_min_col <= tv.version)
-                #     .where(tv.store_tbl.v_max_col > tv.version)
-                # )
                 stmt = stmt.where(tv.store_tbl.sa_tbl.c.v_min <= tv.version)
-                # stmt = stmt.where(tv.store_tbl.v_min_col <= tv.version)
-                #print(f'stmt1: {str(stmt)}')
                 stmt = stmt.where(tv.store_tbl.sa_tbl.c.v_max > tv.version)
-                # stmt = stmt.where(tv.store_tbl.v_max_col > tv.version)
-                #print(f'stmt2: {str(stmt)}')
             prev_tv = tv
-            # print(f'new stmt: {str(stmt)}')
-        # print(f'output stmt: {str(stmt)}')
+
         return stmt
 
     def set_where(self, where_clause: exprs.Expr) -> None:

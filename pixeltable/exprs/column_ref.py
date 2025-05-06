@@ -45,8 +45,10 @@ class ColumnRef(Expr):
     pos_idx: Optional[int]
     id: int
     perform_validation: bool  # if True, performs media validation
-    col_id: int
+
+    # needed by sql_expr() to re-resolve Column instance after a metadata reload
     tbl_version: catalog.TableVersionHandle
+    col_id: int
 
     def __init__(self, col: catalog.Column, perform_validation: Optional[bool] = None):
         super().__init__(col.col_type)
@@ -216,16 +218,15 @@ class ColumnRef(Expr):
         # return None if self.perform_validation else self.col.sa_col
         if self.perform_validation:
             return None
-        # make sure we have an sa_col for the validated TableVersion
-        if self.tbl_version._tbl_version is None:
-            x = 10
+        # we need to reestablish that we have the correct Column instance, there could have been a metadata
+        # reload since init()
+        # TODO: add an explicit prepare phase (ie, Expr.prepare()) that gives every subclass instance a chance to
+        # perform runtime checks and update state
         tv = self.tbl_version.get()
         assert tv.is_validated
-        col = tv.cols_by_id[self.col_id]
-        print(f'tv={id(tv)} col={col.name} sa_tbl={id(tv.store_tbl.sa_tbl)}')
-        # x = ', '.join([f'{k}:{id(v)}' for k, v in catalog.Catalog.get()._tbl_versions.items()])
-        # print(f'catalog: {x}')
-        return col.sa_col
+        self.col = tv.cols_by_id[self.col_id]
+        # TODO: check for column being dropped
+        return self.col.sa_col
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         if self.perform_validation:

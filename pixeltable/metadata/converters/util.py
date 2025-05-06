@@ -146,11 +146,25 @@ def __update_schema_column(table_schema_version_md: dict, schema_column_updater:
         schema_column_updater(schema_col)
 
 
-def convert_table_record(engine: sql.engine.Engine, table_record_updater: Optional[Callable[[Table], None]]) -> None:
-    with sql.orm.Session(engine, future=True) as session:
-        for record in session.query(Table).all():
-            table_record_updater(record)
-        session.commit()
+# def convert_table_record(engine: sql.engine.Engine, table_record_updater: Optional[Callable[[Table], None]]) -> None:
+#     with sql.orm.Session(engine, future=True) as session:
+#         for record in session.query(Table).all():
+#             table_record_updater(record)
+#         session.commit()
+
+
+# def convert_table_md(engine: sql.engine.Engine, table_record_updater: Optional[Callable[[UUID, dict], dict]]) -> None:
+#     with engine.begin() as conn:
+#         # Select all records
+#         result = conn.execute(sql.select(Table.id, Table.md))
+#         for row in result:
+#             id, md = row.id, row.md
+#             updated_md = table_record_updater(id, md)
+#             conn.execute(
+#                 sql.update(Table)
+#                 .where(Table.id == id)
+#                 .values(md=updated_md)
+#             )
 
 
 def convert_table_version_record(

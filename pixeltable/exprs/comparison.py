@@ -81,7 +81,6 @@ class Comparison(Expr):
         if self.is_search_arg_comparison:
             # reference the index value column if there is an index and this is not a snapshot
             # (indices don't apply to snapshots)
-            # TODO: re-resolve _op1.col
             tbl = self._op1.col.tbl
             idx_info = [
                 info for info in self._op1.col.get_idx_info().values() if isinstance(info.idx, index.BtreeIndex)

@@ -3,7 +3,6 @@ from __future__ import annotations
 import abc
 import itertools
 import logging
-import time
 from dataclasses import dataclass
 from typing import Any, Optional
 from uuid import UUID
@@ -11,7 +10,7 @@ from uuid import UUID
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable import Column, Table
-from pixeltable.catalog import TableVersion, TableVersionHandle
+from pixeltable.catalog import TableVersion
 
 _logger = logging.getLogger('pixeltable')
 
@@ -108,9 +107,9 @@ class Project(ExternalStore, abc.ABC):
         if len(stored_proxies_needed) > 0:
             _logger.info(f'Creating stored proxies for columns: {[col.name for col in stored_proxies_needed]}')
             # Create stored proxies for columns that need one
-            proxy_cols = [self.create_stored_proxy(tbl_version, col) for col in stored_proxies_needed]
+            proxy_cols = [self.create_stored_proxy(col) for col in stored_proxies_needed]
             # Add the columns; this will also update table metadata.
-            tbl_version._add_columns(proxy_cols, print_stats=False, on_error='ignore')
+            tbl_version.add_columns(proxy_cols, print_stats=False, on_error='ignore')
 
     def unlink(self, tbl_version: TableVersion) -> None:
         # Determine which stored proxies can be deleted. (A stored proxy can be deleted if it is not referenced by
@@ -124,7 +123,7 @@ class Project(ExternalStore, abc.ABC):
             tbl_version._drop_columns(deletions_needed)
             self.stored_proxies.clear()
 
-    def create_stored_proxy(self, tbl_version: TableVersion, col: Column) -> Column:
+    def create_stored_proxy(self, col: Column) -> Column:
         """
         Creates a proxy column for the specified column. The proxy column will be created in the specified
         `TableVersion`.
@@ -142,14 +141,7 @@ class Project(ExternalStore, abc.ABC):
             #   Once `destination` is implemented, it can be replaced with a simple `ColumnRef`.
             computed_with=exprs.ColumnRef(col).apply(lambda x: x, col_type=col.col_type),
             stored=True,
-            col_id=tbl_version.next_col_id,
-            sa_col_type=col.col_type.to_sa_type(),
-            schema_version_add=tbl_version.schema_version,
         )
-        # TODO: this needs to go through TableVersion.add_columns()
-        proxy_col.tbl = tbl_version
-        # proxy_col.tbl = TableVersionHandle(tbl_version.id, tbl_version.effective_version, tbl_version=tbl_version)
-        tbl_version.next_col_id += 1
         self.stored_proxies[col] = proxy_col
         return proxy_col
 

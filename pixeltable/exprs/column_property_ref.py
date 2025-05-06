@@ -58,8 +58,14 @@ class ColumnPropertyRef(Expr):
         if not self._col_ref.col.is_stored:
             return None
 
+        # we need to reestablish that we have the correct Column instance, there could have been a metadata
+        # reload since init()
+        # TODO: add an explicit prepare phase (ie, Expr.prepare()) that gives every subclass instance a chance to
+        # perform runtime checks and update state
         tv = self._col_ref.tbl_version.get()
+        assert tv.is_validated
         col = tv.cols_by_id[self._col_ref.col_id]
+        # TODO: check for column being dropped
 
         # the errortype/-msg properties of a read-validated media column need to be extracted from the DataRow
         if (

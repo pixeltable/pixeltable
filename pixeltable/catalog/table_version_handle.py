@@ -52,13 +52,9 @@ class TableVersionHandle:
                 self._tbl_version.is_validated = True
             else:
                 self._tbl_version = Catalog.get().get_tbl_version(self.id, self.effective_version)
-            # assert self._tbl_version.is_validated
-            # print(f'self.tbl_version.isvalidated={self._tbl_version.is_validated}')
         if self.effective_version is None:
             # make sure we don't see a discarded instance of a live TableVersion
             tvs = list(Catalog.get()._tbl_versions.values())
-            if self._tbl_version not in tvs:
-                x = 10
             assert self._tbl_version in tvs
         return self._tbl_version
 

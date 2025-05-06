@@ -58,7 +58,7 @@ def _unpack_row(
     return result
 
 
-_MAX_RETRIES = 3
+_MAX_RETRIES = 0
 T = TypeVar('T')
 
 
@@ -132,8 +132,6 @@ class Catalog:
             assert effective_version == tbl_version.effective_version, (
                 f'{effective_version} != {tbl_version.effective_version} for id {tbl_id}'
             )
-            if len(tbl_version.mutable_views) > 0 and not tbl_version.is_mutable:
-                x = 10
             assert len(tbl_version.mutable_views) == 0 or tbl_version.is_mutable, (
                 f'snapshot_id={tbl_version.id} mutable_views={tbl_version.mutable_views}'
             )
@@ -151,32 +149,6 @@ class Catalog:
                 for v in tbl_version.mutable_views:
                     assert v.effective_version is None, f'{v.id}:{v.effective_version}'
 
-        # # validate mutable tables
-        # for tbl in self._tbls.values():
-        #     is_snapshot = tbl._tbl_version.effective_version is not None
-        #     if is_snapshot:
-        #         continue
-        #     if (tbl._tbl_version.id, None) not in self._tbl_versions:
-        #         # we might have ejected the corresponding TableVersion instance
-        #         continue
-        #
-        #     tbl_version = self._tbl_versions[tbl._tbl_version.id, None]
-        #     if len(tbl_version.mutable_views) > 0:
-        #         # make sure we also loaded mutable view metadata, which is needed to detect column dependencies
-        #         for v in tbl_version.mutable_views:
-        #             assert v.effective_version is None
-        #             if (v.id, None) not in self._tbl_versions:
-        #                 print(self._tbl_versions.keys())
-        #                 x = 10
-        #             if v.id not in self._tbls:
-        #                 x = 10
-        #                 print(self._tbls.keys())
-        #                 print(self._tbl_versions.keys())
-        #             assert v.id in self._tbls, f'{v.id}'
-        #             if (v.id, None) not in self._tbl_versions:
-        #                 x = 10
-        #             assert (v.id, None) in self._tbl_versions, f'{v.id}'
-
     @contextmanager
     def begin_xact(self, *, tbl_id: Optional[UUID] = None, for_write: bool = False) -> Iterator[sql.Connection]:
         """
@@ -186,7 +158,7 @@ class Catalog:
         or metadata.
         """
         if not Env.get().in_xact:
-            num_remaining_retries = _MAX_RETRIES
+            num_retries = 0
             while True:
                 try:
                     with Env.get().begin_xact() as conn:
@@ -201,14 +173,12 @@ class Catalog:
                         yield conn
                         return
                 except sql.exc.DBAPIError as e:
-                    if isinstance(e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)):
-                        if num_remaining_retries > 0:
-                            num_remaining_retries -= 1
-                            _logger.debug(f'Serialization failure, retrying ({num_remaining_retries} retries left)')
-                            print(f'RETRYING after {type(e.orig)}')
-                            time.sleep(random.uniform(0.1, 0.5))
-                        else:
-                            raise excs.Error(f'Serialization retry limit ({_MAX_RETRIES}) exceeded') from e
+                    if isinstance(e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)) and (
+                        num_retries < _MAX_RETRIES or _MAX_RETRIES == 0
+                    ):
+                        num_retries += 1
+                        _logger.debug(f'Retrying ({num_retries}) after {type(e.orig)}')
+                        time.sleep(random.uniform(0.1, 0.5))
                     else:
                         raise
                 finally:
@@ -219,7 +189,6 @@ class Catalog:
                         tv.is_validated = False
                         if tv.effective_version is None:
                             _logger.debug(f'invalidating table version {tv.id}:{tv.version}')
-                            # print(f'invalidating table version {tv.id}:{tv.version}')
                             tv.is_validated = False
 
                     if _logger.isEnabledFor(logging.DEBUG):
@@ -250,21 +219,6 @@ class Catalog:
             if user is not None:
                 q = q.where(schema.Dir.md['user'].astext == user)
         Env.get().conn.execute(q)
-
-    # def _xlock_tbl(self, tbl_id: UUID) -> None:
-    #     """Force acquisition of an X-lock on a Table record via a blind update."""
-    #     _logger.debug(f'X-locking table {tbl_id}')
-    #     assert self._in_write_xact
-    #     q = sql.select(schema.Table).where(schema.Table.id == tbl_id).with_for_update(nowait=True)
-    #     while True:
-    #         try:
-    #             Env.get().conn.execute(q)
-    #             break
-    #         except sql.exc.DBAPIError as e:
-    #             print(e)
-    #             time.sleep(0.1)
-    #     q = sql.update(schema.Table).values(lock_dummy=1).where(schema.Table.id == tbl_id)
-    #     Env.get().conn.execute(q)
 
     def get_dir_path(self, dir_id: UUID) -> Path:
         """Return path for directory with given id"""
@@ -870,9 +824,6 @@ class Catalog:
     def get_tbl_version(self, tbl_id: UUID, effective_version: Optional[int]) -> Optional[TableVersion]:
         # we need a transaction here, if we're not already in one; if this starts a new transaction,
         # the returned TableVersion instance will not be validated
-        if not Env.get().in_xact:
-            x = 10
-        # assert Env.get().in_xact
         with self.begin_xact(tbl_id=tbl_id, for_write=False) as conn:
             tv = self._tbl_versions.get((tbl_id, effective_version))
             if tv is None:
@@ -880,7 +831,6 @@ class Catalog:
             elif not tv.is_validated and effective_version is None:
                 # we validate live instances by comparing our cached version number to the stored current version
                 _logger.debug(f'validating metadata for table {tbl_id}:{tv.version}')
-                # print(f'validating metadata for table {tbl_id}:{tv.version}')
                 q = sql.select(schema.Table.md).where(schema.Table.id == tbl_id)
                 row = conn.execute(q).one()
                 current_version = row.md['current_version']
@@ -893,10 +843,6 @@ class Catalog:
                         f'reloading metadata for table {tbl_id} '
                         f'(cached version: {tv.version}, current version: {current_version})'
                     )
-                    # print(
-                    #     f'reloading metadata for table {tbl_id} '
-                    #     f'(cached version: {tv.version}, current version: {current_version})'
-                    # )
                     tv = self._load_tbl_version(tbl_id, effective_version)
 
             tv.is_validated = True
@@ -1058,8 +1004,6 @@ class Catalog:
             )
 
         row = conn.execute(q).one_or_none()
-        if row is None:
-            x = 10
         assert row is not None, f'Table record not found: {tbl_id}:{effective_version}'
         tbl_record, version_record, schema_version_record = _unpack_row(
             row, [schema.Table, schema.TableVersion, schema.TableSchemaVersion]
@@ -1176,7 +1120,6 @@ class Catalog:
                 )
             )
             mutable_view_ids = [r[0] for r in conn.execute(q).all()]
-        print(f'mutable views ids: {mutable_view_ids}')
         mutable_views = [TableVersionHandle(id, None) for id in mutable_view_ids]
 
         tbl_version: TableVersion
