@@ -34,6 +34,8 @@ def make_default_type(t: ts.ColumnType.Type) -> ts.ColumnType:
         return ts.BoolType()
     if t == ts.ColumnType.Type.TIMESTAMP:
         return ts.TimestampType()
+    if t == ts.ColumnType.Type.DATE:
+        return ts.DateType()
     raise AssertionError()
 
 
@@ -100,6 +102,8 @@ def create_table_data(
             col_data = [False if i == 0 else True for i in col_data]  # noqa: SIM211
         if col_type.is_timestamp_type():
             col_data = [datetime.datetime.now()] * num_rows
+        if col_type.is_date_type():
+            col_data = [datetime.date.today()] * num_rows
         if col_type.is_json_type():
             col_data = [sample_dict] * num_rows
         if col_type.is_array_type():
@@ -421,6 +425,17 @@ def skip_test_if_no_client(client_name: str) -> None:
     try:
         _ = Env.get().get_client(client_name)
     except excs.Error as exc:
+        pytest.skip(str(exc))
+
+
+def skip_test_if_no_aws_credentials() -> None:
+    import boto3
+    from botocore.exceptions import NoCredentialsError
+
+    try:
+        cl = boto3.client('s3')
+        cl.list_buckets()
+    except NoCredentialsError as exc:
         pytest.skip(str(exc))
 
 

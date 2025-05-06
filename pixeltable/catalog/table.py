@@ -109,7 +109,7 @@ class Table(SchemaObject):
         self._check_is_dropped()
         with env.Env.get().begin_xact():
             md = super().get_metadata()
-            md['base'] = self._base._path() if self._base is not None else None
+            md['base'] = self._base_table._path() if self._base_table is not None else None
             md['schema'] = self._schema
             md['is_replica'] = self._tbl_version.get().is_replica
             md['version'] = self._version
@@ -259,27 +259,26 @@ class Table(SchemaObject):
         return {c.name: c.col_type for c in self._tbl_version_path.columns()}
 
     @property
-    def _base(self) -> Optional['Table']:
-        """
-        The base table of this `Table`. If this table is a view, returns the `Table`
-        from which it was derived. Otherwise, returns `None`.
-        """
-        if self._tbl_version_path.base is None:
-            return None
-        base_id = self._tbl_version_path.base.tbl_version.id
-        return catalog.Catalog.get().get_table_by_id(base_id)
+    @abc.abstractmethod
+    def _base_table(self) -> Optional['Table']:
+        """The base's Table instance"""
+        ...
 
     @property
-    def _bases(self) -> list['Table']:
-        """
-        The ancestor list of bases of this table, starting with its immediate base.
-        """
+    def _base_tables(self) -> list['Table']:
+        """The ancestor list of bases of this table, starting with its immediate base."""
         bases = []
-        base = self._base
+        base = self._base_table
         while base is not None:
             bases.append(base)
-            base = base._base
+            base = base._base_table
         return bases
+
+    @property
+    @abc.abstractmethod
+    def _effective_base_versions(self) -> list[Optional[int]]:
+        """The effective versions of the ancestor bases, starting with its immediate base."""
+        ...
 
     @property
     def _comment(self) -> str:
@@ -304,7 +303,7 @@ class Table(SchemaObject):
         Constructs a list of descriptors for this table that can be pretty-printed.
         """
         helper = DescriptionHelper()
-        helper.append(self._title_descriptor())
+        helper.append(self._table_descriptor())
         helper.append(self._col_descriptor())
         idxs = self._index_descriptor()
         if not idxs.empty:
@@ -316,14 +315,8 @@ class Table(SchemaObject):
             helper.append(f'COMMENT: {self._comment}')
         return helper
 
-    def _title_descriptor(self) -> str:
-        title: str
-        if self._base is None:
-            title = f'Table\n{self._path()!r}'
-        else:
-            title = f'View\n{self._path()!r}'
-            title += f'\n(of {self.__bases_to_desc()})'
-        return title
+    @abc.abstractmethod
+    def _table_descriptor(self) -> str: ...
 
     def _col_descriptor(self, columns: Optional[list[str]] = None) -> pd.DataFrame:
         return pd.DataFrame(
@@ -335,14 +328,6 @@ class Table(SchemaObject):
             for col in self._tbl_version_path.columns()
             if columns is None or col.name in columns
         )
-
-    def __bases_to_desc(self) -> str:
-        bases = self._bases
-        assert len(bases) >= 1
-        if len(bases) <= 2:
-            return ', '.join(repr(b._path()) for b in bases)
-        else:
-            return f'{bases[0]._path()!r}, ..., {bases[-1]._path()!r}'
 
     def _index_descriptor(self, columns: Optional[list[str]] = None) -> pd.DataFrame:
         from pixeltable import index
@@ -377,9 +362,9 @@ class Table(SchemaObject):
         """
         self._check_is_dropped()
         if getattr(builtins, '__IPYTHON__', False):
-            from IPython.display import display
+            from IPython.display import Markdown, display
 
-            display(self._repr_html_())
+            display(Markdown(self._repr_html_()))
         else:
             print(repr(self))
 

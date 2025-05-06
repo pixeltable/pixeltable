@@ -150,6 +150,7 @@ fiftyone = "^1.0.0"
 ollama = ">=0.4.0"
 llama-cpp-python = { version = ">=0.3.7", platform = "!=win32" }  # Windows build of llama_cpp has issues in CI
 pixeltable-yolox = "==0.4.0"
+tabulate = ">=0.9"
 
 [tool.poetry.plugins."mkdocstrings.python.templates"]
 extension-name = "tool.doc_plugins.mkdocstrings:get_templates_path"

@@ -1,7 +1,7 @@
+import datetime
 import random
 import string
 import sys
-from datetime import datetime, timedelta
 from typing import Any, Union, _GenericAlias  # type: ignore[attr-defined]
 
 import numpy as np
@@ -435,8 +435,9 @@ class TestIndex:
             img_t.drop_embedding_index(column=img_t.category)
 
         img_t.add_computed_column(simmy=img_t.category.similarity('red_truck', idx='cat_idx'))
-        with pytest.raises(pxt.ExprEvalError, match='cannot be used in a computed column'):
+        with pytest.raises(pxt.ExprEvalError) as exc_info:
             img_t.insert([rows[7]])
+        assert 'cannot be used in a computed column' in str(exc_info.value.__cause__)
 
         img_t.drop_column('simmy')
         img_t.drop_column('ebd_copy')
@@ -799,9 +800,24 @@ class TestIndex:
 
     def test_timestamp_btree(self, reset_db: None) -> None:
         random.seed(1)
-        start = datetime(2000, 1, 1)
-        end = datetime(2020, 1, 1)
+        start = datetime.datetime(2000, 1, 1)
+        end = datetime.datetime(2020, 1, 1)
         delta = end - start
         delta_secs = int(delta.total_seconds())
-        data = [start + timedelta(seconds=random.randint(0, int(delta_secs))) for _ in range(self.BTREE_TEST_NUM_ROWS)]
+        data = [
+            start + datetime.timedelta(seconds=random.randint(0, int(delta_secs)))
+            for _ in range(self.BTREE_TEST_NUM_ROWS)
+        ]
         self.run_btree_test(data, pxt.Timestamp)
+
+    def test_date_btree(self, reset_db: None) -> None:
+        random.seed(1)
+        start = datetime.date(2000, 1, 1)
+        end = datetime.date(2100, 1, 1)
+        delta = end - start
+        delta_days = int(delta.days)
+        assert delta_days > 3 * self.BTREE_TEST_NUM_ROWS
+        data = [
+            start + datetime.timedelta(days=random.randint(0, int(delta_days))) for _ in range(self.BTREE_TEST_NUM_ROWS)
+        ]
+        self.run_btree_test(data, pxt.Date)

@@ -9,6 +9,7 @@ from pandas.api.types import is_datetime64_any_dtype, is_extension_array_dtype
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
+from pixeltable.env import Env
 
 
 def import_pandas(
@@ -209,14 +210,25 @@ def _df_row_to_pxt_row(
             nval = bool(val)
         elif pxt_type.is_string_type():
             nval = str(val)
-        elif pxt_type.is_timestamp_type():
+        elif pxt_type.is_date_type():
             if pd.isnull(val):
-                # pandas has the bespoke 'NaT' type for a missing timestamp; postgres is very
-                # much not-ok with it. (But if we convert it to None and then load out the
-                # table contents as a pandas DataFrame, it will correctly restore the 'NaT'!)
+                # pandas has the bespoke 'NaT' valud for a missing timestamp
+                # This is not supported by postgres, and must be converted to None
                 nval = None
             else:
-                nval = pd.Timestamp(val).to_pydatetime()
+                nval = pd.Timestamp(val).date()
+        elif pxt_type.is_timestamp_type():
+            if pd.isnull(val):
+                # pandas has the bespoke 'NaT' value for a missing timestamp
+                # This is not supported by postgres, and must be converted to None
+                nval = None
+            else:
+                tval = pd.Timestamp(val)
+                # pandas supports tz-aware and naive timestamps.
+                if tval.tz is None:
+                    nval = pd.Timestamp(tval).tz_localize(tz=Env.get().default_time_zone)
+                else:
+                    nval = tval.astimezone(Env.get().default_time_zone)
         else:
             nval = val
         pxt_row[pxt_name] = nval

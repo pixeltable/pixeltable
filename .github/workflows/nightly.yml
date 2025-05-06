@@ -28,7 +28,7 @@ jobs:
         python-version: ["3.9", "3.12"]
         package-configs:
           - ""
-          - "pyarrow sentence-transformers sentencepiece soundfile torch torchaudio torchvision transformers"
+          - "pyarrow sentence-transformers sentencepiece soundfile torch torchaudio torchvision 'transformers<4.51'"  # transformers 4.51 has bugs
           - "anthropic fireworks-ai google-generativeai mistralai openai replicate together"
           - "huggingface-hub llama-cpp-python"
           - "datasets boto3 openpyxl tiktoken pymupdf mistune 'spacy<3.8'"  # spacy 3.8 is problematic on python 3.12
@@ -76,10 +76,11 @@ jobs:
         with:
           miniconda-version: latest
           activate-environment: pxt
-          python-version: ${{ matrix.python-version }}
           use-only-tar-bz2: true  # Needed to use conda with cache action
-      - name: Show conda info
-        run: conda info
+      - name: Install python
+        run: |
+          conda install -y python=${{ matrix.python-version }} pip=25.0
+          conda info
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip

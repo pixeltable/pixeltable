@@ -1,4 +1,5 @@
 import datetime
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
@@ -8,31 +9,39 @@ import pytest
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
+from pixeltable.env import Env
 
 from ..utils import skip_test_if_not_installed
 
 
 class TestPandas:
+    def make_src_data(self) -> dict[str, object]:
+        src_data = {
+            'int_col': [1, 2],
+            'float_col': [1.0, 2.0],
+            'bool_col': [True, False],
+            'str_col': ['a', 'b'],
+            'dt_col': [datetime.datetime(2024, 1, 1, 1, 1, 1), datetime.datetime(2024, 1, 2, 1, 1, 1)],
+            'aware_dt_col': [
+                datetime.datetime(2024, 1, 1, 1, 1, 1, tzinfo=(ZoneInfo('Europe/Moscow'))),
+                datetime.datetime(2024, 1, 1, 1, 1, 1, tzinfo=datetime.timezone.utc),
+            ],
+            'date_col': [datetime.date(2024, 1, 1), datetime.date(2024, 1, 2)],
+            'json_col_1': [[1, 2], [3, 4]],
+            'json_col_2': [{'a': 1}, {'b': 2}],
+            'array_col_1': [np.ndarray((1, 2), dtype=np.int64), np.ndarray((3, 2), dtype=np.int64)],
+            'array_col_2': [np.ndarray((1, 2), dtype=np.int64), np.ndarray((3, 4), dtype=np.int64)],
+            'array_col_3': [np.ndarray((1, 2), dtype=np.float32), np.ndarray((3, 4), dtype=np.float32)],
+            'image_col': [PIL.Image.new('RGB', (100, 100)), PIL.Image.new('L', (100, 200))],
+        }
+        return src_data
+
     def test_import_pandas_types(self, reset_db: None) -> None:
-        df = pd.DataFrame(
-            {
-                'int_col': [1, 2],
-                'float_col': [1.0, 2.0],
-                'bool_col': [True, False],
-                'str_col': ['a', 'b'],
-                'dt_col': [datetime.datetime(2024, 1, 1), datetime.datetime(2024, 1, 2)],
-                'aware_dt_col': [
-                    datetime.datetime(2024, 1, 1),
-                    datetime.datetime(2024, 1, 1, tzinfo=datetime.timezone.utc),
-                ],
-                'json_col_1': [[1, 2], [3, 4]],
-                'json_col_2': [{'a': 1}, {'b': 2}],
-                'array_col_1': [np.ndarray((1, 2), dtype=np.int64), np.ndarray((3, 2), dtype=np.int64)],
-                'array_col_2': [np.ndarray((1, 2), dtype=np.int64), np.ndarray((3, 4), dtype=np.int64)],
-                'array_col_3': [np.ndarray((1, 2), dtype=np.float32), np.ndarray((3, 4), dtype=np.float32)],
-                'image_col': [PIL.Image.new('RGB', (100, 100)), PIL.Image.new('L', (100, 200))],
-            }
-        )
+        default_tz = Env.get().default_time_zone
+
+        src_data = self.make_src_data()
+        df = pd.DataFrame(src_data)
+
         t = pxt.io.import_pandas('test_types', df)
         assert t._schema == {
             'int_col': ts.IntType(nullable=True),
@@ -41,6 +50,7 @@ class TestPandas:
             'str_col': ts.StringType(nullable=True),
             'dt_col': ts.TimestampType(nullable=True),
             'aware_dt_col': ts.TimestampType(nullable=True),
+            'date_col': ts.DateType(nullable=True),
             'json_col_1': ts.JsonType(nullable=True),
             'json_col_2': ts.JsonType(nullable=True),
             'array_col_1': ts.ArrayType(shape=(None, 2), dtype=ts.IntType(), nullable=True),
@@ -48,27 +58,27 @@ class TestPandas:
             'array_col_3': ts.ArrayType(shape=(None, None), dtype=ts.FloatType(), nullable=True),
             'image_col': ts.ImageType(width=100, nullable=True),
         }
+        res = t.select().order_by(t.int_col).collect()
+        assert res['int_col'] == src_data['int_col']
+        assert res['float_col'] == src_data['float_col']
+        assert res['bool_col'] == src_data['bool_col']
+        assert res['str_col'] == src_data['str_col']
+        assert res['dt_col'] == [
+            datetime.datetime(2024, 1, 1, 1, 1, 1).astimezone(default_tz),
+            datetime.datetime(2024, 1, 2, 1, 1, 1).astimezone(default_tz),
+        ]
+        assert res['aware_dt_col'] == [
+            datetime.datetime(2024, 1, 1, 1, 1, 1, tzinfo=ZoneInfo('Europe/Moscow')).astimezone(default_tz),
+            datetime.datetime(2024, 1, 1, 1, 1, 1, tzinfo=datetime.timezone.utc),
+        ]
+        assert res['date_col'] == src_data['date_col']
+        assert res['json_col_1'] == src_data['json_col_1']
+        assert res['json_col_2'] == src_data['json_col_2']
+        assert t.count() == len(df)
 
     def test_insert_pandas_types(self, reset_db: None) -> None:
-        df = pd.DataFrame(
-            {
-                'int_col': [1, 2],
-                'float_col': [1.0, 2.0],
-                'bool_col': [True, False],
-                'str_col': ['a', 'b'],
-                'dt_col': [datetime.datetime(2024, 1, 1), datetime.datetime(2024, 1, 2)],
-                'aware_dt_col': [
-                    datetime.datetime(2024, 1, 1),
-                    datetime.datetime(2024, 1, 1, tzinfo=datetime.timezone.utc),
-                ],
-                'json_col_1': [[1, 2], [3, 4]],
-                'json_col_2': [{'a': 1}, {'b': 2}],
-                'array_col_1': [np.ndarray((1, 2), dtype=np.int64), np.ndarray((3, 2), dtype=np.int64)],
-                'array_col_2': [np.ndarray((1, 2), dtype=np.int64), np.ndarray((3, 4), dtype=np.int64)],
-                'array_col_3': [np.ndarray((1, 2), dtype=np.float32), np.ndarray((3, 4), dtype=np.float32)],
-                'image_col': [PIL.Image.new('RGB', (100, 100)), PIL.Image.new('L', (100, 200))],
-            }
-        )
+        src_data = self.make_src_data()
+        df = pd.DataFrame(src_data)
         t = pxt.io.import_pandas('test_types', df)
         assert t._schema == {
             'int_col': ts.IntType(nullable=True),
@@ -77,6 +87,7 @@ class TestPandas:
             'str_col': ts.StringType(nullable=True),
             'dt_col': ts.TimestampType(nullable=True),
             'aware_dt_col': ts.TimestampType(nullable=True),
+            'date_col': ts.DateType(nullable=True),
             'json_col_1': ts.JsonType(nullable=True),
             'json_col_2': ts.JsonType(nullable=True),
             'array_col_1': ts.ArrayType(shape=(None, 2), dtype=ts.IntType(), nullable=True),
@@ -109,6 +120,13 @@ class TestPandas:
             'Unnamed__12': ts.StringType(nullable=True),
         }
         assert t1.select(t1.Age).limit(5).collect()['Age'][:5] == [20, 24, 22, 22, 22]
+
+        t1a = pxt.create_table('online_foods_a', source='tests/data/datasets/onlinefoods.csv')
+        assert t1a.count() == 388
+        assert t1.show() == t1a.show()
+
+        t1a.insert('tests/data/datasets/onlinefoods.csv')
+        assert t1a.count() == 2 * 388
 
         t2 = import_csv('ibm', 'tests/data/datasets/classeurIBM.csv', primary_key='Date')
         assert t2.count() == 4263
