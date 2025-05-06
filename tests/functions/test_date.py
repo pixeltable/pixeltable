@@ -8,6 +8,18 @@ import pytest
 import pixeltable as pxt
 from pixeltable import exceptions as excs, exprs
 from pixeltable.env import Env
+from pixeltable.functions.date import (
+    day,
+    isocalendar,
+    isoformat,
+    isoweekday,
+    make_date,
+    month,
+    strftime,
+    toordinal,
+    weekday,
+    year,
+)
 
 from ..utils import validate_update_status
 
@@ -30,18 +42,6 @@ class TestDate:
         Env.get().default_time_zone = default_tz
 
         test_dts, t = self.make_test_table()
-
-        from pixeltable.functions.date import (
-            day,
-            isocalendar,
-            isoformat,
-            isoweekday,
-            month,
-            strftime,
-            toordinal,
-            weekday,
-            year,
-        )
 
         test_params: list[tuple[pxt.Function, Callable, list, dict]] = [
             # (pxt_fn, str_fn, args, **kwargs)
@@ -95,7 +95,6 @@ class TestDate:
     def test_date_make(self, reset_db: None) -> None:
         Env.get().default_time_zone = ZoneInfo('America/Anchorage')
         test_dts, t = self.make_test_table()
-        from pixeltable.functions.date import make_date
 
         res = (
             t.select(out=make_date(year=t.dt.year, month=t.dt.month, day=t.dt.day))
