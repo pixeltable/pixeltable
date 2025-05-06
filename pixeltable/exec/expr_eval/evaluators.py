@@ -208,10 +208,6 @@ class FnCallEvaluator(Evaluator):
             _logger.debug(f'Evaluated slot {self.fn_call.slot_idx} in {end_ts - start_ts}')
             self.dispatcher.dispatch([call_args.row], self.exec_ctx)
         except Exception as exc:
-            import anthropic
-
-            if isinstance(exc, anthropic.RateLimitError):
-                _logger.debug(f'RateLimitError: {exc}')
             _, _, exc_tb = sys.exc_info()
             call_args.row.set_exc(self.fn_call.slot_idx, exc)
             self.dispatcher.dispatch_exc(call_args.rows, self.fn_call.slot_idx, exc_tb, self.exec_ctx)
