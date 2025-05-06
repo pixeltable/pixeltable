@@ -1,3 +1,4 @@
+import datetime
 import io
 import json
 import logging
@@ -101,7 +102,7 @@ class TablePackager:
         }
         media_cols: set[str] = set()
         for col in tv.cols_by_name.values():
-            if col.col_type.is_media_type():
+            if col.is_stored and col.col_type.is_media_type():
                 media_cols.add(col.store_name())
 
         parquet_schema = self.__to_parquet_schema(tv.store_tbl.sa_tbl)
@@ -150,7 +151,7 @@ class TablePackager:
         if isinstance(col_type, sql.Float):
             return pa.float32()
         if isinstance(col_type, sql.TIMESTAMP):
-            return pa.timestamp('us')
+            return pa.timestamp('us', tz=datetime.timezone.utc)
         if isinstance(col_type, sql.JSON):
             return pa.string()  # JSON will be exported as strings
         if isinstance(col_type, sql.LargeBinary):
@@ -245,7 +246,7 @@ class TableRestorer:
             tf.extractall(path=self.tmp_dir)
 
         if self.md is None:
-            # Read metadata from the archive
+            # No metadata supplied; read it from the archive
             with open(self.tmp_dir / 'metadata.json', 'r', encoding='utf8') as fp:
                 self.md = json.load(fp)
 
@@ -292,63 +293,54 @@ class TableRestorer:
 
         for batch in parquet_table.to_batches():
             pydict = batch.to_pydict()
-            col_ids: list[Optional[int]] = []
-            col_types: list[ts.ColumnType] = []
-            for name in pydict:
-                if name.startswith('val_'):
-                    col = tv.cols_by_name[name.removeprefix('val_')]
-                    col_ids.append(col.id)
-                    col_types.append(col.col_type)
-                elif name.startswith('errortype_') or name.startswith('errormsg_'):
-                    col_ids.append(None)
-                    col_types.append(ts.StringType())
-            rows = self.__from_pa_pydict(tv, pydict, col_ids, col_types)
-            tv.store_tbl.insert_replica_rows(rows)
+            rows = self.__from_pa_pydict(tv, pydict)
+            tv.store_tbl.load_rows(rows)
 
     def __from_pa_pydict(
         self,
         tv: catalog.TableVersion,
         pydict: dict[str, Any],
-        col_ids: list[Optional[int]],
-        col_types: list[ts.ColumnType],
     ) -> list[dict[str, Any]]:
-        # pydict must have length exactly 1 more than col_types, because the pk column is not included in col_types
-        assert len(pydict) == len(col_types) + 1, (
-            f'{len(pydict)} != {len(col_types) + 1}:\n{list(pydict.keys())}\n{col_types}'
-        )
-        row_count = len(next(iter(pydict.values())))
-
         # Data conversions from pyarrow to Pixeltable
-        converted_pydict = {
-            col_name: [self.__from_pa_value(val, tv, col_id, col_type) for val in col_vals]
-            for (col_name, col_vals), col_id, col_type in zip(pydict.items(), col_ids, col_types)
-            if col_name != 'pk'
-        }
-        converted_pydict['pk'] = pydict['pk']  # pk values are kept as lists of integers
+        sql_types: dict[str, sql.types.TypeEngine[Any]] = {}
+        for col_name in pydict.keys():
+            assert col_name in tv.store_tbl.sa_tbl.columns
+            sql_types[col_name] = tv.store_tbl.sa_tbl.columns[col_name].type
+        media_col_ids: dict[str, int] = {}
+        for col in tv.cols_by_name.values():
+            if col.is_stored and col.col_type.is_media_type():
+                media_col_ids[col.store_name()] = col.id
 
-        rows = [{col_name: col_vals[i] for col_name, col_vals in converted_pydict.items()} for i in range(row_count)]
+        row_count = len(next(iter(pydict.values())))
+        rows: list[dict[str, Any]] = []
+        for i in range(row_count):
+            row = {
+                col_name: self.__from_pa_value(tv, col_vals[i], sql_types[col_name], media_col_ids.get(col_name))
+                for col_name, col_vals in pydict.items()
+            }
+            rows.append(row)
 
         return rows
 
-    def __from_pa_value(self, val: Any, tv: catalog.TableVersion, col_id: int, col_type: ts.ColumnType) -> Any:
+    def __from_pa_value(self, tv: catalog.TableVersion, val: Any, sql_type: sql.types.TypeEngine[Any], media_col_id: Optional[int]) -> Any:
         if val is None:
             return None
-        if col_type.is_array_type():
-            assert isinstance(val, bytes)
-            # Decode the value to validate that it represents a valid numpy array ...
-            arr = io.BytesIO(val)
-            res = np.load(arr)
-            assert isinstance(res, np.ndarray)
-            # ... but just return the raw bytes, since we'll be direct-inserting them into the db
-            return val
-        if col_type.is_json_type():
+        # if col_type.is_array_type():
+        #     assert isinstance(val, bytes)
+        #     # Decode the value to validate that it represents a valid numpy array ...
+        #     arr = io.BytesIO(val)
+        #     res = np.load(arr)
+        #     assert isinstance(res, np.ndarray)
+        #     # ... but just return the raw bytes, since we'll be direct-inserting them into the db
+        #     return val
+        if isinstance(sql_type, sql.JSON):
             return json.loads(val)
-        if col_type.is_media_type():
+        if media_col_id is not None:
             assert isinstance(val, str)
-            return self.__relocate_media_file(tv, col_id, val)
+            return self.__relocate_media_file(tv, media_col_id, val)
         return val
 
-    def __relocate_media_file(self, tv: catalog.TableVersion, col_id: int, url: str) -> str:
+    def __relocate_media_file(self, tv: catalog.TableVersion, media_col_id: int, url: str) -> str:
         # If this is a pxtmedia:// URL, relocate it
         parsed_url = urllib.parse.urlparse(url)
         assert parsed_url.scheme != 'file'  # These should all have been converted to pxtmedia:// URLs
@@ -357,7 +349,7 @@ class TableRestorer:
                 # First time seeing this pxtmedia:// URL. Relocate the file to the media store and record the mapping
                 # in self.media_files.
                 src_path = self.tmp_dir / 'media' / parsed_url.netloc
-                dest_path = MediaStore.prepare_media_path(tv.id, col_id, tv.version, ext=src_path.suffix)
+                dest_path = MediaStore.prepare_media_path(tv.id, media_col_id, tv.version, ext=src_path.suffix)
                 src_path.rename(dest_path)
                 self.media_files[url] = urllib.parse.urljoin('file:', urllib.request.pathname2url(str(dest_path)))
             return self.media_files[url]
