@@ -458,6 +458,9 @@ class DataFrame:
         Returns:
             The number of rows in the DataFrame.
         """
+        if self.group_by_clause is not None:
+            raise excs.Error('count() cannot be used with group_by()')
+
         from pixeltable.plan import Planner
 
         stmt = Planner.create_count_stmt(self._first_tbl, self.where_clause)
@@ -860,15 +863,15 @@ class DataFrame:
         In the absence of a select clause, by default, all columns are selected in the grouping.
 
         Examples:
-            Get all unqiue addresses from table `addresses`.
+            Select unique addresses from table `addresses`.
 
             >>> results = addresses.distinct()
 
-            Get all distinct cities in table `addresses`
+            Select unique cities in table `addresses`
 
             >>> results = addresses.city.distinct()
 
-            Get distinct locations (street, city) in the state of `CA`
+            Select unique locations (street, city) in the state of `CA`
 
             >>> results = addresses.select(addresses.street, addresses.city).where(addresses.state == 'CA').distinct()
         """

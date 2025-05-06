@@ -838,7 +838,7 @@ class TestDataFrame:
         results = t.select(t.c4).distinct().show()
         assert len(results) == 5
 
-        # Test head, tail, group by - which will not work
+        # Test head, tail, group by, count - which will not work
         with pytest.raises(excs.Error) as exc_info:
             _ = t.select(t.c1, t.c3).distinct().head(2)
         assert 'head() cannot be used with group_by' in str(exc_info.value)
@@ -848,6 +848,9 @@ class TestDataFrame:
         with pytest.raises(excs.Error) as exc_info:
             t.select(t.c1, t.c3).group_by(t.c2).distinct()
         assert 'Group-by already specified' in str(exc_info.value)
+        with pytest.raises(excs.Error) as exc_info:
+            t.select(t.c1, t.c3).distinct().count()
+        assert 'count() cannot be used with group_by' in str(exc_info.value)
 
         with pytest.raises(excs.Error) as exc_info:
             t.distinct().distinct()
