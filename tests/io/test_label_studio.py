@@ -170,12 +170,6 @@ class TestLabelStudio:
         skip_test_if_not_installed('label_studio_sdk')
         self.__test_label_studio_sync(ls_image_table, self.test_config_image, media_import_method, sync_col, 'image')
 
-    def test_x(
-        self, ls_image_table: pxt.InsertableTable, media_import_method: Literal['post', 'file', 'url'], sync_col: str
-    ) -> None:
-        skip_test_if_not_installed('label_studio_sdk')
-        self.__test_label_studio_sync(ls_image_table, self.test_config_image, media_import_method, sync_col, 'image')
-
     # TODO(aaron-siegel): 'file' is not working for videos or audio yet.
     @pytest.mark.xdist_group('label_studio')
     @pytest.mark.parametrize('media_import_method', ['post', 'url'])
