@@ -14,6 +14,8 @@ from pixeltable.type_system import (
     Bool,
     BoolType,
     ColumnType,
+    Date,
+    DateType,
     Document,
     DocumentType,
     Float,
@@ -83,11 +85,21 @@ class TestTypes:
     bad_json_schema: ClassVar[dict[str, Any]] = {'type': 'junk'}
 
     def test_infer(self, init_env: None) -> None:
+        vd = datetime.date.today()
+        vts = datetime.datetime.now()
+
+        print(vd, type(vd), ColumnType.infer_literal_type(vd))
+        print(vts, type(vts), ColumnType.infer_literal_type(vts))
+
+        print(isinstance(vd, datetime.date), isinstance(vts, datetime.date))
+        print(isinstance(vd, datetime.datetime), isinstance(vts, datetime.datetime))
+
         test_cases: list[tuple[Any, ColumnType]] = [
             ('a', StringType()),
             (1, IntType()),
             (1.0, FloatType()),
             (True, BoolType()),
+            (datetime.date.today(), DateType()),
             (datetime.datetime.now(), TimestampType()),
             (PIL.Image.new('RGB', (100, 100)), ImageType(height=100, width=100, mode='RGB')),
             (np.ndarray((1, 2, 3), dtype=np.int64), ArrayType((1, 2, 3), dtype=IntType())),
@@ -106,6 +118,7 @@ class TestTypes:
             float: (FloatType(nullable=False), 'Float'),
             bool: (BoolType(nullable=False), 'Bool'),
             datetime.datetime: (TimestampType(nullable=False), 'Timestamp'),
+            datetime.date: (DateType(nullable=False), 'Date'),
             list: (JsonType(nullable=False), 'Json'),
             dict: (JsonType(nullable=False), 'Json'),
             list[int]: (JsonType(nullable=False), 'Json'),
@@ -124,6 +137,7 @@ class TestTypes:
             Float: (FloatType(nullable=False), 'Float'),
             Bool: (BoolType(nullable=False), 'Bool'),
             Timestamp: (TimestampType(nullable=False), 'Timestamp'),
+            Date: (DateType(nullable=False), 'Date'),
             Array: (ArrayType(nullable=False), 'Array'),
             Json: (JsonType(nullable=False), 'Json'),
             Image: (ImageType(height=None, width=None, mode=None, nullable=False), 'Image'),
