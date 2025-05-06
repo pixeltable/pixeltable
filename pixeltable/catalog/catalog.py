@@ -75,6 +75,7 @@ def _retry_loop(*, for_write: bool) -> Callable[[Callable[..., T]], Callable[...
                     with Catalog.get().begin_xact(for_write=for_write):
                         return op(*args, **kwargs)
                 except sql.exc.DBAPIError as e:
+                    # TODO: what other exceptions should we be looking for?
                     if isinstance(e.orig, psycopg.errors.SerializationFailure):
                         if num_remaining_retries > 0:
                             num_remaining_retries -= 1
