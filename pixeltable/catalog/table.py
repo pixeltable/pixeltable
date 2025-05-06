@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable, Literal, Optional, Union, overload
 
 from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
+import datetime
 from uuid import UUID
 
 import pandas as pd
@@ -16,6 +17,7 @@ import sqlalchemy as sql
 
 import pixeltable as pxt
 from pixeltable import catalog, env, exceptions as excs, exprs, index, type_system as ts
+from pixeltable.env import Env
 from pixeltable.metadata import schema
 
 from ..exprs import ColumnRef
@@ -1550,3 +1552,207 @@ class Table(SchemaObject):
 
     def _ipython_key_completions_(self) -> list[str]:
         return list(self._schema.keys())
+
+    @classmethod
+    def collect_row_counts_by_version(cls, tbl_id: UUID) -> tuple[dict[int, int], dict[int, int]]:
+        """Return dictionaries from version to inserted and deleted row counts"""
+        # Get active row counts from the table
+        #            q = sql.select(xxx, sql.func.count(1)).select_from(yyy).group_by(xxx)
+        tbl_name_sql = f'tbl_{tbl_id}'.replace('-', '')
+        q_str = f'select v_min, count(1) from {tbl_name_sql} group by v_min'
+        rc_rows = Env.get().conn.execute(sql.text(q_str)).fetchall()
+        irc_dict = {row[0]: row[1] for row in rc_rows}
+
+        q_str = f'select v_max, count(1) from {tbl_name_sql} group by v_max'
+        rc_rows = Env.get().conn.execute(sql.text(q_str)).fetchall()
+        drc_dict = {row[0]: row[1] for row in rc_rows}
+        return irc_dict, drc_dict
+
+    @classmethod
+    def merge_dicts(cls, irc_dict: dict[int, int], drc_dict: dict[int, int]) -> dict[int, tuple[int, int, int]]:
+        """Return dict of version to tuple(added, deleted, updated) row counts"""
+        r = {k: (v, 0, 0) for k, v in irc_dict.items()}  # Report insertion
+        for k, del_ct in drc_dict.items():
+            if k not in r:
+                r[k] = (0, del_ct, 0)  # Report deletion
+            else:
+                ins_ct = r[k][0]
+                assert ins_ct >= del_ct
+                r[k] = (ins_ct - del_ct, 0, del_ct)  # Report delete, update, or upsert
+        return r
+
+    @classmethod
+    def data_change_type(cls, row_change: tuple[int, int, int]) -> str:
+        """Return a string describing the type of data change"""
+        ins_ct, del_ct, upd_ct = row_change
+        if del_ct > 0:
+            return 'delete'
+        if ins_ct > 0 and upd_ct == 0:
+            return 'insert'
+        if upd_ct > 0 and ins_ct == 0:
+            return 'update'
+        if ins_ct > 0 and upd_ct > 0:
+            return 'upsert'
+        return ''
+
+    @classmethod
+    def diff_md(cls, old_md: Optional[dict[str, Any]], new_md: Optional[dict[str, Any]]) -> str:
+        """Return a string reporting the difference between two schema versions"""
+        assert new_md is not None
+        if old_md is None:
+            return 'Initial Version'
+        if old_md == new_md:
+            return ''
+        r = ''
+        added = {k: v['name'] for k, v in new_md.items() if k not in old_md}
+        if len(added) > 0:
+            r += 'Added: ' + ' '.join(added.values())
+        changed = {
+            k: old_md[k]['name'] + ' to ' + v['name']
+            for k, v in new_md.items()
+            if k in old_md and old_md[k]['name'] != v['name']
+        }
+        if len(changed) > 0:
+            r += 'Changed: ' + ' '.join(changed.values())
+        deleted = {k: v['name'] for k, v in old_md.items() if k not in new_md}
+        if len(deleted) > 0:
+            r += 'Deleted: ' + ' '.join(deleted.values())
+        return r
+
+    @classmethod
+    def create_md_change_dict(cls, src_rows: list[list[Any]]) -> dict[int, str]:
+        """Return a dictionary of schema changes by version given a list of version, column md"""
+        r: dict[int, str] = {}
+        if src_rows is None or len(src_rows) == 0:
+            return r
+        src_rows.sort()
+
+        v0 = src_rows[0][0]
+        if v0 == 0:
+            ofld = None
+            ver_old = -1
+            start = 0
+        else:
+            ofld = src_rows[0][1]
+            ver_old = v0
+            start = 1
+
+        for row in src_rows[start:]:
+            ver = row[0]
+            if ver == ver_old:
+                continue
+            assert ver > ver_old
+            nfld = row[1]
+            tf = cls.diff_md(ofld, nfld)
+            ofld = nfld
+            if tf != '':
+                r[ver] = tf
+        return r
+
+    def history(self, summarize_data_changes: bool = False, max_versions: int = 1_000_000_000) -> Optional[Any]:
+        """Returns a row of information for each version of this table, most recent first.
+
+        Args:
+            max_versions: a limit to the number of versions listed
+            summarize_data_changes: if True, add columns summarizing the number of rows inserted, deleted,
+                and updated by a data change
+
+        Examples:
+            Report history:
+
+            >>> tbl.history()
+
+            Report only the most recent 5 changes to the table:
+
+            >>> tbl.history(max_versions=5)
+
+        Returns:
+            A list of [`TableVersion`][pixeltable.TableVersion] objects representing all versions of this table.
+        """
+        if not isinstance(max_versions, int) or max_versions < 1:
+            raise excs.Error(f'Invalid value for max_versions: {max_versions}')
+        if not isinstance(summarize_data_changes, bool):
+            raise excs.Error(f'Invalid value for summarize_data_changes: {summarize_data_changes}')
+
+        with Env.get().begin_xact():
+            # tbl_id = self._tbl_version_path.tbl_id
+            tbl_id = self._id
+            if tbl_id is None:
+                raise excs.Error('Cannot get history of a table that has been dropped')
+            q = (
+                sql.select(schema.TableVersion, schema.TableSchemaVersion)
+                .select_from(schema.TableVersion)
+                .join(
+                    schema.TableSchemaVersion,
+                    sql.cast(schema.TableVersion.md['schema_version'], sql.Integer)
+                    == schema.TableSchemaVersion.schema_version,
+                )
+                .where(schema.TableVersion.tbl_id == tbl_id)
+                .where(schema.TableSchemaVersion.tbl_id == tbl_id)
+                .order_by(schema.TableVersion.version.desc())
+                .limit(max_versions + 1)
+            )
+            src_rows = Env.get().session.execute(q).fetchall()
+
+            # Construct the data change by version dictionary
+            if summarize_data_changes:
+                irc_dict, drc_dict = self.collect_row_counts_by_version(tbl_id=tbl_id)
+                rc_dict = self.merge_dicts(irc_dict, drc_dict)
+            else:
+                rc_dict = None
+
+        # Construct the metadata change dictionary
+        md_rows = [[row.TableVersion.version, row.TableSchemaVersion.md['columns']] for row in src_rows]
+        md_dict = self.create_md_change_dict(md_rows)
+
+        # Construct report rows
+        if max_versions is not None and len(src_rows) > max_versions:
+            assert len(src_rows) == max_versions + 1
+            over_count = 1
+        else:
+            over_count = 0
+
+        rpt_rows: list[list[Any]] = []
+        for row in src_rows[0 : len(src_rows) - over_count]:
+            version = row.TableVersion.version
+            schema_change = md_dict.get(version, '')
+            if rc_dict is None:
+                change_type = 'schema' if schema_change != '' else 'data'
+                data_change = (0, 0, 0)
+            else:
+                data_change = rc_dict.get(version, (0, 0, 0))
+                if schema_change != '':
+                    change_type = 'schema change'
+                else:
+                    change_type = 'data ' + self.data_change_type(data_change)
+            rpt_row = [
+                version,
+                datetime.datetime.fromtimestamp(row.TableVersion.md['created_at']),
+                change_type,
+                schema_change,
+                data_change[0],
+                data_change[1],
+                data_change[2],
+            ]
+            rpt_rows.append(rpt_row)
+
+        rpt_spec = pxt.dataframe.DataFrameResultSet.ReportSpec
+        if rc_dict is None:
+            report_spec = [
+                rpt_spec('version', ts.IntType(), 0, int),
+                rpt_spec('created_at', ts.TimestampType(), 1, None),
+                rpt_spec('change', ts.StringType(), 2, None),
+                rpt_spec('schema_change', ts.StringType(), 3, None),
+            ]
+        else:
+            report_spec = [
+                rpt_spec('version', ts.IntType(), 0, int),
+                rpt_spec('created_at', ts.TimestampType(), 1, None),
+                rpt_spec('change', ts.StringType(), 2, None),
+                rpt_spec('schema_change', ts.StringType(), 3, None),
+                rpt_spec('inserted', ts.IntType(), 4, int),
+                rpt_spec('deleted', ts.IntType(), 5, int),
+                rpt_spec('updated', ts.IntType(), 6, int),
+            ]
+
+        return pxt.dataframe.DataFrameResultSet._create_report(schema_list=report_spec, src_rows=rpt_rows)
