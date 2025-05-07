@@ -142,6 +142,8 @@ class TablePackager:
             return pa.float32()
         if isinstance(col_type, sql.TIMESTAMP):
             return pa.timestamp('us', tz=datetime.timezone.utc)
+        if isinstance(col_type, sql.Date):
+            return pa.date32()
         if isinstance(col_type, sql.JSON):
             return pa.string()  # JSON will be exported as strings
         if isinstance(col_type, sql.LargeBinary):

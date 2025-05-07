@@ -10,7 +10,7 @@ t.select(t.timestamp_col.year, t.timestamp_col.weekday()).collect()
 ```
 """
 
-from datetime import date
+from datetime import date, timedelta
 
 import sqlalchemy as sql
 
@@ -166,6 +166,16 @@ def strftime(self: date, format: str) -> str:
             [`strftime()` and `strptime()` Behavior](https://docs.python.org/3/library/datetime.html#strftime-and-strptime-behavior).
     """
     return self.strftime(format)
+
+
+@pxt.udf(is_method=True)
+def add_days(self: date, n: int) -> date:
+    """
+    Add `n` days to the date.
+
+    Equivalent to [`date + timedelta(days=n)`](https://docs.python.org/3/library/datetime.html#datetime.timedelta).
+    """
+    return self + timedelta(days=n)
 
 
 __all__ = local_public_names(__name__)

@@ -1,3 +1,4 @@
+import datetime
 import filecmp
 import io
 import json
@@ -10,6 +11,7 @@ import numpy as np
 import pyarrow.parquet as pq
 
 import pixeltable as pxt
+import pixeltable.functions as pxtf
 import pixeltable.type_system as ts
 from pixeltable import exprs, metadata
 from pixeltable.env import Env
@@ -178,7 +180,16 @@ class TestPackager:
 
     def test_round_trip(self, test_tbl: pxt.Table) -> None:
         """package() / unpackage() round trip"""
-        snapshot = pxt.create_snapshot('snapshot', test_tbl)
+        # Add some additional columns to test various additional datatypes
+        t = test_tbl
+        t.add_column(dt=pxt.Date)
+        t.update({'dt': pxtf.date.add_days(datetime.date(2025, 1, 1), t.c2)})
+        t.add_column(arr1=pxt.Array[pxt.Float, (1, 3)])
+        t.update({'arr1': pxt.array([[1.7, 2.32, t.c3]])})
+        t.add_column(arr2=pxt.Array[pxt.String])
+        t.update({'arr2': pxt.array(['xyz', t.c1])})
+
+        snapshot = pxt.create_snapshot('snapshot', t)
         self.__do_round_trip(snapshot)
 
     def test_media_round_trip(self, img_tbl: pxt.Table) -> None:
