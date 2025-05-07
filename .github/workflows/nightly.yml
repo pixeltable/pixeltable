@@ -25,34 +25,31 @@ jobs:
         # We DO include 'expensive' tests in the nightly workflow, but they will only run twice per test (in the
         # min version + max version tests with the configuration that references them).
         os: [ubuntu-22.04]
-        python-version: ["3.9", "3.12"]
+        python-version: ["3.10", "3.12"]
         package-configs:
           - ""
           - "pyarrow sentence-transformers sentencepiece soundfile torch torchaudio torchvision 'transformers<4.51'"  # transformers 4.51 has bugs
           - "anthropic fireworks-ai google-generativeai mistralai openai replicate together"
           - "huggingface-hub llama-cpp-python"
           - "datasets boto3 openpyxl tiktoken pymupdf mistune 'spacy<3.8'"  # spacy 3.8 is problematic on python 3.12
+          - "label_studio_sdk"
         include:
           # Test the basic pixeltable installation on other platforms.
           - os: macos-13
-            python-version: "3.9"
+            python-version: "3.10"
             package-configs: ""
           - os: macos-latest
-            python-version: "3.9"
+            python-version: "3.10"
             package-configs: ""
           - os: windows-2022
-            python-version: "3.9"
+            python-version: "3.10"
             package-configs: ""
           - os: ubuntu-arm64
-            python-version: "3.9"
+            python-version: "3.10"
             package-configs: ""
           - os: ubuntu-x64-t4
-            python-version: "3.9"
-            package-configs: ""
-          # Latest Label Studio no longer supports Python 3.9.
-          - os: ubuntu-22.04
             python-version: "3.10"
-            package-configs: "label_studio_sdk"
+            package-configs: ""
 
     runs-on: ${{ matrix.os }}
     defaults:
@@ -128,7 +125,7 @@ jobs:
         uses: conda-incubator/setup-miniconda@v3
         with:
           miniconda-version: latest
-          python-version: 3.9
+          python-version: 3.10
           use-only-tar-bz2: true  # Needed to use conda with cache action
       - name: Run isolated notebook tests
         run: ./scripts/run-isolated-nb-tests.sh
