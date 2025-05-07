@@ -48,7 +48,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Test with Python 3.9 and 3.12 (minimum and maximum supported versions) on every platform.
+        # Test with Python 3.10 and 3.12 (minimum and maximum supported versions) on every platform.
         # In most cases, test only the basic (free) platforms: ubuntu-22.04, macos-13, windows-2022.
         # On a scheduled run, also test ubuntu-x64-t4 (which costs money). ubuntu-arm64 is disabled
         # for now; it just has too many problems.
@@ -56,17 +56,12 @@ jobs:
         os: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_on_all_platforms))
                 && fromJSON('["ubuntu-22.04", "macos-13", "windows-2022", "ubuntu-x64-t4"]')
                 || fromJSON('["ubuntu-22.04", "macos-13", "windows-2022"]') }}
-        python-version: ["3.9", "3.12"]
+        python-version: ["3.10", "3.12"]
         test-category: ["py"]
         poetry-options: ["--with dev"]
         # Add some additional matrix configurations that are run only on linux, to test
         # additional scenarios/compatibilities that are unlikely to be platform-sensitive.
         include:
-          # Python 3.10
-          - os: ubuntu-22.04
-            python-version: "3.10"
-            test-category: "py"
-            poetry-options: "--with dev"
           # Python 3.11
           - os: ubuntu-22.04
             python-version: "3.11"
@@ -74,7 +69,7 @@ jobs:
             poetry-options: "--with dev"
           # Minimal installation of pixeltable (without --with dev)
           - os: ubuntu-22.04
-            python-version: "3.9"
+            python-version: "3.10"
             test-category: "py"
             poetry-options: ""
           # Python 3.13 (minimal installation, without --with dev)
@@ -84,12 +79,12 @@ jobs:
             poetry-options: ""
           # Notebook tests
           - os: ubuntu-22.04
-            python-version: "3.9"
+            python-version: "3.10"
             test-category: "ipynb"
             poetry-options: "--with dev"
           # Linting, type-checking, docstrings validation, etc.
           - os: ubuntu-22.04
-            python-version: "3.9"
+            python-version: "3.10"
             test-category: "lint"
             poetry-options: "--with dev"
 
@@ -163,11 +158,11 @@ jobs:
         run: pip install pytest pytest-xdist pytest-rerunfailures coverage
       - name: Run the unit tests
         if: ${{ matrix.test-category == 'py' }}
-        # Run the tests with the 'expensive' marker only once, on ubuntu-22.04 with Python 3.9. The other tests
+        # Run the tests with the 'expensive' marker only once, on ubuntu-22.04 with Python 3.10. The other tests
         # (including tests with the 'remote_api' marker that are not also marked 'expensive') will run on all matrix
         # configurations.
         run: |
-          PYTEST_MARKERS="${{ (matrix.os != 'ubuntu-22.04' || matrix.python-version != '3.9') && 'not expensive' || '' }}"
+          PYTEST_MARKERS="${{ (matrix.os != 'ubuntu-22.04' || matrix.python-version != '3.10') && 'not expensive' || '' }}"
           echo "Running tests with markers: $PYTEST_MARKERS"
           coverage run -m --source=pixeltable pytest -v -m "$PYTEST_MARKERS" --strict-markers
           coverage report -m
