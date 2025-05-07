@@ -389,11 +389,11 @@ def create_replica(destination: str, source: Union[str, catalog.Table]) -> Optio
     if remote_dest:
         if isinstance(source, str):
             source = get_table(source)
-        share.publish_snapshot(destination, source)
+        share.push_replica(destination, source)
         return None
     else:
         assert isinstance(source, str)
-        return share.clone_snapshot(destination, source)
+        return share.pull_replica(destination, source)
 
 
 def get_table(path: str) -> catalog.Table:

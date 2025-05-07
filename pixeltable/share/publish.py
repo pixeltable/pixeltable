@@ -19,7 +19,7 @@ from .packager import TablePackager, TableRestorer
 PIXELTABLE_API_URL = 'https://internal-api.pixeltable.com'
 
 
-def publish_snapshot(dest_tbl_uri: str, src_tbl: pxt.Table) -> str:
+def push_replica(dest_tbl_uri: str, src_tbl: pxt.Table) -> str:
     if not src_tbl._tbl_version.get().is_snapshot:
         raise excs.Error('Only snapshots may be published.')
 
@@ -96,7 +96,7 @@ def _upload_bundle_to_s3(bundle: Path, parsed_location: urllib.parse.ParseResult
     )
 
 
-def clone_snapshot(dest_path: str, src_tbl_uri: str) -> pxt.Table:
+def pull_replica(dest_path: str, src_tbl_uri: str) -> pxt.Table:
     headers_json = {'X-api-key': Env.get().pxt_api_key, 'Content-Type': 'application/json'}
     clone_request_json = {'operation_type': 'clone_snapshot', 'table_uri': src_tbl_uri}
     response = requests.post(PIXELTABLE_API_URL, json=clone_request_json, headers=headers_json)
