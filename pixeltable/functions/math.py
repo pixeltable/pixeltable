@@ -1,3 +1,16 @@
+"""
+Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs) for mathematical operations.
+
+Example:
+```python
+import pixeltable as pxt
+import pixeltable.functions as pxtf
+
+t = pxt.get_table(...)
+t.select(pxtf.math.floor(t.float_col)).collect()
+```
+"""
+
 import builtins
 import math
 from typing import Optional
@@ -10,6 +23,11 @@ from pixeltable.utils.code import local_public_names
 
 @pxt.udf(is_method=True)
 def abs(self: float) -> float:
+    """
+    Return the absolute value of the given number.
+
+    Equivalent to Python [`builtins.abs()`](https://docs.python.org/3/library/functions.html#abs).
+    """
     return builtins.abs(self)
 
 
@@ -20,6 +38,14 @@ def _(self: sql.ColumnElement) -> sql.ColumnElement:
 
 @pxt.udf(is_method=True)
 def ceil(self: float) -> float:
+    """
+    Return the ceiling of the given number.
+
+    Equivalent to Python [`float(math.ceil(self))`](https://docs.python.org/3/library/math.html#math.ceil) if `self`
+    is finite, or `self` itself if `self` is infinite. (This is slightly different from the default behavior of
+    `math.ceil(self)`, which always returns an `int` and raises an error if `self` is infinite. The behavior in
+    Pixeltable generalizes the Python operator and is chosen to align with the SQL standard.)
+    """
     # This ensures the same behavior as SQL
     if math.isfinite(self):
         return float(math.ceil(self))
@@ -34,6 +60,14 @@ def _(self: sql.ColumnElement) -> sql.ColumnElement:
 
 @pxt.udf(is_method=True)
 def floor(self: float) -> float:
+    """
+    Return the ceiling of the given number.
+
+    Equivalent to Python [`float(math.floor(self))`](https://docs.python.org/3/library/math.html#math.ceil) if `self`
+    is finite, or `self` itself if `self` is infinite. (This is slightly different from the default behavior of
+    `math.floor(self)`, which always returns an `int` and raises an error if `self` is infinite. The behavior of
+    Pixeltable generalizes the Python operator and is chosen to align with the SQL standard.)
+    """
     # This ensures the same behavior as SQL
     if math.isfinite(self):
         return float(math.floor(self))
@@ -48,6 +82,13 @@ def _(self: sql.ColumnElement) -> sql.ColumnElement:
 
 @pxt.udf(is_method=True)
 def round(self: float, digits: Optional[int] = None) -> float:
+    """
+    Round a number to a given precision in decimal digits.
+
+    Equivalent to Python [`builtins.round(self, digits or 0)`](https://docs.python.org/3/library/functions.html#round).
+    Note that if `digits` is not specified, the behavior matches `builtins.round(self, 0)` rather than
+    `builtins.round(self)`; this ensures that the return type is always `float` (as in SQL) rather than `int`.
+    """
     # Set digits explicitly to 0 to guarantee a return type of float; this ensures the same behavior as SQL
     return builtins.round(self, digits or 0)
 
