@@ -184,9 +184,9 @@ class TestPackager:
         t = test_tbl
         t.add_column(dt=pxt.Date)
         t.update({'dt': pxtf.date.add_days(datetime.date(2025, 1, 1), t.c2)})
-        t.add_column(arr1=pxt.Array[pxt.Float, (1, 3)])
+        t.add_column(arr1=pxt.Array[pxt.Float, (1, 3)])  # type: ignore[misc]
         t.update({'arr1': pxt.array([[1.7, 2.32, t.c3]])})
-        t.add_column(arr2=pxt.Array[pxt.String])
+        t.add_column(arr2=pxt.Array[pxt.String])  # type: ignore[misc]
         t.update({'arr2': pxt.array(['xyz', t.c1])})
 
         snapshot = pxt.create_snapshot('snapshot', t)
