@@ -4,10 +4,9 @@ Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs)
 Example:
 ```python
 import pixeltable as pxt
-import pixeltable.functions as pxtf
 
 t = pxt.get_table(...)
-t.select(pxtf.math.floor(t.float_col)).collect()
+t.select(t.float_col.floor()).collect()
 ```
 """
 
