@@ -167,7 +167,7 @@ class CachePrefetchNode(ExecNode):
         assert not self.input_finished
         input_batch: Optional[DataRowBatch]
         try:
-            input_batch = await input.__anext__()
+            input_batch = await anext(input)
         except StopAsyncIteration:
             input_batch = None
         if input_batch is None:
