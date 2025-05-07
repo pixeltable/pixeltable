@@ -40,6 +40,7 @@ class ColumnType:
         VIDEO = 8
         AUDIO = 9
         DOCUMENT = 10
+        DATE = 11
 
         # exprs that don't evaluate to a computable value in Pixeltable, such as an Image member function
         INVALID = 255
@@ -81,7 +82,7 @@ class ColumnType:
         FLOAT32 = (10,)
         FLOAT64 = 11
 
-    scalar_types: ClassVar[set[Type]] = {Type.STRING, Type.INT, Type.FLOAT, Type.BOOL, Type.TIMESTAMP}
+    scalar_types: ClassVar[set[Type]] = {Type.STRING, Type.INT, Type.FLOAT, Type.BOOL, Type.TIMESTAMP, Type.DATE}
     numeric_types: ClassVar[set[Type]] = {Type.INT, Type.FLOAT}
     common_supertypes: ClassVar[dict[tuple[Type, Type], Type]] = {
         (Type.BOOL, Type.INT): Type.INT,
@@ -173,6 +174,8 @@ class ColumnType:
             return AudioType()
         if t == cls.Type.DOCUMENT:
             return DocumentType()
+        if t == cls.Type.DATE:
+            return DateType()
 
     def __repr__(self) -> str:
         return self._to_str(as_schema=False)
@@ -243,8 +246,12 @@ class ColumnType:
             return IntType(nullable=nullable)
         if isinstance(val, float):
             return FloatType(nullable=nullable)
+        # When checking types of dates / timestamps, be aware that a datetime is also a date,
+        # but a date is not a datetime. So check for datetime first.
         if isinstance(val, datetime.datetime):
             return TimestampType(nullable=nullable)
+        if isinstance(val, datetime.date):
+            return DateType(nullable=nullable)
         if isinstance(val, PIL.Image.Image):
             return ImageType(width=val.width, height=val.height, mode=val.mode, nullable=nullable)
         if isinstance(val, np.ndarray):
@@ -343,6 +350,8 @@ class ColumnType:
                     return BoolType(nullable=nullable_default)
                 if t is datetime.datetime:
                     return TimestampType(nullable=nullable_default)
+                if t is datetime.date:
+                    return DateType(nullable=nullable_default)
                 if t is PIL.Image.Image:
                     return ImageType(nullable=nullable_default)
                 if isinstance(t, type) and issubclass(t, (Sequence, Mapping, pydantic.BaseModel)):
@@ -372,6 +381,7 @@ class ColumnType:
         (int, 'pxt.Int'),
         (float, 'pxt.Float'),
         (datetime.datetime, 'pxt.Timestamp'),
+        (datetime.date, 'pxt.Date'),
         (PIL.Image.Image, 'pxt.Image'),
         (Sequence, 'pxt.Json'),
         (Mapping, 'pxt.Json'),
@@ -453,6 +463,9 @@ class ColumnType:
 
     def is_timestamp_type(self) -> bool:
         return self._type == self.Type.TIMESTAMP
+
+    def is_date_type(self) -> bool:
+        return self._type == self.Type.DATE
 
     def is_json_type(self) -> bool:
         return self._type == self.Type.JSON
@@ -617,6 +630,29 @@ class TimestampType(ColumnType):
         if isinstance(val, str):
             return datetime.datetime.fromisoformat(val)
         if isinstance(val, datetime.datetime):
+            return val
+        return val
+
+
+class DateType(ColumnType):
+    def __init__(self, nullable: bool = False):
+        super().__init__(self.Type.DATE, nullable=nullable)
+
+    def has_supertype(self) -> bool:
+        return not self.nullable
+
+    @classmethod
+    def to_sa_type(cls) -> sql.types.TypeEngine:
+        return sql.Date()
+
+    def _validate_literal(self, val: Any) -> None:
+        if not isinstance(val, datetime.date):
+            raise TypeError(f'Expected datetime.date, got {val.__class__.__name__}')
+
+    def _create_literal(self, val: Any) -> Any:
+        if isinstance(val, str):
+            return datetime.datetime.fromisoformat(val).date()
+        if isinstance(val, datetime.date):
             return val
         return val
 
@@ -903,7 +939,11 @@ class ArrayType(ColumnType):
             return StringType(nullable=nullable)
 
         if np.issubdtype(dtype, np.datetime64):
-            return TimestampType(nullable=nullable)
+            unit, _ = np.datetime_data(dtype)
+            if unit in ['D', 'M', 'Y']:
+                return DateType(nullable=nullable)
+            else:
+                return TimestampType(nullable=nullable)
 
         return None
 
@@ -1237,6 +1277,7 @@ Int = typing.Annotated[int, IntType(nullable=False)]
 Float = typing.Annotated[float, FloatType(nullable=False)]
 Bool = typing.Annotated[bool, BoolType(nullable=False)]
 Timestamp = typing.Annotated[datetime.datetime, TimestampType(nullable=False)]
+Date = typing.Annotated[datetime.date, DateType(nullable=False)]
 
 
 class _PxtType:

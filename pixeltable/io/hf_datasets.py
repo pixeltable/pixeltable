@@ -31,8 +31,8 @@ _hf_to_pxt: dict[str, ts.ColumnType] = {
     'timestamp[s]': ts.TimestampType(nullable=True),
     'timestamp[ms]': ts.TimestampType(nullable=True),  # HF dataset iterator converts timestamps to datetime.datetime
     'timestamp[us]': ts.TimestampType(nullable=True),
-    'date32': ts.StringType(nullable=True),  # date32 is not supported in pixeltable, use string
-    'date64': ts.StringType(nullable=True),  # date64 is not supported in pixeltable, use string
+    'date32': ts.DateType(nullable=True),
+    'date64': ts.DateType(nullable=True),
 }
 
 

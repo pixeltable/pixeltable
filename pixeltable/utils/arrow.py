@@ -21,14 +21,15 @@ PA_TO_PXT_TYPES: dict[pa.DataType, ts.ColumnType] = {
     pa.uint64(): ts.IntType(nullable=True),
     pa.float32(): ts.FloatType(nullable=True),
     pa.float64(): ts.FloatType(nullable=True),
-    pa.date32(): ts.StringType(nullable=True),  # date32 is not supported in pixeltable, use string
-    pa.date64(): ts.StringType(nullable=True),  # date64 is not supported in pixeltable, use string
+    pa.date32(): ts.DateType(nullable=True),
+    pa.date64(): ts.DateType(nullable=True),
     pa.binary(): None,  # cannot import binary (inline image)
 }
 
 PXT_TO_PA_TYPES: dict[type[ts.ColumnType], pa.DataType] = {
     ts.StringType: pa.string(),
     ts.TimestampType: pa.timestamp('us', tz=datetime.timezone.utc),  # postgres timestamp is microseconds
+    ts.DateType: pa.date32(),  # This could be date64
     ts.BoolType: pa.bool_(),
     ts.IntType: pa.int64(),
     ts.FloatType: pa.float32(),
@@ -128,6 +129,11 @@ def _ar_val_to_pxt_val(val: Any, pxt_type: ts.ColumnType) -> Any:
         return bool(val)
     elif pxt_type.is_string_type():
         return str(val)
+    elif pxt_type.is_date_type():
+        if isinstance(val, str):
+            return datetime.date.fromisoformat(val)
+        if isinstance(val, datetime.date):
+            return val
     elif pxt_type.is_timestamp_type():
         if isinstance(val, str):
             return datetime.datetime.fromisoformat(val)

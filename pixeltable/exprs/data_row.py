@@ -29,10 +29,13 @@ class DataRow:
     - FloatType: float
     - BoolType: bool
     - TimestampType: datetime.datetime
+    - DateType: datetime.date
     - JsonType: json-serializable object
     - ArrayType: numpy.ndarray
     - ImageType: PIL.Image.Image
     - VideoType: local path if available, otherwise url
+    - AudioType: local path if available, otherwise url
+    - DocumentType: local path if available, otherwise url
     """
 
     vals: np.ndarray  # of object

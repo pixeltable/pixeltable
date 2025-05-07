@@ -8,7 +8,7 @@ dynamic = ["version"]
 description = "AI Data Infrastructure: Declarative, Multimodal, and Incremental"
 license = "Apache-2.0"
 readme = "README.md"
-requires-python = ">=3.9,<4.0"
+requires-python = ">=3.10"
 authors = [{ name = "Pixeltable, Inc.", email = "contact@pixeltable.com>" }]
 keywords = [
     "data-science", "machine-learning", "database", "ai", "computer-vision",
@@ -22,7 +22,6 @@ classifiers = [
     "Operating System :: MacOS",
     "Operating System :: Microsoft :: Windows",
     "Operating System :: POSIX :: Linux",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -80,6 +79,11 @@ exclude = [
 requires-poetry = ">=2.0"
 version = "0.0.0"
 
+[tool.poetry.dependencies]
+# This is necessary because some dependencies explicitly require python "<4.0", so we need to assert "<4.0" for version
+# locking purposes, but we want to keep that requirement out of the `requires-python` declaration above.
+python = ">=3.10,<4.0"
+
 [tool.poetry.group.dev]
 optional = true
 
@@ -116,6 +120,7 @@ black = ">=24.4"  # Needed for mkdocs
 # other
 pycocotools = "^2.0.7"
 ipykernel = "^6.27.1"
+tabulate = ">=0.9"
 nbmake = "^1.4.6"
 # packages required by various optional pieces of the codebase
 mistune = "^3.0.2"
@@ -143,14 +148,11 @@ openpyxl = ">=3.1"  # Excel (.xlsx) support
 openai-whisper = ">=20240930"
 # Don't include whisperx on Intel Mac instances
 whisperx = { version = ">=3.3.1", python = "<3.13", markers = "sys_platform != 'darwin' or platform_machine != 'x86_64'" }
-# We need to lock a specific onnxruntime version in order for whisperx to work on Python 3.9
-onnxruntime = { version = "==1.18.0", markers = "sys_platform != 'darwin' or platform_machine != 'x86_64'" }
 label-studio-sdk = "^0.0.32"
 fiftyone = "^1.0.0"
 ollama = ">=0.4.0"
 llama-cpp-python = { version = ">=0.3.7", platform = "!=win32" }  # Windows build of llama_cpp has issues in CI
-pixeltable-yolox = "==0.4.0"
-tabulate = ">=0.9"
+pixeltable-yolox = "==0.4.2"
 
 [tool.poetry.plugins."mkdocstrings.python.templates"]
 extension-name = "tool.doc_plugins.mkdocstrings:get_templates_path"
@@ -218,6 +220,7 @@ select = ["B", "C", "E", "F", "ICN", "N", "PL", "PYI", "RUF", "SIM", "TD002", "W
 ignore = [
     "B023",  # Function definition does not bind to loop variable (appears to generate false positives)
     "B027",  # Empty method in abstract base class (I'm not sure why this should be a problem)
+    "B905",  # `zip()` without an explicit `strict=` parameter
     # A bunch of rules that are just plain fussy about code complexity:
     "C901", "PLR0904", "PLR0911", "PLR0912", "PLR0913", "PLR0914", "PLR0915", "PLR0916", "PLR0917", "PLR1702",
     "E711",  # None comparison (x == None); needed for Pandas/Pixeltable expressions
