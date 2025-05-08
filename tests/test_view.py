@@ -808,6 +808,8 @@ class TestView:
         v = pxt.create_view('test_view', s.where(s.c2 < 10), additional_columns=schema)
         orig_view_cols = v._schema.keys()
         view_s = pxt.create_snapshot('test_view_snap', v)
+        with catalog.Catalog.get().begin_xact(for_write=False):
+            _ = catalog.Catalog.get().load_replica_md(view_s)
         assert set(view_s._schema.keys()) == set(orig_view_cols)
 
         def check(s1: pxt.Table, v: pxt.Table, s2: pxt.Table) -> None:

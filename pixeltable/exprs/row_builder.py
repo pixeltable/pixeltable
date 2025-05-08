@@ -172,13 +172,11 @@ class RowBuilder:
 
         def refs_unstored_iter_col(col_ref: ColumnRef) -> bool:
             tbl = col_ref.col.tbl
-            return (
-                tbl.get().is_component_view and tbl.get().is_iterator_column(col_ref.col) and not col_ref.col.is_stored
-            )
+            return tbl.is_component_view and tbl.is_iterator_column(col_ref.col) and not col_ref.col.is_stored
 
         unstored_iter_col_refs = [col_ref for col_ref in col_refs if refs_unstored_iter_col(col_ref)]
         component_views = [col_ref.col.tbl for col_ref in unstored_iter_col_refs]
-        unstored_iter_args = {view.id: view.get().iterator_args.copy() for view in component_views}
+        unstored_iter_args = {view.id: view.iterator_args.copy() for view in component_views}
         self.unstored_iter_args = {
             id: self._record_unique_expr(arg, recursive=True) for id, arg in unstored_iter_args.items()
         }
@@ -450,9 +448,9 @@ class RowBuilder:
             else:
                 if col.col_type.is_image_type() and data_row.file_urls[slot_idx] is None:
                     # we have yet to store this image
-                    filepath = str(MediaStore.prepare_media_path(col.tbl.id, col.id, col.tbl.get().version))
+                    filepath = str(MediaStore.prepare_media_path(col.tbl.id, col.id, col.tbl.version))
                     data_row.flush_img(slot_idx, filepath)
-                val = data_row.get_stored_val(slot_idx, col.sa_col.type)
+                val = data_row.get_stored_val(slot_idx, col.get_sa_col_type())
                 table_row[col.store_name()] = val
                 # we unfortunately need to set these, even if there are no errors
                 table_row[col.errortype_store_name()] = None
