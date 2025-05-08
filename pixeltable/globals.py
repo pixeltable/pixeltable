@@ -675,7 +675,7 @@ def ls(path: str = '') -> pd.DataFrame:
                 if base.startswith('_'):
                     base = '<anonymous base table>'
                 if tv.is_replica:
-                    kind = f'*{kind}'
+                    kind = f'replica-{kind}'
             rows.append([name, kind, version, base])
 
     rows = sorted(rows, key=lambda x: x[0])

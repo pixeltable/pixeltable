@@ -3,6 +3,9 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable.catalog import Path, is_valid_identifier, is_valid_path
+from pixeltable.share.packager import TablePackager, TableRestorer
+from tests.conftest import clean_db
+from tests.utils import reload_catalog
 
 
 class TestCatalog:
@@ -56,8 +59,19 @@ class TestCatalog:
             next(ancestors)
 
     def test_ls(self, reset_db) -> None:
+        t = pxt.create_table('tbl_for_replica', {'a': pxt.Int})
+        snapshot = pxt.create_snapshot('snapshot_for_replica', t)
+        packager = TablePackager(snapshot)
+        bundle_path = packager.package()
+        clean_db()
+        reload_catalog()
+
         pxt.create_dir('test_dir')
         pxt.create_dir('test_dir.subdir')
+
+        restorer = TableRestorer('test_dir.replica1')
+        restorer.restore(bundle_path)
+
         t = pxt.create_table('test_dir.tbl', {'a': pxt.Int})
         t.insert(a=3)
         v1 = pxt.create_view('view1', t)
