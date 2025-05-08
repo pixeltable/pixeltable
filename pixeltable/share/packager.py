@@ -159,8 +159,9 @@ class TablePackager:
         batch_size: int = 1_000,
     ) -> Iterator[pa.Table]:
         """
-        Load a DataFrame as a sequence of pyarrow tables. The pyarrow tables are batched into smaller chunks
-        to avoid excessive memory usage.
+        Group rows into a sequence of pyarrow tables, batched into smaller chunks to minimize memory utilization.
+        The row dictionaries have the format {store_col_name: value}, where the values reflect the unprocessed contents
+        of the store database (as returned by `StoreTable.dump_rows()`).
         """
         for rows in more_itertools.batched(row_iter, batch_size):
             cols = {}
