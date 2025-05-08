@@ -10,6 +10,7 @@ from typing import Any, Optional
 import pixeltable_pgserver
 import pytest
 import sqlalchemy as sql
+import toml
 from sqlalchemy import orm
 
 import pixeltable as pxt
@@ -17,6 +18,7 @@ import pixeltable.type_system as ts
 from pixeltable.env import Env
 from pixeltable.exprs import FunctionCall, Literal
 from pixeltable.func import CallableFunction
+from pixeltable.func.signature import Batch
 from pixeltable.metadata import VERSION, SystemInfo
 from pixeltable.metadata.converters.util import convert_table_md
 from pixeltable.metadata.notes import VERSION_NOTES
@@ -30,11 +32,10 @@ _logger = logging.getLogger('pixeltable')
 
 class TestMigration:
     @pytest.mark.skipif(platform.system() == 'Windows', reason='Does not run on Windows')
-    @pytest.mark.skipif(sys.version_info >= (3, 10), reason='Runs only on Python 3.9 (due to pickling issue)')
+    @pytest.mark.skipif(sys.version_info >= (3, 11), reason='Runs only on Python 3.10 (due to pickling issue)')
     def test_db_migration(self, init_env: None) -> None:
         skip_test_if_not_installed('transformers')
         skip_test_if_not_installed('label_studio_sdk')
-        import toml
 
         env = Env.get()
         pg_package_dir = os.path.dirname(pixeltable_pgserver.__file__)
@@ -83,6 +84,14 @@ class TestMigration:
             with orm.Session(env.engine) as session:
                 md = session.query(SystemInfo).one().md
                 assert md['schema_version'] == VERSION
+
+            # Most DB artifacts were created using Python 3.9, but there is a pickling incompatibility between
+            # Python 3.9 and 3.10 that affects the specific UDF `test_udf_stored_batched`. Eventually pickled UDFs
+            # will go away; until we find a better solution, the workaround is to surgically replace references to
+            # `test_udf_stored_batched` in the DB artifact metadata with a non-pickled variant.
+            # TODO: Remove this workaround once we implement a better solution for dealing with legacy pickled UDFs.
+            with orm.Session(env.engine) as session:
+                convert_table_md(env.engine, substitution_fn=self.__replace_pickled_udfs)
 
             reload_catalog()
 
@@ -258,6 +267,23 @@ class TestMigration:
             return 'path', 'tool.embed_udf.clip_text_embed'
         return None
 
+    @staticmethod
+    def __replace_pickled_udfs(k: Optional[str], v: Any) -> Optional[tuple[Optional[str], Any]]:
+        # The following set of conditions uniquely identifies FunctionCall instances in the artifacts whose function
+        # is `test_udf_stored_batched`. See comment above re: pickled UDFs in Python 3.10.
+        # TODO: Remove this method once we implement a better solution for dealing with legacy pickled UDFs.
+        if (
+            isinstance(v, dict)
+            and v.get('_classname') == 'FunctionCall'
+            and 'id' in v['fn']
+            and len(v['kwarg_idxs']) == 1
+        ):
+            del v['fn']['id']
+            v['fn']['path'] = replacement_batched_udf.self_path
+            v['fn']['signature'] = replacement_batched_udf.signature.as_dict()
+
+        return k, v
+
     @classmethod
     def _run_v30_tests(cls) -> None:
         with Env.get().engine.begin() as conn:
@@ -285,3 +311,8 @@ class TestMigration:
                 table_md = row[2]
                 for col_md in table_md['column_md'].values():
                     assert col_md['is_pk'] is not None
+
+
+@pxt.udf(batch_size=4)
+def replacement_batched_udf(strings: Batch[str], *, upper: bool = True) -> Batch[pxt.String]:
+    return [string.upper() if upper else string.lower() for string in strings]

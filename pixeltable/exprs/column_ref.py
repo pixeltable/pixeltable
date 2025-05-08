@@ -188,6 +188,10 @@ class ColumnRef(Expr):
     def count(self) -> int:
         return self._df().count()
 
+    def distinct(self) -> 'pxt.dataframe.DataFrame':
+        """Return distinct values in this column."""
+        return self._df().distinct()
+
     def __str__(self) -> str:
         if self.col.name is None:
             return f'<unnamed column {self.col.id}>'
