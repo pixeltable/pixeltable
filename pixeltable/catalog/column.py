@@ -16,6 +16,7 @@ from .globals import MediaValidation, is_valid_identifier
 if TYPE_CHECKING:
     from .table_version import TableVersion
     from .table_version_handle import TableVersionHandle
+    from .table_version_path import TableVersionPath
 
 _logger = logging.getLogger('pixeltable')
 
@@ -170,9 +171,12 @@ class Column:
         )
         return len(window_fn_calls) > 0
 
-    def get_idx_info(self) -> dict[str, 'TableVersion.IndexInfo']:
+    # TODO: This should be moved out of `Column` (its presence in `Column` doesn't anticipate indices being defined on
+    #     multiple dependents)
+    def get_idx_info(self, reference_tbl: Optional['TableVersionPath'] = None) -> dict[str, 'TableVersion.IndexInfo']:
         assert self.tbl is not None
-        return {name: info for name, info in self.tbl.get().idxs_by_name.items() if info.col == self}
+        tbl = reference_tbl.tbl_version if reference_tbl is not None else self.tbl
+        return {name: info for name, info in tbl.get().idxs_by_name.items() if info.col == self}
 
     @property
     def is_computed(self) -> bool:
