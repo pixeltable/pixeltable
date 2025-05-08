@@ -4,10 +4,10 @@ Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs)
 Example:
 ```python
 import pixeltable as pxt
-from pixeltable.functions import video as pxt_video
+import pixeltable.functions as pxtf
 
 t = pxt.get_table(...)
-t.select(pxt_video.extract_audio(t.video_col)).collect()
+t.select(pxtf.video.extract_audio(t.video_col)).collect()
 ```
 """
 
