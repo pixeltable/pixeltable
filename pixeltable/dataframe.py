@@ -583,7 +583,7 @@ class DataFrame:
             if not expr.is_bound_by(self._from_clause.tbls):
                 raise excs.Error(
                     f"Expression '{expr}' cannot be evaluated in the context of this query's tables "
-                    f'({",".join(tbl.tbl_name() for tbl in self._from_clause.tbls)})'
+                    f'({",".join(tbl.tbl_version.get().versioned_name for tbl in self._from_clause.tbls)})'
                 )
             select_list.append((expr, name))
 
