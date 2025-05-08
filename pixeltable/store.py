@@ -7,8 +7,9 @@ import sys
 import urllib.parse
 import urllib.request
 import warnings
-from typing import Any, Iterator, Literal, Optional, Union
+from typing import Any, Iterable, Iterator, Literal, Optional, Union
 
+import more_itertools
 import sqlalchemy as sql
 from tqdm import TqdmWarning, tqdm
 
@@ -447,13 +448,14 @@ class StoreBase:
         for row in result:
             yield dict(zip(result.keys(), row))
 
-    def load_rows(self, rows: list[dict[str, Any]]) -> None:
+    def load_rows(self, rows: Iterable[dict[str, Any]], batch_size: int = 10_000) -> None:
         """
         When instantiating a replica, we can't rely on the usual insertion code path, which contains error handling
         and other logic that doesn't apply.
         """
         conn = Env.get().conn
-        conn.execute(sql.insert(self.sa_tbl), rows)
+        for batch in more_itertools.batched(rows, batch_size):
+            conn.execute(sql.insert(self.sa_tbl), batch)
 
 
 class StoreTable(StoreBase):
