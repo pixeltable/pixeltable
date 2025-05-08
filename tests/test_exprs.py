@@ -1562,6 +1562,9 @@ class TestExprs:
         assert len(t.c2.show(n=100)) == 100
         assert len(v.c2.show(n=100)) == 5
 
+        assert t.c2.head()._col_names == ['c2']
+        assert v.c2.head()._col_names == ['c2']
+
         # Test snapshots of the base table and of the view, with and without additional_columns
         snap1 = pxt.create_snapshot('test_snapshot_1', t)
         snap2 = pxt.create_snapshot('test_snapshot_2', v)

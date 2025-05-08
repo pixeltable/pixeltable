@@ -193,7 +193,7 @@ class ColumnRef(Expr):
             return tbl.select(self)
         else:
             # Explicit reference table; construct a DataFrame directly from it
-            return pxt.DataFrame(plan.FromClause([self.reference_tbl]))
+            return pxt.DataFrame(plan.FromClause([self.reference_tbl])).select(self)
 
     def show(self, *args: Any, **kwargs: Any) -> 'pxt.dataframe.DataFrameResultSet':
         return self._df().show(*args, **kwargs)
