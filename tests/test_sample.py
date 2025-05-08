@@ -49,25 +49,41 @@ class TestSampling:
             _ = t.select().sample(n=10).join(t, on=t.c1)
 
         # ------- Test sample parameter correctness
-        with pytest.raises(excs.Error, match='At least one of '):
-            _ = t.select().sample()
-        # This is now a feature (sample size = min(fraction * count, n)
-        # with pytest.raises(excs.Error, match='Exactly one'):
-        #     _ = t.select().sample(fraction=0.10, n=10)
-        with pytest.raises(excs.Error, match='must be of type int'):
+        with pytest.raises(excs.Error, match='must be of type Int'):
             _ = t.select().sample(n=0.01)  # type: ignore[arg-type]
-        with pytest.raises(excs.Error, match='must be of type float'):
+        with pytest.raises(excs.Error, match='must be of type Int'):
+            _ = t.select().sample(n_per_stratum='abc', stratify_by=t.c1)  # type: ignore[arg-type]
+        with pytest.raises(excs.Error, match='must be of type Float'):
             _ = t.select().sample(fraction=24)
         with pytest.raises(excs.Error, match='fraction parameter must be between'):
             _ = t.select().sample(fraction=-0.5)
         with pytest.raises(excs.Error, match='fraction parameter must be between'):
             _ = t.select().sample(fraction=12.9)
-        with pytest.raises(excs.Error, match='must be of type int'):
+        with pytest.raises(excs.Error, match='must be of type Int'):
             _ = t.select().sample(n=10, seed=-123.456)  # type: ignore[arg-type]
+
+        # Test invalid sample parameter combinations
+        with pytest.raises(excs.Error, match='At least one of '):
+            _ = t.select().sample()
+        with pytest.raises(excs.Error, match='Must specify'):
+            _ = t.select().sample(n_per_stratum=5)
+        with pytest.raises(excs.Error, match='Cannot specify both'):
+            _ = t.select().sample(n=10, n_per_stratum=5, stratify_by=t.c1)
+        with pytest.raises(excs.Error, match='Cannot specify both'):
+            _ = t.select().sample(n=10, fraction=0.10)
+        with pytest.raises(excs.Error, match='Cannot specify both'):
+            _ = t.select().sample(n_per_stratum=10, fraction=0.10, stratify_by=t.c1)
+
+        # test valid parameter combinations
+        _ = t.select().sample(n=10)
+        _ = t.select().sample(fraction=0.123)
+        _ = t.select().sample(n=10, stratify_by=t.c1)
+        _ = t.select().sample(fraction=0.123, stratify_by=t.c1)
+        _ = t.select().sample(n_per_stratum=5, stratify_by=t.c1)
 
         # test stratify_by list
         with pytest.raises(excs.Error, match='must be composed of expressions'):
-            _ = t.select().sample(n=10, stratify_by=47)  # type: ignore[arg-type]
+            _ = t.select().sample(n=10, stratify_by=47)
         with pytest.raises(excs.Error, match='Invalid expression'):
             _ = t.select().sample(n=10, stratify_by=[None])
         with pytest.raises(excs.Error, match='Invalid expression'):
@@ -76,7 +92,7 @@ class TestSampling:
             _ = t.select().sample(n=10, stratify_by=[t.c6])
 
         # String, Int, and Bool types
-        _ = t.select().sample(n=10, fraction=0.123, seed=27, stratify_by=[t.c1, t.c2, t.c4])
+        _ = t.select().sample(n=10, seed=27, stratify_by=[t.c1, t.c2, t.c4])
 
         # Preceding where clauses must be suitable for direct sql translation
         with pytest.raises(excs.Error, match='not expressible in SQL'):
@@ -85,14 +101,14 @@ class TestSampling:
     def test_sample_display(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
 
-        df = t.select().sample(n=10, fraction=0.123, seed=27, stratify_by=[t.c1, t.c2, t.c4])
+        df = t.select(t.c1).sample(n=10, seed=27, stratify_by=[t.c1, t.c2, t.c4])
         s = repr(df)
         print(s)
-        assert 'sample_1(10, 0.123, 27, [c1,c2,c4])' in s
+        assert 'sample_1(n=10, n_per_stratum=None, fraction=' in s
 
         s = df._repr_html_()
         print(s)
-        assert 'sample_1(10, 0.123, 27, [c1,c2,c4])' in s
+        assert 'sample_1(n=10, n_per_stratum=None, fraction=' in s
 
     def test_sample_md5_fraction(self) -> None:
         from pixeltable.utils.sample import SampleClause
@@ -104,7 +120,7 @@ class TestSampling:
 
         for count in (100, 1000, 10000, 100000, 1000000, 10000000):
             k = 1
-            for i in range(count):
+            for _i in range(count):
                 b = hashlib.md5(str(random.randint(0, 1000000000)).encode()).hexdigest() < threshold_hex
                 if b:
                     #                print(i, b)
@@ -153,7 +169,7 @@ class TestSampling:
             for cat2 in range(cat_count):
                 cat1v = cat1 if not with_null or cat1 != cat_count - 1 else None
                 cat2v = cat2 if not with_null or cat2 != cat_count - 1 else None
-                for i in range(row_mult * (cat1 + 1) * (cat2 + 1)):
+                for _ in range(row_mult * (cat1 + 1) * (cat2 + 1)):
                     rows.append({'id': rowid, 'cat1': cat1v, 'cat2': cat2v})
                     rowid += 1
         return pxt.create_table('scm_t', source=rows, schema_overrides=schema)
@@ -170,9 +186,6 @@ class TestSampling:
 
         df = t.select().sample(fraction=0.123, seed=42)
         self._check_sample(df, t_rows * 0.123)
-
-        df = t.select().sample(n=10, fraction=0.5)
-        self._check_sample(df, 10)
 
         df = t.select().where(t.id < 200).sample(fraction=0.5)
         self._check_sample(df, 200 * 0.5)
@@ -198,7 +211,8 @@ class TestSampling:
         df = t.select(t.cat1, t.cat2, t.id).where(t.cat1 != None).sample(fraction=0.1, stratify_by=[t.cat1, t.cat2])
         r = df.collect()
         print(r)
-#        assert False
+
+    #        assert False
 
     def test_sample_stratified_nulls(self, test_tbl: catalog.Table) -> None:
         t_rows = 360

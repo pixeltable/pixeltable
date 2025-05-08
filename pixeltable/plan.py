@@ -12,6 +12,7 @@ import pixeltable as pxt
 from pixeltable import catalog, exceptions as excs, exec, exprs
 from pixeltable.catalog import Column, TableVersionHandle
 from pixeltable.exec.sql_node import OrderByClause, OrderByItem, combine_order_by_clauses, print_order_by_clause
+from pixeltable.utils.sample import SampleClause
 
 
 def _is_agg_fn_call(e: exprs.Expr) -> bool:
@@ -697,7 +698,7 @@ class Planner:
         group_by_clause: Optional[list[exprs.Expr]] = None,
         order_by_clause: Optional[list[tuple[exprs.Expr, bool]]] = None,
         limit: Optional[exprs.Expr] = None,
-        sample_clause: Optional[exprs.Expr] = None,
+        sample_clause: Optional[SampleClause] = None,
         ignore_errors: bool = False,
         exact_version_only: Optional[list[catalog.TableVersionHandle]] = None,
     ) -> exec.ExecNode:
@@ -746,7 +747,7 @@ class Planner:
         analyzer: Analyzer,
         eval_ctx: exprs.RowBuilder.EvalCtx,
         limit: Optional[exprs.Expr] = None,
-        sample_clause: Optional[exprs.Expr] = None,
+        sample_clause: Optional[SampleClause] = None,
         with_pk: bool = False,
         exact_version_only: Optional[list[catalog.TableVersionHandle]] = None,
     ) -> exec.ExecNode:

@@ -22,6 +22,7 @@ class SampleClause(Expr):
         self,
         version_expr: Optional[Expr],
         n_expr: Optional[Expr],
+        n_per_stratum_expr: Optional[Expr],
         fract_expr: Optional[Expr],
         seed_expr: Optional[Expr],
         stratify_list: Optional[list[Expr]],
@@ -30,9 +31,10 @@ class SampleClause(Expr):
         if version_expr is None:
             version_expr = exprs.Literal(self.CURRENT_VERSION)
         n_expr = self.convert_none_to_expr(n_expr)
+        n_per_stratum_expr = self.convert_none_to_expr(n_per_stratum_expr)
         fract_expr = self.convert_none_to_expr(fract_expr)
         seed_expr = self.convert_none_to_expr(seed_expr)
-        self.components = [version_expr, n_expr, fract_expr, seed_expr, *stratify_list]
+        self.components = [version_expr, n_expr, n_per_stratum_expr, fract_expr, seed_expr, *stratify_list]
         self.id: Optional[int] = self._create_id()
 
     @classmethod
@@ -49,20 +51,40 @@ class SampleClause(Expr):
         return self.components[0]
 
     @property
+    def _n(self) -> Optional[int]:
+        return self._n_expr.val
+
+    @property
+    def _n_per_stratum(self) -> Optional[int]:
+        return self._n_per_stratum_expr.val
+
+    @property
+    def _fraction(self) -> Optional[float]:
+        return self._fraction_expr.val
+
+    @property
+    def _seed(self) -> Optional[int]:
+        return self._seed_expr.val
+
+    @property
     def _n_expr(self) -> Expr:
         return self.components[1]
 
     @property
-    def _fraction_expr(self) -> Expr:
+    def _n_per_stratum_expr(self) -> Optional[Expr]:
         return self.components[2]
 
     @property
-    def _seed_expr(self) -> Expr:
+    def _fraction_expr(self) -> Expr:
         return self.components[3]
 
     @property
+    def _seed_expr(self) -> Expr:
+        return self.components[4]
+
+    @property
     def _stratify_list(self) -> list[Expr]:
-        return self.components[4:]
+        return self.components[5:]
 
     def sql_expr(self, sql_elements: SqlElementCache) -> Optional[sql.ColumnElement]:
         raise NotImplementedError
@@ -78,11 +100,14 @@ class SampleClause(Expr):
 
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr]) -> SampleClause:
-        return cls(components[0], components[1], components[2], components[3], components[4:])
+        return SampleClause(components[0], components[1], components[2], components[3], components[4], components[5:])
 
     def __repr__(self) -> str:
         s = ','.join(e.display_str(inline=True) for e in self._stratify_list)
-        return f'sample_{self._version_expr}({self._n_expr}, {self._fraction_expr}, {self._seed_expr}, [{s}])'
+        return (
+            f'sample_{self._version_expr}(n={self._n}, n_per_stratum={self._n_per_stratum}, ' +
+            f'fraction={self._fraction_expr}, seed={self._seed_expr}, [{s}])'
+        )
 
     @classmethod
     def fraction_to_md5_hex(cls, fraction: float) -> str:

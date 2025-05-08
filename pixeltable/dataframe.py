@@ -141,7 +141,7 @@ class DataFrame:
     grouping_tbl: Optional[catalog.TableVersion]
     order_by_clause: Optional[list[tuple[exprs.Expr, bool]]]
     limit_val: Optional[exprs.Expr]
-    sample_clause: Optional[exprs.Expr]
+    sample_clause: Optional[SampleClause]
 
     def __init__(
         self,
@@ -152,7 +152,7 @@ class DataFrame:
         grouping_tbl: Optional[catalog.TableVersion] = None,
         order_by_clause: Optional[list[tuple[exprs.Expr, bool]]] = None,  # list[(expr, asc)]
         limit: Optional[exprs.Expr] = None,
-        sample_clause: Optional[exprs.Expr] = None,
+        sample_clause: Optional[SampleClause] = None,
     ):
         self._from_clause = from_clause
 
@@ -242,25 +242,16 @@ class DataFrame:
         return unique_vars
 
     @classmethod
-    def _convert_int_param(cls, v: Optional[Any], required: bool, name: str) -> Optional[exprs.Expr]:
+    def _convert_param_to_typed_expr(
+        cls, v: Any, required_type: ts.ColumnType, required: bool, name: str
+    ) -> Optional[exprs.Expr]:
         if v is None:
             if required:
                 raise excs.Error(f'{name!r} parameter must be present')
             return v
         v_expr = exprs.Expr.from_object(v)
-        if not v_expr.col_type.is_int_type():
-            raise excs.Error(f'{name!r} parameter must be of type int, instead of {v_expr.col_type}')
-        return v_expr
-
-    @classmethod
-    def _convert_float_param(cls, v: Optional[Any], required: bool, name: str) -> Optional[exprs.Expr]:
-        if v is None:
-            if required:
-                raise excs.Error(f'{name!r} parameter must be present')
-            return v
-        v_expr = exprs.Expr.from_object(v)
-        if not v_expr.col_type.is_float_type():
-            raise excs.Error(f'{name!r} parameter must be of type float, instead of {v_expr.col_type}')
+        if not v_expr.col_type.matches(required_type):
+            raise excs.Error(f'{name!r} parameter must be of type {required_type!r}, instead of {v_expr.col_type}')
         return v_expr
 
     def parameters(self) -> dict[str, ColumnType]:
@@ -319,13 +310,13 @@ class DataFrame:
 
         # Construct a suitable where clause
         where = self.where_clause
-        if samplex._fraction_expr.val is not None:
-            fraction_md5_hex = exprs.Expr.from_object(samplex.fraction_to_md5_hex(float(samplex._fraction_expr.val)))
+        if samplex._fraction is not None:
+            fraction_md5_hex = exprs.Expr.from_object(samplex.fraction_to_md5_hex(float(samplex._fraction)))
             f_where = s_key < fraction_md5_hex
             where = where & f_where if where is not None else f_where
 
         order_by: list[tuple[exprs.Expr, bool]] = [(s_key, True)]
-        limit = samplex._n_expr if samplex._n_expr.val is not None else None
+        limit = samplex._n_expr
 
         for item in self._select_list_exprs:
             item.bind_rel_paths()
@@ -993,7 +984,7 @@ class DataFrame:
         if self.sample_clause is not None:
             raise excs.Error('limit() cannot be used with sample()')
 
-        limit_expr = self._convert_int_param(n, True, 'limit()')
+        limit_expr = self._convert_param_to_typed_expr(n, ts.IntType(nullable=False), True, 'limit()')
         return DataFrame(
             from_clause=self._from_clause,
             select_list=self.select_list,
@@ -1007,9 +998,10 @@ class DataFrame:
     def sample(
         self,
         n: Optional[int] = None,
+        n_per_stratum: Optional[int] = None,
         fraction: Optional[float] = None,
         seed: Optional[int] = None,
-        stratify_by: Optional[list[Any]] = None,
+        stratify_by: Any = None,
     ) -> DataFrame:
         """Choose a shuffled sample of rows in the DataFrame
 
@@ -1023,22 +1015,34 @@ class DataFrame:
         """
 
         if self.sample_clause is not None:
-            raise excs.Error('sample() cannot be used with sample')
+            raise excs.Error('sample() cannot be used with sample()')
         if self.group_by_clause is not None:
-            raise excs.Error('sample() cannot be used with group_by')
+            raise excs.Error('sample() cannot be used with group_by()')
         if self.order_by_clause is not None:
-            raise excs.Error('sample() cannot be used with order_by')
+            raise excs.Error('sample() cannot be used with order_by()')
         if self.limit_val is not None:
-            raise excs.Error('sample() cannot be used with limit')
+            raise excs.Error('sample() cannot be used with limit()')
         if self._has_joins():
-            raise excs.Error('sample() cannot be used with join')
+            raise excs.Error('sample() cannot be used with join()')
 
-        if (n is None) and (fraction is None):
-            raise excs.Error('At least one of `n` or `fraction` must be supplied.')
+        if n is None and n_per_stratum is None and fraction is None:
+            raise excs.Error('At least one of `n`, `n_per_stratum`, or `fraction` must be supplied.')
 
-        n_expr = self._convert_int_param(n, False, 'n')
-        fraction_expr = self._convert_float_param(fraction, False, 'fraction')
-        seed_expr = self._convert_int_param(seed, False, 'seed')
+        if n_per_stratum is not None and stratify_by is None:
+            raise excs.Error('Must specify `stratify_by` to use `n_per_stratum`')
+
+        if n is not None and n_per_stratum is not None:
+            raise excs.Error('Cannot specify both `n` and `n_per_stratum`')
+
+        if (n is not None or n_per_stratum is not None) and fraction is not None:
+            raise excs.Error('Cannot specify both `n` or `n_per_stratum` with `fraction`')
+
+        n_expr = self._convert_param_to_typed_expr(n, ts.IntType(nullable=False), False, 'n')
+        n_per_stratum_expr = self._convert_param_to_typed_expr(
+            n_per_stratum, ts.IntType(nullable=False), False, 'n_per_stratum'
+        )
+        fraction_expr = self._convert_param_to_typed_expr(fraction, ts.FloatType(nullable=False), False, 'fraction')
+        seed_expr = self._convert_param_to_typed_expr(seed, ts.IntType(nullable=False), False, 'seed')
 
         if fraction_expr is not None:
             f_v = fraction_expr.val
@@ -1052,12 +1056,11 @@ class DataFrame:
                 stratify_by = [stratify_by]
             if not isinstance(stratify_by, list):
                 raise excs.Error('`stratify_by` parameter must be composed of expressions')
-            for raw_expr in stratify_by:
-                expr = exprs.Expr.from_object(raw_expr)
-                if raw_expr is None or expr is None or not isinstance(raw_expr, exprs.ColumnRef):
-                    raise excs.Error(f'Invalid expression: {raw_expr}')
+            for expr in stratify_by:
+                if expr is None or not isinstance(expr, exprs.ColumnRef):
+                    raise excs.Error(f'Invalid expression: {expr}')
                 if not (expr.col_type.is_int_type() or expr.col_type.is_string_type() or expr.col_type.is_bool_type()):
-                    raise excs.Error(f'Invalid type: {raw_expr}')
+                    raise excs.Error(f'Invalid type: {expr}')
                 if not expr.is_bound_by(self._from_clause.tbls):
                     raise excs.Error(
                         f"Expression '{expr}' cannot be evaluated in the context of this query's tables "
@@ -1071,7 +1074,7 @@ class DataFrame:
             if analysis_info.filter is not None:
                 raise excs.Error(f'Filter {analysis_info.filter} not expressible in SQL')
 
-        samplex = SampleClause(None, n_expr, fraction_expr, seed_expr, stratify_list)
+        sample_clause = SampleClause(None, n_expr, n_per_stratum_expr, fraction_expr, seed_expr, stratify_list)
 
         return DataFrame(
             from_clause=self._from_clause,
@@ -1081,7 +1084,7 @@ class DataFrame:
             grouping_tbl=self.grouping_tbl,
             order_by_clause=self.order_by_clause,
             limit=self.limit_val,
-            sample_clause=samplex,
+            sample_clause=sample_clause,
         )
 
     def update(self, value_spec: dict[str, Any], cascade: bool = True) -> UpdateStatus:
@@ -1205,7 +1208,7 @@ class DataFrame:
                 else None
             )
             limit_val = exprs.Expr.from_dict(d['limit_val']) if d['limit_val'] is not None else None
-            sample_clause = exprs.Expr.from_dict(d['sample_clause']) if d['sample_clause'] is not None else None
+            sample_clause = SampleClause.from_dict(d['sample_clause']) if d['sample_clause'] is not None else None
 
             return DataFrame(
                 from_clause=from_clause,

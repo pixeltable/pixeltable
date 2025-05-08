@@ -8,7 +8,7 @@ import sqlalchemy as sql
 
 from pixeltable import catalog, exprs
 from pixeltable.env import Env
-from pixeltable.utils.sample import SampleKey
+from pixeltable.utils.sample import SampleClause, SampleKey
 
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
@@ -512,7 +512,7 @@ class SqlSampleNode(SqlNode):
     group_by_items: Optional[list[exprs.Expr]]
     n_samples: Optional[int]
     fraction_samples: Optional[float]
-    seed: Optional[int]
+    seed: int
     input_cte: Optional[sql.CTE]
 
     def __init__(
@@ -521,7 +521,7 @@ class SqlSampleNode(SqlNode):
         input: SqlNode,
         select_list: Iterable[exprs.Expr],
         group_by_items: Optional[list[exprs.Expr]] = None,
-        sample_clause: Optional[exprs.Expr] = None,
+        sample_clause: Optional[SampleClause] = None,
     ):
         """
         Args:
@@ -533,9 +533,9 @@ class SqlSampleNode(SqlNode):
         sql_elements = exprs.SqlElementCache(input_col_map)
         super().__init__(input.tbl, row_builder, select_list, sql_elements)
         self.group_by_items = group_by_items
-        self.n_samples = sample_clause._n_expr.val if sample_clause._n_expr.val is not None else None
-        self.fraction_samples = sample_clause._fraction_expr.val if sample_clause._fraction_expr.val is not None else None
-        self.seed = sample_clause._seed_expr if sample_clause._seed_expr.val is not None else exprs.Literal(0)
+        self.n_samples = sample_clause._n
+        self.fraction_samples = sample_clause._fraction
+        self.seed = sample_clause._seed if sample_clause._seed is not None else 0
 
     def __rowid_columns(self, num_rowid_cols: Optional[int] = None) -> list[exprs.Expr]:
         """Return list of RowidRef for the given number of associated rowids"""
@@ -558,17 +558,15 @@ class SqlSampleNode(SqlNode):
         srct_columns = [self.input_cte.c[i] for i in range(len(self.input_cte.c))]
 
         # Construct an expression for randomly ordering rows with a given seed
-        s_key = SampleKey(self.seed, self.__rowid_columns())
+        s_key = SampleKey(exprs.Literal(self.seed), self.__rowid_columns())
         o_by = s_key.sql_expr(self.sql_elements)
 
         # Create a list of all columns plus the rank
         select_columns = srct_columns.copy()
-        select_columns.append(
-            sql.func.row_number().over(partition_by=sql_group_by_items, order_by=o_by).label('rank')
-        )
+        select_columns.append(sql.func.row_number().over(partition_by=sql_group_by_items, order_by=o_by).label('rank'))
         srcp = sql.select(*select_columns).select_from(self.input_cte).cte('srcp')
 
-        final_columns = [srcp.c[i] for i in range(len(srcp.c))]
+        final_columns = [*srcp.c]
 
         stmt = sql.select(*final_columns).filter(srcp.c.rank <= n_samples)
 
@@ -593,18 +591,16 @@ class SqlSampleNode(SqlNode):
         srct_columns = [self.input_cte.c[i] for i in range(len(self.input_cte.c))]
 
         # Construct an expression for randomly ordering rows with a given seed
-        s_key = SampleKey(self.seed, self.__rowid_columns())
+        s_key = SampleKey(exprs.Literal(self.seed), self.__rowid_columns())
         o_by = s_key.sql_expr(self.sql_elements)
 
         # Second CTE: srcp
         # Create a list of all columns plus the rank
         select_columns = srct_columns.copy()
-        select_columns.append(
-            sql.func.row_number().over(partition_by=sql_group_by_items, order_by=o_by).label('rank')
-        )
+        select_columns.append(sql.func.row_number().over(partition_by=sql_group_by_items, order_by=o_by).label('rank'))
         srcp = sql.select(*select_columns).select_from(self.input_cte).cte('srcp')
 
-        final_columns = [srcp.c[i] for i in range(len(srcp.c))]
+        final_columns = [*srcp.c]
 
         # Build the join criterion dynamically to accommodate any number of group by columns
         join_c = sql.true()
@@ -612,11 +608,6 @@ class SqlSampleNode(SqlNode):
             join_c &= srcp.c[srcs.c[i].name].isnot_distinct_from(srcs.c[i])
 
         # Join srcp with srcs to limit returns to the requested fraction of rows
-        stmt = (
-            sql.select(*final_columns)
-            .select_from(srcp)
-            .join(srcs, join_c)
-            .where(srcp.c.rank <= srcs.c.s_s_size)
-        )
+        stmt = sql.select(*final_columns).select_from(srcp).join(srcs, join_c).where(srcp.c.rank <= srcs.c.s_s_size)
 
         return stmt

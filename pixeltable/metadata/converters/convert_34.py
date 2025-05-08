@@ -12,7 +12,7 @@ def _(engine: sql.engine.Engine) -> None:
 
 
 def __substitute_md(k: Optional[str], v: Any) -> Optional[tuple[Optional[str], Any]]:
-    if isinstance(v, dict) and '_classname' in v and v['_classname'] == 'DataFrame':
+    if isinstance(v, dict) and v.get('_classname') == 'DataFrame':
         if 'sample_clause' not in v:
             v['sample_clause'] = None
         return k, v
