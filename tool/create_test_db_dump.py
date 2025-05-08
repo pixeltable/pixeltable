@@ -13,6 +13,7 @@ import pixeltable_pgserver
 import toml
 
 import pixeltable as pxt
+import pixeltable.type_system as ts
 from pixeltable import metadata
 from pixeltable.env import Env
 from pixeltable.func import Batch
@@ -24,9 +25,9 @@ _logger = logging.getLogger('pixeltable')
 
 class Dumper:
     def __init__(self, output_dir: str = 'target', db_name: str = 'pxtdump') -> None:
-        if sys.version_info >= (3, 10):
+        if sys.version_info >= (3, 11):
             raise RuntimeError(
-                'This script must be run on Python 3.9. '
+                'This script must be run on Python 3.10. '
                 'DB dumps are incompatible across versions due to issues with pickling anonymous UDFs.'
             )
 
@@ -163,8 +164,8 @@ class Dumper:
             MockProject.create(
                 v,
                 'project',
-                {'int_field': pxt.IntType()},
-                {'str_field': pxt.StringType()},
+                {'int_field': ts.IntType()},
+                {'str_field': ts.StringType()},
                 {'view_test_udf': 'int_field', 'c1': 'str_field'},
             )
         )
@@ -174,7 +175,7 @@ class Dumper:
 
         col_mapping = Project.validate_columns(
             v,
-            {'str_field': pxt.StringType(), 'img_field': pxt.ImageType()},
+            {'str_field': ts.StringType(), 'img_field': ts.ImageType()},
             {},
             {'view_function_call': 'str_field', 'base_table_image_rot': 'img_field'},
         )

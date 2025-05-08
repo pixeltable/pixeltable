@@ -5,7 +5,7 @@ import enum
 from typing import Union
 
 # Python types corresponding to our literal types
-LiteralPythonTypes = Union[str, int, float, bool, datetime.datetime]
+LiteralPythonTypes = Union[str, int, float, bool, datetime.datetime, datetime.date]
 
 
 def print_slice(s: slice) -> str:

@@ -8,6 +8,8 @@ from pandas.api.types import is_datetime64_any_dtype, is_extension_array_dtype
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
+import pixeltable.type_system as ts
+from pixeltable.env import Env
 
 
 def import_pandas(
@@ -119,15 +121,15 @@ def _df_check_primary_key_values(df: pd.DataFrame, primary_key: list[str]) -> No
 
 
 def df_infer_schema(
-    df: pd.DataFrame, schema_overrides: dict[str, pxt.ColumnType], primary_key: list[str]
-) -> dict[str, pxt.ColumnType]:
+    df: pd.DataFrame, schema_overrides: dict[str, ts.ColumnType], primary_key: list[str]
+) -> dict[str, ts.ColumnType]:
     """
     Infers a Pixeltable schema from a Pandas DataFrame.
 
     Returns:
         A tuple containing a Pixeltable schema and a list of primary key column names.
     """
-    pd_schema: dict[str, pxt.ColumnType] = {}
+    pd_schema: dict[str, ts.ColumnType] = {}
     for pd_name, pd_dtype in zip(df.columns, df.dtypes):
         if pd_name in schema_overrides:
             pxt_type = schema_overrides[pd_name]
@@ -138,7 +140,7 @@ def df_infer_schema(
     return pd_schema
 
 
-def __pd_dtype_to_pxt_type(pd_dtype: DtypeObj, nullable: bool) -> Optional[pxt.ColumnType]:
+def __pd_dtype_to_pxt_type(pd_dtype: DtypeObj, nullable: bool) -> Optional[ts.ColumnType]:
     """
     Determines a pixeltable ColumnType from a pandas dtype
 
@@ -146,21 +148,21 @@ def __pd_dtype_to_pxt_type(pd_dtype: DtypeObj, nullable: bool) -> Optional[pxt.C
         pd_dtype: A pandas dtype object
 
     Returns:
-        pxt.ColumnType: A pixeltable ColumnType
+        ts.ColumnType: A pixeltable ColumnType
     """
     # Pandas extension arrays / types (Int64, boolean, string[pyarrow], etc.) are not directly
     # compatible with NumPy dtypes
     # The timezone-aware datetime64[ns, tz=] dtype is a pandas extension dtype
     if is_datetime64_any_dtype(pd_dtype):
-        return pxt.TimestampType(nullable=nullable)
+        return ts.TimestampType(nullable=nullable)
     if is_extension_array_dtype(pd_dtype):
         return None
     # Most other pandas dtypes are directly NumPy compatible
     assert isinstance(pd_dtype, np.dtype)
-    return pxt.ArrayType.from_np_dtype(pd_dtype, nullable)
+    return ts.ArrayType.from_np_dtype(pd_dtype, nullable)
 
 
-def __pd_coltype_to_pxt_type(pd_dtype: DtypeObj, data_col: pd.Series, nullable: bool) -> pxt.ColumnType:
+def __pd_coltype_to_pxt_type(pd_dtype: DtypeObj, data_col: pd.Series, nullable: bool) -> ts.ColumnType:
     """
     Infers a Pixeltable type based on a pandas dtype.
     """
@@ -176,12 +178,12 @@ def __pd_coltype_to_pxt_type(pd_dtype: DtypeObj, data_col: pd.Series, nullable: 
 
         if len(data_col) == 0:
             # No non-null values; default to FloatType (the Pandas type of an all-NaN column)
-            return pxt.FloatType(nullable=nullable)
+            return ts.FloatType(nullable=nullable)
 
-        inferred_type = pxt.ColumnType.infer_common_literal_type(data_col)
+        inferred_type = ts.ColumnType.infer_common_literal_type(data_col)
         if inferred_type is None:
             # Fallback on StringType if everything else fails
-            return pxt.StringType(nullable=nullable)
+            return ts.StringType(nullable=nullable)
         else:
             return inferred_type.copy(nullable=nullable)
 
@@ -189,7 +191,7 @@ def __pd_coltype_to_pxt_type(pd_dtype: DtypeObj, data_col: pd.Series, nullable: 
 
 
 def _df_row_to_pxt_row(
-    row: tuple[Any, ...], schema: dict[str, pxt.ColumnType], col_mapping: Optional[dict[str, str]]
+    row: tuple[Any, ...], schema: dict[str, ts.ColumnType], col_mapping: Optional[dict[str, str]]
 ) -> dict[str, Any]:
     """Convert a row to insertable format"""
     pxt_row: dict[str, Any] = {}
@@ -208,14 +210,25 @@ def _df_row_to_pxt_row(
             nval = bool(val)
         elif pxt_type.is_string_type():
             nval = str(val)
-        elif pxt_type.is_timestamp_type():
+        elif pxt_type.is_date_type():
             if pd.isnull(val):
-                # pandas has the bespoke 'NaT' type for a missing timestamp; postgres is very
-                # much not-ok with it. (But if we convert it to None and then load out the
-                # table contents as a pandas DataFrame, it will correctly restore the 'NaT'!)
+                # pandas has the bespoke 'NaT' valud for a missing timestamp
+                # This is not supported by postgres, and must be converted to None
                 nval = None
             else:
-                nval = pd.Timestamp(val).to_pydatetime()
+                nval = pd.Timestamp(val).date()
+        elif pxt_type.is_timestamp_type():
+            if pd.isnull(val):
+                # pandas has the bespoke 'NaT' value for a missing timestamp
+                # This is not supported by postgres, and must be converted to None
+                nval = None
+            else:
+                tval = pd.Timestamp(val)
+                # pandas supports tz-aware and naive timestamps.
+                if tval.tz is None:
+                    nval = pd.Timestamp(tval).tz_localize(tz=Env.get().default_time_zone)
+                else:
+                    nval = tval.astimezone(Env.get().default_time_zone)
         else:
             nval = val
         pxt_row[pxt_name] = nval

@@ -8,6 +8,7 @@ from typing import Optional
 import pytest
 
 import pixeltable as pxt
+import pixeltable.type_system as ts
 from pixeltable.iterators.document import DocumentSplitter
 from pixeltable.utils.documents import get_document_handle
 
@@ -70,19 +71,19 @@ class TestDocument:
             handle = get_document_handle(path)
             assert handle is not None
             if extension == '.pdf':
-                assert handle.format == pxt.DocumentType.DocumentFormat.PDF, path
+                assert handle.format == ts.DocumentType.DocumentFormat.PDF, path
                 assert handle.pdf_doc is not None, path
             elif extension in ('.html', '.htm'):
-                assert handle.format == pxt.DocumentType.DocumentFormat.HTML, path
+                assert handle.format == ts.DocumentType.DocumentFormat.HTML, path
                 assert handle.bs_doc is not None, path
             elif extension == '.md':
-                assert handle.format == pxt.DocumentType.DocumentFormat.MD, path
+                assert handle.format == ts.DocumentType.DocumentFormat.MD, path
                 assert handle.md_ast is not None, path
             elif extension == '.xml':
-                assert handle.format == pxt.DocumentType.DocumentFormat.XML, path
+                assert handle.format == ts.DocumentType.DocumentFormat.XML, path
                 assert handle.bs_doc is not None, path
             elif extension == '.txt':
-                assert handle.format == pxt.DocumentType.DocumentFormat.TXT, path
+                assert handle.format == ts.DocumentType.DocumentFormat.TXT, path
                 assert handle.txt_doc is not None, path
             else:
                 raise AssertionError(f'Unexpected extension {extension}, add corresponding check')

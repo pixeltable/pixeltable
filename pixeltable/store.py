@@ -190,34 +190,29 @@ class StoreBase:
         assert col.is_stored
         conn = Env.get().conn
         col_type_str = col.get_sa_col_type().compile(dialect=conn.dialect)
-        stmt = sql.text(f'ALTER TABLE {self._storage_name()} ADD COLUMN {col.store_name()} {col_type_str} NULL')
-        log_stmt(_logger, stmt)
-        conn.execute(stmt)
+        s_txt = f'ALTER TABLE {self._storage_name()} ADD COLUMN {col.store_name()} {col_type_str} NULL'
         added_storage_cols = [col.store_name()]
         if col.records_errors:
             # we also need to create the errormsg and errortype storage cols
-            stmt = sql.text(
-                f'ALTER TABLE {self._storage_name()} ADD COLUMN {col.errormsg_store_name()} VARCHAR DEFAULT NULL'
-            )
-            conn.execute(stmt)
-            stmt = sql.text(
-                f'ALTER TABLE {self._storage_name()} ADD COLUMN {col.errortype_store_name()} VARCHAR DEFAULT NULL'
-            )
-            conn.execute(stmt)
+            s_txt += f' , ADD COLUMN {col.errormsg_store_name()} VARCHAR DEFAULT NULL'
+            s_txt += f' , ADD COLUMN {col.errortype_store_name()} VARCHAR DEFAULT NULL'
             added_storage_cols.extend([col.errormsg_store_name(), col.errortype_store_name()])
+
+        stmt = sql.text(s_txt)
+        log_stmt(_logger, stmt)
+        conn.execute(stmt)
         self.create_sa_tbl()
         _logger.info(f'Added columns {added_storage_cols} to storage table {self._storage_name()}')
 
     def drop_column(self, col: catalog.Column) -> None:
         """Execute Alter Table Drop Column statement"""
-        conn = Env.get().conn
-        stmt = f'ALTER TABLE {self._storage_name()} DROP COLUMN {col.store_name()}'
-        conn.execute(sql.text(stmt))
+        s_txt = f'ALTER TABLE {self._storage_name()} DROP COLUMN {col.store_name()}'
         if col.records_errors:
-            stmt = f'ALTER TABLE {self._storage_name()} DROP COLUMN {col.errormsg_store_name()}'
-            conn.execute(sql.text(stmt))
-            stmt = f'ALTER TABLE {self._storage_name()} DROP COLUMN {col.errortype_store_name()}'
-            conn.execute(sql.text(stmt))
+            s_txt += f' , DROP COLUMN {col.errormsg_store_name()}'
+            s_txt += f' , DROP COLUMN {col.errortype_store_name()}'
+        stmt = sql.text(s_txt)
+        log_stmt(_logger, stmt)
+        Env.get().conn.execute(stmt)
 
     def load_column(
         self, col: catalog.Column, exec_plan: ExecNode, value_expr_slot_idx: int, on_error: Literal['abort', 'ignore']
@@ -432,36 +427,33 @@ class StoreBase:
         status = conn.execute(stmt)
         return status.rowcount
 
-    def insert_replica_rows(self, rows: list[dict[str, Any]]) -> None:
+    def dump_rows(self, version: int, filter_view: StoreBase, filter_view_version: int) -> Iterator[dict[str, Any]]:
+        filter_predicate = sql.and_(
+            filter_view.v_min_col <= filter_view_version,
+            filter_view.v_max_col > filter_view_version,
+            *[c1 == c2 for c1, c2 in zip(self.rowid_columns(), filter_view.rowid_columns())],
+        )
+        stmt = (
+            sql.select('*')
+            .select_from(self.sa_tbl)
+            .where(self.v_min_col <= version)
+            .where(self.v_max_col > version)
+            .where(sql.exists().where(filter_predicate))
+        )
+        conn = Env.get().conn
+        _logger.debug(stmt)
+        log_explain(_logger, stmt, conn)
+        result = conn.execute(stmt)
+        for row in result:
+            yield dict(zip(result.keys(), row))
+
+    def load_rows(self, rows: list[dict[str, Any]]) -> None:
         """
         When instantiating a replica, we can't rely on the usual insertion code path, which contains error handling
         and other logic that doesn't apply.
         """
         conn = Env.get().conn
-
-        # First cache the column mappings (for efficiency)
-        # (col_name, store_col_name) pairs
-        col_map: list[tuple[str, str]] = []
-        for col_name, col in self.tbl_version.get().cols_by_name.items():
-            if col.is_stored:
-                col_map.append((f'val_{col_name}', col.store_name()))
-                if col.records_errors:
-                    col_map.append((f'errortype_{col_name}', col.errortype_store_name()))
-                    col_map.append((f'errormsg_{col_name}', col.errormsg_store_name()))
-
-        store_rows: list[dict[str, Any]] = []
-        for row in rows:
-            store_row: dict[str, Any] = {}
-            for col_name, store_col_name in col_map:
-                store_row[store_col_name] = row[col_name]
-            # Now fill in the pk cols
-            pk = row['pk']
-            assert len(pk) == len(self._pk_cols)
-            for pk_col, pk_val in zip(self._pk_cols, pk):
-                store_row[pk_col.name] = pk_val
-            store_rows.append(store_row)
-
-        conn.execute(sql.insert(self.sa_tbl), store_rows)
+        conn.execute(sql.insert(self.sa_tbl), rows)
 
 
 class StoreTable(StoreBase):

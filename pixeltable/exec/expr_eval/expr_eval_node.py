@@ -115,7 +115,7 @@ class ExprEvalNode(ExecNode):
         """
         assert not self.input_complete
         try:
-            batch = await self.input_iter.__anext__()
+            batch = await anext(self.input_iter)
             assert self.next_input_batch is None
             if self.current_input_batch is None:
                 self.current_input_batch = batch
@@ -282,7 +282,6 @@ class ExprEvalNode(ExecNode):
 
                 if self.exc_event.is_set():
                     # we got an exception that we need to propagate through __iter__()
-                    _logger.debug(f'Propagating exception {self.error}')
                     if isinstance(self.error, excs.ExprEvalError):
                         raise self.error from self.error.exc
                     else:

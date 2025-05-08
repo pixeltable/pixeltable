@@ -1,3 +1,4 @@
+import datetime
 import filecmp
 import io
 import json
@@ -8,9 +9,10 @@ from typing import Optional
 
 import numpy as np
 import pyarrow.parquet as pq
-import pytest
 
 import pixeltable as pxt
+import pixeltable.functions as pxtf
+import pixeltable.type_system as ts
 from pixeltable import exprs, metadata
 from pixeltable.env import Env
 from pixeltable.share.packager import TablePackager, TableRestorer
@@ -68,8 +70,7 @@ class TestPackager:
         metadata = json.loads((dest / 'metadata.json').read_text())
         self.__validate_metadata(metadata, t)
 
-        expected_cols = 1 + 3 * 3  # pk plus three stored media/computed columns with error columns
-        self.__check_parquet_tbl(t, dest, media_dir=(dest / 'media'), expected_cols=expected_cols)
+        self.__check_parquet_tbl(t, dest, media_dir=(dest / 'media'), expected_cols=16)
 
     def __extract_bundle(self, bundle_path: Path) -> Path:
         tmp_dir = Path(Env.get().create_tmp_path())
@@ -80,8 +81,8 @@ class TestPackager:
     def __validate_metadata(self, md: dict, tbl: pxt.Table) -> None:
         assert md['pxt_version'] == pxt.__version__
         assert md['pxt_md_version'] == metadata.VERSION
-        assert len(md['md']['tables']) == len(tbl._bases) + 1
-        for t_md, t in zip(md['md']['tables'], (tbl, *tbl._bases)):
+        assert len(md['md']['tables']) == len(tbl._base_tables) + 1
+        for t_md, t in zip(md['md']['tables'], (tbl, *tbl._base_tables)):
             assert t_md['table_id'] == str(t._tbl_version.id)
 
     def __check_parquet_tbl(
@@ -92,8 +93,8 @@ class TestPackager:
         scope_tbl: Optional[pxt.Table] = None,  # If specified, use instead of `tbl` to select rows
         expected_cols: Optional[int] = None,
     ) -> None:
-        parquet_file = bundle_path / 'tables' / f'tbl_{t._id.hex}.parquet'
-        parquet_table = pq.read_table(str(parquet_file))
+        parquet_dir = bundle_path / 'tables' / f'tbl_{t._id.hex}'
+        parquet_table = pq.read_table(str(parquet_dir))
         parquet_data = parquet_table.to_pandas()
 
         if expected_cols is not None:
@@ -101,20 +102,20 @@ class TestPackager:
 
         # Only check columns defined in the table (not ancestors)
         select_exprs: dict[str, exprs.Expr] = {}
-        actual_col_types: list[pxt.ColumnType] = []
+        actual_col_types: list[ts.ColumnType] = []
         for col_name, col in t._tbl_version.get().cols_by_name.items():
             if not col.is_stored:
                 continue
             if col.col_type.is_media_type():
-                select_exprs[f'val_{col_name}'] = t[col_name].fileurl
+                select_exprs[col.store_name()] = t[col_name].fileurl
             else:
-                select_exprs[f'val_{col_name}'] = t[col_name]
+                select_exprs[col.store_name()] = t[col_name]
             actual_col_types.append(col.col_type)
             if col.records_errors:
-                select_exprs[f'errortype_{col_name}'] = t[col_name].errortype
-                actual_col_types.append(pxt.StringType())
-                select_exprs[f'errormsg_{col_name}'] = t[col_name].errormsg
-                actual_col_types.append(pxt.StringType())
+                select_exprs[col.errortype_store_name()] = t[col_name].errortype
+                actual_col_types.append(ts.StringType())
+                select_exprs[col.errormsg_store_name()] = t[col_name].errormsg
+                actual_col_types.append(ts.StringType())
 
         scope_tbl = scope_tbl or t
         pxt_data = scope_tbl.select(**select_exprs).collect()
@@ -179,7 +180,16 @@ class TestPackager:
 
     def test_round_trip(self, test_tbl: pxt.Table) -> None:
         """package() / unpackage() round trip"""
-        snapshot = pxt.create_snapshot('snapshot', test_tbl)
+        # Add some additional columns to test various additional datatypes
+        t = test_tbl
+        t.add_column(dt=pxt.Date)
+        t.update({'dt': pxtf.date.add_days(datetime.date(2025, 1, 1), t.c2)})
+        t.add_column(arr1=pxt.Array[pxt.Float, (1, 3)])  # type: ignore[misc]
+        t.update({'arr1': pxt.array([[1.7, 2.32, t.c3]])})
+        t.add_column(arr2=pxt.Array[pxt.String])  # type: ignore[misc]
+        t.update({'arr2': pxt.array(['xyz', t.c1])})
+
+        snapshot = pxt.create_snapshot('snapshot', t)
         self.__do_round_trip(snapshot)
 
     def test_media_round_trip(self, img_tbl: pxt.Table) -> None:
@@ -189,7 +199,7 @@ class TestPackager:
     def test_views_round_trip(self, test_tbl: pxt.Table) -> None:
         v1 = pxt.create_view('v1', test_tbl, additional_columns={'x1': pxt.Int})
         v1.update({'x1': test_tbl.c2 * 10})
-        v2 = pxt.create_view('v2', v1, additional_columns={'x2': pxt.Int})
+        v2 = pxt.create_view('v2', v1.where(v1.c2 % 3 == 0), additional_columns={'x2': pxt.Int})
         v2.update({'x2': v1.x1 + 8})
         snapshot = pxt.create_snapshot('snapshot', v2)
         self.__do_round_trip(snapshot)
@@ -202,7 +212,15 @@ class TestPackager:
         # Add a stored computed column that will generate a bunch of media files in the view.
         v.add_computed_column(rot_frame=v.frame.rotate(180))
         snapshot = pxt.create_snapshot('snapshot', v)
+        snapshot_row_count = snapshot.count()
 
-        # TODO: Remove the `pytest.raises()` when we support iterator views.
-        with pytest.raises(pxt.Error, match=r'Publishing iterator views is not currently supported.'):
-            self.__do_round_trip(snapshot)
+        self.__do_round_trip(snapshot)
+
+        # Double-check that the iterator view and its base table have the correct number of rows
+        snapshot_replica = pxt.get_table('new_replica')
+        assert snapshot_replica._snapshot_only
+        assert snapshot_replica.count() == snapshot_row_count
+        v_replica = snapshot_replica.base_table
+        assert v_replica.count() == snapshot_row_count
+        t_replica = v_replica.base_table
+        assert t_replica.count() == 2

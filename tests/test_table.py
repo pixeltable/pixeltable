@@ -15,6 +15,7 @@ from jsonschema.exceptions import ValidationError
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
+import pixeltable.type_system as ts
 from pixeltable import catalog, exceptions as excs, func
 from pixeltable.exprs import ColumnRef
 from pixeltable.func import Batch
@@ -254,7 +255,7 @@ class TestTable:
             assert tbl._parent()._path == '.'.join(tbl_path.split('.')[:-1])
             for t in (tbl, view, snap):
                 assert t.get_metadata() == {
-                    'base': None if t._base is None else t._base._path,
+                    'base': None if t._base_table is None else t._base_table._path,
                     'comment': t._comment,
                     'is_view': isinstance(t, catalog.View),
                     'is_snapshot': t._tbl_version.get().is_snapshot,
@@ -413,6 +414,8 @@ class TestTable:
             'req_bool_col': pxt.Required[pxt.Bool],
             'ts_col': pxt.Timestamp,
             'req_ts_col': pxt.Required[pxt.Timestamp],
+            'date_col': pxt.Date,
+            'req_date_col': pxt.Required[pxt.Date],
             'json_col': pxt.Json,
             'req_json_col': pxt.Required[pxt.Json],
             'array_col': pxt.Array[(5, None, 3), pxt.Int],  # type: ignore[misc]
@@ -440,34 +443,36 @@ class TestTable:
             t.add_column(**{f'added_{col_name}': col_type})
 
         expected_schema = {
-            'str_col': pxt.StringType(nullable=True),
-            'req_str_col': pxt.StringType(nullable=False),
-            'int_col': pxt.IntType(nullable=True),
-            'req_int_col': pxt.IntType(nullable=False),
-            'float_col': pxt.FloatType(nullable=True),
-            'req_float_col': pxt.FloatType(nullable=False),
-            'bool_col': pxt.BoolType(nullable=True),
-            'req_bool_col': pxt.BoolType(nullable=False),
-            'ts_col': pxt.TimestampType(nullable=True),
-            'req_ts_col': pxt.TimestampType(nullable=False),
-            'json_col': pxt.JsonType(nullable=True),
-            'req_json_col': pxt.JsonType(nullable=False),
-            'array_col': pxt.ArrayType((5, None, 3), dtype=pxt.IntType(), nullable=True),
-            'req_array_col': pxt.ArrayType((5, None, 3), dtype=pxt.IntType(), nullable=False),
-            'gen_array_col': pxt.ArrayType(dtype=pxt.FloatType(), nullable=True),
-            'req_gen_array_col': pxt.ArrayType(dtype=pxt.FloatType(), nullable=False),
-            'full_gen_array_col': pxt.ArrayType(nullable=True),
-            'req_full_gen_array_col': pxt.ArrayType(nullable=False),
-            'img_col': pxt.ImageType(nullable=True),
-            'req_img_col': pxt.ImageType(nullable=False),
-            'spec_img_col': pxt.ImageType(width=300, height=300, mode='RGB', nullable=True),
-            'req_spec_img_col': pxt.ImageType(width=300, height=300, mode='RGB', nullable=False),
-            'video_col': pxt.VideoType(nullable=True),
-            'req_video_col': pxt.VideoType(nullable=False),
-            'audio_col': pxt.AudioType(nullable=True),
-            'req_audio_col': pxt.AudioType(nullable=False),
-            'doc_col': pxt.DocumentType(nullable=True),
-            'req_doc_col': pxt.DocumentType(nullable=False),
+            'str_col': ts.StringType(nullable=True),
+            'req_str_col': ts.StringType(nullable=False),
+            'int_col': ts.IntType(nullable=True),
+            'req_int_col': ts.IntType(nullable=False),
+            'float_col': ts.FloatType(nullable=True),
+            'req_float_col': ts.FloatType(nullable=False),
+            'bool_col': ts.BoolType(nullable=True),
+            'req_bool_col': ts.BoolType(nullable=False),
+            'ts_col': ts.TimestampType(nullable=True),
+            'req_ts_col': ts.TimestampType(nullable=False),
+            'date_col': ts.DateType(nullable=True),
+            'req_date_col': ts.DateType(nullable=False),
+            'json_col': ts.JsonType(nullable=True),
+            'req_json_col': ts.JsonType(nullable=False),
+            'array_col': ts.ArrayType((5, None, 3), dtype=ts.IntType(), nullable=True),
+            'req_array_col': ts.ArrayType((5, None, 3), dtype=ts.IntType(), nullable=False),
+            'gen_array_col': ts.ArrayType(dtype=ts.FloatType(), nullable=True),
+            'req_gen_array_col': ts.ArrayType(dtype=ts.FloatType(), nullable=False),
+            'full_gen_array_col': ts.ArrayType(nullable=True),
+            'req_full_gen_array_col': ts.ArrayType(nullable=False),
+            'img_col': ts.ImageType(nullable=True),
+            'req_img_col': ts.ImageType(nullable=False),
+            'spec_img_col': ts.ImageType(width=300, height=300, mode='RGB', nullable=True),
+            'req_spec_img_col': ts.ImageType(width=300, height=300, mode='RGB', nullable=False),
+            'video_col': ts.VideoType(nullable=True),
+            'req_video_col': ts.VideoType(nullable=False),
+            'audio_col': ts.AudioType(nullable=True),
+            'req_audio_col': ts.AudioType(nullable=False),
+            'doc_col': ts.DocumentType(nullable=True),
+            'req_doc_col': ts.DocumentType(nullable=False),
         }
         expected_schema.update({f'added_{col_name}': col_type for col_name, col_type in expected_schema.items()})
 
@@ -484,6 +489,8 @@ class TestTable:
             'Required[Bool]',
             'Timestamp',
             'Required[Timestamp]',
+            'Date',
+            'Required[Date]',
             'Json',
             'Required[Json]',
             'Array[(5, None, 3), Int]',
@@ -2098,33 +2105,32 @@ class TestTable:
         t.add_computed_column(func_r=t.c2_r.upper())
 
         assert t.get_metadata()['schema'] == {
-            'c1': pxt.IntType(nullable=True),
-            'c1_r': pxt.IntType(nullable=False),
-            'c2': pxt.StringType(nullable=True),
-            'c2_r': pxt.StringType(nullable=False),
-            'arith': pxt.IntType(nullable=True),
-            'arith_r': pxt.IntType(nullable=False),
-            'func': pxt.StringType(nullable=True),
-            'func_r': pxt.StringType(nullable=False),
+            'c1': ts.IntType(nullable=True),
+            'c1_r': ts.IntType(nullable=False),
+            'c2': ts.StringType(nullable=True),
+            'c2_r': ts.StringType(nullable=False),
+            'arith': ts.IntType(nullable=True),
+            'arith_r': ts.IntType(nullable=False),
+            'func': ts.StringType(nullable=True),
+            'func_r': ts.StringType(nullable=False),
         }
 
     def test_repr(self, test_tbl: catalog.Table, all_mpnet_embed: func.Function) -> None:
         skip_test_if_not_installed('sentence_transformers')
 
         v = pxt.create_view('test_view', test_tbl)
-        pxt.create_dir('test_dir')
-        v2 = pxt.create_view('test_subview', v, comment='This is an intriguing table comment.')
+        v2 = pxt.create_view('test_subview', v.where(v.c1 != None), comment='This is an intriguing table comment.')
 
         v2.add_computed_column(computed1=v2.c2.apply(lambda x: np.full((3, 4), x), col_type=pxt.Array[(3, 4), pxt.Int]))  # type: ignore[misc]
         v2.add_embedding_index('c1', string_embed=all_mpnet_embed)
         v2._link_external_store(MockProject.create(v2, 'project', {}, {}))
         v2.describe()
 
+        # test case: view with additional columns
         r = repr(v2)
         assert strip_lines(r) == strip_lines(
-            """View
-            'test_subview'
-            (of 'test_view', 'test_tbl')
+            """View 'test_subview' (of 'test_view', 'test_tbl')
+            Where: ~(c1 == None)
 
             Column Name                          Type           Computed With
               computed1  Required[Array[(3, 4), Int]]            <lambda>(c2)
@@ -2147,6 +2153,68 @@ class TestTable:
             COMMENT: This is an intriguing table comment."""
         )
         _ = v2._repr_html_()  # TODO: Is there a good way to test this output?
+
+        # test case: snapshot of view
+        s1 = pxt.create_snapshot('test_snap1', v2)
+        r = repr(s1)
+        assert strip_lines(r) == strip_lines(
+            """Snapshot 'test_snap1' (of 'test_subview:2', 'test_view:0', 'test_tbl:2')
+            Where: ~(c1 == None)
+
+            Column Name                          Type           Computed With
+              computed1  Required[Array[(3, 4), Int]]            <lambda>(c2)
+                     c1              Required[String]
+                    c1n                        String
+                     c2                 Required[Int]
+                     c3               Required[Float]
+                     c4                Required[Bool]
+                     c5           Required[Timestamp]
+                     c6                Required[Json]
+                     c7                Required[Json]
+                     c8  Required[Array[(2, 3), Int]]  [[1, 2, 3], [4, 5, 6]]
+
+            External Store         Type
+                   project  MockProject
+
+            COMMENT: This is an intriguing table comment."""
+        )
+
+        # test case: snapshot of base table
+        s2 = pxt.create_snapshot('test_snap2', test_tbl)
+        r = repr(s2)
+        assert strip_lines(r) == strip_lines(
+            """Snapshot 'test_snap2' (of 'test_tbl:2')
+
+            Column Name                          Type           Computed With
+                     c1              Required[String]
+                    c1n                        String
+                     c2                 Required[Int]
+                     c3               Required[Float]
+                     c4                Required[Bool]
+                     c5           Required[Timestamp]
+                     c6                Required[Json]
+                     c7                Required[Json]
+                     c8  Required[Array[(2, 3), Int]]  [[1, 2, 3], [4, 5, 6]]"""
+        )
+
+        # test case: snapshot with additional columns
+        s3 = pxt.create_snapshot('test_snap3', test_tbl, additional_columns={'computed1': test_tbl.c2 + test_tbl.c3})
+        r = repr(s3)
+        assert strip_lines(r) == strip_lines(
+            """View 'test_snap3' (of 'test_tbl:2')
+
+            Column Name                          Type           Computed With
+              computed1               Required[Float]                 c2 + c3
+                     c1              Required[String]
+                    c1n                        String
+                     c2                 Required[Int]
+                     c3               Required[Float]
+                     c4                Required[Bool]
+                     c5           Required[Timestamp]
+                     c6                Required[Json]
+                     c7                Required[Json]
+                     c8  Required[Array[(2, 3), Int]]  [[1, 2, 3], [4, 5, 6]]"""
+        )
 
         c = repr(v2.c1)
         assert strip_lines(c) == strip_lines(

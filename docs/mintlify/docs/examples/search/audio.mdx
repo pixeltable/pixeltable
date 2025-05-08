@@ -68,24 +68,14 @@ Pixeltable lets you build audio search workflows in two phases:
         column="text", 
         string_embed=embed_model
     )
-
-    # Define search query
-    @pxt.query
-    def top_k(query_text: str):
-        sim = sentences_view.text.similarity(query_text)
-        return (
-            sentences_view.order_by(sim, asc=False)
-            .select(sentences_view.text, sim=sim)
-            .limit(10)
-        )
-    ```
+```
   </Step>
 
   <Step title="Use Your Workflow" icon="play">
     Create `app.py`:
     ```python
     import pixeltable as pxt
-    
+
     # Connect to your tables and views
     audio_t = pxt.get_table("audio_search.audio")
     sentences_view = pxt.get_table("audio_search.audio_sentence_chunks")
@@ -96,23 +86,21 @@ Pixeltable lets you build audio search workflows in two phases:
     }])
 
     # Perform search
-    @pxt.query
-    def search_audio(query_text: str):
-        sim = sentences_view.text.similarity(query_text)
-        return (
-            sentences_view.order_by(sim, asc=False)
-            .select(sentences_view.text, sim=sim)
-            .limit(10)
-        )
+    query_text = "What are the key features of Pixeltable?"
+    min_similarity = 0.8
+    sim = sentences_view.text.similarity(query_text)
+    result = (
+        sentences_view.where(sim >= min_similarity)
+        .order_by(sim, asc=False)
+        .select(sentences_view.text, sim=sim)
+        .collect()
+    )
 
-    # Example search
-    results = search_audio("What are the key features of Pixeltable?")
-    
     # Print results
-    for result in results.collect():
-        print(f"Similarity: {result['sim']:.3f}")
-        print(f"Text: {result['text']}\n")
-    ```
+    for i in result:
+        print(f"Similarity: {i['sim']:.3f}")
+        print(f"Text: {i['text']}\n")
+```
   </Step>
 </Steps>
 
@@ -143,9 +131,14 @@ Pixeltable lets you build audio search workflows in two phases:
   <Card title="Vector Search" icon="magnifying-glass">
     Fast search using E5 embeddings:
     ```python
-    sentences_view.add_embedding_index(
-        column="text",
-        string_embed=embed_model
+    query_text = "What are the key features of Pixeltable?"
+    min_similarity = 0.8
+    sim = sentences_view.text.similarity(query_text)
+    result = (
+        sentences_view.where(sim >= min_similarity)
+        .order_by(sim, asc=False)
+        .select(sentences_view.text, sim=sim)
+        .collect()
     )
     ```
   </Card>
@@ -207,7 +200,7 @@ audio_files = [
     "s3://your-bucket/audio3.mp3"
 ]
 
-audio_t.insert([{"audio_file": f} for f in audio_files])
+audio_t.insert({"audio_file": f} for f in audio_files)
 ```
 
 ### Different Embedding Models

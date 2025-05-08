@@ -15,6 +15,7 @@ from pyarrow.parquet import ParquetDataset
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
+import pixeltable.type_system as ts
 from pixeltable.io.pandas import _df_check_primary_key_values, _df_row_to_pxt_row, df_infer_schema
 from pixeltable.utils import parse_local_file_path
 
@@ -72,6 +73,11 @@ class TableDataConduit:
     def check_source_format(self) -> None:
         assert self.source_format is None or TableDataConduitFormat.is_valid(self.source_format)
 
+    def __post_init__(self) -> None:
+        """If no extra_fields were provided, initialize to empty dict"""
+        if self.extra_fields is None:
+            self.extra_fields = {}
+
     @classmethod
     def is_rowdata_structure(cls, d: TableDataSource) -> bool:
         if not isinstance(d, list) or len(d) == 0:
@@ -83,7 +89,7 @@ class TableDataConduit:
 
     def normalize_pxt_schema_types(self) -> None:
         for name, coltype in self.pxt_schema.items():
-            self.pxt_schema[name] = pxt.ColumnType.normalize_type(coltype)
+            self.pxt_schema[name] = ts.ColumnType.normalize_type(coltype)
 
     def infer_schema(self) -> dict[str, Any]:
         raise NotImplementedError
@@ -393,7 +399,7 @@ class HFTableDataConduit(TableDataConduit):
                         f'Column name `{self.column_name_for_split}` already exists in dataset schema;'
                         f'provide a different `column_name_for_split`'
                     )
-                self.src_schema[self.column_name_for_split] = pxt.StringType(nullable=True)
+                self.src_schema[self.column_name_for_split] = ts.StringType(nullable=True)
 
             inferred_schema, inferred_pk, self.source_column_map = normalize_schema_names(
                 self.src_schema, self.src_pk, self.src_schema_overrides, True
