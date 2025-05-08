@@ -31,13 +31,18 @@ class ColumnRef(Expr):
     - in that case, the ColumnRef also instantiates a second non-validating ColumnRef as a component (= dependency)
     - the non-validating ColumnRef is used for SQL translation
 
+    A ColumnRef may have an optional reference table, which carries the context of the ColumnRef resolution. Thus
+    if `v` is a view of `t` (for example), then `v.my_col` and `t.my_col` refer to the same underlying column, but
+    their reference tables will be `v` and `t`, respectively. This is to ensure correct behavior of expressions such
+    as `v.my_col.head()`.
+
     TODO:
     separate Exprs (like validating ColumnRefs) from the logical expression tree and instead have RowBuilder
     insert them into the EvalCtxs as needed
     """
 
     col: catalog.Column
-    reference_tbl: catalog.TableVersionPath
+    reference_tbl: Optional[catalog.TableVersionPath]
     is_unstored_iter_col: bool
     iter_arg_ctx: Optional[RowBuilder.EvalCtx]
     base_rowid_len: int

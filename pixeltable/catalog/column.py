@@ -171,6 +171,8 @@ class Column:
         )
         return len(window_fn_calls) > 0
 
+    # TODO: This should be moved out of `Column` (its presence in `Column` doesn't anticipate indices being defined on
+    #     multiple dependents)
     def get_idx_info(self, reference_tbl: Optional['TableVersionPath'] = None) -> dict[str, 'TableVersion.IndexInfo']:
         assert self.tbl is not None
         tbl = reference_tbl.tbl_version if reference_tbl is not None else self.tbl
