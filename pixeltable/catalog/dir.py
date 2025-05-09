@@ -38,12 +38,13 @@ class Dir(SchemaObject):
     def _display_name(cls) -> str:
         return 'directory'
 
+    @property
     def _path(self) -> str:
         """Returns the path to this schema object."""
         if self._dir_id is None:
             # we're the root dir
             return ''
-        return super()._path()
+        return super()._path
 
     def _move(self, new_name: str, new_dir_id: UUID) -> None:
         # print(

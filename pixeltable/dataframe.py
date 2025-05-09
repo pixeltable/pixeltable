@@ -580,6 +580,17 @@ class DataFrame:
                 raise excs.Error(f'Invalid expression: {raw_expr}')
             if expr.col_type.is_invalid_type() and not (isinstance(expr, exprs.Literal) and expr.val is None):
                 raise excs.Error(f'Invalid type: {raw_expr}')
+            if len(self._from_clause.tbls) == 1:
+                # Select expressions need to be retargeted in order to handle snapshots correctly, as in expressions
+                # such as `snapshot.select(base_tbl.col)`
+                # TODO: For joins involving snapshots, we need a more sophisticated retarget() that can handle
+                #     multiple TableVersionPaths.
+                expr = expr.copy()
+                try:
+                    expr.retarget(self._from_clause.tbls[0])
+                except Exception:
+                    # If retarget() fails, then the succeeding is_bound_by() will raise an error.
+                    pass
             if not expr.is_bound_by(self._from_clause.tbls):
                 raise excs.Error(
                     f"Expression '{expr}' cannot be evaluated in the context of this query's tables "
@@ -830,16 +841,18 @@ class DataFrame:
         grouping_tbl: Optional[catalog.TableVersion] = None
         group_by_clause: Optional[list[exprs.Expr]] = None
         for item in grouping_items:
-            if isinstance(item, catalog.Table):
+            if isinstance(item, (catalog.Table, catalog.TableVersion)):
                 if len(grouping_items) > 1:
                     raise excs.Error('group_by(): only one table can be specified')
                 if len(self._from_clause.tbls) > 1:
                     raise excs.Error('group_by() with Table not supported for joins')
+                grouping_tbl = item if isinstance(item, catalog.TableVersion) else item._tbl_version.get()
                 # we need to make sure that the grouping table is a base of self.tbl
-                base = self._first_tbl.find_tbl_version(item._tbl_version_path.tbl_id())
+                base = self._first_tbl.find_tbl_version(grouping_tbl.id)
                 if base is None or base.id == self._first_tbl.tbl_id():
-                    raise excs.Error(f'group_by(): {item._name} is not a base table of {self._first_tbl.tbl_name()}')
-                grouping_tbl = item._tbl_version_path.tbl_version.get()
+                    raise excs.Error(
+                        f'group_by(): {grouping_tbl.name} is not a base table of {self._first_tbl.tbl_name()}'
+                    )
                 break
             if not isinstance(item, exprs.Expr):
                 raise excs.Error(f'Invalid expression in group_by(): {item}')

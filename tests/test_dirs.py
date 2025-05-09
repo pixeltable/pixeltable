@@ -70,7 +70,7 @@ class TestDirs:
         id_before = {}
         for name in dirs:
             dir = pxt.create_dir(name)
-            assert dir._path() == name
+            assert dir._path == name
             id_before[name] = dir._id
 
         # invalid if_exists value is rejected

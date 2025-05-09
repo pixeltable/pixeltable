@@ -6,6 +6,7 @@ from . import (
     anthropic,
     audio,
     bedrock,
+    date,
     deepseek,
     fireworks,
     gemini,

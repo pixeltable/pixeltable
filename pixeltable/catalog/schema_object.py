@@ -33,6 +33,7 @@ class SchemaObject:
                 return None
             return Catalog.get().get_dir(self._dir_id)
 
+    @property
     def _path(self) -> str:
         """Returns the path to this schema object."""
         from .catalog import Catalog
@@ -44,7 +45,7 @@ class SchemaObject:
 
     def get_metadata(self) -> dict[str, Any]:
         """Returns metadata associated with this schema object."""
-        return {'name': self._name, 'path': self._path()}
+        return {'name': self._name, 'path': self._path}
 
     @classmethod
     @abstractmethod

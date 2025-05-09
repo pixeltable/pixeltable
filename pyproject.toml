@@ -59,7 +59,6 @@ dependencies = [
     "ftfy (>=6.2.0)",
     "pydantic (>=2.7.4)",
     "pyarrow (>=13.0.0)",
-    "pyiceberg (>=0.6.0)",
     "pixeltable-pgserver (==0.3.1)",
 ]
 
@@ -125,6 +124,7 @@ tabulate = ">=0.9"
 nbmake = "^1.4.6"
 # packages required by various optional pieces of the codebase
 mistune = "^3.0.2"
+pyiceberg = ">=0.6.0"
 torch = "^2.2"
 torchaudio = "^2.2"
 torchvision = "^0.17"
@@ -236,6 +236,7 @@ ignore = [
     "PLW0108",  # Lambda may be unnecessary (gives false positives, e.g., for an arity-reducing lambda)
     "PLW3201",  # Dunder method has no special meaning (conflicts with _repr_html_)
     "PYI041",  # Use `float` instead of `int | float` (just seems like a questionable idea)
+    "SIM105",  # Don't prefer `contextlib.suppress()`
     "SIM108",  # Don't prefer use of ternary if/else operator
     "TD002"  # Don't require author for TODOs
 ]
