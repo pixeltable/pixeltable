@@ -158,6 +158,13 @@ Pixeltable lets you build comprehensive video search workflows combining both au
             fps=1
         )
     )
+    
+    # Optionally, create new videos from processed frames
+    from pixeltable.functions.video import make_video
+    processed_videos = frames_view.select(
+        frames_view.video_id,
+        make_video(frames_view.pos, frames_view.frame)  # Default fps is 25
+    ).group_by(frames_view.video_id).collect()
     ```
   </Card>
 
