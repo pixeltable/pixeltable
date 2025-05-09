@@ -146,7 +146,7 @@ class Table(SchemaObject):
         col = self._tbl_version_path.get_column(name)
         if col is None:
             raise AttributeError(f'Column {name!r} unknown')
-        return ColumnRef(col)
+        return ColumnRef(col, reference_tbl=self._tbl_version_path)
 
     def __getitem__(self, name: str) -> 'exprs.ColumnRef':
         """Return a ColumnRef for the given name."""
@@ -219,6 +219,10 @@ class Table(SchemaObject):
         See [`DataFrame.group_by`][pixeltable.DataFrame.group_by] for more details.
         """
         return self._df().group_by(*items)
+
+    def distinct(self) -> 'pxt.DataFrame':
+        """Remove duplicate rows from table."""
+        return self._df().distinct()
 
     def limit(self, n: int) -> 'pxt.DataFrame':
         return self._df().limit(n)
