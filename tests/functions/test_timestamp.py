@@ -20,14 +20,19 @@ class TestTimestamp:
         '2019-01-01T00:00:01-08:00',
     )
 
-    def test_methods(self, reset_db: None) -> None:
+    def make_test_table(self) -> tuple[list[datetime], pxt.Table]:
+        # Create a test table with a date column
+        t = pxt.create_table('test_tbl', {'dt': pxt.Timestamp})
+        # Insert test data
+        test_dts = [datetime.fromisoformat(dt) for dt in self.TEST_DATETIMES]
+        validate_update_status(t.insert({'dt': dt} for dt in test_dts), expected_rows=len(test_dts))
+        return test_dts, t
+
+    def test_timestamp_methods(self, reset_db: None) -> None:
         # Set a default time zone that's likely to be different from the system time zone of most test environments
         default_tz = ZoneInfo('America/Anchorage')
         Env.get().default_time_zone = default_tz
-
-        t = pxt.create_table('test_tbl', {'dt': pxt.Timestamp})
-        test_dts = [datetime.fromisoformat(dt) for dt in self.TEST_DATETIMES]
-        validate_update_status(t.insert({'dt': dt} for dt in test_dts), expected_rows=len(test_dts))
+        test_dts, t = self.make_test_table()
 
         from pixeltable.functions.timestamp import (
             day,
@@ -102,7 +107,7 @@ class TestTimestamp:
             else:
                 raise AssertionError()
 
-    def test_time_zones(self, reset_db: None) -> None:
+    def test_timestamp_zones(self, reset_db: None) -> None:
         timestamps = [
             # Some random times in the summer months (to ensure varying DST treatment)
             datetime.fromisoformat('2024-07-01T22:45:12'),
@@ -161,7 +166,7 @@ class TestTimestamp:
                         results[method + '_tz'][row_idx] == getattr(effective_dt.astimezone(query_time_zone), method)()
                     )
 
-    def test_time_zone_in_literals(self, reset_db: None) -> None:
+    def test_timestamp_zone_in_literals(self, reset_db: None) -> None:
         Env.get().default_time_zone = ZoneInfo('America/Anchorage')
         t = pxt.create_table('test_tbl', {'n': pxt.Int, 'dt': pxt.Timestamp})
         start = datetime.fromisoformat('2024-07-01T00:00:00+00:00')
@@ -175,11 +180,9 @@ class TestTimestamp:
         assert t.where(t.dt >= datetime.fromisoformat('2024-07-01T00:00:00')).count() == 960
         assert t.where(t.dt >= datetime.fromisoformat('2024-07-01T00:00:00-04:00')).count() == 1200
 
-    def test_make_ts(self, reset_db: None) -> None:
+    def test_timestamp_make(self, reset_db: None) -> None:
         Env.get().default_time_zone = ZoneInfo('America/Anchorage')
-        t = pxt.create_table('test_tbl', {'dt': pxt.Timestamp})
-        test_dts = [datetime.fromisoformat(dt) for dt in self.TEST_DATETIMES]
-        validate_update_status(t.insert({'dt': dt} for dt in test_dts), expected_rows=len(test_dts))
+        test_dts, t = self.make_test_table()
         from pixeltable.functions.timestamp import make_timestamp
 
         res = (

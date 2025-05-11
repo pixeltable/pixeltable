@@ -1,13 +1,23 @@
+<<<<<<< HEAD
+import sqlalchemy as sql
+
+from pixeltable.metadata import register_converter
+=======
 from typing import Any, Optional
 
 import sqlalchemy as sql
 
 from pixeltable.metadata import register_converter
 from pixeltable.metadata.converters.util import convert_table_md
+>>>>>>> master
 
 
 @register_converter(version=34)
 def _(engine: sql.engine.Engine) -> None:
+<<<<<<< HEAD
+    with engine.begin() as conn:
+        conn.execute(sql.text('ALTER TABLE tables ADD COLUMN lock_dummy int8'))
+=======
     convert_table_md(engine, substitution_fn=__substitute_md)
 
 
@@ -19,4 +29,4 @@ def __substitute_md(k: Optional[str], v: Any) -> Optional[tuple[Optional[str], A
         return k, v
 
     return None
-
+>>>>>>> master

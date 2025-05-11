@@ -195,34 +195,29 @@ class StoreBase:
         assert col.is_stored
         conn = Env.get().conn
         col_type_str = col.get_sa_col_type().compile(dialect=conn.dialect)
-        stmt = sql.text(f'ALTER TABLE {self._storage_name()} ADD COLUMN {col.store_name()} {col_type_str} NULL')
-        log_stmt(_logger, stmt)
-        conn.execute(stmt)
+        s_txt = f'ALTER TABLE {self._storage_name()} ADD COLUMN {col.store_name()} {col_type_str} NULL'
         added_storage_cols = [col.store_name()]
         if col.records_errors:
             # we also need to create the errormsg and errortype storage cols
-            stmt = sql.text(
-                f'ALTER TABLE {self._storage_name()} ADD COLUMN {col.errormsg_store_name()} VARCHAR DEFAULT NULL'
-            )
-            conn.execute(stmt)
-            stmt = sql.text(
-                f'ALTER TABLE {self._storage_name()} ADD COLUMN {col.errortype_store_name()} VARCHAR DEFAULT NULL'
-            )
-            conn.execute(stmt)
+            s_txt += f' , ADD COLUMN {col.errormsg_store_name()} VARCHAR DEFAULT NULL'
+            s_txt += f' , ADD COLUMN {col.errortype_store_name()} VARCHAR DEFAULT NULL'
             added_storage_cols.extend([col.errormsg_store_name(), col.errortype_store_name()])
+
+        stmt = sql.text(s_txt)
+        log_stmt(_logger, stmt)
+        conn.execute(stmt)
         self.create_sa_tbl()
         _logger.info(f'Added columns {added_storage_cols} to storage table {self._storage_name()}')
 
     def drop_column(self, col: catalog.Column) -> None:
         """Execute Alter Table Drop Column statement"""
-        conn = Env.get().conn
-        stmt = f'ALTER TABLE {self._storage_name()} DROP COLUMN {col.store_name()}'
-        conn.execute(sql.text(stmt))
+        s_txt = f'ALTER TABLE {self._storage_name()} DROP COLUMN {col.store_name()}'
         if col.records_errors:
-            stmt = f'ALTER TABLE {self._storage_name()} DROP COLUMN {col.errormsg_store_name()}'
-            conn.execute(sql.text(stmt))
-            stmt = f'ALTER TABLE {self._storage_name()} DROP COLUMN {col.errortype_store_name()}'
-            conn.execute(sql.text(stmt))
+            s_txt += f' , DROP COLUMN {col.errormsg_store_name()}'
+            s_txt += f' , DROP COLUMN {col.errortype_store_name()}'
+        stmt = sql.text(s_txt)
+        log_stmt(_logger, stmt)
+        Env.get().conn.execute(stmt)
 
     def load_column(
         self, col: catalog.Column, exec_plan: ExecNode, value_expr_slot_idx: int, on_error: Literal['abort', 'ignore']

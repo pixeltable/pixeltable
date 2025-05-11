@@ -322,6 +322,8 @@ class DataFrame:
             raise excs.Error('head() cannot be used with order_by()')
         if self._has_joins():
             raise excs.Error('head() not supported for joins')
+        if self.group_by_clause is not None:
+            raise excs.Error('head() cannot be used with group_by()')
         num_rowid_cols = len(self._first_tbl.tbl_version.get().store_tbl.rowid_columns())
         order_by_clause = [exprs.RowidRef(self._first_tbl.tbl_version, idx) for idx in range(num_rowid_cols)]
         return self.order_by(*order_by_clause, asc=True).limit(n).collect()
@@ -345,6 +347,8 @@ class DataFrame:
             raise excs.Error('tail() cannot be used with order_by()')
         if self._has_joins():
             raise excs.Error('tail() not supported for joins')
+        if self.group_by_clause is not None:
+            raise excs.Error('tail() cannot be used with group_by()')
         num_rowid_cols = len(self._first_tbl.tbl_version.get().store_tbl.rowid_columns())
         order_by_clause = [exprs.RowidRef(self._first_tbl.tbl_version, idx) for idx in range(num_rowid_cols)]
         result = self.order_by(*order_by_clause, asc=False).limit(n).collect()
@@ -454,6 +458,9 @@ class DataFrame:
         Returns:
             The number of rows in the DataFrame.
         """
+        if self.group_by_clause is not None:
+            raise excs.Error('count() cannot be used with group_by()')
+
         from pixeltable.plan import Planner
 
         with Catalog.get().begin_xact(for_write=False) as conn:
@@ -576,7 +583,7 @@ class DataFrame:
             if not expr.is_bound_by(self._from_clause.tbls):
                 raise excs.Error(
                     f"Expression '{expr}' cannot be evaluated in the context of this query's tables "
-                    f'({",".join(tbl.tbl_name() for tbl in self._from_clause.tbls)})'
+                    f'({",".join(tbl.tbl_version.get().versioned_name for tbl in self._from_clause.tbls)})'
                 )
             select_list.append((expr, name))
 
@@ -847,6 +854,29 @@ class DataFrame:
             order_by_clause=self.order_by_clause,
             limit=self.limit_val,
         )
+
+    def distinct(self) -> DataFrame:
+        """
+        Remove duplicate rows from this DataFrame.
+
+        Note that grouping will be applied to the rows based on the select clause of this Dataframe.
+        In the absence of a select clause, by default, all columns are selected in the grouping.
+
+        Examples:
+            Select unique addresses from table `addresses`.
+
+            >>> results = addresses.distinct()
+
+            Select unique cities in table `addresses`
+
+            >>> results = addresses.city.distinct()
+
+            Select unique locations (street, city) in the state of `CA`
+
+            >>> results = addresses.select(addresses.street, addresses.city).where(addresses.state == 'CA').distinct()
+        """
+        exps, _ = self._normalize_select_list(self._from_clause.tbls, self.select_list)
+        return self.group_by(*exps)
 
     def order_by(self, *expr_list: exprs.Expr, asc: bool = True) -> DataFrame:
         """Add an order-by clause to this DataFrame.

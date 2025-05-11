@@ -178,6 +178,13 @@ class TableVersion:
         base = self.path.base.tbl_version if self.is_view else None
         return TableVersion(self.id, self.tbl_md, self.version, self.schema_version_md, mutable_views=[], base=base)
 
+    @property
+    def versioned_name(self) -> str:
+        if self.effective_version is None:
+            return self.name
+        else:
+            return f'{self.name}:{self.effective_version}'
+
     @classmethod
     def create(
         cls,

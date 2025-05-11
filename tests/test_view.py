@@ -660,14 +660,14 @@ class TestView:
         assert res._col_names == ['c4']
 
         v2 = pxt.create_view('test_view2', v1.select(v1.foo, c2=v1.c2, foo2=t.c2))
-        res = reload_tester.run_query(v2.select().limit(5))
+        res = reload_tester.run_query(v2.select().order_by(v2.c2).limit(5))
         assert res._col_names == ['foo', 'c2', 'foo2']
 
         v3 = pxt.create_view('test_view3', v2.where(v2.c2 % 2 == 0))
-        res = reload_tester.run_query(v3.select(v3.foo2).limit(5))
+        res = reload_tester.run_query(v3.select(v3.foo2).order_by(v2.c2).limit(5))
         assert res._col_names == ['foo2']
 
-        res = reload_tester.run_query(v1.select().limit(5))
+        res = reload_tester.run_query(v1.select().order_by(v1.c2).limit(5))
         assert res._col_names == ['c2', 'col_1', 'foo', 'bar', 'c3', 'v1', 'bar2']
 
         reload_tester.run_reload_test()
