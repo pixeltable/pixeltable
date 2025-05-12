@@ -243,7 +243,7 @@ class DataFrame:
 
     @classmethod
     def _convert_param_to_typed_expr(
-        cls, v: Any, required_type: ts.ColumnType, required: bool, name: str
+        cls, v: Any, required_type: ts.ColumnType, required: bool, name: str, range: Optional[tuple[Any, Any]] = None
     ) -> Optional[exprs.Expr]:
         if v is None:
             if required:
@@ -252,7 +252,24 @@ class DataFrame:
         v_expr = exprs.Expr.from_object(v)
         if not v_expr.col_type.matches(required_type):
             raise excs.Error(f'{name!r} parameter must be of type {required_type!r}, instead of {v_expr.col_type}')
+        if range is not None:
+            if not isinstance(v_expr, exprs.Literal):
+                raise excs.Error(f'{name!r} parameter must be a constant, not {v_expr}')
+            if range[0] is not None and not (v_expr.val >= range[0]):
+                raise excs.Error(f'{name!r} parameter must be >= {range[0]}')
+            if range[1] is not None and not (v_expr.val <= range[1]):
+                raise excs.Error(f'{name!r} parameter must be <= {range[1]}')
         return v_expr
+
+    @classmethod
+    def validate_constant_type_range(
+        cls, v: Any, required_type: ts.ColumnType, required: bool, name: str, range: Optional[tuple[Any, Any]] = None
+    ) -> Any:
+        """Validate that the given named parameter is a constant of the required type and within the specified range."""
+        v_expr = cls._convert_param_to_typed_expr(v, required_type, required, name, range)
+        if v_expr is None:
+            return None
+        return v_expr.val
 
     def parameters(self) -> dict[str, ColumnType]:
         """Return a dict mapping parameter name to parameter type.
@@ -1036,20 +1053,14 @@ class DataFrame:
             raise excs.Error('Cannot specify both `n` or `n_per_stratum` with `fraction`')
 
         # Check parameter types and values
-        n_expr = self._convert_param_to_typed_expr(n, ts.IntType(nullable=False), False, 'n')
-        if n_expr is not None and n_expr.val <= 0:
-            raise excs.Error('n parameter must be greater than 0')
-        n_per_stratum_expr = self._convert_param_to_typed_expr(
-            n_per_stratum, ts.IntType(nullable=False), False, 'n_per_stratum'
+        n = self.validate_constant_type_range(n, ts.IntType(nullable=False), False, 'n', (1, None))
+        n_per_stratum = self.validate_constant_type_range(
+            n_per_stratum, ts.IntType(nullable=False), False, 'n_per_stratum', (1, None)
         )
-        if n_per_stratum_expr is not None and n_per_stratum_expr.val <= 0:
-            raise excs.Error('n_per_stratum parameter must be greater than 0')
-        fraction_expr = self._convert_param_to_typed_expr(fraction, ts.FloatType(nullable=False), False, 'fraction')
-        if fraction_expr is not None:
-            f_v = fraction_expr.val
-            if (f_v < 0.0) or (f_v > 1.0):
-                raise excs.Error('fraction parameter must be between 0.0 and 1.0')
-        seed_expr = self._convert_param_to_typed_expr(seed, ts.IntType(nullable=False), False, 'seed')
+        fraction = self.validate_constant_type_range(
+            fraction, ts.FloatType(nullable=False), False, 'fraction', (0.0000001, 0.9999999)
+        )
+        seed = self.validate_constant_type_range(seed, ts.IntType(nullable=False), False, 'seed')
 
         # analyze stratify list
         stratify_list: list[exprs.Expr] = []
@@ -1057,12 +1068,12 @@ class DataFrame:
             if isinstance(stratify_by, exprs.Expr):
                 stratify_by = [stratify_by]
             if not isinstance(stratify_by, list):
-                raise excs.Error('`stratify_by` parameter must be composed of expressions')
+                raise excs.Error('`stratify_by` must be a list of scalar expressions')
             for expr in stratify_by:
                 if expr is None or not isinstance(expr, exprs.Expr):
                     raise excs.Error(f'Invalid expression: {expr}')
                 if not expr.col_type.is_scalar_type():
-                    raise excs.Error(f'Invalid type: {expr}')
+                    raise excs.Error(f'Invalid type: {expr} must be a scalar type')
                 if not expr.is_bound_by(self._from_clause.tbls):
                     raise excs.Error(
                         f"Expression '{expr}' cannot be evaluated in the context of this query's tables "
@@ -1076,7 +1087,7 @@ class DataFrame:
             if analysis_info.filter is not None:
                 raise excs.Error(f'Filter {analysis_info.filter} not expressible in SQL')
 
-        sample_clause = SampleClause(None, n_expr, n_per_stratum_expr, fraction_expr, seed_expr, stratify_list)
+        sample_clause = SampleClause(None, n, n_per_stratum, fraction, seed, stratify_list)
 
         return DataFrame(
             from_clause=self._from_clause,

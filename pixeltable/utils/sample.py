@@ -21,35 +21,36 @@ class SampleClause(Expr):
     def __init__(
         self,
         version: Optional[int],
-        n_expr: Optional[Expr],
-        n_per_stratum_expr: Optional[Expr],
-        fract_expr: Optional[Expr],
-        seed_expr: Optional[Expr],
+        n: Optional[int],
+        n_per_stratum: Optional[int],
+        fract: Optional[float],
+        seed: Optional[int],
         stratify_list: Optional[list[Expr]],
     ):
         super().__init__(ts.StringType(nullable=True))
-        if version is None:
-            version = self.CURRENT_VERSION
-        n_expr = self.convert_none_to_expr(n_expr)
-        n_per_stratum_expr = self.convert_none_to_expr(n_per_stratum_expr)
-        fract_expr = self.convert_none_to_expr(fract_expr)
-        seed_expr = self.convert_none_to_expr(seed_expr)
-        self.components = [exprs.Literal(version), n_expr, n_per_stratum_expr, fract_expr, seed_expr, *stratify_list]
-        self.id: Optional[int] = self._create_id()
+        self.components = [
+            exprs.Literal(version),
+            exprs.Literal(n),
+            exprs.Literal(n_per_stratum),
+            exprs.Literal(fract),
+            exprs.Literal(seed),
+            *stratify_list,
+        ]
+        self.__post_init__()
 
-    @classmethod
-    def convert_none_to_expr(cls, expr: Optional[Expr]) -> Expr:
-        if expr is None:
-            return exprs.Literal(None)
-        return expr
+    def __post_init__(self) -> None:
+        """If no version was provided, provide the default version"""
+        if self.components[0].val is None:
+            self.components[0] = exprs.Literal(self.CURRENT_VERSION)
+            self.id: Optional[int] = self._create_id()
 
     def _equals(self, other: SampleClause) -> bool:
         return True
 
     @property
-    def _version(self) -> Optional[int]:
+    def _version(self) -> int:
         v = self.components[0].val
-        assert isinstance(v, int) or v is None
+        assert isinstance(v, int)
         return v
 
     @property
@@ -107,7 +108,12 @@ class SampleClause(Expr):
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr]) -> SampleClause:
         return SampleClause(
-            int(components[0].val), components[1], components[2], components[3], components[4], components[5:]
+            int(components[0].val),
+            int(components[1].val),
+            int(components[2].val),
+            float(components[3].val),
+            int(components[4].val),
+            components[5:],
         )
 
     def __repr__(self) -> str:

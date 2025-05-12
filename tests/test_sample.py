@@ -69,17 +69,17 @@ class TestSampling:
         # ------- Test sample parameter correctness
         with pytest.raises(excs.Error, match='must be of type Int'):
             _ = t.select().sample(n=0.01)  # type: ignore[arg-type]
-        with pytest.raises(excs.Error, match='must be greater than 0'):
+        with pytest.raises(excs.Error, match='must be >'):
             _ = t.select().sample(n=-1)
         with pytest.raises(excs.Error, match='must be of type Int'):
             _ = t.select().sample(n_per_stratum='abc', stratify_by=t.c1)  # type: ignore[arg-type]
-        with pytest.raises(excs.Error, match='must be greater than 0'):
+        with pytest.raises(excs.Error, match='must be >'):
             _ = t.select().sample(n_per_stratum=0, stratify_by=t.c1)
         with pytest.raises(excs.Error, match='must be of type Float'):
             _ = t.select().sample(fraction=24)
-        with pytest.raises(excs.Error, match='fraction parameter must be between'):
+        with pytest.raises(excs.Error, match='parameter must be >'):
             _ = t.select().sample(fraction=-0.5)
-        with pytest.raises(excs.Error, match='fraction parameter must be between'):
+        with pytest.raises(excs.Error, match='parameter must be <'):
             _ = t.select().sample(fraction=12.9)
         with pytest.raises(excs.Error, match='must be of type Int'):
             _ = t.select().sample(n=10, seed=-123.456)  # type: ignore[arg-type]
@@ -104,7 +104,7 @@ class TestSampling:
         _ = t.select().sample(n_per_stratum=5, stratify_by=t.c1)
 
         # test stratify_by list
-        with pytest.raises(excs.Error, match='must be composed of expressions'):
+        with pytest.raises(excs.Error, match='must be a list of scalar expressions'):
             _ = t.select().sample(n=10, stratify_by=47)
         with pytest.raises(excs.Error, match='Invalid expression'):
             _ = t.select().sample(n=10, stratify_by=[None])
