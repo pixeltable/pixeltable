@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 from typing import Optional
 
 import sqlalchemy as sql
@@ -11,110 +12,72 @@ from pixeltable.exprs.row_builder import RowBuilder
 from pixeltable.exprs.sql_element_cache import SqlElementCache
 
 
-class SampleClause(Expr):
-    """
-    An `Expr` that computes a sample of the associated table.
-    """
+@dataclasses.dataclass
+class SampleClause:
+    """Defines a sampling clause for a table."""
+
+    version: Optional[int]
+    n: Optional[int]
+    n_per_stratum: Optional[int]
+    fract: Optional[float]
+    seed: Optional[int]
+    stratify_list: Optional[list[Expr]]
 
     CURRENT_VERSION = 1
 
-    def __init__(
-        self,
-        version: Optional[int],
-        n: Optional[int],
-        n_per_stratum: Optional[int],
-        fract: Optional[float],
-        seed: Optional[int],
-        stratify_list: Optional[list[Expr]],
-    ):
-        super().__init__(ts.StringType(nullable=True))
-        self.components = [
-            exprs.Literal(version),
-            exprs.Literal(n),
-            exprs.Literal(n_per_stratum),
-            exprs.Literal(fract),
-            exprs.Literal(seed),
-            *stratify_list,
-        ]
-        self.__post_init__()
-
     def __post_init__(self) -> None:
         """If no version was provided, provide the default version"""
-        if self.components[0].val is None:
-            self.components[0] = exprs.Literal(self.CURRENT_VERSION)
-            self.id: Optional[int] = self._create_id()
-
-    def _equals(self, other: SampleClause) -> bool:
-        return True
+        if self._version is None:
+            self.version = self.CURRENT_VERSION
 
     @property
     def _version(self) -> int:
-        v = self.components[0].val
-        assert isinstance(v, int)
-        return v
+        return self.version
 
     @property
     def _n(self) -> Optional[int]:
-        assert isinstance(self._n_expr.val, (int, type(None)))
-        return self._n_expr.val
+        return self.n
 
     @property
     def _n_per_stratum(self) -> Optional[int]:
-        assert isinstance(self._n_per_stratum_expr.val, int) or self._n_per_stratum_expr.val is None
-        return self._n_per_stratum_expr.val
+        return self.n_per_stratum
 
     @property
     def _fraction(self) -> Optional[float]:
-        assert isinstance(self._fraction_expr.val, float) or self._fraction_expr.val is None
-        return self._fraction_expr.val
+        return self.fract
 
     @property
     def _seed(self) -> Optional[int]:
-        assert isinstance(self._seed_expr.val, (int, type(None)))
-        return self._seed_expr.val
-
-    @property
-    def _n_expr(self) -> Expr:
-        return self.components[1]
-
-    @property
-    def _n_per_stratum_expr(self) -> Optional[Expr]:
-        return self.components[2]
-
-    @property
-    def _fraction_expr(self) -> Expr:
-        return self.components[3]
-
-    @property
-    def _seed_expr(self) -> Expr:
-        return self.components[4]
+        return self.seed
 
     @property
     def _stratify_list(self) -> list[Expr]:
-        return self.components[5:]
+        return self.stratify_list
 
-    def sql_expr(self, sql_elements: SqlElementCache) -> Optional[sql.ColumnElement]:
-        raise NotImplementedError
+    @property
+    def is_stratified(self) -> bool:
+        """Check if the sampling is stratified"""
+        return self._stratify_list is not None and len(self._stratify_list) > 0
 
-    def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
-        raise NotImplementedError
+    def display_str(self, inline: bool = False) -> str:
+        return str(self)
 
-    def as_literal(self) -> Optional[Literal]:
-        return None
-
-    def _as_dict(self) -> dict:
-        return {**super()._as_dict()}
+    def as_dict(self) -> dict:
+        """Return a dictionary representation of the object"""
+        d = dataclasses.asdict(self)
+        d['_classname'] = self.__class__.__name__
+        if self.is_stratified:
+            d['stratify_list'] = [e.as_dict() for e in self._stratify_list]
+        return d
 
     @classmethod
-    def _from_dict(cls, d: dict, components: list[Expr]) -> SampleClause:
-        return SampleClause(
-            int(components[0].val),
-            int(components[1].val),
-            int(components[2].val),
-            float(components[3].val),
-            int(components[4].val),
-            components[5:],
-        )
+    def from_dict(cls, d: dict) -> SampleClause:
+        """Create a SampleClause from a dictionary representation"""
+        d_cleaned = {key: value for key, value in d.items() if key != '_classname'}
+        s = cls(**d_cleaned)
+        if s.is_stratified:
+            s.stratify_list = [Expr.from_dict(e) for e in d_cleaned.get('stratify_list', [])]
+        return s
 
     def __repr__(self) -> str:
         s = ','.join(e.display_str(inline=True) for e in self._stratify_list)
