@@ -19,4 +19,3 @@ def __substitute_md(k: Optional[str], v: Any) -> Optional[tuple[Optional[str], A
         return k, v
 
     return None
-

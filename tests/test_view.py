@@ -813,6 +813,8 @@ class TestView:
         assert set(view_s._schema.keys()) == set(orig_view_cols)
 
         def check(s1: pxt.Table, v: pxt.Table, s2: pxt.Table) -> None:
+            b = v.count()
+            a = s1.where(s1.c2 < 10).count()
             assert s1.where(s1.c2 < 10).count() == v.count()
             assert v.count() == s2.count()
             assert_resultset_eq(

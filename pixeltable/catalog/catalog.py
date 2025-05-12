@@ -95,6 +95,15 @@ class Catalog:
     """The functional interface to getting access to catalog objects
 
     All interface functions must be called in the context of a transaction, started with Catalog.begin_xact().
+
+    Caching and invalidation of metadata:
+    - in order to allow multiple concurrent Python processes to perform updates (data and/or schema) against a shared
+      Pixeltable instance, Catalog needs to reload metadata from the store when there are changes
+    - concurrent changes are detected by comparing TableVersion.version with the stored current version
+      (TableMd.current_version)
+    - cached live TableVersion instances (those with effective_version == None) are validated against the stored
+      metadata on transaction boundaries
+    - metadata validation is only needed for live TableVersion instances (snapshot instances are immutable)
     """
 
     _instance: Optional[Catalog] = None
@@ -115,6 +124,9 @@ class Catalog:
     @classmethod
     def clear(cls) -> None:
         """Remove the instance. Used for testing."""
+        # invalidate all existing instances to force reloading of metadata
+        for tbl_version in cls._instance._tbl_versions.values():
+            tbl_version.is_validated = False
         cls._instance = None
 
     def __init__(self) -> None:
@@ -158,50 +170,50 @@ class Catalog:
         It is mandatory to call this method, not Env.begin_xact(), if the transaction accesses any table data
         or metadata.
         """
-        if not Env.get().in_xact:
-            num_retries = 0
-            while True:
-                try:
-                    with Env.get().begin_xact() as conn:
-                        if tbl_id is not None and for_write:
-                            # X-lock Table record
-                            conn.execute(
-                                sql.select(schema.Table).where(schema.Table.id == tbl_id).with_for_update(nowait=True)
-                            )
-                            conn.execute(sql.update(schema.Table).values(lock_dummy=1).where(schema.Table.id == tbl_id))
-
-                        self._in_write_xact = for_write
-                        yield conn
-                        return
-                except sql.exc.DBAPIError as e:
-                    if isinstance(e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)) and (
-                        num_retries < _MAX_RETRIES or _MAX_RETRIES == 0
-                    ):
-                        num_retries += 1
-                        _logger.debug(f'Retrying ({num_retries}) after {type(e.orig)}')
-                        time.sleep(random.uniform(0.1, 0.5))
-                    else:
-                        raise
-                finally:
-                    self._in_write_xact = False
-
-                    # invalidate cached current TableVersion instances
-                    for tv in self._tbl_versions.values():
-                        tv.is_validated = False
-                        if tv.effective_version is None:
-                            _logger.debug(f'invalidating table version {tv.id}:{tv.version}')
-                            tv.is_validated = False
-
-                    if _logger.isEnabledFor(logging.DEBUG):
-                        self.validate()
-        else:
+        if Env.get().in_xact:
             yield Env.get().conn
+            return
+
+        num_retries = 0
+        while True:
+            try:
+                with Env.get().begin_xact() as conn:
+                    if tbl_id is not None and for_write:
+                        # X-lock Table record
+                        conn.execute(
+                            sql.select(schema.Table).where(schema.Table.id == tbl_id).with_for_update(nowait=True)
+                        )
+                        conn.execute(sql.update(schema.Table).values(lock_dummy=1).where(schema.Table.id == tbl_id))
+
+                    self._in_write_xact = for_write
+                    yield conn
+                    return
+            except sql.exc.DBAPIError as e:
+                if isinstance(e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)) and (
+                    num_retries < _MAX_RETRIES or _MAX_RETRIES == 0
+                ):
+                    num_retries += 1
+                    _logger.debug(f'Retrying ({num_retries}) after {type(e.orig)}')
+                    time.sleep(random.uniform(0.1, 0.5))
+                else:
+                    raise
+            finally:
+                self._in_write_xact = False
+
+                # invalidate cached current TableVersion instances
+                for tv in self._tbl_versions.values():
+                    if tv.effective_version is None:
+                        # _logger.debug(f'invalidating table version {tv.id}:{tv.version}')
+                        tv.is_validated = False
+
+                if _logger.isEnabledFor(logging.DEBUG):
+                    self.validate()
 
     @property
     def in_write_xact(self) -> bool:
         return self._in_write_xact
 
-    def _xlock_dir(self, parent_id: Optional[UUID], dir_id: Optional[UUID], dir_name: Optional[str]) -> None:
+    def _acquire_dir_xlock(self, parent_id: Optional[UUID], dir_id: Optional[UUID], dir_name: Optional[str]) -> None:
         """Force acquisition of an X-lock on a Dir record via a blind update.
 
         If dir_id is present, then all other conditions are ignored.
@@ -357,7 +369,7 @@ class Catalog:
 
         # check for subdirectory
         if for_update:
-            self._xlock_dir(dir_id, None, name)
+            self._acquire_dir_xlock(dir_id, None, name)
         q = sql.select(schema.Dir).where(
             schema.Dir.parent_id == dir_id, schema.Dir.md['name'].astext == name, schema.Dir.md['user'].astext == user
         )
@@ -681,10 +693,9 @@ class Catalog:
         assert isinstance(obj, Table)
         tbl_version = obj._tbl_version.get()
         tbl_version.ensure_md_loaded()
-        if not (isinstance(obj, View) and obj._snapshot_only):
-            # if this table has mutable views, we need to load those as well, in order to record column dependencies
-            for v in tbl_version.mutable_views:
-                self.get_table_by_id(v.id)
+        # if this table has mutable views, we need to load those as well, in order to record column dependencies
+        for v in tbl_version.mutable_views:
+            self.get_table_by_id(v.id)
         return obj
 
     @_retry_loop(for_write=True)
@@ -796,7 +807,7 @@ class Catalog:
                 raise excs.Error(f'Directory {str(dir_path)!r} is not empty.')
 
         # drop existing subdirs
-        self._xlock_dir(dir_id, None, None)
+        self._acquire_dir_xlock(dir_id, None, None)
         dir_q = sql.select(schema.Dir).where(schema.Dir.parent_id == dir_id)
         for row in conn.execute(dir_q).all():
             self._drop_dir(row.id, dir_path.append(row.md['name']), force=True)
@@ -831,7 +842,7 @@ class Catalog:
                 tv = self._load_tbl_version(tbl_id, effective_version)
             elif not tv.is_validated and effective_version is None:
                 # we validate live instances by comparing our cached version number to the stored current version
-                _logger.debug(f'validating metadata for table {tbl_id}:{tv.version}')
+                # _logger.debug(f'validating metadata for table {tbl_id}:{tv.version}')
                 q = sql.select(schema.Table.md).where(schema.Table.id == tbl_id)
                 row = conn.execute(q).one()
                 current_version = row.md['current_version']
@@ -844,9 +855,12 @@ class Catalog:
                         f'reloading metadata for table {tbl_id} '
                         f'(cached version: {tv.version}, current version: {current_version})'
                     )
-                    tv = self._load_tbl_version(tbl_id, effective_version)
+                    tv = self._load_tbl_version(tbl_id, None)
+                else:
+                    # the cached metadata is valid
+                    tv.is_validated = True
 
-            tv.is_validated = True
+            assert tv.is_validated
             return tv
 
     def remove_tbl_version(self, tbl_version: TableVersion) -> None:
@@ -857,7 +871,7 @@ class Catalog:
         """Return the Dir with the given id, or None if it doesn't exist"""
         conn = Env.get().conn
         if for_update:
-            self._xlock_dir(None, dir_id, None)
+            self._acquire_dir_xlock(None, dir_id, None)
         q = sql.select(schema.Dir).where(schema.Dir.id == dir_id)
         row = conn.execute(q).one_or_none()
         if row is None:
@@ -873,7 +887,7 @@ class Catalog:
         conn = Env.get().conn
         if path.is_root:
             if for_update:
-                self._xlock_dir(parent_id=None, dir_id=None, dir_name='')
+                self._acquire_dir_xlock(parent_id=None, dir_id=None, dir_name='')
             q = sql.select(schema.Dir).where(schema.Dir.parent_id.is_(None), schema.Dir.md['user'].astext == user)
             row = conn.execute(q).one_or_none()
             return schema.Dir(**row._mapping) if row is not None else None
@@ -882,7 +896,7 @@ class Catalog:
             if parent_dir is None:
                 return None
             if for_update:
-                self._xlock_dir(parent_id=parent_dir.id, dir_id=None, dir_name=path.name)
+                self._acquire_dir_xlock(parent_id=parent_dir.id, dir_id=None, dir_name=path.name)
             q = sql.select(schema.Dir).where(
                 schema.Dir.parent_id == parent_dir.id,
                 schema.Dir.md['name'].astext == path.name,

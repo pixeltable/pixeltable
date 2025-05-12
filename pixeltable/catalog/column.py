@@ -177,8 +177,8 @@ class Column:
     #     multiple dependents)
     def get_idx_info(self, reference_tbl: Optional['TableVersionPath'] = None) -> dict[str, 'TableVersion.IndexInfo']:
         assert self.tbl is not None
-        tbl = reference_tbl.tbl_version if reference_tbl is not None else self.tbl
-        return {name: info for name, info in tbl.get().idxs_by_name.items() if info.col == self}
+        tbl = reference_tbl.tbl_version.get() if reference_tbl is not None else self.tbl
+        return {name: info for name, info in tbl.idxs_by_name.items() if info.col == self}
 
     @property
     def is_computed(self) -> bool:

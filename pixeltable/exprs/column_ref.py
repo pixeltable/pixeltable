@@ -69,9 +69,7 @@ class ColumnRef(Expr):
         self.tbl_version = catalog.TableVersionHandle(col.tbl.id, col.tbl.effective_version)
         self.col_id = col.id
 
-        self.is_unstored_iter_col = (
-            col.tbl.get().is_component_view and col.tbl.get().is_iterator_column(col) and not col.is_stored
-        )
+        self.is_unstored_iter_col = col.tbl.is_component_view and col.tbl.is_iterator_column(col) and not col.is_stored
         self.iter_arg_ctx = None
         # number of rowid columns in the base table
         self.base_rowid_len = col.tbl.base.get().num_rowid_columns() if self.is_unstored_iter_col else 0
@@ -251,7 +249,9 @@ class ColumnRef(Expr):
         tv = self.tbl_version.get()
         assert tv.is_validated
         self.col = tv.cols_by_id[self.col_id]
+        assert self.col.tbl is tv
         # TODO: check for column being dropped
+        # print(f'ColumnRef.sql_expr: tbl_id={tv.id} {id(self.col.tbl.store_tbl.sa_tbl)}')
         return self.col.sa_col
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:

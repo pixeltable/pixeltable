@@ -229,6 +229,7 @@ class SqlNode(ExecNode):
         prev_tv: Optional[catalog.TableVersion] = None
         for t in joined_tbls[::-1]:
             tv = t.get()
+            # print(f'create_from_clause: tbl_id={tv.id} {id(tv.store_tbl.sa_tbl)}')
             if first:
                 stmt = stmt.select_from(tv.store_tbl.sa_tbl)
                 first = False

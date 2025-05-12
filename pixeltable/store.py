@@ -108,7 +108,7 @@ class StoreBase:
         idxs.append(sql.Index(idx_name, self.v_max_col, postgresql_using=Env.get().dbms.version_index_type))
 
         self.sa_tbl = sql.Table(self._storage_name(), self.sa_md, *all_cols, *idxs)
-        # print(f'created sa tbl for {str(tbl_version.id)} (id={id(self.sa_tbl)})')
+        print(f'created sa tbl for {str(tbl_version.id)} (id={id(self.sa_tbl)})')
         _logger.debug(f'created sa tbl for {tbl_version.id!s} (id={id(self.sa_tbl)})')
 
     @abc.abstractmethod

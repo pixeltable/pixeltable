@@ -288,9 +288,9 @@ class TestMigration:
     @classmethod
     def _run_v30_tests(cls) -> None:
         with Env.get().engine.begin() as conn:
-            for row in conn.execute(sql.select(Table)):
+            for row in conn.execute(sql.select(Table.id, Table.md)):
                 tbl_id = str(row[0])
-                table_md = row[2]
+                table_md = row[1]
                 assert table_md['tbl_id'] == tbl_id
             for row in conn.execute(sql.select(TableVersion)):
                 tbl_id = str(row[0])
@@ -308,8 +308,8 @@ class TestMigration:
     @classmethod
     def _verify_v33(cls) -> None:
         with Env.get().engine.begin() as conn:
-            for row in conn.execute(sql.select(Table)):
-                table_md = row[2]
+            for row in conn.execute(sql.select(Table.md)):
+                table_md = row[0]
                 for col_md in table_md['column_md'].values():
                     assert col_md['is_pk'] is not None
 

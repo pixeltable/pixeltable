@@ -26,7 +26,15 @@ class TableVersionPath:
     table/view.
 
     TableVersionPath supplies metadata needed for query construction (eg, column names), for which it uses a
-    cached, unvalidated TableVersion instance.
+    cached TableVersion instance.
+    - when running inside a transaction, this instance is guaranteed to be validated
+    - when running outside a transaction, we use an unvalidated instance in order to avoid repeated validation
+      on every metadata-related method call (the instance won't stay validated, because TableVersionHandle.get()
+      runs a local transaction, at the end of which the instance is again invalidated)
+    - supplying metadata from an unvalidated instance is okay, because it needs to get revalidated anyway when a
+      query actually runs (at which point there is a transaction context) - there is no guarantee that in between
+      constructing a DataFrame and executing it, the underlying table schema hasn't changed (eg, a concurrent process
+      could have dropped a column referenced in the query).
     """
 
     tbl_version: TableVersionHandle
