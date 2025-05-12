@@ -293,30 +293,27 @@ class DataFrame:
     def _create_stratified_sample_plan(self) -> exec.ExecNode:
         for item in self._select_list_exprs:
             item.bind_rel_paths()
-
-        #        s_key = SampleKey(samplex._seed_expr, self.__rowid_columns()) # TODO: use this for stratified sampling
-
         return plan.Planner.create_query_plan(
             self._from_clause, self._select_list_exprs, where_clause=self.where_clause, sample_clause=self.sample_clause
         )
 
     def _create_sample_plan(self) -> exec.ExecNode:
-        samplex = self.sample_clause
-        if len(samplex._stratify_list) > 0:
+        sample_clause = self.sample_clause
+        if len(sample_clause._stratify_list) > 0:
             return self._create_stratified_sample_plan()
 
         # Construct an expression for sorting rows and limiting row counts
-        s_key = SampleKey(samplex._seed_expr, self.__rowid_columns())
+        s_key = SampleKey(exprs.Literal(sample_clause._seed), self.__rowid_columns())
 
         # Construct a suitable where clause
         where = self.where_clause
-        if samplex._fraction is not None:
-            fraction_md5_hex = exprs.Expr.from_object(samplex.fraction_to_md5_hex(float(samplex._fraction)))
+        if sample_clause._fraction is not None:
+            fraction_md5_hex = exprs.Expr.from_object(sample_clause.fraction_to_md5_hex(float(sample_clause._fraction)))
             f_where = s_key < fraction_md5_hex
             where = where & f_where if where is not None else f_where
 
         order_by: list[tuple[exprs.Expr, bool]] = [(s_key, True)]
-        limit = samplex._n_expr
+        limit = exprs.Literal(sample_clause._n)
 
         for item in self._select_list_exprs:
             item.bind_rel_paths()
@@ -1006,14 +1003,17 @@ class DataFrame:
         """Choose a shuffled sample of rows in the DataFrame
 
         Args:
-            n: Number of rows to produce as a sample.
-            fraction: Fraction of available rows to produce as a sample.
+            n: Total number of rows to produce as a sample.
+            n_per_stratum: Number of rows to produce per stratum as a sample. This parameter is only valid if
+                `stratify_by` is specified. Only one of `n` or `n_per_stratum` can be specified.
+            fraction: Fraction of available rows to produce as a sample. This parameter is not usable with `n` or
+                `n_per_stratum`. The fraction must be between 0.0 and 1.0.
             seed: Random seed for reproducible shuffling
-
+            stratify_by: If specified, the sample will be stratified by these values.
         Returns:
-            A new DataFrame with the sampled rows
+            A new DataFrame which specifies the sampled rows
         """
-
+        # Check context of usage
         if self.sample_clause is not None:
             raise excs.Error('sample() cannot be used with sample()')
         if self.group_by_clause is not None:
@@ -1025,29 +1025,31 @@ class DataFrame:
         if self._has_joins():
             raise excs.Error('sample() cannot be used with join()')
 
+        # Check paramter combinations
         if n is None and n_per_stratum is None and fraction is None:
             raise excs.Error('At least one of `n`, `n_per_stratum`, or `fraction` must be supplied.')
-
         if n_per_stratum is not None and stratify_by is None:
             raise excs.Error('Must specify `stratify_by` to use `n_per_stratum`')
-
         if n is not None and n_per_stratum is not None:
             raise excs.Error('Cannot specify both `n` and `n_per_stratum`')
-
         if (n is not None or n_per_stratum is not None) and fraction is not None:
             raise excs.Error('Cannot specify both `n` or `n_per_stratum` with `fraction`')
 
+        # Check parameter types and values
         n_expr = self._convert_param_to_typed_expr(n, ts.IntType(nullable=False), False, 'n')
+        if n_expr is not None and n_expr.val <= 0:
+            raise excs.Error('n parameter must be greater than 0')
         n_per_stratum_expr = self._convert_param_to_typed_expr(
             n_per_stratum, ts.IntType(nullable=False), False, 'n_per_stratum'
         )
+        if n_per_stratum_expr is not None and n_per_stratum_expr.val <= 0:
+            raise excs.Error('n_per_stratum parameter must be greater than 0')
         fraction_expr = self._convert_param_to_typed_expr(fraction, ts.FloatType(nullable=False), False, 'fraction')
-        seed_expr = self._convert_param_to_typed_expr(seed, ts.IntType(nullable=False), False, 'seed')
-
         if fraction_expr is not None:
             f_v = fraction_expr.val
             if (f_v < 0.0) or (f_v > 1.0):
                 raise excs.Error('fraction parameter must be between 0.0 and 1.0')
+        seed_expr = self._convert_param_to_typed_expr(seed, ts.IntType(nullable=False), False, 'seed')
 
         # analyze stratify list
         stratify_list: list[exprs.Expr] = []

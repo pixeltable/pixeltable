@@ -51,8 +51,12 @@ class TestSampling:
         # ------- Test sample parameter correctness
         with pytest.raises(excs.Error, match='must be of type Int'):
             _ = t.select().sample(n=0.01)  # type: ignore[arg-type]
+        with pytest.raises(excs.Error, match='must be greater than 0'):
+            _ = t.select().sample(n=-1)
         with pytest.raises(excs.Error, match='must be of type Int'):
             _ = t.select().sample(n_per_stratum='abc', stratify_by=t.c1)  # type: ignore[arg-type]
+        with pytest.raises(excs.Error, match='must be greater than 0'):
+            _ = t.select().sample(n_per_stratum=0, stratify_by=t.c1)
         with pytest.raises(excs.Error, match='must be of type Float'):
             _ = t.select().sample(fraction=24)
         with pytest.raises(excs.Error, match='fraction parameter must be between'):
@@ -190,7 +194,7 @@ class TestSampling:
         df = t.select().where(t.id < 200).sample(fraction=0.5)
         self._check_sample(df, 200 * 0.5)
 
-    def test_sample_view(self, test_tbl: catalog.Table, reload_tester: ReloadTester) -> None:
+    def test_sample_view_reload(self, test_tbl: catalog.Table, reload_tester: ReloadTester) -> None:
         t_rows = 360
         t = self.create_table(t_rows, 6, False)
 
@@ -204,15 +208,20 @@ class TestSampling:
     def test_sample_stratified(self, test_tbl: catalog.Table) -> None:
         t = self.create_sample_data_2(4, 6, True)
 
-        df = t.select(t.cat1, t.cat2, t.id).where(t.cat1 != None).sample(n=2, stratify_by=[t.cat1, t.cat2])
+        df = t.select(t.cat1, t.cat2, t.id).where(t.cat1 != None).sample(n_per_stratum=2, stratify_by=[t.cat1, t.cat2])
         r = df.collect()
         print(r)
+        assert len(r) == 2 * 5 * 6
+
+        df = t.select(t.cat1, t.cat2, t.id).where(t.cat1 != None).sample(n=70, stratify_by=[t.cat1, t.cat2])
+        r = df.collect()
+        p = r.to_pandas().sort_values(by=['cat1', 'cat2']).to_string()
+        print(p)
+        assert len(r) == 70
 
         df = t.select(t.cat1, t.cat2, t.id).where(t.cat1 != None).sample(fraction=0.1, stratify_by=[t.cat1, t.cat2])
         r = df.collect()
         print(r)
-
-    #        assert False
 
     def test_sample_stratified_nulls(self, test_tbl: catalog.Table) -> None:
         t_rows = 360

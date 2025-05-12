@@ -534,6 +534,7 @@ class SqlSampleNode(SqlNode):
         super().__init__(input.tbl, row_builder, select_list, sql_elements)
         self.group_by_items = group_by_items
         self.n_samples = sample_clause._n
+        self.n_per_stratum = sample_clause._n_per_stratum
         self.fraction_samples = sample_clause._fraction
         self.seed = sample_clause._seed if sample_clause._seed is not None else 0
 
@@ -545,69 +546,70 @@ class SqlSampleNode(SqlNode):
         return [exprs.RowidRef(target, i) for i in range(num_rowid_cols)]
 
     def _create_stmt(self) -> sql.Select:
-        if self.n_samples is not None:
-            return self._create_stmt_n(self.n_samples)
-        else:
+        if self.fraction_samples is not None:
             return self._create_stmt_fraction(self.fraction_samples)
+        return self._create_stmt_n(self.n_samples, self.n_per_stratum)
 
-    def _create_stmt_n(self, n_samples: int) -> sql.Select:
-        """Create a Select stmt that returns n_samples per strata"""
+    def _create_stmt_n(self, n: int | None, n_per_stratum: int | None) -> sql.Select:
+        """Create a Select stmt that returns n samples across all strata"""
         sql_group_by_items = [self.sql_elements.get(e) for e in self.group_by_items]
-
-        # Get all columns from the input CTE dynamically
-        srct_columns = [self.input_cte.c[i] for i in range(len(self.input_cte.c))]
 
         # Construct an expression for randomly ordering rows with a given seed
         s_key = SampleKey(exprs.Literal(self.seed), self.__rowid_columns())
         o_by = s_key.sql_expr(self.sql_elements)
 
         # Create a list of all columns plus the rank
-        select_columns = srct_columns.copy()
+        # Get all columns from the input CTE dynamically
+        select_columns = [*self.input_cte.c].copy()
         select_columns.append(sql.func.row_number().over(partition_by=sql_group_by_items, order_by=o_by).label('rank'))
-        srcp = sql.select(*select_columns).select_from(self.input_cte).cte('srcp')
+        row_rank_cte = sql.select(*select_columns).select_from(self.input_cte).cte('row_rank_cte')
 
-        final_columns = [*srcp.c]
-
-        stmt = sql.select(*final_columns).filter(srcp.c.rank <= n_samples)
-
-        return stmt
+        final_columns = [*row_rank_cte.c]
+        if n_per_stratum is not None:
+            return sql.select(*final_columns).filter(row_rank_cte.c.rank <= n_per_stratum)
+        else:
+            return sql.select(*final_columns).order_by(row_rank_cte.c.rank).limit(n)
 
     def _create_stmt_fraction(self, fraction_samples: float) -> sql.Select:
         """Create a Select stmt that returns a fraction of the rows per strata"""
-        sql_group_by_items = [self.sql_elements.get(e) for e in self.group_by_items]
 
         # Build the strata count CTE
-        srcs = (
+        # Produces a table of the form:
+        #   ([group_by_items], s_s_size)
+        # where s_s_size is the number of samples to take from each stratum
+        sql_group_by_items = [self.sql_elements.get(e) for e in self.group_by_items]
+        per_strata_count_cte = (
             sql.select(
                 *sql_group_by_items,
                 sql.func.ceil(fraction_samples * sql.func.count(1).cast(sql.Integer)).label('s_s_size'),
             )
             .select_from(self.input_cte)
             .group_by(*sql_group_by_items)
-            .cte('srcs')
+            .cte('per_strata_count_cte')
         )
-
-        # Get all columns from the input CTE dynamically
-        srct_columns = [self.input_cte.c[i] for i in range(len(self.input_cte.c))]
 
         # Construct an expression for randomly ordering rows with a given seed
         s_key = SampleKey(exprs.Literal(self.seed), self.__rowid_columns())
         o_by = s_key.sql_expr(self.sql_elements)
 
-        # Second CTE: srcp
-        # Create a list of all columns plus the rank
-        select_columns = srct_columns.copy()
+        # Build a CTE that ranks the rows within each stratum
+        # Get all columns from the input CTE dynamically
+        select_columns = [*self.input_cte.c].copy()
         select_columns.append(sql.func.row_number().over(partition_by=sql_group_by_items, order_by=o_by).label('rank'))
-        srcp = sql.select(*select_columns).select_from(self.input_cte).cte('srcp')
-
-        final_columns = [*srcp.c]
+        row_rank_cte = sql.select(*select_columns).select_from(self.input_cte).cte('row_rank_cte')
 
         # Build the join criterion dynamically to accommodate any number of group by columns
         join_c = sql.true()
-        for i in range(len(srcs.c) - 1):
-            join_c &= srcp.c[srcs.c[i].name].isnot_distinct_from(srcs.c[i])
+        for i in range(len(per_strata_count_cte.c) - 1):
+            join_c &= row_rank_cte.c[per_strata_count_cte.c[i].name].isnot_distinct_from(per_strata_count_cte.c[i])
 
-        # Join srcp with srcs to limit returns to the requested fraction of rows
-        stmt = sql.select(*final_columns).select_from(srcp).join(srcs, join_c).where(srcp.c.rank <= srcs.c.s_s_size)
+        # Join srcp with per_strata_count_cte to limit returns to the requested fraction of rows
+        final_columns = [*row_rank_cte.c].copy()
+        stmt = (
+            sql.select(*final_columns)
+            .select_from(row_rank_cte)
+            .join(per_strata_count_cte, join_c)
+            .where(row_rank_cte.c.rank <= per_strata_count_cte.c.s_s_size)
+        )
 
         return stmt

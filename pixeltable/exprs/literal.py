@@ -16,6 +16,8 @@ from .sql_element_cache import SqlElementCache
 
 
 class Literal(Expr):
+    val: Any
+
     def __init__(self, val: Any, col_type: Optional[ts.ColumnType] = None):
         if col_type is not None:
             val = col_type.create_literal(val)

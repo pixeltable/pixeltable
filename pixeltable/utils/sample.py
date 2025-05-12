@@ -20,7 +20,7 @@ class SampleClause(Expr):
 
     def __init__(
         self,
-        version_expr: Optional[Expr],
+        version: Optional[int],
         n_expr: Optional[Expr],
         n_per_stratum_expr: Optional[Expr],
         fract_expr: Optional[Expr],
@@ -28,13 +28,13 @@ class SampleClause(Expr):
         stratify_list: Optional[list[Expr]],
     ):
         super().__init__(ts.StringType(nullable=True))
-        if version_expr is None:
-            version_expr = exprs.Literal(self.CURRENT_VERSION)
+        if version is None:
+            version = self.CURRENT_VERSION
         n_expr = self.convert_none_to_expr(n_expr)
         n_per_stratum_expr = self.convert_none_to_expr(n_per_stratum_expr)
         fract_expr = self.convert_none_to_expr(fract_expr)
         seed_expr = self.convert_none_to_expr(seed_expr)
-        self.components = [version_expr, n_expr, n_per_stratum_expr, fract_expr, seed_expr, *stratify_list]
+        self.components = [exprs.Literal(version), n_expr, n_per_stratum_expr, fract_expr, seed_expr, *stratify_list]
         self.id: Optional[int] = self._create_id()
 
     @classmethod
@@ -47,23 +47,29 @@ class SampleClause(Expr):
         return True
 
     @property
-    def _version_expr(self) -> Optional[Expr]:
-        return self.components[0]
+    def _version(self) -> Optional[int]:
+        v = self.components[0].val
+        assert isinstance(v, int) or v is None
+        return v
 
     @property
     def _n(self) -> Optional[int]:
+        assert isinstance(self._n_expr.val, (int, type(None)))
         return self._n_expr.val
 
     @property
     def _n_per_stratum(self) -> Optional[int]:
+        assert isinstance(self._n_per_stratum_expr.val, int) or self._n_per_stratum_expr.val is None
         return self._n_per_stratum_expr.val
 
     @property
     def _fraction(self) -> Optional[float]:
+        assert isinstance(self._fraction_expr.val, float) or self._fraction_expr.val is None
         return self._fraction_expr.val
 
     @property
     def _seed(self) -> Optional[int]:
+        assert isinstance(self._seed_expr.val, (int, type(None)))
         return self._seed_expr.val
 
     @property
@@ -100,13 +106,15 @@ class SampleClause(Expr):
 
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr]) -> SampleClause:
-        return SampleClause(components[0], components[1], components[2], components[3], components[4], components[5:])
+        return SampleClause(
+            int(components[0].val), components[1], components[2], components[3], components[4], components[5:]
+        )
 
     def __repr__(self) -> str:
         s = ','.join(e.display_str(inline=True) for e in self._stratify_list)
         return (
-            f'sample_{self._version_expr}(n={self._n}, n_per_stratum={self._n_per_stratum}, ' +
-            f'fraction={self._fraction_expr}, seed={self._seed_expr}, [{s}])'
+            f'sample_{self._version}(n={self._n}, n_per_stratum={self._n_per_stratum}, '
+            + f'fraction={self._fraction}, seed={self._seed}, [{s}])'
         )
 
     @classmethod
@@ -130,6 +138,11 @@ class SampleKey(Expr):
         super().__init__(ts.StringType(nullable=True))
         self.components = [seed_expr, *rowids]
         self.id: Optional[int] = self._create_id()
+
+    @property
+    def _seed(self) -> Optional[int]:
+        assert isinstance(self._seed_expr.val, (int, type(None)))
+        return self._seed_expr.val
 
     @property
     def _seed_expr(self) -> Expr:
@@ -160,7 +173,7 @@ class SampleKey(Expr):
         General SQL form is:
         - MD5('<seed::text>' [ + '___' + <rowid_col_val>::text]+
         """
-        seed_text = "'" + str(self._seed_expr.val) + "'" if self._seed_expr.val is not None else "''"
+        seed_text = "'" + str(self._seed) + "'" if self._seed is not None else "''"
         sql_expr: sql.ColumnElement = sql.cast(sql.literal_column(seed_text), sql.Text)
         for e in self.components[1:]:
             sql_expr = sql_expr + sql.literal_column("'___'") + sql.cast(e.sql_expr(sql_elements), sql.Text)
