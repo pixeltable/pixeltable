@@ -13,6 +13,24 @@ from .utils import ReloadTester
 
 
 class TestSampling:
+    @classmethod
+    def create_sample_data(cls, row_mult: int, cat_count: int, with_null: bool) -> pxt.Table:
+        schema = {
+            'id': ts.IntType(nullable=False),
+            'cat1': ts.IntType(nullable=with_null),
+            'cat2': ts.IntType(nullable=with_null),
+        }
+        rows = []
+        rowid = 0
+        for cat1 in range(cat_count):
+            for cat2 in range(cat_count):
+                cat1v = cat1 if not with_null or cat1 != cat_count - 1 else None
+                cat2v = cat2 if not with_null or cat2 != cat_count - 1 else None
+                for _ in range(row_mult * (cat1 + 1) * (cat2 + 1)):
+                    rows.append({'id': rowid, 'cat1': cat1v, 'cat2': cat2v})
+                    rowid += 1
+        return pxt.create_table('scm_t', source=rows, schema_overrides=schema)
+
     def test_sample_errors(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
 
@@ -95,8 +113,8 @@ class TestSampling:
         with pytest.raises(excs.Error, match='Invalid type'):
             _ = t.select().sample(n=10, stratify_by=[t.c6])
 
-        # String, Int, and Bool types
-        _ = t.select().sample(n=10, seed=27, stratify_by=[t.c1, t.c2, t.c4])
+        # String, Int, Float, Bool, Timestamp types
+        _ = t.select().sample(n=10, seed=27, stratify_by=[t.c1, t.c2, t.c3, t.c4, t.c5])
 
         # Preceding where clauses must be suitable for direct sql translation
         with pytest.raises(excs.Error, match='not expressible in SQL'):
@@ -142,45 +160,9 @@ class TestSampling:
         print(r)
         cls._check_sample_count(expected, len(r))
 
-    @classmethod
-    def create_table(cls, t_rows: int, cat_count: int, with_null: bool) -> pxt.Table:
-        schema = {
-            'id': ts.IntType(nullable=False),
-            'cat1': ts.IntType(nullable=with_null),
-            'cat2': ts.IntType(nullable=with_null),
-        }
-        rows = []
-        for i in range(t_rows):
-            cat1 = i % cat_count
-            if with_null and cat1 == cat_count - 1:
-                cat1 = None
-            cat2 = (i // cat_count) % cat_count
-            if with_null and cat2 == cat_count - 1:
-                cat2 = None
-            rows.append({'id': i, 'cat1': cat1, 'cat2': cat2})
-        return pxt.create_table('s_t', source=rows, schema_overrides=schema)
-
-    @classmethod
-    def create_sample_data_2(cls, row_mult: int, cat_count: int, with_null: bool) -> pxt.Table:
-        schema = {
-            'id': ts.IntType(nullable=False),
-            'cat1': ts.IntType(nullable=with_null),
-            'cat2': ts.IntType(nullable=with_null),
-        }
-        rows = []
-        rowid = 0
-        for cat1 in range(cat_count):
-            for cat2 in range(cat_count):
-                cat1v = cat1 if not with_null or cat1 != cat_count - 1 else None
-                cat2v = cat2 if not with_null or cat2 != cat_count - 1 else None
-                for _ in range(row_mult * (cat1 + 1) * (cat2 + 1)):
-                    rows.append({'id': rowid, 'cat1': cat1v, 'cat2': cat2v})
-                    rowid += 1
-        return pxt.create_table('scm_t', source=rows, schema_overrides=schema)
-
     def test_sample_basic(self, test_tbl: catalog.Table) -> None:
-        t_rows = 360
-        t = self.create_table(t_rows, 6, False)
+        t = self.create_sample_data(4, 6, False)
+        t_rows = t.count()
 
         df = t.select(t.id).sample(fraction=0.10, seed=12345)
         self._check_sample(df, t_rows * 0.10)
@@ -195,8 +177,7 @@ class TestSampling:
         self._check_sample(df, 200 * 0.5)
 
     def test_sample_view_reload(self, test_tbl: catalog.Table, reload_tester: ReloadTester) -> None:
-        t_rows = 360
-        t = self.create_table(t_rows, 6, False)
+        t = self.create_sample_data(4, 6, False)
 
         df = t.select(t.cat1).sample(fraction=0.3, seed=51)
         v = pxt.create_view('view1', df)
@@ -205,8 +186,12 @@ class TestSampling:
         print(results)
         reload_tester.run_reload_test()
 
+    def summarize_sample(self, df: pxt.DataFrame) -> pxt.DataFrame:
+        ss = pxt.create_snapshot('sampled', df, if_exists='replace_force')
+        return ss.select(ss.cat1, ss.cat2, count1=pxtf.count(1)).group_by(ss.cat1, ss.cat2).order_by(ss.cat1, ss.cat2)
+
     def test_sample_stratified(self, test_tbl: catalog.Table) -> None:
-        t = self.create_sample_data_2(4, 6, True)
+        t = self.create_sample_data(4, 6, True)
 
         df = t.select(t.cat1, t.cat2, t.id).where(t.cat1 != None).sample(n_per_stratum=2, stratify_by=[t.cat1, t.cat2])
         r = df.collect()
@@ -228,10 +213,7 @@ class TestSampling:
         print(r)
         assert len(r) == 4 * 6
 
-    def test_sample_stratified_nulls(self, test_tbl: catalog.Table) -> None:
-        t_rows = 360
-        t = self.create_table(t_rows, 6, True)
-
-        df = t.select(t.cat1, t.cat2, count=pxtf.count(t.cat1)).group_by(t.cat1, t.cat2).order_by(t.cat1, t.cat2)
+        df = t.select(t.cat1, t.cat2, t.id).where(t.cat2 == 0).sample(fraction=0.5, stratify_by=[t.cat1 % 2], seed=1)
         r = df.collect()
         print(r)
+        print('summary:\n', self.summarize_sample(df).collect())
