@@ -1059,7 +1059,7 @@ class DataFrame:
             if not isinstance(stratify_by, list):
                 raise excs.Error('`stratify_by` parameter must be composed of expressions')
             for expr in stratify_by:
-                if expr is None or not isinstance(expr, exprs.ColumnRef):
+                if expr is None or not isinstance(expr, exprs.Expr):
                     raise excs.Error(f'Invalid expression: {expr}')
                 if not (expr.col_type.is_int_type() or expr.col_type.is_string_type() or expr.col_type.is_bool_type()):
                     raise excs.Error(f'Invalid type: {expr}')

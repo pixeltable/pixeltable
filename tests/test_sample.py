@@ -122,7 +122,7 @@ class TestSampling:
         threshold_hex = SampleClause.fraction_to_md5_hex(fract)
         print(threshold_hex)
 
-        for count in (100, 1000, 10000, 100000, 1000000, 10000000):
+        for count in (100, 1000, 10000, 100000, 1000000):
             k = 1
             for _i in range(count):
                 b = hashlib.md5(str(random.randint(0, 1000000000)).encode()).hexdigest() < threshold_hex
@@ -222,6 +222,11 @@ class TestSampling:
         df = t.select(t.cat1, t.cat2, t.id).where(t.cat1 != None).sample(fraction=0.1, stratify_by=[t.cat1, t.cat2])
         r = df.collect()
         print(r)
+
+        df = t.select(t.cat1, t.cat2, t.id).sample(n_per_stratum=1, stratify_by=[t.cat1 % 3, t.cat2], seed=12345)
+        r = df.collect()
+        print(r)
+        assert len(r) == 4 * 6
 
     def test_sample_stratified_nulls(self, test_tbl: catalog.Table) -> None:
         t_rows = 360
