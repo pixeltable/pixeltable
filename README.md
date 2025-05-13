@@ -186,7 +186,7 @@ print(t.select(t.name, t.profit).collect())
 **2. Object Detection with YOLOX:**
 
 ```bash
-pip install pixeltable
+pip install pixeltable pixeltable-yolox
 ```
 
 ```python
