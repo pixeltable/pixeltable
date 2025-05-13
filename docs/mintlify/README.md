@@ -4,7 +4,7 @@
 
 Pixeltable documentation is hosted on Mintlify. This guide will help you understand the process of reviewing and updating the documentation.
 
-This guide assumes you are editing the docs [locally](https://mintlify.com/docs/development).
+This guide assumes you are editing the docs (locally)[https://mintlify.com/docs/development].
 
 
 ## Prerequisites

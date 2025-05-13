@@ -183,18 +183,18 @@ print(t.select(t.name, t.profit).collect())
 # Output includes the automatically computed 'profit' column
 ```
 
-**2. Object Detection with [YOLOX](https://github.com/pixeltable/pixeltable-yolox):**
+**2. Object Detection with YOLOX:**
 
 ```bash
-pip install pixeltable pixeltable-yolox
+pip install pixeltable
 ```
 
 ```python
-import PIL
 import pixeltable as pxt
-from yolox.models import Yolox
+from pixeltable.ext.functions.yolox import yolox
 from yolox.data.datasets import COCO_CLASSES
 
+# Create a table with an image column
 t = pxt.create_table('image', {'image': pxt.Image}, if_exists='replace')
 
 # Insert some images
@@ -206,16 +206,21 @@ paths = [
 ]
 t.insert({'image': prefix + p} for p in paths)
 
+# Add computed columns with YOLOX object detections
+t.add_computed_column(detections=yolox(t.image, model_id='yolox_tiny', threshold=0.25))
+
+# Access specific parts of the detection results
+t.add_computed_column(bboxes=t.detections.bboxes)
+t.add_computed_column(labels=t.detections.labels)
+
+# Convert labels to class names
 @pxt.udf
-def detect(image: PIL.Image.Image) -> list[str]:
-    model = Yolox.from_pretrained("yolox_s")
-    result = model([image])
-    coco_labels = [COCO_CLASSES[label] for label in result[0]["labels"]]
-    return coco_labels
+def get_class_names(labels: list[int]) -> list[str]:
+    return [COCO_CLASSES[label] for label in labels]
 
-t.add_computed_column(classification=detect(t.image))
+t.add_computed_column(class_names=get_class_names(t.labels))
 
-print(t.select().collect())
+print(t.select(t.image, t.class_names).collect())
 ```
 
 **3. Image Similarity Search (CLIP Embedding Index):**
