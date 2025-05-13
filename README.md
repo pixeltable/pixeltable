@@ -183,7 +183,7 @@ print(t.select(t.name, t.profit).collect())
 # Output includes the automatically computed 'profit' column
 ```
 
-**2. Object Detection with YOLOX:**
+**2. Object Detection with [YOLOX](https://github.com/pixeltable/pixeltable-yolox):**
 
 ```bash
 pip install pixeltable pixeltable-yolox
