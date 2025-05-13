@@ -12,7 +12,7 @@ import pixeltable as pxt
 from pixeltable import catalog, exceptions as excs, exec, exprs
 from pixeltable.catalog import Column, TableVersionHandle
 from pixeltable.exec.sql_node import OrderByClause, OrderByItem, combine_order_by_clauses, print_order_by_clause
-from pixeltable.utils.sample import SampleClause
+from pixeltable.utils.sample import SampleClause, SampleKey
 
 
 def _is_agg_fn_call(e: exprs.Expr) -> bool:
@@ -75,6 +75,11 @@ class FromClause:
 
     tbls: list[catalog.TableVersionPath]
     join_clauses: list[JoinClause] = dataclasses.field(default_factory=list)
+
+    @property
+    def _first_tbl(self) -> catalog.TableVersionPath:
+        assert len(self.tbls) == 1
+        return self.tbls[0]
 
 
 class Analyzer:
@@ -322,6 +327,13 @@ class Planner:
             )
         )
         return plan
+
+    @classmethod
+    def rowid_columns(cls, target: TableVersionHandle, num_rowid_cols: Optional[int] = None) -> list[exprs.Expr]:
+        """Return list of RowidRef for the given number of associated rowids"""
+        if num_rowid_cols is None:
+            num_rowid_cols = target.get().num_rowid_columns()
+        return [exprs.RowidRef(target, i) for i in range(num_rowid_cols)]
 
     @classmethod
     def create_df_insert_plan(
@@ -716,12 +728,31 @@ class Planner:
         if sample_clause is not None and sample_clause.is_stratified:
             group_by_clause = sample_clause._stratify_list
 
+        # If non-stratified sampling, construct a where clause, and override order_by and limit clauses
+        if sample_clause is not None and not sample_clause.is_stratified:
+            # Construct an expression for sorting rows and limiting row counts
+            s_key = SampleKey(exprs.Literal(sample_clause._seed), cls.rowid_columns(from_clause._first_tbl.tbl_version))
+
+            # Construct a suitable where clause
+            where = where_clause
+            if sample_clause._fraction is not None:
+                fraction_md5_hex = exprs.Expr.from_object(
+                    sample_clause.fraction_to_md5_hex(float(sample_clause._fraction))
+                )
+                f_where = s_key < fraction_md5_hex
+                where = where & f_where if where is not None else f_where
+
+            order_by: list[tuple[exprs.Expr, bool]] = [(s_key, True)]
+            new_limit: exprs.Expr = exprs.Literal(sample_clause._n)
+            new_sample_clause = None
+        else:
+            where = where_clause
+            order_by = order_by_clause
+            new_limit = limit
+            new_sample_clause = sample_clause
+
         analyzer = Analyzer(
-            from_clause,
-            select_list,
-            where_clause=where_clause,
-            group_by_clause=group_by_clause,
-            order_by_clause=order_by_clause,
+            from_clause, select_list, where_clause=where, group_by_clause=group_by_clause, order_by_clause=order_by
         )
         row_builder = exprs.RowBuilder(analyzer.all_exprs, [], [])
 
@@ -733,8 +764,8 @@ class Planner:
             row_builder=row_builder,
             analyzer=analyzer,
             eval_ctx=eval_ctx,
-            limit=limit,
-            sample_clause=sample_clause,
+            limit=new_limit,
+            sample_clause=new_sample_clause,
             with_pk=True,
             exact_version_only=exact_version_only,
         )

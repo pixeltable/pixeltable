@@ -21,7 +21,7 @@ from pixeltable.plan import Planner
 from pixeltable.type_system import ColumnType
 from pixeltable.utils.description_helper import DescriptionHelper
 from pixeltable.utils.formatter import Formatter
-from pixeltable.utils.sample import SampleClause, SampleKey
+from pixeltable.utils.sample import SampleClause
 
 if TYPE_CHECKING:
     import torch
@@ -215,8 +215,9 @@ class DataFrame:
 
     @property
     def _first_tbl(self) -> catalog.TableVersionPath:
-        assert len(self._from_clause.tbls) == 1
-        return self._from_clause.tbls[0]
+        return self._from_clause._first_tbl
+        # assert len(self._from_clause.tbls) == 1
+        # return self._from_clause.tbls[0]
 
     def _vars(self) -> dict[str, exprs.Variable]:
         """
@@ -308,31 +309,6 @@ class DataFrame:
             plan.close()
 
     def _create_query_plan(self) -> exec.ExecNode:
-        # If non-stratified sampling, construct a where clause, and override order_by and limit clauses
-        if self.sample_clause is not None and not self.sample_clause.is_stratified:
-            sample_clause = self.sample_clause
-
-            # Construct an expression for sorting rows and limiting row counts
-            s_key = SampleKey(exprs.Literal(sample_clause._seed), self.__rowid_columns())
-
-            # Construct a suitable where clause
-            where = self.where_clause
-            if sample_clause._fraction is not None:
-                fraction_md5_hex = exprs.Expr.from_object(
-                    sample_clause.fraction_to_md5_hex(float(sample_clause._fraction))
-                )
-                f_where = s_key < fraction_md5_hex
-                where = where & f_where if where is not None else f_where
-
-            order_by: list[tuple[exprs.Expr, bool]] = [(s_key, True)]
-            limit: exprs.Expr = exprs.Literal(sample_clause._n)
-            sample_clause = None
-        else:
-            where = self.where_clause
-            order_by = self.order_by_clause
-            limit = self.limit_val
-            sample_clause = self.sample_clause
-
         # construct a group-by clause if we're grouping by a table
         group_by_clause: Optional[list[exprs.Expr]] = None
         if self.grouping_tbl is not None:
@@ -350,19 +326,16 @@ class DataFrame:
         return plan.Planner.create_query_plan(
             self._from_clause,
             self._select_list_exprs,
-            where_clause=where,
+            where_clause=self.where_clause,
             group_by_clause=group_by_clause,
-            order_by_clause=order_by,
-            limit=limit,
-            sample_clause=sample_clause,
+            order_by_clause=self.order_by_clause,
+            limit=self.limit_val,
+            sample_clause=self.sample_clause,
         )
 
     def __rowid_columns(self, num_rowid_cols: Optional[int] = None) -> list[exprs.Expr]:
         """Return list of RowidRef for the given number of associated rowids"""
-        target = self._first_tbl.tbl_version
-        if num_rowid_cols is None:
-            num_rowid_cols = target.get().num_rowid_columns()
-        return [exprs.RowidRef(target, i) for i in range(num_rowid_cols)]
+        return Planner.rowid_columns(self._first_tbl.tbl_version, num_rowid_cols)
 
     def _has_joins(self) -> bool:
         return len(self._from_clause.join_clauses) > 0
