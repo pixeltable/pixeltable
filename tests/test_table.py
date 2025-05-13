@@ -112,6 +112,7 @@ class TestTable:
             pxt.list_tables('dir2')
 
         # test loading with new client
+        _ = tbl.select().collect()
         _ = reload_tester.run_query(tbl.select())
         reload_tester.run_reload_test()
 
@@ -1609,6 +1610,8 @@ class TestTable:
         # c3 is now stored
         t.add_computed_column(c3=t.img.rotate(90))
         self._test_computed_img_cols(t, stores_img_col=True)
+        _ = t.select(t.c3).collect()
+        self._test_computed_img_cols(t, stores_img_col=True)
         _ = t.select(t.c3.errortype).collect()
 
         # computed img col with exceptions
@@ -2158,7 +2161,7 @@ class TestTable:
         s1 = pxt.create_snapshot('test_snap1', v2)
         r = repr(s1)
         assert strip_lines(r) == strip_lines(
-            """Snapshot 'test_snap1' (of 'test_subview:2', 'test_view:0', 'test_tbl:2')
+            """Snapshot 'test_snap1' (of 'test_subview:3', 'test_view:0', 'test_tbl:2')
             Where: ~(c1 == None)
 
             Column Name                          Type           Computed With

@@ -312,6 +312,7 @@ class TestSnapshot:
 
         def validate(t: pxt.Table, v: pxt.Table, s1: pxt.Table, s2: pxt.Table, s3: pxt.Table, s4: pxt.Table) -> None:
             # c4 is only visible in s1
+            _ = s1.c4
             assert np.all(s1.select(s1.c4).order_by(s1.c2).collect().to_pandas()['c4'] == c4)
             with pytest.raises(AttributeError):
                 _ = t.select(t.c4).collect()

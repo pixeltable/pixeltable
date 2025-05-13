@@ -160,9 +160,9 @@ class TestProject:
         t._link_external_store(store1)
         assert len(t._tbl_version.get().cols_by_id) == num_cols_before_linking + 2
         assert t.rot_img.col in store1.stored_proxies  # Stored proxy
-        assert store1.stored_proxies[t.rot_img.col].tbl == t._tbl_version
+        assert store1.stored_proxies[t.rot_img.col].tbl.id == t._tbl_version.id
         assert t.rot_other_img.col in store1.stored_proxies  # Stored proxy
-        assert store1.stored_proxies[t.rot_other_img.col].tbl == t._tbl_version
+        assert store1.stored_proxies[t.rot_other_img.col].tbl.id == t._tbl_version.id
         # Verify that the stored proxies are properly materialized, and we can query them
         ref = ColumnRef(store1.stored_proxies[t.rot_img.col])
         proxies = t.select(img=ref, path=ref.localpath).collect()

@@ -84,7 +84,8 @@ class Dir(Base):
     )
     parent_id: orm.Mapped[uuid.UUID] = orm.mapped_column(UUID(as_uuid=True), ForeignKey('dirs.id'), nullable=True)
     md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # DirMd
-    # This field is updated to synchronize database operations across multiple sessions
+
+    # used to force acquisition of an X-lock via an Update stmt
     lock_dummy: orm.Mapped[int] = orm.mapped_column(BigInteger, nullable=True)
 
 
@@ -199,6 +200,9 @@ class Table(Base):
     id: orm.Mapped[uuid.UUID] = orm.mapped_column(UUID(as_uuid=True), primary_key=True, nullable=False)
     dir_id: orm.Mapped[uuid.UUID] = orm.mapped_column(UUID(as_uuid=True), ForeignKey('dirs.id'), nullable=False)
     md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # TableMd
+
+    # used to force acquisition of an X-lock via an Update stmt
+    lock_dummy: orm.Mapped[int] = orm.mapped_column(BigInteger, nullable=True)
 
 
 @dataclasses.dataclass
