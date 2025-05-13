@@ -5,7 +5,7 @@ from typing import Optional
 
 import sqlalchemy as sql
 
-from pixeltable import exprs, type_system as ts
+from pixeltable import type_system as ts
 from pixeltable.exprs.expr import DataRow, Expr
 from pixeltable.exprs.literal import Literal
 from pixeltable.exprs.row_builder import RowBuilder

@@ -307,41 +307,31 @@ class DataFrame:
         finally:
             plan.close()
 
-    def _create_stratified_sample_plan(self) -> exec.ExecNode:
-        for item in self._select_list_exprs:
-            item.bind_rel_paths()
-        return plan.Planner.create_query_plan(
-            self._from_clause, self._select_list_exprs, where_clause=self.where_clause, sample_clause=self.sample_clause
-        )
-
-    def _create_sample_plan(self) -> exec.ExecNode:
-        sample_clause = self.sample_clause
-        if len(sample_clause._stratify_list) > 0:
-            return self._create_stratified_sample_plan()
-
-        # Construct an expression for sorting rows and limiting row counts
-        s_key = SampleKey(exprs.Literal(sample_clause._seed), self.__rowid_columns())
-
-        # Construct a suitable where clause
-        where = self.where_clause
-        if sample_clause._fraction is not None:
-            fraction_md5_hex = exprs.Expr.from_object(sample_clause.fraction_to_md5_hex(float(sample_clause._fraction)))
-            f_where = s_key < fraction_md5_hex
-            where = where & f_where if where is not None else f_where
-
-        order_by: list[tuple[exprs.Expr, bool]] = [(s_key, True)]
-        limit = exprs.Literal(sample_clause._n)
-
-        for item in self._select_list_exprs:
-            item.bind_rel_paths()
-
-        return plan.Planner.create_query_plan(
-            self._from_clause, self._select_list_exprs, where_clause=where, order_by_clause=order_by, limit=limit
-        )
-
     def _create_query_plan(self) -> exec.ExecNode:
-        if self.sample_clause is not None:
-            return self._create_sample_plan()
+        # If non-stratified sampling, construct a where clause, and override order_by and limit clauses
+        if self.sample_clause is not None and not self.sample_clause.is_stratified:
+            sample_clause = self.sample_clause
+
+            # Construct an expression for sorting rows and limiting row counts
+            s_key = SampleKey(exprs.Literal(sample_clause._seed), self.__rowid_columns())
+
+            # Construct a suitable where clause
+            where = self.where_clause
+            if sample_clause._fraction is not None:
+                fraction_md5_hex = exprs.Expr.from_object(
+                    sample_clause.fraction_to_md5_hex(float(sample_clause._fraction))
+                )
+                f_where = s_key < fraction_md5_hex
+                where = where & f_where if where is not None else f_where
+
+            order_by: list[tuple[exprs.Expr, bool]] = [(s_key, True)]
+            limit: exprs.Expr = exprs.Literal(sample_clause._n)
+            sample_clause = None
+        else:
+            where = self.where_clause
+            order_by = self.order_by_clause
+            limit = self.limit_val
+            sample_clause = self.sample_clause
 
         # construct a group-by clause if we're grouping by a table
         group_by_clause: Optional[list[exprs.Expr]] = None
@@ -360,10 +350,11 @@ class DataFrame:
         return plan.Planner.create_query_plan(
             self._from_clause,
             self._select_list_exprs,
-            where_clause=self.where_clause,
+            where_clause=where,
             group_by_clause=group_by_clause,
-            order_by_clause=self.order_by_clause if self.order_by_clause is not None else [],
-            limit=self.limit_val,
+            order_by_clause=order_by,
+            limit=limit,
+            sample_clause=sample_clause,
         )
 
     def __rowid_columns(self, num_rowid_cols: Optional[int] = None) -> list[exprs.Expr]:

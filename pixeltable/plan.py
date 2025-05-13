@@ -713,11 +713,14 @@ class Planner:
         if exact_version_only is None:
             exact_version_only = []
 
+        if sample_clause is not None and sample_clause.is_stratified:
+            group_by_clause = sample_clause._stratify_list
+
         analyzer = Analyzer(
             from_clause,
             select_list,
             where_clause=where_clause,
-            group_by_clause=group_by_clause if sample_clause is None else sample_clause._stratify_list,
+            group_by_clause=group_by_clause,
             order_by_clause=order_by_clause,
         )
         row_builder = exprs.RowBuilder(analyzer.all_exprs, [], [])

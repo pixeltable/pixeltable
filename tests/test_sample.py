@@ -164,11 +164,11 @@ class TestSampling:
         t = self.create_sample_data(4, 6, False)
         t_rows = t.count()
 
-        df = t.select(t.id).sample(fraction=0.10, seed=12345)
-        self._check_sample(df, t_rows * 0.10)
-
         df = t.select().sample(n=20)
         self._check_sample(df, 20)
+
+        df = t.select(t.id).sample(fraction=0.10, seed=12345)
+        self._check_sample(df, t_rows * 0.10)
 
         df = t.select().sample(fraction=0.123, seed=42)
         self._check_sample(df, t_rows * 0.123)
@@ -213,7 +213,8 @@ class TestSampling:
         print(r)
         assert len(r) == 4 * 6
 
-        df = t.select(t.cat1, t.cat2, t.id).where(t.cat2 == 0).sample(fraction=0.5, stratify_by=[t.cat1 % 2], seed=1)
+        df = t.select(t.cat1, t.cat2, t.id).where(t.cat2 == 0).sample(n_per_stratum=1, stratify_by=[t.cat1 % 2], seed=1)
         r = df.collect()
-        print(r)
+        print('collected:\n', r)
         print('summary:\n', self.summarize_sample(df).collect())
+        # assert False
