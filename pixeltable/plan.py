@@ -616,6 +616,12 @@ class Planner:
             for e in row_builder.default_eval_ctx.target_exprs
             if e.is_bound_by([view]) and not e.is_bound_by([view.base])
         ]
+
+        # If this contains a sample specification, modify where, group_by, order_by, and limit
+        # where, group_by_clause, order_by_clause, limit, sample_clause = cls.create_sample_clauses(
+        #     from_clause, target.sample_clause, target.predicate, None, None, None
+        # )
+
         # if we're propagating an insert, we only want to see those base rows that were created for the current version
         base_analyzer = Analyzer(FromClause(tbls=[view.base]), base_output_exprs, where_clause=target.predicate)
         base_eval_ctx = row_builder.create_eval_ctx(base_analyzer.all_exprs)
@@ -623,6 +629,8 @@ class Planner:
             row_builder=row_builder,
             analyzer=base_analyzer,
             eval_ctx=base_eval_ctx,
+            # sample_clause=target.sample_clause,
+            sample_clause=None,  # TODO JGP XXXXX
             with_pk=True,
             exact_version_only=view.get_bases() if propagates_insert else [],
         )
@@ -702,6 +710,49 @@ class Planner:
         return prefetch_node
 
     @classmethod
+    def create_sample_clauses(
+        cls,
+        from_clause: FromClause,
+        sample_clause: SampleClause,
+        where_clause: Optional[exprs.Expr],
+        group_by_clause: Optional[list[exprs.Expr]],
+        order_by_clause: Optional[list[tuple[exprs.Expr, bool]]],
+        limit: Optional[exprs.Expr],
+    ) -> tuple[
+        exprs.Expr,
+        Optional[list[exprs.Expr]],
+        Optional[list[tuple[exprs.Expr, bool]]],
+        Optional[exprs.Expr],
+        Optional[SampleClause],
+    ]:
+        if sample_clause is None:
+            return where_clause, group_by_clause, order_by_clause, limit, None
+
+        # If the sample clause is stratified, we need to use the group by clause
+        if sample_clause.is_stratified:
+            group_by = sample_clause._stratify_list
+            return where_clause, group_by, None, None, sample_clause
+
+        else:
+            group_by = None
+            # If non-stratified sampling, construct a where clause, order_by, and limit clauses
+            # Construct an expression for sorting rows and limiting row counts
+            s_key = SampleKey(exprs.Literal(sample_clause._seed), cls.rowid_columns(from_clause._first_tbl.tbl_version))
+
+            # Construct a suitable where clause
+            where = where_clause
+            if sample_clause._fraction is not None:
+                fraction_md5_hex = exprs.Expr.from_object(
+                    sample_clause.fraction_to_md5_hex(float(sample_clause._fraction))
+                )
+                f_where = s_key < fraction_md5_hex
+                where = where & f_where if where is not None else f_where
+
+            order_by: list[tuple[exprs.Expr, bool]] = [(s_key, True)]
+            limit = exprs.Literal(sample_clause._n)
+            return where, None, order_by, limit, None
+
+    @classmethod
     def create_query_plan(
         cls,
         from_clause: FromClause,
@@ -725,34 +776,17 @@ class Planner:
         if exact_version_only is None:
             exact_version_only = []
 
-        if sample_clause is not None and sample_clause.is_stratified:
-            group_by_clause = sample_clause._stratify_list
-
-        # If non-stratified sampling, construct a where clause, and override order_by and limit clauses
-        if sample_clause is not None and not sample_clause.is_stratified:
-            # Construct an expression for sorting rows and limiting row counts
-            s_key = SampleKey(exprs.Literal(sample_clause._seed), cls.rowid_columns(from_clause._first_tbl.tbl_version))
-
-            # Construct a suitable where clause
-            where = where_clause
-            if sample_clause._fraction is not None:
-                fraction_md5_hex = exprs.Expr.from_object(
-                    sample_clause.fraction_to_md5_hex(float(sample_clause._fraction))
-                )
-                f_where = s_key < fraction_md5_hex
-                where = where & f_where if where is not None else f_where
-
-            order_by: list[tuple[exprs.Expr, bool]] = [(s_key, True)]
-            new_limit: exprs.Expr = exprs.Literal(sample_clause._n)
-            new_sample_clause = None
-        else:
-            where = where_clause
-            order_by = order_by_clause
-            new_limit = limit
-            new_sample_clause = sample_clause
+        # Modify clauses to include sample clause
+        where, group_by_clause, order_by_clause, limit, sample_clause = cls.create_sample_clauses(
+            from_clause, sample_clause, where_clause, group_by_clause, order_by_clause, limit
+        )
 
         analyzer = Analyzer(
-            from_clause, select_list, where_clause=where, group_by_clause=group_by_clause, order_by_clause=order_by
+            from_clause,
+            select_list,
+            where_clause=where,
+            group_by_clause=group_by_clause,
+            order_by_clause=order_by_clause,
         )
         row_builder = exprs.RowBuilder(analyzer.all_exprs, [], [])
 
@@ -764,8 +798,8 @@ class Planner:
             row_builder=row_builder,
             analyzer=analyzer,
             eval_ctx=eval_ctx,
-            limit=new_limit,
-            sample_clause=new_sample_clause,
+            limit=limit,
+            sample_clause=sample_clause,
             with_pk=True,
             exact_version_only=exact_version_only,
         )
