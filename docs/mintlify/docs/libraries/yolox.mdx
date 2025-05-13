@@ -19,28 +19,32 @@ Pixeltable YOLOX is designed for developers seeking a modern, easy-to-use object
 ### Installation
 
 ```bash
-pip install pixeltable-yolox
+pip install pixeltable pixeltable-yolox
 ```
 
 ### Inference
 
 ```python
-import requests
-from PIL import Image
-from yolox.models import Yolox, YoloxProcessor
+import pixeltable as pxt
+from pixeltable.ext.functions.yolox import yolox
 
-url = "https://raw.githubusercontent.com/pixeltable/pixeltable-yolox/main/tests/data/000000000001.jpg"
-image = Image.open(requests.get(url, stream=True).raw)
+# Create a table with an image column
+table = pxt.create_table('object_detection', {'image': pxt.Image})
 
-model = Yolox.from_pretrained("yolox_s")
-processor = YoloxProcessor("yolox_s")
-tensor = processor([image])
-output = model(tensor)
-result = processor.postprocess([image], output)
+# Add computed columns with YOLOX object detections using different models
+table.add_computed_column(detect_yolox_tiny=yolox(table.image, model_id='yolox_tiny', threshold=0.25))
+table.add_computed_column(detect_yolox_nano=yolox(table.image, model_id='yolox_nano', threshold=0.2))
 
-# The labels are COCO category indices.
-from yolox.data.datasets import COCO_CLASSES
-print(COCO_CLASSES[result[0]['labels'][0]]) # Example: Print the first detected object's class name
+# Access specific parts of the detection results
+table.add_computed_column(yolox_tiny_bboxes=table.detect_yolox_tiny.bboxes)
+table.add_computed_column(yolox_tiny_labels=table.detect_yolox_tiny.labels)
+table.add_computed_column(yolox_tiny_scores=table.detect_yolox_tiny.scores)
+
+# For an existing table with images (e.g., frames from a video)
+frames_view = pxt.get_table('video_frames')
+frames_view.add_computed_column(
+    detect_yolox_tiny=yolox(frames_view.frame, model_id='yolox_tiny', threshold=0.25)
+)
 ```
 
 This yields the following output:
