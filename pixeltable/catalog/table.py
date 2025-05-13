@@ -223,6 +223,22 @@ class Table(SchemaObject):
     def limit(self, n: int) -> 'pxt.DataFrame':
         return self._df().limit(n)
 
+    def sample(
+        self,
+        n: Optional[int] = None,
+        n_per_stratum: Optional[int] = None,
+        fraction: Optional[float] = None,
+        seed: Optional[int] = None,
+        stratify_by: Any = None,
+    ) -> pxt.DataFrame:
+        """Choose a shuffled sample of rows
+
+        See [`DataFrame.sample`][pixeltable.DataFrame.sample] for more details.
+        """
+        return self._df().sample(
+            n=n, n_per_stratum=n_per_stratum, fraction=fraction, seed=seed, stratify_by=stratify_by
+        )
+
     def collect(self) -> 'pxt.dataframe.DataFrameResultSet':
         """Return rows from this table."""
         return self._df().collect()

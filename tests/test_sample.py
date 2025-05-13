@@ -218,3 +218,37 @@ class TestSampling:
         print('collected:\n', r)
         print('summary:\n', self.summarize_sample(df).collect())
         # assert False
+
+    def check_create_insert(self, t: pxt.Table, df: pxt.DataFrame, n_sample: int) -> None:
+        r = df.collect()
+        print(r)
+        assert len(r) == n_sample
+
+        # Create a new table from the sample
+        new_table = pxt.create_table('new_table', source=df, if_exists='replace_force')
+        assert new_table.count() == n_sample
+        assert new_table._schema == t._schema
+        assert new_table._schema == df.schema
+        r2 = new_table.collect()
+        assert r2 == r
+
+        new_table.insert(df)
+        assert new_table.count() == 2 * n_sample
+
+    def test_sample_create_insert_table(self, test_tbl: catalog.Table) -> None:
+        t = self.create_sample_data(4, 6, False)
+
+        df = t.select().sample(n_per_stratum=1, stratify_by=[t.cat1, t.cat2])
+        self.check_create_insert(t, df, 6 * 6)
+
+        df = t.select().sample(n=20)
+        self.check_create_insert(t, df, 20)
+
+        df = t.select().sample(fraction=0.1)
+        n_sample = len(df.collect())
+        self.check_create_insert(t, df, n_sample)
+
+        t = test_tbl
+        df = t.sample(n=20)
+        self.check_create_insert(t, df, 20)
+        print(df.collect())
