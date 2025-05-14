@@ -68,6 +68,9 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, request: pytest.FixtureRe
     os.environ['PIXELTABLE_DB'] = f'test_{worker_id_str}'
     os.environ['PIXELTABLE_PGDATA'] = str(shared_home / 'pgdata')
 
+    for var in ('PIXELTABLE_HOME', 'PIXELTABLE_CONFIG', 'PIXELTABLE_DB', 'PIXELTABLE_PGDATA'):
+        print(f'{var:17} = {os.environ[var]}')
+
     # Ensure the shared home directory exists.
     shared_home.mkdir(parents=True, exist_ok=True)
 
