@@ -262,6 +262,31 @@ Iterators are powerful tools for processing large media files. They work seamles
     chunks.add_computed_column(text=whisper_transcribe(chunks.audio_chunk))
     ```
   </Accordion>
+
+  <Accordion title="Video Generation" icon="film-simple">
+    ```python
+    from pixeltable.functions.video import make_video
+    
+    # Extract frames at 1 FPS
+    frames = pxt.create_view(
+        'video.frames',
+        videos_table,
+        iterator=FrameIterator.create(
+            video=videos_table.video,
+            fps=1.0
+        )
+    )
+    
+    # Process frames (e.g., apply a filter)
+    frames.add_computed_column(processed=frames.frame.filter('BLUR'))
+    
+    # Create new videos from processed frames
+    processed_videos = frames.select(
+        frames.video_id,
+        make_video(frames.pos, frames.processed)  # Default fps is 25
+    ).group_by(frames.video_id).collect()
+    ```
+  </Accordion>
 </AccordionGroup>
 
 ## Best Practices
