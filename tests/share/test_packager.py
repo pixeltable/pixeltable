@@ -5,12 +5,13 @@ import json
 import tarfile
 import urllib.parse
 from pathlib import Path
-from typing import Optional
+from typing import NamedTuple, Optional
 
 import numpy as np
 import pyarrow.parquet as pq
 
 import pixeltable as pxt
+from pixeltable.dataframe import DataFrameResultSet
 import pixeltable.functions as pxtf
 import pixeltable.type_system as ts
 from pixeltable import exprs, metadata
@@ -153,30 +154,41 @@ class TestPackager:
             else:
                 assert pxt_val == parquet_val
 
-    def __do_round_trip(self, snapshot: pxt.Table) -> None:
-        assert snapshot._tbl_version.get().is_snapshot
+    class RoundTripInfo(NamedTuple):
+        bundle_path: Path
+        depth: int
+        schema: dict[str, ts.ColumnType]
+        result_set: DataFrameResultSet
 
-        schema = snapshot._schema
-        depth = len(snapshot._tbl_version_path.ancestor_paths)
-        data = snapshot.head(n=500)
+    def __do_round_trip(self, *snapshots: pxt.Table) -> None:
+        bundles: list['TestPackager.RoundTripInfo'] = []
+        for snapshot in snapshots:
+            assert snapshot._tbl_version.get().is_snapshot
 
-        # Package the snapshot into a tarball
-        packager = TablePackager(snapshot)
-        bundle_path = packager.package()
+            schema = snapshot._schema
+            depth = len(snapshot._tbl_version_path.ancestor_paths)
+            result_set = snapshot.head(n=500)
+
+            # Package the snapshot into a tarball
+            packager = TablePackager(snapshot)
+            bundle_path = packager.package()
+
+            bundles.append(TestPackager.RoundTripInfo(bundle_path, depth, schema, result_set))
 
         # Clear out the db
         clean_db()
         reload_catalog()
 
-        # Restore the snapshot from the tarball
-        restorer = TableRestorer('new_replica')
-        restorer.restore(bundle_path)
-        t = pxt.get_table('new_replica')
-        assert t._schema == schema
-        assert len(snapshot._tbl_version_path.ancestor_paths) == depth
-        reconstituted_data = t.head(n=500)
-
-        assert_resultset_eq(data, reconstituted_data)
+        for i, bundle in enumerate(bundles):
+            # Restore the snapshot from the tarball
+            tbl_name = f'new_replica_{i}'
+            restorer = TableRestorer(tbl_name)
+            restorer.restore(bundle.bundle_path)
+            t = pxt.get_table(tbl_name)
+            assert t._schema == bundle.schema
+            assert len(snapshot._tbl_version_path.ancestor_paths) == bundle.depth
+            reconstituted_data = t.head(n=500)
+            assert_resultset_eq(bundle.result_set, reconstituted_data)
 
     def test_round_trip(self, test_tbl: pxt.Table) -> None:
         """package() / unpackage() round trip"""
@@ -217,7 +229,7 @@ class TestPackager:
         self.__do_round_trip(snapshot)
 
         # Double-check that the iterator view and its base table have the correct number of rows
-        snapshot_replica = pxt.get_table('new_replica')
+        snapshot_replica = pxt.get_table('new_replica_0')
         assert snapshot_replica._snapshot_only
         assert snapshot_replica.count() == snapshot_row_count
         v_replica = snapshot_replica.base_table
