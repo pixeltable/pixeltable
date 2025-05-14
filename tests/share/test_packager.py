@@ -157,7 +157,7 @@ class TestPackager:
         assert snapshot._tbl_version.get().is_snapshot
 
         schema = snapshot._schema
-        depth = len(snapshot._tbl_version_path.ancestors)
+        depth = len(snapshot._tbl_version_path.ancestor_paths)
         data = snapshot.head(n=500)
 
         # Package the snapshot into a tarball
@@ -173,7 +173,7 @@ class TestPackager:
         restorer.restore(bundle_path)
         t = pxt.get_table('new_replica')
         assert t._schema == schema
-        assert len(snapshot._tbl_version_path.ancestors) == depth
+        assert len(snapshot._tbl_version_path.ancestor_paths) == depth
         reconstituted_data = t.head(n=500)
 
         assert_resultset_eq(data, reconstituted_data)

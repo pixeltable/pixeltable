@@ -99,11 +99,11 @@ class TableVersionPath:
         return self.base.find_tbl_version(id)
 
     @property
-    def ancestors(self) -> list[TableVersionPath]:
+    def ancestor_paths(self) -> list[TableVersionPath]:
         if self.base is None:
             return [self]
         else:
-            return [self, *self.base.ancestors]
+            return [self, *self.base.ancestor_paths]
 
     def columns(self) -> list[Column]:
         """Return all user columns visible in this tbl version path, including columns from bases"""

@@ -28,16 +28,8 @@ class TablePackager:
     is as follows:
 
     metadata.json  # Pixeltable metadata for the packaged table and its ancestors
-    tables/**  # Parquet tables for the packaged table and its ancestors, named as 'tbl_{tbl_id.hex}.parquet'
+    tables/**  # Parquet tables for the packaged table and its ancestors, each table in a directory 'tbl_{tbl_id.hex}'
     media/**  # Local media files
-
-    All rows will be exported with an additional 'pk' column. Currently, only the most recent version of the table can
-    be exported, and only the full table contents.
-
-    Columns in the Parquet tables follow the standard naming conventions:
-    - val_{col_name} for the values in stored columns
-    - errortype_{col_name} and errormsg_{col_name} for the error columns (if `col.records_errors`)
-    - pk for the primary key column
 
     If the table contains media columns, they are handled as follows:
     - If a media file has an external URL (any URL scheme other than file://), then the URL will be preserved as-is and
@@ -80,9 +72,9 @@ class TablePackager:
         self.tables_dir = self.tmp_dir / 'tables'
         self.tables_dir.mkdir()
         with Env.get().begin_xact():
-            for tvp in self.table._tbl_version_path.ancestors:
-                _logger.info(f"Exporting table '{tvp.tbl_version.get().name}:{tvp.tbl_version.get().version}'.")
-                self.__export_table(tvp.tbl_version.get())
+            for tv in self.table._tbl_version_path.get_tbl_versions():
+                _logger.info(f"Exporting table '{tv.get().name}:{tv.get().version}'.")
+                self.__export_table(tv.get())
         _logger.info('Building archive.')
         bundle_path = self.__build_tarball()
         _logger.info(f'Packaging complete: {bundle_path}')
@@ -92,6 +84,8 @@ class TablePackager:
         """
         Exports the data from `t` into a Parquet table.
         """
+        # `tv` must be an ancestor of the primary table
+        assert any(tv.id == base.id for base in self.table._tbl_version_path.get_tbl_versions())
         sql_types = {col.name: col.type for col in tv.store_tbl.sa_tbl.columns}
         media_cols: set[str] = set()
         for col in tv.cols_by_name.values():
@@ -99,7 +93,8 @@ class TablePackager:
                 media_cols.add(col.store_name())
 
         parquet_schema = self.__to_parquet_schema(tv.store_tbl.sa_tbl)
-        # The parquet file naming scheme anticipates future support for partitioning.
+        # TODO: Partition larger tables into multiple parquet files. (The parquet file naming scheme anticipates
+        #     future support for this.)
         parquet_dir = self.tables_dir / f'tbl_{tv.id.hex}'
         parquet_dir.mkdir()
         parquet_file = parquet_dir / f'tbl_{tv.id.hex}.00000.parquet'
@@ -117,13 +112,7 @@ class TablePackager:
             parquet_writer.write_table(pa_table)
         parquet_writer.close()
 
-    # The following methods are responsible for schema and data conversion from Pixeltable to Parquet. Some of this
-    # logic might be consolidated into arrow.py and unified with general Parquet export, but there are several
-    # major differences:
-    # - We export all arrays as binary blobs
-    # - We include a 'pk' column in the Parquet table
-    # - errortype / errormsg are exported with special handling
-    # - Media columns are handled specially as indicated above
+    # The following methods are responsible for schema and data conversion from Pixeltable to Parquet.
 
     @classmethod
     def __to_parquet_schema(cls, store_tbl: sql.Table) -> pa.Schema:
@@ -174,12 +163,6 @@ class TablePackager:
     def __to_pa_value(self, val: Any, sql_type: sql.types.TypeEngine[Any], is_media_col: bool) -> Any:
         if val is None:
             return None
-        # if col_type.is_array_type():
-        #     # Export arrays as binary
-        #     assert isinstance(val, np.ndarray)
-        #     arr = io.BytesIO()
-        #     np.save(arr, val)
-        #     return arr.getvalue()
         if isinstance(sql_type, sql.JSON):
             # Export JSON as strings
             return json.dumps(val)
@@ -219,6 +202,16 @@ class TablePackager:
 
 
 class TableRestorer:
+    """
+    Creates a replica table from a tarball containing Parquet tables and media files. See the `TablePackager` docs for
+    details on the tarball structure.
+
+    Args:
+        tbl_path: Pixeltable path (such as 'my_dir.my_table') where the materialized table will be made visible.
+        md: Optional metadata dictionary. If not provided, metadata will be read from the tarball's `metadata.json`.
+            The metadata contains table_md, table_version_md, and table_schema_version_md entries for each ancestor
+            of the table being restored, as written out by `TablePackager`.
+    """
     tbl_path: str
     md: Optional[dict[str, Any]]
     tmp_dir: Path
@@ -314,14 +307,6 @@ class TableRestorer:
     ) -> Any:
         if val is None:
             return None
-        # if col_type.is_array_type():
-        #     assert isinstance(val, bytes)
-        #     # Decode the value to validate that it represents a valid numpy array ...
-        #     arr = io.BytesIO(val)
-        #     res = np.load(arr)
-        #     assert isinstance(res, np.ndarray)
-        #     # ... but just return the raw bytes, since we'll be direct-inserting them into the db
-        #     return val
         if isinstance(sql_type, sql.JSON):
             return json.loads(val)
         if media_col_id is not None:
