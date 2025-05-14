@@ -7,8 +7,9 @@ import sys
 import urllib.parse
 import urllib.request
 import warnings
-from typing import Any, Iterator, Literal, Optional, Union
+from typing import Any, Iterable, Iterator, Literal, Optional, Union
 
+import more_itertools
 import sqlalchemy as sql
 from tqdm import TqdmWarning, tqdm
 
@@ -308,7 +309,7 @@ class StoreBase:
     def insert_rows(
         self,
         exec_plan: ExecNode,
-        v_min: Optional[int] = None,
+        v_min: int,
         show_progress: bool = True,
         rowids: Optional[Iterator[int]] = None,
         abort_on_exc: bool = False,
@@ -426,6 +427,35 @@ class StoreBase:
         log_explain(_logger, stmt, conn)
         status = conn.execute(stmt)
         return status.rowcount
+
+    def dump_rows(self, version: int, filter_view: StoreBase, filter_view_version: int) -> Iterator[dict[str, Any]]:
+        filter_predicate = sql.and_(
+            filter_view.v_min_col <= filter_view_version,
+            filter_view.v_max_col > filter_view_version,
+            *[c1 == c2 for c1, c2 in zip(self.rowid_columns(), filter_view.rowid_columns())],
+        )
+        stmt = (
+            sql.select('*')  # TODO: Use a more specific list of columns?
+            .select_from(self.sa_tbl)
+            .where(self.v_min_col <= version)
+            .where(self.v_max_col > version)
+            .where(sql.exists().where(filter_predicate))
+        )
+        conn = Env.get().conn
+        _logger.debug(stmt)
+        log_explain(_logger, stmt, conn)
+        result = conn.execute(stmt)
+        for row in result:
+            yield dict(zip(result.keys(), row))
+
+    def load_rows(self, rows: Iterable[dict[str, Any]], batch_size: int = 10_000) -> None:
+        """
+        When instantiating a replica, we can't rely on the usual insertion code path, which contains error handling
+        and other logic that doesn't apply.
+        """
+        conn = Env.get().conn
+        for batch in more_itertools.batched(rows, batch_size):
+            conn.execute(sql.insert(self.sa_tbl), batch)
 
 
 class StoreTable(StoreBase):
