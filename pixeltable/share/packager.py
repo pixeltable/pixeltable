@@ -247,6 +247,7 @@ class TableRestorer:
         tbl_md = [schema.FullTableMd.from_dict(t) for t in self.md['md']['tables']]
 
         # Create the replica table
+        # TODO: This needs to be made concurrency-safe.
         replica_tbl = catalog.Catalog.get().create_replica(catalog.Path(self.tbl_path), tbl_md)
         assert replica_tbl._tbl_version.get().is_snapshot
 
