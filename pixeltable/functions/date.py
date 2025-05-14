@@ -1,12 +1,12 @@
 """
-Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs) for `TimestampType`.
+Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs) for `DateType`.
 
 Usage example:
 ```python
 import pixeltable as pxt
 
 t = pxt.get_table(...)
-t.select(t.timestamp_col.year, t.timestamp_col.weekday()).collect()
+t.select(t.date_col.year, t.date_col.weekday()).collect()
 ```
 """
 
