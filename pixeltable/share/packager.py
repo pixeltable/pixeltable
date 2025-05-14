@@ -212,6 +212,7 @@ class TableRestorer:
             The metadata contains table_md, table_version_md, and table_schema_version_md entries for each ancestor
             of the table being restored, as written out by `TablePackager`.
     """
+
     tbl_path: str
     md: Optional[dict[str, Any]]
     tmp_dir: Path
