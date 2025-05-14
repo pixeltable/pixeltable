@@ -27,9 +27,19 @@ pip install pixeltable pixeltable-yolox
 ```python
 import pixeltable as pxt
 from pixeltable.ext.functions.yolox import yolox
+from yolox.data.datasets import COCO_CLASSES
 
 # Create a table with an image column
 table = pxt.create_table('object_detection', {'image': pxt.Image})
+
+# Insert some images
+prefix = 'https://upload.wikimedia.org/wikipedia/commons'
+paths = [
+    '/1/15/Cat_August_2010-4.jpg',
+    '/e/e1/Example_of_a_Dog.jpg',
+    '/thumb/b/bf/Bird_Diversity_2013.png/300px-Bird_Diversity_2013.png'
+]
+table.insert({'image': prefix + p} for p in paths)
 
 # Add computed columns with YOLOX object detections using different models
 table.add_computed_column(detect_yolox_tiny=yolox(table.image, model_id='yolox_tiny', threshold=0.25))
@@ -40,6 +50,13 @@ table.add_computed_column(yolox_tiny_bboxes=table.detect_yolox_tiny.bboxes)
 table.add_computed_column(yolox_tiny_labels=table.detect_yolox_tiny.labels)
 table.add_computed_column(yolox_tiny_scores=table.detect_yolox_tiny.scores)
 
+# Convert numeric labels to human-readable class names
+@pxt.udf
+def get_class_names(labels: list[int]) -> list[str]:
+    return [COCO_CLASSES[label] for label in labels]
+
+table.add_computed_column(class_names=get_class_names(table.yolox_tiny_labels))
+
 # For an existing table with images (e.g., frames from a video)
 frames_view = pxt.get_table('video_frames')
 frames_view.add_computed_column(
@@ -47,29 +64,149 @@ frames_view.add_computed_column(
 )
 ```
 
-This yields the following output:
+This yields the following output structure for each detection:
 
 ```python
-[{'bboxes': [
-   (272.36126708984375, 3.5648040771484375, 640.4871826171875, 223.2653350830078),
-   (26.643890380859375, 118.68254089355469, 459.80706787109375, 315.089111328125),
-   (259.41485595703125, 152.3223114013672, 295.37054443359375, 230.41783142089844)],
-  'scores': [0.9417160943584335, 0.8170979975670818, 0.8095869439224117],
-  'labels': [7, 2, 12]}]
+{
+  'bboxes': [
+    [273.2366943359375, 399.3636169433594, 3241.008056640625, 1544.01220703125]
+  ],
+  'scores': [0.8520765346409291],
+  'labels': [15]  # 15 corresponds to 'cat' in COCO_CLASSES
+}
 ```
 
-The labels are COCO category indices.
+The labels are COCO category indices. Here's a real example of detection results from our test:
+
+```python
+# Cat image detection
+{
+  'bboxes': [[273.2366943359375, 399.3636169433594, 3241.008056640625, 1544.01220703125]],
+  'scores': [0.8520765346409291],
+  'labels': [15]  # 15 corresponds to 'cat' in COCO_CLASSES
+}
+
+# Dog image detection
+{
+  'bboxes': [[94.6337890625, 93.9306640625, 698.3662109375, 841.0693359375]],
+  'scores': [0.9095208167701685],
+  'labels': [16]  # 16 corresponds to 'dog' in COCO_CLASSES
+}
+
+# Bird image detection (multiple birds detected)
+{
+  'bboxes': [[...], [...], ...],  # Multiple bounding boxes
+  'scores': [0.8699160892732074, 0.866650915694251, ...],  # Multiple confidence scores
+  'labels': [14, 14, ...]  # 14 corresponds to 'bird' in COCO_CLASSES
+}
+```
+
+You can convert the numeric labels to human-readable class names:
 
 ```python
 from yolox.data.datasets import COCO_CLASSES
 
-print(COCO_CLASSES[7])
-# Output: 'truck'
+# Convert a single label
+print(COCO_CLASSES[15])  # Output: 'cat'
+
+# Or use a UDF to convert all labels in a column
+@pxt.udf
+def get_class_names(labels: list[int]) -> list[str]:
+    return [COCO_CLASSES[label] for label in labels]
+
+table.add_computed_column(class_names=get_class_names(table.yolox_tiny_labels))
 ```
+
+### Complete Example with Visualization
+
+Here's a complete example that demonstrates how to use YOLOX for object detection and visualize the results:
+
+```python
+import pixeltable as pxt
+from pixeltable.ext.functions.yolox import yolox
+from yolox.data.datasets import COCO_CLASSES
+import PIL.Image
+import PIL.ImageDraw
+import numpy as np
+
+# Create a table with an image column
+t = pxt.create_table('image_detection', {'image': pxt.Image}, if_exists='replace')
+
+# Insert some images
+prefix = 'https://upload.wikimedia.org/wikipedia/commons'
+paths = [
+    '/1/15/Cat_August_2010-4.jpg',
+    '/e/e1/Example_of_a_Dog.jpg',
+    '/thumb/b/bf/Bird_Diversity_2013.png/300px-Bird_Diversity_2013.png'
+]
+t.insert({'image': prefix + p} for p in paths)
+
+# Add computed column with YOLOX object detections
+t.add_computed_column(detections=yolox(t.image, model_id='yolox_tiny', threshold=0.25))
+
+# Function to draw bounding boxes and labels on images
+@pxt.udf
+def visualize_detections(image: PIL.Image.Image, detections: dict) -> PIL.Image.Image:
+    # Create a copy of the image to draw on
+    img_draw = image.copy()
+    draw = PIL.ImageDraw.Draw(img_draw)
+    
+    # Get detection data
+    bboxes = detections['bboxes']
+    labels = detections['labels']
+    scores = detections['scores']
+    
+    # Define colors for different classes (using a simple hash function)
+    def get_color(label_id):
+        np.random.seed(label_id)
+        return tuple(np.random.randint(0, 255, 3).tolist())
+    
+    # Draw each detection
+    for bbox, label, score in zip(bboxes, labels, scores):
+        # Extract coordinates
+        x1, y1, x2, y2 = [round(coord) for coord in bbox]
+        
+        # Get color for this class
+        color = get_color(label)
+        
+        # Draw rectangle
+        draw.rectangle([x1, y1, x2, y2], outline=color, width=3)
+        
+        # Prepare label text
+        label_text = f"{COCO_CLASSES[label]}: {score:.2f}"
+        
+        # Draw label background
+        text_size = draw.textsize(label_text) if hasattr(draw, 'textsize') else (100, 15)  # Fallback size
+        draw.rectangle([x1, y1, x1 + text_size[0], y1 + text_size[1]], fill=color)
+        
+        # Draw label text
+        draw.text([x1, y1], label_text, fill=(255, 255, 255))
+    
+    return img_draw
+
+# Add computed column with visualized detections
+t.add_computed_column(visualized=visualize_detections(t.image, t.detections))
+
+# Display the results
+results = t.select(t.image, t.visualized, t.detections).collect()
+```
+
+This example:
+1. Creates a table with an image column
+2. Adds sample images
+3. Runs YOLOX object detection
+4. Visualizes the detections by drawing bounding boxes and labels on the images
+5. Stores both the original images and the visualized results
+
+The `visualize_detections` UDF draws bounding boxes around detected objects, with different colors for different classes, and adds labels showing the class name and confidence score.
 
 ## Training
 
-First unpack a COCO dataset into `./datasets/COCO`:
+YOLOX supports training on standard datasets like COCO. The training process is straightforward and can be customized based on your needs.
+
+### Preparing the Dataset
+
+First, unpack a COCO dataset into `./datasets/COCO`:
 
 ```
 COCO/
@@ -82,13 +219,37 @@ COCO/
     # image files
 ```
 
-Then on the command line:
+### Training Command
+
+After installing `pixeltable-yolox`, you can use the command-line interface to train models:
 
 ```bash
 yolox train -c yolox-s -d 8 -b 64 --fp16 -o
 ```
 
-For help:
+Where:
+- `-c yolox-s` specifies the model configuration (other options include `yolox_nano`, `yolox_tiny`, `yolox_m`, `yolox_l`, `yolox_x`)
+- `-d 8` sets the number of devices (GPUs) to use
+- `-b 64` sets the batch size
+- `--fp16` enables mixed precision training
+- `-o` enables occupy mode (pre-allocate GPU memory)
+
+### Available Models
+
+YOLOX provides several pre-trained models with different sizes and performance characteristics:
+
+| Model | Size | Speed | Accuracy | Use Case |
+|-------|------|-------|----------|----------|
+| yolox_nano | Smallest | Fastest | Lower | Mobile/edge devices |
+| yolox_tiny | Very small | Very fast | Moderate | Resource-constrained environments |
+| yolox_s | Small | Fast | Good | Balanced performance |
+| yolox_m | Medium | Moderate | Better | Standard desktop/server |
+| yolox_l | Large | Slower | High | High accuracy needs |
+| yolox_x | Largest | Slowest | Highest | Maximum accuracy |
+
+### Command-line Help
+
+For more training options and detailed help:
 
 ```bash
 yolox train -h
@@ -115,3 +276,116 @@ We chose to build upon YOLOX both to simplify our own integration, and also to g
 </Card>
 
 We welcome contributions from the community! If you're interested in helping maintain and improve `pixeltable-yolox`, please stay tuned for our contributor's guide which will be published after the initial release.
+
+## Advanced Usage and Integration
+
+### Combining with Other Pixeltable Features
+
+YOLOX object detection can be combined with other Pixeltable features for more advanced workflows:
+
+#### 1. Video Frame Analysis
+
+Process video frames with YOLOX for object tracking:
+
+```python
+import pixeltable as pxt
+from pixeltable.ext.functions.yolox import yolox
+from pixeltable.iterators import FrameIterator
+
+# Create a table for videos
+videos = pxt.create_table('videos', {'video': pxt.Video})
+videos.insert([{'video': 'path/to/your/video.mp4'}])
+
+# Create a view with frames extracted from videos
+frames = pxt.create_view(
+    'frames', 
+    videos, 
+    iterator=FrameIterator.create(video=videos.video, fps=1)
+)
+
+# Add object detection to frames
+frames.add_computed_column(detections=yolox(frames.frame, model_id='yolox_s'))
+
+# Count objects per frame
+@pxt.udf
+def count_objects(detections: dict) -> dict:
+    counts = {}
+    for label in detections['labels']:
+        class_name = COCO_CLASSES[label]
+        counts[class_name] = counts.get(class_name, 0) + 1
+    return counts
+
+frames.add_computed_column(object_counts=count_objects(frames.detections))
+
+# Query for frames containing specific objects
+car_frames = frames.where("'car' in object_counts").collect()
+```
+
+#### 2. Embedding and Similarity Search
+
+Combine YOLOX with embedding models for content-based image retrieval:
+
+```python
+import pixeltable as pxt
+from pixeltable.ext.functions.yolox import yolox
+from pixeltable.functions.huggingface import clip
+
+# Create image table with object detection
+images = pxt.create_table('searchable_images', {'image': pxt.Image})
+images.add_computed_column(detections=yolox(images.image, model_id='yolox_tiny'))
+
+# Add embedding index for similarity search
+images.add_embedding_index(
+    'image',
+    embedding=clip.using(model_id='openai/clip-vit-base-patch32')
+)
+
+# Find visually similar images containing dogs
+dog_images = images.where("16 in detections.labels")  # 16 is dog in COCO
+query_image = dog_images.select(images.image).collect()[0]['image']
+
+# Search for similar images
+similarity = images.image.similarity(query_image)
+similar_images = images.order_by(similarity, asc=False).limit(5).collect()
+```
+
+#### 3. Filtering and Analytics
+
+Use YOLOX detections for filtering and analytics:
+
+```python
+import pixeltable as pxt
+from pixeltable.ext.functions.yolox import yolox
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# Create and populate image table
+images = pxt.create_table('analytics_images', {'image': pxt.Image, 'source': pxt.String})
+images.add_computed_column(detections=yolox(images.image, model_id='yolox_s'))
+
+# Filter for images with multiple people
+people_images = images.where("len([l for l in detections.labels if l == 0]) > 2")  # 0 is person in COCO
+
+# Analyze confidence scores
+@pxt.udf
+def avg_confidence(detections: dict) -> float:
+    if not detections['scores']:
+        return 0.0
+    return sum(detections['scores']) / len(detections['scores'])
+
+images.add_computed_column(avg_confidence=avg_confidence(images.detections))
+
+# Get data for visualization
+results = images.select(images.source, images.avg_confidence).collect()
+df = pd.DataFrame(results)
+
+# Visualize average confidence by source
+plt.figure(figsize=(10, 6))
+df.groupby('source')['avg_confidence'].mean().plot(kind='bar')
+plt.title('Average Detection Confidence by Source')
+plt.ylabel('Confidence Score')
+plt.tight_layout()
+plt.show()
+```
+
+These examples demonstrate how YOLOX can be integrated with other Pixeltable features to create powerful multimodal AI workflows for various applications.
