@@ -185,7 +185,7 @@ class TestPackager:
     def __do_round_trip(self, *snapshots: pxt.Table) -> None:
         bundles: list['TestPackager.RoundTripInfo'] = []
         for snapshot in snapshots:
-            self.__bundle_table(snapshot)
+            bundles.append(self.__bundle_table(snapshot))
 
         # Clear out the db
         clean_db()

@@ -279,12 +279,14 @@ class TableRestorer:
         parquet_table = pq.read_table(str(parquet_dir))
 
         conn = Env.get().conn
+        store_sa_tbl = tv.store_tbl.sa_tbl
+        store_sa_tbl_name = tv.store_tbl._storage_name()
 
-        # Create a temporary table to load the data into.
+        # Create a temporary table for the initial data load.
         temp_cols: dict[str, sql.Column] = {}
         for field in parquet_table.schema:
-            assert field.name in tv.store_tbl.sa_tbl.columns
-            col_type = tv.store_tbl.sa_tbl.columns[field.name].type
+            assert field.name in store_sa_tbl.columns
+            col_type = store_sa_tbl.columns[field.name].type
             temp_cols[field.name] = sql.Column(field.name, col_type)
         temp_sa_tbl_name = f'temp_{uuid.uuid4().hex}'
         _logger.debug(f'Creating temporary table: {temp_sa_tbl_name}')
@@ -316,17 +318,14 @@ class TableRestorer:
         # First look for exact primary key collisions. In such cases, the data between old and new tables must be
         # identical. We double-check this as a failsafe.
         # q = (
-        #     sql.select(*temp_cols, *tv.store_tbl.sa_tbl.columns.values())
-        #     .join_from(temp_sa_tbl, tv.store_tbl.sa_tbl)
+        #     sql.select(*temp_cols, *store_sa_tbl.c.values())
+        #     .join_from(temp_sa_tbl, store_sa_tbl)
         #     .where(pk_clause)
         # )
         # for row in conn.execute(q).all():
 
         # Now drop any rows from the temporary table that are exact matches for rows in the actual table.
-        q = (
-            sql.delete(temp_sa_tbl)
-            .where(pk_clause)
-        )
+        q = sql.delete(temp_sa_tbl).where(pk_clause)
         _logger.debug(q.compile())
         result = conn.execute(q)
         _logger.debug(f'Deleted {result.rowcount} rows from {temp_sa_tbl_name!r} that were exact pk matches.')
@@ -336,11 +335,11 @@ class TableRestorer:
             sql.select(
                 sql.case(
                     (sql.func.count() == 0, schema.Table.MAX_VERSION),
-                    else_=sql.func.min(tv.store_tbl.sa_tbl.c.v_min)
+                    else_=sql.func.min(store_sa_tbl.c.v_min)
                 )
             )
             .where(rowid_clause)
-            .where(tv.store_tbl.sa_tbl.c.v_min > temp_sa_tbl.c.v_min)
+            .where(store_sa_tbl.c.v_min > temp_sa_tbl.c.v_min)
             .scalar_subquery()
             .correlate(temp_sa_tbl)
         )
@@ -351,24 +350,24 @@ class TableRestorer:
 
         # Likewise, rectify the v_max values in the actual table.
         q = (
-            sql.update(tv.store_tbl.sa_tbl).values(
-                v_max=sql.func.least(tv.store_tbl.sa_tbl.c.v_max, temp_sa_tbl.c.v_min)
+            sql.update(store_sa_tbl).values(
+                v_max=sql.func.least(store_sa_tbl.c.v_max, temp_sa_tbl.c.v_min)
             )
             .where(rowid_clause)
-            .where(tv.store_tbl.sa_tbl.c.v_min < temp_sa_tbl.c.v_min)
+            .where(store_sa_tbl.c.v_min < temp_sa_tbl.c.v_min)
         )
         _logger.debug(q.compile())
         result = conn.execute(q)
-        _logger.debug(f'Rectified {result.rowcount} rows in {tv.store_tbl._storage_name()!r}.')
+        _logger.debug(f'Rectified {result.rowcount} rows in {store_sa_tbl_name!r}.')
 
         # Finally, copy the data from the temporary table into the actual table.
         sql_text = (
-            f'INSERT INTO {tv.store_tbl._storage_name()} ({", ".join(temp_cols.keys())}) '
+            f'INSERT INTO {store_sa_tbl_name} ({", ".join(temp_cols.keys())}) '
             f'SELECT {", ".join(temp_cols.keys())} FROM {temp_sa_tbl_name}'
         )
         _logger.debug(sql_text)
         result = conn.execute(sql.text(sql_text))
-        _logger.debug(f'Inserted {result.rowcount} rows from {temp_sa_tbl_name!r} into {tv.store_tbl._storage_name()!r}.')
+        _logger.debug(f'Inserted {result.rowcount} rows from {temp_sa_tbl_name!r} into {store_sa_tbl_name!r}.')
 
     def __from_pa_pydict(self, tv: catalog.TableVersion, pydict: dict[str, Any]) -> list[dict[str, Any]]:
         # Data conversions from pyarrow to Pixeltable

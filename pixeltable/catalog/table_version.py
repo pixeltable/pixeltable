@@ -332,7 +332,7 @@ class TableVersion:
             tbl_id, md.tbl_md, md.version_md.version, md.schema_version_md, [], base_path=base_path, base=base
         )
         tbl_version.store_tbl.create()
-        tbl_version.store_tbl.ensure_columns_exist(tbl_version.cols)
+        tbl_version.store_tbl.ensure_columns_exist(col for col in tbl_version.cols if col.is_stored)
         return tbl_version
 
     def drop(self) -> None:
