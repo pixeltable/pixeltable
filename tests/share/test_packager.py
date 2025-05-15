@@ -154,13 +154,13 @@ class TestPackager:
             else:
                 assert pxt_val == parquet_val
 
-    class RoundTripInfo(NamedTuple):
+    class BundleInfo(NamedTuple):
         bundle_path: Path
         depth: int
         schema: dict[str, ts.ColumnType]
         result_set: DataFrameResultSet
 
-    def __bundle_table(self, snapshot: pxt.Table) -> RoundTripInfo:
+    def __bundle_table(self, snapshot: pxt.Table) -> BundleInfo:
         assert snapshot._tbl_version.get().is_snapshot
 
         schema = snapshot._schema
@@ -171,9 +171,9 @@ class TestPackager:
         packager = TablePackager(snapshot)
         bundle_path = packager.package()
 
-        return TestPackager.RoundTripInfo(bundle_path, depth, schema, result_set)
+        return TestPackager.BundleInfo(bundle_path, depth, schema, result_set)
 
-    def __check_table(self, bundle_info: 'TestPackager.RoundTripInfo', tbl_name: str) -> None:
+    def __restore_and_check(self, bundle_info: 'TestPackager.BundleInfo', tbl_name: str) -> None:
         restorer = TableRestorer(tbl_name)
         restorer.restore(bundle_info.bundle_path)
         t = pxt.get_table(tbl_name)
@@ -182,17 +182,11 @@ class TestPackager:
         reconstituted_data = t.head(n=500)
         assert_resultset_eq(bundle_info.result_set, reconstituted_data)
 
-    def __do_round_trip(self, *snapshots: pxt.Table) -> None:
-        bundles: list['TestPackager.RoundTripInfo'] = []
-        for snapshot in snapshots:
-            bundles.append(self.__bundle_table(snapshot))
-
-        # Clear out the db
+    def __do_round_trip(self, tbl: pxt.Table) -> None:
+        bundle = self.__bundle_table(tbl)
         clean_db()
         reload_catalog()
-
-        for i, bundle in enumerate(bundles):
-            self.__check_table(bundle, f'new_replica_{i}')
+        self.__restore_and_check(bundle, 'new_replica')
 
     def test_round_trip(self, test_tbl: pxt.Table) -> None:
         """package() / unpackage() round trip"""
@@ -233,7 +227,7 @@ class TestPackager:
         self.__do_round_trip(snapshot)
 
         # Double-check that the iterator view and its base table have the correct number of rows
-        snapshot_replica = pxt.get_table('new_replica_0')
+        snapshot_replica = pxt.get_table('new_replica')
         assert snapshot_replica._snapshot_only
         assert snapshot_replica.count() == snapshot_row_count
         v_replica = snapshot_replica.base_table
@@ -252,7 +246,14 @@ class TestPackager:
 
         snap2 = pxt.create_snapshot('snap2', t.where(t.int_col % 7 == 0))
 
-        self.__do_round_trip(snap1, snap2)
+        bundle1 = self.__bundle_table(snap1)
+        bundle2 = self.__bundle_table(snap2)
+
+        clean_db()
+        reload_catalog()
+
+        self.__restore_and_check(bundle1, 'replica1')
+        self.__restore_and_check(bundle2, 'replica2')
 
     def test_multi_view_round_trip_2(self, reset_db: None) -> None:
         t = pxt.create_table('base_tbl', {'int_col': pxt.Int})
@@ -271,11 +272,11 @@ class TestPackager:
         clean_db()
         reload_catalog()
 
-        self.__check_table(bundle1, 'replica1')
-        self.__check_table(bundle2, 'replica2')
+        self.__restore_and_check(bundle1, 'replica1')
+        self.__restore_and_check(bundle2, 'replica2')
 
     def test_multi_view_round_trip_3(self, reset_db: None) -> None:
-        bundles: list[TestPackager.RoundTripInfo] = []
+        bundles: list[TestPackager.BundleInfo] = []
 
         t = pxt.create_table('base_tbl', {'row_number': pxt.Int, 'value': pxt.Int})
         t.insert({'row_number': i} for i in range(1024))
@@ -289,4 +290,4 @@ class TestPackager:
         reload_catalog()
 
         for i in [7, 3, 0, 9, 4, 10, 1, 5, 8]:
-            self.__check_table(bundles[i], f'replica_{i}')
+            self.__restore_and_check(bundles[i], f'replica_{i}')
