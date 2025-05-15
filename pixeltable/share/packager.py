@@ -18,6 +18,7 @@ from pixeltable import catalog, exceptions as excs, metadata
 from pixeltable.env import Env
 from pixeltable.metadata import schema
 from pixeltable.utils.media_store import MediaStore
+from pixeltable.utils.sql import log_explain
 
 _logger = logging.getLogger('pixeltable')
 
@@ -277,10 +278,71 @@ class TableRestorer:
         parquet_dir = bundle_path / 'tables' / f'tbl_{tbl_id.hex}'
         parquet_table = pq.read_table(str(parquet_dir))
 
-        for batch in parquet_table.to_batches():
+        conn = Env.get().conn
+
+        # Create a temporary table to load the data into.
+        temp_cols: dict[str, sql.Column] = {}
+        for field in parquet_table.schema:
+            assert field.name in tv.store_tbl.sa_tbl.columns
+            col_type = tv.store_tbl.sa_tbl.columns[field.name].type
+            temp_cols[field.name] = sql.Column(field.name, col_type)
+        temp_sa_tbl_name = f'temp_{uuid.uuid4().hex}'
+        _logger.debug(f'Creating temporary table: {temp_sa_tbl_name}')
+        temp_md = sql.MetaData()
+        temp_sa_tbl = sql.Table(temp_sa_tbl_name, temp_md, *temp_cols.values())
+        temp_sa_tbl.create(conn)
+
+        # Populate the temporary table with data from the Parquet file.
+        _logger.debug(f'Loading {parquet_table.num_rows} rows into temporary table: {temp_sa_tbl_name}')
+        for batch in parquet_table.to_batches(max_chunksize=10_000):
             pydict = batch.to_pydict()
             rows = self.__from_pa_pydict(tv, pydict)
-            tv.store_tbl.load_rows(rows)
+            conn.execute(sql.insert(temp_sa_tbl), rows)
+
+        # Each row version is identified uniquely by the tuple (row_id, pos_0, pos_1, ..., pos_k, v_min). Conversely,
+        # v_max (unlike row_id, pos_i, and v_min) is not part of the primary key, but is simply a bookkeeping device;
+        # it must always be equal to the v_min of the succeeding row version for that (row_id, pos_i) tuple. Since not
+        # all versions from the original data source are necessarily present in the replica table, we need to "rectify"
+        # both the old and new tables by adjusting their v_max values to be internally consistent.
+
+        pk_predicates = [
+            col == temp_cols[col.name]
+            for col in tv.store_tbl.pk_columns()
+        ]
+        pk_clause = sql.and_(*pk_predicates)
+        rowid_clause = sql.and_(*pk_predicates[:-1])
+        vmin_clause = pk_predicates[-1]
+
+        # First look for exact primary key collisions. In such cases, the data between old and new tables must be
+        # identical. We double-check this as a failsafe.
+        # q = (
+        #     sql.select(*temp_cols, *tv.store_tbl.sa_tbl.columns.values())
+        #     .join_from(temp_sa_tbl, tv.store_tbl.sa_tbl)
+        #     .where(pk_clause)
+        # )
+        # for row in conn.execute(q).all():
+
+        # Now drop any rows from the temporary table that are exact matches for rows in the actual table.
+        q = (
+            sql.delete(temp_sa_tbl)
+            .where(pk_clause)
+        )
+        _logger.debug(q.compile())
+        result = conn.execute(q)
+        _logger.debug(f'Deleted {result.rowcount} rows from {temp_sa_tbl_name!r} that were exact pk matches.')
+
+        # Next, rectify the v_max values in the temporary table.
+
+        # Likewise, rectify the v_max values in the actual table.
+
+        # Finally, copy the data from the temporary table into the actual table, and drop the temporary table.
+        sql_text = (
+            f'INSERT INTO {tv.store_tbl._storage_name()} ({", ".join(temp_cols.keys())}) '
+            f'SELECT {", ".join(temp_cols.keys())} FROM {temp_sa_tbl_name}'
+        )
+        _logger.debug(sql_text)
+        result = conn.execute(sql.text(sql_text))
+        _logger.debug(f'Inserted {result.rowcount} rows from {temp_sa_tbl_name!r} into {tv.store_tbl._storage_name()!r}.')
 
     def __from_pa_pydict(self, tv: catalog.TableVersion, pydict: dict[str, Any]) -> list[dict[str, Any]]:
         # Data conversions from pyarrow to Pixeltable
