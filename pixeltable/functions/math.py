@@ -100,6 +100,69 @@ def _(self: sql.ColumnElement, digits: Optional[sql.ColumnElement] = None) -> sq
         return sql.func.round(sql.cast(self, sql.Numeric), sql.cast(digits, sql.Integer))
 
 
+@pxt.udf(is_method=True)
+def pow(self: int, other: int) -> float:
+    """
+    Raise `self` to the power of `other`.
+
+    Equivalent to Python [`self ** other`](https://docs.python.org/3/library/functions.html#pow).
+    """
+    return self ** other
+
+
+@pow.to_sql
+def _(self: sql.ColumnElement, other: sql.ColumnElement) -> sql.ColumnElement:
+    return sql.func.pow(self, other)
+
+
+@pxt.udf(is_method=True)
+def bitwise_and(self: int, other: int) -> int:
+    """
+    Bitwise AND of two integers.
+
+    Equivalent to Python
+    [`self & other`](https://docs.python.org/3/library/stdtypes.html#bitwise-operations-on-integer-types).
+    """
+    return self & other
+
+
+@bitwise_and.to_sql
+def _(self: sql.ColumnElement, other: sql.ColumnElement) -> sql.ColumnElement:
+    return self.bitwise_and(other)
+
+
+@pxt.udf(is_method=True)
+def bitwise_or(self: int, other: int) -> int:
+    """
+    Bitwise OR of two integers.
+
+    Equivalent to Python
+    [`self | other`](https://docs.python.org/3/library/stdtypes.html#bitwise-operations-on-integer-types).
+    """
+    return self | other
+
+
+@bitwise_or.to_sql
+def _(self: sql.ColumnElement, other: sql.ColumnElement) -> sql.ColumnElement:
+    return self.bitwise_or(other)
+
+
+@pxt.udf(is_method=True)
+def bitwise_xor(self: int, other: int) -> int:
+    """
+    Bitwise XOR of two integers.
+
+    Equivalent to Python
+    [`self ^ other`](https://docs.python.org/3/library/stdtypes.html#bitwise-operations-on-integer-types).
+    """
+    return self ^ other
+
+
+@bitwise_xor.to_sql
+def _(self: sql.ColumnElement, other: sql.ColumnElement) -> sql.ColumnElement:
+    return self.bitwise_xor(other)
+
+
 __all__ = local_public_names(__name__)
 
 

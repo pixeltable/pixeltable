@@ -241,7 +241,7 @@ class TestPackager:
         t_replica = v_replica.base_table
         assert t_replica.count() == 2
 
-    def test_multi_view_round_trip(self, reset_db: None) -> None:
+    def test_multi_view_round_trip_1(self, reset_db: None) -> None:
         t = pxt.create_table('base_tbl', {'int_col': pxt.Int})
         t.insert({'int_col': i} for i in range(200))
 
@@ -258,14 +258,14 @@ class TestPackager:
         t = pxt.create_table('base_tbl', {'int_col': pxt.Int})
         t.insert({'int_col': i} for i in range(200))
 
-        snap1 = pxt.create_snapshot('snap1', t.where(t.int_col % 5 == 0))
+        snap1 = pxt.create_snapshot('snap1', t.where(t.int_col % 3 == 0))
         bundle1 = self.__bundle_table(snap1)
 
         t.add_column(str_col=pxt.String)
         t.insert({'int_col': i} for i in range(200, 400))
-        t.where(t.int_col % 3 == 0).update({'str_col': pxtf.string.format('string {0}', t.int_col)})
+        t.where(t.int_col % 2 == 0).update({'str_col': pxtf.string.format('string {0}', t.int_col)})
 
-        snap2 = pxt.create_snapshot('snap2', t.where(t.int_col % 7 == 0))
+        snap2 = pxt.create_snapshot('snap2', t.where(t.int_col % 5 == 0))
         bundle2 = self.__bundle_table(snap2)
 
         clean_db()
@@ -273,3 +273,20 @@ class TestPackager:
 
         self.__check_table(bundle1, 'replica1')
         self.__check_table(bundle2, 'replica2')
+
+    def test_multi_view_round_trip_3(self, reset_db: None) -> None:
+        bundles: list[TestPackager.RoundTripInfo] = []
+
+        t = pxt.create_table('base_tbl', {'row_number': pxt.Int, 'value': pxt.Int})
+        t.insert({'row_number': i} for i in range(1024))
+        bundles.append(self.__bundle_table(pxt.create_snapshot('snap', t)))
+
+        for i in range(10):
+            t.where(t.row_number.bitwise_and(2 ** i) != 0).update({'value': i})
+            bundles.append(self.__bundle_table(pxt.create_snapshot(f'snap_{i}', t)))
+
+        clean_db()
+        reload_catalog()
+
+        for i in [7, 3, 0, 9, 4, 10, 1, 5, 8]:
+            self.__check_table(bundles[i], f'replica_{i}')

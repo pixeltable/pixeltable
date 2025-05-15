@@ -3,6 +3,7 @@ import math
 from typing import Callable
 
 import numpy as np
+import pytest
 
 import pixeltable as pxt
 from pixeltable import exprs, functions as pxtf
@@ -10,30 +11,43 @@ from pixeltable import exprs, functions as pxtf
 
 class TestTimestamp:
     TEST_FLOATS = (0.0, 1.6, -19.274, 1.32e57, math.inf, -math.inf, math.nan)
+    TEST_INTS = (0, 1, -19, 4171780)
 
-    def test_methods(self, reset_db: None) -> None:
-        t = pxt.create_table('test_tbl', {'x': pxt.Float})
-        t.insert({'x': x} for x in self.TEST_FLOATS)
+    @pytest.mark.parametrize('method_type', [pxt.Float, pxt.Int])
+    def test_methods(self, method_type: type, reset_db: None) -> None:
+        t = pxt.create_table('test_tbl', {'x': method_type})
+        values = self.TEST_FLOATS if method_type is pxt.Float else self.TEST_INTS
+        t.insert({'x': x} for x in values)
 
-        test_params: list[tuple[pxt.Function, Callable, list, dict]] = [
-            (pxtf.math.abs, builtins.abs, [], {}),
-            (pxtf.math.ceil, lambda x: float(math.ceil(x)) if math.isfinite(x) else x, [], {}),
-            (pxtf.math.floor, lambda x: float(math.floor(x)) if math.isfinite(x) else x, [], {}),
-            (pxtf.math.round, builtins.round, [0], {}),
-            (pxtf.math.round, builtins.round, [2], {}),
-            (pxtf.math.round, builtins.round, [4], {}),
-            # round(x) without an explicit digits argument: behaves like round(x, 0)
-            (pxtf.math.round, lambda x: builtins.round(x, 0), [], {}),
-        ]
+        test_params: list[tuple[pxt.Function, Callable, list, dict]]
+
+        if method_type == pxt.Float:
+            test_params = [
+                (pxtf.math.abs, builtins.abs, [], {}),
+                (pxtf.math.ceil, lambda x: float(math.ceil(x)) if math.isfinite(x) else x, [], {}),
+                (pxtf.math.floor, lambda x: float(math.floor(x)) if math.isfinite(x) else x, [], {}),
+                (pxtf.math.round, builtins.round, [0], {}),
+                (pxtf.math.round, builtins.round, [2], {}),
+                (pxtf.math.round, builtins.round, [4], {}),
+                # round(x) without an explicit digits argument: behaves like round(x, 0)
+                (pxtf.math.round, lambda x: builtins.round(x, 0), [], {}),
+            ]
+        else:
+            test_params = [
+                (pxtf.math.pow, builtins.pow, [2], {}),
+                (pxtf.math.bitwise_and, lambda x, y: x & y, [2], {}),
+                (pxtf.math.bitwise_or, lambda x, y: x | y, [2], {}),
+                (pxtf.math.bitwise_xor, lambda x, y: x ^ y, [2], {}),
+            ]
 
         for pxt_fn, py_fn, args, kwargs in test_params:
             print(f'Testing {pxt_fn.name} ...')
             actual = t.select(out=pxt_fn(t.x, *args, **kwargs)).collect()['out']
-            expected = [py_fn(x, *args, **kwargs) for x in self.TEST_FLOATS]
+            expected = [py_fn(x, *args, **kwargs) for x in values]
             assert np.array_equal(actual, expected, equal_nan=True), f'{actual} != {expected}'
             # Run the same query, forcing the calculations to be done in Python (not SQL)
             # by interposing a non-SQLizable identity function
-            actual_py = t.select(out=pxt_fn(t.x.apply(lambda x: x, col_type=pxt.Float), *args, **kwargs)).collect()[
+            actual_py = t.select(out=pxt_fn(t.x.apply(lambda x: x, col_type=method_type), *args, **kwargs)).collect()[
                 'out'
             ]
             assert np.array_equal(actual_py, expected, equal_nan=True), f'{actual_py} != {expected}'
