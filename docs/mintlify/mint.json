@@ -80,6 +80,7 @@
       "pages": [
         "docs/overview/pixeltable",
         "docs/overview/installation",
+        "docs/overview/configuration",
         "docs/overview/quick-start",
         "docs/overview/building-pixeltable-with-llms"        
       ]
