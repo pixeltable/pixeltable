@@ -30,7 +30,7 @@ class RowidRef(Expr):
 
     def __init__(
         self,
-        tbl: catalog.TableVersionHandle,
+        tbl: Optional[catalog.TableVersionHandle],
         idx: int,
         tbl_id: Optional[UUID] = None,
         normalized_base_id: Optional[UUID] = None,
@@ -98,6 +98,9 @@ class RowidRef(Expr):
     def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
         tbl = self.tbl.get() if self.tbl is not None else catalog.Catalog.get().get_tbl_version(self.tbl_id, None)
         rowid_cols = tbl.store_tbl.rowid_columns()
+        assert self.rowid_component_idx <= len(rowid_cols), (
+            f'{self.rowid_component_idx} not consistent with {rowid_cols}'
+        )
         return rowid_cols[self.rowid_component_idx]
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:

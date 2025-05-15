@@ -49,22 +49,7 @@ def _(val: sql.ColumnElement) -> Optional[sql.ColumnElement]:
     allows_window=True,
     # Allow counting non-null values of any type
     # TODO: should we have an "Any" type that can be used here?
-    type_substitutions=tuple(
-        {T: Optional[t]}  # type: ignore[misc]
-        for t in (
-            ts.String,
-            ts.Int,
-            ts.Float,
-            ts.Bool,
-            ts.Timestamp,
-            ts.Array,
-            ts.Json,
-            ts.Image,
-            ts.Video,
-            ts.Audio,
-            ts.Document,
-        )
-    ),
+    type_substitutions=tuple({T: Optional[t]} for t in ts.ALL_PIXELTABLE_TYPES),  # type: ignore[misc]
 )
 class count(func.Aggregator, typing.Generic[T]):
     def __init__(self) -> None:
