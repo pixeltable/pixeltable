@@ -186,6 +186,9 @@ class TestPackager:
         """
         restorer = TableRestorer(tbl_name)
         restorer.restore(bundle_info.bundle_path)
+        self.__check_table(bundle_info, tbl_name)
+
+    def __check_table(self, bundle_info: 'TestPackager.BundleInfo', tbl_name: str) -> None:
         t = pxt.get_table(tbl_name)
         assert t._schema == bundle_info.schema
         assert len(t._tbl_version_path.ancestor_paths) == bundle_info.depth
@@ -246,6 +249,11 @@ class TestPackager:
         assert t_replica.count() == 2
 
     def test_multi_view_round_trip_1(self, reset_db: None) -> None:
+        """
+        Simplest multi-view test: two snapshots that are exported at the same time.
+        (All v_min/v_max values are consistent in the bundles.)
+        """
+
         t = pxt.create_table('base_tbl', {'int_col': pxt.Int})
         t.insert({'int_col': i} for i in range(200))
 
@@ -266,6 +274,9 @@ class TestPackager:
         self.__restore_and_check_table(bundle2, 'replica2')
 
     def test_multi_view_round_trip_2(self, reset_db: None) -> None:
+        """
+        Two snapshots that are exported at different times, requiring rectification of the v_max values.
+        """
         t = pxt.create_table('base_tbl', {'int_col': pxt.Int})
         t.insert({'int_col': i} for i in range(200))
 
@@ -286,6 +297,11 @@ class TestPackager:
         self.__restore_and_check_table(bundle2, 'replica2')
 
     def test_multi_view_round_trip_3(self, reset_db: None) -> None:
+        """
+        A much more sophisticated multi-view test. Here we create 11 snapshots, each one modifying a
+        different subset of the rows in the table. The snapshots are then reconstituted in an arbitrary
+        order.
+        """
         bundles: list[TestPackager.BundleInfo] = []
 
         t = pxt.create_table('base_tbl', {'row_number': pxt.Int, 'value': pxt.Int})
@@ -300,4 +316,9 @@ class TestPackager:
         reload_catalog()
 
         for i in [7, 3, 0, 9, 4, 10, 1, 5, 8]:
+            # Snapshots 2 and 6 are intentionally never restored.
             self.__restore_and_check_table(bundles[i], f'replica_{i}')
+
+        # Check all the tables again to verify that everything is consistent.
+        for i in [0, 1, 3, 4, 5, 7, 8, 9, 10]:
+            self.__check_table(bundles[i], f'replica_{i}')
