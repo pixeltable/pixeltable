@@ -160,35 +160,39 @@ class TestPackager:
         schema: dict[str, ts.ColumnType]
         result_set: DataFrameResultSet
 
+    def __bundle_table(self, snapshot: pxt.Table) -> RoundTripInfo:
+        assert snapshot._tbl_version.get().is_snapshot
+
+        schema = snapshot._schema
+        depth = len(snapshot._tbl_version_path.ancestor_paths)
+        result_set = snapshot.head(n=500)
+
+        # Package the snapshot into a tarball
+        packager = TablePackager(snapshot)
+        bundle_path = packager.package()
+
+        return TestPackager.RoundTripInfo(bundle_path, depth, schema, result_set)
+
+    def __check_table(self, bundle_info: 'TestPackager.RoundTripInfo', tbl_name: str) -> None:
+        restorer = TableRestorer(tbl_name)
+        restorer.restore(bundle_info.bundle_path)
+        t = pxt.get_table(tbl_name)
+        assert t._schema == bundle_info.schema
+        assert len(t._tbl_version_path.ancestor_paths) == bundle_info.depth
+        reconstituted_data = t.head(n=500)
+        assert_resultset_eq(bundle_info.result_set, reconstituted_data)
+
     def __do_round_trip(self, *snapshots: pxt.Table) -> None:
         bundles: list['TestPackager.RoundTripInfo'] = []
         for snapshot in snapshots:
-            assert snapshot._tbl_version.get().is_snapshot
-
-            schema = snapshot._schema
-            depth = len(snapshot._tbl_version_path.ancestor_paths)
-            result_set = snapshot.head(n=500)
-
-            # Package the snapshot into a tarball
-            packager = TablePackager(snapshot)
-            bundle_path = packager.package()
-
-            bundles.append(TestPackager.RoundTripInfo(bundle_path, depth, schema, result_set))
+            self.__bundle_table(snapshot)
 
         # Clear out the db
         clean_db()
         reload_catalog()
 
         for i, bundle in enumerate(bundles):
-            # Restore the snapshot from the tarball
-            tbl_name = f'new_replica_{i}'
-            restorer = TableRestorer(tbl_name)
-            restorer.restore(bundle.bundle_path)
-            t = pxt.get_table(tbl_name)
-            assert t._schema == bundle.schema
-            assert len(snapshot._tbl_version_path.ancestor_paths) == bundle.depth
-            reconstituted_data = t.head(n=500)
-            assert_resultset_eq(bundle.result_set, reconstituted_data)
+            self.__check_table(bundle, f'new_replica_{i}')
 
     def test_round_trip(self, test_tbl: pxt.Table) -> None:
         """package() / unpackage() round trip"""
@@ -249,3 +253,23 @@ class TestPackager:
         snap2 = pxt.create_snapshot('snap2', t.where(t.int_col % 7 == 0))
 
         self.__do_round_trip(snap1, snap2)
+
+    def test_multi_view_round_trip_2(self, reset_db: None) -> None:
+        t = pxt.create_table('base_tbl', {'int_col': pxt.Int})
+        t.insert({'int_col': i} for i in range(200))
+
+        snap1 = pxt.create_snapshot('snap1', t.where(t.int_col % 5 == 0))
+        bundle1 = self.__bundle_table(snap1)
+
+        t.add_column(str_col=pxt.String)
+        t.insert({'int_col': i} for i in range(200, 400))
+        t.where(t.int_col % 3 == 0).update({'str_col': pxtf.string.format('string {0}', t.int_col)})
+
+        snap2 = pxt.create_snapshot('snap2', t.where(t.int_col % 7 == 0))
+        bundle2 = self.__bundle_table(snap2)
+
+        clean_db()
+        reload_catalog()
+
+        self.__check_table(bundle1, 'replica1')
+        self.__check_table(bundle2, 'replica2')

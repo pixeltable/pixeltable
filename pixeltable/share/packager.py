@@ -332,10 +332,36 @@ class TableRestorer:
         _logger.debug(f'Deleted {result.rowcount} rows from {temp_sa_tbl_name!r} that were exact pk matches.')
 
         # Next, rectify the v_max values in the temporary table.
+        subq = (
+            sql.select(
+                sql.case(
+                    (sql.func.count() == 0, schema.Table.MAX_VERSION),
+                    else_=sql.func.min(tv.store_tbl.sa_tbl.c.v_min)
+                )
+            )
+            .where(rowid_clause)
+            .where(tv.store_tbl.sa_tbl.c.v_min > temp_sa_tbl.c.v_min)
+            .scalar_subquery()
+            .correlate(temp_sa_tbl)
+        )
+        q = sql.update(temp_sa_tbl).values(v_max=subq).where(rowid_clause)
+        _logger.debug(q.compile())
+        result = conn.execute(q)
+        _logger.debug(f'Rectified {result.rowcount} rows in {temp_sa_tbl_name!r}.')
 
         # Likewise, rectify the v_max values in the actual table.
+        q = (
+            sql.update(tv.store_tbl.sa_tbl).values(
+                v_max=sql.func.least(tv.store_tbl.sa_tbl.c.v_max, temp_sa_tbl.c.v_min)
+            )
+            .where(rowid_clause)
+            .where(tv.store_tbl.sa_tbl.c.v_min < temp_sa_tbl.c.v_min)
+        )
+        _logger.debug(q.compile())
+        result = conn.execute(q)
+        _logger.debug(f'Rectified {result.rowcount} rows in {tv.store_tbl._storage_name()!r}.')
 
-        # Finally, copy the data from the temporary table into the actual table, and drop the temporary table.
+        # Finally, copy the data from the temporary table into the actual table.
         sql_text = (
             f'INSERT INTO {tv.store_tbl._storage_name()} ({", ".join(temp_cols.keys())}) '
             f'SELECT {", ".join(temp_cols.keys())} FROM {temp_sa_tbl_name}'
