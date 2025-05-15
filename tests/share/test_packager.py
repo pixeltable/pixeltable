@@ -236,3 +236,16 @@ class TestPackager:
         assert v_replica.count() == snapshot_row_count
         t_replica = v_replica.base_table
         assert t_replica.count() == 2
+
+    def test_multi_view_round_trip(self, reset_db: None) -> None:
+        t = pxt.create_table('base_tbl', {'int_col': pxt.Int})
+        t.insert({'int_col': i} for i in range(200))
+
+        snap1 = pxt.create_snapshot('snap1', t.where(t.int_col % 5 == 0))
+        t.add_column(str_col=pxt.String)
+        t.insert({'int_col': i} for i in range(200, 400))
+        t.where(t.int_col % 3 == 0).update({'str_col': pxtf.string.format('string {0}', t.int_col)})
+
+        snap2 = pxt.create_snapshot('snap2', t.where(t.int_col % 7 == 0))
+
+        self.__do_round_trip(snap1, snap2)
