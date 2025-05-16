@@ -1,7 +1,7 @@
 """
 Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs)
 that wrap various endpoints from the Google Gemini API. In order to use them, you must
-first `pip install google-generativeai` and configure your Gemini credentials, as described in
+first `pip install google-genai` and configure your Gemini credentials, as described in
 the [Working with Gemini](https://pixeltable.readme.io/docs/working-with-gemini) tutorial.
 """
 
