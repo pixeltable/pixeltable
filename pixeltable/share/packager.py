@@ -364,7 +364,7 @@ class TableRestorer:
         # It might live indefinitely, or it might be deleted as early as version `n + 1`. Following the principle
         # of "latest provable v_max", we simply set v_max equal to `n + 1`.
         q = (
-            sql.update(temp_sa_tbl)
+            temp_sa_tbl.update()
             .values(v_max=(replica_version + 1))
             .where(temp_sa_tbl.c.v_max == schema.Table.MAX_VERSION)
         )
@@ -376,7 +376,7 @@ class TableRestorer:
         # values (the existing one and the new one) for each row instance, following the "latest provable v_max"
         # principle. Obviously we only need to do this for rows that exist in both tables (it's a simple join).
         q = (
-            sql.update(store_sa_tbl)
+            store_sa_tbl.update()
             .values(v_max=sql.func.greatest(store_sa_tbl.c.v_max, temp_sa_tbl.c.v_max))
             .where(pk_clause)
         )
@@ -386,19 +386,19 @@ class TableRestorer:
 
         # Now drop any rows from the temporary table that are also present in the existing table.
         # The v_max values have been rectified, and all other row values have been verified identical.
-        q = sql.delete(temp_sa_tbl).where(pk_clause)
+        q = temp_sa_tbl.delete().where(pk_clause)
         _logger.debug(q.compile())
         result = conn.execute(q)
         _logger.debug(f'Deleted {result.rowcount} rows from {temp_sa_tbl_name!r} that were exact pk matches.')
 
         # Finally, copy the remaining data (consisting entirely of new row instances) from the temporary table into
         # the actual table.
-        sql_text = (
-            f'INSERT INTO {store_sa_tbl_name} ({", ".join(temp_cols.keys())}) '
-            f'SELECT {", ".join(temp_cols.keys())} FROM {temp_sa_tbl_name}'
+        q = store_sa_tbl.insert().from_select(
+            [store_sa_tbl.c[col_name] for col_name in temp_cols],
+            sql.select(*temp_cols.values())
         )
-        _logger.debug(sql_text)
-        result = conn.execute(sql.text(sql_text))
+        _logger.debug(q.compile())
+        result = conn.execute(q)
         _logger.debug(f'Inserted {result.rowcount} rows from {temp_sa_tbl_name!r} into {store_sa_tbl_name!r}.')
 
     def __from_pa_pydict(self, tv: catalog.TableVersion, pydict: dict[str, Any]) -> list[dict[str, Any]]:
