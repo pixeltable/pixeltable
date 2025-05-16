@@ -604,7 +604,21 @@ class Planner:
         # 2. for component views: iterator args
         iterator_args = [target.iterator_args] if target.iterator_args is not None else []
 
-        row_builder = exprs.RowBuilder(iterator_args, stored_cols, [])
+        # If this contains a sample specification, modify / create where, group_by, order_by, and limit clauses
+        from_clause = FromClause(tbls=[view.base])
+        where, group_by_clause, order_by_clause, limit, sample_clause = cls.create_sample_clauses(
+            from_clause, target.sample_clause, target.predicate, None, [], None
+        )
+
+        # if we're propagating an insert, we only want to see those base rows that were created for the current version
+        base_analyzer = Analyzer(
+            from_clause,
+            iterator_args,
+            where_clause=where,
+            group_by_clause=group_by_clause,
+            order_by_clause=order_by_clause,
+        )
+        row_builder = exprs.RowBuilder(base_analyzer.all_exprs, stored_cols, [])
 
         # execution plan:
         # 1. materialize exprs computed from the base that are needed for stored view columns
@@ -617,20 +631,21 @@ class Planner:
             if e.is_bound_by([view]) and not e.is_bound_by([view.base])
         ]
 
-        # If this contains a sample specification, modify where, group_by, order_by, and limit
-        # where, group_by_clause, order_by_clause, limit, sample_clause = cls.create_sample_clauses(
-        #     from_clause, target.sample_clause, target.predicate, None, None, None
-        # )
-
-        # if we're propagating an insert, we only want to see those base rows that were created for the current version
-        base_analyzer = Analyzer(FromClause(tbls=[view.base]), base_output_exprs, where_clause=target.predicate)
+        # Create a new analyzer reflecting exactly what is required from the base table
+        base_analyzer = Analyzer(
+            from_clause,
+            base_output_exprs,
+            where_clause=where,
+            group_by_clause=group_by_clause,
+            order_by_clause=order_by_clause,
+        )
         base_eval_ctx = row_builder.create_eval_ctx(base_analyzer.all_exprs)
         plan = cls._create_query_plan(
             row_builder=row_builder,
             analyzer=base_analyzer,
             eval_ctx=base_eval_ctx,
-            # sample_clause=target.sample_clause,
-            sample_clause=None,  # TODO JGP XXXXX
+            limit=limit,
+            sample_clause=sample_clause,
             with_pk=True,
             exact_version_only=view.get_bases() if propagates_insert else [],
         )
@@ -725,16 +740,19 @@ class Planner:
         Optional[exprs.Expr],
         Optional[SampleClause],
     ]:
+        """Implement the sample clause by creating required subclauses."""
+
+        # If no sample clause, return the original clauses
         if sample_clause is None:
             return where_clause, group_by_clause, order_by_clause, limit, None
 
-        # If the sample clause is stratified, we need to use the group by clause
+        # If the sample clause is stratified, we need to create a group by clause
         if sample_clause.is_stratified:
             group_by = sample_clause._stratify_list
-            return where_clause, group_by, None, None, sample_clause
+            # Note that limit is not possible here
+            return where_clause, group_by, order_by_clause, None, sample_clause
 
         else:
-            group_by = None
             # If non-stratified sampling, construct a where clause, order_by, and limit clauses
             # Construct an expression for sorting rows and limiting row counts
             s_key = SampleKey(exprs.Literal(sample_clause._seed), cls.rowid_columns(from_clause._first_tbl.tbl_version))
@@ -750,6 +768,7 @@ class Planner:
 
             order_by: list[tuple[exprs.Expr, bool]] = [(s_key, True)]
             limit = exprs.Literal(sample_clause._n)
+            # Note that group_by is not possible here
             return where, None, order_by, limit, None
 
     @classmethod
@@ -926,7 +945,7 @@ class Planner:
                 sql_elements.contains_all(analyzer.select_list)
                 and sql_elements.contains_all(analyzer.grouping_exprs)
                 and isinstance(plan, exec.SqlNode)
-                and plan.to_cte() is not None
+                and plan.to_cte(keep_pk=(sample_clause is not None)) is not None
             ):
                 if sample_clause is not None:
                     plan = exec.SqlSampleNode(
