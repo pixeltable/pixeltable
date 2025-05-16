@@ -283,7 +283,21 @@ class TableRestorer:
         store_sa_tbl = tv.store_tbl.sa_tbl
         store_sa_tbl_name = tv.store_tbl._storage_name()
 
-        # Create a temporary table for the initial data load.
+        # Sometimes we are importing a table that has never been seen before. Other times, however, we are importing
+        # an existing replica table, and the table version and/or row selection differs from what was imported
+        # previously. Care must be taken to ensure that the new data is merged with existing data in a way that
+        # yields an internally consistent version history for each row.
+
+        # The overall strategy is this:
+        # 1. Import the parquet data into a temporary table;
+        # 2. "rectify" the v_max values in both the temporary table and the existing table (more on this below);
+        # 3. Delete any row instances from the temporary table that are already present in the existing table;
+        # 4. Copy the remaining rows from the temporary table into the existing table.
+
+        # Create a temporary table for the initial data load, containing columns for all columns present in the
+        # parquet table. The parquet columns have identical names to those in the store table, so we can use the
+        # store table schema to get their SQL types (which are not necessarily derivable from their Parquet types,
+        # e.g., pa.string() may hold either VARCHAR or serialized JSONB).
         temp_cols: dict[str, sql.Column] = {}
         for field in parquet_table.schema:
             assert field.name in store_sa_tbl.columns
@@ -292,7 +306,7 @@ class TableRestorer:
         temp_sa_tbl_name = f'temp_{uuid.uuid4().hex}'
         _logger.debug(f'Creating temporary table: {temp_sa_tbl_name}')
         temp_md = sql.MetaData()
-        temp_sa_tbl = sql.Table(temp_sa_tbl_name, temp_md, *temp_cols.values())
+        temp_sa_tbl = sql.Table(temp_sa_tbl_name, temp_md, *temp_cols.values(), prefixes=['TEMPORARY'])
         temp_sa_tbl.create(conn)
 
         # Populate the temporary table with data from the Parquet file.
@@ -302,29 +316,35 @@ class TableRestorer:
             rows = self.__from_pa_pydict(tv, pydict)
             conn.execute(sql.insert(temp_sa_tbl), rows)
 
-        # Each row version is identified uniquely by the tuple (row_id, pos_0, pos_1, ..., pos_k, v_min). Conversely,
-        # v_max (unlike row_id, pos_i, and v_min) is not part of the primary key, but is simply a bookkeeping device;
-        # it must always be equal to the v_min of the succeeding row version for that (row_id, pos_i) tuple. Since not
-        # all versions from the original data source are necessarily present in the replica table, we need to "rectify"
-        # both the old and new tables by adjusting their v_max values to be internally consistent. After rectification,
-        # it will always be true that the (v_min, v_max) intervals for a given (row_id, pos_i) tuple are disjoint and
-        # collectively form a contiguous interval.
+        # Each row version is identified uniquely by its pk, a tuple (row_id, pos_0, pos_1, ..., pos_k, v_min).
+        # Conversely, v_max is not part of the primary key, but is simply a bookkeeping device.
+        # In an original table, v_max is always equal to the v_min of the succeeding row instance with the same
+        # primary key, or MAX_VERSION if no such row instance exists. But in the replica, we need to be careful, since
+        # we might see only a subset of the original table's versions, and we might see them out of order.
+
+        # We'll adjust the v_max values according to the principle of "latest provable v_max":
+        # they will always correspond to the latest version for which we can prove the row instance was alive. This
+        # will enable us to maintain consistency of the v_max values if additional table versions are later imported,
+        # regardless of the order in which they are seen. It also means that replica tables (unlike original tables)
+        # may have gaps in their row version histories, but this is fine; the gaps simply correspond to table versions
+        # that have never been seen.
 
         pk_predicates = [
             col == temp_cols[col.name]
             for col in tv.store_tbl.pk_columns()
         ]
         pk_clause = sql.and_(*pk_predicates)
-        rowid_clause = sql.and_(*pk_predicates[:-1])
 
-        # First look for exact primary key collisions. In such cases, the data between old and new tables must be
-        # identical. As a first step, we double-check this; a failure implies data corruption in either the replica
-        # being created, or a previously created replica with a shared base table.
+        # If the same pk exists in both the temporary table and the existing table, then the corresponding row data
+        # must be identical; the rows can differ only in their v_max value. As a sanity check, we go through the
+        # motion of verifying this; a failure implies data corruption in either the replica being imported or in a
+        # previously imported replica.
         non_vmax_temp_cols = [col for col_name, col in temp_cols.items() if col_name != 'v_max']
         non_vmax_store_cols = [store_sa_tbl.c[col_name] for col_name in temp_cols if col_name != 'v_max']
         q = sql.select(*non_vmax_temp_cols, *non_vmax_store_cols).where(pk_clause)
         _logger.debug(q.compile())
-        for row in conn.execute(q).all():
+        result = conn.execute(q)
+        for row in result.all():
             for i in range(len(non_vmax_temp_cols)):
                 if row[i] != row[i + len(non_vmax_temp_cols)]:
                     _logger.debug(f'Row in {temp_sa_tbl_name!r} does not match row in {store_sa_tbl_name!r}.')
@@ -336,58 +356,43 @@ class TableRestorer:
                     )
         _logger.debug(f'Verified {result.rowcount} rows in {temp_sa_tbl_name!r} that were exact pk matches.')
 
-
-
-        # Now drop any rows from the temporary table that are exact primary key matches against the existing table.
-        q = sql.delete(temp_sa_tbl).where(pk_clause)
+        # Now rectify the v_max values in the temporary table.
+        # If a row instance has a concrete v_max value, then we know it's genuine: it's the unique and immutable
+        # version when the row was deleted. (This can only happen if later versions of the base table already
+        # existed at the time this replica was published.)
+        # But if a row instance has a v_max value of MAX_VERSION, then we don't know anything about its future.
+        # It might live indefinitely, or it might be deleted as early as version `n + 1`. Following the principle
+        # of "latest provable v_max", we simply set v_max equal to `n + 1`.
+        q = (
+            sql.update(temp_sa_tbl)
+            .values(v_max=(replica_version + 1))
+            .where(temp_sa_tbl.c.v_max == schema.Table.MAX_VERSION)
+        )
         _logger.debug(q.compile())
         result = conn.execute(q)
-        _logger.debug(f'Deleted {result.rowcount} rows from {temp_sa_tbl_name!r} that were exact pk matches.')
+        _logger.debug(f'Rectified {result.rowcount} rows in {temp_sa_tbl_name!r}.')
 
-        # Next, rectify the v_max values in the existing table.
-
-        # For each row R in the existing table, look for a row instance S in the temporary table such that:
-        # - S has the same row_id (and pos_i) as R; and
-        # - S.v_min > R.v_min.
-        # If such an S exists, then set R.v_max = S.v_min. (Since the temporary table is a single-version snapshot,
-        # there can be at most one such S.)
+        # Now rectify the v_max values in the existing table. This is done by simply taking the later of the two v_max
+        # values (the existing one and the new one) for each row instance, following the "latest provable v_max"
+        # principle. Obviously we only need to do this for rows that exist in both tables (it's a simple join).
         q = (
-            sql.update(store_sa_tbl).values(
-                v_max=sql.func.least(store_sa_tbl.c.v_max, temp_sa_tbl.c.v_min)
-            )
-            .where(rowid_clause)
-            .where(store_sa_tbl.c.v_min < temp_sa_tbl.c.v_min)
+            sql.update(store_sa_tbl)
+            .values(v_max=sql.func.greatest(store_sa_tbl.c.v_max, temp_sa_tbl.c.v_max))
+            .where(pk_clause)
         )
         _logger.debug(q.compile())
         result = conn.execute(q)
         _logger.debug(f'Rectified {result.rowcount} rows in {store_sa_tbl_name!r}.')
 
-        # Likewise, rectify the v_max values in the temporary table.
-
-        # For each row R in the temporary table, look for row instances S in the existing table such that:
-        # - S has the same row_id (and pos_i) as R; and
-        # - S.v_min > R.v_min.
-        # Then set R.v_max = min(S.v_min). If no such S exists, set R.v_max = MAX_VERSION instead.
-        # Carrying out this operation in SQL involves doing an update on an aggregate; we use a scalar subquery
-        # to do this.
-        subq = (
-            sql.select(
-                sql.case(
-                    (sql.func.count() == 0, schema.Table.MAX_VERSION),
-                    else_=sql.func.min(store_sa_tbl.c.v_min)
-                )
-            )
-            .where(rowid_clause)
-            .where(store_sa_tbl.c.v_min > temp_sa_tbl.c.v_min)
-            .scalar_subquery()
-            .correlate(temp_sa_tbl)
-        )
-        q = sql.update(temp_sa_tbl).values(v_max=subq).where(rowid_clause)
+        # Now drop any rows from the temporary table that are also present in the existing table.
+        # The v_max values have been rectified, and all other row values have been verified identical.
+        q = sql.delete(temp_sa_tbl).where(pk_clause)
         _logger.debug(q.compile())
         result = conn.execute(q)
-        _logger.debug(f'Rectified {result.rowcount} rows in {temp_sa_tbl_name!r}.')
+        _logger.debug(f'Deleted {result.rowcount} rows from {temp_sa_tbl_name!r} that were exact pk matches.')
 
-        # Finally, copy the data from the temporary table into the actual table.
+        # Finally, copy the remaining data (consisting entirely of new row instances) from the temporary table into
+        # the actual table.
         sql_text = (
             f'INSERT INTO {store_sa_tbl_name} ({", ".join(temp_cols.keys())}) '
             f'SELECT {", ".join(temp_cols.keys())} FROM {temp_sa_tbl_name}'
