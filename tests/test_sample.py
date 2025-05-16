@@ -186,10 +186,6 @@ class TestSampling:
         print(results)
         reload_tester.run_reload_test()
 
-    def summarize_sample(self, df: pxt.DataFrame) -> pxt.DataFrame:
-        ss = pxt.create_snapshot('sampled', df, if_exists='replace_force')
-        return ss.select(ss.cat1, ss.cat2, count1=pxtf.count(1)).group_by(ss.cat1, ss.cat2).order_by(ss.cat1, ss.cat2)
-
     def test_sample_stratified(self, test_tbl: catalog.Table) -> None:
         t = self.create_sample_data(4, 6, True)
 
@@ -213,11 +209,38 @@ class TestSampling:
         print(r)
         assert len(r) == 4 * 6
 
-        df = t.select(t.cat1, t.cat2, t.id).where(t.cat2 == 0).sample(n_per_stratum=1, stratify_by=[t.cat1 % 2], seed=1)
+    def validate_snapshot(self, df: pxt.DataFrame, t_rows: int) -> None:
         r = df.collect()
-        print('collected:\n', r)
-        print('summary:\n', self.summarize_sample(df).collect())
-        # assert False
+        print(f'collected: {len(r)} of {t_rows} rows\n', r)
+        pr = r.to_pandas().sort_values(by=['id']).reset_index(drop=True)
+
+        ss = pxt.create_snapshot('sampled', df, if_exists='replace_force')
+        assert ss.count() == len(r)
+        rs = ss.select(ss.id, ss.cat1, ss.cat2).collect()
+        print(f'snapshot: count: {ss.count()}, result: {len(rs)} of {t_rows} rows\n', rs)
+        prs = rs.to_pandas().sort_values(by=['id']).reset_index(drop=True)
+        assert pr.equals(prs)
+        rsum = ss.select(ss.cat1, ss.cat2, count1=pxtf.count(1)).group_by(ss.cat1, ss.cat2).order_by(ss.cat1, ss.cat2).collect()
+        print('summary:\n', rsum)
+
+    def test_sample_snapshot(self, test_tbl: catalog.Table) -> None:
+        t = self.create_sample_data(4, 6, True)
+        t_rows = t.count()
+        df = t.select().sample(n=10)
+        self.validate_snapshot(df, t_rows)
+
+        df = t.select().sample(fraction=0.1)
+        self.validate_snapshot(df, t_rows)
+
+    def test_sample_snapshot_stratified(self, test_tbl: catalog.Table) -> None:
+        t = self.create_sample_data(4, 6, True)
+        t_rows = t.count()
+        df = t.select().sample(n_per_stratum=1, stratify_by=[t.cat1, t.cat2])
+        self.validate_snapshot(df, t_rows)
+
+        df = t.select().sample(fraction=0.1, stratify_by=[t.cat1, t.cat2])
+        self.validate_snapshot(df, t_rows)
+        assert False
 
     def check_create_insert(self, t: pxt.Table, df: pxt.DataFrame, n_sample: int) -> None:
         r = df.collect()

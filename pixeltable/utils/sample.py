@@ -23,12 +23,15 @@ class SampleClause:
     seed: Optional[int]
     stratify_list: Optional[list[Expr]]
 
+    DEFAULT_SEED = 0
     CURRENT_VERSION = 1
 
     def __post_init__(self) -> None:
         """If no version was provided, provide the default version"""
         if self._version is None:
             self.version = self.CURRENT_VERSION
+        if self._seed is None:
+            self.seed = self.DEFAULT_SEED
 
     @property
     def _version(self) -> int:
