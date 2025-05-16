@@ -18,7 +18,6 @@ from pixeltable import catalog, exceptions as excs, metadata
 from pixeltable.env import Env
 from pixeltable.metadata import schema
 from pixeltable.utils.media_store import MediaStore
-from pixeltable.utils.sql import log_explain
 
 _logger = logging.getLogger('pixeltable')
 
@@ -319,7 +318,7 @@ class TableRestorer:
         # Each row version is identified uniquely by its pk, a tuple (row_id, pos_0, pos_1, ..., pos_k, v_min).
         # Conversely, v_max is not part of the primary key, but is simply a bookkeeping device.
         # In an original table, v_max is always equal to the v_min of the succeeding row instance with the same
-        # primary key, or MAX_VERSION if no such row instance exists. But in the replica, we need to be careful, since
+        # row id, or MAX_VERSION if no such row instance exists. But in the replica, we need to be careful, since
         # we might see only a subset of the original table's versions, and we might see them out of order.
 
         # We'll adjust the v_max values according to the principle of "latest provable v_max":
@@ -327,12 +326,9 @@ class TableRestorer:
         # will enable us to maintain consistency of the v_max values if additional table versions are later imported,
         # regardless of the order in which they are seen. It also means that replica tables (unlike original tables)
         # may have gaps in their row version histories, but this is fine; the gaps simply correspond to table versions
-        # that have never been seen.
+        # that have never been observed.
 
-        pk_predicates = [
-            col == temp_cols[col.name]
-            for col in tv.store_tbl.pk_columns()
-        ]
+        pk_predicates = [col == temp_cols[col.name] for col in tv.store_tbl.pk_columns()]
         pk_clause = sql.and_(*pk_predicates)
 
         # If the same pk exists in both the temporary table and the existing table, then the corresponding row data
@@ -348,8 +344,8 @@ class TableRestorer:
             for i in range(len(non_vmax_temp_cols)):
                 if row[i] != row[i + len(non_vmax_temp_cols)]:
                     _logger.debug(f'Row in {temp_sa_tbl_name!r} does not match row in {store_sa_tbl_name!r}.')
-                    _logger.debug(f'{temp_sa_tbl_name}: {row[:len(non_vmax_temp_cols)]}')
-                    _logger.debug(f'{store_sa_tbl_name}: {row[len(non_vmax_temp_cols):]}')
+                    _logger.debug(f'{temp_sa_tbl_name}: {row[: len(non_vmax_temp_cols)]}')
+                    _logger.debug(f'{store_sa_tbl_name}: {row[len(non_vmax_temp_cols) :]}')
                     raise excs.Error(
                         'Data corruption error: the replica data are inconsistent with data retrieved from a '
                         'previous replica.'
@@ -394,8 +390,7 @@ class TableRestorer:
         # Finally, copy the remaining data (consisting entirely of new row instances) from the temporary table into
         # the actual table.
         q = store_sa_tbl.insert().from_select(
-            [store_sa_tbl.c[col_name] for col_name in temp_cols],
-            sql.select(*temp_cols.values())
+            [store_sa_tbl.c[col_name] for col_name in temp_cols], sql.select(*temp_cols.values())
         )
         _logger.debug(q.compile())
         result = conn.execute(q)

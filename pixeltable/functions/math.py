@@ -107,7 +107,7 @@ def pow(self: int, other: int) -> float:
 
     Equivalent to Python [`self ** other`](https://docs.python.org/3/library/functions.html#pow).
     """
-    return self ** other
+    return self**other
 
 
 @pow.to_sql

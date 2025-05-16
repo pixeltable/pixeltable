@@ -11,10 +11,10 @@ import numpy as np
 import pyarrow.parquet as pq
 
 import pixeltable as pxt
-from pixeltable.dataframe import DataFrameResultSet
 import pixeltable.functions as pxtf
 import pixeltable.type_system as ts
 from pixeltable import exprs, metadata
+from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
 from pixeltable.share.packager import TablePackager, TableRestorer
 from tests.conftest import clean_db
@@ -159,6 +159,7 @@ class TestPackager:
         Saved information about a bundle and its associated table. This is used for testing to track various
         information about the expected behavior of the bundle after it is restored.
         """
+
         bundle_path: Path  # Path of the bundle on disk
         depth: int  # Depth of the table in the table hierarchy (= length of the table's TableVersionPath)
         schema: dict[str, ts.ColumnType]  # Schema of the table
@@ -309,7 +310,7 @@ class TestPackager:
         bundles.append(self.__package_table(pxt.create_snapshot('snap', t)))
 
         for i in range(10):
-            t.where(t.row_number.bitwise_and(2 ** i) != 0).update({'value': i})
+            t.where(t.row_number.bitwise_and(2**i) != 0).update({'value': i})
             bundles.append(self.__package_table(pxt.create_snapshot(f'snap_{i}', t)))
 
         clean_db()
