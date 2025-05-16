@@ -17,6 +17,7 @@ import pixeltable as pxt
 from pixeltable import catalog, exceptions as excs, metadata
 from pixeltable.env import Env
 from pixeltable.metadata import schema
+from pixeltable.utils import sha256sum
 from pixeltable.utils.media_store import MediaStore
 
 _logger = logging.getLogger('pixeltable')
@@ -182,7 +183,12 @@ class TablePackager:
             path = Path(urllib.parse.unquote(urllib.request.url2pathname(parsed_url.path)))
             if path not in self.media_files:
                 # Create a new entry in the `media_files` dict so that we can copy the file into the tarball later.
-                dest_name = f'{uuid.uuid4().hex}{path.suffix}'
+                # We name the media files in the archive by their SHA256 hash. This ensures that we can properly
+                # deduplicate and validate them later.
+                # If we get a collision, it's not a problem; it just means we have two identical files (which will
+                # be conveniently deduplicated in the bundle).
+                sha = sha256sum(path)
+                dest_name = f'{sha}{path.suffix}'
                 self.media_files[path] = dest_name
             return f'pxtmedia://{self.media_files[path]}'
         # For any type of URL other than a local file, just return the URL as-is.
@@ -335,6 +341,8 @@ class TableRestorer:
         # must be identical; the rows can differ only in their v_max value. As a sanity check, we go through the
         # motion of verifying this; a failure implies data corruption in either the replica being imported or in a
         # previously imported replica.
+        # The pxtmedia:// URLs of local media files are constructed using the SHA256 hash of the media file contents,
+        # so this works for media files too, providing bytewise validation of data integrity.
         non_vmax_temp_cols = [col for col_name, col in temp_cols.items() if col_name != 'v_max']
         non_vmax_store_cols = [store_sa_tbl.c[col_name] for col_name in temp_cols if col_name != 'v_max']
         q = sql.select(*non_vmax_temp_cols, *non_vmax_store_cols).where(pk_clause)
