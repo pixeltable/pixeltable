@@ -5,7 +5,7 @@ import json
 import tarfile
 import urllib.parse
 from pathlib import Path
-from typing import Optional
+from typing import NamedTuple, Optional
 
 import numpy as np
 import pyarrow.parquet as pq
@@ -14,6 +14,7 @@ import pixeltable as pxt
 import pixeltable.functions as pxtf
 import pixeltable.type_system as ts
 from pixeltable import exprs, metadata
+from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
 from pixeltable.share.packager import TablePackager, TableRestorer
 from tests.conftest import clean_db
@@ -153,30 +154,53 @@ class TestPackager:
             else:
                 assert pxt_val == parquet_val
 
-    def __do_round_trip(self, snapshot: pxt.Table) -> None:
-        assert snapshot._tbl_version.get().is_snapshot
+    class BundleInfo(NamedTuple):
+        """
+        Saved information about a bundle and its associated table. This is used for testing to track various
+        information about the expected behavior of the bundle after it is restored.
+        """
 
-        schema = snapshot._schema
-        depth = len(snapshot._tbl_version_path.ancestor_paths)
-        data = snapshot.head(n=500)
+        bundle_path: Path  # Path of the bundle on disk
+        depth: int  # Depth of the table in the table hierarchy (= length of the table's TableVersionPath)
+        schema: dict[str, ts.ColumnType]  # Schema of the table
+        result_set: DataFrameResultSet  # Resultset corresponding to the query `tbl.head(n=5000)`
+
+    def __package_table(self, tbl: pxt.Table) -> BundleInfo:
+        """
+        Runs the query `tbl.head(n=5000)`, packages the table into a bundle, and returns a BundleInfo.
+        """
+        assert tbl._tbl_version.get().is_snapshot
+
+        schema = tbl._schema
+        depth = len(tbl._tbl_version_path.ancestor_paths)
+        result_set = tbl.head(n=5000)
 
         # Package the snapshot into a tarball
-        packager = TablePackager(snapshot)
+        packager = TablePackager(tbl)
         bundle_path = packager.package()
 
-        # Clear out the db
+        return TestPackager.BundleInfo(bundle_path, depth, schema, result_set)
+
+    def __restore_and_check_table(self, bundle_info: 'TestPackager.BundleInfo', tbl_name: str) -> None:
+        """
+        Restores the table that was packaged in `bundle_info` and validates its contents against the tracked data.
+        """
+        restorer = TableRestorer(tbl_name)
+        restorer.restore(bundle_info.bundle_path)
+        self.__check_table(bundle_info, tbl_name)
+
+    def __check_table(self, bundle_info: 'TestPackager.BundleInfo', tbl_name: str) -> None:
+        t = pxt.get_table(tbl_name)
+        assert t._schema == bundle_info.schema
+        assert len(t._tbl_version_path.ancestor_paths) == bundle_info.depth
+        reconstituted_data = t.head(n=5000)
+        assert_resultset_eq(bundle_info.result_set, reconstituted_data)
+
+    def __do_round_trip(self, tbl: pxt.Table) -> None:
+        bundle = self.__package_table(tbl)
         clean_db()
         reload_catalog()
-
-        # Restore the snapshot from the tarball
-        restorer = TableRestorer('new_replica')
-        restorer.restore(bundle_path)
-        t = pxt.get_table('new_replica')
-        assert t._schema == schema
-        assert len(snapshot._tbl_version_path.ancestor_paths) == depth
-        reconstituted_data = t.head(n=500)
-
-        assert_resultset_eq(data, reconstituted_data)
+        self.__restore_and_check_table(bundle, 'new_replica')
 
     def test_round_trip(self, test_tbl: pxt.Table) -> None:
         """package() / unpackage() round trip"""
@@ -224,3 +248,78 @@ class TestPackager:
         assert v_replica.count() == snapshot_row_count
         t_replica = v_replica.base_table
         assert t_replica.count() == 2
+
+    def test_multi_view_round_trip_1(self, reset_db: None) -> None:
+        """
+        Simplest multi-view test: two snapshots that are exported at the same time.
+        (All v_min/v_max values are consistent in the bundles.)
+        """
+
+        t = pxt.create_table('base_tbl', {'int_col': pxt.Int})
+        t.insert({'int_col': i} for i in range(200))
+
+        snap1 = pxt.create_snapshot('snap1', t.where(t.int_col % 5 == 0))
+        t.add_column(str_col=pxt.String)
+        t.insert({'int_col': i} for i in range(200, 400))
+        t.where(t.int_col % 3 == 0).update({'str_col': pxtf.string.format('string {0}', t.int_col)})
+
+        snap2 = pxt.create_snapshot('snap2', t.where(t.int_col % 7 == 0))
+
+        bundle1 = self.__package_table(snap1)
+        bundle2 = self.__package_table(snap2)
+
+        clean_db()
+        reload_catalog()
+
+        self.__restore_and_check_table(bundle1, 'replica1')
+        self.__restore_and_check_table(bundle2, 'replica2')
+
+    def test_multi_view_round_trip_2(self, reset_db: None) -> None:
+        """
+        Two snapshots that are exported at different times, requiring rectification of the v_max values.
+        """
+        t = pxt.create_table('base_tbl', {'int_col': pxt.Int})
+        t.insert({'int_col': i} for i in range(200))
+
+        snap1 = pxt.create_snapshot('snap1', t.where(t.int_col % 3 == 0))
+        bundle1 = self.__package_table(snap1)
+
+        t.add_column(str_col=pxt.String)
+        t.insert({'int_col': i} for i in range(200, 400))
+        t.where(t.int_col % 2 == 0).update({'str_col': pxtf.string.format('string {0}', t.int_col)})
+
+        snap2 = pxt.create_snapshot('snap2', t.where(t.int_col % 5 == 0))
+        bundle2 = self.__package_table(snap2)
+
+        clean_db()
+        reload_catalog()
+
+        self.__restore_and_check_table(bundle1, 'replica1')
+        self.__restore_and_check_table(bundle2, 'replica2')
+
+    def test_multi_view_round_trip_3(self, reset_db: None) -> None:
+        """
+        A much more sophisticated multi-view test. Here we create 11 snapshots, each one modifying a
+        different subset of the rows in the table. The snapshots are then reconstituted in an arbitrary
+        order.
+        """
+        bundles: list[TestPackager.BundleInfo] = []
+
+        t = pxt.create_table('base_tbl', {'row_number': pxt.Int, 'value': pxt.Int})
+        t.insert({'row_number': i} for i in range(1024))
+        bundles.append(self.__package_table(pxt.create_snapshot('snap', t)))
+
+        for i in range(10):
+            t.where(t.row_number.bitwise_and(2**i) != 0).update({'value': i})
+            bundles.append(self.__package_table(pxt.create_snapshot(f'snap_{i}', t)))
+
+        clean_db()
+        reload_catalog()
+
+        for i in [7, 3, 0, 9, 4, 10, 1, 5, 8]:
+            # Snapshots 2 and 6 are intentionally never restored.
+            self.__restore_and_check_table(bundles[i], f'replica_{i}')
+
+        # Check all the tables again to verify that everything is consistent.
+        for i in [0, 1, 3, 4, 5, 7, 8, 9, 10]:
+            self.__check_table(bundles[i], f'replica_{i}')
