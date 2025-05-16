@@ -277,6 +277,7 @@ class TableRestorer:
         tbl_id = uuid.UUID(tbl_md.tbl_md.tbl_id)
         parquet_dir = bundle_path / 'tables' / f'tbl_{tbl_id.hex}'
         parquet_table = pq.read_table(str(parquet_dir))
+        replica_version = tv.version
 
         conn = Env.get().conn
         store_sa_tbl = tv.store_tbl.sa_tbl
@@ -305,7 +306,9 @@ class TableRestorer:
         # v_max (unlike row_id, pos_i, and v_min) is not part of the primary key, but is simply a bookkeeping device;
         # it must always be equal to the v_min of the succeeding row version for that (row_id, pos_i) tuple. Since not
         # all versions from the original data source are necessarily present in the replica table, we need to "rectify"
-        # both the old and new tables by adjusting their v_max values to be internally consistent.
+        # both the old and new tables by adjusting their v_max values to be internally consistent. After rectification,
+        # it will always be true that the (v_min, v_max) intervals for a given (row_id, pos_i) tuple are disjoint and
+        # collectively form a contiguous interval.
 
         pk_predicates = [
             col == temp_cols[col.name]
@@ -313,24 +316,60 @@ class TableRestorer:
         ]
         pk_clause = sql.and_(*pk_predicates)
         rowid_clause = sql.and_(*pk_predicates[:-1])
-        vmin_clause = pk_predicates[-1]
 
         # First look for exact primary key collisions. In such cases, the data between old and new tables must be
-        # identical. We double-check this as a failsafe.
-        # q = (
-        #     sql.select(*temp_cols, *store_sa_tbl.c.values())
-        #     .join_from(temp_sa_tbl, store_sa_tbl)
-        #     .where(pk_clause)
-        # )
-        # for row in conn.execute(q).all():
+        # identical. As a first step, we double-check this; a failure implies data corruption in either the replica
+        # being created, or a previously created replica with a shared base table.
+        non_vmax_temp_cols = [col for col_name, col in temp_cols.items() if col_name != 'v_max']
+        non_vmax_store_cols = [store_sa_tbl.c[col_name] for col_name in temp_cols if col_name != 'v_max']
+        q = sql.select(*non_vmax_temp_cols, *non_vmax_store_cols).where(pk_clause)
+        _logger.debug(q.compile())
+        for row in conn.execute(q).all():
+            for i in range(len(non_vmax_temp_cols)):
+                if row[i] != row[i + len(non_vmax_temp_cols)]:
+                    _logger.debug(f'Row in {temp_sa_tbl_name!r} does not match row in {store_sa_tbl_name!r}.')
+                    _logger.debug(f'{temp_sa_tbl_name}: {row[:len(non_vmax_temp_cols)]}')
+                    _logger.debug(f'{store_sa_tbl_name}: {row[len(non_vmax_temp_cols):]}')
+                    raise excs.Error(
+                        'Data corruption error: the replica data are inconsistent with data retrieved from a '
+                        'previous replica.'
+                    )
+        _logger.debug(f'Verified {result.rowcount} rows in {temp_sa_tbl_name!r} that were exact pk matches.')
 
-        # Now drop any rows from the temporary table that are exact matches for rows in the actual table.
+
+
+        # Now drop any rows from the temporary table that are exact primary key matches against the existing table.
         q = sql.delete(temp_sa_tbl).where(pk_clause)
         _logger.debug(q.compile())
         result = conn.execute(q)
         _logger.debug(f'Deleted {result.rowcount} rows from {temp_sa_tbl_name!r} that were exact pk matches.')
 
-        # Next, rectify the v_max values in the temporary table.
+        # Next, rectify the v_max values in the existing table.
+
+        # For each row R in the existing table, look for a row instance S in the temporary table such that:
+        # - S has the same row_id (and pos_i) as R; and
+        # - S.v_min > R.v_min.
+        # If such an S exists, then set R.v_max = S.v_min. (Since the temporary table is a single-version snapshot,
+        # there can be at most one such S.)
+        q = (
+            sql.update(store_sa_tbl).values(
+                v_max=sql.func.least(store_sa_tbl.c.v_max, temp_sa_tbl.c.v_min)
+            )
+            .where(rowid_clause)
+            .where(store_sa_tbl.c.v_min < temp_sa_tbl.c.v_min)
+        )
+        _logger.debug(q.compile())
+        result = conn.execute(q)
+        _logger.debug(f'Rectified {result.rowcount} rows in {store_sa_tbl_name!r}.')
+
+        # Likewise, rectify the v_max values in the temporary table.
+
+        # For each row R in the temporary table, look for row instances S in the existing table such that:
+        # - S has the same row_id (and pos_i) as R; and
+        # - S.v_min > R.v_min.
+        # Then set R.v_max = min(S.v_min). If no such S exists, set R.v_max = MAX_VERSION instead.
+        # Carrying out this operation in SQL involves doing an update on an aggregate; we use a scalar subquery
+        # to do this.
         subq = (
             sql.select(
                 sql.case(
@@ -347,18 +386,6 @@ class TableRestorer:
         _logger.debug(q.compile())
         result = conn.execute(q)
         _logger.debug(f'Rectified {result.rowcount} rows in {temp_sa_tbl_name!r}.')
-
-        # Likewise, rectify the v_max values in the actual table.
-        q = (
-            sql.update(store_sa_tbl).values(
-                v_max=sql.func.least(store_sa_tbl.c.v_max, temp_sa_tbl.c.v_min)
-            )
-            .where(rowid_clause)
-            .where(store_sa_tbl.c.v_min < temp_sa_tbl.c.v_min)
-        )
-        _logger.debug(q.compile())
-        result = conn.execute(q)
-        _logger.debug(f'Rectified {result.rowcount} rows in {store_sa_tbl_name!r}.')
 
         # Finally, copy the data from the temporary table into the actual table.
         sql_text = (
