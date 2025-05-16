@@ -8,6 +8,71 @@ icon: 'file-import'
 
 Pixeltable provides a unified interface for working with diverse data types - from structured tables to unstructured media files. This guide covers everything you need to know about bringing your data into Pixeltable.
 
+## Direct Import with Table Creation and Insertion
+
+Pixeltable supports importing data directly during table creation and insertion operations. This streamlines the process of loading data into Pixeltable tables from external sources.
+
+Pixeltable supports importing from a variety of data sources:
+- CSV files (`.csv`)
+- Excel files (`.xls`, `.xlsx`)
+- Parquet files (`.parquet`, `.pq`, `.parq`)
+- JSON files (`.json`)
+- Pandas DataFrames
+- Pixeltable DataFrames
+- Hugging Face datasets
+- Row data structures or Iterators
+
+### Creating Tables from External Sources
+
+You can create a table directly from an external data source using the `source` parameter in the `create_table` function. Pixeltable will automatically infer the schema from the source data.
+
+```python
+import pixeltable as pxt
+import pandas as pd
+
+# Create from CSV file
+table = pxt.create_table('from_csv', source='https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/world-population-data.csv')
+
+# Create from pandas DataFrame
+df = pd.DataFrame({
+    'col1': [1, 2, 3],
+    'col2': ['a', 'b', 'c']
+})
+table = pxt.create_table('from_df', source=df)
+```
+
+You can also provide schema overrides for more control:
+
+```python
+import pixeltable as pxt
+
+# With schema overrides
+table = pxt.create_table(
+    'from_csv_with_overrides', 
+    source='https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/world-population-data.csv',
+    schema_overrides={'pop_2023': pxt.Required[pxt.Int]}
+)
+```
+
+### Inserting Data from External Sources
+
+You can also insert data from external sources into existing tables using the `insert` method:
+
+```python
+import pixeltable as pxt
+import pandas as pd
+
+# Insert from CSV file
+table.insert('https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/world-population-data.csv')
+
+# Insert from pandas DataFrame
+df = pd.DataFrame({
+    'col1': [4, 5, 6],
+    'col2': ['d', 'e', 'f']
+})
+table.insert(df)
+```
+
 ## Supported Data Types & Formats
 
 <AccordionGroup>
@@ -252,7 +317,7 @@ Pixeltable provides a unified interface for working with diverse data types - fr
 
 </AccordionGroup>
 
-## Import Functions
+## Import Functions (Alternative Approach)
 
 <AccordionGroup>
   <Accordion title="CSV Import" icon="file-csv">
@@ -413,3 +478,6 @@ Pixeltable provides a unified interface for working with diverse data types - fr
 - Import functions support schema overrides to ensure correct type assignment
 - Use batch inserts for better performance when adding multiple rows
 - Cloud storage paths (s3://) require appropriate credentials to be configured
+- Tables can be created directly from CSV, Excel, Parquet files, and pandas DataFrames using the `source` parameter
+- Existing tables can import data directly from external sources using the `insert` method
+- Schema inference is automatic when importing from external sources, with optional schema overrides

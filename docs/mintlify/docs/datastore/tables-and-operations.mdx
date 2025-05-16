@@ -170,6 +170,44 @@ Column casting helps maintain data consistency and prevents type errors when pro
     ```
   </Card>
 
+  <Card title="Import from Source" icon="file-import">
+    Create tables or insert data directly from external sources:
+    ```python
+    import pixeltable as pxt
+    import pandas as pd
+    
+    # Create a table from a CSV file
+    table = pxt.create_table('world_population', source='https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/world-population-data.csv')
+    
+    # Create a table from a pandas DataFrame
+    df = pd.DataFrame({
+        'cca3': ['FRA', 'DEU', 'ITA'],
+        'country': ['France', 'Germany', 'Italy'],
+        'continent': ['Europe', 'Europe', 'Europe'],
+        'pop_2023': [68_000_000, 83_000_000, 59_000_000]
+    })
+    table = pxt.create_table('europe_population', source=df)
+    
+    # Insert data from a pandas DataFrame into an existing table
+    new_df = pd.DataFrame({
+        'cca3': ['ESP', 'GBR', 'POL'],
+        'country': ['Spain', 'United Kingdom', 'Poland'],
+        'continent': ['Europe', 'Europe', 'Europe'],
+        'pop_2023': [47_000_000, 67_000_000, 38_000_000]
+    })
+    table.insert(new_df)
+    ```
+    
+    Pixeltable supports importing from various data sources:
+    - CSV files (`.csv`)
+    - Excel files (`.xls`, `.xlsx`)
+    - Parquet files (`.parquet`, `.pq`, `.parq`)
+    - JSON files (`.json`)
+    - Pandas DataFrames
+    - Pixeltable DataFrames
+    - Hugging Face datasets
+  </Card>
+
   <Card title="Update Operations" icon="pen-to-square">
     Modify existing data:
     ```python
