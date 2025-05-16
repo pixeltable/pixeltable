@@ -5,28 +5,31 @@ first `pip install google-generativeai` and configure your Gemini credentials, a
 the [Working with Gemini](https://pixeltable.readme.io/docs/working-with-gemini) tutorial.
 """
 
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import pixeltable as pxt
 from pixeltable import env
 
+if TYPE_CHECKING:
+    from google import genai
+
 
 @env.register_client('gemini')
-def _(api_key: str) -> None:
-    import google.generativeai as genai
+def _(api_key: str) -> 'genai.client.Client':
+    from google import genai
 
-    genai.configure(api_key=api_key)
+    return genai.client.Client(api_key=api_key)
 
 
-def _ensure_loaded() -> None:
-    env.Env.get().get_client('gemini')
+def _genai_client() -> 'genai.client.Client':
+    return env.Env.get().get_client('gemini')
 
 
 @pxt.udf(resource_pool='request-rate:gemini')
 async def generate_content(
     contents: str,
     *,
-    model_name: str,
+    model: str,
     candidate_count: Optional[int] = None,
     stop_sequences: Optional[list[str]] = None,
     max_output_tokens: Optional[int] = None,
@@ -48,11 +51,11 @@ async def generate_content(
 
     __Requirements:__
 
-    - `pip install google-generativeai`
+    - `pip install google-genai`
 
     Args:
         contents: The input content to generate from.
-        model_name: The name of the model to use.
+        model: The name of the model to use.
 
     For details on the other parameters, see: <https://ai.google.dev/gemini-api/docs>
 
@@ -63,14 +66,12 @@ async def generate_content(
         Add a computed column that applies the model `gemini-1.5-flash`
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
-        >>> tbl.add_computed_column(response=generate_content(tbl.prompt, model_name='gemini-1.5-flash'))
+        >>> tbl.add_computed_column(response=generate_content(tbl.prompt, model='gemini-1.5-flash'))
     """
-    env.Env.get().require_package('google.generativeai')
-    _ensure_loaded()
-    import google.generativeai as genai
+    env.Env.get().require_package('google.genai')
+    from google.genai import types
 
-    model = genai.GenerativeModel(model_name=model_name)
-    gc = genai.GenerationConfig(
+    config = types.GenerateContentConfig(
         candidate_count=candidate_count,
         stop_sequences=stop_sequences,
         max_output_tokens=max_output_tokens,
@@ -82,10 +83,15 @@ async def generate_content(
         presence_penalty=presence_penalty,
         frequency_penalty=frequency_penalty,
     )
-    response = await model.generate_content_async(contents, generation_config=gc)
-    return response.to_dict()
+
+    response = await _genai_client().aio.models.generate_content(
+        model=model,
+        contents=contents,
+        config=config,
+    )
+    return response.model_dump()
 
 
 @generate_content.resource_pool
-def _(model_name: str) -> str:
-    return f'request-rate:gemini:{model_name}'
+def _(model: str) -> str:
+    return f'request-rate:gemini:{model}'
