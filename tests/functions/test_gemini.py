@@ -12,15 +12,15 @@ class TestGemini:
     def test_generate_content(self, reset_db: None) -> None:
         from pixeltable.functions.gemini import generate_content
 
-        skip_test_if_not_installed('google.generativeai')
+        skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')
 
         t = pxt.create_table('test_tbl', {'contents': pxt.String})
-        t.add_computed_column(output=generate_content(t.contents, model_name='gemini-1.5-flash'))
+        t.add_computed_column(output=generate_content(t.contents, model='gemini-1.5-flash'))
         t.add_computed_column(
             output2=generate_content(
                 t.contents,
-                model_name='gemini-1.5-flash',
+                model='gemini-1.5-flash',
                 candidate_count=3,
                 stop_sequences=['\n'],
                 max_output_tokens=300,
@@ -34,5 +34,5 @@ class TestGemini:
         )
         validate_update_status(t.insert(contents='Write a story about a magic backpack.'), expected_rows=1)
         results = t.collect()
-        assert len(results['output'][0]['candidates'][0]['content']['parts'][0]['text']) > 0
-        assert len(results['output2'][0]['candidates'][0]['content']['parts'][0]['text']) > 0
+        assert 'backpack' in results['output'][0]['candidates'][0]['content']['parts'][0]['text']
+        assert 'backpack' in results['output2'][0]['candidates'][0]['content']['parts'][0]['text']
