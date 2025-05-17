@@ -84,11 +84,7 @@ async def generate_content(
         frequency_penalty=frequency_penalty,
     )
 
-    response = await _genai_client().aio.models.generate_content(
-        model=model,
-        contents=contents,
-        config=config,
-    )
+    response = await _genai_client().aio.models.generate_content(model=model, contents=contents, config=config)
     return response.model_dump()
 
 
