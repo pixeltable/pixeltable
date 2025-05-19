@@ -1249,8 +1249,10 @@ class TestExprs:
         # we correctly apply a limit to the agg output
         r5 = t.group_by(t.c_bool).select(s=pxtf.sum(t.c_int)).collect()['s']
         r6 = (
-            t.group_by(t.c_bool).select(s=pxtf.sum(t.c_int.apply(lambda x: x, col_type=pxt.Int)))
-            .limit(3).collect()['s']
+            t.group_by(t.c_bool)
+            .select(s=pxtf.sum(t.c_int.apply(lambda x: x, col_type=pxt.Int)))
+            .limit(3)
+            .collect()['s']
         )
         assert set(r5) == set(r6)
 
