@@ -24,6 +24,7 @@ class AggregationNode(ExecNode):
     agg_fn_eval_ctx: exprs.RowBuilder.EvalCtx
     agg_fn_calls: list[exprs.FunctionCall]
     output_batch: DataRowBatch
+    limit: Optional[int]
 
     def __init__(
         self,
@@ -45,6 +46,11 @@ class AggregationNode(ExecNode):
         self.agg_fn_calls = [cast(exprs.FunctionCall, e) for e in self.agg_fn_eval_ctx.target_exprs]
         # create output_batch here, rather than in __iter__(), so we don't need to remember tbl and row_builder
         self.output_batch = DataRowBatch(tbl, row_builder, 0)
+        self.limit = None
+
+    def set_limit(self, limit: int) -> None:
+        # we can't propagate the limit to our input
+        self.limit = limit
 
     def _reset_agg_state(self, row_num: int) -> None:
         for fn_call in self.agg_fn_calls:
@@ -69,21 +75,29 @@ class AggregationNode(ExecNode):
         prev_row: Optional[exprs.DataRow] = None
         current_group: Optional[list[Any]] = None  # the values of the group-by exprs
         num_input_rows = 0
+        num_output_rows = 0
         async for row_batch in self.input:
             num_input_rows += len(row_batch)
             for row in row_batch:
                 group = [row[e.slot_idx] for e in self.group_by] if self.group_by is not None else None
+
                 if current_group is None:
                     current_group = group
                     self._reset_agg_state(0)
+
                 if group != current_group:
                     # we're entering a new group, emit a row for the previous one
                     self.row_builder.eval(prev_row, self.agg_fn_eval_ctx, profile=self.ctx.profile)
                     self.output_batch.add_row(prev_row)
+                    num_output_rows += 1
+                    if self.limit is not None and num_output_rows == self.limit:
+                        yield self.output_batch
+                        return
                     current_group = group
                     self._reset_agg_state(0)
                 self._update_agg_state(row, 0)
                 prev_row = row
+
         if prev_row is not None:
             # emit the last group
             self.row_builder.eval(prev_row, self.agg_fn_eval_ctx, profile=self.ctx.profile)

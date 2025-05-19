@@ -1246,6 +1246,14 @@ class TestExprs:
         r4 = t.group_by(t.c_bool, t.c_string).select(two='2').collect()
         assert len(r1) == len(r4)
 
+        # we correctly apply a limit to the agg output
+        r5 = t.group_by(t.c_bool).select(s=pxtf.sum(t.c_int)).collect()['s']
+        r6 = (
+            t.group_by(t.c_bool).select(s=pxtf.sum(t.c_int.apply(lambda x: x, col_type=pxt.Int)))
+            .limit(3).collect()['s']
+        )
+        assert set(r5) == set(r6)
+
         for pxt_fn, pd_fn in [
             (pxtf.sum, 'sum'),
             (pxtf.mean, 'mean'),
