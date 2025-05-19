@@ -616,11 +616,11 @@ class TableVersion:
     def add_columns(
         self, cols: Iterable[Column], print_stats: bool, on_error: Literal['abort', 'ignore']
     ) -> UpdateStatus:
-        """Adds a column to the table."""
+        """Adds columns to the table."""
         assert not self.is_snapshot
-        assert all(is_valid_identifier(col.name) for col in cols)
+        assert all(is_valid_identifier(col.name) for col in cols if col.name is not None)
         assert all(col.stored is not None for col in cols)
-        assert all(col.name not in self.cols_by_name for col in cols)
+        assert all(col.name not in self.cols_by_name for col in cols if col.name is not None)
         for col in cols:
             col.tbl = self
             col.id = self.next_col_id
@@ -634,7 +634,7 @@ class TableVersion:
         all_cols: list[Column] = []
         for col in cols:
             all_cols.append(col)
-            if self._is_btree_indexable(col):
+            if col.name is not None and self._is_btree_indexable(col):
                 idx = index.BtreeIndex(col)
                 val_col, undo_col = self._create_index_columns(idx)
                 index_cols[col] = (idx, val_col, undo_col)
