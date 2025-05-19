@@ -21,6 +21,7 @@ from pixeltable.metadata import schema
 from pixeltable.utils.exception_handler import run_cleanup_on_exception
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.media_store import MediaStore
+from pixeltable.utils.sample import SampleClause
 
 from ..func.globals import resolve_symbol
 from .column import Column
@@ -69,6 +70,7 @@ class TableVersion:
     next_idx_id: int
     next_rowid: int
     predicate: Optional[exprs.Expr]
+    sample_clause: Optional[SampleClause]
     mutable_views: list[TableVersionHandle]  # target for data operation propagation (only set for live tables)
     iterator_cls: Optional[type[ComponentIterator]]
     iterator_args: Optional[exprs.InlineDict]
@@ -149,6 +151,8 @@ class TableVersion:
 
         predicate_dict = None if self.view_md is None or self.view_md.predicate is None else self.view_md.predicate
         self.predicate = exprs.Expr.from_dict(predicate_dict) if predicate_dict is not None else None
+        sample_dict = None if self.view_md is None or self.view_md.sample_clause is None else self.view_md.sample_clause
+        self.sample_clause = SampleClause.from_dict(sample_dict) if sample_dict is not None else None
         self.mutable_views = mutable_views
 
         # component view-specific initialization
@@ -285,7 +289,13 @@ class TableVersion:
 
         # if this is purely a snapshot (it doesn't require any additional storage for columns and it doesn't have a
         # predicate to apply at runtime), we don't create a physical table and simply use the base's table version path
-        if view_md is not None and view_md.is_snapshot and view_md.predicate is None and len(cols) == 0:
+        if (
+            view_md is not None
+            and view_md.is_snapshot
+            and view_md.predicate is None
+            and view_md.sample_clause is None
+            and len(cols) == 0
+        ):
             session.add(tbl_record)
             session.add(tbl_version_record)
             session.add(schema_version_record)

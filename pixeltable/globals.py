@@ -250,12 +250,14 @@ def create_view(
     where: Optional[exprs.Expr] = None
     if isinstance(base, catalog.Table):
         tbl_version_path = base._tbl_version_path
+        sample_clause = None
     elif isinstance(base, DataFrame):
         base._validate_mutable('create_view', allow_select=True)
         if len(base._from_clause.tbls) > 1:
             raise excs.Error('Cannot create a view of a join')
         tbl_version_path = base._from_clause.tbls[0]
         where = base.where_clause
+        sample_clause = base.sample_clause
         select_list = base.select_list
     else:
         raise excs.Error('`base` must be an instance of `Table` or `DataFrame`')
@@ -281,6 +283,7 @@ def create_view(
         tbl_version_path,
         select_list=select_list,
         where=where,
+        sample_clause=sample_clause,
         additional_columns=additional_columns,
         is_snapshot=is_snapshot,
         iterator=iterator,
