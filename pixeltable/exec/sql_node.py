@@ -8,7 +8,7 @@ import sqlalchemy as sql
 
 from pixeltable import catalog, exprs
 from pixeltable.env import Env
-from pixeltable.utils.sample import SampleClause, SampleKey
+from pixeltable.utils.sample import SampleClause
 
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
@@ -65,8 +65,12 @@ def print_order_by_clause(clause: OrderByClause) -> str:
 
 class SqlNode(ExecNode):
     """
-    Materializes data from the store via a Select stmt.
+    Materializes data from the store via an SQL statement.
     This only provides the select list. The subclasses are responsible for the From clause and any additional clauses.
+    The pk columns are not included in the select list.
+    If set_pk is True, they are added to the end of the result set when creating the SQL statement
+    so they can always be referenced as cols[-num_pk_cols:] in the result set.
+    The pk_columns consist of the rowid columns of the target table followed by the version number.
     """
 
     tbl: Optional[catalog.TableVersionPath]
@@ -123,6 +127,7 @@ class SqlNode(ExecNode):
             # we also need to retrieve the pk columns
             assert tbl is not None
             self.num_pk_cols = len(tbl.tbl_version.get().store_tbl.pk_columns())
+            assert self.num_pk_cols > 1
 
         # additional state
         self.result_cursor = None
@@ -135,14 +140,19 @@ class SqlNode(ExecNode):
         self.where_clause_element = None
         self.order_by_clause = []
 
+    def _create_pk_cols(self) -> list[sql.Column]:
+        """Create a list of pk columns"""
+        # we need to retrieve the pk columns
+        if self.set_pk:
+            assert self.tbl is not None
+            return self.tbl.tbl_version.get().store_tbl.pk_columns()
+        return []
+
     def _create_stmt(self) -> sql.Select:
         """Create Select from local state"""
 
         assert self.sql_elements.contains_all(self.select_list)
-        sql_select_list = [self.sql_elements.get(e) for e in self.select_list]
-        if self.set_pk:
-            assert self.tbl is not None
-            sql_select_list += self.tbl.tbl_version.get().store_tbl.pk_columns()
+        sql_select_list = [self.sql_elements.get(e) for e in self.select_list] + self._create_pk_cols()
         stmt = sql.select(*sql_select_list)
 
         where_clause_element = (
@@ -168,9 +178,10 @@ class SqlNode(ExecNode):
     def _ordering_tbl_ids(self) -> set[UUID]:
         return exprs.Expr.all_tbl_ids(e for e, _ in self.order_by_clause)
 
-    def to_cte(self) -> Optional[tuple[sql.CTE, exprs.ExprDict[sql.ColumnElement]]]:
+    def to_cte(self, keep_pk: bool = False) -> Optional[tuple[sql.CTE, exprs.ExprDict[sql.ColumnElement]]]:
         """
-        Returns a CTE that materializes the output of this node plus a mapping from select list expr to output column
+        Creates a CTE that materializes the output of this node plus a mapping from select list expr to output column.
+        keep_pk: if True, the PK columns are included in the CTE Select statement
 
         Returns:
             (CTE, dict from Expr to output column)
@@ -178,11 +189,13 @@ class SqlNode(ExecNode):
         if self.py_filter is not None:
             # the filter needs to run in Python
             return None
-        self.set_pk = False  # we don't need the PK if we use this SqlNode as a CTE
         if self.cte is None:
+            if not keep_pk:
+                self.set_pk = False  # we don't need the PK if we use this SqlNode as a CTE
             self.cte = self._create_stmt().cte()
-            assert len(self.cte.c) == len(self.select_list)
-        return self.cte, exprs.ExprDict(zip(self.select_list, self.cte.c))
+        pk_count = self.num_pk_cols if self.set_pk else 0
+        assert len(self.select_list) + pk_count == len(self.cte.c)
+        return self.cte, exprs.ExprDict(zip(self.select_list, self.cte.c))  # skip pk cols
 
     @classmethod
     def retarget_rowid_refs(cls, target: catalog.TableVersionPath, expr_seq: Iterable[exprs.Expr]) -> None:
@@ -514,6 +527,7 @@ class SqlSampleNode(SqlNode):
     fraction_samples: Optional[float]
     seed: int
     input_cte: Optional[sql.CTE]
+    pk_count: int
 
     def __init__(
         self,
@@ -529,21 +543,22 @@ class SqlSampleNode(SqlNode):
             group_by_items: list of expressions to group by
             n: number of samples per strata
         """
-        self.input_cte, input_col_map = input.to_cte()
+        self.input_cte, input_col_map = input.to_cte(keep_pk=True)
+        self.pk_count = input.num_pk_cols
+        assert self.pk_count > 1
         sql_elements = exprs.SqlElementCache(input_col_map)
-        super().__init__(input.tbl, row_builder, select_list, sql_elements)
+        super().__init__(input.tbl, row_builder, select_list, sql_elements, set_pk=True)
         self.group_by_items = group_by_items
         self.n_samples = sample_clause._n
         self.n_per_stratum = sample_clause._n_per_stratum
         self.fraction_samples = sample_clause._fraction
         self.seed = sample_clause._seed if sample_clause._seed is not None else 0
 
-    def __rowid_columns(self, num_rowid_cols: Optional[int] = None) -> list[exprs.Expr]:
-        """Return list of RowidRef for the given number of associated rowids"""
-        target = self.tbl.tbl_version
-        if num_rowid_cols is None:
-            num_rowid_cols = target.get().num_rowid_columns()
-        return [exprs.RowidRef(target, i) for i in range(num_rowid_cols)]
+    def _create_order_by(self) -> sql.ColumnElement:
+        """Create an expression for randomly ordering rows with a given seed"""
+        rowid_cols = [*self.input_cte.c[-self.pk_count : -1]].copy()  # exclude the version column
+        assert len(rowid_cols) > 0
+        return SampleClause.key_sql_expr(self.sql_elements, self.seed, rowid_cols)
 
     def _create_stmt(self) -> sql.Select:
         if self.fraction_samples is not None:
@@ -553,18 +568,17 @@ class SqlSampleNode(SqlNode):
     def _create_stmt_n(self, n: int | None, n_per_stratum: int | None) -> sql.Select:
         """Create a Select stmt that returns n samples across all strata"""
         sql_group_by_items = [self.sql_elements.get(e) for e in self.group_by_items]
-
-        # Construct an expression for randomly ordering rows with a given seed
-        s_key = SampleKey(exprs.Literal(self.seed), self.__rowid_columns())
-        o_by = s_key.sql_expr(self.sql_elements)
+        order_by = self._create_order_by()
 
         # Create a list of all columns plus the rank
         # Get all columns from the input CTE dynamically
         select_columns = [*self.input_cte.c].copy()
-        select_columns.append(sql.func.row_number().over(partition_by=sql_group_by_items, order_by=o_by).label('rank'))
+        select_columns.append(
+            sql.func.row_number().over(partition_by=sql_group_by_items, order_by=order_by).label('rank')
+        )
         row_rank_cte = sql.select(*select_columns).select_from(self.input_cte).cte('row_rank_cte')
 
-        final_columns = [*row_rank_cte.c]
+        final_columns = [*row_rank_cte.c[:-1]].copy()  # exclude the rank column
         if n_per_stratum is not None:
             return sql.select(*final_columns).filter(row_rank_cte.c.rank <= n_per_stratum)
         else:
@@ -588,14 +602,13 @@ class SqlSampleNode(SqlNode):
             .cte('per_strata_count_cte')
         )
 
-        # Construct an expression for randomly ordering rows with a given seed
-        s_key = SampleKey(exprs.Literal(self.seed), self.__rowid_columns())
-        o_by = s_key.sql_expr(self.sql_elements)
-
         # Build a CTE that ranks the rows within each stratum
-        # Get all columns from the input CTE dynamically
+        # Include all columns from the input CTE dynamically
+        order_by = self._create_order_by()
         select_columns = [*self.input_cte.c].copy()
-        select_columns.append(sql.func.row_number().over(partition_by=sql_group_by_items, order_by=o_by).label('rank'))
+        select_columns.append(
+            sql.func.row_number().over(partition_by=sql_group_by_items, order_by=order_by).label('rank')
+        )
         row_rank_cte = sql.select(*select_columns).select_from(self.input_cte).cte('row_rank_cte')
 
         # Build the join criterion dynamically to accommodate any number of group by columns
@@ -604,7 +617,7 @@ class SqlSampleNode(SqlNode):
             join_c &= row_rank_cte.c[per_strata_count_cte.c[i].name].isnot_distinct_from(per_strata_count_cte.c[i])
 
         # Join srcp with per_strata_count_cte to limit returns to the requested fraction of rows
-        final_columns = [*row_rank_cte.c].copy()
+        final_columns = [*row_rank_cte.c[:-1]].copy()  # exclude the rank column
         stmt = (
             sql.select(*final_columns)
             .select_from(row_rank_cte)
