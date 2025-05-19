@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import os
-import urllib.parse
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, Optional, Union
 
@@ -372,6 +371,31 @@ def create_snapshot(
     )
 
 
+def create_replica(destination: str, source: Union[str, catalog.Table]) -> Optional[catalog.Table]:
+    """
+    Create a replica of a table. Can be used either to create a remote replica of a local table, or to create a local
+    replica of a remote table. A given table can have at most one replica per Pixeltable instance.
+
+    Args:
+        destination: Path where the replica will be created. Can be either a local path such as `'my_dir.my_table'`, or
+            a remote URI such as `'pxt://username/mydir.my_table'`.
+        source: Path to the source table, or (if the source table is a local table) a handle to the source table.
+    """
+    remote_dest = destination.startswith('pxt://')
+    remote_source = isinstance(source, str) and source.startswith('pxt://')
+    if remote_dest == remote_source:
+        raise excs.Error('Exactly one of `destination` or `source` must be a remote URI.')
+
+    if remote_dest:
+        if isinstance(source, str):
+            source = get_table(source)
+        share.push_replica(destination, source)
+        return None
+    else:
+        assert isinstance(source, str)
+        return share.pull_replica(destination, source)
+
+
 def get_table(path: str) -> catalog.Table:
     """Get a handle to an existing table, view, or snapshot.
 
@@ -625,13 +649,6 @@ def _extract_paths(
         if len(entry.dir_entries) > 0 and catalog.is_valid_identifier(name):
             result.extend(_extract_paths(entry.dir_entries, parent=parent.append(name), entry_type=entry_type))
     return result
-
-
-def publish_snapshot(dest_uri: str, table: catalog.Table) -> None:
-    parsed_uri = urllib.parse.urlparse(dest_uri)
-    if parsed_uri.scheme != 'pxt':
-        raise excs.Error(f'Invalid Pixeltable URI (does not start with pxt://): {dest_uri}')
-    share.publish_snapshot(dest_uri, table)
 
 
 def list_dirs(path: str = '', recursive: bool = True) -> list[str]:

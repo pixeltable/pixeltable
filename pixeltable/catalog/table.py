@@ -105,7 +105,7 @@ class Table(SchemaObject):
         with Catalog.get().begin_xact(for_write=False):
             self._check_is_dropped()
             md = super().get_metadata()
-            md['base'] = self._base_table._path() if self._base_table is not None else None
+            md['base'] = self._base_table._path if self._base_table is not None else None
             md['schema'] = self._schema
             md['is_replica'] = self._tbl_version.get().is_replica
             md['version'] = self._version
@@ -272,10 +272,14 @@ class Table(SchemaObject):
         return {c.name: c.col_type for c in self._tbl_version_path.columns()}
 
     @property
+    def base_table(self) -> Optional['Table']:
+        with env.Env.get().begin_xact():
+            return self._base_table
+
+    @property
     @abc.abstractmethod
     def _base_table(self) -> Optional['Table']:
         """The base's Table instance"""
-        ...
 
     @property
     def _base_tables(self) -> list['Table']:
@@ -291,7 +295,6 @@ class Table(SchemaObject):
     @abc.abstractmethod
     def _effective_base_versions(self) -> list[Optional[int]]:
         """The effective versions of the ancestor bases, starting with its immediate base."""
-        ...
 
     @property
     def _comment(self) -> str:
@@ -330,9 +333,6 @@ class Table(SchemaObject):
             if self._comment:
                 helper.append(f'COMMENT: {self._comment}')
             return helper
-
-    @abc.abstractmethod
-    def _table_descriptor(self) -> str: ...
 
     def _col_descriptor(self, columns: Optional[list[str]] = None) -> pd.DataFrame:
         return pd.DataFrame(

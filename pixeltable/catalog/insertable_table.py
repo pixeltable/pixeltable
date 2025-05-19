@@ -243,4 +243,4 @@ class InsertableTable(Table):
         return []
 
     def _table_descriptor(self) -> str:
-        return f'Table {self._path()!r}'
+        return f'Table {self._path!r}'

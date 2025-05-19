@@ -534,7 +534,9 @@ class Catalog:
         return view
 
     @_retry_loop(for_write=True)
-    def create_replica(self, path: Path, md: list[schema.FullTableMd], if_exists: IfExistsParam) -> Table:
+    def create_replica(
+        self, path: Path, md: list[schema.FullTableMd], if_exists: IfExistsParam = IfExistsParam.ERROR
+    ) -> Table:
         """
         Creates table, table_version, and table_schema_version records for a replica with the given metadata.
         The metadata should be presented in standard "ancestor order", with the table being replicated at
@@ -560,11 +562,11 @@ class Catalog:
         # TODO: Handle concurrency in create_replica()
         existing = Catalog.get().get_table_by_id(tbl_id)
         if existing is not None:
-            existing_path = Path(existing._path(), allow_system_paths=True)
+            existing_path = Path(existing._path, allow_system_paths=True)
             # It does exist. If it's a non-system table, that's an error: it's already been replicated.
             if not existing_path.is_system_path:
                 raise excs.Error(
-                    f'That table has already been replicated as {existing._path()!r}. \n'
+                    f'That table has already been replicated as {existing._path!r}. \n'
                     f'Drop the existing replica if you wish to re-create it.'
                 )
             # If it's a system table, then this means it was created at some point as the ancestor of some other
@@ -589,7 +591,7 @@ class Catalog:
                 # The table already exists in the catalog. The existing path might be a system path (if the table
                 # was created as an anonymous base table of some other table), or it might not (if it's a snapshot
                 # that was directly replicated by the user at some point). In either case, use the existing path.
-                replica_path = Path(replica._path(), allow_system_paths=True)
+                replica_path = Path(replica._path, allow_system_paths=True)
 
             # Store the metadata; it could be a new version (in which case a new record will be created) or a
             # known version (in which case the newly received metadata will be validated as identical).
@@ -730,11 +732,11 @@ class Catalog:
                 msg: str
                 if is_replace:
                     msg = (
-                        f'{obj_type_str} {tbl._path()} already exists and has dependents. '
+                        f'{obj_type_str} {tbl._path} already exists and has dependents. '
                         "Use `if_exists='replace_force'` to replace it."
                     )
                 else:
-                    msg = f'{obj_type_str} {tbl._path()} has dependents.'
+                    msg = f'{obj_type_str} {tbl._path} has dependents.'
                 raise excs.Error(msg)
 
             for view_id in view_ids:
@@ -745,7 +747,7 @@ class Catalog:
         tbl._drop()
         assert tbl._id in self._tbls
         del self._tbls[tbl._id]
-        _logger.info(f'Dropped table `{tbl._path()}`.')
+        _logger.info(f'Dropped table `{tbl._path}`.')
 
     @_retry_loop(for_write=True)
     def create_dir(self, path: Path, if_exists: IfExistsParam, parents: bool) -> Dir:

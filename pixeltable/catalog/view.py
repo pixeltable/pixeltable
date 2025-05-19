@@ -294,13 +294,13 @@ class View(Table):
 
     def _table_descriptor(self) -> str:
         display_name = 'Snapshot' if self._snapshot_only else 'View'
-        result = [f'{display_name} {self._path()!r}']
+        result = [f'{display_name} {self._path!r}']
         bases_descrs: list[str] = []
         for base, effective_version in zip(self._base_tables, self._effective_base_versions):
             if effective_version is None:
-                bases_descrs.append(f'{base._path()!r}')
+                bases_descrs.append(f'{base._path!r}')
             else:
-                base_descr = f'{base._path()}:{effective_version}'
+                base_descr = f'{base._path}:{effective_version}'
                 bases_descrs.append(f'{base_descr!r}')
         result.append(f' (of {", ".join(bases_descrs)})')
 
