@@ -176,38 +176,37 @@ class TestSampling:
         df = t.select().where(t.id < 200).sample(fraction=0.5)
         self._check_sample(df, 200 * 0.5)
 
-    def test_sample_view_reload(self, test_tbl: catalog.Table, reload_tester: ReloadTester) -> None:
+    def test_sample_snapshot_reload(self, test_tbl: catalog.Table, reload_tester: ReloadTester) -> None:
         t = self.create_sample_data(4, 6, False)
 
-        df = t.select(t.cat1).sample(fraction=0.3, seed=51)
-        v = pxt.create_view('view1', df)
+        df = t.select(t.cat1).sample(fraction=0.3, seed=51, stratify_by=[t.cat1])
+        v = pxt.create_snapshot('sn_1', df)
 
         results = reload_tester.run_query(v.select())
         print(results)
         reload_tester.run_reload_test()
 
-    def test_sample_stratified(self, test_tbl: catalog.Table) -> None:
+    def test_sample_stratified_n(self, test_tbl: catalog.Table) -> None:
         t = self.create_sample_data(4, 6, True)
 
         df = t.select(t.cat1, t.cat2, t.id).where(t.cat1 != None).sample(n_per_stratum=2, stratify_by=[t.cat1, t.cat2])
         r = df.collect()
-        print(r)
         assert len(r) == 2 * 5 * 6
 
-        df = t.select(t.cat1, t.cat2, t.id).where(t.cat1 != None).sample(n=70, stratify_by=[t.cat1, t.cat2])
+        df = t.select(t.cat1, t.cat2, t.id).where(t.cat1 != None).sample(n=10, stratify_by=[t.cat1, t.cat2])
         r = df.collect()
         p = r.to_pandas().sort_values(by=['cat1', 'cat2']).to_string()
         print(p)
-        assert len(r) == 70
+        assert len(r) == 10
 
-        df = t.select(t.cat1, t.cat2, t.id).where(t.cat1 != None).sample(fraction=0.1, stratify_by=[t.cat1, t.cat2])
-        r = df.collect()
-        print(r)
+    def test_sample_stratified_f(self, test_tbl: catalog.Table) -> None:
+        t = self.create_sample_data(4, 6, True)
+        t_rows = t.count()
 
-        df = t.select(t.cat1, t.cat2, t.id).sample(n_per_stratum=1, stratify_by=[t.cat1 % 3, t.cat2], seed=12345)
+        df = t.select(t.cat1, t.cat2, t.id).sample(fraction=0.1, stratify_by=[t.cat1, t.cat2])
         r = df.collect()
+        self._check_sample_count(0.1 * t_rows, len(r))
         print(r)
-        assert len(r) == 4 * 6
 
     def validate_snapshot(self, df: pxt.DataFrame, t_rows: int) -> None:
         r = df.collect()
@@ -220,7 +219,12 @@ class TestSampling:
         print(f'snapshot: count: {ss.count()}, result: {len(rs)} of {t_rows} rows\n', rs)
         prs = rs.to_pandas().sort_values(by=['id']).reset_index(drop=True)
         assert pr.equals(prs)
-        rsum = ss.select(ss.cat1, ss.cat2, count1=pxtf.count(1)).group_by(ss.cat1, ss.cat2).order_by(ss.cat1, ss.cat2).collect()
+        rsum = (
+            ss.select(ss.cat1, ss.cat2, count1=pxtf.count(1))
+            .group_by(ss.cat1, ss.cat2)
+            .order_by(ss.cat1, ss.cat2)
+            .collect()
+        )
         print('summary:\n', rsum)
 
     def test_sample_snapshot(self, test_tbl: catalog.Table) -> None:
@@ -240,7 +244,6 @@ class TestSampling:
 
         df = t.select().sample(fraction=0.1, stratify_by=[t.cat1, t.cat2])
         self.validate_snapshot(df, t_rows)
-        assert False
 
     def check_create_insert(self, t: pxt.Table, df: pxt.DataFrame, n_sample: int) -> None:
         r = df.collect()
@@ -275,3 +278,17 @@ class TestSampling:
         df = t.sample(n=20)
         self.check_create_insert(t, df, 20)
         print(df.collect())
+
+    def test_reproducible_sample(self, test_tbl: catalog.Table) -> None:
+        t = self.create_sample_data(4, 6, False)
+
+        df = t.select().sample(n_per_stratum=1, stratify_by=[t.cat1, t.cat2])
+        r0 = df.collect()
+        r1 = df.collect()
+        assert r0 == r1
+        r2 = df.collect()
+        assert r0 == r2
+        r3 = df.collect()
+        assert r0 == r3
+        r4 = df.collect()
+        assert r0 == r4

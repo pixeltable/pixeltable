@@ -100,6 +100,21 @@ class SampleClause:
         # Convert to hexadecimal string with padding
         return format(threshold_int, '08x') + 'ffffffffffffffffffffffff'
 
+    @classmethod
+    def key_sql_expr(
+        cls, sql_elements: SqlElementCache, seed: int, sql_cols: list[sql.KeyedColumnElement]
+    ) -> sql.ColumnElement:
+        """Construct expression which is the ordering key for rows to be sampled
+        General SQL form is:
+        - MD5('<seed::text>' [ + '___' + <rowid_col_val>::text]+
+        """
+        seed_text = "'" + str(seed) + "'"
+        sql_expr: sql.ColumnElement = sql.cast(sql.literal_column(seed_text), sql.Text)
+        for e in sql_cols:
+            sql_expr = sql_expr + sql.literal_column("'___'") + sql.cast(e, sql.Text)
+        sql_expr = sql.func.md5(sql_expr)
+        return sql_expr
+
 
 class SampleKey(Expr):
     """
@@ -145,9 +160,5 @@ class SampleKey(Expr):
         General SQL form is:
         - MD5('<seed::text>' [ + '___' + <rowid_col_val>::text]+
         """
-        seed_text = "'" + str(self._seed) + "'" if self._seed is not None else "''"
-        sql_expr: sql.ColumnElement = sql.cast(sql.literal_column(seed_text), sql.Text)
-        for e in self.components[1:]:
-            sql_expr = sql_expr + sql.literal_column("'___'") + sql.cast(e.sql_expr(sql_elements), sql.Text)
-        sql_expr = sql.func.md5(sql_expr)
-        return sql_expr
+        rowid_sql_expr = [e.sql_expr(sql_elements) for e in self.components[1:]]
+        return SampleClause.key_sql_expr(sql_elements, self._seed, rowid_sql_expr)
