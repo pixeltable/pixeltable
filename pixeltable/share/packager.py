@@ -65,7 +65,7 @@ class TablePackager:
         Export the table to a tarball containing Parquet tables and media files.
         """
         assert not self.tmp_dir.exists()  # Packaging can only be done once per TablePackager instance
-        _logger.info(f"Packaging table '{self.table._path}' and its ancestors in: {self.tmp_dir}")
+        _logger.info(f"Packaging table '{self.table._path()}' and its ancestors in: {self.tmp_dir}")
         self.tmp_dir.mkdir()
         with open(self.tmp_dir / 'metadata.json', 'w', encoding='utf8') as fp:
             json.dump(self.md, fp)

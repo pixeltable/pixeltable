@@ -35,7 +35,7 @@ def push_replica(dest_tbl_uri: str, src_tbl: pxt.Table) -> str:
     upload_id = response_json['upload_id']
     destination_uri = response_json['destination_uri']
 
-    Env.get().console_logger.info(f"Creating a snapshot of '{src_tbl._path}' at: {dest_tbl_uri}")
+    Env.get().console_logger.info(f"Creating a snapshot of '{src_tbl._path()}' at: {dest_tbl_uri}")
 
     bundle = packager.package()
 
@@ -117,7 +117,7 @@ def pull_replica(dest_path: str, src_tbl_uri: str) -> pxt.Table:
 
     restorer = TableRestorer(dest_path, response_json)
     tbl = restorer.restore(bundle_path)
-    Env.get().console_logger.info(f'Created local replica {tbl._path!r} from URI: {src_tbl_uri}')
+    Env.get().console_logger.info(f'Created local replica {tbl._path()!r} from URI: {src_tbl_uri}')
     return tbl
 
 

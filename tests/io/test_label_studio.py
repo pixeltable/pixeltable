@@ -483,40 +483,40 @@ def ls_audio_table(init_ls: None, reset_db: None) -> pxt.Table:
 @pytest.fixture(scope='session')
 def init_ls(init_env: None) -> Iterator[None]:
     skip_test_if_not_installed('label_studio_sdk')
-    import label_studio_sdk  # type: ignore[import-untyped]
     ls_version = '1.13.0'
     ls_port = 31713
     ls_url = f'http://localhost:{ls_port}/'
-    # _logger.info('Setting up a venv the Label Studio pytext fixture.')
-    # subprocess.run('python -m venv target/ls-env'.split(' '), check=True)  # noqa: SIM905
-    # if platform.system() == 'Windows':
-    #     python_binary = 'target\\ls-env\\Scripts\\python.exe'
-    #     ls_binary = 'target\\ls-env\\Scripts\\label-studio.exe'
-    # else:
-    #     python_binary = 'target/ls-env/bin/python'
-    #     ls_binary = 'target/ls-env/bin/label-studio'
-    # subprocess.run(f'{python_binary} -m pip install --upgrade pip'.split(' '), check=True)
-    # subprocess.run(f'{python_binary} -m pip install --no-cache-dir label-studio=={ls_version}'.split(' '), check=True)
-    # _logger.info('Spawning Label Studio pytest fixture.')
-    #
-    # ls_process = subprocess.Popen(
-    #     [
-    #         ls_binary,
-    #         'start',
-    #         '--no-browser',
-    #         '--port',
-    #         str(ls_port),
-    #         '--username',
-    #         'pixeltable',
-    #         '--password',
-    #         'pxtpass',
-    #         '--user-token',
-    #         'pxt-api-token',
-    #         '--data-dir',
-    #         'target/ls-data',
-    #     ],
-    #     env={'LABEL_STUDIO_LOCAL_FILES_SERVING_ENABLED': 'true'},
-    # )
+    _logger.info('Setting up a venv the Label Studio pytext fixture.')
+    subprocess.run('python -m venv target/ls-env'.split(' '), check=True)  # noqa: SIM905
+    if platform.system() == 'Windows':
+        python_binary = 'target\\ls-env\\Scripts\\python.exe'
+        ls_binary = 'target\\ls-env\\Scripts\\label-studio.exe'
+    else:
+        python_binary = 'target/ls-env/bin/python'
+        ls_binary = 'target/ls-env/bin/label-studio'
+    subprocess.run(f'{python_binary} -m pip install --upgrade pip'.split(' '), check=True)
+    subprocess.run(f'{python_binary} -m pip install --no-cache-dir label-studio=={ls_version}'.split(' '), check=True)
+    _logger.info('Spawning Label Studio pytest fixture.')
+    import label_studio_sdk  # type: ignore[import-untyped]
+
+    ls_process = subprocess.Popen(
+        [
+            ls_binary,
+            'start',
+            '--no-browser',
+            '--port',
+            str(ls_port),
+            '--username',
+            'pixeltable',
+            '--password',
+            'pxtpass',
+            '--user-token',
+            'pxt-api-token',
+            '--data-dir',
+            'target/ls-data',
+        ],
+        env={'LABEL_STUDIO_LOCAL_FILES_SERVING_ENABLED': 'true'},
+    )
 
     _logger.info('Waiting for Label Studio pytest fixture to initialize.')
     max_wait = 300  # Maximum time in seconds to wait for Label Studio to initialize
@@ -533,8 +533,7 @@ def init_ls(init_env: None) -> Iterator[None]:
         # This goes inside a `finally`, to ensure we always kill the Label Studio process
         # in the event something goes wrong.
         if not client:
-            pass
-            # ls_process.kill()
+            ls_process.kill()
 
     if not client:
         # This goes outside the `finally`, to ensure we raise an exception on a failed
@@ -547,4 +546,4 @@ def init_ls(init_env: None) -> Iterator[None]:
     yield
 
     _logger.info('Terminating Label Studio pytest fixture.')
-    # ls_process.kill()
+    ls_process.kill()

@@ -105,7 +105,7 @@ class Table(SchemaObject):
         with Catalog.get().begin_xact(for_write=False):
             self._check_is_dropped()
             md = super().get_metadata()
-            md['base'] = self._base_table._path if self._base_table is not None else None
+            md['base'] = self._base_table._path() if self._base_table is not None else None
             md['schema'] = self._schema
             md['is_replica'] = self._tbl_version.get().is_replica
             md['version'] = self._version
