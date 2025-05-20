@@ -343,22 +343,35 @@ class TableRestorer:
         # previously imported replica.
         # The pxtmedia:// URLs of local media files are constructed using the SHA256 hash of the media file contents,
         # so this works for media files too, providing bytewise validation of data integrity.
-        non_vmax_temp_cols = [col for col_name, col in temp_cols.items() if col_name != 'v_max']
-        non_vmax_store_cols = [store_sa_tbl.c[col_name] for col_name in temp_cols if col_name != 'v_max']
-        q = sql.select(*non_vmax_temp_cols, *non_vmax_store_cols).where(pk_clause)
+
+        pk_col_names = {col.name for col in tv.store_tbl.pk_columns()}
+        value_store_cols = [
+            store_sa_tbl.c[col_name] for col_name in temp_cols if col_name not in pk_col_names and col_name != 'v_max'
+        ]
+        value_temp_cols = [
+            col for col_name, col in temp_cols.items() if col_name not in pk_col_names and col_name != 'v_max'
+        ]
+        mismatch_predicates = [store_col != temp_col for store_col, temp_col in zip(value_store_cols, value_temp_cols)]
+        mismatch_clause = sql.or_(*mismatch_predicates)
+
+        # This query looks for rows that have matching primary keys (rowid + v_min), but differ in at least one value
+        # column.
+        q = sql.select(*value_store_cols, *value_temp_cols).where(pk_clause).where(mismatch_clause)
         _logger.debug(q.compile())
         result = conn.execute(q)
-        for row in result.all():
-            for i in range(len(non_vmax_temp_cols)):
-                if row[i] != row[i + len(non_vmax_temp_cols)]:
-                    _logger.debug(f'Row in {temp_sa_tbl_name!r} does not match row in {store_sa_tbl_name!r}.')
-                    _logger.debug(f'{temp_sa_tbl_name}: {row[: len(non_vmax_temp_cols)]}')
-                    _logger.debug(f'{store_sa_tbl_name}: {row[len(non_vmax_temp_cols) :]}')
-                    raise excs.Error(
-                        'Data corruption error: the replica data are inconsistent with data retrieved from a '
-                        'previous replica.'
-                    )
-        _logger.debug(f'Verified {result.rowcount} rows in {temp_sa_tbl_name!r} that were exact pk matches.')
+        if result.rowcount > 0:
+            _logger.debug(
+                f'Data corruption error between {temp_sa_tbl_name!r} and {store_sa_tbl_name!r}: '
+                f'{result.rowcount} inconsistent row(s).'
+            )
+            row = result.first()
+            _logger.debug(f'Example mismatch:')
+            _logger.debug(f'{store_sa_tbl_name}: {row[: len(value_store_cols)]}')
+            _logger.debug(f'{temp_sa_tbl_name}: {row[len(value_store_cols) :]}')
+            raise excs.Error(
+                'Data corruption error: the replica data are inconsistent with data retrieved from a previous replica.'
+            )
+        _logger.debug(f'Verified data integrity between {store_sa_tbl_name!r} and {temp_sa_tbl_name!r}.')
 
         # Now rectify the v_max values in the temporary table.
         # If a row instance has a concrete v_max value, then we know it's genuine: it's the unique and immutable
