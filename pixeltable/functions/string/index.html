@@ -11,7 +11,7 @@
       
       
       
-        <link rel="prev" href="../json/">
+        <link rel="prev" href="../math/">
       
       
         <link rel="next" href="../timestamp/">
@@ -634,6 +634,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../date/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    date
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../image/" class="md-nav__link">
         
   
@@ -660,6 +681,27 @@
   
   <span class="md-ellipsis">
     json
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../math/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    math
   </span>
   
 
@@ -1350,6 +1392,27 @@
   
   <span class="md-ellipsis">
     anthropic
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../bedrock/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    bedrock
   </span>
   
 
@@ -2206,10 +2269,9 @@
 It closely follows the Pandas <code>pandas.Series.str</code> API.</p>
 <p>Example:</p>
 <pre><code class="language-python">import pixeltable as pxt
-from pixeltable.functions import string as pxt_str
 
 t = pxt.get_table(...)
-t.select(pxt_str.capitalize(t.str_col)).collect()
+t.select(t.str_col.capitalize()).collect()
 </code></pre>
 
 

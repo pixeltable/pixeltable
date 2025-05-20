@@ -632,6 +632,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../date/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    date
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../image/" class="md-nav__link">
         
   
@@ -658,6 +679,27 @@
   
   <span class="md-ellipsis">
     json
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../math/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    math
   </span>
   
 
@@ -849,6 +891,27 @@
   
   <span class="md-ellipsis">
     anthropic
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../bedrock/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    bedrock
   </span>
   
 
@@ -1322,7 +1385,7 @@
 
       <p>Pixeltable <a href="https://pixeltable.readme.io/docs/user-defined-functions-udfs">UDFs</a>
 that wrap various endpoints from the Google Gemini API. In order to use them, you must
-first <code>pip install google-generativeai</code> and configure your Gemini credentials, as described in
+first <code>pip install google-genai</code> and configure your Gemini credentials, as described in
 the <a href="https://pixeltable.readme.io/docs/working-with-gemini">Working with Gemini</a> tutorial.</p>
 
 
@@ -1352,7 +1415,7 @@ the <a href="https://pixeltable.readme.io/docs/working-with-gemini">Working with
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">generate_content</span><span class="p">(</span>
     <span class="n">contents</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">model_name</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span>
+    <span class="n">model</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
     <span class="n">candidate_count</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">stop_sequences</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">max_output_tokens</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -1375,7 +1438,7 @@ Applies the rate limit set in the config (section <code>gemini</code>, key <code
 limit is configured, uses a default of 600 RPM.</p>
 <p><strong>Requirements:</strong></p>
 <ul>
-<li><code>pip install google-generativeai</code></li>
+<li><code>pip install google-genai</code></li>
 </ul>
 
 
@@ -1390,8 +1453,8 @@ limit is configured, uses a default of 600 RPM.</p>
           </div>
         </li>
         <li class="doc-section-item field-body">
-          <b><code>model_name</code></b>
-              (<code>str</code>)
+          <b><code>model</code></b>
+              (<code>String</code>)
           –
           <div class="doc-md-description">
             <p>The name of the model to use.</p>
@@ -1416,7 +1479,7 @@ limit is configured, uses a default of 600 RPM.</p>
 <p><span class="doc-section-title">Examples:</span></p>
     <p>Add a computed column that applies the model <code>gemini-1.5-flash</code>
 to an existing Pixeltable column <code>tbl.prompt</code> of the table <code>tbl</code>:</p>
-    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">add_computed_column</span><span class="p">(</span><span class="n">response</span><span class="o">=</span><span class="n">generate_content</span><span class="p">(</span><span class="n">tbl</span><span class="o">.</span><span class="n">prompt</span><span class="p">,</span> <span class="n">model_name</span><span class="o">=</span><span class="s1">&#39;gemini-1.5-flash&#39;</span><span class="p">))</span>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">add_computed_column</span><span class="p">(</span><span class="n">response</span><span class="o">=</span><span class="n">generate_content</span><span class="p">(</span><span class="n">tbl</span><span class="o">.</span><span class="n">prompt</span><span class="p">,</span> <span class="n">model</span><span class="o">=</span><span class="s1">&#39;gemini-1.5-flash&#39;</span><span class="p">))</span>
 </code></pre></div>
 
     </div>

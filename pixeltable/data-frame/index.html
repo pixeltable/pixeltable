@@ -680,6 +680,15 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#pixeltable.DataFrame.distinct" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;distinct
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -806,6 +815,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../functions/date/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    date
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../functions/image/" class="md-nav__link">
         
   
@@ -832,6 +862,27 @@
   
   <span class="md-ellipsis">
     json
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../functions/math/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    math
   </span>
   
 
@@ -1021,6 +1072,27 @@
   
   <span class="md-ellipsis">
     anthropic
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../functions/bedrock/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    bedrock
   </span>
   
 
@@ -1505,6 +1577,15 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#pixeltable.DataFrame.distinct" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;distinct
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1566,6 +1647,10 @@ Another difference to pandas is that query execution needs to be initiated expli
 <tr>
 <td><a class="autorefs autorefs-internal" href="#pixeltable.DataFrame.limit"><code>limit</code></a></td>
 <td>Limit the number of output rows</td>
+</tr>
+<tr>
+<td><a class="autorefs autorefs-internal" href="#pixeltable.DataFrame.distinct"><code>distinct</code></a></td>
+<td>Remove duplicate rows</td>
 </tr>
 </tbody>
 </table>
@@ -2376,6 +2461,39 @@ or refers to tables not in the DataFrame.</p>
     <p>Filter the above DataFrame person to only include rows where the column 'age'
 (referenced in table t) is greater than 30:</p>
     <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">df</span> <span class="o">=</span> <span class="n">person</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">t</span><span class="o">.</span><span class="n">age</span> <span class="o">&gt;</span> <span class="mi">30</span><span class="p">)</span>
+</code></pre></div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.DataFrame.distinct" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">distinct</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">distinct</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.dataframe.DataFrame" href="#pixeltable.DataFrame">DataFrame</a></span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Remove duplicate rows from this DataFrame.</p>
+<p>Note that grouping will be applied to the rows based on the select clause of this Dataframe.
+In the absence of a select clause, by default, all columns are selected in the grouping.</p>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <p>Select unique addresses from table <code>addresses</code>.</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">results</span> <span class="o">=</span> <span class="n">addresses</span><span class="o">.</span><span class="n">distinct</span><span class="p">()</span>
+</code></pre></div>
+    <p>Select unique cities in table <code>addresses</code></p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">results</span> <span class="o">=</span> <span class="n">addresses</span><span class="o">.</span><span class="n">city</span><span class="o">.</span><span class="n">distinct</span><span class="p">()</span>
+</code></pre></div>
+    <p>Select unique locations (street, city) in the state of <code>CA</code></p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">results</span> <span class="o">=</span> <span class="n">addresses</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">addresses</span><span class="o">.</span><span class="n">street</span><span class="p">,</span> <span class="n">addresses</span><span class="o">.</span><span class="n">city</span><span class="p">)</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">addresses</span><span class="o">.</span><span class="n">state</span> <span class="o">==</span> <span class="s1">&#39;CA&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">distinct</span><span class="p">()</span>
 </code></pre></div>
 
     </div>

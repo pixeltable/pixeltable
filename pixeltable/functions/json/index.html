@@ -14,7 +14,7 @@
         <link rel="prev" href="../image/">
       
       
-        <link rel="next" href="../string/">
+        <link rel="next" href="../math/">
       
       
       <link rel="icon" href="../../../assets/images/favicon.png">
@@ -634,6 +634,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../date/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    date
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../image/" class="md-nav__link">
         
   
@@ -724,6 +745,27 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../math/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    math
+  </span>
+  
+
+      </a>
     </li>
   
 
@@ -909,6 +951,27 @@
   
   <span class="md-ellipsis">
     anthropic
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../bedrock/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    bedrock
   </span>
   
 
@@ -1323,9 +1386,10 @@
       <p>Pixeltable <a href="https://pixeltable.readme.io/docs/user-defined-functions-udfs">UDFs</a> for <code>JsonType</code>.</p>
 <p>Example:</p>
 <pre><code class="language-python">import pixeltable as pxt
+import pixeltable.functions as pxtf
 
 t = pxt.get_table(...)
-t.select(pxt.functions.json.make_list()).collect()
+t.select(pxtf.json.make_list(t.json_col)).collect()
 </code></pre>
 
 
