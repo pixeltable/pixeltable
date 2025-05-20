@@ -904,20 +904,20 @@ class TestExprs:
             assert orig_img.size == retrieved_img.size
 
         # Try inserting a non-image
-        with pytest.raises(
-            excs.ExprEvalError, match=r'data URL could not be decoded into a valid image: data:text/plain,Hello there.'
-        ):
+        with pytest.raises(excs.ExprEvalError) as exc_info:
             t.insert(url='data:text/plain,Hello there.')
+        assert (
+            str(exc_info.value.__cause__)
+            == 'data URL could not be decoded into a valid image: data:text/plain,Hello there.'
+        )
 
         # Try inserting a bad image
-        with pytest.raises(
-            excs.ExprEvalError,
-            match=(
-                r'data URL could not be decoded into a valid image: '
-                r'data:image/jpeg;base64,dGhlc2UgYXJlIHNvbWUgYmFkIGp...'
-            ),
-        ):
+        with pytest.raises(excs.ExprEvalError) as exc_info:
             t.insert(url=url_encoded_images[0])
+        assert (
+            str(exc_info.value.__cause__) == 'data URL could not be decoded into a valid image: '
+            'data:image/jpeg;base64,dGhlc2UgYXJlIHNvbWUgYmFkIGp...'
+        )
 
     def test_apply(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
@@ -1246,6 +1246,16 @@ class TestExprs:
         r4 = t.group_by(t.c_bool, t.c_string).select(two='2').collect()
         assert len(r1) == len(r4)
 
+        # we correctly apply a limit to the agg output
+        r5 = t.group_by(t.c_bool).select(s=pxtf.sum(t.c_int)).collect()['s']
+        r6 = (
+            t.group_by(t.c_bool)
+            .select(s=pxtf.sum(t.c_int.apply(lambda x: x, col_type=pxt.Int)))
+            .limit(3)
+            .collect()['s']
+        )
+        assert set(r5) == set(r6)
+
         for pxt_fn, pd_fn in [
             (pxtf.sum, 'sum'),
             (pxtf.mean, 'mean'),
@@ -1549,6 +1559,35 @@ class TestExprs:
         assert list(results[1].values()) == ['AB', 'AAA', 'BBB', 'A/BA/B']
 
         reload_tester.run_reload_test()
+
+    def test_base_table_col_refs(self, test_tbl: pxt.Table) -> None:
+        t = test_tbl
+        # Filter down to just 5 rows of the table.
+        v = pxt.create_view('test_view', t.where(t.c2 < 5))
+
+        assert len(t.c2.head(n=100)) == 100
+        assert len(v.c2.head(n=100)) == 5
+        assert len(t.c2.tail(n=100)) == 100
+        assert len(v.c2.tail(n=100)) == 5
+        assert len(t.c2.show(n=100)) == 100
+        assert len(v.c2.show(n=100)) == 5
+
+        assert t.c2.head()._col_names == ['c2']
+        assert v.c2.head()._col_names == ['c2']
+
+        # Test snapshots of the base table and of the view, with and without additional_columns
+        snap1 = pxt.create_snapshot('test_snapshot_1', t)
+        snap2 = pxt.create_snapshot('test_snapshot_2', v)
+        snap3 = pxt.create_snapshot('test_snapshot_3', t, additional_columns={'x1': t.c2})
+        snap4 = pxt.create_snapshot('test_snapshot_4', v, additional_columns={'x1': v.c2})
+        t.delete()
+
+        assert len(t.c2.head(n=100)) == 0
+        assert len(v.c2.head(n=100)) == 0
+        assert len(snap1.c2.head(n=100)) == 100
+        assert len(snap2.c2.head(n=100)) == 5
+        assert len(snap3.c2.head(n=100)) == 100
+        assert len(snap4.c2.head(n=100)) == 5
 
 
 @pxt.udf

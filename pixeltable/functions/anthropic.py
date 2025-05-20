@@ -112,7 +112,7 @@ async def messages(
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
         >>> msgs = [{'role': 'user', 'content': tbl.prompt}]
-        ... tbl.add_computed_column(response= messages(msgs, model='claude-3-haiku-20240307'))
+        ... tbl.add_computed_column(response=messages(msgs, model='claude-3-haiku-20240307'))
     """
 
     # it doesn't look like count_tokens() actually exists in the current version of the library

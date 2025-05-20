@@ -9,6 +9,7 @@ from .globals import (
     array,
     configure_logging,
     create_dir,
+    create_replica,
     create_snapshot,
     create_table,
     create_view,
@@ -20,11 +21,10 @@ from .globals import (
     list_functions,
     list_tables,
     move,
-    publish_snapshot,
     tool,
     tools,
 )
-from .type_system import Array, Audio, Bool, Document, Float, Image, Int, Json, Required, String, Timestamp, Video
+from .type_system import Array, Audio, Bool, Date, Document, Float, Image, Int, Json, Required, String, Timestamp, Video
 
 # This import must go last to avoid circular imports.
 from . import ext, functions, io, iterators  # isort: skip

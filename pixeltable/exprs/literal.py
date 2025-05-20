@@ -52,6 +52,9 @@ class Literal(Expr):
             assert isinstance(self.val, datetime.datetime)
             default_tz = Env.get().default_time_zone
             return f"'{self.val.astimezone(default_tz).isoformat()}'"
+        if self.col_type.is_date_type():
+            assert isinstance(self.val, datetime.date)
+            return f"'{self.val.isoformat()}'"
         if self.col_type.is_array_type():
             assert isinstance(self.val, np.ndarray)
             return str(self.val.tolist())
@@ -84,6 +87,10 @@ class Literal(Expr):
             # stored as UTC in the database)
             encoded_val = self.val.isoformat()
             return {'val': encoded_val, 'val_t': self.col_type._type.name, **super()._as_dict()}
+        elif self.col_type.is_date_type():
+            assert isinstance(self.val, datetime.date)
+            encoded_val = self.val.isoformat()
+            return {'val': encoded_val, 'val_t': self.col_type._type.name, **super()._as_dict()}
         elif self.col_type.is_array_type():
             assert isinstance(self.val, np.ndarray)
             return {'val': self.val.tolist(), 'val_t': self.col_type._type.name, **super()._as_dict()}
@@ -98,7 +105,10 @@ class Literal(Expr):
         assert 'val' in d
         if 'val_t' in d:
             val_t = d['val_t']
-            if val_t == ts.ColumnType.Type.TIMESTAMP.name:
+            if val_t == ts.ColumnType.Type.DATE.name:
+                dt = datetime.date.fromisoformat(d['val'])
+                return cls(dt)
+            elif val_t == ts.ColumnType.Type.TIMESTAMP.name:
                 dt = datetime.datetime.fromisoformat(d['val'])
                 assert dt.tzinfo == datetime.timezone.utc  # Must be UTC in the database
                 return cls(dt)

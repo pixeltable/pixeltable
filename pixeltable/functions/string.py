@@ -5,10 +5,9 @@ It closely follows the Pandas `pandas.Series.str` API.
 Example:
 ```python
 import pixeltable as pxt
-from pixeltable.functions import string as pxt_str
 
 t = pxt.get_table(...)
-t.select(pxt_str.capitalize(t.str_col)).collect()
+t.select(t.str_col.capitalize()).collect()
 ```
 """
 

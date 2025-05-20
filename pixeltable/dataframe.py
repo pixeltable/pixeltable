@@ -367,7 +367,10 @@ class DataFrame:
             raise excs.Error('head() not supported for joins')
         if self.sample_clause is not None:
             raise excs.Error('head() cannot be used with sample()')
-        order_by_clause = self.__rowid_columns()
+        if self.group_by_clause is not None:
+            raise excs.Error('head() cannot be used with group_by()')
+        num_rowid_cols = len(self._first_tbl.tbl_version.get().store_tbl.rowid_columns())
+        order_by_clause = [exprs.RowidRef(self._first_tbl.tbl_version, idx) for idx in range(num_rowid_cols)]
         return self.order_by(*order_by_clause, asc=True).limit(n).collect()
 
     def tail(self, n: int = 10) -> DataFrameResultSet:
@@ -391,7 +394,10 @@ class DataFrame:
             raise excs.Error('tail() not supported for joins')
         if self.sample_clause is not None:
             raise excs.Error('tail() cannot be used with sample()')
-        order_by_clause = self.__rowid_columns()
+        if self.group_by_clause is not None:
+            raise excs.Error('tail() cannot be used with group_by()')
+        num_rowid_cols = len(self._first_tbl.tbl_version.get().store_tbl.rowid_columns())
+        order_by_clause = [exprs.RowidRef(self._first_tbl.tbl_version, idx) for idx in range(num_rowid_cols)]
         result = self.order_by(*order_by_clause, asc=False).limit(n).collect()
         result._reverse()
         return result
@@ -499,6 +505,9 @@ class DataFrame:
         Returns:
             The number of rows in the DataFrame.
         """
+        if self.group_by_clause is not None:
+            raise excs.Error('count() cannot be used with group_by()')
+
         from pixeltable.plan import Planner
 
         stmt = Planner.create_count_stmt(self._first_tbl, self.where_clause)
@@ -621,10 +630,21 @@ class DataFrame:
                 raise excs.Error(f'Invalid expression: {raw_expr}')
             if expr.col_type.is_invalid_type() and not (isinstance(expr, exprs.Literal) and expr.val is None):
                 raise excs.Error(f'Invalid type: {raw_expr}')
+            if len(self._from_clause.tbls) == 1:
+                # Select expressions need to be retargeted in order to handle snapshots correctly, as in expressions
+                # such as `snapshot.select(base_tbl.col)`
+                # TODO: For joins involving snapshots, we need a more sophisticated retarget() that can handle
+                #     multiple TableVersionPaths.
+                expr = expr.copy()
+                try:
+                    expr.retarget(self._from_clause.tbls[0])
+                except Exception:
+                    # If retarget() fails, then the succeeding is_bound_by() will raise an error.
+                    pass
             if not expr.is_bound_by(self._from_clause.tbls):
                 raise excs.Error(
                     f"Expression '{expr}' cannot be evaluated in the context of this query's tables "
-                    f'({",".join(tbl.tbl_name() for tbl in self._from_clause.tbls)})'
+                    f'({",".join(tbl.tbl_version.get().versioned_name for tbl in self._from_clause.tbls)})'
                 )
             select_list.append((expr, name))
 
@@ -878,16 +898,18 @@ class DataFrame:
         grouping_tbl: Optional[catalog.TableVersion] = None
         group_by_clause: Optional[list[exprs.Expr]] = None
         for item in grouping_items:
-            if isinstance(item, catalog.Table):
+            if isinstance(item, (catalog.Table, catalog.TableVersion)):
                 if len(grouping_items) > 1:
                     raise excs.Error('group_by(): only one table can be specified')
                 if len(self._from_clause.tbls) > 1:
                     raise excs.Error('group_by() with Table not supported for joins')
+                grouping_tbl = item if isinstance(item, catalog.TableVersion) else item._tbl_version.get()
                 # we need to make sure that the grouping table is a base of self.tbl
-                base = self._first_tbl.find_tbl_version(item._tbl_version_path.tbl_id())
+                base = self._first_tbl.find_tbl_version(grouping_tbl.id)
                 if base is None or base.id == self._first_tbl.tbl_id():
-                    raise excs.Error(f'group_by(): {item._name} is not a base table of {self._first_tbl.tbl_name()}')
-                grouping_tbl = item._tbl_version_path.tbl_version.get()
+                    raise excs.Error(
+                        f'group_by(): {grouping_tbl.name} is not a base table of {self._first_tbl.tbl_name()}'
+                    )
                 break
             if not isinstance(item, exprs.Expr):
                 raise excs.Error(f'Invalid expression in group_by(): {item}')
@@ -902,6 +924,29 @@ class DataFrame:
             order_by_clause=self.order_by_clause,
             limit=self.limit_val,
         )
+
+    def distinct(self) -> DataFrame:
+        """
+        Remove duplicate rows from this DataFrame.
+
+        Note that grouping will be applied to the rows based on the select clause of this Dataframe.
+        In the absence of a select clause, by default, all columns are selected in the grouping.
+
+        Examples:
+            Select unique addresses from table `addresses`.
+
+            >>> results = addresses.distinct()
+
+            Select unique cities in table `addresses`
+
+            >>> results = addresses.city.distinct()
+
+            Select unique locations (street, city) in the state of `CA`
+
+            >>> results = addresses.select(addresses.street, addresses.city).where(addresses.state == 'CA').distinct()
+        """
+        exps, _ = self._normalize_select_list(self._from_clause.tbls, self.select_list)
+        return self.group_by(*exps)
 
     def order_by(self, *expr_list: exprs.Expr, asc: bool = True) -> DataFrame:
         """Add an order-by clause to this DataFrame.

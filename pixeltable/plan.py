@@ -671,8 +671,8 @@ class Planner:
                 raise excs.Error(f'Join predicate {join_clause.join_predicate} not expressible in SQL')
 
     @classmethod
-    def _verify_ordering(cls, analyzer: Analyzer, verify_agg: bool) -> None:
-        """Verify that the various ordering requirements don't conflict"""
+    def _create_combined_ordering(cls, analyzer: Analyzer, verify_agg: bool) -> Optional[OrderByClause]:
+        """Verify that the various ordering requirements don't conflict and return a combined ordering"""
         ob_clauses: list[OrderByClause] = [analyzer.order_by_clause.copy()]
 
         if verify_agg:
@@ -688,8 +688,11 @@ class Planner:
                     OrderByItem(e, True) for e in fn_call.get_agg_order_by()
                 ]
                 ob_clauses.append(ordering)
-        if len(ob_clauses) <= 1:
-            return
+
+        if len(ob_clauses) == 0:
+            return None
+        elif len(ob_clauses) == 1:
+            return ob_clauses[0]
 
         combined_ordering = ob_clauses[0]
         for ordering in ob_clauses[1:]:
@@ -700,6 +703,7 @@ class Planner:
                     f'{print_order_by_clause(combined_ordering)} vs {print_order_by_clause(ordering)}'
                 )
             combined_ordering = combined
+        return combined_ordering
 
     @classmethod
     def _is_contained_in(cls, l1: Iterable[exprs.Expr], l2: Iterable[exprs.Expr]) -> bool:
@@ -853,7 +857,7 @@ class Planner:
             analyzer.window_fn_calls
         )
         ctx = exec.ExecContext(row_builder)
-        cls._verify_ordering(analyzer, verify_agg=is_python_agg)
+        combined_ordering = cls._create_combined_ordering(analyzer, verify_agg=is_python_agg)
         cls._verify_join_clauses(analyzer)
 
         # materialized with SQL table scans (ie, single-table SELECT statements):
@@ -965,6 +969,9 @@ class Planner:
             else:
                 if sample_clause is not None:
                     raise excs.Error('Sample clause not supported with Python aggregation')
+                input_sql_node = plan.get_node(exec.SqlNode)
+                assert combined_ordering is not None
+                input_sql_node.set_order_by(combined_ordering)
                 plan = exec.AggregationNode(
                     tbl.tbl_version,
                     row_builder,

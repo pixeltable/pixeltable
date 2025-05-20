@@ -5,7 +5,7 @@ import os
 import random
 import urllib.parse
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 import more_itertools
 import numpy as np
@@ -21,6 +21,7 @@ from pixeltable.catalog.globals import UpdateStatus
 from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
 from pixeltable.io import SyncStatus
+from pixeltable.utils import sha256sum
 
 
 def make_default_type(t: ts.ColumnType.Type) -> ts.ColumnType:
@@ -34,6 +35,8 @@ def make_default_type(t: ts.ColumnType.Type) -> ts.ColumnType:
         return ts.BoolType()
     if t == ts.ColumnType.Type.TIMESTAMP:
         return ts.TimestampType()
+    if t == ts.ColumnType.Type.DATE:
+        return ts.DateType()
     raise AssertionError()
 
 
@@ -100,6 +103,8 @@ def create_table_data(
             col_data = [False if i == 0 else True for i in col_data]  # noqa: SIM211
         if col_type.is_timestamp_type():
             col_data = [datetime.datetime.now()] * num_rows
+        if col_type.is_date_type():
+            col_data = [datetime.date.today()] * num_rows
         if col_type.is_json_type():
             col_data = [sample_dict] * num_rows
         if col_type.is_array_type():
@@ -395,16 +400,54 @@ def assert_resultset_eq(r1: DataFrameResultSet, r2: DataFrameResultSet, compare_
     if compare_col_names:
         assert r1.schema.keys() == r2.schema.keys()
     for r1_col, r2_col in zip(r1.schema, r2.schema):
-        # compare column values
-        s1 = r1[r1_col]
-        s2 = r2[r2_col]
-        if r1.schema[r1_col].is_float_type():
-            # To handle None values in float columns, we need to set the dtype and allow NaN comparison
-            assert np.allclose(np.array(s1, dtype=float), np.array(s2, dtype=float), equal_nan=True)
-        elif r1.schema[r1_col].is_array_type():
-            assert all(np.array_equal(a1, a2) for a1, a2 in zip(s1, s2))
-        else:
-            assert s1 == s2
+        mismatches = __find_column_mismatches(r1.schema[r1_col], r1[r1_col], r2[r2_col])
+        assert len(mismatches) == 0, __mismatch_err_string(r1_col, r1[r1_col], r2[r2_col], mismatches)
+
+
+def __find_column_mismatches(col_type: ts.ColumnType, s1: list[Any], s2: list[Any]) -> list[int]:
+    """
+    Find the first `limit` mismatches between two lists of values.
+    """
+    comparer = __COMPARERS.get(col_type._type, __equality_comparer)
+    mismatches = []
+    for i, (v1, v2) in enumerate(zip(s1, s2)):
+        if (v1 is None) != (v2 is None) or (v1 is not None and not comparer(v1, v2)):
+            mismatches.append(i)
+    return mismatches
+
+
+def __float_comparer(x: float, y: float) -> bool:
+    return bool(np.isclose(x, y, equal_nan=True))
+
+
+def __array_comparer(x: np.ndarray, y: np.ndarray) -> bool:
+    return np.array_equal(x, y)
+
+
+def __file_comparer(x: str, y: str) -> bool:
+    return sha256sum(x) == sha256sum(y)
+
+
+def __equality_comparer(x: Any, y: Any) -> bool:
+    return x == y
+
+
+__COMPARERS: dict[ts.ColumnType.Type, Callable[[Any, Any], bool]] = {
+    ts.ColumnType.Type.FLOAT: __float_comparer,
+    ts.ColumnType.Type.ARRAY: __array_comparer,
+    ts.ColumnType.Type.VIDEO: __file_comparer,
+    ts.ColumnType.Type.AUDIO: __file_comparer,
+    ts.ColumnType.Type.DOCUMENT: __file_comparer,
+}
+
+
+def __mismatch_err_string(col_name: str, s1: list[Any], s2: list[Any], mismatches: list[int]) -> str:
+    lines = [f'Column {col_name!r} does not match.']
+    for i in mismatches[:5]:
+        lines.append(f'Row {i}: {s1[i]} != {s2[i]}')
+    if len(mismatches) > 5:
+        lines.append(f'(... {len(mismatches) - 5} more mismatches)')
+    return '\n'.join(lines)
 
 
 def strip_lines(s: str) -> str:
@@ -421,6 +464,17 @@ def skip_test_if_no_client(client_name: str) -> None:
     try:
         _ = Env.get().get_client(client_name)
     except excs.Error as exc:
+        pytest.skip(str(exc))
+
+
+def skip_test_if_no_aws_credentials() -> None:
+    import boto3
+    from botocore.exceptions import NoCredentialsError
+
+    try:
+        cl = boto3.client('s3')
+        cl.list_buckets()
+    except NoCredentialsError as exc:
         pytest.skip(str(exc))
 
 

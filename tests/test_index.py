@@ -1,7 +1,7 @@
+import datetime
 import random
 import string
 import sys
-from datetime import datetime, timedelta
 from typing import Any, Union, _GenericAlias  # type: ignore[attr-defined]
 
 import numpy as np
@@ -407,15 +407,7 @@ class TestIndex:
             img_t.batch_update([repl_row], cascade=True)
         print(img_t.select(img_t.pkey, img_t.img).collect())
 
-    def test_embedding_access(
-        self,
-        img_tbl: pxt.Table,
-        test_tbl: pxt.Table,
-        clip_embed: func.Function,
-        e5_embed: func.Function,
-        all_mpnet_embed: func.Function,
-        reload_tester: ReloadTester,
-    ) -> None:
+    def test_embedding_access(self, img_tbl: pxt.Table, e5_embed: func.Function) -> None:
         skip_test_if_not_installed('transformers')
         img_t = img_tbl
         rows = list(img_t.select(img=img_t.img.fileurl, category=img_t.category, split=img_t.split).collect())
@@ -435,23 +427,20 @@ class TestIndex:
             img_t.drop_embedding_index(column=img_t.category)
 
         img_t.add_computed_column(simmy=img_t.category.similarity('red_truck', idx='cat_idx'))
-        with pytest.raises(pxt.ExprEvalError, match='cannot be used in a computed column'):
+        with pytest.raises(pxt.ExprEvalError) as exc_info:
             img_t.insert([rows[7]])
+        assert 'cannot be used in a computed column' in str(exc_info.value.__cause__)
 
         img_t.drop_column('simmy')
         img_t.drop_column('ebd_copy')
         img_t.drop_embedding_index(column=img_t.category)
 
     def test_embedding_basic(
-        self,
-        img_tbl: pxt.Table,
-        test_tbl: pxt.Table,
-        clip_embed: func.Function,
-        e5_embed: func.Function,
-        all_mpnet_embed: func.Function,
-        reload_tester: ReloadTester,
+        self, img_tbl: pxt.Table, clip_embed: func.Function, e5_embed: func.Function, reload_tester: ReloadTester
     ) -> None:
+        skip_test_if_not_installed('sentence_transformers')
         skip_test_if_not_installed('transformers')
+
         img_t = img_tbl
         rows = list(img_t.select(img=img_t.img.fileurl, category=img_t.category, split=img_t.split).collect())
         # create table with fewer rows to speed up testing
@@ -597,41 +586,38 @@ class TestIndex:
 
         _ = reload_tester.run_query(img_t.select())
 
-        # test that a table with an embedding index can be reloaded
-        t = pxt.create_table('t1', {'s': pxt.String})
-        sents = get_sentences(3)
-        status = t.insert({'s': s} for s in sents)
-        t.add_embedding_index('s', string_embed=all_mpnet_embed)
-        df = t.select(sim=t.s.similarity(sents[1]))
-        _ = df.collect()
-        _ = reload_tester.run_query(t.select())
-        _ = reload_tester.run_query(df)
+    def test_view_indices(
+        self, reset_db: None, e5_embed: func.Function, all_mpnet_embed: func.Function, reload_tester: ReloadTester
+    ) -> None:
+        skip_test_if_not_installed('sentence_transformers')
 
-        # test that a view with an embedding index on a base table column can be reloaded
-        t = pxt.create_table('t2', {'s': pxt.String})
-        status = t.insert({'s': s} for s in sents)
-        v = pxt.create_view('v', t)
+        # Create a base table
+        t = pxt.create_table('t1', {'n': pxt.Int, 's': pxt.String})
+        sentences = get_sentences(20)
+        status = t.insert({'n': i, 's': s} for i, s in enumerate(sentences))
+        validate_update_status(status, 20)
+
+        # Create a view that indexes the base table column
+        v = pxt.create_view('v', t.where(t.n % 2 == 0))
         v.add_embedding_index('s', string_embed=all_mpnet_embed)
-        # should work irrespective of whether the column is passed by name or reference
-        v.add_embedding_index(v.s, string_embed=all_mpnet_embed)
-        v.add_embedding_index(t.s, string_embed=all_mpnet_embed)
-        # Expected to verify the following:
-        # df = v.select(sim=v.s.similarity(sents[1]))
-        # res2 = df.collect()
-        # assert_resultset_eq(res1, res2)
-        # and
-        # _ = reload_tester.run_query(df)
-        #
-        # But found a bug, instead. PXT-371 tracks this.
-        # RCA: The indexes above are on the view, not the base table.
-        # Since they are on a column of the base table, the code
-        # initializing the SimilarityExpr is looking for the index in
-        # the table in the ColumnRef, which is the base table.
-        # So it raises error that there's no index.
-        # Fix needs discussion.
-        with pytest.raises(pxt.Error, match='No indices found for '):
-            df = v.select(sim=v.s.similarity(sents[1]))
-        _ = reload_tester.run_query(v.select())
+
+        df1 = v.select(sim1=v.s.similarity(sentences[1]))
+        res1 = reload_tester.run_query(df1)
+
+        # Now add an index to the base table, which should be independent of the view index
+        t.add_embedding_index('s', string_embed=e5_embed)
+        df2 = t.where(t.n % 2 == 0).select(sim2=t.s.similarity(sentences[1]))
+        res2 = reload_tester.run_query(df2)
+
+        # Now query the view again twice: once with the column referenced as `v.s`, and once as `t.s`
+        df3 = v.select(sim3=v.s.similarity(sentences[1]))
+        res3 = reload_tester.run_query(df3)
+        df4 = v.select(sim4=t.s.similarity(sentences[1]))
+        res4 = reload_tester.run_query(df4)
+
+        # `v.s` should use the view index, while `t.s` should use the base table index
+        assert_resultset_eq(res1, res3)
+        assert_resultset_eq(res2, res4)
 
         reload_tester.run_reload_test()
 
@@ -799,9 +785,24 @@ class TestIndex:
 
     def test_timestamp_btree(self, reset_db: None) -> None:
         random.seed(1)
-        start = datetime(2000, 1, 1)
-        end = datetime(2020, 1, 1)
+        start = datetime.datetime(2000, 1, 1)
+        end = datetime.datetime(2020, 1, 1)
         delta = end - start
         delta_secs = int(delta.total_seconds())
-        data = [start + timedelta(seconds=random.randint(0, int(delta_secs))) for _ in range(self.BTREE_TEST_NUM_ROWS)]
+        data = [
+            start + datetime.timedelta(seconds=random.randint(0, int(delta_secs)))
+            for _ in range(self.BTREE_TEST_NUM_ROWS)
+        ]
         self.run_btree_test(data, pxt.Timestamp)
+
+    def test_date_btree(self, reset_db: None) -> None:
+        random.seed(1)
+        start = datetime.date(2000, 1, 1)
+        end = datetime.date(2100, 1, 1)
+        delta = end - start
+        delta_days = int(delta.days)
+        assert delta_days > 3 * self.BTREE_TEST_NUM_ROWS
+        data = [
+            start + datetime.timedelta(days=random.randint(0, int(delta_days))) for _ in range(self.BTREE_TEST_NUM_ROWS)
+        ]
+        self.run_btree_test(data, pxt.Date)

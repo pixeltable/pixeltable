@@ -34,8 +34,10 @@ nav:
     - UpdateStatus: pixeltable/update-status.md
   - Built-in Functions and Operators:
     - audio: pixeltable/functions/audio.md
+    - date: pixeltable/functions/date.md
     - image: pixeltable/functions/image.md
     - json: pixeltable/functions/json.md
+    - math: pixeltable/functions/math.md
     - string: pixeltable/functions/string.md
     - timestamp: pixeltable/functions/timestamp.md
     - video: pixeltable/functions/video.md
@@ -43,6 +45,7 @@ nav:
     - Computer Vision: pixeltable/functions/vision.md
   - Model and Inference Functions:
     - anthropic: pixeltable/functions/anthropic.md
+    - bedrock: pixeltable/functions/bedrock.md
     - deepseek: pixeltable/functions/deepseek.md
     - fireworks: pixeltable/functions/fireworks.md
     - gemini: pixeltable/functions/gemini.md
