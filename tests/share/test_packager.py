@@ -172,7 +172,7 @@ class TestPackager:
         assert tbl._tbl_version.get().is_snapshot
 
         schema = tbl._schema
-        depth = len(tbl._tbl_version_path.ancestor_paths)
+        depth = tbl._tbl_version_path.path_len()
         result_set = tbl.head(n=5000)
 
         # Package the snapshot into a tarball
@@ -192,7 +192,7 @@ class TestPackager:
     def __check_table(self, bundle_info: 'TestPackager.BundleInfo', tbl_name: str) -> None:
         t = pxt.get_table(tbl_name)
         assert t._schema == bundle_info.schema
-        assert len(t._tbl_version_path.ancestor_paths) == bundle_info.depth
+        assert t._tbl_version_path.path_len() == bundle_info.depth
         reconstituted_data = t.head(n=5000)
         assert_resultset_eq(bundle_info.result_set, reconstituted_data)
 
