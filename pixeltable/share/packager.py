@@ -365,7 +365,7 @@ class TableRestorer:
                 f'{result.rowcount} inconsistent row(s).'
             )
             row = result.first()
-            _logger.debug(f'Example mismatch:')
+            _logger.debug('Example mismatch:')
             _logger.debug(f'{store_sa_tbl_name}: {row[: len(value_store_cols)]}')
             _logger.debug(f'{temp_sa_tbl_name}: {row[len(value_store_cols) :]}')
             raise excs.Error(
