@@ -292,3 +292,23 @@ class TestSampling:
         assert r0 == r3
         r4 = df.collect()
         assert r0 == r4
+
+    def test_sample_view(self, test_tbl: catalog.Table) -> None:
+        t = self.create_sample_data(4, 6, False)
+
+        df = t.select().sample(fraction=0.1, stratify_by=[t.cat1, t.cat2])
+        with pytest.raises(excs.Error, match='cannot be created with'):
+            _ = pxt.create_view('v1', df)
+
+        df = t.select().sample(n=20)
+        with pytest.raises(excs.Error, match='cannot be created with'):
+            _ = pxt.create_view('v1', df)
+
+        df = t.select().sample(fraction=0.01)
+        n = len(df.collect())
+        v = pxt.create_view('v1', df)
+        assert v.count() == n
+
+        t.insert(t.select())
+        n = len(t.select().sample(fraction=0.01).collect())
+        assert v.count() == n

@@ -259,6 +259,8 @@ def create_view(
         where = base.where_clause
         sample_clause = base.sample_clause
         select_list = base.select_list
+        if sample_clause is not None and not is_snapshot and not sample_clause.is_repeatable:
+            raise excs.Error('Views cannot be created with non-fractional or stratified sampling')
     else:
         raise excs.Error('`base` must be an instance of `Table` or `DataFrame`')
     assert isinstance(base, (catalog.Table, DataFrame))

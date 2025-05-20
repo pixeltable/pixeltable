@@ -62,6 +62,11 @@ class SampleClause:
         """Check if the sampling is stratified"""
         return self._stratify_list is not None and len(self._stratify_list) > 0
 
+    @property
+    def is_repeatable(self) -> bool:
+        """Return true if the same rows will continue to be sampled if source rows are added or deleted."""
+        return not self.is_stratified and self._fraction is not None
+
     def display_str(self, inline: bool = False) -> str:
         return str(self)
 
