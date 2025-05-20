@@ -2075,7 +2075,8 @@ Views are created by calling <a class="autorefs autorefs-internal" href="../pixe
 <ul>
 <li><code>'error'</code>: an exception will be raised.</li>
 <li><code>'ignore'</code>: do nothing and return.</li>
-<li><code>'replace' or 'replace_force'</code>: drop the existing column and add the new column, if it has no dependents.</li>
+<li><code>'replace' or 'replace_force'</code>: drop the existing column and add the new column, if it has
+    no dependents.</li>
 </ul>
           </div>
         </li>
@@ -2135,8 +2136,8 @@ or <code>if_exists='replace*'</code> but the column has dependents or is a baset
 
     <div class="doc doc-contents ">
 
-      <p>Adds multiple columns to the table. The columns must be concrete (non-computed) columns; to add computed columns,
-use <a class="autorefs autorefs-internal" href="#pixeltable.Table.add_computed_column"><code>add_computed_column()</code></a> instead.</p>
+      <p>Adds multiple columns to the table. The columns must be concrete (non-computed) columns; to add computed
+columns, use <a class="autorefs autorefs-internal" href="#pixeltable.Table.add_computed_column"><code>add_computed_column()</code></a> instead.</p>
 <p>The format of the <code>schema</code> argument is identical to the format of the schema in a call to
 <a class="autorefs autorefs-internal" href="../pixeltable/#pixeltable.create_table"><code>create_table()</code></a>.</p>
 
@@ -2162,10 +2163,12 @@ use <a class="autorefs autorefs-internal" href="#pixeltable.Table.add_computed_c
 <ul>
 <li><code>'error'</code>: an exception will be raised.</li>
 <li><code>'ignore'</code>: do nothing and return.</li>
-<li><code>'replace' or 'replace_force'</code>: drop the existing column and add the new column, if it has no dependents.</li>
+<li><code>'replace' or 'replace_force'</code>: drop the existing column and add the new column, if it has no
+    dependents.</li>
 </ul>
 <p>Note that the <code>if_exists</code> parameter is applied to all columns in the schema.
-To apply different behaviors to different columns, please use <a class="autorefs autorefs-internal" href="#pixeltable.Table.add_column"><code>add_column()</code></a> for each column.</p>
+To apply different behaviors to different columns, please use
+<a class="autorefs autorefs-internal" href="#pixeltable.Table.add_column"><code>add_column()</code></a> for each column.</p>
           </div>
         </li>
     </ul>
@@ -2293,7 +2296,8 @@ row.</p>
 <ul>
 <li><code>'error'</code>: an exception will be raised.</li>
 <li><code>'ignore'</code>: do nothing and return.</li>
-<li><code>'replace' or 'replace_force'</code>: drop the existing column and add the new column, iff it has no dependents.</li>
+<li><code>'replace' or 'replace_force'</code>: drop the existing column and add the new column, iff it has
+    no dependents.</li>
 </ul>
           </div>
         </li>
@@ -2489,7 +2493,8 @@ The default is <code>'cosine'</code>.</p>
               <code><span title="pixeltable.exceptions.Error">Error</span></code>
             –
           <div class="doc-md-description">
-            <p>If an index with the specified name already exists for the table and <code>if_exists='error'</code>, or if the specified column does not exist.</p>
+            <p>If an index with the specified name already exists for the table and <code>if_exists='error'</code>, or if
+the specified column does not exist.</p>
           </div>
         </li>
     </ul>
@@ -2647,7 +2652,7 @@ the row with new <code>id</code> 3 (assuming this key does not exist):</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">delete</span><span class="p">(</span><span class="n">where</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="s1">&#39;pxt.exprs.Expr&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.globals.UpdateStatus" href="../update-status/#pixeltable.UpdateStatus">UpdateStatus</a></span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">delete</span><span class="p">(</span><span class="n">where</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="s1">&#39;exprs.Expr&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.globals.UpdateStatus" href="../update-status/#pixeltable.UpdateStatus">UpdateStatus</a></span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2659,7 +2664,7 @@ the row with new <code>id</code> 3 (assuming this key does not exist):</p>
     <ul>
         <li class="doc-section-item field-body">
           <b><code>where</code></b>
-              (<code><span title="typing.Optional">Optional</span>[&#39;pxt.exprs.Expr&#39;]</code>, default:
+              (<code><span title="typing.Optional">Optional</span>[&#39;exprs.Expr&#39;]</code>, default:
                   <code>None</code>
 )
           –
@@ -3024,6 +3029,7 @@ indices or multiple indices.</p>
         'col1': StringType(),
         'col2': IntType(),
     },
+    'is_replica': False,
     'version': 22,
     'schema_version': 1,
     'comment': '',
@@ -3069,7 +3075,7 @@ indices or multiple indices.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">head</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s1">&#39;pxt.dataframe.DataFrameResultSet&#39;</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">head</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">:</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s1">&#39;pxt.dataframe.DataFrameResultSet&#39;</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -3447,7 +3453,7 @@ all sub-views (including views of views, etc.)</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">show</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s1">&#39;pxt.dataframe.DataFrameResultSet&#39;</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">show</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">:</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s1">&#39;pxt.dataframe.DataFrameResultSet&#39;</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -3526,7 +3532,7 @@ will synchronize all of this table's external stores.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">tail</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s1">&#39;pxt.dataframe.DataFrameResultSet&#39;</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">tail</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">:</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s1">&#39;pxt.dataframe.DataFrameResultSet&#39;</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -3651,7 +3657,7 @@ is a destructive operation that will delete data outside Pixeltable, and cannot 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">update</span><span class="p">(</span>
     <span class="n">value_spec</span><span class="p">:</span> <span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">],</span>
-    <span class="n">where</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="s2">&quot;pxt.exprs.Expr&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">where</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="s2">&quot;exprs.Expr&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">cascade</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.globals.UpdateStatus" href="../update-status/#pixeltable.UpdateStatus">UpdateStatus</a></span>
 </code></pre></div>
@@ -3673,7 +3679,7 @@ is a destructive operation that will delete data outside Pixeltable, and cannot 
         </li>
         <li class="doc-section-item field-body">
           <b><code>where</code></b>
-              (<code><span title="typing.Optional">Optional</span>[&#39;pxt.exprs.Expr&#39;]</code>, default:
+              (<code><span title="typing.Optional">Optional</span>[&#39;exprs.Expr&#39;]</code>, default:
                   <code>None</code>
 )
           –

@@ -1352,7 +1352,7 @@ the <a href="https://pixeltable.readme.io/docs/working-with-gemini">Working with
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">generate_content</span><span class="p">(</span>
     <span class="n">contents</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">model_name</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
+    <span class="n">model_name</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span>
     <span class="n">candidate_count</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">stop_sequences</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">max_output_tokens</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -1391,7 +1391,7 @@ limit is configured, uses a default of 600 RPM.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>model_name</code></b>
-              (<code>String</code>)
+              (<code>str</code>)
           –
           <div class="doc-md-description">
             <p>The name of the model to use.</p>
