@@ -59,8 +59,8 @@ echo "v$VERSION tag created and pushed to home repo."
 echo "Enter to proceed; Ctrl-C to abort."
 read
 
-git tag -d release
-git push --delete home release
+git tag -d release || true
+git push --delete home release || true
 git tag release
 git push home release
 
