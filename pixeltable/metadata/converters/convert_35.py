@@ -10,7 +10,7 @@ from pixeltable.metadata.converters.util import convert_table_md
 _logger = logging.getLogger('pixeltable')
 
 
-@register_converter(version=34)
+@register_converter(version=35)
 def _(engine: sql.engine.Engine) -> None:
     convert_table_md(engine, table_md_updater=__update_table_md, substitution_fn=__substitute_md)
 
