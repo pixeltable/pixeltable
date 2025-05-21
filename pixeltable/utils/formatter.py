@@ -124,7 +124,10 @@ class Formatter:
                 components.extend(cls.__format_json_rec(x, escape_strings) for x in val[-cls.__LIST_EDGEITEMS :])
             return '[' + ', '.join(components) + ']'
         if isinstance(val, dict):
-            kv_pairs = (f'{cls.__format_json_rec(k, escape_strings)}: {cls.__format_json_rec(v, escape_strings)}' for k, v in val.items())
+            kv_pairs = (
+                f'{cls.__format_json_rec(k, escape_strings)}: {cls.__format_json_rec(v, escape_strings)}'
+                for k, v in val.items()
+            )
             return '{' + ', '.join(kv_pairs) + '}'
 
         # Everything else
@@ -183,7 +186,7 @@ class Formatter:
         """
 
     @classmethod
-    def extract_first_video_frame(self, file_path: str) -> Optional[Image.Image]:
+    def extract_first_video_frame(cls, file_path: str) -> Optional[Image.Image]:
         with av.open(file_path) as container:
             try:
                 img = next(container.decode(video=0)).to_image()
@@ -201,7 +204,7 @@ class Formatter:
         </div>
         """
 
-    def format_document(self, file_path: str, max_width = 320, max_height = 320) -> str:
+    def format_document(self, file_path: str, max_width: int = 320, max_height: int = 320) -> str:
         # by default, file path will be shown as a link
         inner_element = file_path
         inner_element = html.escape(inner_element)
@@ -221,7 +224,8 @@ class Formatter:
         </div>
         """
 
-    def make_document_thumbnail(self, file_path: str, max_width = 320, max_height = 320) -> Optional[str]:
+    @classmethod
+    def make_document_thumbnail(cls, file_path: str, max_width: int = 320, max_height: int = 320) -> Optional[str]:
         """
         Returns a base64-encoded thumbnail of a document.
         """

@@ -13,10 +13,10 @@ from typing import Any, Iterator, Optional
 
 import more_itertools
 import numpy as np
+import PIL.Image
 import pyarrow as pa
 import pyarrow.parquet as pq
 import sqlalchemy as sql
-import PIL.Image
 
 import pixeltable as pxt
 from pixeltable import catalog, exceptions as excs, metadata, type_system as ts
@@ -76,7 +76,7 @@ class TablePackager:
         """
         assert not self.tmp_dir.exists()  # Packaging can only be done once per TablePackager instance
 
-        _logger.info(f"Packaging table {self.table._path!r} and its ancestors in: {self.tmp_dir}")
+        _logger.info(f'Packaging table {self.table._path!r} and its ancestors in: {self.tmp_dir}')
         self.tmp_dir.mkdir()
         with open(self.tmp_dir / 'metadata.json', 'w', encoding='utf8') as fp:
             json.dump(self.md, fp)
@@ -85,7 +85,7 @@ class TablePackager:
 
         with Env.get().begin_xact():
             for tv in self.table._tbl_version_path.get_tbl_versions():
-                _logger.info(f"Exporting table {tv.get().versioned_name!r}.")
+                _logger.info(f'Exporting table {tv.get().versioned_name!r}.')
                 self.__export_table(tv.get())
 
         _logger.info('Building archive.')
@@ -244,6 +244,14 @@ class TablePackager:
             return None
 
         match col_type._type:
+            case (
+                ts.ColumnType.Type.STRING | ts.ColumnType.Type.INT | ts.ColumnType.Type.FLOAT | ts.ColumnType.Type.BOOL
+            ):
+                return val
+
+            case ts.ColumnType.Type.TIMESTAMP | ts.ColumnType.Type.DATE:
+                return str(val)
+
             case ts.ColumnType.Type.ARRAY:
                 assert isinstance(val, np.ndarray)
                 return Formatter.format_array(val)
@@ -268,12 +276,6 @@ class TablePackager:
             case ts.ColumnType.Type.DOCUMENT:
                 assert isinstance(val, str)
                 return Formatter.make_document_thumbnail(val)
-
-            case ts.ColumnType.Type.TIMESTAMP | ts.ColumnType.Type.DATE:
-                return str(val)
-
-            case ts.ColumnType.Type.STRING | ts.ColumnType.Type.INT | ts.ColumnType.Type.FLOAT | ts.ColumnType.Type.BOOL:
-                return val
 
             case _:
                 raise AssertionError(f'Unrecognized column type: {col_type._type}')
