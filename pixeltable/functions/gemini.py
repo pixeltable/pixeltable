@@ -5,9 +5,14 @@ first `pip install google-genai` and configure your Gemini credentials, as descr
 the [Working with Gemini](https://pixeltable.readme.io/docs/working-with-gemini) tutorial.
 """
 
+import asyncio
+import tempfile
 from typing import TYPE_CHECKING, Optional
 
+import PIL.Image
+
 import pixeltable as pxt
+import pixeltable.exceptions as excs
 from pixeltable import env
 
 if TYPE_CHECKING:
@@ -91,3 +96,51 @@ async def generate_content(
 @generate_content.resource_pool
 def _(model: str) -> str:
     return f'request-rate:gemini:{model}'
+
+
+@pxt.udf(resource_pool='request-rate:imagen')
+async def generate_images(
+    prompt: Optional[str] = None,
+    image: Optional[str] = None,
+    *,
+    model: str,
+    config: Optional[dict] = None,
+) -> PIL.Image.Image:
+    env.Env.get().require_package('google.genai')
+
+    if prompt is None and image is None:
+        raise excs.Error('At least one of `prompt` or `image` must be provided.')
+
+    response = await _genai_client().aio.models.generate_videos(model=model, prompt=prompt, config=config)
+    return response.generated_images[0].image
+
+
+@generate_images.resource_pool
+def _(model: str) -> str:
+    return f'request-rate:imagen:{model}'
+
+
+@pxt.udf(resource_pool='request-rate:veo')
+async def generate_video(
+    prompt: str,
+    *,
+    model: str,
+    config: Optional[dict] = None,
+) -> pxt.Video:
+    env.Env.get().require_package('google.genai')
+
+    operation = await _genai_client().aio.models.generate_videos(model=model, prompt=prompt, config=config)
+    while not operation.done:
+        asyncio.sleep(3)
+        operation = await _genai_client().aio.operations.get(operation)
+
+    video = operation.response.generated_videos[0]
+    await _genai_client().aio.files.download(file=video.video)
+    _, output_filename = tempfile.mkstemp(suffix='.mp4', dir=str(env.Env.get().tmp_dir))
+    video.video.save(output_filename)
+    return output_filename
+
+
+@generate_video.resource_pool
+def _(model: str) -> str:
+    return f'request-rate:veo:{model}'
