@@ -63,10 +63,10 @@ class Formatter:
         """
         Escapes special characters in `val`, and abbreviates `val` if its length exceeds `_STRING_MAX_LEN`.
         """
-        return cls.__escape(cls.__abbreviate(val, cls.__STRING_MAX_LEN))
+        return cls.__escape(cls.abbreviate(val))
 
     @classmethod
-    def __abbreviate(cls, val: str, max_len: int) -> str:
+    def abbreviate(cls, val: str, max_len: int = __STRING_MAX_LEN) -> str:
         if len(val) > max_len:
             edgeitems = (max_len - len(cls.__STRING_SEP)) // 2
             return f'{val[:edgeitems]}{cls.__STRING_SEP}{val[-edgeitems:]}'
@@ -100,17 +100,15 @@ class Formatter:
             # (quote the string; escape any quotes inside the string; shorter abbreviations).
             # However, if the string appears in top-level position (i.e., the entire JSON value is a
             # string), then we format it like an ordinary string.
-            return cls.format_string(val) if escape_strings else val
+            return cls.format_string(val) if escape_strings else cls.abbreviate(val)
         # In all other cases, dump the JSON struct recursively.
         return cls.__format_json_rec(val, escape_strings)
 
     @classmethod
     def __format_json_rec(cls, val: Any, escape_strings: bool) -> str:
         if isinstance(val, str):
-            if escape_strings:
-                return cls.__escape(json.dumps(cls.__abbreviate(val, cls.__NESTED_STRING_MAX_LEN)))
-            else:
-                return val
+            formatted = json.dumps(cls.abbreviate(val, cls.__NESTED_STRING_MAX_LEN))
+            return cls.__escape(formatted) if escape_strings else formatted
         if isinstance(val, float):
             return cls.format_float(val)
         if isinstance(val, np.ndarray):

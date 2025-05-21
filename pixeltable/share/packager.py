@@ -51,8 +51,8 @@ class TablePackager:
     md: dict[str, Any]
 
     bundle_path: Path
-    sample_header: list[str]
-    sample: list[list[Any]]
+    preview_header: list[str]
+    preview: list[list[Any]]
 
     def __init__(self, table: catalog.Table, additional_md: Optional[dict[str, Any]] = None) -> None:
         self.table = table
@@ -91,11 +91,11 @@ class TablePackager:
         _logger.info('Building archive.')
         self.bundle_path = self.__build_tarball()
 
-        _logger.info('Extracting sample data.')
+        _logger.info('Extracting preview data.')
         self.md['count'] = self.table.count()
-        sample_header, sample = self.__extract_sample_data()
-        self.md['sample_header'] = sample_header
-        self.md['sample'] = sample
+        preview_header, preview = self.__extract_preview_data()
+        self.md['preview_header'] = preview_header
+        self.md['preview'] = preview
 
         _logger.info(f'Packaging complete: {self.bundle_path}')
         return self.bundle_path
@@ -220,33 +220,35 @@ class TablePackager:
                 tf.add(src_file, arcname=f'media/{dest_name}')
         return bundle_path
 
-    def __extract_sample_data(self) -> tuple[dict[str, str], list[list[Any]]]:
-        # Extract a sample of the data from the table
-        self.sample_header = []
-        self.sample = []
+    def __extract_preview_data(self) -> tuple[dict[str, str], list[list[Any]]]:
+        # Extract a preview of the data from the table
+        self.preview_header = []
+        self.preview = []
         # First 8 columns
-        sample_cols = dict(itertools.islice(self.table._schema.items(), 0, 8))
-        select_list = [self.table[col_name] for col_name in sample_cols]
+        preview_cols = dict(itertools.islice(self.table._schema.items(), 0, 8))
+        select_list = [self.table[col_name] for col_name in preview_cols]
         # First 5 rows
         rows = list(self.table.select(*select_list).head(n=5))
 
-        sample_header = {col_name: str(col_type._type) for col_name, col_type in sample_cols.items()}
-        sample = [
-            [self.__encode_sample_data(val, col_type)]
+        preview_header = {col_name: str(col_type._type) for col_name, col_type in preview_cols.items()}
+        preview = [
+            [self.__encode_preview_data(val, col_type)]
             for row in rows
-            for val, col_type in zip(row.values(), sample_cols.values())
+            for val, col_type in zip(row.values(), preview_cols.values())
         ]
 
-        return sample_header, sample
+        return preview_header, preview
 
-    def __encode_sample_data(self, val: Any, col_type: ts.ColumnType) -> Any:
+    def __encode_preview_data(self, val: Any, col_type: ts.ColumnType) -> Any:
         if val is None:
             return None
 
         match col_type._type:
-            case (
-                ts.ColumnType.Type.STRING | ts.ColumnType.Type.INT | ts.ColumnType.Type.FLOAT | ts.ColumnType.Type.BOOL
-            ):
+            case ts.ColumnType.Type.STRING:
+                assert isinstance(val, str)
+                return Formatter.abbreviate(val)
+
+            case ts.ColumnType.Type.INT | ts.ColumnType.Type.FLOAT | ts.ColumnType.Type.BOOL:
                 return val
 
             case ts.ColumnType.Type.TIMESTAMP | ts.ColumnType.Type.DATE:
