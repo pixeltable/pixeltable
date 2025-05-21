@@ -1,3 +1,4 @@
+from pathlib import Path
 import pytest
 
 import pixeltable as pxt
@@ -53,3 +54,20 @@ class TestGemini:
         results = t.collect()
         assert results['output'][0].size == (1024, 1024)
         assert results['output2'][0].size == (1280, 896)
+
+    @pytest.mark.expensive
+    def test_generate_videos(self, reset_db: None) -> None:
+        from pixeltable.functions.gemini import generate_videos
+
+        skip_test_if_not_installed('google.genai')
+        skip_test_if_no_client('gemini')
+
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String})
+        t.add_computed_column(output=generate_videos(t.prompt, model='veo-2.0-generate-001'))
+        t.add_computed_column(metadata=t.output.get_metadata())
+        validate_update_status(t.insert(prompt='A giant pixel floating over the open ocean in a sea of data'), expected_rows=1)
+        results = t.collect()
+        print(results['output'][0])
+        print(results['metadata'][0])
+        assert Path(results['output'][0]).exists()
+        assert results['metadata'][0]['streams'][0]['height'] == 720

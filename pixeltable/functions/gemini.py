@@ -117,7 +117,7 @@ def _(model: str) -> str:
 
 
 @pxt.udf(resource_pool='request-rate:veo')
-async def generate_video(
+async def generate_videos(
     prompt: Optional[str] = None,
     image: Optional[str] = None,
     *,
@@ -135,12 +135,16 @@ async def generate_video(
         operation = await _genai_client().aio.operations.get(operation)
 
     video = operation.response.generated_videos[0]
-    await _genai_client().aio.files.download(file=video.video)
+
+    # TODO: The async variant gave me errors:
+    #   await _genai_client().aio.files.download(file=video.video)
+    _genai_client().files.download(file=video.video)
+
     _, output_filename = tempfile.mkstemp(suffix='.mp4', dir=str(env.Env.get().tmp_dir))
     video.video.save(output_filename)
     return output_filename
 
 
-@generate_video.resource_pool
+@generate_videos.resource_pool
 def _(model: str) -> str:
     return f'request-rate:veo:{model}'
