@@ -6,6 +6,7 @@ the [Working with Gemini](https://pixeltable.readme.io/docs/working-with-gemini)
 """
 
 import asyncio
+import io
 import tempfile
 from typing import TYPE_CHECKING, Optional
 
@@ -97,7 +98,12 @@ async def generate_videos(
     if prompt is None and image is None:
         raise excs.Error('At least one of `prompt` or `image` must be provided.')
 
-    image_ = types.Image(image_bytes=image.tobytes(), mime_type=PIL.Image.MIME[image.format]) if image else None
+    image_: Optional[types.Image] = None
+    if image is not None:
+        bytesio = io.BytesIO()
+        image.save(bytesio, format='jpeg')
+        image_ = types.Image(image_bytes=bytesio.getvalue(), mime_type='image/jpeg')
+
     config_ = types.GenerateVideosConfig(**config) if config else None
     operation = await _genai_client().aio.models.generate_videos(
         model=model, prompt=prompt, image=image_, config=config_
