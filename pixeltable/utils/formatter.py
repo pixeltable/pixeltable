@@ -34,7 +34,7 @@ class Formatter:
     __STRING_MAX_LEN = 1000
     __NESTED_STRING_MAX_LEN = 300
 
-    def __init__(self, num_rows: int, num_cols: int, http_address: str):
+    def __init__(self, num_rows: int, num_cols: int, http_address: Optional[str] = None):
         self.__num_rows = num_rows
         self.__num_cols = num_cols
         self.__http_address = http_address
@@ -94,41 +94,44 @@ class Formatter:
         )
 
     @classmethod
-    def format_json(cls, val: Any) -> str:
+    def format_json(cls, val: Any, escape_strings: bool = True) -> str:
         if isinstance(val, str):
             # JSON-like formatting will be applied to strings that appear nested within a list or dict
             # (quote the string; escape any quotes inside the string; shorter abbreviations).
             # However, if the string appears in top-level position (i.e., the entire JSON value is a
             # string), then we format it like an ordinary string.
-            return cls.format_string(val)
+            return cls.format_string(val) if escape_strings else val
         # In all other cases, dump the JSON struct recursively.
-        return cls.__format_json_rec(val)
+        return cls.__format_json_rec(val, escape_strings)
 
     @classmethod
-    def __format_json_rec(cls, val: Any) -> str:
+    def __format_json_rec(cls, val: Any, escape_strings: bool) -> str:
         if isinstance(val, str):
-            return cls.__escape(json.dumps(cls.__abbreviate(val, cls.__NESTED_STRING_MAX_LEN)))
+            if escape_strings:
+                return cls.__escape(json.dumps(cls.__abbreviate(val, cls.__NESTED_STRING_MAX_LEN)))
+            else:
+                return val
         if isinstance(val, float):
             return cls.format_float(val)
         if isinstance(val, np.ndarray):
             return cls.format_array(val)
         if isinstance(val, list):
             if len(val) < cls.__LIST_THRESHOLD:
-                components = [cls.__format_json_rec(x) for x in val]
+                components = [cls.__format_json_rec(x, escape_strings) for x in val]
             else:
-                components = [cls.__format_json_rec(x) for x in val[: cls.__LIST_EDGEITEMS]]
+                components = [cls.__format_json_rec(x, escape_strings) for x in val[: cls.__LIST_EDGEITEMS]]
                 components.append('...')
-                components.extend(cls.__format_json_rec(x) for x in val[-cls.__LIST_EDGEITEMS :])
+                components.extend(cls.__format_json_rec(x, escape_strings) for x in val[-cls.__LIST_EDGEITEMS :])
             return '[' + ', '.join(components) + ']'
         if isinstance(val, dict):
-            kv_pairs = (f'{cls.__format_json_rec(k)}: {cls.__format_json_rec(v)}' for k, v in val.items())
+            kv_pairs = (f'{cls.__format_json_rec(k, escape_strings)}: {cls.__format_json_rec(v, escape_strings)}' for k, v in val.items())
             return '{' + ', '.join(kv_pairs) + '}'
 
         # Everything else
         try:
             return json.dumps(val)
         except TypeError:  # Not JSON serializable
-            return str(val)
+            return cls.__escape(str(val))
 
     def format_img(self, img: Image.Image) -> str:
         """
@@ -152,22 +155,19 @@ class Formatter:
             """
 
     def format_video(self, file_path: str) -> str:
-        thumb_tag = ''
         # Attempt to extract the first frame of the video to use as a thumbnail,
         # so that the notebook can be exported as HTML and viewed in contexts where
         # the video itself is not accessible.
         # TODO(aaron-siegel): If the video is backed by a concrete external URL,
         # should we link to that instead?
-        with av.open(file_path) as container:
-            try:
-                thumb = next(container.decode(video=0)).to_image()
-                assert isinstance(thumb, Image.Image)
-                with io.BytesIO() as buffer:
-                    thumb.save(buffer, 'jpeg')
-                    thumb_base64 = base64.b64encode(buffer.getvalue()).decode()
-                    thumb_tag = f'poster="data:image/jpeg;base64,{thumb_base64}"'
-            except Exception:
-                pass
+        thumb = self.extract_first_video_frame(file_path)
+        if thumb is None:
+            thumb_tag = ''
+        else:
+            with io.BytesIO() as buffer:
+                thumb.save(buffer, 'jpeg')
+                thumb_base64 = base64.b64encode(buffer.getvalue()).decode()
+                thumb_tag = f'poster="data:image/jpeg;base64,{thumb_base64}"'
         if self.__num_rows > 1:
             width = 320
         elif self.__num_cols > 1:
@@ -182,6 +182,16 @@ class Formatter:
         </div>
         """
 
+    @classmethod
+    def extract_first_video_frame(self, file_path: str) -> Optional[Image.Image]:
+        with av.open(file_path) as container:
+            try:
+                img = next(container.decode(video=0)).to_image()
+                assert isinstance(img, Image.Image)
+                return img
+            except Exception:
+                return None
+
     def format_audio(self, file_path: str) -> str:
         return f"""
         <div class="pxt_audio">
@@ -191,12 +201,30 @@ class Formatter:
         </div>
         """
 
-    def format_document(self, file_path: str) -> str:
-        max_width = max_height = 320
+    def format_document(self, file_path: str, max_width = 320, max_height = 320) -> str:
         # by default, file path will be shown as a link
         inner_element = file_path
         inner_element = html.escape(inner_element)
         # try generating a thumbnail for different types and use that if successful
+
+        thumb_base64 = self.make_document_thumbnail(file_path, max_width, max_height)
+        img_src = f'data:image/webp;base64,{thumb_base64}'
+        inner_element = f"""
+            <img style="object-fit: contain; border: 1px solid black;" src="{img_src}" />
+        """
+
+        return f"""
+        <div class="pxt_document" style="width:{max_width}px;">
+            <a href="{get_file_uri(self.__http_address, file_path)}">
+                {inner_element}
+            </a>
+        </div>
+        """
+
+    def make_document_thumbnail(self, file_path: str, max_width = 320, max_height = 320) -> Optional[str]:
+        """
+        Returns a base64-encoded thumbnail of a document.
+        """
         if file_path.lower().endswith('.pdf'):
             try:
                 import fitz  # type: ignore[import-untyped]
@@ -206,22 +234,12 @@ class Formatter:
                 while p.width > max_width or p.height > max_height:
                     # shrink(1) will halve each dimension
                     p.shrink(1)
-                data = p.tobytes(output='jpeg')
-                thumb_base64 = base64.b64encode(data).decode()
-                img_src = f'data:image/jpeg;base64,{thumb_base64}'
-                inner_element = f"""
-                    <img style="object-fit: contain; border: 1px solid black;" src="{img_src}" />
-                """
+                data = p.tobytes(output='webp')
+                return base64.b64encode(data).decode()
             except Exception:
                 logging.warning(f'Failed to produce PDF thumbnail {file_path}. Make sure you have PyMuPDF installed.')
 
-        return f"""
-        <div class="pxt_document" style="width:{max_width}px;">
-            <a href="{get_file_uri(self.__http_address, file_path)}">
-                {inner_element}
-            </a>
-        </div>
-        """
+        return None
 
     @classmethod
     def __create_source_tag(cls, http_address: str, file_path: str) -> str:
