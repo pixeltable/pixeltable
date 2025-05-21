@@ -21,7 +21,6 @@ class TestGemini:
         t = pxt.create_table('test_tbl', {'contents': pxt.String})
         t.add_computed_column(output=generate_content(t.contents, model='gemini-2.0-flash'))
         config = GenerateContentConfigDict(
-            system_instruction='You are a pirate captain in the 18th century who tells long, detailed stories.',
             candidate_count=3,
             stop_sequences=['\n'],
             max_output_tokens=300,

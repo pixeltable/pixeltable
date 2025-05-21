@@ -60,8 +60,10 @@ async def generate_content(contents: str, *, model: str, config: Optional[dict] 
         >>> tbl.add_computed_column(response=generate_content(tbl.prompt, model='gemini-1.5-flash'))
     """
     env.Env.get().require_package('google.genai')
+    from google.genai.types import GenerateContentConfig
 
-    response = await _genai_client().aio.models.generate_content(model=model, contents=contents, config=config)
+    config_ = GenerateContentConfig(**config) if config else None
+    response = await _genai_client().aio.models.generate_content(model=model, contents=contents, config=config_)
     return response.model_dump()
 
 
@@ -73,8 +75,10 @@ def _(model: str) -> str:
 @pxt.udf(resource_pool='request-rate:imagen')
 async def generate_images(prompt: str, *, model: str, config: Optional[dict] = None) -> PIL.Image.Image:
     env.Env.get().require_package('google.genai')
+    from google.genai.types import GenerateImagesConfig
 
-    response = await _genai_client().aio.models.generate_images(model=model, prompt=prompt, config=config)
+    config_ = GenerateImagesConfig(**config) if config else None
+    response = await _genai_client().aio.models.generate_images(model=model, prompt=prompt, config=config_)
     return response.generated_images[0].image._pil_image
 
 
@@ -85,16 +89,21 @@ def _(model: str) -> str:
 
 @pxt.udf(resource_pool='request-rate:veo')
 async def generate_videos(
-    prompt: Optional[str] = None, image: Optional[str] = None, *, model: str, config: Optional[dict] = None
+    prompt: Optional[str] = None, image: Optional[PIL.Image.Image] = None, *, model: str, config: Optional[dict] = None
 ) -> pxt.Video:
     env.Env.get().require_package('google.genai')
+    from google.genai import types
 
     if prompt is None and image is None:
         raise excs.Error('At least one of `prompt` or `image` must be provided.')
 
-    operation = await _genai_client().aio.models.generate_videos(model=model, prompt=prompt, image=image, config=config)
+    image_ = types.Image(image_bytes=image.tobytes(), mime_type=PIL.Image.MIME[image.format]) if image else None
+    config_ = types.GenerateVideosConfig(**config) if config else None
+    operation = await _genai_client().aio.models.generate_videos(
+        model=model, prompt=prompt, image=image_, config=config_
+    )
     while not operation.done:
-        asyncio.sleep(3)
+        await asyncio.sleep(3)
         operation = await _genai_client().aio.operations.get(operation)
 
     video = operation.response.generated_videos[0]
