@@ -1026,7 +1026,7 @@ class DataFrame:
         seed: Optional[int] = None,
         stratify_by: Any = None,
     ) -> DataFrame:
-        """Choose a shuffled sample of rows in the DataFrame
+        """Choose a shuffled sample of rows from the DataFrame
 
         Args:
             n: Total number of rows to produce as a sample.
@@ -1036,6 +1036,7 @@ class DataFrame:
                 `n_per_stratum`. The fraction must be between 0.0 and 1.0.
             seed: Random seed for reproducible shuffling
             stratify_by: If specified, the sample will be stratified by these values.
+
         Returns:
             A new DataFrame which specifies the sampled rows
         """

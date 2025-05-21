@@ -9,7 +9,7 @@ import pixeltable.functions as pxtf
 import pixeltable.type_system as ts
 from pixeltable import catalog, exceptions as excs
 
-from .utils import ReloadTester
+from .utils import SAMPLE_IMAGE_URL, ReloadTester
 
 
 class TestSampling:
@@ -312,3 +312,38 @@ class TestSampling:
         t.insert(t.select())
         n = len(t.select().sample(fraction=0.01).collect())
         assert v.count() == n
+
+    def test_sample_iterator(self, test_tbl: catalog.Table) -> None:
+        print('\n\nCREATE TABLE WITH ONE IMAGE COLUMN\n')
+        t = pxt.create_table('test_tile_tbl', {'image': pxt.Image})
+
+        print('\n\nINSERT ONE IMAGE\n')
+        t.insert(image=SAMPLE_IMAGE_URL)
+
+        print('\n\nCREATE ITERATOR VIEW\n')
+        v = pxt.create_view(
+            'test_view',
+            t,
+            iterator=pxt.iterators.TileIterator.create(image=t.image, tile_size=(100, 100), overlap=(10, 10)),
+        )
+        v_rows = v.count()
+        print(f'total rows: {v_rows}')
+        print(v._schema)
+
+        print('\n\nSELECT SAMPLE OF ITERATOR VIEW\n')
+        df = v.select().sample(fraction=0.1)
+        r = df.collect()
+        print(f'total rows: {v_rows}, sample rows: {len(r)}')
+        print(r)
+
+        print('\n\nCREATE VIEW OF SAMPLE OF VIEW\n')
+        vs = pxt.create_view('test_view_sample', df)
+        vs_rows = vs.count()
+        print(f'total rows: {vs_rows}, sample rows: {len(r)}')
+        print(r)
+        assert vs_rows == len(r)
+
+        print('\n\nRENAME tile COLUMN in ITERATOR VIEW\n')
+        v.rename_column('tile', 'tile_renamed')
+        v_rows = v.count()
+        print(f'total rows: {v_rows}')

@@ -298,7 +298,10 @@ class SqlNode(ExecNode):
                 stmt_str = str(stmt.compile(compile_kwargs={'literal_binds': True}))
                 _logger.debug(f'SqlLookupNode stmt:\n{stmt_str}')
             except Exception:
-                pass
+                # log something if we can't log the compiled stmt
+                stmt_str = repr(stmt)
+                _logger.debug(f'SqlLookupNode proto-stmt:\n{stmt_str}')
+                print(stmt)
             self._log_explain(stmt)
 
             conn = Env.get().conn
