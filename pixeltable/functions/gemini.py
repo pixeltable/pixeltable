@@ -35,16 +35,7 @@ async def generate_content(
     contents: str,
     *,
     model: str,
-    candidate_count: Optional[int] = None,
-    stop_sequences: Optional[list[str]] = None,
-    max_output_tokens: Optional[int] = None,
-    temperature: Optional[float] = None,
-    top_p: Optional[float] = None,
-    top_k: Optional[int] = None,
-    response_mime_type: Optional[str] = None,
-    response_schema: Optional[dict] = None,
-    presence_penalty: Optional[float] = None,
-    frequency_penalty: Optional[float] = None,
+    config: Optional[dict] = None,
 ) -> dict:
     """
     Generate content from the specified model. For additional details, see:
@@ -74,20 +65,6 @@ async def generate_content(
         >>> tbl.add_computed_column(response=generate_content(tbl.prompt, model='gemini-1.5-flash'))
     """
     env.Env.get().require_package('google.genai')
-    from google.genai import types
-
-    config = types.GenerateContentConfig(
-        candidate_count=candidate_count,
-        stop_sequences=stop_sequences,
-        max_output_tokens=max_output_tokens,
-        temperature=temperature,
-        top_p=top_p,
-        top_k=top_k,
-        response_mime_type=response_mime_type,
-        response_schema=response_schema,
-        presence_penalty=presence_penalty,
-        frequency_penalty=frequency_penalty,
-    )
 
     response = await _genai_client().aio.models.generate_content(model=model, contents=contents, config=config)
     return response.model_dump()
