@@ -1,4 +1,5 @@
 from pathlib import Path
+
 import pytest
 
 import pixeltable as pxt
@@ -13,8 +14,9 @@ class TestGemini:
     def test_generate_content(self, reset_db: None) -> None:
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')
-        from pixeltable.functions.gemini import generate_content
         from google.genai.types import GenerateContentConfigDict
+
+        from pixeltable.functions.gemini import generate_content
 
         t = pxt.create_table('test_tbl', {'contents': pxt.String})
         t.add_computed_column(output=generate_content(t.contents, model='gemini-2.0-flash'))
@@ -30,13 +32,7 @@ class TestGemini:
             presence_penalty=0.6,
             frequency_penalty=0.6,
         )
-        t.add_computed_column(
-            output2=generate_content(
-                t.contents,
-                model='gemini-2.0-flash',
-                config=config
-            )
-        )
+        t.add_computed_column(output2=generate_content(t.contents, model='gemini-2.0-flash', config=config))
         validate_update_status(t.insert(contents='Write a story about a magic backpack.'), expected_rows=1)
         results = t.collect()
         text = results['output'][0]['candidates'][0]['content']['parts'][0]['text']
@@ -49,15 +45,18 @@ class TestGemini:
     def test_generate_images(self, reset_db: None) -> None:
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')
-        from pixeltable.functions.gemini import generate_images
         from google.genai.types import GenerateImagesConfigDict
+
+        from pixeltable.functions.gemini import generate_images
 
         t = pxt.create_table('test_tbl', {'prompt': pxt.String})
         t.add_computed_column(output=generate_images(t.prompt, model='imagen-3.0-generate-002'))
         config = GenerateImagesConfigDict(aspect_ratio='4:3')
         t.add_computed_column(output2=generate_images(t.prompt, model='imagen-3.0-generate-002', config=config))
 
-        validate_update_status(t.insert(prompt='A giant pixel floating over the open ocean in a sea of data'), expected_rows=1)
+        validate_update_status(
+            t.insert(prompt='A giant pixel floating over the open ocean in a sea of data'), expected_rows=1
+        )
         results = t.collect()
         assert results['output'][0].size == (1024, 1024)
         assert results['output2'][0].size == (1280, 896)
@@ -71,7 +70,9 @@ class TestGemini:
         t = pxt.create_table('test_tbl', {'prompt': pxt.String})
         t.add_computed_column(output=generate_videos(t.prompt, model='veo-2.0-generate-001'))
         t.add_computed_column(metadata=t.output.get_metadata())
-        validate_update_status(t.insert(prompt='A giant pixel floating over the open ocean in a sea of data'), expected_rows=1)
+        validate_update_status(
+            t.insert(prompt='A giant pixel floating over the open ocean in a sea of data'), expected_rows=1
+        )
         results = t.collect()
         print(results['output'][0])
         print(results['metadata'][0])

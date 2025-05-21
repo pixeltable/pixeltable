@@ -31,12 +31,7 @@ def _genai_client() -> 'genai.client.Client':
 
 
 @pxt.udf(resource_pool='request-rate:gemini')
-async def generate_content(
-    contents: str,
-    *,
-    model: str,
-    config: Optional[dict] = None,
-) -> dict:
+async def generate_content(contents: str, *, model: str, config: Optional[dict] = None) -> dict:
     """
     Generate content from the specified model. For additional details, see:
     <https://ai.google.dev/gemini-api/docs>
@@ -76,12 +71,7 @@ def _(model: str) -> str:
 
 
 @pxt.udf(resource_pool='request-rate:imagen')
-async def generate_images(
-    prompt: str,
-    *,
-    model: str,
-    config: Optional[dict] = None,
-) -> PIL.Image.Image:
+async def generate_images(prompt: str, *, model: str, config: Optional[dict] = None) -> PIL.Image.Image:
     env.Env.get().require_package('google.genai')
 
     response = await _genai_client().aio.models.generate_images(model=model, prompt=prompt, config=config)
@@ -95,11 +85,7 @@ def _(model: str) -> str:
 
 @pxt.udf(resource_pool='request-rate:veo')
 async def generate_videos(
-    prompt: Optional[str] = None,
-    image: Optional[str] = None,
-    *,
-    model: str,
-    config: Optional[dict] = None,
+    prompt: Optional[str] = None, image: Optional[str] = None, *, model: str, config: Optional[dict] = None
 ) -> pxt.Video:
     env.Env.get().require_package('google.genai')
 
