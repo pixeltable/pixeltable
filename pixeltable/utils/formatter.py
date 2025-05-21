@@ -34,7 +34,7 @@ class Formatter:
     __STRING_MAX_LEN = 1000
     __NESTED_STRING_MAX_LEN = 300
 
-    def __init__(self, num_rows: int, num_cols: int, http_address: Optional[str] = None):
+    def __init__(self, num_rows: int, num_cols: int, http_address: str):
         self.__num_rows = num_rows
         self.__num_cols = num_cols
         self.__http_address = http_address
@@ -206,13 +206,14 @@ class Formatter:
         # by default, file path will be shown as a link
         inner_element = file_path
         inner_element = html.escape(inner_element)
-        # try generating a thumbnail for different types and use that if successful
 
-        thumb_base64 = self.make_document_thumbnail(file_path, max_width, max_height)
-        img_src = f'data:image/webp;base64,{thumb_base64}'
-        inner_element = f"""
-            <img style="object-fit: contain; border: 1px solid black;" src="{img_src}" />
-        """
+        thumb = self.make_document_thumbnail(file_path, max_width, max_height)
+        if thumb is not None:
+            with io.BytesIO() as buffer:
+                thumb.save(buffer, 'webp')
+                thumb_base64 = base64.b64encode(buffer.getvalue()).decode()
+                thumb_tag = f'data:image/webp;base64,{thumb_base64}'
+            inner_element = f'<img style="object-fit: contain; border: 1px solid black;" src="{thumb_tag}" />'
 
         return f"""
         <div class="pxt_document" style="width:{max_width}px;">
@@ -223,21 +224,22 @@ class Formatter:
         """
 
     @classmethod
-    def make_document_thumbnail(cls, file_path: str, max_width: int = 320, max_height: int = 320) -> Optional[str]:
+    def make_document_thumbnail(
+        cls, file_path: str, max_width: int = 320, max_height: int = 320
+    ) -> Optional[Image.Image]:
         """
-        Returns a base64-encoded thumbnail of a document.
+        Returns a thumbnail image of a document.
         """
         if file_path.lower().endswith('.pdf'):
             try:
                 import fitz  # type: ignore[import-untyped]
 
                 doc = fitz.open(file_path)
-                p = doc.get_page_pixmap(0)
-                while p.width > max_width or p.height > max_height:
+                pixmap = doc.get_page_pixmap(0)
+                while pixmap.width > max_width or pixmap.height > max_height:
                     # shrink(1) will halve each dimension
-                    p.shrink(1)
-                data = p.tobytes(output='webp')
-                return base64.b64encode(data).decode()
+                    pixmap.shrink(1)
+                return pixmap.pil_image()
             except Exception:
                 logging.warning(f'Failed to produce PDF thumbnail {file_path}. Make sure you have PyMuPDF installed.')
 

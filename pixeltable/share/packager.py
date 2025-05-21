@@ -51,7 +51,7 @@ class TablePackager:
     md: dict[str, Any]
 
     bundle_path: Path
-    preview_header: list[str]
+    preview_header: dict[str, str]
     preview: list[list[Any]]
 
     def __init__(self, table: catalog.Table, additional_md: Optional[dict[str, Any]] = None) -> None:
@@ -221,9 +221,16 @@ class TablePackager:
         return bundle_path
 
     def __extract_preview_data(self) -> tuple[dict[str, str], list[list[Any]]]:
-        # Extract a preview of the data from the table
-        self.preview_header = []
-        self.preview = []
+        """
+        Extract a preview of the table data for display in the UI.
+
+        In order to bound the size of the output data, all "unbounded" data types are resized:
+        - Strings are abbreviated as per Formatter.abbreviate()
+        - Arrays and JSON are shortened and formatted as strings
+        - Images are resized to thumbnail size as a base64-encoded webp
+        - Videos are replaced by their first frame and resized as above
+        - Documents are replaced by a thumbnail as a base64-encoded webp
+        """
         # First 8 columns
         preview_cols = dict(itertools.islice(self.table._schema.items(), 0, 8))
         select_list = [self.table[col_name] for col_name in preview_cols]
@@ -277,7 +284,7 @@ class TablePackager:
 
             case ts.ColumnType.Type.DOCUMENT:
                 assert isinstance(val, str)
-                return Formatter.make_document_thumbnail(val)
+                return self.__encode_document(val)
 
             case _:
                 raise AssertionError(f'Unrecognized column type: {col_type._type}')
@@ -293,9 +300,11 @@ class TablePackager:
 
     def __encode_video(self, video_path: str) -> Optional[str]:
         thumb = Formatter.extract_first_video_frame(video_path)
-        if thumb is None:
-            return None
-        return self.__encode_image(thumb)
+        return self.__encode_image(thumb) if thumb is not None else None
+
+    def __encode_document(self, doc_path: str) -> Optional[str]:
+        thumb = Formatter.make_document_thumbnail(doc_path)
+        return self.__encode_image(thumb) if thumb is not None else None
 
 
 class TableRestorer:
