@@ -100,19 +100,15 @@ def _(model: str) -> str:
 
 @pxt.udf(resource_pool='request-rate:imagen')
 async def generate_images(
-    prompt: Optional[str] = None,
-    image: Optional[str] = None,
+    prompt: str,
     *,
     model: str,
     config: Optional[dict] = None,
 ) -> PIL.Image.Image:
     env.Env.get().require_package('google.genai')
 
-    if prompt is None and image is None:
-        raise excs.Error('At least one of `prompt` or `image` must be provided.')
-
-    response = await _genai_client().aio.models.generate_videos(model=model, prompt=prompt, config=config)
-    return response.generated_images[0].image
+    response = await _genai_client().aio.models.generate_images(model=model, prompt=prompt, config=config)
+    return response.generated_images[0].image._pil_image
 
 
 @generate_images.resource_pool
@@ -122,14 +118,18 @@ def _(model: str) -> str:
 
 @pxt.udf(resource_pool='request-rate:veo')
 async def generate_video(
-    prompt: str,
+    prompt: Optional[str] = None,
+    image: Optional[str] = None,
     *,
     model: str,
     config: Optional[dict] = None,
 ) -> pxt.Video:
     env.Env.get().require_package('google.genai')
 
-    operation = await _genai_client().aio.models.generate_videos(model=model, prompt=prompt, config=config)
+    if prompt is None and image is None:
+        raise excs.Error('At least one of `prompt` or `image` must be provided.')
+
+    operation = await _genai_client().aio.models.generate_videos(model=model, prompt=prompt, image=image, config=config)
     while not operation.done:
         asyncio.sleep(3)
         operation = await _genai_client().aio.operations.get(operation)

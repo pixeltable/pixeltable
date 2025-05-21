@@ -36,3 +36,20 @@ class TestGemini:
         results = t.collect()
         assert 'backpack' in results['output'][0]['candidates'][0]['content']['parts'][0]['text']
         assert 'backpack' in results['output2'][0]['candidates'][0]['content']['parts'][0]['text']
+
+    def test_generate_images(self, reset_db: None) -> None:
+        from pixeltable.functions.gemini import generate_images
+        from google.genai.types import GenerateImagesConfigDict
+
+        skip_test_if_not_installed('google.genai')
+        skip_test_if_no_client('gemini')
+
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String})
+        t.add_computed_column(output=generate_images(t.prompt, model='imagen-3.0-generate-002'))
+        config = GenerateImagesConfigDict(aspect_ratio='4:3')
+        t.add_computed_column(output2=generate_images(t.prompt, model='imagen-3.0-generate-002', config=config))
+
+        validate_update_status(t.insert(prompt='A giant pixel floating over the open ocean in a sea of data'), expected_rows=1)
+        results = t.collect()
+        assert results['output'][0].size == (1024, 1024)
+        assert results['output2'][0].size == (1280, 896)
