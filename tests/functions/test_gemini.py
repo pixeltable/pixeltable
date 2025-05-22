@@ -77,6 +77,7 @@ class TestGemini:
         assert results['output2'][0].size == (1280, 896)
 
     @pytest.mark.expensive
+    @pytest.mark.flaky(reruns=3, reruns_delay=30, condition=DO_RERUN)  # longer delay between reruns
     def test_generate_videos(self, reset_db: None) -> None:
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')
