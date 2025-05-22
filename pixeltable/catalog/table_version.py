@@ -21,7 +21,10 @@ from pixeltable.metadata import schema
 from pixeltable.utils.exception_handler import run_cleanup_on_exception
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.media_store import MediaStore
-from pixeltable.utils.sample import SampleClause
+
+if TYPE_CHECKING:
+    from pixeltable.plan import SampleClause
+
 
 from ..func.globals import resolve_symbol
 from .column import Column
@@ -70,7 +73,7 @@ class TableVersion:
     next_idx_id: int
     next_rowid: int
     predicate: Optional[exprs.Expr]
-    sample_clause: Optional[SampleClause]
+    sample_clause: Optional['SampleClause']
     mutable_views: list[TableVersionHandle]  # target for data operation propagation (only set for live tables)
     iterator_cls: Optional[type[ComponentIterator]]
     iterator_args: Optional[exprs.InlineDict]
@@ -148,6 +151,7 @@ class TableVersion:
 
         # view-specific initialization
         from pixeltable import exprs
+        from pixeltable.plan import SampleClause
 
         predicate_dict = None if self.view_md is None or self.view_md.predicate is None else self.view_md.predicate
         self.predicate = exprs.Expr.from_dict(predicate_dict) if predicate_dict is not None else None

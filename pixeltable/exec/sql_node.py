@@ -8,7 +8,10 @@ import sqlalchemy as sql
 
 from pixeltable import catalog, exprs
 from pixeltable.env import Env
-from pixeltable.utils.sample import SampleClause
+
+if TYPE_CHECKING:
+    from pixeltable.plan import SampleClause
+
 
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
@@ -538,7 +541,7 @@ class SqlSampleNode(SqlNode):
         input: SqlNode,
         select_list: Iterable[exprs.Expr],
         group_by_items: Optional[list[exprs.Expr]] = None,
-        sample_clause: Optional[SampleClause] = None,
+        sample_clause: Optional['SampleClause'] = None,
     ):
         """
         Args:
@@ -559,6 +562,8 @@ class SqlSampleNode(SqlNode):
 
     def _create_order_by(self) -> sql.ColumnElement:
         """Create an expression for randomly ordering rows with a given seed"""
+        from pixeltable.plan import SampleClause
+
         rowid_cols = [*self.input_cte.c[-self.pk_count : -1]].copy()  # exclude the version column
         assert len(rowid_cols) > 0
         return SampleClause.key_sql_expr(self.sql_elements, self.seed, rowid_cols)

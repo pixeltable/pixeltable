@@ -17,11 +17,10 @@ from pixeltable import catalog, exceptions as excs, exec, exprs, plan, type_syst
 from pixeltable.catalog import is_valid_identifier
 from pixeltable.catalog.globals import UpdateStatus
 from pixeltable.env import Env
-from pixeltable.plan import Analyzer, Planner
+from pixeltable.plan import Analyzer, Planner, SampleClause
 from pixeltable.type_system import ColumnType
 from pixeltable.utils.description_helper import DescriptionHelper
 from pixeltable.utils.formatter import Formatter
-from pixeltable.utils.sample import SampleClause
 
 if TYPE_CHECKING:
     import torch

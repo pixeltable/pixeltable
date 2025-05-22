@@ -133,7 +133,7 @@ class TestSampling:
         assert 'sample_1(n=10, n_per_stratum=None, fraction=' in s
 
     def test_sample_md5_fraction(self) -> None:
-        from pixeltable.utils.sample import SampleClause
+        from pixeltable.plan import SampleClause
 
         fract = 0.422
 

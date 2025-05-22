@@ -11,7 +11,10 @@ import pixeltable.type_system as ts
 from pixeltable import catalog, exprs, func
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
-from pixeltable.utils.sample import SampleClause
+
+if TYPE_CHECKING:
+    from pixeltable.plan import SampleClause
+
 
 from .column import Column
 from .globals import _POS_COLUMN_NAME, MediaValidation, UpdateStatus
@@ -67,7 +70,7 @@ class View(Table):
         select_list: Optional[list[tuple[exprs.Expr, Optional[str]]]],
         additional_columns: dict[str, Any],
         predicate: Optional['exprs.Expr'],
-        sample_clause: Optional[SampleClause],
+        sample_clause: Optional['SampleClause'],
         is_snapshot: bool,
         num_retained_versions: int,
         comment: str,
@@ -75,6 +78,8 @@ class View(Table):
         iterator_cls: Optional[type[ComponentIterator]],
         iterator_args: Optional[dict],
     ) -> View:
+        from pixeltable.plan import SampleClause
+
         # Convert select_list to more additional_columns if present
         include_base_columns: bool = select_list is None
         select_list_columns: List[Column] = []
