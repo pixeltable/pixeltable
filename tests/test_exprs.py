@@ -126,21 +126,18 @@ class TestExprs:
         # compound predicates that can be fully evaluated in SQL
         _ = t.where((t.c1 == 'test string') & (t.c6.f1 > 50)).collect()
         _ = t.where((t.c1 == 'test string') & (t.c2 > 50)).collect()
+        sql_elements = exprs.SqlElementCache()
+        e = sql_elements.get(((t.c1 == 'test string') & (t.c2 > 50)))
+        assert len(e.clauses) == 2
 
-        # we need to run Expr.sql_expr() inside a transaction
-        with catalog.Catalog.get().begin_xact(for_write=False):
-            sql_elements = exprs.SqlElementCache()
-            e = sql_elements.get(((t.c1 == 'test string') & (t.c2 > 50)))
-            assert len(e.clauses) == 2
-
-            e = sql_elements.get(((t.c1 == 'test string') & (t.c2 > 50) & (t.c3 < 1.0)))
-            assert len(e.clauses) == 3
-            e = sql_elements.get(((t.c1 == 'test string') | (t.c2 > 50)))
-            assert len(e.clauses) == 2
-            e = sql_elements.get(((t.c1 == 'test string') | (t.c2 > 50) | (t.c3 < 1.0)))
-            assert len(e.clauses) == 3
-            e = sql_elements.get((~(t.c1 == 'test string')))
-            assert isinstance(e, sql.sql.expression.BinaryExpression)
+        e = sql_elements.get(((t.c1 == 'test string') & (t.c2 > 50) & (t.c3 < 1.0)))
+        assert len(e.clauses) == 3
+        e = sql_elements.get(((t.c1 == 'test string') | (t.c2 > 50)))
+        assert len(e.clauses) == 2
+        e = sql_elements.get(((t.c1 == 'test string') | (t.c2 > 50) | (t.c3 < 1.0)))
+        assert len(e.clauses) == 3
+        e = sql_elements.get((~(t.c1 == 'test string')))
+        assert isinstance(e, sql.sql.expression.BinaryExpression)
 
         with pytest.raises(TypeError) as exc_info:
             _ = t.where((t.c1 == 'test string') or (t.c6.f1 > 50)).collect()

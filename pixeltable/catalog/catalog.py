@@ -126,6 +126,9 @@ class Catalog:
         """Remove the instance. Used for testing."""
         # invalidate all existing instances to force reloading of metadata
         for tbl_version in cls._instance._tbl_versions.values():
+            _logger.debug(
+                f'Invalidating table version {tbl_version.id}:{tbl_version.effective_version} ({id(tbl_version):x})'
+            )
             tbl_version.is_validated = False
         cls._instance = None
 
@@ -174,6 +177,13 @@ class Catalog:
             yield Env.get().conn
             return
 
+        tv_msg = '\n'.join(
+            [
+                f'{tv.id}:{tv.effective_version} : tv={id(tv):x} sa_tbl={id(tv.store_tbl.sa_tbl):x}'
+                for tv in self._tbl_versions.values()
+            ]
+        )
+        _logger.debug(f'begin_xact(): {tv_msg}')
         num_retries = 0
         while True:
             try:
@@ -203,7 +213,7 @@ class Catalog:
                 # invalidate cached current TableVersion instances
                 for tv in self._tbl_versions.values():
                     if tv.effective_version is None:
-                        # _logger.debug(f'invalidating table version {tv.id}:{tv.version}')
+                        _logger.debug(f'invalidating table version {tv.id}:None (tv={id(tv):x})')
                         tv.is_validated = False
 
                 if _logger.isEnabledFor(logging.DEBUG):
@@ -449,7 +459,7 @@ class Catalog:
             # if this is a mutable table, we also need to have its mutable views loaded, in order to track column
             # dependencies
             tbl_version = tbl._tbl_version.get()
-            if not tbl_version.is_snapshot:
+            if tbl_version.is_mutable:
                 for v in tbl_version.mutable_views:
                     _ = self.get_table_by_id(v.id)
         return self._tbls[tbl_id]
@@ -536,7 +546,7 @@ class Catalog:
     @_retry_loop(for_write=True)
     def create_replica(
         self, path: Path, md: list[schema.FullTableMd], if_exists: IfExistsParam = IfExistsParam.ERROR
-    ) -> Table:
+    ) -> None:
         """
         Creates table, table_version, and table_schema_version records for a replica with the given metadata.
         The metadata should be presented in standard "ancestor order", with the table being replicated at
@@ -553,7 +563,7 @@ class Catalog:
                     'but a different table already exists at that location.'
                 )
             assert isinstance(existing, View)
-            return existing
+            return
 
         # Ensure that the system directory exists.
         self._create_dir(Path('_system', allow_system_paths=True), if_exists=IfExistsParam.IGNORE, parents=False)
@@ -599,8 +609,8 @@ class Catalog:
 
         # Update the catalog (as a final step, after all DB operations completed successfully).
         # Only the table being replicated is actually made visible in the catalog.
-        _ = self._load_tbl(tbl_id)
-        return self._tbls[tbl_id]
+        # _ = self._load_tbl(tbl_id)
+        # return self._tbls[tbl_id]
 
     def __store_replica_md(self, path: Path, md: schema.FullTableMd) -> None:
         _logger.info(f'Creating replica table at {path!r} with ID: {md.tbl_md.tbl_id}')
@@ -844,7 +854,7 @@ class Catalog:
                 tv = self._load_tbl_version(tbl_id, effective_version)
             elif not tv.is_validated and effective_version is None:
                 # we validate live instances by comparing our cached version number to the stored current version
-                # _logger.debug(f'validating metadata for table {tbl_id}:{tv.version}')
+                _logger.debug(f'validating metadata for table {tbl_id}:{tv.version} ({id(tv):x})')
                 q = sql.select(schema.Table.md).where(schema.Table.id == tbl_id)
                 row = conn.execute(q).one()
                 current_version = row.md['current_version']
@@ -855,7 +865,7 @@ class Catalog:
                     # the cached metadata is invalid
                     _logger.debug(
                         f'reloading metadata for table {tbl_id} '
-                        f'(cached version: {tv.version}, current version: {current_version})'
+                        f'(cached version: {tv.version}, current version: {current_version}, id: {id(tv):x})'
                     )
                     tv = self._load_tbl_version(tbl_id, None)
                 else:
@@ -971,7 +981,7 @@ class Catalog:
         """
         Loads metadata from the store for a given table UUID and version.
         """
-        _logger.info(f'Loading metadata for table version: {tbl_id}:{effective_version}')
+        # _logger.info(f'Loading metadata for table version: {tbl_id}:{effective_version}')
         conn = Env.get().conn
 
         q = (
@@ -1124,7 +1134,6 @@ class Catalog:
         tbl_md, _, schema_version_md = self.load_tbl_md(tbl_id, effective_version)
         view_md = tbl_md.view_md
 
-        _logger.info(f'Loading table version: {tbl_id}:{effective_version}; current_version={tbl_md.current_version}')
         conn = Env.get().conn
 
         # load mutable view ids for mutable TableVersions

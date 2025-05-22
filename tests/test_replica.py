@@ -99,8 +99,10 @@ class TestReplica:
 
         # Intentionally create r61 first, before r51; this way we address both cases for snapshot-over-snapshot:
         # Base snapshot inserted first (r61 after r31); base snapshot inserted last (r51 after r61).
-        r61 = Catalog.get().create_replica(Path('replica_s61'), s61_md, if_exists=IfExistsParam.ERROR)
-        r51 = Catalog.get().create_replica(Path('replica_s51'), s51_md, if_exists=IfExistsParam.ERROR)
+        Catalog.get().create_replica(Path('replica_s61'), s61_md, if_exists=IfExistsParam.ERROR)
+        r61 = pxt.get_table('replica_s61')
+        Catalog.get().create_replica(Path('replica_s51'), s51_md, if_exists=IfExistsParam.ERROR)
+        r51 = pxt.get_table('replica_s51')
 
         with Catalog.get().begin_xact(for_write=False):
             assert len(r51._base_tables) == 4

@@ -7,6 +7,7 @@ import urllib.request
 import uuid
 from pathlib import Path
 from typing import Any, Iterator, Optional
+from uuid import UUID
 
 import more_itertools
 import pyarrow as pa
@@ -248,12 +249,18 @@ class TableRestorer:
 
         # Create the replica table
         # TODO: This needs to be made concurrency-safe.
-        replica_tbl = catalog.Catalog.get().create_replica(catalog.Path(self.tbl_path), tbl_md)
-        assert replica_tbl._tbl_version.get().is_snapshot
+        cat = catalog.Catalog.get()
+        cat.create_replica(catalog.Path(self.tbl_path), tbl_md)
 
         # Now we need to instantiate and load data for replica_tbl and its ancestors, except that we skip
         # replica_tbl itself if it's a pure snapshot.
-        if replica_tbl._id != replica_tbl._tbl_version.id:
+        target_md = tbl_md[0]
+        is_pure_snapshot = (
+            target_md.tbl_md.view_md is not None
+            and target_md.tbl_md.view_md.predicate is None
+            and len(target_md.schema_version_md.columns) == 0
+        )
+        if is_pure_snapshot:
             ancestor_md = tbl_md[1:]  # Pure snapshot; skip replica_tbl
         else:
             ancestor_md = tbl_md  # Not a pure snapshot; include replica_tbl
@@ -267,7 +274,8 @@ class TableRestorer:
                 _logger.info(f'Importing table {tv.name!r}.')
                 self.__import_table(self.tmp_dir, tv, md)
 
-        return replica_tbl
+        with cat.begin_xact(for_write=False):
+            return cat.get_table_by_id(UUID(tbl_md[0].tbl_md.tbl_id))
 
     def __import_table(self, bundle_path: Path, tv: catalog.TableVersion, tbl_md: schema.FullTableMd) -> None:
         """

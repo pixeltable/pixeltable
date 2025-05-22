@@ -83,7 +83,7 @@ class TableVersion:
     idxs_by_name: dict[str, TableVersion.IndexInfo]
 
     external_stores: dict[str, pxt.io.ExternalStore]
-    store_tbl: 'store.StoreBase'
+    store_tbl: Optional['store.StoreBase']
 
     # used by Catalog to invalidate cached instances at the end of a transaction;
     # True if this instance reflects the state of stored metadata in the context of this transaction and
@@ -116,6 +116,7 @@ class TableVersion:
         self.effective_version = effective_version
         assert not (self.is_view and base is None)
         self.base = base
+        self.store_tbl = None
 
         # mutable tables need their TableVersionPath for expr eval during updates
         from .table_version_handle import TableVersionHandle
@@ -317,6 +318,9 @@ class TableVersion:
         tbl_version = cls(
             tbl_id, md.tbl_md, md.version_md.version, md.schema_version_md, [], base_path=base_path, base=base
         )
+        cat = pxt.catalog.Catalog.get()
+        cat._tbl_versions[tbl_version.id, tbl_version.effective_version] = tbl_version
+        tbl_version.init()
         tbl_version.store_tbl.create()
         return tbl_version
 
