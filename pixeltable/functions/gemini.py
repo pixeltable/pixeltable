@@ -7,6 +7,7 @@ the [Working with Gemini](https://pixeltable.readme.io/docs/working-with-gemini)
 
 import asyncio
 import io
+from pathlib import Path
 import tempfile
 from typing import TYPE_CHECKING, Optional
 
@@ -210,12 +211,11 @@ async def generate_videos(
 
     video = operation.response.generated_videos[0]
 
-    # TODO: The async variant gave me errors:
-    #   await _genai_client().aio.files.download(file=video.video)
-    _genai_client().files.download(file=video.video)
+    video_bytes = await _genai_client().aio.files.download(file=video.video)
+    assert video_bytes is not None
 
     _, output_filename = tempfile.mkstemp(suffix='.mp4', dir=str(env.Env.get().tmp_dir))
-    video.video.save(output_filename)
+    Path(output_filename).write_bytes(video_bytes)
     return output_filename
 
 
