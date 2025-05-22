@@ -94,13 +94,15 @@ class View(Table):
             predicate = predicate.copy()
         if sample_clause is not None:
             # make sure that the sample clause can be computed in the context of the base
-            if sample_clause._stratify_list is not None and not all(
-                stratify_expr.is_bound_by([base]) for stratify_expr in sample_clause._stratify_list
+            if sample_clause.stratify_exprs is not None and not all(
+                stratify_expr.is_bound_by([base]) for stratify_expr in sample_clause.stratify_exprs
             ):
                 raise excs.Error(f'Sample clause cannot be computed in the context of the base {base.tbl_name()}')
             # create a copy that we can modify and store
             sc = sample_clause
-            sample_clause = SampleClause(sc.version, sc.n, sc.n_per_stratum, sc.fract, sc.seed, sc.stratify_list.copy())
+            sample_clause = SampleClause(
+                sc.version, sc.n, sc.n_per_stratum, sc.fraction, sc.seed, sc.stratify_exprs.copy()
+            )
 
         # same for value exprs
         for col in columns:
@@ -172,7 +174,7 @@ class View(Table):
         if is_snapshot:
             predicate = predicate.retarget(base_version_path) if predicate is not None else None
             if sample_clause is not None:
-                exprs.Expr.retarget_list(sample_clause.stratify_list, base_version_path)
+                exprs.Expr.retarget_list(sample_clause.stratify_exprs, base_version_path)
             iterator_args_expr = (
                 iterator_args_expr.retarget(base_version_path) if iterator_args_expr is not None else None
             )

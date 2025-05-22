@@ -1073,7 +1073,7 @@ class DataFrame:
         seed = self.validate_constant_type_range(seed, ts.IntType(nullable=False), False, 'seed')
 
         # analyze stratify list
-        stratify_list: list[exprs.Expr] = []
+        stratify_exprs: list[exprs.Expr] = []
         if stratify_by is not None:
             if isinstance(stratify_by, exprs.Expr):
                 stratify_by = [stratify_by]
@@ -1089,7 +1089,7 @@ class DataFrame:
                         f"Expression '{expr}' cannot be evaluated in the context of this query's tables "
                         f'({",".join(tbl.tbl_name() for tbl in self._from_clause.tbls)})'
                     )
-                stratify_list.append(expr)
+                stratify_exprs.append(expr)
 
         if self.where_clause is not None:
             # We require that the sampled rows can be identified via SQL, rather than via a Python filter
@@ -1097,7 +1097,7 @@ class DataFrame:
             if analyzer.filter is not None:
                 raise excs.Error(f'Filter {analyzer.filter} not expressible in SQL')
 
-        sample_clause = SampleClause(None, n, n_per_stratum, fraction, seed, stratify_list)
+        sample_clause = SampleClause(None, n, n_per_stratum, fraction, seed, stratify_exprs)
 
         return DataFrame(
             from_clause=self._from_clause,

@@ -19,53 +19,29 @@ class SampleClause:
     version: Optional[int]
     n: Optional[int]
     n_per_stratum: Optional[int]
-    fract: Optional[float]
+    fraction: Optional[float]
     seed: Optional[int]
-    stratify_list: Optional[list[Expr]]
+    stratify_exprs: Optional[list[Expr]]
 
     DEFAULT_SEED = 0
     CURRENT_VERSION = 1
 
     def __post_init__(self) -> None:
         """If no version was provided, provide the default version"""
-        if self._version is None:
+        if self.version is None:
             self.version = self.CURRENT_VERSION
-        if self._seed is None:
+        if self.seed is None:
             self.seed = self.DEFAULT_SEED
-
-    @property
-    def _version(self) -> int:
-        return self.version
-
-    @property
-    def _n(self) -> Optional[int]:
-        return self.n
-
-    @property
-    def _n_per_stratum(self) -> Optional[int]:
-        return self.n_per_stratum
-
-    @property
-    def _fraction(self) -> Optional[float]:
-        return self.fract
-
-    @property
-    def _seed(self) -> Optional[int]:
-        return self.seed
-
-    @property
-    def _stratify_list(self) -> list[Expr]:
-        return self.stratify_list
 
     @property
     def is_stratified(self) -> bool:
         """Check if the sampling is stratified"""
-        return self._stratify_list is not None and len(self._stratify_list) > 0
+        return self.stratify_exprs is not None and len(self.stratify_exprs) > 0
 
     @property
     def is_repeatable(self) -> bool:
         """Return true if the same rows will continue to be sampled if source rows are added or deleted."""
-        return not self.is_stratified and self._fraction is not None
+        return not self.is_stratified and self.fraction is not None
 
     def display_str(self, inline: bool = False) -> str:
         return str(self)
@@ -75,7 +51,7 @@ class SampleClause:
         d = dataclasses.asdict(self)
         d['_classname'] = self.__class__.__name__
         if self.is_stratified:
-            d['stratify_list'] = [e.as_dict() for e in self._stratify_list]
+            d['stratify_exprs'] = [e.as_dict() for e in self.stratify_exprs]
         return d
 
     @classmethod
@@ -84,14 +60,14 @@ class SampleClause:
         d_cleaned = {key: value for key, value in d.items() if key != '_classname'}
         s = cls(**d_cleaned)
         if s.is_stratified:
-            s.stratify_list = [Expr.from_dict(e) for e in d_cleaned.get('stratify_list', [])]
+            s.stratify_exprs = [Expr.from_dict(e) for e in d_cleaned.get('stratify_exprs', [])]
         return s
 
     def __repr__(self) -> str:
-        s = ','.join(e.display_str(inline=True) for e in self._stratify_list)
+        s = ','.join(e.display_str(inline=True) for e in self.stratify_exprs)
         return (
-            f'sample_{self._version}(n={self._n}, n_per_stratum={self._n_per_stratum}, '
-            + f'fraction={self._fraction}, seed={self._seed}, [{s}])'
+            f'sample_{self.version}(n={self.n}, n_per_stratum={self.n_per_stratum}, '
+            + f'fraction={self.fraction}, seed={self.seed}, [{s}])'
         )
 
     @classmethod

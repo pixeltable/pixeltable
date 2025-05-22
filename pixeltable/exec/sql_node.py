@@ -552,10 +552,10 @@ class SqlSampleNode(SqlNode):
         sql_elements = exprs.SqlElementCache(input_col_map)
         super().__init__(input.tbl, row_builder, select_list, sql_elements, set_pk=True)
         self.group_by_items = group_by_items
-        self.n_samples = sample_clause._n
-        self.n_per_stratum = sample_clause._n_per_stratum
-        self.fraction_samples = sample_clause._fraction
-        self.seed = sample_clause._seed if sample_clause._seed is not None else 0
+        self.n_samples = sample_clause.n
+        self.n_per_stratum = sample_clause.n_per_stratum
+        self.fraction_samples = sample_clause.fraction
+        self.seed = sample_clause.seed if sample_clause.seed is not None else 0
 
     def _create_order_by(self) -> sql.ColumnElement:
         """Create an expression for randomly ordering rows with a given seed"""

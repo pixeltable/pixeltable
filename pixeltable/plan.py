@@ -752,26 +752,26 @@ class Planner:
 
         # If the sample clause is stratified, we need to create a group by clause
         if sample_clause.is_stratified:
-            group_by = sample_clause._stratify_list
+            group_by = sample_clause.stratify_exprs
             # Note that limit is not possible here
             return where_clause, group_by, order_by_clause, None, sample_clause
 
         else:
             # If non-stratified sampling, construct a where clause, order_by, and limit clauses
             # Construct an expression for sorting rows and limiting row counts
-            s_key = SampleKey(exprs.Literal(sample_clause._seed), cls.rowid_columns(from_clause._first_tbl.tbl_version))
+            s_key = SampleKey(exprs.Literal(sample_clause.seed), cls.rowid_columns(from_clause._first_tbl.tbl_version))
 
             # Construct a suitable where clause
             where = where_clause
-            if sample_clause._fraction is not None:
+            if sample_clause.fraction is not None:
                 fraction_md5_hex = exprs.Expr.from_object(
-                    sample_clause.fraction_to_md5_hex(float(sample_clause._fraction))
+                    sample_clause.fraction_to_md5_hex(float(sample_clause.fraction))
                 )
                 f_where = s_key < fraction_md5_hex
                 where = where & f_where if where is not None else f_where
 
             order_by: list[tuple[exprs.Expr, bool]] = [(s_key, True)]
-            limit = exprs.Literal(sample_clause._n)
+            limit = exprs.Literal(sample_clause.n)
             # Note that group_by is not possible here
             return where, None, order_by, limit, None
 
