@@ -8,13 +8,12 @@ the [Working with Gemini](https://pixeltable.readme.io/docs/working-with-gemini)
 import asyncio
 import io
 import tempfile
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import PIL.Image
 
 import pixeltable as pxt
-import pixeltable.exceptions as excs
-from pixeltable import env
+from pixeltable import exceptions as excs, exprs, env
 
 if TYPE_CHECKING:
     from google import genai
@@ -32,7 +31,7 @@ def _genai_client() -> 'genai.client.Client':
 
 
 @pxt.udf(resource_pool='request-rate:gemini')
-async def generate_content(contents: str, *, model: str, config: Optional[dict] = None) -> dict:
+async def generate_content(contents: str, *, model: str, config: Optional[dict] = None, tools: Optional[list[dict]] = None) -> dict:
     """
     Generate content from the specified model. For additional details, see:
     <https://ai.google.dev/gemini-api/docs>
@@ -61,11 +60,55 @@ async def generate_content(contents: str, *, model: str, config: Optional[dict] 
         >>> tbl.add_computed_column(response=generate_content(tbl.prompt, model='gemini-1.5-flash'))
     """
     env.Env.get().require_package('google.genai')
-    from google.genai.types import GenerateContentConfig
+    from google.genai import types
 
-    config_ = GenerateContentConfig(**config) if config else None
+    config_: types.GenerateContentConfig
+    if config is None and tools is None:
+        config_ = None
+    else:
+        if config is None:
+            config_ = types.GenerateContentConfig()
+        else:
+            config_ = types.GenerateContentConfig(**config)
+        if tools is not None:
+            gemini_tools = [__convert_pxt_tool(tool) for tool in tools]
+            config_.tools = [types.Tool(function_declarations=gemini_tools)]
+
     response = await _genai_client().aio.models.generate_content(model=model, contents=contents, config=config_)
     return response.model_dump()
+
+
+def __convert_pxt_tool(pxt_tool: dict) -> dict:
+    return {
+        'name': pxt_tool['name'],
+        'description': pxt_tool['description'],
+        'parameters': {
+            'type': 'object',
+            'properties': pxt_tool['parameters']['properties'],
+            'required': pxt_tool['required'],
+        },
+    }
+
+
+def invoke_tools(tools: pxt.func.Tools, response: exprs.Expr) -> exprs.InlineDict:
+    """Converts an OpenAI response dict to Pixeltable tool invocation format and calls `tools._invoke()`."""
+    return tools._invoke(_gemini_response_to_pxt_tool_calls(response))
+
+
+@pxt.udf
+def _gemini_response_to_pxt_tool_calls(response: dict) -> Optional[dict]:
+    print(response)
+    pxt_tool_calls: dict[str, list[dict]] = {}
+    for part in response['candidates'][0]['content']['parts']:
+        tool_call = part.get('function_call')
+        if tool_call is not None:
+            tool_name = tool_call['name']
+            if tool_name not in pxt_tool_calls:
+                pxt_tool_calls[tool_name] = []
+            pxt_tool_calls[tool_name].append({'args': tool_call['args']})
+    if len(pxt_tool_calls) == 0:
+        return None
+    return pxt_tool_calls
 
 
 @generate_content.resource_pool

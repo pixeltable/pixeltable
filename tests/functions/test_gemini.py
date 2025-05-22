@@ -5,7 +5,7 @@ import pytest
 import pixeltable as pxt
 
 from ..conftest import DO_RERUN
-from ..utils import skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
+from ..utils import skip_test_if_no_client, skip_test_if_not_installed, stock_price, validate_update_status
 
 
 @pytest.mark.remote_api
@@ -40,6 +40,22 @@ class TestGemini:
         print(text2)
         assert 'backpack' in text
         assert 'backpack' in text2
+
+    def test_tool_invocations(self, reset_db: None) -> None:
+        skip_test_if_not_installed('google.genai')
+        skip_test_if_no_client('gemini')
+        from pixeltable.functions.gemini import generate_content, invoke_tools
+
+        tools = pxt.tools(stock_price)
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        t.add_computed_column(
+            response=generate_content(t.input, model='gemini-2.0-flash', tools=tools)
+        )
+        t.insert(input='What is the stock price of NVDA today?')
+        t.add_computed_column(tool_calls=invoke_tools(tools, t.response))
+
+        results = t.collect()[0]
+        assert results['tool_calls']['stock_price'] == [131.17]
 
     def test_generate_images(self, reset_db: None) -> None:
         skip_test_if_not_installed('google.genai')
