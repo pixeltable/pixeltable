@@ -7,14 +7,14 @@ the [Working with Gemini](https://pixeltable.readme.io/docs/working-with-gemini)
 
 import asyncio
 import io
-from pathlib import Path
 import tempfile
+from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 import PIL.Image
 
 import pixeltable as pxt
-from pixeltable import exceptions as excs, exprs, env
+from pixeltable import env, exceptions as excs, exprs
 
 if TYPE_CHECKING:
     from google import genai
@@ -32,7 +32,9 @@ def _genai_client() -> 'genai.client.Client':
 
 
 @pxt.udf(resource_pool='request-rate:gemini')
-async def generate_content(contents: str, *, model: str, config: Optional[dict] = None, tools: Optional[list[dict]] = None) -> dict:
+async def generate_content(
+    contents: str, *, model: str, config: Optional[dict] = None, tools: Optional[list[dict]] = None
+) -> dict:
     """
     Generate content from the specified model. For additional details, see:
     <https://ai.google.dev/gemini-api/docs/text-generation>
@@ -211,7 +213,7 @@ async def generate_videos(
 
     video = operation.response.generated_videos[0]
 
-    video_bytes = await _genai_client().aio.files.download(file=video.video)
+    video_bytes = await _genai_client().aio.files.download(file=video.video)  # type: ignore[arg-type]
     assert video_bytes is not None
 
     _, output_filename = tempfile.mkstemp(suffix='.mp4', dir=str(env.Env.get().tmp_dir))

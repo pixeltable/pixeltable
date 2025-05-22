@@ -48,9 +48,7 @@ class TestGemini:
 
         tools = pxt.tools(stock_price)
         t = pxt.create_table('test_tbl', {'input': pxt.String})
-        t.add_computed_column(
-            response=generate_content(t.input, model='gemini-2.0-flash', tools=tools)
-        )
+        t.add_computed_column(response=generate_content(t.input, model='gemini-2.0-flash', tools=tools))
         t.insert(input='What is the stock price of NVDA today?')
         t.add_computed_column(tool_calls=invoke_tools(tools, t.response))
 
