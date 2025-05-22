@@ -100,9 +100,9 @@ async def generate_videos(
 
     image_: Optional[types.Image] = None
     if image is not None:
-        bytesio = io.BytesIO()
-        image.save(bytesio, format='jpeg')
-        image_ = types.Image(image_bytes=bytesio.getvalue(), mime_type='image/jpeg')
+        with io.BytesIO() as buffer:
+            image.save(buffer, format='jpeg')
+            image_ = types.Image(image_bytes=buffer.getvalue(), mime_type='image/jpeg')
 
     config_ = types.GenerateVideosConfig(**config) if config else None
     operation = await _genai_client().aio.models.generate_videos(
