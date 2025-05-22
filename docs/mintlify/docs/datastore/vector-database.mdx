@@ -248,6 +248,39 @@ The query phase allows you to search your indexed content using the `similarity(
   </Tab>
 </Tabs>
 
+## Direct Embedding Access
+
+Pixeltable allows direct access to the raw embedding vectors through the `.embedding()` method. This feature lets you retrieve the actual vector representations that power similarity search.
+
+```python
+# Access embeddings from a column with a single index
+results = docs.select(
+    docs.content,
+    embedding=docs.content.embedding()
+).limit(5)
+
+# Access embeddings from a column with multiple indices
+results = docs.select(
+    docs.content,
+    embedding=docs.content.embedding(idx='custom_idx_name')
+).limit(5)
+
+# Embeddings are returned as numpy arrays
+import numpy as np
+assert isinstance(results[0, 'embedding'], np.ndarray)
+
+# You can also store embeddings in a computed column
+docs.add_computed_column(
+    embedding_copy=docs.content.embedding()
+)
+```
+
+<Warning>
+- The `.similarity()` method cannot be used directly in computed columns
+- Embedding indices cannot be dropped if there are computed columns that depend on them
+- When a column has multiple embedding indices, you must specify which index to use with the `idx` parameter
+</Warning>
+
 ## Management Operations
 
 <CardGroup cols={1}>
