@@ -344,18 +344,30 @@ class TableRestorer:
         # The pxtmedia:// URLs of local media files are constructed using the SHA256 hash of the media file contents,
         # so this works for media files too, providing bytewise validation of data integrity.
 
-        pk_col_names = {col.name for col in tv.store_tbl.pk_columns()}
+        system_col_names = {col.name for col in tv.store_tbl.system_columns()}
         value_store_cols = [
-            store_sa_tbl.c[col_name] for col_name in temp_cols if col_name not in pk_col_names and col_name != 'v_max'
+            store_sa_tbl.c[col_name] for col_name in temp_cols if col_name not in system_col_names
         ]
         value_temp_cols = [
-            col for col_name, col in temp_cols.items() if col_name not in pk_col_names and col_name != 'v_max'
+            col for col_name, col in temp_cols.items() if col_name not in system_col_names
         ]
         mismatch_predicates = [store_col != temp_col for store_col, temp_col in zip(value_store_cols, value_temp_cols)]
         mismatch_clause = sql.or_(*mismatch_predicates)
 
-        # This query looks for rows that have matching primary keys (rowid + v_min), but differ in at least one value
-        # column.
+        # This query looks for rows that have matching primary keys (rowid + pos_k + v_min), but differ in at least
+        # one value column. Pseudo-SQL:
+        #
+        # SELECT store_tbl.col_0, ..., store_tbl.col_n, temp_tbl.col_0, ...,  temp_tbl.col_n
+        # FROM store_tbl, temp_tbl
+        # WHERE store_tbl.rowid = temp_tbl.rowid
+        #     AND store_tbl.pos_0 = temp_tbl.pos_0
+        #     AND ... AND store_tbl.pos_k = temp_tbl.pos_k
+        #     AND store_tbl.v_min = temp_tbl.v_min
+        #     AND (
+        #         store_tbl.col_0 != temp_tbl.col_0
+        #         OR store_tbl.col_1 != temp_tbl.col_1
+        #         OR ... OR store_tbl.col_n != temp_tbl.col_n
+        #     )
         q = sql.select(*value_store_cols, *value_temp_cols).where(pk_clause).where(mismatch_clause)
         _logger.debug(q.compile())
         result = conn.execute(q)

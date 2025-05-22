@@ -54,6 +54,9 @@ class StoreBase:
         self.base = tbl_version.base.get().store_tbl if tbl_version.base is not None else None
         self.create_sa_tbl()
 
+    def system_columns(self) -> list[sql.Column]:
+        return [*self._pk_cols, self.v_max_col]
+
     def pk_columns(self) -> list[sql.Column]:
         return self._pk_cols
 
