@@ -608,7 +608,7 @@ class Env:
         self.__register_package('datasets')
         self.__register_package('fiftyone')
         self.__register_package('fireworks', library_name='fireworks-ai')
-        self.__register_package('google.generativeai', library_name='google-generativeai')
+        self.__register_package('google.genai', library_name='google-genai')
         self.__register_package('huggingface_hub', library_name='huggingface-hub')
         self.__register_package('label_studio_sdk', library_name='label-studio-sdk')
         self.__register_package('llama_cpp', library_name='llama-cpp-python')
