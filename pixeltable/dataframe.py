@@ -1031,7 +1031,7 @@ class DataFrame:
         - `n_per_stratum`: the number of rows to produce per stratum as a sample
         - `fraction`: the fraction of available rows to produce as a sample
         The sample can be stratified by one or more columns, which means that the sample will
-        be selected from each stratum separately. 
+        be selected from each stratum separately.
         The data is shuffled before creating the sample.
 
         Args:
