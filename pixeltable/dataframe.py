@@ -1023,7 +1023,16 @@ class DataFrame:
         seed: Optional[int] = None,
         stratify_by: Any = None,
     ) -> DataFrame:
-        """Choose a shuffled sample of rows from the DataFrame
+        """
+        Return a new DataFrame specifying a sample of rows from the DataFrame, considered in a shuffled order.
+
+        The size of the sample can be specified in three ways:
+        - `n`: the total number of rows to produce as a sample
+        - `n_per_stratum`: the number of rows to produce per stratum as a sample
+        - `fraction`: the fraction of available rows to produce as a sample
+        The sample can be stratified by one or more columns, which means that the sample will
+        be selected from each stratum separately. 
+        The data is shuffled before creating the sample.
 
         Args:
             n: Total number of rows to produce as a sample.
@@ -1036,6 +1045,27 @@ class DataFrame:
 
         Returns:
             A new DataFrame which specifies the sampled rows
+
+        Examples:
+            Given the DataFrame person specifying selected rows from a table t with all its columns:
+
+            >>> person = t.select().where(t.age > 18)
+
+            Sample 100 rows from the above DataFrame person:
+
+            >>> df = person.sample(n=100)
+
+            Sample 10% of the rows from the above DataFrame person:
+
+            >>> df = person.sample(fraction=0.1)
+
+            Sample 10% of the rows from the above DataFrame person, stratified by the column 'age':
+
+            >>> df = person.sample(fraction=0.1, stratify_by=t.age)
+
+            Equal allocation sampling: Sample 2 rows from each age present in the above DataFrame person:
+
+            >>> df = person.sample(n_per_stratum=2, stratify_by=t.age)
         """
         # Check context of usage
         if self.sample_clause is not None:

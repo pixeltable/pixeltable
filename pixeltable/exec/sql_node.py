@@ -559,11 +559,11 @@ class SqlSampleNode(SqlNode):
         self.fraction_samples = sample_clause.fraction
         self.seed = sample_clause.seed if sample_clause.seed is not None else 0
 
-    def _create_order_by(self) -> sql.ColumnElement:
+    def _create_order_by(self, cte: sql.CTE) -> sql.ColumnElement:
         """Create an expression for randomly ordering rows with a given seed"""
         from pixeltable.plan import SampleClause
 
-        rowid_cols = [*self.input_cte.c[-self.pk_count : -1]]  # exclude the version column
+        rowid_cols = [*cte.c[-self.pk_count : -1]]  # exclude the version column
         assert len(rowid_cols) > 0
         return SampleClause.key_sql_expr(self.seed, rowid_cols)
 
@@ -575,7 +575,7 @@ class SqlSampleNode(SqlNode):
     def _create_stmt_n(self, n: Optional[int], n_per_stratum: Optional[int]) -> sql.Select:
         """Create a Select stmt that returns n samples across all strata"""
         sql_strata_exprs = [self.sql_elements.get(e) for e in self.stratify_exprs]
-        order_by = self._create_order_by()
+        order_by = self._create_order_by(self.input_cte)
 
         # Create a list of all columns plus the rank
         # Get all columns from the input CTE dynamically
@@ -589,7 +589,8 @@ class SqlSampleNode(SqlNode):
         if n_per_stratum is not None:
             return sql.select(*final_columns).filter(row_rank_cte.c.rank <= n_per_stratum)
         else:
-            return sql.select(*final_columns).order_by(row_rank_cte.c.rank).limit(n)
+            secondary_order = self._create_order_by(row_rank_cte)
+            return sql.select(*final_columns).order_by(row_rank_cte.c.rank, secondary_order).limit(n)
 
     def _create_stmt_fraction(self, fraction_samples: float) -> sql.Select:
         """Create a Select stmt that returns a fraction of the rows per strata"""
@@ -611,7 +612,7 @@ class SqlSampleNode(SqlNode):
 
         # Build a CTE that ranks the rows within each stratum
         # Include all columns from the input CTE dynamically
-        order_by = self._create_order_by()
+        order_by = self._create_order_by(self.input_cte)
         select_columns = [*self.input_cte.c]
         select_columns.append(
             sql.func.row_number().over(partition_by=sql_strata_exprs, order_by=order_by).label('rank')
