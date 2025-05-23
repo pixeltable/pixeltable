@@ -566,7 +566,7 @@ class SqlSampleNode(SqlNode):
 
         rowid_cols = [*self.input_cte.c[-self.pk_count : -1]].copy()  # exclude the version column
         assert len(rowid_cols) > 0
-        return SampleClause.key_sql_expr(self.sql_elements, self.seed, rowid_cols)
+        return SampleClause.key_sql_expr(self.seed, rowid_cols)
 
     def _create_stmt(self) -> sql.Select:
         if self.fraction_samples is not None:

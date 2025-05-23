@@ -12,7 +12,6 @@ import pixeltable as pxt
 from pixeltable import catalog, exceptions as excs, exec, exprs
 from pixeltable.catalog import Column, TableVersionHandle
 from pixeltable.exec.sql_node import OrderByClause, OrderByItem, combine_order_by_clauses, print_order_by_clause
-from pixeltable.exprs.sql_element_cache import SqlElementCache
 from pixeltable.utils.sample import SampleKey
 
 
@@ -153,9 +152,7 @@ class SampleClause:
         return format(threshold_int, '08x') + 'ffffffffffffffffffffffff'
 
     @classmethod
-    def key_sql_expr(
-        cls, sql_elements: SqlElementCache, seed: int, sql_cols: list[sql.KeyedColumnElement]
-    ) -> sql.ColumnElement:
+    def key_sql_expr(cls, seed: int, sql_cols: list[sql.ColumnElement]) -> sql.ColumnElement:
         """Construct expression which is the ordering key for rows to be sampled
         General SQL form is:
         - MD5('<seed::text>' [ + '___' + <rowid_col_val>::text]+
@@ -845,6 +842,7 @@ class Planner:
         else:
             # If non-stratified sampling, construct a where clause, order_by, and limit clauses
             # Construct an expression for sorting rows and limiting row counts
+            # s_key=sample_key(exprs.Literal(sample_clause.seed), cls.rowid_columns(from_clause._first_tbl.tbl_version))
             s_key = SampleKey(exprs.Literal(sample_clause.seed), cls.rowid_columns(from_clause._first_tbl.tbl_version))
 
             # Construct a suitable where clause

@@ -1,6 +1,4 @@
-from __future__ import annotations
-
-from typing import Optional
+from typing import Any, Optional
 
 import sqlalchemy as sql
 
@@ -9,6 +7,7 @@ from pixeltable.exprs.expr import DataRow, Expr
 from pixeltable.exprs.literal import Literal
 from pixeltable.exprs.row_builder import RowBuilder
 from pixeltable.exprs.sql_element_cache import SqlElementCache
+from pixeltable.func.udf import udf
 
 
 class SampleKey(Expr):
@@ -30,7 +29,7 @@ class SampleKey(Expr):
     def _seed_expr(self) -> Expr:
         return self.components[0]
 
-    def _equals(self, other: SampleKey) -> bool:
+    def _equals(self, other: 'SampleKey') -> bool:
         return True
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
@@ -43,7 +42,7 @@ class SampleKey(Expr):
         return {**super()._as_dict()}
 
     @classmethod
-    def _from_dict(cls, d: dict, components: list[Expr]) -> SampleKey:
+    def _from_dict(cls, d: dict, components: list[Expr]) -> 'SampleKey':
         assert len(components) >= 2
         return cls(components[0], components[1:])
 
@@ -58,4 +57,27 @@ class SampleKey(Expr):
         from pixeltable.plan import SampleClause
 
         rowid_sql_expr = [e.sql_expr(sql_elements) for e in self.components[1:]]
-        return SampleClause.key_sql_expr(sql_elements, self._seed, rowid_sql_expr)
+        return SampleClause.key_sql_expr(self._seed, rowid_sql_expr)
+
+
+@udf
+def sample_key(seed: int, rowid_sql_exprs: ts.Json) -> str:
+    """
+    Create a sample key from the given seed and rowids.
+
+    Args:
+        seed: The seed value.
+        rowids: The rowids to include in the sample key.
+
+    Returns:
+        A SampleKey object.
+    """
+    assert isinstance(seed, int)
+    raise NotImplementedError
+
+
+@sample_key.to_sql
+def _(seed: int, rowid_sql_exprs: sql.ColumnCollection[Any, Any]) -> sql.ColumnElement:
+    from pixeltable.plan import SampleClause
+
+    return SampleClause.key_sql_expr(seed, list(rowid_sql_exprs))
