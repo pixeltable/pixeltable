@@ -137,7 +137,7 @@ class SampleClause:
         s = ','.join(e.display_str(inline=True) for e in self.stratify_exprs)
         return (
             f'sample_{self.version}(n={self.n}, n_per_stratum={self.n_per_stratum}, '
-            + f'fraction={self.fraction}, seed={self.seed}, [{s}])'
+            f'fraction={self.fraction}, seed={self.seed}, [{s}])'
         )
 
     @classmethod
@@ -1040,7 +1040,7 @@ class Planner:
                         row_builder,
                         input=plan,
                         select_list=analyzer.select_list,
-                        group_by_items=analyzer.group_by_clause,
+                        stratify_exprs=analyzer.group_by_clause,
                         sample_clause=sample_clause,
                     )
                 else:

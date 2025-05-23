@@ -85,16 +85,16 @@ class TestSampling:
             _ = t.select().sample(n=10, seed=-123.456)  # type: ignore[arg-type]
 
         # Test invalid sample parameter combinations
-        with pytest.raises(excs.Error, match='At least one of '):
+        with pytest.raises(excs.Error, match='Exactly one of '):
             _ = t.select().sample()
+        with pytest.raises(excs.Error, match='Exactly one of '):
+            _ = t.select().sample(n=10, n_per_stratum=5, stratify_by=t.c1)
+        with pytest.raises(excs.Error, match='Exactly one of '):
+            _ = t.select().sample(n=10, fraction=0.10)
+        with pytest.raises(excs.Error, match='Exactly one of '):
+            _ = t.select().sample(n_per_stratum=10, fraction=0.10, stratify_by=t.c1)
         with pytest.raises(excs.Error, match='Must specify'):
             _ = t.select().sample(n_per_stratum=5)
-        with pytest.raises(excs.Error, match='Cannot specify both'):
-            _ = t.select().sample(n=10, n_per_stratum=5, stratify_by=t.c1)
-        with pytest.raises(excs.Error, match='Cannot specify both'):
-            _ = t.select().sample(n=10, fraction=0.10)
-        with pytest.raises(excs.Error, match='Cannot specify both'):
-            _ = t.select().sample(n_per_stratum=10, fraction=0.10, stratify_by=t.c1)
 
         # test valid parameter combinations
         _ = t.select().sample(n=10)

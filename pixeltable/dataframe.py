@@ -215,8 +215,6 @@ class DataFrame:
     @property
     def _first_tbl(self) -> catalog.TableVersionPath:
         return self._from_clause._first_tbl
-        # assert len(self._from_clause.tbls) == 1
-        # return self._from_clause.tbls[0]
 
     def _vars(self) -> dict[str, exprs.Variable]:
         """
@@ -1052,14 +1050,10 @@ class DataFrame:
             raise excs.Error('sample() cannot be used with join()')
 
         # Check paramter combinations
-        if n is None and n_per_stratum is None and fraction is None:
-            raise excs.Error('At least one of `n`, `n_per_stratum`, or `fraction` must be supplied.')
+        if (n is not None) + (n_per_stratum is not None) + (fraction is not None) != 1:
+            raise excs.Error('Exactly one of `n`, `n_per_stratum`, or `fraction` must be specified.')
         if n_per_stratum is not None and stratify_by is None:
             raise excs.Error('Must specify `stratify_by` to use `n_per_stratum`')
-        if n is not None and n_per_stratum is not None:
-            raise excs.Error('Cannot specify both `n` and `n_per_stratum`')
-        if (n is not None or n_per_stratum is not None) and fraction is not None:
-            raise excs.Error('Cannot specify both `n` or `n_per_stratum` with `fraction`')
 
         # Check parameter types and values
         n = self.validate_constant_type_range(n, ts.IntType(nullable=False), False, 'n', (1, None))
@@ -1067,7 +1061,7 @@ class DataFrame:
             n_per_stratum, ts.IntType(nullable=False), False, 'n_per_stratum', (1, None)
         )
         fraction = self.validate_constant_type_range(
-            fraction, ts.FloatType(nullable=False), False, 'fraction', (0.0000001, 0.9999999)
+            fraction, ts.FloatType(nullable=False), False, 'fraction', (0.0, 1.0)
         )
         seed = self.validate_constant_type_range(seed, ts.IntType(nullable=False), False, 'seed')
 
@@ -1076,13 +1070,13 @@ class DataFrame:
         if stratify_by is not None:
             if isinstance(stratify_by, exprs.Expr):
                 stratify_by = [stratify_by]
-            if not isinstance(stratify_by, list):
+            if not isinstance(stratify_by, (list, tuple)):
                 raise excs.Error('`stratify_by` must be a list of scalar expressions')
             for expr in stratify_by:
                 if expr is None or not isinstance(expr, exprs.Expr):
                     raise excs.Error(f'Invalid expression: {expr}')
                 if not expr.col_type.is_scalar_type():
-                    raise excs.Error(f'Invalid type: {expr} must be a scalar type')
+                    raise excs.Error(f'Invalid type: expression must be a scalar type (not {expr.col_type})')
                 if not expr.is_bound_by(self._from_clause.tbls):
                     raise excs.Error(
                         f"Expression '{expr}' cannot be evaluated in the context of this query's tables "
