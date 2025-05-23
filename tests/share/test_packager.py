@@ -19,7 +19,14 @@ from pixeltable.env import Env
 from pixeltable.share.packager import TablePackager, TableRestorer
 from tests.conftest import clean_db
 
-from ..utils import SAMPLE_IMAGE_URL, assert_resultset_eq, get_image_files, get_video_files, reload_catalog
+from ..utils import (
+    SAMPLE_IMAGE_URL,
+    assert_resultset_eq,
+    create_table_data,
+    get_image_files,
+    get_video_files,
+    reload_catalog,
+)
 
 
 class TestPackager:
@@ -297,7 +304,27 @@ class TestPackager:
         self.__restore_and_check_table(bundle1, 'replica1')
         self.__restore_and_check_table(bundle2, 'replica2')
 
-    def test_multi_view_round_trip_3(self, reset_db: None) -> None:
+    def test_multi_view_round_trip_3(self, all_datatypes_tbl: pxt.Table) -> None:
+        """
+        Snapshots that involve all the different column types.
+        """
+        t = all_datatypes_tbl
+        snap1 = pxt.create_snapshot('snap1', t.where(t.row_id % 2 != 0))
+        bundle1 = self.__package_table(snap1)
+
+        more_data = create_table_data(t, num_rows=22)
+        t.insert(more_data[11:])
+
+        snap2 = pxt.create_snapshot('snap2', t.where(t.row_id % 3 != 0))
+        bundle2 = self.__package_table(snap2)
+
+        clean_db()
+        reload_catalog()
+
+        self.__restore_and_check_table(bundle1, 'replica1')
+        self.__restore_and_check_table(bundle2, 'replica2')
+
+    def test_multi_view_round_trip_4(self, reset_db: None) -> None:
         """
         A much more sophisticated multi-view test. Here we create 11 snapshots, each one modifying a
         different subset of the rows in the table. The snapshots are then reconstituted in an arbitrary

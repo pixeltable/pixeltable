@@ -341,15 +341,18 @@ class TableRestorer:
         # must be identical; the rows can differ only in their v_max value. As a sanity check, we go through the
         # motion of verifying this; a failure implies data corruption in either the replica being imported or in a
         # previously imported replica.
-        # The pxtmedia:// URLs of local media files are constructed using the SHA256 hash of the media file contents,
-        # so this works for media files too, providing bytewise validation of data integrity.
 
         system_col_names = {col.name for col in tv.store_tbl.system_columns()}
+        media_col_names = {col.store_name() for col in tv.cols if col.col_type.is_media_type()}
         value_store_cols = [
-            store_sa_tbl.c[col_name] for col_name in temp_cols if col_name not in system_col_names
+            store_sa_tbl.c[col_name]
+            for col_name in temp_cols
+            if col_name not in system_col_names and col_name not in media_col_names
         ]
         value_temp_cols = [
-            col for col_name, col in temp_cols.items() if col_name not in system_col_names
+            col
+            for col_name, col in temp_cols.items()
+            if col_name not in system_col_names and col_name not in media_col_names
         ]
         mismatch_predicates = [store_col != temp_col for store_col, temp_col in zip(value_store_cols, value_temp_cols)]
         mismatch_clause = sql.or_(*mismatch_predicates)
