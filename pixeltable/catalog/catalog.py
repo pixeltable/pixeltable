@@ -102,7 +102,7 @@ class Catalog:
     - concurrent changes are detected by comparing TableVersion.version with the stored current version
       (TableMd.current_version)
     - cached live TableVersion instances (those with effective_version == None) are validated against the stored
-      metadata on transaction boundaries
+      metadata on transaction boundaries; this is recorded in TableVersion.is_validated
     - metadata validation is only needed for live TableVersion instances (snapshot instances are immutable)
     """
 
@@ -114,6 +114,7 @@ class Catalog:
     _tbl_versions: dict[tuple[UUID, Optional[int]], TableVersion]
     _tbls: dict[UUID, Table]
     _in_write_xact: bool  # True if we're in a write transaction
+    _x_locked_tbl_id: Optional[UUID]  # set if begin_xact() was asked to write-lock a table
 
     @classmethod
     def get(cls) -> Catalog:
@@ -136,6 +137,7 @@ class Catalog:
         self._tbl_versions = {}
         self._tbls = {}  # don't use a defaultdict here, it doesn't cooperate with the debugger
         self._in_write_xact = False
+        self._x_locked_tbl_id = None
         self._init_store()
 
     def validate(self) -> None:
@@ -174,6 +176,9 @@ class Catalog:
         or metadata.
         """
         if Env.get().in_xact:
+            if tbl_id is not None and for_write:
+                # make sure that we requested the required table lock at the beginning of the transaction
+                assert tbl_id == self._x_locked_tbl_id
             yield Env.get().conn
             return
 
@@ -194,6 +199,7 @@ class Catalog:
                             sql.select(schema.Table).where(schema.Table.id == tbl_id).with_for_update(nowait=True)
                         )
                         conn.execute(sql.update(schema.Table).values(lock_dummy=1).where(schema.Table.id == tbl_id))
+                        self._x_locked_tbl_id = tbl_id
 
                     self._in_write_xact = for_write
                     yield conn
@@ -209,6 +215,7 @@ class Catalog:
                     raise
             finally:
                 self._in_write_xact = False
+                self._x_locked_tbl_id = None
 
                 # invalidate cached current TableVersion instances
                 for tv in self._tbl_versions.values():
@@ -852,7 +859,9 @@ class Catalog:
             tv = self._tbl_versions.get((tbl_id, effective_version))
             if tv is None:
                 tv = self._load_tbl_version(tbl_id, effective_version)
-            elif not tv.is_validated and effective_version is None:
+            elif not tv.is_validated:
+                # only live instances are invalidated
+                assert effective_version is None
                 # we validate live instances by comparing our cached version number to the stored current version
                 _logger.debug(f'validating metadata for table {tbl_id}:{tv.version} ({id(tv):x})')
                 q = sql.select(schema.Table.md).where(schema.Table.id == tbl_id)
