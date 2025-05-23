@@ -16,10 +16,10 @@ import sqlalchemy as sql
 import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable import catalog, exceptions as excs, exprs, functions as pxtf
+from pixeltable.catalog import Catalog
 from pixeltable.exprs import ColumnRef, Expr, Literal
 from pixeltable.functions.globals import cast
 from pixeltable.iterators import FrameIterator
-from pixeltable.catalog import Catalog
 
 from .utils import (
     ReloadTester,
