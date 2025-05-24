@@ -251,6 +251,10 @@ class ColumnRef(Expr):
         self.col = tv.cols_by_id[self.col_id]
         assert self.col.tbl is tv
         # TODO: check for column being dropped
+        # print(
+        #     f'ColumnRef.sql_expr: tbl={tv.id}:{tv.effective_version} sa_tbl={id(self.col.tbl.store_tbl.sa_tbl):x} '
+        #     f'tv={id(tv):x}'
+        # )
         return self.col.sa_col
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:

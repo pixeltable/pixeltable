@@ -248,9 +248,16 @@ class TableRestorer:
         tbl_md = [schema.FullTableMd.from_dict(t) for t in self.md['md']['tables']]
 
         # Create the replica table
-        # TODO: This needs to be made concurrency-safe.
+        # The logic here needs to be completely restructured in order to make it concurrency-safe.
+        # - Catalog.create_replica() needs to write the metadata and also create the physical store tables
+        #   and populate them, otherwise concurrent readers will see an inconsistent state (table metadata w/o
+        #   an actual table)
+        # - this could be done one replica at a time (instead of the entire hierarchy)
         cat = catalog.Catalog.get()
         cat.create_replica(catalog.Path(self.tbl_path), tbl_md)
+        # don't call get_table() until after the calls to create_replica() and __import_table() below;
+        # the TV instances created by get_table() would be replaced by create_replica(), which creates duplicate
+        # TV instances for the same replica version, which then leads to failures when constructing queries
 
         # Now we need to instantiate and load data for replica_tbl and its ancestors, except that we skip
         # replica_tbl itself if it's a pure snapshot.

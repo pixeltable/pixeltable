@@ -58,7 +58,10 @@ def _unpack_row(
     return result
 
 
+# for now, we don't limit the number of retries, because we haven't seen situations where the actual number of retries
+# grows uncontrollably
 _MAX_RETRIES = 0
+
 T = TypeVar('T')
 
 
@@ -97,6 +100,11 @@ class Catalog:
     All interface functions must be called in the context of a transaction, started with Catalog.begin_xact().
 
     Caching and invalidation of metadata:
+    - Catalog caches TableVersion instances in order to avoid excessive metadata loading
+    - for any specific table version (ie, combination of id and effective version) there can be only a single
+      Tableversion instance in circulation; the reason is that each TV instance has its own store_tbl.sa_tbl, and
+      mixing multiple instances of sqlalchemy Table objects in the same query (for the same underlying table) leads to
+      duplicate references to that table in the From clause (ie, incorrect Cartesian products)
     - in order to allow multiple concurrent Python processes to perform updates (data and/or schema) against a shared
       Pixeltable instance, Catalog needs to reload metadata from the store when there are changes
     - concurrent changes are detected by comparing TableVersion.version with the stored current version
@@ -127,9 +135,9 @@ class Catalog:
         """Remove the instance. Used for testing."""
         # invalidate all existing instances to force reloading of metadata
         for tbl_version in cls._instance._tbl_versions.values():
-            _logger.debug(
-                f'Invalidating table version {tbl_version.id}:{tbl_version.effective_version} ({id(tbl_version):x})'
-            )
+            # _logger.debug(
+            #     f'Invalidating table version {tbl_version.id}:{tbl_version.effective_version} ({id(tbl_version):x})'
+            # )
             tbl_version.is_validated = False
         cls._instance = None
 
@@ -182,13 +190,13 @@ class Catalog:
             yield Env.get().conn
             return
 
-        tv_msg = '\n'.join(
-            [
-                f'{tv.id}:{tv.effective_version} : tv={id(tv):x} sa_tbl={id(tv.store_tbl.sa_tbl):x}'
-                for tv in self._tbl_versions.values()
-            ]
-        )
-        _logger.debug(f'begin_xact(): {tv_msg}')
+        # tv_msg = '\n'.join(
+        #     [
+        #         f'{tv.id}:{tv.effective_version} : tv={id(tv):x} sa_tbl={id(tv.store_tbl.sa_tbl):x}'
+        #         for tv in self._tbl_versions.values()
+        #     ]
+        # )
+        # _logger.debug(f'begin_xact(): {tv_msg}')
         num_retries = 0
         while True:
             try:
@@ -558,6 +566,9 @@ class Catalog:
         Creates table, table_version, and table_schema_version records for a replica with the given metadata.
         The metadata should be presented in standard "ancestor order", with the table being replicated at
         list position 0 and the (root) base table at list position -1.
+
+        TODO: create_replica() also needs to create the store tables and populate them in order to make
+        replica creation atomic.
         """
         tbl_id = UUID(md[0].tbl_md.tbl_id)
 
@@ -576,7 +587,6 @@ class Catalog:
         self._create_dir(Path('_system', allow_system_paths=True), if_exists=IfExistsParam.IGNORE, parents=False)
 
         # Now check to see if this table already exists in the catalog.
-        # TODO: Handle concurrency in create_replica()
         existing = Catalog.get().get_table_by_id(tbl_id)
         if existing is not None:
             existing_path = Path(existing._path(), allow_system_paths=True)
@@ -614,14 +624,11 @@ class Catalog:
             # known version (in which case the newly received metadata will be validated as identical).
             self.__store_replica_md(replica_path, ancestor_md)
 
-        # Update the catalog (as a final step, after all DB operations completed successfully).
-        # Only the table being replicated is actually made visible in the catalog.
-        # _ = self._load_tbl(tbl_id)
-        # return self._tbls[tbl_id]
+        # don't create TableVersion instances at this point, they would be superseded by calls to TV.create_replica()
+        # in TableRestorer.restore()
 
     def __store_replica_md(self, path: Path, md: schema.FullTableMd) -> None:
         _logger.info(f'Creating replica table at {path!r} with ID: {md.tbl_md.tbl_id}')
-        # TODO: Handle concurrency
         dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
         assert dir is not None
         assert self._in_write_xact
@@ -711,6 +718,8 @@ class Catalog:
         obj = Catalog.get()._get_schema_object(path, expected=Table, raise_if_not_exists=True)
         assert isinstance(obj, Table)
         tbl_version = obj._tbl_version.get()
+        # TODO: instead of calling this here, move the logic into TableVersion.init(), which is called after
+        # registering the instance in _tbl_versions
         tbl_version.ensure_md_loaded()
         # if this table has mutable views, we need to load those as well, in order to record column dependencies
         for v in tbl_version.mutable_views:
@@ -863,7 +872,7 @@ class Catalog:
                 # only live instances are invalidated
                 assert effective_version is None
                 # we validate live instances by comparing our cached version number to the stored current version
-                _logger.debug(f'validating metadata for table {tbl_id}:{tv.version} ({id(tv):x})')
+                # _logger.debug(f'validating metadata for table {tbl_id}:{tv.version} ({id(tv):x})')
                 q = sql.select(schema.Table.md).where(schema.Table.id == tbl_id)
                 row = conn.execute(q).one()
                 current_version = row.md['current_version']
@@ -874,7 +883,8 @@ class Catalog:
                     # the cached metadata is invalid
                     _logger.debug(
                         f'reloading metadata for table {tbl_id} '
-                        f'(cached version: {tv.version}, current version: {current_version}, id: {id(tv):x})'
+                        f'(cached version: {tv.version}, current version: {current_version}'
+                        # f', id: {id(tv):x})'
                     )
                     tv = self._load_tbl_version(tbl_id, None)
                 else:
@@ -982,7 +992,6 @@ class Catalog:
             view_path = TableVersionPath(TableVersionHandle(id, effective_version), base=base_path)
             base_path = view_path
         view = View(tbl_id, tbl_record.dir_id, tbl_md.name, view_path, snapshot_only=pure_snapshot)
-        # TODO: also load mutable views
         self._tbls[tbl_id] = view
         return view
 
@@ -1147,6 +1156,10 @@ class Catalog:
 
         # load mutable view ids for mutable TableVersions
         mutable_view_ids: list[UUID] = []
+        # If this is a replica, effective_version should not be None. We see this today, because
+        # the replica's TV instance's Column instances contain value_expr_dicts that reference the live version.
+        # This is presumably a source of bugs, because it ignores schema version changes (eg, column renames).
+        # TODO: retarget the value_expr_dict when instantiating Columns for a particular TV instance.
         if effective_version is None and not tbl_md.is_replica:
             q = sql.select(schema.Table.id).where(
                 sql.text(
