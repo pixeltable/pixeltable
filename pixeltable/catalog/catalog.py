@@ -178,7 +178,7 @@ class Catalog:
         if Env.get().in_xact:
             if tbl_id is not None and for_write:
                 # make sure that we requested the required table lock at the beginning of the transaction
-                assert tbl_id == self._x_locked_tbl_id
+                assert tbl_id == self._x_locked_tbl_id, f'{tbl_id} != {self._x_locked_tbl_id}'
             yield Env.get().conn
             return
 
