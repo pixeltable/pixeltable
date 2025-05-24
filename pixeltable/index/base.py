@@ -41,6 +41,11 @@ class IndexBase(abc.ABC):
         """Create the index on the index value column"""
         pass
 
+    @abc.abstractmethod
+    def drop_index(self, index_name: str, index_value_col: catalog.Column) -> None:
+        """Drop the index on the index value column"""
+        pass
+
     @classmethod
     @abc.abstractmethod
     def display_name(cls) -> str:

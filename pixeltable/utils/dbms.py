@@ -35,7 +35,7 @@ class PostgresqlDbms(Dbms):
     """
 
     def __init__(self, db_url: URL):
-        super().__init__('postgresql', 'REPEATABLE READ', 'brin', db_url)
+        super().__init__('postgresql', 'SERIALIZABLE', 'brin', db_url)
 
     def drop_db_stmt(self, database: str) -> str:
         return f'DROP DATABASE {database}'

@@ -18,7 +18,7 @@ class TestSnapshot:
         extra_items: dict[str, Any],
         reload_md: bool,
     ) -> None:
-        tbl_path, snap_path = tbl._path, snap._path
+        tbl_path, snap_path = tbl._path(), snap._path()
         # run the initial query against the base table here, before reloading, otherwise the filter breaks
         tbl_select_list = [tbl[col_name] for col_name in tbl._schema]
         tbl_select_list.extend([value_expr for _, value_expr in extra_items.items()])
@@ -312,6 +312,7 @@ class TestSnapshot:
 
         def validate(t: pxt.Table, v: pxt.Table, s1: pxt.Table, s2: pxt.Table, s3: pxt.Table, s4: pxt.Table) -> None:
             # c4 is only visible in s1
+            _ = s1.c4
             assert np.all(s1.select(s1.c4).order_by(s1.c2).collect().to_pandas()['c4'] == c4)
             with pytest.raises(AttributeError):
                 _ = t.select(t.c4).collect()

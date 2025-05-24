@@ -54,6 +54,7 @@ class SimilarityExpr(Expr):
         return 'similarity'
 
     def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
+        # TODO: validate that the index still exists
         if not isinstance(self.components[1], Literal):
             raise excs.Error('similarity(): requires a string or a PIL.Image.Image object, not an expression')
         item = self.components[1].val

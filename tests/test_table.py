@@ -112,6 +112,7 @@ class TestTable:
             pxt.list_tables('dir2')
 
         # test loading with new client
+        _ = tbl.select().collect()
         _ = reload_tester.run_query(tbl.select())
         reload_tester.run_reload_test()
 
@@ -250,12 +251,12 @@ class TestTable:
             tbl = pxt.create_table(tbl_path, {'col': pxt.String}, media_validation=media_val)  # type: ignore[arg-type]
             view = pxt.create_view(f'{tbl_path}_view', tbl, media_validation=media_val)  # type: ignore[arg-type]
             snap = pxt.create_snapshot(f'{tbl_path}_snap', tbl, media_validation=media_val)  # type: ignore[arg-type]
-            assert tbl._path == tbl_path
+            assert tbl._path() == tbl_path
             assert tbl._name == tbl_path.split('.')[-1]
-            assert tbl._parent()._path == '.'.join(tbl_path.split('.')[:-1])
+            assert tbl._parent()._path() == '.'.join(tbl_path.split('.')[:-1])
             for t in (tbl, view, snap):
                 assert t.get_metadata() == {
-                    'base': None if t._base_table is None else t._base_table._path,
+                    'base': None if t._base_table is None else t._base_table._path(),
                     'comment': t._comment,
                     'is_view': isinstance(t, catalog.View),
                     'is_snapshot': t._tbl_version.get().is_snapshot,
@@ -263,7 +264,7 @@ class TestTable:
                     'name': t._name,
                     'num_retained_versions': t._num_retained_versions,
                     'media_validation': media_val,
-                    'path': t._path,
+                    'path': t._path(),
                     'schema': t._schema,
                     'schema_version': t._tbl_version.get().schema_version,
                     'version': t._version,
@@ -1609,6 +1610,8 @@ class TestTable:
         # c3 is now stored
         t.add_computed_column(c3=t.img.rotate(90))
         self._test_computed_img_cols(t, stores_img_col=True)
+        _ = t.select(t.c3).collect()
+        self._test_computed_img_cols(t, stores_img_col=True)
         _ = t.select(t.c3.errortype).collect()
 
         # computed img col with exceptions
@@ -2158,7 +2161,7 @@ class TestTable:
         s1 = pxt.create_snapshot('test_snap1', v2)
         r = repr(s1)
         assert strip_lines(r) == strip_lines(
-            """Snapshot 'test_snap1' (of 'test_subview:2', 'test_view:0', 'test_tbl:2')
+            """Snapshot 'test_snap1' (of 'test_subview:3', 'test_view:0', 'test_tbl:2')
             Where: ~(c1 == None)
 
             Column Name                          Type           Computed With

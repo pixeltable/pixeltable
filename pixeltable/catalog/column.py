@@ -15,7 +15,6 @@ from .globals import MediaValidation, is_valid_identifier
 
 if TYPE_CHECKING:
     from .table_version import TableVersion
-    from .table_version_handle import TableVersionHandle
     from .table_version_path import TableVersionPath
 
 _logger = logging.getLogger('pixeltable')
@@ -44,7 +43,10 @@ class Column:
     _value_expr: Optional[exprs.Expr]
     value_expr_dict: Optional[dict[str, Any]]
     dependent_cols: set[Column]
-    tbl: Optional[TableVersionHandle]
+    # we store a TableVersion here, not a TableVersionHandle, because this column is owned by that TableVersion instance
+    # (re-resolving it later to a different instance doesn't make sense)
+    tbl: Optional[TableVersion]
+    # tbl: Optional[TableVersionHandle]
 
     def __init__(
         self,
@@ -138,7 +140,7 @@ class Column:
                 message = (
                     dedent(
                         f"""
-                        The computed column {self.name!r} in table {self.tbl.get().name!r} is no longer valid.
+                        The computed column {self.name!r} in table {self.tbl.name!r} is no longer valid.
                         {{validation_error}}
                         You can continue to query existing data from this column, but evaluating it on new data will raise an error.
                         """  # noqa: E501
@@ -175,8 +177,8 @@ class Column:
     #     multiple dependents)
     def get_idx_info(self, reference_tbl: Optional['TableVersionPath'] = None) -> dict[str, 'TableVersion.IndexInfo']:
         assert self.tbl is not None
-        tbl = reference_tbl.tbl_version if reference_tbl is not None else self.tbl
-        return {name: info for name, info in tbl.get().idxs_by_name.items() if info.col == self}
+        tbl = reference_tbl.tbl_version.get() if reference_tbl is not None else self.tbl
+        return {name: info for name, info in tbl.idxs_by_name.items() if info.col == self}
 
     @property
     def is_computed(self) -> bool:
@@ -199,14 +201,14 @@ class Column:
     @property
     def qualified_name(self) -> str:
         assert self.tbl is not None
-        return f'{self.tbl.get().name}.{self.name}'
+        return f'{self.tbl.name}.{self.name}'
 
     @property
     def media_validation(self) -> MediaValidation:
         if self._media_validation is not None:
             return self._media_validation
         assert self.tbl is not None
-        return self.tbl.get().media_validation
+        return self.tbl.media_validation
 
     @property
     def is_required_for_insert(self) -> bool:
@@ -256,7 +258,7 @@ class Column:
         return f'{self.name}: {self.col_type}'
 
     def __repr__(self) -> str:
-        return f'Column({self.id!r}, {self.name!r}, tbl={self.tbl.get().name!r})'
+        return f'Column({self.id!r}, {self.name!r}, tbl={self.tbl.name!r})'
 
     def __hash__(self) -> int:
         # TODO(aaron-siegel): This and __eq__ do not capture the table version. We need to rethink the Column

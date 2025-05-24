@@ -3,7 +3,6 @@ from __future__ import annotations
 import abc
 import itertools
 import logging
-import time
 from dataclasses import dataclass
 from typing import Any, Optional
 from uuid import UUID
@@ -11,7 +10,7 @@ from uuid import UUID
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable import Column, Table
-from pixeltable.catalog import TableVersion, TableVersionHandle
+from pixeltable.catalog import TableVersion
 
 _logger = logging.getLogger('pixeltable')
 
@@ -32,15 +31,11 @@ class ExternalStore(abc.ABC):
 
     @abc.abstractmethod
     def link(self, tbl_version: TableVersion) -> None:
-        """
-        Called by `TableVersion.link()` to implement store-specific logic.
-        """
+        """Creates store-specific metadata needed to implement sync()."""
 
     @abc.abstractmethod
     def unlink(self, tbl_version: TableVersion) -> None:
-        """
-        Called by `TableVersion.unlink()` to implement store-specific logic.
-        """
+        """Removes store-specific metadata created in link()."""
 
     @abc.abstractmethod
     def get_local_columns(self) -> list[Column]:
@@ -111,17 +106,10 @@ class Project(ExternalStore, abc.ABC):
 
         if len(stored_proxies_needed) > 0:
             _logger.info(f'Creating stored proxies for columns: {[col.name for col in stored_proxies_needed]}')
-            # Create stored proxies for columns that need one. Increment the schema version
-            # accordingly.
-            tbl_version.version += 1
-            preceding_schema_version = tbl_version.schema_version
-            tbl_version.schema_version = tbl_version.version
-            proxy_cols = [self.create_stored_proxy(tbl_version, col) for col in stored_proxies_needed]
+            # Create stored proxies for columns that need one
+            proxy_cols = [self.create_stored_proxy(col) for col in stored_proxies_needed]
             # Add the columns; this will also update table metadata.
-            tbl_version._add_columns(proxy_cols, print_stats=False, on_error='ignore')
-            # We don't need to retain `UpdateStatus` since the stored proxies are intended to be
-            # invisible to the user.
-            tbl_version._update_md(time.time(), preceding_schema_version=preceding_schema_version)
+            tbl_version.add_columns(proxy_cols, print_stats=False, on_error='ignore')
 
     def unlink(self, tbl_version: TableVersion) -> None:
         # Determine which stored proxies can be deleted. (A stored proxy can be deleted if it is not referenced by
@@ -132,15 +120,10 @@ class Project(ExternalStore, abc.ABC):
                 deletions_needed = deletions_needed.difference(set(store.stored_proxies.values()))
         if len(deletions_needed) > 0:
             _logger.info(f'Removing stored proxies for columns: {[col.name for col in deletions_needed]}')
-            # Delete stored proxies that are no longer needed.
-            tbl_version.version += 1
-            preceding_schema_version = tbl_version.schema_version
-            tbl_version.schema_version = tbl_version.version
             tbl_version._drop_columns(deletions_needed)
             self.stored_proxies.clear()
-            tbl_version._update_md(time.time(), preceding_schema_version=preceding_schema_version)
 
-    def create_stored_proxy(self, tbl_version: TableVersion, col: Column) -> Column:
+    def create_stored_proxy(self, col: Column) -> Column:
         """
         Creates a proxy column for the specified column. The proxy column will be created in the specified
         `TableVersion`.
@@ -158,12 +141,7 @@ class Project(ExternalStore, abc.ABC):
             #   Once `destination` is implemented, it can be replaced with a simple `ColumnRef`.
             computed_with=exprs.ColumnRef(col).apply(lambda x: x, col_type=col.col_type),
             stored=True,
-            col_id=tbl_version.next_col_id,
-            sa_col_type=col.col_type.to_sa_type(),
-            schema_version_add=tbl_version.schema_version,
         )
-        proxy_col.tbl = TableVersionHandle(tbl_version.id, tbl_version.effective_version, tbl_version=tbl_version)
-        tbl_version.next_col_id += 1
         self.stored_proxies[col] = proxy_col
         return proxy_col
 

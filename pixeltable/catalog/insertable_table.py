@@ -138,37 +138,40 @@ class InsertableTable(Table):
         print_stats: bool = False,
         **kwargs: Any,
     ) -> UpdateStatus:
+        from pixeltable.catalog import Catalog
         from pixeltable.io.table_data_conduit import UnkTableDataConduit
 
-        table = self
-        if source is None:
-            source = [kwargs]
-            kwargs = None
+        with Catalog.get().begin_xact(tbl_id=self._id, for_write=True):
+            table = self
+            if source is None:
+                source = [kwargs]
+                kwargs = None
 
-        tds = UnkTableDataConduit(
-            source, source_format=source_format, src_schema_overrides=schema_overrides, extra_fields=kwargs
-        )
-        data_source = tds.specialize()
-        if data_source.source_column_map is None:
-            data_source.src_pk = []
+            tds = UnkTableDataConduit(
+                source, source_format=source_format, src_schema_overrides=schema_overrides, extra_fields=kwargs
+            )
+            data_source = tds.specialize()
+            if data_source.source_column_map is None:
+                data_source.src_pk = []
 
-        assert isinstance(table, Table)
-        data_source.add_table_info(table)
-        data_source.prepare_for_insert_into_table()
+            assert isinstance(table, Table)
+            data_source.add_table_info(table)
+            data_source.prepare_for_insert_into_table()
 
-        fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
-        return table.insert_table_data_source(
-            data_source=data_source, fail_on_exception=fail_on_exception, print_stats=print_stats
-        )
+            fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
+            return table.insert_table_data_source(
+                data_source=data_source, fail_on_exception=fail_on_exception, print_stats=print_stats
+            )
 
     def insert_table_data_source(
         self, data_source: TableDataConduit, fail_on_exception: bool, print_stats: bool = False
     ) -> pxt.UpdateStatus:
         """Insert row batches into this table from a `TableDataConduit`."""
+        from pixeltable.catalog import Catalog
         from pixeltable.io.table_data_conduit import DFTableDataConduit
 
         status = pxt.UpdateStatus()
-        with Env.get().begin_xact():
+        with Catalog.get().begin_xact(tbl_id=self._id, for_write=True):
             if isinstance(data_source, DFTableDataConduit):
                 status += self._tbl_version.get().insert(
                     rows=None, df=data_source.pxt_df, print_stats=print_stats, fail_on_exception=fail_on_exception
@@ -226,7 +229,9 @@ class InsertableTable(Table):
 
             >>> tbl.delete(tbl.a > 5)
         """
-        with Env.get().begin_xact():
+        from pixeltable.catalog import Catalog
+
+        with Catalog.get().begin_xact(tbl_id=self._id, for_write=True):
             return self._tbl_version.get().delete(where=where)
 
     @property
@@ -238,4 +243,4 @@ class InsertableTable(Table):
         return []
 
     def _table_descriptor(self) -> str:
-        return f'Table {self._path!r}'
+        return f'Table {self._path()!r}'
