@@ -304,7 +304,29 @@ class TestPackager:
         self.__restore_and_check_table(bundle1, 'replica1')
         self.__restore_and_check_table(bundle2, 'replica2')
 
-    def test_multi_view_round_trip_3(self, all_datatypes_tbl: pxt.Table) -> None:
+    def test_multi_view_round_trip_3(self, reset_db: None) -> None:
+        """
+        Two snapshots that are exported at different times, involving column operations.
+        """
+        t = pxt.create_table('base_tbl', {'int_col': pxt.Int})
+        t.insert({'int_col': i} for i in range(100))
+
+        snap1 = pxt.create_snapshot('snap1', t.where(t.int_col % 3 == 0))
+        bundle1 = self.__package_table(snap1)
+
+        t.add_computed_column(int_col_2=(t.int_col + 5))
+        t.insert({'int_col': i} for i in range(100, 200))
+
+        snap2 = pxt.create_snapshot('snap2', t.where(t.int_col % 5 == 0))
+        bundle2 = self.__package_table(snap2)
+
+        clean_db()
+        reload_catalog()
+
+        self.__restore_and_check_table(bundle1, 'replica1')
+        self.__restore_and_check_table(bundle2, 'replica2')
+
+    def test_multi_view_round_trip_4(self, all_datatypes_tbl: pxt.Table) -> None:
         """
         Snapshots that involve all the different column types.
         """
@@ -324,7 +346,7 @@ class TestPackager:
         self.__restore_and_check_table(bundle1, 'replica1')
         self.__restore_and_check_table(bundle2, 'replica2')
 
-    def test_multi_view_round_trip_4(self, reset_db: None) -> None:
+    def test_multi_view_round_trip_5(self, reset_db: None) -> None:
         """
         A much more sophisticated multi-view test. Here we create 11 snapshots, each one modifying a
         different subset of the rows in the table. The snapshots are then reconstituted in an arbitrary
@@ -336,17 +358,47 @@ class TestPackager:
         t.insert({'row_number': i} for i in range(1024))
         bundles.append(self.__package_table(pxt.create_snapshot('snap', t)))
 
-        for i in range(10):
-            t.where(t.row_number.bitwise_and(2**i) != 0).update({'value': i})
-            bundles.append(self.__package_table(pxt.create_snapshot(f'snap_{i}', t)))
+        for n in range(10):
+            t.where(t.row_number.bitwise_and(2**n) != 0).update({'value': n})
+            bundles.append(self.__package_table(pxt.create_snapshot(f'snap_{n}', t)))
 
         clean_db()
         reload_catalog()
 
-        for i in [7, 3, 0, 9, 4, 10, 1, 5, 8]:
+        for n in [7, 3, 0, 9, 4, 10, 1, 5, 8]:
             # Snapshots 2 and 6 are intentionally never restored.
-            self.__restore_and_check_table(bundles[i], f'replica_{i}')
+            self.__restore_and_check_table(bundles[n], f'replica_{n}')
 
         # Check all the tables again to verify that everything is consistent.
-        for i in [0, 1, 3, 4, 5, 7, 8, 9, 10]:
-            self.__check_table(bundles[i], f'replica_{i}')
+        for n in [0, 1, 3, 4, 5, 7, 8, 9, 10]:
+            self.__check_table(bundles[n], f'replica_{n}')
+
+    def test_multi_view_round_trip_6(self, reset_db: None) -> None:
+        """
+        Another test with many snapshots, involving row and column additions and deletions.
+        """
+        bundles: list[TestPackager.BundleInfo] = []
+
+        t = pxt.create_table('base_tbl', {'row_number': pxt.Int, 'value': pxt.Int})
+        t.insert({'row_number': i} for i in range(1024))
+        bundles.append(self.__package_table(pxt.create_snapshot('snap', t)))
+
+        for n in range(10):
+            t.insert({'row_number': i} for i in range(1024 + 64 * n, 1024 + 64 * (n + 1)))
+            t.add_computed_column(**{f'new_col_{n}': t.value * n})
+            t.where(t.row_number.bitwise_and(2**n) != 0).update({'value': n})
+            t.where(t.row_number < 32 * n).delete()
+            # if n >= 5:
+            #     t.drop_column(f'new_col_{n - 5}')
+            bundles.append(self.__package_table(pxt.create_snapshot(f'snap_{n}', t)))
+
+        clean_db()
+        reload_catalog()
+
+        for n in [7, 3, 0, 9]:
+            # Snapshots 2 and 6 are intentionally never restored.
+            self.__restore_and_check_table(bundles[n], f'replica_{n}')
+
+        # Check all the tables again to verify that everything is consistent.
+        # for n in [0, 1, 3, 4, 5, 7, 8, 9, 10]:
+        #     self.__check_table(bundles[n], f'replica_{n}')

@@ -371,6 +371,10 @@ class TableRestorer:
         #         OR store_tbl.col_1 != temp_tbl.col_1
         #         OR ... OR store_tbl.col_n != temp_tbl.col_n
         #     )
+        #
+        # The value column comparisons (store_tbl.col_0 != temp_tbl.col_0, etc.) will always be false for rows where
+        # either column is NULL; this is what we want, since it may indicate a column that is present in one version
+        # but not the other.
         q = sql.select(*value_store_cols, *value_temp_cols).where(pk_clause).where(mismatch_clause)
         _logger.debug(q.compile())
         result = conn.execute(q)
@@ -416,8 +420,27 @@ class TableRestorer:
         result = conn.execute(q)
         _logger.debug(f'Rectified {result.rowcount} rows in {store_sa_tbl_name!r}.')
 
+        # Now we need to update rows in the existing table that are also present in the temporary table. This is to
+        # account for the scenario where the temporary table has columns that are not present in the existing table.
+        # (We can't simply replace the rows with their versions in the temporary table, because the converse scenario
+        # might also occur; there may be columns in the existing table that are not present in the temporary table.)
+        value_update_clauses: dict[str, sql.ColumnElement] = {}
+        for temp_col in temp_cols.values():
+            if temp_col.name not in system_col_names:
+                store_col = store_sa_tbl.c[temp_col.name]
+                # Prefer the value from the existing table, substituting the value from the temporary table if it's
+                # NULL. This works in all cases (including media columns, where we prefer the existing media file).
+                clause = sql.case((store_col == None, temp_col), else_=store_col)
+                value_update_clauses[temp_col.name] = clause
+        if len(value_update_clauses) > 0:
+            q = store_sa_tbl.update().values(**value_update_clauses).where(pk_clause)
+            _logger.debug(q.compile())
+            result = conn.execute(q)
+            _logger.debug(f'Merged values from {temp_sa_tbl_name!r} into {store_sa_tbl_name!r} for {result.rowcount} row(s).')
+
         # Now drop any rows from the temporary table that are also present in the existing table.
-        # The v_max values have been rectified, and all other row values have been verified identical.
+        # The v_max values have been rectified, data has been merged into NULL cells, and all other row values have
+        # been verified identical.
         q = temp_sa_tbl.delete().where(pk_clause)
         _logger.debug(q.compile())
         result = conn.execute(q)
