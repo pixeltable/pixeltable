@@ -316,7 +316,7 @@ class TableRestorer:
         temp_sa_tbl.create(conn)
 
         # Populate the temporary table with data from the Parquet file.
-        _logger.debug(f'Loading {parquet_table.num_rows} rows into temporary table: {temp_sa_tbl_name}')
+        _logger.debug(f'Loading {parquet_table.num_rows} row(s) into temporary table: {temp_sa_tbl_name}')
         for batch in parquet_table.to_batches(max_chunksize=10_000):
             pydict = batch.to_pydict()
             rows = self.__from_pa_pydict(tv, pydict)
@@ -407,7 +407,7 @@ class TableRestorer:
         )
         _logger.debug(q.compile())
         result = conn.execute(q)
-        _logger.debug(f'Rectified {result.rowcount} rows in {temp_sa_tbl_name!r}.')
+        _logger.debug(f'Rectified {result.rowcount} row(s) in {temp_sa_tbl_name!r}.')
 
         # Now rectify the v_max values in the existing table. This is done by simply taking the later of the two v_max
         # values (the existing one and the new one) for each row instance, following the "latest provable v_max"
@@ -419,7 +419,7 @@ class TableRestorer:
         )
         _logger.debug(q.compile())
         result = conn.execute(q)
-        _logger.debug(f'Rectified {result.rowcount} rows in {store_sa_tbl_name!r}.')
+        _logger.debug(f'Rectified {result.rowcount} row(s) in {store_sa_tbl_name!r}.')
 
         # Now we need to update rows in the existing table that are also present in the temporary table. This is to
         # account for the scenario where the temporary table has columns that are not present in the existing table.
@@ -447,7 +447,7 @@ class TableRestorer:
         q = temp_sa_tbl.delete().where(pk_clause)
         _logger.debug(q.compile())
         result = conn.execute(q)
-        _logger.debug(f'Deleted {result.rowcount} rows from {temp_sa_tbl_name!r} that were exact pk matches.')
+        _logger.debug(f'Deleted {result.rowcount} row(s) from {temp_sa_tbl_name!r}.')
 
         # Finally, copy the remaining data (consisting entirely of new row instances) from the temporary table into
         # the actual table.
@@ -456,7 +456,7 @@ class TableRestorer:
         )
         _logger.debug(q.compile())
         result = conn.execute(q)
-        _logger.debug(f'Inserted {result.rowcount} rows from {temp_sa_tbl_name!r} into {store_sa_tbl_name!r}.')
+        _logger.debug(f'Inserted {result.rowcount} row(s) from {temp_sa_tbl_name!r} into {store_sa_tbl_name!r}.')
 
     def __from_pa_pydict(self, tv: catalog.TableVersion, pydict: dict[str, Any]) -> list[dict[str, Any]]:
         # Data conversions from pyarrow to Pixeltable
