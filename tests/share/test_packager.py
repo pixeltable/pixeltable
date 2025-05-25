@@ -8,15 +8,13 @@ import urllib.request
 from pathlib import Path
 from typing import NamedTuple, Optional
 
-
 import numpy as np
 import pyarrow.parquet as pq
 import pytest
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
-import pixeltable.type_system as ts
-from pixeltable import exprs, metadata
+from pixeltable import exprs, metadata, type_system as ts
 from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
 from pixeltable.share.packager import TablePackager, TableRestorer
@@ -197,6 +195,7 @@ class TestPackager:
         """
         restorer = TableRestorer(tbl_name)
         restorer.restore(bundle_info.bundle_path)
+        reload_catalog()  # TODO: This shouldn't be necessary.
         self.__check_table(bundle_info, tbl_name)
 
     def __check_table(self, bundle_info: 'TestPackager.BundleInfo', tbl_name: str) -> None:
@@ -392,17 +391,17 @@ class TestPackager:
             t.add_computed_column(**{f'new_col_{n}': t.value * n})
             t.where(t.row_number.bitwise_and(2**n) != 0).update({'value': n})
             t.where(t.row_number < 32 * n).delete()
-            # if n >= 5:
-            #     t.drop_column(f'new_col_{n - 5}')
+            if n >= 5:
+                t.drop_column(f'new_col_{n - 5}')
             bundles.append(self.__package_table(pxt.create_snapshot(f'snap_{n}', t)))
 
         clean_db()
         reload_catalog()
 
-        for n in [7, 3, 0, 9]:
+        for n in [7, 3, 0, 9, 4, 10, 1, 5, 8]:
             # Snapshots 2 and 6 are intentionally never restored.
             self.__restore_and_check_table(bundles[n], f'replica_{n}')
 
         # Check all the tables again to verify that everything is consistent.
-        # for n in [0, 1, 3, 4, 5, 7, 8, 9, 10]:
-        #     self.__check_table(bundles[n], f'replica_{n}')
+        for n in [0, 1, 3, 4, 5, 7, 8, 9, 10]:
+            self.__check_table(bundles[n], f'replica_{n}')

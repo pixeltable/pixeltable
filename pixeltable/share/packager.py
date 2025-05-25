@@ -1,7 +1,6 @@
 import datetime
 import json
 import logging
-import os
 import tarfile
 import urllib.parse
 import urllib.request
@@ -344,7 +343,7 @@ class TableRestorer:
         # previously imported replica.
 
         system_col_names = {col.name for col in tv.store_tbl.system_columns()}
-        media_col_names = {col.store_name() for col in tv.cols if col.col_type.is_media_type()}
+        media_col_names = {col.store_name() for col in tv.cols if col.col_type.is_media_type() and col.is_stored}
         value_store_cols = [
             store_sa_tbl.c[col_name]
             for col_name in temp_cols
@@ -437,7 +436,9 @@ class TableRestorer:
             q = store_sa_tbl.update().values(**value_update_clauses).where(pk_clause)
             _logger.debug(q.compile())
             result = conn.execute(q)
-            _logger.debug(f'Merged values from {temp_sa_tbl_name!r} into {store_sa_tbl_name!r} for {result.rowcount} row(s).')
+            _logger.debug(
+                f'Merged values from {temp_sa_tbl_name!r} into {store_sa_tbl_name!r} for {result.rowcount} row(s).'
+            )
 
         # Now drop any rows from the temporary table that are also present in the existing table.
         # The v_max values have been rectified, data has been merged into NULL cells, and all other row values have
