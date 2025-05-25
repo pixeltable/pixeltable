@@ -109,7 +109,7 @@ def create_table_data(
             col_data = [sample_dict] * num_rows
         if col_type.is_array_type():
             assert isinstance(col_type, ts.ArrayType)
-            col_data = [np.ones(col_type.shape, dtype=col_type.numpy_dtype()) for i in range(num_rows)]
+            col_data = [np.ones(col_type.shape, dtype=col_type.numpy_dtype())] * num_rows
         if col_type.is_image_type():
             image_path = get_image_files()[0]
             col_data = [image_path] * num_rows

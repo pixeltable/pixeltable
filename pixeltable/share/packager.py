@@ -441,6 +441,20 @@ class TableRestorer:
         # Now drop any rows from the temporary table that are also present in the existing table.
         # The v_max values have been rectified, data has been merged into NULL cells, and all other row values have
         # been verified identical.
+        # TODO: Delete any media files present in such rows; they're duplicates with media files that are already
+        #     present in the existing table.
+        if len(media_col_names) > 0:
+            q = sql.select(*[col for col in temp_cols.values() if col.name in media_col_names]).where(pk_clause)
+            _logger.debug(q.compile())
+            result = conn.execute(q)
+            for row in result.all():
+                for url in row:
+                    if url is not None:
+                        parsed = urllib.parse.urlparse(url)
+                        assert parsed.scheme != 'pxtmedia'
+                        if parsed.scheme == 'file':
+                            path = Path(urllib.parse.unquote(urllib.request.url2pathname(parsed.path)))
+                            assert path.is_relative_to(Env.get().media_dir), path
         q = temp_sa_tbl.delete().where(pk_clause)
         _logger.debug(q.compile())
         result = conn.execute(q)
