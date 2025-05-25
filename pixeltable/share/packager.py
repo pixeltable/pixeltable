@@ -1,6 +1,7 @@
 import datetime
 import json
 import logging
+import os
 import tarfile
 import urllib.parse
 import urllib.request
@@ -89,7 +90,7 @@ class TablePackager:
         assert any(tv.id == base.id for base in self.table._tbl_version_path.get_tbl_versions())
         sql_types = {col.name: col.type for col in tv.store_tbl.sa_tbl.columns}
         media_cols: set[str] = set()
-        for col in tv.cols_by_name.values():
+        for col in tv.cols:
             if col.is_stored and col.col_type.is_media_type():
                 media_cols.add(col.store_name())
 
@@ -441,20 +442,8 @@ class TableRestorer:
         # Now drop any rows from the temporary table that are also present in the existing table.
         # The v_max values have been rectified, data has been merged into NULL cells, and all other row values have
         # been verified identical.
-        # TODO: Delete any media files present in such rows; they're duplicates with media files that are already
-        #     present in the existing table.
-        if len(media_col_names) > 0:
-            q = sql.select(*[col for col in temp_cols.values() if col.name in media_col_names]).where(pk_clause)
-            _logger.debug(q.compile())
-            result = conn.execute(q)
-            for row in result.all():
-                for url in row:
-                    if url is not None:
-                        parsed = urllib.parse.urlparse(url)
-                        assert parsed.scheme != 'pxtmedia'
-                        if parsed.scheme == 'file':
-                            path = Path(urllib.parse.unquote(urllib.request.url2pathname(parsed.path)))
-                            assert path.is_relative_to(Env.get().media_dir), path
+        # TODO: Delete any media files that were orphaned by this operation (they're necessarily duplicates of media
+        #     files that are already present in the existing table).
         q = temp_sa_tbl.delete().where(pk_clause)
         _logger.debug(q.compile())
         result = conn.execute(q)
@@ -476,7 +465,7 @@ class TableRestorer:
             assert col_name in tv.store_tbl.sa_tbl.columns
             sql_types[col_name] = tv.store_tbl.sa_tbl.columns[col_name].type
         media_col_ids: dict[str, int] = {}
-        for col in tv.cols_by_name.values():
+        for col in tv.cols:
             if col.is_stored and col.col_type.is_media_type():
                 media_col_ids[col.store_name()] = col.id
 
