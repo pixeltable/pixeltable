@@ -11,6 +11,7 @@ from typing import NamedTuple, Optional
 
 import numpy as np
 import pyarrow.parquet as pq
+import pytest
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
@@ -306,20 +307,21 @@ class TestPackager:
         self.__restore_and_check_table(bundle1, 'replica1')
         self.__restore_and_check_table(bundle2, 'replica2')
 
-    def test_multi_view_round_trip_3(self, reset_db: None) -> None:
+    @pytest.mark.parametrize('pure_snapshots', [False, True])
+    def test_multi_view_round_trip_3(self, reset_db: None, pure_snapshots: bool) -> None:
         """
         Two snapshots that are exported at different times, involving column operations.
         """
         t = pxt.create_table('base_tbl', {'int_col': pxt.Int})
         t.insert({'int_col': i} for i in range(100))
 
-        snap1 = pxt.create_snapshot('snap1', t.where(t.int_col % 3 == 0))
+        snap1 = pxt.create_snapshot('snap1', t if pure_snapshots else t.where(t.int_col % 3 == 0))
         bundle1 = self.__package_table(snap1)
 
         t.add_computed_column(int_col_2=(t.int_col + 5))
         t.insert({'int_col': i} for i in range(100, 200))
 
-        snap2 = pxt.create_snapshot('snap2', t.where(t.int_col % 5 == 0))
+        snap2 = pxt.create_snapshot('snap2', t if pure_snapshots else t.where(t.int_col % 5 == 0))
         bundle2 = self.__package_table(snap2)
 
         clean_db()
