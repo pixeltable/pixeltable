@@ -109,13 +109,16 @@ def create_table_data(
             col_data = [sample_dict] * num_rows
         if col_type.is_array_type():
             assert isinstance(col_type, ts.ArrayType)
-            col_data = [np.ones(col_type.shape, dtype=col_type.numpy_dtype()) for i in range(num_rows)]
+            col_data = [np.ones(col_type.shape, dtype=col_type.numpy_dtype())] * num_rows
         if col_type.is_image_type():
             image_path = get_image_files()[0]
-            col_data = [image_path for i in range(num_rows)]
+            col_data = [image_path] * num_rows
         if col_type.is_video_type():
             video_path = get_video_files()[0]
-            col_data = [video_path for i in range(num_rows)]
+            col_data = [video_path] * num_rows
+        if col_type.is_audio_type():
+            audio_path = get_audio_files()[0]
+            col_data = [audio_path] * num_rows
         data[col_name] = col_data
     rows = [{col_name: data[col_name][i] for col_name in col_names} for i in range(num_rows)]
     return rows
@@ -200,7 +203,9 @@ def create_all_datatypes_tbl() -> catalog.Table:
     schema = {
         'row_id': pxt.Required[pxt.Int],
         'c_array': pxt.Array[(10,), pxt.Float],  # type: ignore[misc]
+        'c_audio': pxt.Audio,
         'c_bool': pxt.Bool,
+        'c_date': pxt.Date,
         'c_float': pxt.Float,
         'c_image': pxt.Image,
         'c_int': pxt.Int,

@@ -112,11 +112,11 @@ def export_parquet(
                         length = len(val)
                     elif col_type.is_string_type():
                         length = len(val)
-                    elif col_type.is_video_type():
+                    elif col_type.is_video_type() or col_type.is_audio_type():
                         if data_row.file_paths is not None and data_row.file_paths[e.slot_idx] is not None:
                             val = data_row.file_paths[e.slot_idx]
                         else:
-                            raise excs.Error(f'unknown video type {type(val)}')
+                            raise excs.Error(f'unknown audio/video type {type(val)}')
                         length = len(val)
                     elif col_type.is_json_type():
                         val = json.dumps(val)

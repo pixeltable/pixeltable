@@ -55,6 +55,9 @@ class StoreBase:
         # we're passing in tbl_version to avoid a circular call to TableVersionHandle.get()
         self.create_sa_tbl(tbl_version)
 
+    def system_columns(self) -> list[sql.Column]:
+        return [*self._pk_cols, self.v_max_col]
+
     def pk_columns(self) -> list[sql.Column]:
         return self._pk_cols
 
@@ -218,6 +221,15 @@ class StoreBase:
         stmt = sql.text(s_txt)
         log_stmt(_logger, stmt)
         Env.get().conn.execute(stmt)
+
+    def ensure_columns_exist(self, cols: Iterable[catalog.Column]) -> None:
+        conn = Env.get().conn
+        sql_text = f'SELECT column_name FROM information_schema.columns WHERE table_name = {self._storage_name()!r}'
+        result = conn.execute(sql.text(sql_text))
+        existing_cols = {row[0] for row in result}
+        for col in cols:
+            if col.store_name() not in existing_cols:
+                self.add_column(col)
 
     def load_column(
         self, col: catalog.Column, exec_plan: ExecNode, value_expr_slot_idx: int, on_error: Literal['abort', 'ignore']
