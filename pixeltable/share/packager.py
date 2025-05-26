@@ -75,7 +75,7 @@ class TablePackager:
         self.tables_dir.mkdir()
         with catalog.Catalog.get().begin_xact(for_write=False):
             for tv in self.table._tbl_version_path.get_tbl_versions():
-                _logger.info(f"Exporting table '{tv.get().name}:{tv.get().version}'.")
+                _logger.info(f"Exporting table '{tv.get().versioned_name}'.")
                 self.__export_table(tv.get())
         _logger.info('Building archive.')
         bundle_path = self.__build_tarball()

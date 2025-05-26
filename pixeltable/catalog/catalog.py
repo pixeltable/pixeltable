@@ -182,6 +182,13 @@ class Catalog:
 
         It is mandatory to call this method, not Env.begin_xact(), if the transaction accesses any table data
         or metadata.
+
+        Lock acquisition:
+        - x-locks Table records by updating Table.lock_dummy
+        - this needs to be done in a retry loop, because Postgres can decide to abort the transaction
+          (SerializationFailure, LockNotAvailable)
+        - for that reason, we do all lock acquisition prior to doing any real work (eg, compute column values),
+          to minimize (maybe avoid altogether) loosing that work
         """
         if Env.get().in_xact:
             if tbl_id is not None and for_write:
