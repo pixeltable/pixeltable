@@ -14,7 +14,7 @@ import pandas as pd
 import sqlalchemy as sql
 
 from pixeltable import catalog, exceptions as excs, exec, exprs, plan, type_system as ts
-from pixeltable.catalog import is_valid_identifier
+from pixeltable.catalog import Catalog, is_valid_identifier
 from pixeltable.catalog.globals import UpdateStatus
 from pixeltable.env import Env
 from pixeltable.type_system import ColumnType
@@ -431,7 +431,7 @@ class DataFrame:
         raise excs.Error(msg) from e
 
     def _output_row_iterator(self) -> Iterator[list]:
-        with Env.get().begin_xact():
+        with Catalog.get().begin_xact(for_write=False):
             try:
                 for data_row in self._exec():
                     yield [data_row[e.slot_idx] for e in self._select_list_exprs]
@@ -463,8 +463,8 @@ class DataFrame:
 
         from pixeltable.plan import Planner
 
-        stmt = Planner.create_count_stmt(self._first_tbl, self.where_clause)
-        with Env.get().begin_xact() as conn:
+        with Catalog.get().begin_xact(for_write=False) as conn:
+            stmt = Planner.create_count_stmt(self._first_tbl, self.where_clause)
             result: int = conn.execute(stmt).scalar_one()
             assert isinstance(result, int)
             return result
@@ -988,7 +988,8 @@ class DataFrame:
             >>> df = person.where(t.year == 2014).update({'age': 30})
         """
         self._validate_mutable('update', False)
-        with Env.get().begin_xact():
+        tbl_id = self._first_tbl.tbl_id()
+        with Catalog.get().begin_xact(tbl_id=tbl_id, for_write=True):
             return self._first_tbl.tbl_version.get().update(value_spec, where=self.where_clause, cascade=cascade)
 
     def delete(self) -> UpdateStatus:
@@ -1011,7 +1012,8 @@ class DataFrame:
         self._validate_mutable('delete', False)
         if not self._first_tbl.is_insertable():
             raise excs.Error('Cannot delete from view')
-        with Env.get().begin_xact():
+        tbl_id = self._first_tbl.tbl_id()
+        with Catalog.get().begin_xact(tbl_id=tbl_id, for_write=True):
             return self._first_tbl.tbl_version.get().delete(where=self.where_clause)
 
     def _validate_mutable(self, op_name: str, allow_select: bool) -> None:
@@ -1059,7 +1061,7 @@ class DataFrame:
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> 'DataFrame':
         # we need to wrap the construction with a transaction, because it might need to load metadata
-        with Env.get().begin_xact():
+        with Catalog.get().begin_xact(for_write=False):
             tbls = [catalog.TableVersionPath.from_dict(tbl_dict) for tbl_dict in d['from_clause']['tbls']]
             join_clauses = [plan.JoinClause(**clause_dict) for clause_dict in d['from_clause']['join_clauses']]
             from_clause = plan.FromClause(tbls=tbls, join_clauses=join_clauses)
@@ -1129,7 +1131,7 @@ class DataFrame:
             assert data_file_path.is_file()
             return data_file_path
         else:
-            with Env.get().begin_xact():
+            with Catalog.get().begin_xact(for_write=False):
                 return write_coco_dataset(self, dest_path)
 
     def to_pytorch_dataset(self, image_format: str = 'pt') -> 'torch.utils.data.IterableDataset':
@@ -1174,7 +1176,7 @@ class DataFrame:
         if dest_path.exists():  # fast path: use cache
             assert dest_path.is_dir()
         else:
-            with Env.get().begin_xact():
+            with Catalog.get().begin_xact(for_write=False):
                 export_parquet(self, dest_path, inline_images=True)
 
         return PixeltablePytorchDataset(path=dest_path, image_format=image_format)

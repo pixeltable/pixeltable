@@ -19,6 +19,7 @@ from .utils import (
     get_audio_files,
     get_documents,
     get_video_files,
+    reload_catalog,
     skip_test_if_not_installed,
     strip_lines,
     validate_update_status,
@@ -355,6 +356,9 @@ class TestDataFrame:
         t = test_tbl
         res = t.head(10).to_pandas()
         assert np.all(res.c2 == list(range(10)))
+        reload_catalog()
+        t = pxt.get_table('test_tbl')
+        res = t.head(10).to_pandas()
         # Where is applied
         res = t.where(t.c2 > 9).head(10).to_pandas()
         assert np.all(res.c2 == list(range(10, 20)))

@@ -162,7 +162,7 @@ def retrieval_udf(
     else:
         for param in parameters:
             if isinstance(param, str) and param not in table.columns:
-                raise excs.Error(f'The specified parameter {param!r} is not a column of the table {table._path!r}')
+                raise excs.Error(f'The specified parameter {param!r} is not a column of the table {table._path()!r}')
         col_refs = [table[param] if isinstance(param, str) else param for param in parameters]
 
     if len(col_refs) == 0:

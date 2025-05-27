@@ -52,6 +52,10 @@ class ColumnRef(Expr):
     id: int
     perform_validation: bool  # if True, performs media validation
 
+    # needed by sql_expr() to re-resolve Column instance after a metadata reload
+    tbl_version: catalog.TableVersionHandle
+    col_id: int
+
     def __init__(
         self,
         col: catalog.Column,
@@ -62,16 +66,17 @@ class ColumnRef(Expr):
         assert col.tbl is not None
         self.col = col
         self.reference_tbl = reference_tbl
-        self.is_unstored_iter_col = (
-            col.tbl.get().is_component_view and col.tbl.get().is_iterator_column(col) and not col.is_stored
-        )
+        self.tbl_version = catalog.TableVersionHandle(col.tbl.id, col.tbl.effective_version)
+        self.col_id = col.id
+
+        self.is_unstored_iter_col = col.tbl.is_component_view and col.tbl.is_iterator_column(col) and not col.is_stored
         self.iter_arg_ctx = None
         # number of rowid columns in the base table
-        self.base_rowid_len = col.tbl.get().base.get().num_rowid_columns() if self.is_unstored_iter_col else 0
+        self.base_rowid_len = col.tbl.base.get().num_rowid_columns() if self.is_unstored_iter_col else 0
         self.base_rowid = [None] * self.base_rowid_len
         self.iterator = None
         # index of the position column in the view's primary key; don't try to reference tbl.store_tbl here
-        self.pos_idx = col.tbl.get().num_rowid_columns() - 1 if self.is_unstored_iter_col else None
+        self.pos_idx = col.tbl.num_rowid_columns() - 1 if self.is_unstored_iter_col else None
 
         self.perform_validation = False
         if col.col_type.is_media_type():
@@ -175,7 +180,7 @@ class ColumnRef(Expr):
         assert len(idx_info) == 1
         col = copy.copy(next(iter(idx_info.values())).val_col)
         col.name = f'{self.col.name}_embedding_{idx if idx is not None else ""}'
-        col.create_sa_cols()
+        # col.create_sa_cols()
         return ColumnRef(col)
 
     def default_column_name(self) -> Optional[str]:
@@ -226,7 +231,7 @@ class ColumnRef(Expr):
     def _descriptors(self) -> DescriptionHelper:
         tbl = catalog.Catalog.get().get_table_by_id(self.col.tbl.id)
         helper = DescriptionHelper()
-        helper.append(f'Column\n{self.col.name!r}\n(of table {tbl._path!r})')
+        helper.append(f'Column\n{self.col.name!r}\n(of table {tbl._path()!r})')
         helper.append(tbl._col_descriptor([self.col.name]))
         idxs = tbl._index_descriptor([self.col.name])
         if len(idxs) > 0:
@@ -234,7 +239,23 @@ class ColumnRef(Expr):
         return helper
 
     def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
-        return None if self.perform_validation else self.col.sa_col
+        # return None if self.perform_validation else self.col.sa_col
+        if self.perform_validation:
+            return None
+        # we need to reestablish that we have the correct Column instance, there could have been a metadata
+        # reload since init()
+        # TODO: add an explicit prepare phase (ie, Expr.prepare()) that gives every subclass instance a chance to
+        # perform runtime checks and update state
+        tv = self.tbl_version.get()
+        assert tv.is_validated
+        self.col = tv.cols_by_id[self.col_id]
+        assert self.col.tbl is tv
+        # TODO: check for column being dropped
+        # print(
+        #     f'ColumnRef.sql_expr: tbl={tv.id}:{tv.effective_version} sa_tbl={id(self.col.tbl.store_tbl.sa_tbl):x} '
+        #     f'tv={id(tv):x}'
+        # )
+        return self.col.sa_col
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         if self.perform_validation:
@@ -275,7 +296,7 @@ class ColumnRef(Expr):
         if self.base_rowid != data_row.pk[: self.base_rowid_len]:
             row_builder.eval(data_row, self.iter_arg_ctx)
             iterator_args = data_row[self.iter_arg_ctx.target_slot_idxs[0]]
-            self.iterator = self.col.tbl.get().iterator_cls(**iterator_args)
+            self.iterator = self.col.tbl.iterator_cls(**iterator_args)
             self.base_rowid = data_row.pk[: self.base_rowid_len]
         self.iterator.set_pos(data_row.pk[self.pos_idx])
         res = next(self.iterator)
@@ -283,12 +304,12 @@ class ColumnRef(Expr):
 
     def _as_dict(self) -> dict:
         tbl = self.col.tbl
-        tbl_version = tbl.get().version if tbl.get().is_snapshot else None
+        version = tbl.version if tbl.is_snapshot else None
         # we omit self.components, even if this is a validating ColumnRef, because init() will recreate the
         # non-validating component ColumnRef
         return {
             'tbl_id': str(tbl.id),
-            'tbl_version': tbl_version,
+            'tbl_version': version,
             'col_id': self.col.id,
             'reference_tbl': self.reference_tbl.as_dict() if self.reference_tbl is not None else None,
             'perform_validation': self.perform_validation,
