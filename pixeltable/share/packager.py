@@ -296,6 +296,10 @@ class TablePackager:
                 raise AssertionError(f'Unrecognized column type: {col_type._type}')
 
     def __encode_image(self, img: PIL.Image.Image) -> str:
+        # Heuristic for thumbnail sizing:
+        # Standardize on a width of 240 pixels (to most efficiently utilize the columnar display).
+        # But, if the aspect ratio is below 2:3, bound the height at 360 pixels (to avoid unboundedly tall thumbnails
+        #     in the case of highly oblong images).
         if img.height > img.width * 1.5:
             scaled_img = img.resize((img.width * 360 // img.height, 360))
         else:
