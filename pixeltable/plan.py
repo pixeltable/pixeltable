@@ -93,7 +93,10 @@ class SampleClause:
     seed: Optional[int]
     stratify_exprs: Optional[list[exprs.Expr]]
 
+    # This seed value is used if one is not supplied
     DEFAULT_SEED = 0
+
+    # The version of the hashing algorithm used for ordering and fractional sampling.
     CURRENT_VERSION = 1
 
     def __post_init__(self) -> None:
@@ -142,6 +145,9 @@ class SampleClause:
 
     @classmethod
     def fraction_to_md5_hex(cls, fraction: float) -> str:
+        """Return the string representation of an approximation (to ~1e-9) of a fraction of the total space of md5 hash values
+        This is used for fractional sampling.
+        """
         # Maximum count for the upper 32 bits of MD5: 2^32
         max_md5_value = (2**32) - 1
 
@@ -827,7 +833,7 @@ class Planner:
         ]:"""
         """Construct clauses required for sampling under various conditions.
         If there is no sampling, then return the original clauses.
-        If the sample is stratified, then return onlyt the group by clause. The rest of the
+        If the sample is stratified, then return only the group by clause. The rest of the
         mechanism for stratified sampling is provided by the SampleSqlNode.
         If the sample is non-stratified, then rewrite the query to accommodate the supplied where clause,
         and provide the other clauses required for sampling
