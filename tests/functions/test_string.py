@@ -1,71 +1,83 @@
 import re
+import textwrap
+import unicodedata
 from typing import Callable
 
 import pytest
 
 import pixeltable as pxt
 from pixeltable import exprs
+from pixeltable.functions.string import (
+    capitalize,
+    casefold,
+    center,
+    count,
+    endswith,
+    find,
+    format,
+    isalnum,
+    isalpha,
+    isascii,
+    isdecimal,
+    isdigit,
+    isidentifier,
+    islower,
+    isnumeric,
+    isspace,
+    istitle,
+    isupper,
+    ljust,
+    lower,
+    lstrip,
+    rfind,
+    rjust,
+    rstrip,
+    startswith,
+    strip,
+    swapcase,
+    title,
+    upper,
+    zfill,
+)
 
 from ..utils import reload_catalog, validate_update_status
 
 
 class TestString:
     TEST_STR = """
-The concept of relational database was defined by E. F. Codd at IBM in 1970. Codd introduced the term relational in his
-research paper "A Relational Model of Data for Large Shared Data Banks". In this paper and later papers, he defined
-what he meant by relation. One well-known definition of what constitutes a relational database system is composed of
-Codd's 12 rules. However, no commercial implementations of the relational model conform to all of Codd's rules, so
-the term has gradually come to describe a broader class of database systems, which at a minimum:
-Present the data to the user as relations (a presentation in tabular form, i.e. as a collection of tables with each
-table consisting of a set of rows and columns);
-Provide relational operators to manipulate the data in tabular form.
-In 1974, IBM began developing System R, a research project to develop a prototype RDBMS. The first system sold as
-an RDBMS was Multics Relational Data Store (June 1976). Oracle was released in 1979 by Relational
-Software, now Oracle Corporation. Ingres and IBM BS12 followed. Other examples of an RDBMS include IBM Db2, SAP
-Sybase ASE, and Informix. In 1984, the first RDBMS for Macintosh began being developed, code-named Silver Surfer,
-and was released in 1987 as 4th Dimension and known today as 4D.
-The first systems that were relatively faithful implementations of the relational model were from:
-University of Michigan – Micro DBMS (1969)
-Massachusetts Institute of Technology (1971)]
-IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRTV (1973–79).
-            """  # noqa: RUF001
+        The concept of relational database was defined by E. F. Codd at IBM in 1970. Codd introduced the term relational in his
+        research paper "A Relational Model of Data for Large Shared Data Banks". In this paper and later papers, he defined
+        what he meant by relation. One well-known definition of what constitutes a relational database system is composed of
+        Codd's 12 rules. However, no commercial implementations of the relational model conform to all of Codd's rules, so
+        the term has gradually come to describe a broader class of database systems, which at a minimum:
+        Present the data to the user as relations (a presentation in tabular form, i.e. as a collection of tables with each
+        table consisting of a set of rows and columns);
+        Provide relational operators to manipulate the data in tabular form.
+        In 1974, IBM began developing System R, a research project to develop a prototype RDBMS. The first system sold as
+        an RDBMS was Multics Relational Data Store (June 1976). Oracle was released in 1979 by Relational
+        Software, now Oracle Corporation. Ingres and IBM BS12 followed. Other examples of an RDBMS include IBM Db2, SAP
+        Sybase ASE, and Informix. In 1984, the first RDBMS for Macintosh began being developed, code-named Silver Surfer,
+        and was released in 1987 as 4th Dimension and known today as 4D.
+        The first systems that were relatively faithful implementations of the relational model were from:
+        University of Michigan – Micro DBMS (1969)
+        Massachusetts Institute of Technology (1971)]
+        IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRTV (1973–79).
+        """  # noqa: RUF001
+
+    TEST_STRS = textwrap.dedent(TEST_STR.strip()).split('. ')
+
+    [
+        'The concept of relational database was defined by E. F. Codd at IBM in 1970.',
+        'Codd introduced the term relational in his research paper\n'
+        '"A Relational Model of Data for Large Shared Data Banks".',
+        'In this paper and later papers, he defined\nwhat he meant by relation.',
+        '   White\n\nSpace\n\n\n',
+        r'%%!!#__\\Symbols%%!!#\\@@__%',
+    ]
 
     def test_all(self, reset_db: None) -> None:
         t = pxt.create_table('test_tbl', {'s': pxt.String})
-        test_strs = self.TEST_STR.split('. ')
-        validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
-
-        from pixeltable.functions.string import (
-            capitalize,
-            casefold,
-            center,
-            count,
-            endswith,
-            find,
-            isalnum,
-            isalpha,
-            isascii,
-            isdecimal,
-            isdigit,
-            isidentifier,
-            islower,
-            isnumeric,
-            isspace,
-            istitle,
-            isupper,
-            ljust,
-            lower,
-            lstrip,
-            rfind,
-            rjust,
-            rstrip,
-            startswith,
-            strip,
-            swapcase,
-            title,
-            upper,
-            zfill,
-        )
+        validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
 
         test_params: list[tuple[pxt.Function, Callable, list, dict]] = [
             # (pxt_fn, str_fn, args, **kwargs)
@@ -73,7 +85,10 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
             (casefold, str.casefold, [], {}),
             (center, str.center, [100], {}),
             (count, str.count, ['relation'], {}),
-            (endswith, str.endswith, ['1970'], {}),
+            (endswith, str.endswith, ['1970.'], {}),
+            (endswith, str.endswith, ['%'], {}),
+            (endswith, str.endswith, ['_'], {}),
+            (endswith, str.endswith, [r's%%!!#\\@@__%'], {}),
             (find, str.find, ['relation', 10, -10], {}),
             (isalnum, str.isalnum, [], {}),
             (isalpha, str.isalpha, [], {}),
@@ -103,9 +118,15 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
 
         for pxt_fn, str_fn, args, kwargs in test_params:
             try:
-                assert t.select(out=pxt_fn(t.s, *args, **kwargs)).collect()['out'] == [
-                    str_fn(s, *args, **kwargs) for s in test_strs
-                ], pxt_fn
+                actual = t.select(out=pxt_fn(t.s, *args, **kwargs)).collect()['out']
+                expected = [str_fn(s, *args, **kwargs) for s in self.TEST_STRS]
+                assert actual == expected, pxt_fn
+                # Run the same query, forcing the calculations to be done in Python (not SQL)
+                # by interposing a non-SQLizable identity function
+                actual_py = t.select(
+                    out=pxt_fn(t.s.apply(lambda x: x, col_type=pxt.String), *args, **kwargs)
+                ).collect()['out']
+                assert actual_py == expected, pxt_fn
             except Exception as e:
                 print(pxt_fn)
                 raise e
@@ -118,8 +139,7 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
 
     def test_removeprefix(self, reset_db: None) -> None:
         t = pxt.create_table('test_tbl', {'s': pxt.String})
-        test_strs = self.TEST_STR.split('. ')
-        validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
+        validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
 
         # count() doesn't yet support non-SQL Where clauses
         res = t.select(t.s, out=t.s.removeprefix('Codd')).collect()
@@ -131,8 +151,7 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
 
     def test_removesuffix(self, reset_db: None) -> None:
         t = pxt.create_table('test_tbl', {'s': pxt.String})
-        test_strs = self.TEST_STR.split('. ')
-        validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
+        validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
 
         # count() doesn't yet support non-SQL Where clauses
         res = t.select(t.s, out=t.s.removesuffix('1970')).collect()
@@ -144,8 +163,7 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
 
     def test_replace(self, reset_db: None) -> None:
         t = pxt.create_table('test_tbl', {'s': pxt.String})
-        test_strs = self.TEST_STR.split('. ')
-        validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
+        validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
 
         # count() doesn't yet support non-SQL Where clauses
         n = len(t.where(t.s.contains('Codd')).collect())
@@ -158,8 +176,7 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
 
     def test_slice_replace(self, reset_db: None) -> None:
         t = pxt.create_table('test_tbl', {'s': pxt.String})
-        test_strs = self.TEST_STR.split('. ')
-        validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
+        validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
 
         # count() doesn't yet support non-SQL Where clauses
         res = t.select(t.s, out=t.s.slice_replace(50, 51, 'abc')).collect()
@@ -168,8 +185,7 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
 
     def test_partition(self, reset_db: None) -> None:
         t = pxt.create_table('test_tbl', {'s': pxt.String})
-        test_strs = self.TEST_STR.split('. ')
-        validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
+        validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
 
         # count() doesn't yet support non-SQL Where clauses
         status = t.add_computed_column(parts=t.s.partition('IBM'))
@@ -182,8 +198,7 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
 
     def test_rpartition(self, reset_db: None) -> None:
         t = pxt.create_table('test_tbl', {'s': pxt.String})
-        test_strs = self.TEST_STR.split('. ')
-        validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
+        validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
 
         # count() doesn't yet support non-SQL Where clauses
         status = t.add_computed_column(parts=t.s.rpartition('IBM'))
@@ -196,9 +211,7 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
 
     def test_wrap(self, reset_db: None) -> None:
         t = pxt.create_table('test_tbl', {'s': pxt.String})
-        test_strs = self.TEST_STR.split('. ')
-        validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
-        import textwrap
+        validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
 
         res = t.select(t.s, out=t.s.fill(5)).collect()
         for row in res:
@@ -209,16 +222,14 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
 
     def test_slice(self, reset_db: None) -> None:
         t = pxt.create_table('test_tbl', {'s': pxt.String})
-        test_strs = self.TEST_STR.split('. ')
-        validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
+        validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
         res = t.select(t.s, out=t.s.slice(0, 4)).collect()
         for row in res:
             assert row['out'] == row['s'][0:4]
 
     def test_match(self, reset_db: None) -> None:
         t = pxt.create_table('test_tbl', {'s': pxt.String})
-        test_strs = self.TEST_STR.split('. ')
-        validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
+        validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
 
         # count() doesn't yet support non-SQL Where clauses
         assert len(t.where(t.s.match('Codd')).collect()) == 2
@@ -226,8 +237,7 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
 
     def test_fullmatch(self, reset_db: None) -> None:
         t = pxt.create_table('test_tbl', {'s': pxt.String})
-        test_strs = self.TEST_STR.split('. ')
-        validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
+        validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
 
         # count() doesn't yet support non-SQL Where clauses
         assert len(t.where(t.s.fullmatch('F')).collect()) == 1
@@ -235,17 +245,14 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
 
     def test_pad(self, reset_db: None) -> None:
         t = pxt.create_table('test_tbl', {'s': pxt.String})
-        test_strs = self.TEST_STR.split('. ')
-        validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
+        validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
         res = t.select(t.s, out=t.s.pad(width=100, side='both')).collect()
         for row in res:
             assert row['out'] == row['s'].center(100)
 
     def test_normalize(self, reset_db: None) -> None:
         t = pxt.create_table('test_tbl', {'s': pxt.String})
-        test_strs = self.TEST_STR.split('. ')
-        validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
-        import unicodedata
+        validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
 
         res = t.select(t.s, out=t.s.normalize('NFC')).collect()
         for row in res:
@@ -261,27 +268,25 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
 
     def testcontains(self, reset_db: None) -> None:
         t = pxt.create_table('test_tbl', {'s': pxt.String})
-        test_strs = self.TEST_STR.split('. ')
-        validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
-        assert t.select(out=t.s.contains('IBM')).collect()['out'] == ['IBM' in s for s in test_strs]
-        assert t.select(out=t.s.contains('IBM', regex=False)).collect()['out'] == ['IBM' in s for s in test_strs]
+        validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
+        assert t.select(out=t.s.contains('IBM')).collect()['out'] == ['IBM' in s for s in self.TEST_STRS]
+        assert t.select(out=t.s.contains('IBM', regex=False)).collect()['out'] == ['IBM' in s for s in self.TEST_STRS]
         assert t.select(out=t.s.contains('ibm', regex=False, case=True)).collect()['out'] == [
-            'ibm' in s for s in test_strs
+            'ibm' in s for s in self.TEST_STRS
         ]
         assert t.select(out=t.s.contains('ibm', regex=False, case=False)).collect()['out'] == [
-            'ibm' in s.lower() for s in test_strs
+            'ibm' in s.lower() for s in self.TEST_STRS
         ]
         assert t.select(out=t.s.contains('ibm', regex=True, flags=re.IGNORECASE)).collect()['out'] == [
-            'ibm' in s.lower() for s in test_strs
+            'ibm' in s.lower() for s in self.TEST_STRS
         ]
         assert t.select(out=t.s.contains('i.m', regex=True, flags=re.IGNORECASE)).collect()['out'] >= [
-            'ibm' in s.lower() for s in test_strs
+            'ibm' in s.lower() for s in self.TEST_STRS
         ]
 
     def test_index(self, reset_db: None) -> None:
         t = pxt.create_table('test_tbl', {'s': pxt.String})
-        test_strs = self.TEST_STR.split('. ')
-        validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
+        validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
 
         with pytest.raises(pxt.Error) as exc_info:
             _ = t.select(t.s.index('IBM')).collect()
@@ -301,9 +306,8 @@ IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRT
 
     def test_format(self, reset_db: None) -> None:
         t = pxt.create_table('test_tbl', {'input': pxt.String})
-        from pixeltable.functions.string import format
 
-        t.add_computed_column(s1=format('ABC {0}', t.input))
+        t.add_computed_column(s1=format('ABC {0}', t.input, t.input))
         t.add_computed_column(s2=format('DEF {this}', this=t.input))
         t.add_computed_column(s3=format('GHI {0} JKL {this}', t.input, this=t.input))
         status = t.insert(input='MNO')

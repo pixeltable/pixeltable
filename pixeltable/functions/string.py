@@ -14,6 +14,8 @@ t.select(t.str_col.capitalize()).collect()
 import builtins
 from typing import Any, Optional
 
+import sqlalchemy as sql
+
 import pixeltable as pxt
 from pixeltable.utils.code import local_public_names
 
@@ -100,6 +102,13 @@ def endswith(self: str, pattern: str) -> bool:
         pattern: string literal
     """
     return self.endswith(pattern)
+
+
+@endswith.to_sql
+def _(self: sql.ColumnElement, pattern: sql.ColumnElement) -> sql.ColumnElement:
+    # Replace all occurrences of `%`, `_`, and `\` with escaped versions
+    escaped_pattern = sql.func.regexp_replace(pattern, r'(%|_|\\)', '\\\1', 'g')
+    return self.like(sql.func.concat('%', escaped_pattern))
 
 
 @pxt.udf(is_method=True)
