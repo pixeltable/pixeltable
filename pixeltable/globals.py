@@ -272,7 +272,7 @@ def create_view(
             if col_name in [c.name for c in tbl_version_path.columns()]:
                 raise excs.Error(
                     f'Column {col_name!r} already exists in the base table '
-                    f'{tbl_version_path.get_column(col_name).tbl.get().name}.'
+                    f'{tbl_version_path.get_column(col_name).tbl.name}.'
                 )
 
     return Catalog.get().create_view(
@@ -422,7 +422,10 @@ def get_table(path: str) -> catalog.Table:
         >>> tbl = pxt.get_table('my_snapshot')
     """
     path_obj = catalog.Path(path)
-    return Catalog.get().get_table(path_obj)
+    tbl = Catalog.get().get_table(path_obj)
+    tv = tbl._tbl_version.get()
+    _logger.debug(f'get_table(): tbl={tv.id}:{tv.effective_version} sa_tbl={id(tv.store_tbl.sa_tbl):x} tv={id(tv):x}')
+    return tbl
 
 
 def move(path: str, new_path: str) -> None:
@@ -493,8 +496,8 @@ def drop_table(
     if isinstance(table, catalog.Table):
         # if we're dropping a table by handle, we first need to get the current path, then drop the S lock on
         # the Table record, and then get X locks in the correct order (first containing directory, then table)
-        with Env.get().begin_xact():
-            tbl_path = table._path
+        with Catalog.get().begin_xact(for_write=False):
+            tbl_path = table._path()
     else:
         assert isinstance(table, str)
         tbl_path = table

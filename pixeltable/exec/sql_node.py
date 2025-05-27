@@ -134,6 +134,11 @@ class SqlNode(ExecNode):
         self.where_clause_element = None
         self.order_by_clause = []
 
+        if self.tbl is not None:
+            tv = self.tbl.tbl_version._tbl_version
+            if tv is not None:
+                assert tv.is_validated
+
     def _create_stmt(self) -> sql.Select:
         """Create Select from local state"""
 
@@ -141,6 +146,7 @@ class SqlNode(ExecNode):
         sql_select_list = [self.sql_elements.get(e) for e in self.select_list]
         if self.set_pk:
             assert self.tbl is not None
+            assert self.tbl.tbl_version.get().is_validated
             sql_select_list += self.tbl.tbl_version.get().store_tbl.pk_columns()
         stmt = sql.select(*sql_select_list)
 
@@ -220,26 +226,29 @@ class SqlNode(ExecNode):
                 joined_tbls.append(t)
 
         first = True
-        prev_tbl: Optional[catalog.TableVersionHandle] = None
+        prev_tv: Optional[catalog.TableVersion] = None
         for t in joined_tbls[::-1]:
+            tv = t.get()
+            # _logger.debug(f'create_from_clause: tbl_id={tv.id} {id(tv.store_tbl.sa_tbl)}')
             if first:
-                stmt = stmt.select_from(t.get().store_tbl.sa_tbl)
+                stmt = stmt.select_from(tv.store_tbl.sa_tbl)
                 first = False
             else:
-                # join tbl to prev_tbl on prev_tbl's rowid cols
-                prev_tbl_rowid_cols = prev_tbl.get().store_tbl.rowid_columns()
-                tbl_rowid_cols = t.get().store_tbl.rowid_columns()
+                # join tv to prev_tv on prev_tv's rowid cols
+                prev_tbl_rowid_cols = prev_tv.store_tbl.rowid_columns()
+                tbl_rowid_cols = tv.store_tbl.rowid_columns()
                 rowid_clauses = [
                     c1 == c2 for c1, c2 in zip(prev_tbl_rowid_cols, tbl_rowid_cols[: len(prev_tbl_rowid_cols)])
                 ]
-                stmt = stmt.join(t.get().store_tbl.sa_tbl, sql.and_(*rowid_clauses))
+                stmt = stmt.join(tv.store_tbl.sa_tbl, sql.and_(*rowid_clauses))
+
             if t.id in exact_version_only:
-                stmt = stmt.where(t.get().store_tbl.v_min_col == t.get().version)
+                stmt = stmt.where(tv.store_tbl.v_min_col == tv.version)
             else:
-                stmt = stmt.where(t.get().store_tbl.v_min_col <= t.get().version).where(
-                    t.get().store_tbl.v_max_col > t.get().version
-                )
-            prev_tbl = t
+                stmt = stmt.where(tv.store_tbl.sa_tbl.c.v_min <= tv.version)
+                stmt = stmt.where(tv.store_tbl.sa_tbl.c.v_max > tv.version)
+            prev_tv = tv
+
         return stmt
 
     def set_where(self, where_clause: exprs.Expr) -> None:

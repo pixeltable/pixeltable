@@ -14,7 +14,7 @@ import PIL.Image
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
-from pixeltable.env import Env
+from pixeltable.catalog import Catalog
 from pixeltable.utils.transactional_directory import transactional_directory
 
 if typing.TYPE_CHECKING:
@@ -87,7 +87,7 @@ def export_parquet(
         current_value_batch: dict[str, deque] = {k: deque() for k in df.schema}
         current_byte_estimate = 0
 
-        with Env.get().begin_xact():
+        with Catalog.get().begin_xact(for_write=False):
             for data_row in df._exec():
                 for (col_name, col_type), e in zip(df.schema.items(), df._select_list_exprs):
                     val = data_row[e.slot_idx]

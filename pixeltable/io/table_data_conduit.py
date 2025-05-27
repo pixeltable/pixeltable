@@ -23,7 +23,6 @@ from .utils import normalize_schema_names
 
 _logger = logging.getLogger('pixeltable')
 
-# ---------------------------------------------------------------------------------------------------------
 
 if TYPE_CHECKING:
     import datasets  # type: ignore[import-untyped]
@@ -44,9 +43,6 @@ class TableDataConduitFormat(str, enum.Enum):
         if isinstance(x, str):
             return x.lower() in [c.value for c in cls]
         return False
-
-
-# ---------------------------------------------------------------------------------------------------------
 
 
 @dataclass
@@ -129,9 +125,6 @@ class TableDataConduit:
             raise excs.Error(f'Missing required column(s) ({", ".join(missing_cols)})')
 
 
-# ---------------------------------------------------------------------------------------------------------
-
-
 class DFTableDataConduit(TableDataConduit):
     pxt_df: pxt.DataFrame = None
 
@@ -153,9 +146,6 @@ class DFTableDataConduit(TableDataConduit):
         if self.source_column_map is None:
             self.source_column_map = {}
         self.check_source_columns_are_insertable(self.pxt_df.schema.keys())
-
-
-# ---------------------------------------------------------------------------------------------------------
 
 
 class RowDataTableDataConduit(TableDataConduit):
@@ -235,9 +225,6 @@ class RowDataTableDataConduit(TableDataConduit):
             yield self.valid_rows
 
 
-# ---------------------------------------------------------------------------------------------------------
-
-
 class PandasTableDataConduit(TableDataConduit):
     pd_df: pd.DataFrame = None
     batch_count: int = 0
@@ -293,9 +280,6 @@ class PandasTableDataConduit(TableDataConduit):
             yield self.valid_rows
 
 
-# ---------------------------------------------------------------------------------------------------------
-
-
 class CSVTableDataConduit(TableDataConduit):
     @classmethod
     def from_tds(cls, tds: TableDataConduit) -> 'PandasTableDataConduit':
@@ -307,9 +291,6 @@ class CSVTableDataConduit(TableDataConduit):
         return PandasTableDataConduit.from_tds(t)
 
 
-# ---------------------------------------------------------------------------------------------------------
-
-
 class ExcelTableDataConduit(TableDataConduit):
     @classmethod
     def from_tds(cls, tds: TableDataConduit) -> 'PandasTableDataConduit':
@@ -319,9 +300,6 @@ class ExcelTableDataConduit(TableDataConduit):
         assert isinstance(t.source, str)
         t.source = pd.read_excel(t.source, **t.extra_fields)
         return PandasTableDataConduit.from_tds(t)
-
-
-# ---------------------------------------------------------------------------------------------------------
 
 
 class JsonTableDataConduit(TableDataConduit):
@@ -344,9 +322,6 @@ class JsonTableDataConduit(TableDataConduit):
         t2 = RowDataTableDataConduit.from_tds(t)
         t2.disable_mapping = False
         return t2
-
-
-# ---------------------------------------------------------------------------------------------------------
 
 
 class HFTableDataConduit(TableDataConduit):
@@ -478,9 +453,6 @@ class HFTableDataConduit(TableDataConduit):
                 yield batch
 
 
-# ---------------------------------------------------------------------------------------------------------
-
-
 class ParquetTableDataConduit(TableDataConduit):
     pq_ds: Optional[ParquetDataset] = None
 
@@ -540,9 +512,6 @@ class ParquetTableDataConduit(TableDataConduit):
         except Exception as e:
             _logger.error(f'Error after inserting {self.total_rows} rows from Parquet file into table: {e}')
             raise e
-
-
-# ---------------------------------------------------------------------------------------------------------
 
 
 class UnkTableDataConduit(TableDataConduit):
