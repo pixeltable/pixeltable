@@ -1027,14 +1027,14 @@ class DataFrame:
         Return a new DataFrame specifying a sample of rows from the DataFrame, considered in a shuffled order.
 
         The size of the sample can be specified in three ways:
-        
+
         - `n`: the total number of rows to produce as a sample
         - `n_per_stratum`: the number of rows to produce per stratum as a sample
         - `fraction`: the fraction of available rows to produce as a sample
-        
+
         The sample can be stratified by one or more columns, which means that the sample will
         be selected from each stratum separately.
-        
+
         The data is shuffled before creating the sample.
 
         Args:
@@ -1067,9 +1067,9 @@ class DataFrame:
             Equal allocation sampling: Sample 2 rows from each age present in the above Table:
 
             >>> df = person.sample(n_per_stratum=2, stratify_by=t.age)
-            
+
             Sampling is compatible with the where clause, so we can also sample from a filtered DataFrame:
-            
+
             >>> df = person.where(t.age > 30).sample(n=100)
         """
         # Check context of usage

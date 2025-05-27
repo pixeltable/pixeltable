@@ -151,19 +151,6 @@ class SampleClause:
         # Convert to hexadecimal string with padding
         return format(threshold_int, '08x') + 'ffffffffffffffffffffffff'
 
-    @classmethod
-    def key_sql_expr(cls, seed: int, sql_cols: list[sql.ColumnElement]) -> sql.ColumnElement:
-        """Construct expression which is the ordering key for rows to be sampled
-        General SQL form is:
-        - MD5('<seed::text>' [ + '___' + <rowid_col_val>::text]+
-        """
-        seed_text = "'" + str(seed) + "'"
-        sql_expr: sql.ColumnElement = sql.cast(sql.literal_column(seed_text), sql.Text)
-        for e in sql_cols:
-            sql_expr = sql_expr + sql.literal_column("'___'") + sql.cast(e, sql.Text)
-        sql_expr = sql.func.md5(sql_expr)
-        return sql_expr
-
 
 class SamplingClauses(NamedTuple):
     """Clauses provided when rewriting a SampleClause"""

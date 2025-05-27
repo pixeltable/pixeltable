@@ -54,10 +54,10 @@ class SampleKey(Expr):
         General SQL form is:
         - MD5('<seed::text>' [ + '___' + <rowid_col_val>::text]+
         """
-        from pixeltable.plan import SampleClause
+        from pixeltable.exec.sql_node import SqlSampleNode
 
         rowid_sql_expr = [e.sql_expr(sql_elements) for e in self.components[1:]]
-        return SampleClause.key_sql_expr(self._seed, rowid_sql_expr)
+        return SqlSampleNode.key_sql_expr(self._seed, rowid_sql_expr)
 
 
 @udf
@@ -78,6 +78,6 @@ def sample_key(seed: int, rowid_sql_exprs: ts.Json) -> str:
 
 @sample_key.to_sql
 def _(seed: int, rowid_sql_exprs: sql.ColumnCollection[Any, Any]) -> sql.ColumnElement:
-    from pixeltable.plan import SampleClause
+    from pixeltable.exec.sql_node import SqlSampleNode
 
-    return SampleClause.key_sql_expr(seed, list(rowid_sql_exprs))
+    return SqlSampleNode.key_sql_expr(seed, list(rowid_sql_exprs))

@@ -9,15 +9,12 @@ import sqlalchemy as sql
 from pixeltable import catalog, exprs
 from pixeltable.env import Env
 
-if TYPE_CHECKING:
-    from pixeltable.plan import SampleClause
-
-
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
 
 if TYPE_CHECKING:
     import pixeltable.plan
+    from pixeltable.plan import SampleClause
 
 _logger = logging.getLogger('pixeltable')
 
@@ -559,13 +556,24 @@ class SqlSampleNode(SqlNode):
         self.fraction_samples = sample_clause.fraction
         self.seed = sample_clause.seed if sample_clause.seed is not None else 0
 
+    @classmethod
+    def key_sql_expr(cls, seed: int, sql_cols: list[sql.ColumnElement]) -> sql.ColumnElement:
+        """Construct expression which is the ordering key for rows to be sampled
+        General SQL form is:
+        - MD5('<seed::text>' [ + '___' + <rowid_col_val>::text]+
+        """
+        seed_text = "'" + str(seed) + "'"
+        sql_expr: sql.ColumnElement = sql.cast(sql.literal_column(seed_text), sql.Text)
+        for e in sql_cols:
+            sql_expr = sql_expr + sql.literal_column("'___'") + sql.cast(e, sql.Text)
+        sql_expr = sql.func.md5(sql_expr)
+        return sql_expr
+
     def _create_order_by(self, cte: sql.CTE) -> sql.ColumnElement:
         """Create an expression for randomly ordering rows with a given seed"""
-        from pixeltable.plan import SampleClause
-
         rowid_cols = [*cte.c[-self.pk_count : -1]]  # exclude the version column
         assert len(rowid_cols) > 0
-        return SampleClause.key_sql_expr(self.seed, rowid_cols)
+        return self.key_sql_expr(self.seed, rowid_cols)
 
     def _create_stmt(self) -> sql.Select:
         if self.fraction_samples is not None:
