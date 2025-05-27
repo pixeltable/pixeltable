@@ -3,7 +3,7 @@ from __future__ import annotations
 import dataclasses
 import enum
 from textwrap import dedent
-from typing import Any, Iterable, Literal, Optional, Sequence
+from typing import Any, Iterable, Literal, NamedTuple, Optional, Sequence
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -163,6 +163,16 @@ class SampleClause:
             sql_expr = sql_expr + sql.literal_column("'___'") + sql.cast(e, sql.Text)
         sql_expr = sql.func.md5(sql_expr)
         return sql_expr
+
+
+class SamplingClauses(NamedTuple):
+    """Clauses provided when rewriting a SampleClause"""
+
+    where: exprs.Expr
+    group_by_clause: Optional[list[exprs.Expr]]
+    order_by_clause: Optional[list[tuple[exprs.Expr, bool]]]
+    limit: Optional[exprs.Expr]
+    sample_clause: Optional[SampleClause]
 
 
 class Analyzer:
@@ -820,24 +830,31 @@ class Planner:
         group_by_clause: Optional[list[exprs.Expr]],
         order_by_clause: Optional[list[tuple[exprs.Expr, bool]]],
         limit: Optional[exprs.Expr],
-    ) -> tuple[
-        exprs.Expr,
-        Optional[list[exprs.Expr]],
-        Optional[list[tuple[exprs.Expr, bool]]],
-        Optional[exprs.Expr],
-        Optional[SampleClause],
-    ]:
-        """Implement the sample clause by creating required subclauses."""
+    ) -> SamplingClauses:
+        """tuple[
+            exprs.Expr,
+            Optional[list[exprs.Expr]],
+            Optional[list[tuple[exprs.Expr, bool]]],
+            Optional[exprs.Expr],
+            Optional[SampleClause],
+        ]:"""
+        """Construct clauses required for sampling under various conditions.
+        If there is no sampling, then return the original clauses.
+        If the sample is stratified, then return onlyt the group by clause. The rest of the
+        mechanism for stratified sampling is provided by the SampleSqlNode.
+        If the sample is non-stratified, then rewrite the query to accommodate the supplied where clause,
+        and provide the other clauses required for sampling
+        """
 
         # If no sample clause, return the original clauses
         if sample_clause is None:
-            return where_clause, group_by_clause, order_by_clause, limit, None
+            return SamplingClauses(where_clause, group_by_clause, order_by_clause, limit, None)
 
-        # If the sample clause is stratified, we need to create a group by clause
+        # If the sample clause is stratified, create a group by clause
         if sample_clause.is_stratified:
             group_by = sample_clause.stratify_exprs
             # Note that limit is not possible here
-            return where_clause, group_by, order_by_clause, None, sample_clause
+            return SamplingClauses(where_clause, group_by, order_by_clause, None, sample_clause)
 
         else:
             # If non-stratified sampling, construct a where clause, order_by, and limit clauses
@@ -857,7 +874,7 @@ class Planner:
             order_by: list[tuple[exprs.Expr, bool]] = [(s_key, True)]
             limit = exprs.Literal(sample_clause.n)
             # Note that group_by is not possible here
-            return where, None, order_by, limit, None
+            return SamplingClauses(where, None, order_by, limit, None)
 
     @classmethod
     def create_query_plan(
