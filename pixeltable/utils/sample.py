@@ -61,7 +61,7 @@ class SampleKey(Expr):
 
 
 @udf
-def sample_key(seed: int, key_fields: List[Expr]) -> str:
+def sample_key(seed: int, key_fields: List[int]) -> str:
     """
     Create a sample key from the given seed and rowids.
 
@@ -78,7 +78,8 @@ def sample_key(seed: int, key_fields: List[Expr]) -> str:
 
 
 @sample_key.to_sql
-def _(seed: int, rowids: List[sql.ColumnElement]) -> sql.ColumnElement:
+def _(seed: sql.ColumnElement, key_fields: sql.ColumnElement) -> sql.ColumnElement:
     from pixeltable.exec.sql_node import SqlSampleNode
 
-    return SqlSampleNode.key_sql_expr(seed, rowids)
+    raise NotImplementedError('SampleKey creation is not implemented in SQL.')
+    return SqlSampleNode.key_sql_expr(seed, key_fields)
