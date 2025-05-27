@@ -78,7 +78,7 @@ class TablePackager:
         """
         assert not self.tmp_dir.exists()  # Packaging can only be done once per TablePackager instance
 
-        _logger.info(f"Packaging table {self.table._path()!r} and its ancestors in: {self.tmp_dir}")
+        _logger.info(f'Packaging table {self.table._path()!r} and its ancestors in: {self.tmp_dir}')
         self.tmp_dir.mkdir()
         with open(self.tmp_dir / 'metadata.json', 'w', encoding='utf8') as fp:
             json.dump(self.md, fp)
@@ -86,7 +86,7 @@ class TablePackager:
         self.tables_dir.mkdir()
         with catalog.Catalog.get().begin_xact(for_write=False):
             for tv in self.table._tbl_version_path.get_tbl_versions():
-                _logger.info(f"Exporting table {tv.get().versioned_name!r}.")
+                _logger.info(f'Exporting table {tv.get().versioned_name!r}.')
                 self.__export_table(tv.get())
 
         _logger.info('Building archive.')
