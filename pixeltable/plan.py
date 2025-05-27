@@ -846,8 +846,9 @@ class Planner:
         else:
             # If non-stratified sampling, construct a where clause, order_by, and limit clauses
             # Construct an expression for sorting rows and limiting row counts
-            # s_key=sample_key(exprs.Literal(sample_clause.seed), cls.rowid_columns(from_clause._first_tbl.tbl_version))
             s_key = SampleKey(exprs.Literal(sample_clause.seed), cls.rowid_columns(from_clause._first_tbl.tbl_version))
+            # s_key = sample_key(exprs.Literal(sample_clause.seed),
+            # *cls.rowid_columns(from_clause._first_tbl.tbl_version))
 
             # Construct a suitable where clause
             where = where_clause

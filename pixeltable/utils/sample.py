@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import List, Optional
 
 import sqlalchemy as sql
 
@@ -61,7 +61,7 @@ class SampleKey(Expr):
 
 
 @udf
-def sample_key(seed: int, rowid_sql_exprs: ts.Json) -> str:
+def sample_key(seed: int, key_fields: List[Expr]) -> str:
     """
     Create a sample key from the given seed and rowids.
 
@@ -73,11 +73,12 @@ def sample_key(seed: int, rowid_sql_exprs: ts.Json) -> str:
         A SampleKey object.
     """
     assert isinstance(seed, int)
-    raise NotImplementedError
+    raise NotImplementedError('SampleKey creation is not implemented in python.')
+    return 'funny'
 
 
 @sample_key.to_sql
-def _(seed: int, rowid_sql_exprs: sql.ColumnCollection[Any, Any]) -> sql.ColumnElement:
+def _(seed: int, rowids: List[sql.ColumnElement]) -> sql.ColumnElement:
     from pixeltable.exec.sql_node import SqlSampleNode
 
-    return SqlSampleNode.key_sql_expr(seed, list(rowid_sql_exprs))
+    return SqlSampleNode.key_sql_expr(seed, rowids)

@@ -160,12 +160,18 @@ class TestSampling:
         print(r)
         cls._check_sample_count(expected, len(r))
 
-    def test_sample_basic(self, test_tbl: catalog.Table) -> None:
+    def test_sample_basic_n(self, test_tbl: catalog.Table) -> None:
         t = self.create_sample_data(4, 6, False)
-        t_rows = t.count()
 
         df = t.select().sample(n=20)
         self._check_sample(df, 20)
+
+        df = t.select().where(t.id < 200).sample(n=20)
+        self._check_sample(df, 20)
+
+    def test_sample_basic_f(self, test_tbl: catalog.Table) -> None:
+        t = self.create_sample_data(4, 6, False)
+        t_rows = t.count()
 
         df = t.select(t.id).sample(fraction=0.10, seed=12345)
         self._check_sample(df, t_rows * 0.10)
