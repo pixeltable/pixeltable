@@ -107,7 +107,8 @@ def endswith(self: str, pattern: str) -> bool:
 @endswith.to_sql
 def _(self: sql.ColumnElement, pattern: sql.ColumnElement) -> sql.ColumnElement:
     # Replace all occurrences of `%`, `_`, and `\` with escaped versions
-    escaped_pattern = sql.func.regexp_replace(pattern, r'(%|_|\\)', '\\\1', 'g')
+    escaped_pattern = sql.func.regexp_replace(pattern, r'(%|_|\\)', r'\\\1', 'g')
+    print(escaped_pattern)
     return self.like(sql.func.concat('%', escaped_pattern))
 
 

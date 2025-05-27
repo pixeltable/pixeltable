@@ -64,13 +64,7 @@ class TestString:
         IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRTV (1973–79).
         """  # noqa: RUF001
 
-    TEST_STRS = textwrap.dedent(TEST_STR.strip()).split('. ')
-
-    [
-        'The concept of relational database was defined by E. F. Codd at IBM in 1970.',
-        'Codd introduced the term relational in his research paper\n'
-        '"A Relational Model of Data for Large Shared Data Banks".',
-        'In this paper and later papers, he defined\nwhat he meant by relation.',
+    TEST_STRS = textwrap.dedent(TEST_STR.strip()).split('. ') + [
         '   White\n\nSpace\n\n\n',
         r'%%!!#__\\Symbols%%!!#\\@@__%',
     ]
