@@ -55,6 +55,11 @@ def upgrade_md(engine: sql.engine.Engine) -> None:
         system_info = session.query(SystemInfo).one().md
         md_version = system_info['schema_version']
         assert isinstance(md_version, int)
+        if md_version > VERSION:
+            raise RuntimeError(
+                f'Metadata version {md_version} is newer than current version {VERSION}. '
+                f'Please update pixeltable to the latest version.'
+            )
         if md_version == VERSION:
             return
         while md_version < VERSION:
