@@ -191,6 +191,7 @@ class Project(ExternalStore, abc.ABC):
             external (import or export) columns.
         If validation fails, an exception will be raised. If validation succeeds, a new mapping will be returned
         in which the Pixeltable column names are resolved to the corresponding `Column` objects.
+        TODO: return columns as names or qualified ids
         """
         from pixeltable import exprs
 
