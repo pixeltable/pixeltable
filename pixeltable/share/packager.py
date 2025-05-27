@@ -17,6 +17,7 @@ import pixeltable as pxt
 from pixeltable import catalog, exceptions as excs, metadata
 from pixeltable.env import Env
 from pixeltable.metadata import schema
+from pixeltable.utils import sha256sum
 from pixeltable.utils.media_store import MediaStore
 
 _logger = logging.getLogger('pixeltable')
@@ -88,7 +89,7 @@ class TablePackager:
         assert any(tv.id == base.id for base in self.table._tbl_version_path.get_tbl_versions())
         sql_types = {col.name: col.type for col in tv.store_tbl.sa_tbl.columns}
         media_cols: set[str] = set()
-        for col in tv.cols_by_name.values():
+        for col in tv.cols:
             if col.is_stored and col.col_type.is_media_type():
                 media_cols.add(col.store_name())
 
@@ -182,7 +183,12 @@ class TablePackager:
             path = Path(urllib.parse.unquote(urllib.request.url2pathname(parsed_url.path)))
             if path not in self.media_files:
                 # Create a new entry in the `media_files` dict so that we can copy the file into the tarball later.
-                dest_name = f'{uuid.uuid4().hex}{path.suffix}'
+                # We name the media files in the archive by their SHA256 hash. This ensures that we can properly
+                # deduplicate and validate them later.
+                # If we get a collision, it's not a problem; it just means we have two identical files (which will
+                # be conveniently deduplicated in the bundle).
+                sha = sha256sum(path)
+                dest_name = f'{sha}{path.suffix}'
                 self.media_files[path] = dest_name
             return f'pxtmedia://{self.media_files[path]}'
         # For any type of URL other than a local file, just return the URL as-is.
@@ -276,11 +282,182 @@ class TableRestorer:
         tbl_id = uuid.UUID(tbl_md.tbl_md.tbl_id)
         parquet_dir = bundle_path / 'tables' / f'tbl_{tbl_id.hex}'
         parquet_table = pq.read_table(str(parquet_dir))
+        replica_version = tv.version
 
-        for batch in parquet_table.to_batches():
+        conn = Env.get().conn
+        store_sa_tbl = tv.store_tbl.sa_tbl
+        store_sa_tbl_name = tv.store_tbl._storage_name()
+
+        # Sometimes we are importing a table that has never been seen before. Other times, however, we are importing
+        # an existing replica table, and the table version and/or row selection differs from what was imported
+        # previously. Care must be taken to ensure that the new data is merged with existing data in a way that
+        # yields an internally consistent version history for each row.
+
+        # The overall strategy is this:
+        # 1. Import the parquet data into a temporary table;
+        # 2. "rectify" the v_max values in both the temporary table and the existing table (more on this below);
+        # 3. Delete any row instances from the temporary table that are already present in the existing table;
+        # 4. Copy the remaining rows from the temporary table into the existing table.
+
+        # Create a temporary table for the initial data load, containing columns for all columns present in the
+        # parquet table. The parquet columns have identical names to those in the store table, so we can use the
+        # store table schema to get their SQL types (which are not necessarily derivable from their Parquet types,
+        # e.g., pa.string() may hold either VARCHAR or serialized JSONB).
+        temp_cols: dict[str, sql.Column] = {}
+        for field in parquet_table.schema:
+            assert field.name in store_sa_tbl.columns
+            col_type = store_sa_tbl.columns[field.name].type
+            temp_cols[field.name] = sql.Column(field.name, col_type)
+        temp_sa_tbl_name = f'temp_{uuid.uuid4().hex}'
+        _logger.debug(f'Creating temporary table: {temp_sa_tbl_name}')
+        temp_md = sql.MetaData()
+        temp_sa_tbl = sql.Table(temp_sa_tbl_name, temp_md, *temp_cols.values(), prefixes=['TEMPORARY'])
+        temp_sa_tbl.create(conn)
+
+        # Populate the temporary table with data from the Parquet file.
+        _logger.debug(f'Loading {parquet_table.num_rows} row(s) into temporary table: {temp_sa_tbl_name}')
+        for batch in parquet_table.to_batches(max_chunksize=10_000):
             pydict = batch.to_pydict()
             rows = self.__from_pa_pydict(tv, pydict)
-            tv.store_tbl.load_rows(rows)
+            conn.execute(sql.insert(temp_sa_tbl), rows)
+
+        # Each row version is identified uniquely by its pk, a tuple (row_id, pos_0, pos_1, ..., pos_k, v_min).
+        # Conversely, v_max is not part of the primary key, but is simply a bookkeeping device.
+        # In an original table, v_max is always equal to the v_min of the succeeding row instance with the same
+        # row id, or MAX_VERSION if no such row instance exists. But in the replica, we need to be careful, since
+        # we might see only a subset of the original table's versions, and we might see them out of order.
+
+        # We'll adjust the v_max values according to the principle of "latest provable v_max":
+        # they will always correspond to the latest version for which we can prove the row instance was alive. This
+        # will enable us to maintain consistency of the v_max values if additional table versions are later imported,
+        # regardless of the order in which they are seen. It also means that replica tables (unlike original tables)
+        # may have gaps in their row version histories, but this is fine; the gaps simply correspond to table versions
+        # that have never been observed.
+
+        pk_predicates = [col == temp_cols[col.name] for col in tv.store_tbl.pk_columns()]
+        pk_clause = sql.and_(*pk_predicates)
+
+        # If the same pk exists in both the temporary table and the existing table, then the corresponding row data
+        # must be identical; the rows can differ only in their v_max value. As a sanity check, we go through the
+        # motion of verifying this; a failure implies data corruption in either the replica being imported or in a
+        # previously imported replica.
+
+        system_col_names = {col.name for col in tv.store_tbl.system_columns()}
+        media_col_names = {col.store_name() for col in tv.cols if col.col_type.is_media_type() and col.is_stored}
+        value_store_cols = [
+            store_sa_tbl.c[col_name]
+            for col_name in temp_cols
+            if col_name not in system_col_names and col_name not in media_col_names
+        ]
+        value_temp_cols = [
+            col
+            for col_name, col in temp_cols.items()
+            if col_name not in system_col_names and col_name not in media_col_names
+        ]
+        mismatch_predicates = [store_col != temp_col for store_col, temp_col in zip(value_store_cols, value_temp_cols)]
+        mismatch_clause = sql.or_(*mismatch_predicates)
+
+        # This query looks for rows that have matching primary keys (rowid + pos_k + v_min), but differ in at least
+        # one value column. Pseudo-SQL:
+        #
+        # SELECT store_tbl.col_0, ..., store_tbl.col_n, temp_tbl.col_0, ...,  temp_tbl.col_n
+        # FROM store_tbl, temp_tbl
+        # WHERE store_tbl.rowid = temp_tbl.rowid
+        #     AND store_tbl.pos_0 = temp_tbl.pos_0
+        #     AND ... AND store_tbl.pos_k = temp_tbl.pos_k
+        #     AND store_tbl.v_min = temp_tbl.v_min
+        #     AND (
+        #         store_tbl.col_0 != temp_tbl.col_0
+        #         OR store_tbl.col_1 != temp_tbl.col_1
+        #         OR ... OR store_tbl.col_n != temp_tbl.col_n
+        #     )
+        #
+        # The value column comparisons (store_tbl.col_0 != temp_tbl.col_0, etc.) will always be false for rows where
+        # either column is NULL; this is what we want, since it may indicate a column that is present in one version
+        # but not the other.
+        q = sql.select(*value_store_cols, *value_temp_cols).where(pk_clause).where(mismatch_clause)
+        _logger.debug(q.compile())
+        result = conn.execute(q)
+        if result.rowcount > 0:
+            _logger.debug(
+                f'Data corruption error between {temp_sa_tbl_name!r} and {store_sa_tbl_name!r}: '
+                f'{result.rowcount} inconsistent row(s).'
+            )
+            row = result.first()
+            _logger.debug('Example mismatch:')
+            _logger.debug(f'{store_sa_tbl_name}: {row[: len(value_store_cols)]}')
+            _logger.debug(f'{temp_sa_tbl_name}: {row[len(value_store_cols) :]}')
+            raise excs.Error(
+                'Data corruption error: the replica data are inconsistent with data retrieved from a previous replica.'
+            )
+        _logger.debug(f'Verified data integrity between {store_sa_tbl_name!r} and {temp_sa_tbl_name!r}.')
+
+        # Now rectify the v_max values in the temporary table.
+        # If a row instance has a concrete v_max value, then we know it's genuine: it's the unique and immutable
+        # version when the row was deleted. (This can only happen if later versions of the base table already
+        # existed at the time this replica was published.)
+        # But if a row instance has a v_max value of MAX_VERSION, then we don't know anything about its future.
+        # It might live indefinitely, or it might be deleted as early as version `n + 1`. Following the principle
+        # of "latest provable v_max", we simply set v_max equal to `n + 1`.
+        q = (
+            temp_sa_tbl.update()
+            .values(v_max=(replica_version + 1))
+            .where(temp_sa_tbl.c.v_max == schema.Table.MAX_VERSION)
+        )
+        _logger.debug(q.compile())
+        result = conn.execute(q)
+        _logger.debug(f'Rectified {result.rowcount} row(s) in {temp_sa_tbl_name!r}.')
+
+        # Now rectify the v_max values in the existing table. This is done by simply taking the later of the two v_max
+        # values (the existing one and the new one) for each row instance, following the "latest provable v_max"
+        # principle. Obviously we only need to do this for rows that exist in both tables (it's a simple join).
+        q = (
+            store_sa_tbl.update()
+            .values(v_max=sql.func.greatest(store_sa_tbl.c.v_max, temp_sa_tbl.c.v_max))
+            .where(pk_clause)
+        )
+        _logger.debug(q.compile())
+        result = conn.execute(q)
+        _logger.debug(f'Rectified {result.rowcount} row(s) in {store_sa_tbl_name!r}.')
+
+        # Now we need to update rows in the existing table that are also present in the temporary table. This is to
+        # account for the scenario where the temporary table has columns that are not present in the existing table.
+        # (We can't simply replace the rows with their versions in the temporary table, because the converse scenario
+        # might also occur; there may be columns in the existing table that are not present in the temporary table.)
+        value_update_clauses: dict[str, sql.ColumnElement] = {}
+        for temp_col in temp_cols.values():
+            if temp_col.name not in system_col_names:
+                store_col = store_sa_tbl.c[temp_col.name]
+                # Prefer the value from the existing table, substituting the value from the temporary table if it's
+                # NULL. This works in all cases (including media columns, where we prefer the existing media file).
+                clause = sql.case((store_col == None, temp_col), else_=store_col)
+                value_update_clauses[temp_col.name] = clause
+        if len(value_update_clauses) > 0:
+            q = store_sa_tbl.update().values(**value_update_clauses).where(pk_clause)
+            _logger.debug(q.compile())
+            result = conn.execute(q)
+            _logger.debug(
+                f'Merged values from {temp_sa_tbl_name!r} into {store_sa_tbl_name!r} for {result.rowcount} row(s).'
+            )
+
+        # Now drop any rows from the temporary table that are also present in the existing table.
+        # The v_max values have been rectified, data has been merged into NULL cells, and all other row values have
+        # been verified identical.
+        # TODO: Delete any media files that were orphaned by this operation (they're necessarily duplicates of media
+        #     files that are already present in the existing table).
+        q = temp_sa_tbl.delete().where(pk_clause)
+        _logger.debug(q.compile())
+        result = conn.execute(q)
+        _logger.debug(f'Deleted {result.rowcount} row(s) from {temp_sa_tbl_name!r}.')
+
+        # Finally, copy the remaining data (consisting entirely of new row instances) from the temporary table into
+        # the actual table.
+        q = store_sa_tbl.insert().from_select(
+            [store_sa_tbl.c[col_name] for col_name in temp_cols], sql.select(*temp_cols.values())
+        )
+        _logger.debug(q.compile())
+        result = conn.execute(q)
+        _logger.debug(f'Inserted {result.rowcount} row(s) from {temp_sa_tbl_name!r} into {store_sa_tbl_name!r}.')
 
     def __from_pa_pydict(self, tv: catalog.TableVersion, pydict: dict[str, Any]) -> list[dict[str, Any]]:
         # Data conversions from pyarrow to Pixeltable
@@ -289,7 +466,7 @@ class TableRestorer:
             assert col_name in tv.store_tbl.sa_tbl.columns
             sql_types[col_name] = tv.store_tbl.sa_tbl.columns[col_name].type
         media_col_ids: dict[str, int] = {}
-        for col in tv.cols_by_name.values():
+        for col in tv.cols:
             if col.is_stored and col.col_type.is_media_type():
                 media_col_ids[col.store_name()] = col.id
 

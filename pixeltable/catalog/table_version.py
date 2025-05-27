@@ -338,6 +338,7 @@ class TableVersion:
     @classmethod
     def create_replica(cls, md: schema.FullTableMd) -> TableVersion:
         tbl_id = UUID(md.tbl_md.tbl_id)
+        _logger.info(f'Creating replica table version {tbl_id}:{md.version_md.version}.')
         view_md = md.tbl_md.view_md
         base_path = pxt.catalog.TableVersionPath.from_md(view_md.base_versions) if view_md is not None else None
         base = base_path.tbl_version if base_path is not None else None
@@ -345,6 +346,7 @@ class TableVersion:
             tbl_id, md.tbl_md, md.version_md.version, md.schema_version_md, [], base_path=base_path, base=base
         )
         tbl_version.store_tbl.create()
+        tbl_version.store_tbl.ensure_columns_exist(col for col in tbl_version.cols if col.is_stored)
         return tbl_version
 
     def drop(self) -> None:
