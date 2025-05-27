@@ -12,7 +12,7 @@ import pixeltable as pxt
 from pixeltable import catalog, exceptions as excs, exec, exprs
 from pixeltable.catalog import Column, TableVersionHandle
 from pixeltable.exec.sql_node import OrderByClause, OrderByItem, combine_order_by_clauses, print_order_by_clause
-from pixeltable.utils.sample import SampleKey, sample_key
+from pixeltable.utils.sample import sample_key
 
 
 def _is_agg_fn_call(e: exprs.Expr) -> bool:
@@ -853,8 +853,9 @@ class Planner:
         else:
             # If non-stratified sampling, construct a where clause, order_by, and limit clauses
             # Construct an expression for sorting rows and limiting row counts
-            s_key = SampleKey(exprs.Literal(sample_clause.seed), cls.rowid_columns(from_clause._first_tbl.tbl_version))
-            s_key = sample_key(exprs.Literal(sample_clause.seed), cls.rowid_columns(from_clause._first_tbl.tbl_version))
+            s_key = sample_key(
+                exprs.Literal(sample_clause.seed), *cls.rowid_columns(from_clause._first_tbl.tbl_version)
+            )
 
             # Construct a suitable where clause
             where = where_clause

@@ -557,13 +557,12 @@ class SqlSampleNode(SqlNode):
         self.seed = sample_clause.seed if sample_clause.seed is not None else 0
 
     @classmethod
-    def key_sql_expr(cls, seed: int, sql_cols: list[sql.ColumnElement]) -> sql.ColumnElement:
+    def key_sql_expr(cls, seed: sql.ColumnElement, sql_cols: Iterable[sql.ColumnElement]) -> sql.ColumnElement:
         """Construct expression which is the ordering key for rows to be sampled
         General SQL form is:
-        - MD5('<seed::text>' [ + '___' + <rowid_col_val>::text]+
+        - MD5(<seed::text> [ + '___' + <rowid_col_val>::text]+
         """
-        seed_text = "'" + str(seed) + "'"
-        sql_expr: sql.ColumnElement = sql.cast(sql.literal_column(seed_text), sql.Text)
+        sql_expr: sql.ColumnElement = sql.cast(seed, sql.Text)
         for e in sql_cols:
             sql_expr = sql_expr + sql.literal_column("'___'") + sql.cast(e, sql.Text)
         sql_expr = sql.func.md5(sql_expr)
@@ -573,7 +572,7 @@ class SqlSampleNode(SqlNode):
         """Create an expression for randomly ordering rows with a given seed"""
         rowid_cols = [*cte.c[-self.pk_count : -1]]  # exclude the version column
         assert len(rowid_cols) > 0
-        return self.key_sql_expr(self.seed, rowid_cols)
+        return self.key_sql_expr(sql.literal_column(str(self.seed)), rowid_cols)
 
     def _create_stmt(self) -> sql.Select:
         if self.fraction_samples is not None:
