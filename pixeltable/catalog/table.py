@@ -1502,11 +1502,13 @@ class Table(SchemaObject):
 
             for store_name in stores:
                 store = self._tbl_version.get().external_stores[store_name]
+                # get hold of the store's debug string before deleting it
+                store_str = str(store)
                 store.unlink(self._tbl_version.get())  # might call tbl_version.drop_columns()
                 self._tbl_version.get().unlink_external_store(store)
                 if delete_external_data and isinstance(store, pxt.io.external_store.Project):
                     store.delete()
-                env.Env.get().console_logger.info(f'Unlinked external store from table `{self._name}`: {store}')
+                env.Env.get().console_logger.info(f'Unlinked external store from table `{self._name}`: {store_str}')
 
     def sync(
         self, stores: Optional[str | list[str]] = None, *, export_data: bool = True, import_data: bool = True

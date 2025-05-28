@@ -151,7 +151,6 @@ class TestLabelStudio:
 
     # Run the basic sync test four ways: with 'post' and 'file' import methods, and with
     # a stored and non-stored media column, in all combinations.
-    @pytest.mark.skip('temporarily disabled')
     @pytest.mark.xdist_group('label_studio')
     @pytest.mark.parametrize(
         'media_import_method,sync_col',
@@ -172,7 +171,6 @@ class TestLabelStudio:
         self.__test_label_studio_sync(ls_image_table, self.test_config_image, media_import_method, sync_col, 'image')
 
     # TODO(aaron-siegel): 'file' is not working for videos or audio yet.
-    @pytest.mark.skip('temporarily disabled')
     @pytest.mark.xdist_group('label_studio')
     @pytest.mark.parametrize('media_import_method', ['post', 'url'])
     def test_label_studio_sync_videos(
@@ -181,7 +179,6 @@ class TestLabelStudio:
         skip_test_if_not_installed('label_studio_sdk')
         self.__test_label_studio_sync(ls_video_table, self.test_config_video, media_import_method, 'video_col', 'video')
 
-    @pytest.mark.skip('temporarily disabled')
     @pytest.mark.xdist_group('label_studio')
     @pytest.mark.parametrize('media_import_method', ['post', 'url'])
     def test_label_studio_sync_audio(
