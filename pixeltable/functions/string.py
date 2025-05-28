@@ -549,7 +549,7 @@ def replace(
         repl: replacement string
         n: number of replacements to make (if `None`, replace all occurrences)
     """
-    return self.replace(pattern, repl, n)
+    return self.replace(substr, repl, n or -1)
 
 
 @replace.to_sql
@@ -792,7 +792,7 @@ def upper(self: str) -> str:
 
 @upper.to_sql
 def _(self: sql.ColumnElement) -> sql.ColumnElement:
-    sql.func.upper(self)
+    return sql.func.upper(self)
 
 
 @pxt.udf(is_method=True)
