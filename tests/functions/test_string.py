@@ -32,6 +32,7 @@ from pixeltable.functions.string import (
     rfind,
     rjust,
     rstrip,
+    slice,
     startswith,
     strip,
     swapcase,
@@ -65,8 +66,11 @@ class TestString:
         """  # noqa: RUF001
 
     TEST_STRS = textwrap.dedent(TEST_STR.strip()).split('. ') + [
-        '   White\n\nSpace\n\n\n',
+        '   \v\t\rWhite\n\nSpace\n\f \n\n',
         r'%%!!#__\\Symbols%%!!#\\@@__%',
+        'a',
+        ' ',
+        '',
     ]
 
     def test_all(self, reset_db: None) -> None:
@@ -99,11 +103,14 @@ class TestString:
             (ljust, str.ljust, [100], {}),
             (lower, str.lower, [], {}),
             (lstrip, str.lstrip, [], {}),
+            (lstrip, str.lstrip, ['ST'], {}),
             (rfind, str.rfind, ['relation', 10, -10], {}),
             (rjust, str.rjust, [100], {}),
             (rstrip, str.rstrip, [], {}),
+            (rstrip, str.rstrip, ['ST'], {}),
             (startswith, str.startswith, ['Codd'], {}),
             (strip, str.strip, [], {}),
+            (strip, str.strip, ['ST'], {}),
             (swapcase, str.swapcase, [], {}),
             (title, str.title, [], {}),
             (upper, str.upper, [], {}),
@@ -260,21 +267,22 @@ class TestString:
         for row in res:
             assert row['out'] == row['s'] * row['n']
 
-    def testcontains(self, reset_db: None) -> None:
+    def test_contains(self, reset_db: None) -> None:
         t = pxt.create_table('test_tbl', {'s': pxt.String})
         validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
+
         assert t.select(out=t.s.contains('IBM')).collect()['out'] == ['IBM' in s for s in self.TEST_STRS]
-        assert t.select(out=t.s.contains('IBM', regex=False)).collect()['out'] == ['IBM' in s for s in self.TEST_STRS]
-        assert t.select(out=t.s.contains('ibm', regex=False, case=True)).collect()['out'] == [
+        assert t.select(out=t.s.contains('ibm', case=True)).collect()['out'] == [
             'ibm' in s for s in self.TEST_STRS
         ]
-        assert t.select(out=t.s.contains('ibm', regex=False, case=False)).collect()['out'] == [
+        assert t.select(out=t.s.contains('ibm', case=False)).collect()['out'] == [
             'ibm' in s.lower() for s in self.TEST_STRS
         ]
-        assert t.select(out=t.s.contains('ibm', regex=True, flags=re.IGNORECASE)).collect()['out'] == [
+
+        assert t.select(out=t.s.contains_re('ibm', flags=re.IGNORECASE)).collect()['out'] == [
             'ibm' in s.lower() for s in self.TEST_STRS
         ]
-        assert t.select(out=t.s.contains('i.m', regex=True, flags=re.IGNORECASE)).collect()['out'] >= [
+        assert t.select(out=t.s.contains_re('i.m', flags=re.IGNORECASE)).collect()['out'] >= [
             'ibm' in s.lower() for s in self.TEST_STRS
         ]
 
