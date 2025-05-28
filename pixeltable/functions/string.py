@@ -12,6 +12,7 @@ t.select(t.str_col.capitalize()).collect()
 """
 
 import builtins
+import re
 import textwrap
 from string import whitespace
 from typing import Any, Optional
@@ -67,13 +68,13 @@ def contains(self: str, substr: str, case: bool = True) -> bool:
     Test if string contains a substring.
 
     Args:
-        pattern: string literal or regular expression
+        substr: string literal or regular expression
         case: if False, ignore case
     """
     if case:
-        return pattern in self
+        return substr in self
     else:
-        return pattern.lower() in self.lower()
+        return substr.lower() in self.lower()
 
 
 @contains.to_sql
@@ -100,8 +101,6 @@ def contains_re(self: str, pattern: str, flags: int = 0) -> bool:
         pattern: regular expression pattern
         flags: [flags](https://docs.python.org/3/library/re.html#flags) for the `re` module
     """
-    import re
-
     return bool(re.search(pattern, self, flags))
 
 
@@ -114,29 +113,27 @@ def count(self: str, pattern: str, flags: int = 0) -> int:
         pattern: string literal or regular expression
         flags: [flags](https://docs.python.org/3/library/re.html#flags) for the `re` module
     """
-    import re
-
     return builtins.len(re.findall(pattern, self, flags))
 
 
 @pxt.udf(is_method=True)
-def endswith(self: str, pattern: str) -> bool:
+def endswith(self: str, substr: str) -> bool:
     """
     Return `True` if the string ends with the specified suffix, otherwise return `False`.
 
     Equivalent to [`str.endswith()`](https://docs.python.org/3/library/stdtypes.html#str.endswith).
 
     Args:
-        pattern: string literal
+        substr: string literal
     """
-    return self.endswith(pattern)
+    return self.endswith(substr)
 
 
 @endswith.to_sql
-def _(self: sql.ColumnElement, pattern: sql.ColumnElement) -> sql.ColumnElement:
+def _(self: sql.ColumnElement, substr: sql.ColumnElement) -> sql.ColumnElement:
     # Replace all occurrences of `%`, `_`, and `\` with escaped versions
-    escaped_pattern = sql.func.regexp_replace(pattern, r'(%|_|\\)', r'\\\1', 'g')
-    return self.like(sql.func.concat('%', escaped_pattern))
+    escaped_substr = sql.func.regexp_replace(substr, r'(%|_|\\)', r'\\\1', 'g')
+    return self.like(sql.func.concat('%', escaped_substr))
 
 
 @pxt.udf(is_method=True)
@@ -193,8 +190,6 @@ def findall(self: str, pattern: str, flags: int = 0) -> list:
         pattern: regular expression pattern
         flags: [flags](https://docs.python.org/3/library/re.html#flags) for the `re` module
     """
-    import re
-
     return re.findall(pattern, self, flags)
 
 
@@ -220,8 +215,6 @@ def fullmatch(self: str, pattern: str, case: bool = True, flags: int = 0) -> boo
         case: if False, ignore case
         flags: [flags](https://docs.python.org/3/library/re.html#flags) for the `re` module
     """
-    import re
-
     if not case:
         flags |= re.IGNORECASE
     _ = bool(re.fullmatch(pattern, self, flags))
@@ -443,8 +436,6 @@ def match(self: str, pattern: str, case: bool = True, flags: int = 0) -> bool:
         case: if False, ignore case
         flags: [flags](https://docs.python.org/3/library/re.html#flags) for the `re` module
     """
-    import re
-
     if not case:
         flags |= re.IGNORECASE
     return bool(re.match(pattern, self, flags))
@@ -563,8 +554,6 @@ def replace(
         regex: if True, treat pattern as a regular expression
     """
     if regex:
-        import re
-
         if not case:
             flags |= re.IGNORECASE
         return re.sub(pattern, repl, self, count=(0 if n == -1 else n), flags=flags)
@@ -701,23 +690,23 @@ def slice_replace(
 
 
 @pxt.udf(is_method=True)
-def startswith(self: str, pattern: str) -> int:
+def startswith(self: str, substr: str) -> int:
     """
-    Return `True` if string starts with `pattern`, otherwise return `False`.
+    Return `True` if string starts with `substr`, otherwise return `False`.
 
     Equivalent to [`str.startswith()`](https://docs.python.org/3/library/stdtypes.html#str.startswith).
 
     Args:
-        pattern: string literal
+        substr: string literal
     """
-    return self.startswith(pattern)
+    return self.startswith(substr)
 
 
 @startswith.to_sql
-def _(self: sql.ColumnElement, pattern: sql.ColumnElement) -> sql.ColumnElement:
+def _(self: sql.ColumnElement, substr: sql.ColumnElement) -> sql.ColumnElement:
     # Replace all occurrences of `%`, `_`, and `\` with escaped versions
-    escaped_pattern = sql.func.regexp_replace(pattern, r'(%|_|\\)', r'\\\1', 'g')
-    return self.like(sql.func.concat(escaped_pattern, '%'))
+    escaped_substr = sql.func.regexp_replace(substr, r'(%|_|\\)', r'\\\1', 'g')
+    return self.like(sql.func.concat(escaped_substr, '%'))
 
 
 @pxt.udf(is_method=True)
