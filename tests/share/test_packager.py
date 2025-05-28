@@ -195,7 +195,6 @@ class TestPackager:
         """
         restorer = TableRestorer(tbl_name)
         restorer.restore(bundle_info.bundle_path)
-        reload_catalog()  # TODO: This shouldn't be necessary.
         self.__check_table(bundle_info, tbl_name)
 
     def __check_table(self, bundle_info: 'TestPackager.BundleInfo', tbl_name: str) -> None:
