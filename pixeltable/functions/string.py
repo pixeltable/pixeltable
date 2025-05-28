@@ -78,7 +78,9 @@ def contains(self: str, substr: str, case: bool = True) -> bool:
 
 
 @contains.to_sql
-def _(self: sql.ColumnElement, substr: sql.ColumnElement, case: Optional[sql.ColumnElement] = None) -> sql.ColumnElement:
+def _(
+    self: sql.ColumnElement, substr: sql.ColumnElement, case: Optional[sql.ColumnElement] = None
+) -> sql.ColumnElement:
     # Replace all occurrences of `%`, `_`, and `\` with escaped versions
     escaped_substr = sql.func.regexp_replace(substr, r'(%|_|\\)', r'\\\1', 'g')
     if case is None:
@@ -88,7 +90,7 @@ def _(self: sql.ColumnElement, substr: sql.ColumnElement, case: Optional[sql.Col
         # Toggle case-sensitivity based on the value of `case`
         return sql.case(
             (case, self.like(sql.func.concat('%', escaped_substr, '%'))),
-            else_=sql.func.lower(self).like(sql.func.concat('%', sql.func.lower(escaped_substr), '%'))
+            else_=sql.func.lower(self).like(sql.func.concat('%', sql.func.lower(escaped_substr), '%')),
         )
 
 
@@ -166,16 +168,19 @@ def find(self: str, substr: str, start: int = 0, end: Optional[int] = None) -> i
 
 
 @find.to_sql
-def _(self: sql.ColumnElement, substr: sql.ColumnElement, start: sql.ColumnElement, end: Optional[sql.ColumnElement] = None) -> sql.ColumnElement:
+def _(
+    self: sql.ColumnElement,
+    substr: sql.ColumnElement,
+    start: sql.ColumnElement,
+    end: Optional[sql.ColumnElement] = None,
+) -> sql.ColumnElement:
     sl = pxt.functions.string.slice._to_sql(self, start, end)
     if sl is None:
         return None
 
     strpos = sql.func.strpos(sl, substr)
     return sql.case(
-        (strpos == 0, -1),
-        (start >= 0, strpos + start - 1),
-        else_=strpos + sql.func.char_length(self) + start - 1
+        (strpos == 0, -1), (start >= 0, strpos + start - 1), else_=strpos + sql.func.char_length(self) + start - 1
     )
 
 
@@ -500,10 +505,7 @@ def removeprefix(self: str, prefix: str) -> str:
 
 @removeprefix.to_sql
 def _(self: sql.ColumnElement, prefix: sql.ColumnElement) -> sql.ColumnElement:
-    return sql.case(
-        (startswith._to_sql(self, prefix), sql.func.right(self, -sql.func.char_length(prefix))),
-        else_=self
-    )
+    return sql.case((startswith._to_sql(self, prefix), sql.func.right(self, -sql.func.char_length(prefix))), else_=self)
 
 
 @pxt.udf(is_method=True)
@@ -516,10 +518,7 @@ def removesuffix(self: str, suffix: str) -> str:
 
 @removesuffix.to_sql
 def _(self: sql.ColumnElement, suffix: sql.ColumnElement) -> sql.ColumnElement:
-    return sql.case(
-        (endswith._to_sql(self, suffix), sql.func.left(self, -sql.func.char_length(suffix))),
-        else_=self
-    )
+    return sql.case((endswith._to_sql(self, suffix), sql.func.left(self, -sql.func.char_length(suffix))), else_=self)
 
 
 @pxt.udf(is_method=True)
@@ -536,9 +535,7 @@ def _(self: sql.ColumnElement, n: sql.ColumnElement) -> sql.ColumnElement:
 
 
 @pxt.udf(is_method=True)
-def replace(
-    self: str, substr: str, repl: str, n: Optional[int] = None
-) -> str:
+def replace(self: str, substr: str, repl: str, n: Optional[int] = None) -> str:
     """
     Replace occurrences of `substr` with `repl`.
 
@@ -553,7 +550,9 @@ def replace(
 
 
 @replace.to_sql
-def _(self: sql.ColumnElement, substr: sql.ColumnElement, repl: sql.ColumnElement, n: Optional[sql.ColumnElement] = None) -> sql.ColumnElement:
+def _(
+    self: sql.ColumnElement, substr: sql.ColumnElement, repl: sql.ColumnElement, n: Optional[sql.ColumnElement] = None
+) -> sql.ColumnElement:
     if n is not None:
         return None  # SQL does not support bounding the number of replacements
 
@@ -561,9 +560,7 @@ def _(self: sql.ColumnElement, substr: sql.ColumnElement, repl: sql.ColumnElemen
 
 
 @pxt.udf(is_method=True)
-def replace_re(
-    self: str, pattern: str, repl: str, n: Optional[int] = None, flags: int = 0
-) -> str:
+def replace_re(self: str, pattern: str, repl: str, n: Optional[int] = None, flags: int = 0) -> str:
     """
     Replace occurrences of a regular expression pattern with `repl`.
 
@@ -677,7 +674,12 @@ def slice(self: str, start: Optional[int] = None, stop: Optional[int] = None, st
 
 
 @slice.to_sql
-def _(self: sql.ColumnElement, start: Optional[sql.ColumnElement] = None, stop: Optional[sql.ColumnElement] = None, step: Optional[sql.ColumnElement] = None) -> sql.ColumnElement:
+def _(
+    self: sql.ColumnElement,
+    start: Optional[sql.ColumnElement] = None,
+    stop: Optional[sql.ColumnElement] = None,
+    step: Optional[sql.ColumnElement] = None,
+) -> sql.ColumnElement:
     if step is not None:
         return None
 
@@ -685,7 +687,7 @@ def _(self: sql.ColumnElement, start: Optional[sql.ColumnElement] = None, stop: 
         start = start.cast(sql.types.INT)  # Postgres won't accept a BIGINT
         start = sql.case(
             (start >= 0, start + 1),  # SQL is 1-based, Python is 0-based
-            else_=sql.func.char_length(self) + start + 1  # negative index
+            else_=sql.func.char_length(self) + start + 1,  # negative index
         )
         start = sql.func.greatest(start, 1)
 
@@ -693,7 +695,7 @@ def _(self: sql.ColumnElement, start: Optional[sql.ColumnElement] = None, stop: 
         stop = stop.cast(sql.types.INT)  # Postgres won't accept a BIGINT
         stop = sql.case(
             (stop >= 0, stop + 1),  # SQL is 1-based, Python is 0-based
-            else_=sql.func.char_length(self) + stop + 1  # negative index
+            else_=sql.func.char_length(self) + stop + 1,  # negative index
         )
         stop = sql.func.greatest(stop, 0)
 

@@ -33,7 +33,6 @@ from pixeltable.functions.string import (
     rfind,
     rjust,
     rstrip,
-    slice,
     startswith,
     strip,
     swapcase,
@@ -47,32 +46,33 @@ from ..utils import reload_catalog, validate_update_status
 
 class TestString:
     TEST_STR = """
-        The concept of relational database was defined by E. F. Codd at IBM in 1970. Codd introduced the term relational in his
-        research paper "A Relational Model of Data for Large Shared Data Banks". In this paper and later papers, he defined
-        what he meant by relation. One well-known definition of what constitutes a relational database system is composed of
-        Codd's 12 rules. However, no commercial implementations of the relational model conform to all of Codd's rules, so
-        the term has gradually come to describe a broader class of database systems, which at a minimum:
-        Present the data to the user as relations (a presentation in tabular form, i.e. as a collection of tables with each
-        table consisting of a set of rows and columns);
+        The concept of relational database was defined by E. F. Codd at IBM in 1970. Codd introduced the term
+        relational in his research paper "A Relational Model of Data for Large Shared Data Banks". In this paper
+        and later papers, he defined what he meant by relation. One well-known definition of what constitutes a
+        relational database system is composed of Codd's 12 rules. However, no commercial implementations of the
+        relational model conform to all of Codd's rules, so the term has gradually come to describe a broader class
+        of database systems, which at a minimum: Present the data to the user as relations (a presentation in tabular
+        form, i.e. as a collection of tables with each table consisting of a set of rows and columns);
         Provide relational operators to manipulate the data in tabular form.
-        In 1974, IBM began developing System R, a research project to develop a prototype RDBMS. The first system sold as
-        an RDBMS was Multics Relational Data Store (June 1976). Oracle was released in 1979 by Relational
-        Software, now Oracle Corporation. Ingres and IBM BS12 followed. Other examples of an RDBMS include IBM Db2, SAP
-        Sybase ASE, and Informix. In 1984, the first RDBMS for Macintosh began being developed, code-named Silver Surfer,
+        In 1974, IBM began developing System R, a research project to develop a prototype RDBMS. The first system sold
+        as an RDBMS was Multics Relational Data Store (June 1976). Oracle was released in 1979 by Relational Software,
+        now Oracle Corporation. Ingres and IBM BS12 followed. Other examples of an RDBMS include IBM Db2, SAP Sybase
+        ASE, and Informix. In 1984, the first RDBMS for Macintosh began being developed, code-named Silver Surfer,
         and was released in 1987 as 4th Dimension and known today as 4D.
         The first systems that were relatively faithful implementations of the relational model were from:
-        University of Michigan – Micro DBMS (1969)
+        University of Michigan - Micro DBMS (1969)
         Massachusetts Institute of Technology (1971)]
-        IBM UK Scientific Centre at Peterlee – IS1 (1970–72), and its successor, PRTV (1973–79).
-        """  # noqa: RUF001
+        IBM UK Scientific Centre at Peterlee - IS1 (1970-72), and its successor, PRTV (1973-79).
+        """
 
-    TEST_STRS = textwrap.dedent(TEST_STR.strip()).split('. ') + [
+    TEST_STRS = (
+        *textwrap.dedent(TEST_STR.strip()).split('. '),
         '   \v\t\rWhite\n\nSpace\n\f \n\n',
         r'%%!!#__\\Symbols%%!!#\\@@__%',
         'a',
         ' ',
         '',
-    ]
+    )
 
     def test_all(self, reset_db: None) -> None:
         t = pxt.create_table('test_tbl', {'s': pxt.String})
@@ -275,9 +275,7 @@ class TestString:
         validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
 
         assert t.select(out=t.s.contains('IBM')).collect()['out'] == ['IBM' in s for s in self.TEST_STRS]
-        assert t.select(out=t.s.contains('ibm', case=True)).collect()['out'] == [
-            'ibm' in s for s in self.TEST_STRS
-        ]
+        assert t.select(out=t.s.contains('ibm', case=True)).collect()['out'] == ['ibm' in s for s in self.TEST_STRS]
         assert t.select(out=t.s.contains('ibm', case=False)).collect()['out'] == [
             'ibm' in s.lower() for s in self.TEST_STRS
         ]
