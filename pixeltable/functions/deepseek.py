@@ -33,17 +33,9 @@ async def chat_completions(
     messages: list,
     *,
     model: str,
-    frequency_penalty: Optional[float] = None,
-    logprobs: Optional[bool] = None,
-    top_logprobs: Optional[int] = None,
-    max_tokens: Optional[int] = None,
-    presence_penalty: Optional[float] = None,
-    response_format: Optional[dict] = None,
-    stop: Optional[list[str]] = None,
-    temperature: Optional[float] = None,
-    tools: Optional[list[dict]] = None,
-    tool_choice: Optional[dict] = None,
-    top_p: Optional[float] = None,
+    options: Optional[dict[str, Any]] = None,
+    tools: Optional[pxt.func.Tools] = None,
+    tool_choice: Optional[pxt.func.ToolChoice] = None,
 ) -> dict:
     """
     Creates a model response for the given chat conversation.
@@ -76,39 +68,30 @@ async def chat_completions(
             ]
             tbl.add_computed_column(response=chat_completions(messages, model='deepseek-chat'))
     """
-    if tools is not None:
-        tools = [{'type': 'function', 'function': tool} for tool in tools]
+    if options is None:
+        options = {}
 
-    tool_choice_: Union[str, dict, None] = None
+    if tools is not None:
+        options['tools'] = [{'type': 'function', 'function': tool} for tool in tools]
+
     if tool_choice is not None:
         if tool_choice['auto']:
-            tool_choice_ = 'auto'
+            options['tool_choice'] = 'auto'
         elif tool_choice['required']:
-            tool_choice_ = 'required'
+            options['tool_choice'] = 'required'
         else:
             assert tool_choice['tool'] is not None
-            tool_choice_ = {'type': 'function', 'function': {'name': tool_choice['tool']}}
+            options['tool_choice'] = {'type': 'function', 'function': {'name': tool_choice['tool']}}
 
-    extra_body: Optional[dict[str, Any]] = None
     if tool_choice is not None and not tool_choice['parallel_tool_calls']:
-        extra_body = {'parallel_tool_calls': False}
+        if 'extra_body' not in options:
+            options['extra_body'] = {}
+        options['extra_body']['parallel_tool_calls'] = False
 
-    # cast(Any, ...): avoid mypy errors
     result = await _deepseek_client().chat.completions.with_raw_response.create(
         messages=messages,
         model=model,
-        frequency_penalty=_opt(frequency_penalty),
-        logprobs=_opt(logprobs),
-        top_logprobs=_opt(top_logprobs),
-        max_tokens=_opt(max_tokens),
-        presence_penalty=_opt(presence_penalty),
-        response_format=_opt(cast(Any, response_format)),
-        stop=_opt(stop),
-        temperature=_opt(temperature),
-        tools=_opt(cast(Any, tools)),
-        tool_choice=_opt(cast(Any, tool_choice_)),
-        top_p=_opt(top_p),
-        extra_body=extra_body,
+        **options,
     )
 
     return json.loads(result.text)

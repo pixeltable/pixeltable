@@ -24,10 +24,12 @@ class TestFireworks:
             output_2=chat_completions(
                 messages=messages,
                 model='accounts/fireworks/models/mixtral-8x22b-instruct',
-                max_tokens=300,
-                top_k=40,
-                top_p=0.9,
-                temperature=0.7,
+                options={
+                    'max_tokens': 300,
+                    'top_k': 40,
+                    'top_p': 0.9,
+                    'temperature': 0.7,
+                }
             )
         )
         validate_update_status(t.insert(input="How's everything going today?"), 1)

@@ -11,7 +11,7 @@ from ..utils import skip_test_if_no_client, skip_test_if_not_installed, stock_pr
 @pytest.mark.remote_api
 @pytest.mark.flaky(reruns=3, reruns_delay=8, condition=DO_RERUN)
 class TestAnthropic:
-    def test_anthropic(self, reset_db: None) -> None:
+    def test_messages(self, reset_db: None) -> None:
         from pixeltable.functions.anthropic import messages
 
         skip_test_if_not_installed('anthropic')
@@ -25,12 +25,14 @@ class TestAnthropic:
                 messages=msgs,
                 model='claude-3-haiku-20240307',
                 max_tokens=300,
-                metadata={'user_id': 'pixeltable'},
-                stop_sequences=['STOP'],
-                system='You are an ordinary person walking down the street.',
-                temperature=0.7,
-                top_k=40,
-                top_p=0.9,
+                options={
+                    'metadata': {'user_id': 'pixeltable'},
+                    'stop_sequences': ['STOP'],
+                    'system': 'You are an ordinary person walking down the street.',
+                    'temperature': 0.7,
+                    'top_k': 40,
+                    'top_p': 0.9,
+                }
             )
         )
         validate_update_status(t.insert(input="How's everything going today?"), 1)
