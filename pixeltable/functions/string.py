@@ -562,6 +562,21 @@ def replace(
 
 
 @pxt.udf(is_method=True)
+def reverse(self: str) -> str:
+    """
+    Return a reversed copy of the string.
+
+    Equivalent to `str[::-1]`.
+    """
+    return self[::-1]
+
+
+@reverse.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    return sql.func.reverse(self)
+
+
+@pxt.udf(is_method=True)
 def rfind(self: str, substr: str, start: Optional[int] = 0, end: Optional[int] = None) -> int:
     """
     Return the highest index where `substr` is found, such that `substr` is contained within `[start:end]`.
