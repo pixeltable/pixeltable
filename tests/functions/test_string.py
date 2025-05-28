@@ -173,7 +173,8 @@ class TestString:
         t.add_computed_column(s2=t.s.replace('Codd', 'Mohan'))
         m = len(t.where(t.s2.contains('Mohan')).collect())
         assert n == m
-        t.add_computed_column(s3=t.s.replace('C.dd', 'Mohan', regex=True))
+
+        t.add_computed_column(s3=t.s.replace_re('C.dd', 'Mohan'))
         o = len(t.where(t.s3.contains('Mohan')).collect())
         assert n == o
 

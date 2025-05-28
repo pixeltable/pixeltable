@@ -498,12 +498,12 @@ def removeprefix(self: str, prefix: str) -> str:
     return self.removeprefix(prefix)
 
 
-# @removeprefix.to_sql
-# def _(self: sql.ColumnElement, prefix: sql.ColumnElement) -> sql.ColumnElement:
-#     return sql.case(
-#         (startswith._to_sql(self, prefix), sql.func.right(self, -sql.func.char_length(prefix))),
-#         else_=self
-#     )
+@removeprefix.to_sql
+def _(self: sql.ColumnElement, prefix: sql.ColumnElement) -> sql.ColumnElement:
+    return sql.case(
+        (startswith._to_sql(self, prefix), sql.func.right(self, -sql.func.char_length(prefix))),
+        else_=self
+    )
 
 
 @pxt.udf(is_method=True)
@@ -537,28 +537,45 @@ def _(self: sql.ColumnElement, n: sql.ColumnElement) -> sql.ColumnElement:
 
 @pxt.udf(is_method=True)
 def replace(
-    self: str, pattern: str, repl: str, n: int = -1, case: bool = True, flags: int = 0, regex: bool = False
+    self: str, substr: str, repl: str, n: Optional[int] = None
 ) -> str:
     """
-    Replace occurrences of `pattern` with `repl`.
+    Replace occurrences of `substr` with `repl`.
 
-    Equivalent to [`str.replace()`](https://docs.python.org/3/library/stdtypes.html#str.replace) or
-    [`re.sub()`](https://docs.python.org/3/library/re.html#re.sub), depending on the value of regex.
+    Equivalent to [`str.replace()`](https://docs.python.org/3/library/stdtypes.html#str.replace).
 
     Args:
-        pattern: string literal or regular expression
+        substr: string literal
         repl: replacement string
-        n: number of replacements to make (-1 for all)
-        case: if False, ignore case
-        flags: [flags](https://docs.python.org/3/library/re.html#flags) for the `re` module
-        regex: if True, treat pattern as a regular expression
+        n: number of replacements to make (if `None`, replace all occurrences)
     """
-    if regex:
-        if not case:
-            flags |= re.IGNORECASE
-        return re.sub(pattern, repl, self, count=(0 if n == -1 else n), flags=flags)
-    else:
-        return self.replace(pattern, repl, n)
+    return self.replace(pattern, repl, n)
+
+
+@replace.to_sql
+def _(self: sql.ColumnElement, substr: sql.ColumnElement, repl: sql.ColumnElement, n: Optional[sql.ColumnElement] = None) -> sql.ColumnElement:
+    if n is not None:
+        return None  # SQL does not support bounding the number of replacements
+
+    return sql.func.replace(self, substr, repl)
+
+
+@pxt.udf(is_method=True)
+def replace_re(
+    self: str, pattern: str, repl: str, n: Optional[int] = None, flags: int = 0
+) -> str:
+    """
+    Replace occurrences of a regular expression pattern with `repl`.
+
+    Equivalent to [`re.sub()`](https://docs.python.org/3/library/re.html#re.sub).
+
+    Args:
+        pattern: regular expression pattern
+        repl: replacement string
+        n: number of replacements to make (if `None`, replace all occurrences)
+        flags: [flags](https://docs.python.org/3/library/re.html#flags) for the `re` module
+    """
+    return re.sub(pattern, repl, self, count=(n or 0), flags=flags)
 
 
 @pxt.udf(is_method=True)
