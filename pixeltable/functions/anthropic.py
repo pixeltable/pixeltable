@@ -95,8 +95,10 @@ async def messages(
     Args:
         messages: Input messages.
         model: The model that will complete your prompt.
-        options: Additional options to pass to the Anthropic `messages` API.
+        options: Additional options for the Anthropic `messages` API.
             For details on the available parameters, see: <https://docs.anthropic.com/en/api/messages>
+        tools: An optional list of Pixeltable tools to use for the request.
+        tool_choice: An optional tool choice configuration.
 
     Returns:
         A dictionary containing the response and other metadata.

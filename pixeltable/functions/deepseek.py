@@ -52,8 +52,10 @@ async def chat_completions(
     Args:
         messages: A list of messages to use for chat completion, as described in the Deepseek API documentation.
         model: The model to use for chat completion.
-
-    For details on the other parameters, see: <https://api-docs.deepseek.com/api/create-chat-completion>
+        options: Additional options for the Deepseek `chat/completions` API.
+            For details on the available parameters, see: <https://api-docs.deepseek.com/api/create-chat-completion>
+        tools: An optional list of Pixeltable tools to use for the request.
+        tool_choice: An optional tool choice configuration.
 
     Returns:
         A dictionary containing the response and other metadata.

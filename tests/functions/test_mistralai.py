@@ -11,25 +11,26 @@ from ..utils import skip_test_if_no_client, skip_test_if_not_installed, validate
 @pytest.mark.flaky(reruns=3, reruns_delay=8, condition=DO_RERUN)
 class TestMistral:
     def test_chat_completions(self, reset_db: None) -> None:
-        from pixeltable.functions.mistralai import chat_completions
-
         skip_test_if_not_installed('mistralai')
         skip_test_if_no_client('mistral')
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        from pixeltable.functions.mistralai import chat_completions
 
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
         msgs = [{'role': 'user', 'content': t.input}]
         t.add_computed_column(output=chat_completions(messages=msgs, model='mistral-small-latest'))
         t.add_computed_column(
             output2=chat_completions(
                 messages=msgs,
                 model='mistral-small-latest',
-                temperature=0.8,
-                top_p=0.95,
-                max_tokens=300,
-                stop=['\n'],
-                random_seed=4171780,
-                response_format={'type': 'text'},
-                safe_prompt=True,
+                options={
+                    'temperature': 0.8,
+                    'top_p': 0.95,
+                    'max_tokens': 300,
+                    'stop': ['\n'],
+                    'random_seed': 4171780,
+                    'response_format': {'type': 'text'},
+                    'safe_prompt': True,
+                }
             )
         )
         validate_update_status(t.insert(input='What three species of fish have the highest mercury content?'), 1)

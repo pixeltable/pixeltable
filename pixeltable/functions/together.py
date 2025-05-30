@@ -7,7 +7,7 @@ the [Working with Together AI](https://pixeltable.readme.io/docs/together-ai) tu
 
 import base64
 import io
-from typing import TYPE_CHECKING, Callable, Optional, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Optional, TypeVar
 
 import numpy as np
 import PIL.Image
@@ -54,16 +54,7 @@ async def completions(
     prompt: str,
     *,
     model: str,
-    max_tokens: Optional[int] = None,
-    stop: Optional[list] = None,
-    temperature: Optional[float] = None,
-    top_p: Optional[float] = None,
-    top_k: Optional[int] = None,
-    repetition_penalty: Optional[float] = None,
-    logprobs: Optional[int] = None,
-    echo: Optional[bool] = None,
-    n: Optional[int] = None,
-    safety_model: Optional[str] = None,
+    options: Optional[dict[str, Any]] = None,
 ) -> dict:
     """
     Generate completions based on a given prompt using a specified model.
@@ -82,8 +73,8 @@ async def completions(
     Args:
         prompt: A string providing context for the model to complete.
         model: The name of the model to query.
-
-    For details on the other parameters, see: <https://docs.together.ai/reference/completions-1>
+        options: Additional options for the Together `completions` API.
+            For details on the available parameters, see: <https://docs.together.ai/reference/completions-1>
 
     Returns:
         A dictionary containing the response and other metadata.
@@ -94,19 +85,13 @@ async def completions(
 
         >>> tbl.add_computed_column(response=completions(tbl.prompt, model='mistralai/Mixtral-8x7B-v0.1'))
     """
+    if options is None:
+        options = {}
+
     result = await _together_client().completions.create(
         prompt=prompt,
         model=model,
-        max_tokens=max_tokens,
-        stop=stop,
-        temperature=temperature,
-        top_p=top_p,
-        top_k=top_k,
-        repetition_penalty=repetition_penalty,
-        logprobs=logprobs,
-        echo=echo,
-        n=n,
-        safety_model=safety_model,
+        **options,
     )
     return result.dict()
 
@@ -116,19 +101,7 @@ async def chat_completions(
     messages: list[dict[str, str]],
     *,
     model: str,
-    max_tokens: Optional[int] = None,
-    stop: Optional[list[str]] = None,
-    temperature: Optional[float] = None,
-    top_p: Optional[float] = None,
-    top_k: Optional[int] = None,
-    repetition_penalty: Optional[float] = None,
-    logprobs: Optional[int] = None,
-    echo: Optional[bool] = None,
-    n: Optional[int] = None,
-    safety_model: Optional[str] = None,
-    response_format: Optional[dict] = None,
-    tools: Optional[dict] = None,
-    tool_choice: Optional[dict] = None,
+    options: Optional[dict[str, Any]] = None,
 ) -> dict:
     """
     Generate chat completions based on a given prompt using a specified model.
@@ -147,8 +120,8 @@ async def chat_completions(
     Args:
         messages: A list of messages comprising the conversation so far.
         model: The name of the model to query.
-
-    For details on the other parameters, see: <https://docs.together.ai/reference/chat-completions-1>
+        options: Additional options for the Together `chat/completions` API.
+            For details on the available parameters, see: <https://docs.together.ai/reference/chat-completions-1>
 
     Returns:
         A dictionary containing the response and other metadata.
@@ -160,22 +133,13 @@ async def chat_completions(
         >>> messages = [{'role': 'user', 'content': tbl.prompt}]
         ... tbl.add_computed_column(response=chat_completions(messages, model='mistralai/Mixtral-8x7B-v0.1'))
     """
+    if options is None:
+        options = {}
+
     result = await _together_client().chat.completions.create(
         messages=messages,
         model=model,
-        max_tokens=max_tokens,
-        stop=stop,
-        temperature=temperature,
-        top_p=top_p,
-        top_k=top_k,
-        repetition_penalty=repetition_penalty,
-        logprobs=logprobs,
-        echo=echo,
-        n=n,
-        safety_model=safety_model,
-        response_format=response_format,
-        tools=tools,
-        tool_choice=tool_choice,
+        **options,
     )
     return result.dict()
 
@@ -239,11 +203,7 @@ async def image_generations(
     prompt: str,
     *,
     model: str,
-    steps: Optional[int] = None,
-    seed: Optional[int] = None,
-    height: Optional[int] = None,
-    width: Optional[int] = None,
-    negative_prompt: Optional[str] = None,
+    options: Optional[dict[str, Any]] = None,
 ) -> PIL.Image.Image:
     """
     Generate images based on a given prompt using a specified model.
@@ -262,8 +222,8 @@ async def image_generations(
     Args:
         prompt: A description of the desired images.
         model: The model to use for image generation.
-
-    For details on the other parameters, see: <https://docs.together.ai/reference/post_images-generations>
+        options: Additional options for the Together `images/generations` API.
+            For details on the available parameters, see: <https://docs.together.ai/reference/post_images-generations>
 
     Returns:
         The generated image.
@@ -276,8 +236,11 @@ async def image_generations(
         ...     response=image_generations(tbl.prompt, model='stabilityai/stable-diffusion-xl-base-1.0')
         ... )
     """
+    if options is None:
+        options = {}
+
     result = await _together_client().images.generate(
-        prompt=prompt, model=model, steps=steps, seed=seed, height=height, width=width, negative_prompt=negative_prompt
+        prompt=prompt, model=model, **options
     )
     if result.data[0].b64_json is not None:
         b64_bytes = base64.b64decode(result.data[0].b64_json)

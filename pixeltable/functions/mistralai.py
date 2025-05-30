@@ -5,7 +5,7 @@ first `pip install mistralai` and configure your Mistral AI credentials, as desc
 the [Working with Mistral AI](https://pixeltable.readme.io/docs/working-with-mistralai) tutorial.
 """
 
-from typing import TYPE_CHECKING, Optional, TypeVar, Union
+from typing import TYPE_CHECKING, Any, Optional, TypeVar, Union
 
 import numpy as np
 
@@ -35,13 +35,7 @@ async def chat_completions(
     messages: list[dict[str, str]],
     *,
     model: str,
-    temperature: Optional[float] = 0.7,
-    top_p: Optional[float] = 1.0,
-    max_tokens: Optional[int] = None,
-    stop: Optional[list[str]] = None,
-    random_seed: Optional[int] = None,
-    response_format: Optional[dict] = None,
-    safe_prompt: Optional[bool] = False,
+    options: Optional[dict[str, Any]] = None,
 ) -> dict:
     """
     Chat Completion API.
@@ -60,6 +54,8 @@ async def chat_completions(
     Args:
         messages: The prompt(s) to generate completions for.
         model: ID of the model to use. (See overview here: <https://docs.mistral.ai/getting-started/models/>)
+        options: Additional options for the Mistral `chat/completions` API.
+            For details on the available parameters, see: <https://docs.mistral.ai/api/#tag/chat>
 
     For details on the other parameters, see: <https://docs.mistral.ai/api/#tag/chat>
 
@@ -73,17 +69,14 @@ async def chat_completions(
         >>> messages = [{'role': 'user', 'content': tbl.prompt}]
         ... tbl.add_computed_column(response=completions(messages, model='mistral-latest-small'))
     """
+    if options is None:
+        options = {}
+
     Env.get().require_package('mistralai')
     result = await _mistralai_client().chat.complete_async(
         messages=messages,  # type: ignore[arg-type]
         model=model,
-        temperature=temperature,
-        top_p=top_p,
-        max_tokens=_opt(max_tokens),
-        stop=stop,
-        random_seed=_opt(random_seed),
-        response_format=response_format,  # type: ignore[arg-type]
-        safe_prompt=safe_prompt,
+        **options,
     )
     return result.dict()
 
