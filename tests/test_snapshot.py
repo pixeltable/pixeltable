@@ -154,7 +154,6 @@ class TestSnapshot:
         s13 = pxt.create_snapshot(sname, t, if_exists='replace_force')
         assert s13 != s12
         assert s13._id != id_before
-        assert v_on_s1._is_dropped
         assert 'test_view_on_snapshot1' not in pxt.list_tables()
 
         # scenario 3: path exists but is not a snapshot

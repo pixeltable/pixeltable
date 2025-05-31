@@ -165,8 +165,12 @@ class TableVersion:
         """
         from .catalog import Catalog
 
-        assert (self.id, self.effective_version) in Catalog.get()._tbl_versions
+        cat = Catalog.get()
+        assert (self.id, self.effective_version) in cat._tbl_versions
         self._init_schema()
+        if not self.is_snapshot:
+            cat.record_column_dependencies(self)
+
         # init external stores; this needs to happen after the schema is created
         self._init_external_stores()
 
@@ -225,6 +229,7 @@ class TableVersion:
             next_col_id=len(cols),
             next_idx_id=0,
             next_row_id=0,
+            view_sn=0,
             column_md=column_md,
             index_md={},
             external_stores=[],
@@ -395,10 +400,10 @@ class TableVersion:
                 self.cols_by_name[col.name] = col
             self.cols_by_id[col.id] = col
 
-            # make sure to traverse columns ordered by position = order in which cols were created;
-            # this guarantees that references always point backwards
-            if not self.is_snapshot and col_md.value_expr is not None:
-                self._record_refd_columns(col)
+            # # make sure to traverse columns ordered by position = order in which cols were created;
+            # # this guarantees that references always point backwards
+            # if not self.is_snapshot and col_md.value_expr is not None:
+            #     self._record_refd_columns(col)
 
     def _init_idxs(self) -> None:
         # self.idx_md = tbl_md.index_md
@@ -685,9 +690,6 @@ class TableVersion:
             if col.name is not None:
                 self.cols_by_name[col.name] = col
             self.cols_by_id[col.id] = col
-            if col.value_expr is not None:
-                col.check_value_expr()
-                self._record_refd_columns(col)
 
             # also add to stored md
             self._tbl_md.column_md[col.id] = schema.ColumnMd(
@@ -745,9 +747,11 @@ class TableVersion:
                 run_cleanup_on_exception(cleanup_on_error)
                 plan.close()
 
+        pxt.catalog.Catalog.get().record_column_dependencies(self)
+
         if print_stats:
             plan.ctx.profile.print(num_rows=row_count)
-        # TODO(mkornacker): what to do about system columns with exceptions?
+        # TODO: what to do about system columns with exceptions?
         return UpdateStatus(
             num_rows=row_count,
             num_computed_values=row_count,
@@ -790,13 +794,6 @@ class TableVersion:
         assert not self.is_snapshot
 
         for col in cols:
-            if col.value_expr is not None:
-                # update Column.dependent_cols
-                for c in self.cols:
-                    if c == col:
-                        break
-                    c.dependent_cols.discard(col)
-
             col.schema_version_drop = self.schema_version
             if col.name is not None:
                 assert col.name in self.cols_by_name
@@ -813,6 +810,7 @@ class TableVersion:
             schema_col.pos = pos
 
         self.store_tbl.create_sa_tbl()
+        pxt.catalog.Catalog.get().record_column_dependencies(self)
 
     def rename_column(self, old_name: str, new_name: str) -> None:
         """Rename a column."""
@@ -1443,17 +1441,17 @@ class TableVersion:
         names = [c.name for c in self.cols_by_name.values() if c.is_computed]
         return names
 
-    def _record_refd_columns(self, col: Column) -> None:
-        """Update Column.dependent_cols for all cols referenced in col.value_expr."""
-        from pixeltable import exprs
-
-        if col.value_expr_dict is not None:
-            # if we have a value_expr_dict, use that instead of instantiating the value_expr
-            refd_cols = exprs.Expr.get_refd_columns(col.value_expr_dict)
-        else:
-            refd_cols = [e.col for e in col.value_expr.subexprs(expr_class=exprs.ColumnRef)]
-        for refd_col in refd_cols:
-            refd_col.dependent_cols.add(col)
+    # def _record_refd_columns(self, col: Column) -> None:
+    #     """Update Column.dependent_cols for all cols referenced in col.value_expr."""
+    #     from pixeltable import exprs
+    #
+    #     if col.value_expr_dict is not None:
+    #         # if we have a value_expr_dict, use that instead of instantiating the value_expr
+    #         refd_cols = exprs.Expr.get_refd_column_ids(col.value_expr_dict)
+    #     else:
+    #         refd_cols = [e.col for e in col.value_expr.subexprs(expr_class=exprs.ColumnRef)]
+    #     for refd_col in refd_cols:
+    #         refd_col.dependent_cols.add(col)
 
     def get_idx_val_columns(self, cols: Iterable[Column]) -> set[Column]:
         result = {info.val_col for col in cols for info in col.get_idx_info().values()}
@@ -1463,7 +1461,8 @@ class TableVersion:
         """
         Return the set of columns that transitively depend on any of the given ones.
         """
-        result = {dependent_col for col in cols for dependent_col in col.dependent_cols}
+        cat = pxt.catalog.Catalog.get()
+        result = set().union(*[cat.get_column_dependents(col.tbl.id, col.id) for col in cols])
         if len(result) > 0:
             result.update(self.get_dependent_columns(result))
         return result

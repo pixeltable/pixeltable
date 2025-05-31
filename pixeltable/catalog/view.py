@@ -248,9 +248,7 @@ class View(Table):
 
     def _drop(self) -> None:
         if self._snapshot_only:
-            # there is not TableVersion to drop
-            self._check_is_dropped()
-            self.is_dropped = True
+            # there is no TableVersion to drop
             catalog.Catalog.get().delete_tbl_md(self._id)
         else:
             super()._drop()

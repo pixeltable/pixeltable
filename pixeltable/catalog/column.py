@@ -42,7 +42,7 @@ class Column:
     sa_errortype_col: Optional[sql.schema.Column]
     _value_expr: Optional[exprs.Expr]
     value_expr_dict: Optional[dict[str, Any]]
-    dependent_cols: set[Column]
+    #dependent_cols: set[Column]
     # we store a TableVersion here, not a TableVersionHandle, because this column is owned by that TableVersion instance
     # (re-resolving it later to a different instance doesn't make sense)
     tbl: Optional[TableVersion]
@@ -101,13 +101,15 @@ class Column:
             else:
                 self._value_expr = value_expr.copy()
                 self.col_type = self._value_expr.col_type
+        if self._value_expr is not None and self.value_expr_dict is None:
+            self.value_expr_dict = self._value_expr.as_dict()
 
         if col_type is not None:
             self.col_type = col_type
         assert self.col_type is not None
 
         self.stored = stored
-        self.dependent_cols = set()  # cols with value_exprs that reference us; set by TableVersion
+        #self.dependent_cols = set()  # cols with value_exprs that reference us; set by TableVersion
         self.id = col_id
         self.is_pk = is_pk
         self._media_validation = media_validation
@@ -153,7 +155,7 @@ class Column:
 
     def set_value_expr(self, value_expr: exprs.Expr) -> None:
         self._value_expr = value_expr
-        self.value_expr_dict = None
+        self.value_expr_dict = self._value_expr.as_dict()
 
     def check_value_expr(self) -> None:
         assert self._value_expr is not None

@@ -849,7 +849,7 @@ class DataFrame:
                 grouping_tbl = item if isinstance(item, catalog.TableVersion) else item._tbl_version.get()
                 # we need to make sure that the grouping table is a base of self.tbl
                 base = self._first_tbl.find_tbl_version(grouping_tbl.id)
-                if base is None or base.id == self._first_tbl.tbl_id():
+                if base is None or base.id == self._first_tbl.tbl_id:
                     raise excs.Error(
                         f'group_by(): {grouping_tbl.name} is not a base table of {self._first_tbl.tbl_name()}'
                     )
@@ -988,8 +988,8 @@ class DataFrame:
             >>> df = person.where(t.year == 2014).update({'age': 30})
         """
         self._validate_mutable('update', False)
-        tbl_id = self._first_tbl.tbl_id()
-        with Catalog.get().begin_xact(tbl_id=tbl_id, for_write=True):
+        tbl_id = self._first_tbl.tbl_id
+        with Catalog.get().begin_xact(tbl_id=tbl_id, for_write=True, lock_mutable_tree=True):
             return self._first_tbl.tbl_version.get().update(value_spec, where=self.where_clause, cascade=cascade)
 
     def delete(self) -> UpdateStatus:
@@ -1012,8 +1012,8 @@ class DataFrame:
         self._validate_mutable('delete', False)
         if not self._first_tbl.is_insertable():
             raise excs.Error('Cannot delete from view')
-        tbl_id = self._first_tbl.tbl_id()
-        with Catalog.get().begin_xact(tbl_id=tbl_id, for_write=True):
+        tbl_id = self._first_tbl.tbl_id
+        with Catalog.get().begin_xact(tbl_id=tbl_id, for_write=True, lock_mutable_tree=True):
             return self._first_tbl.tbl_version.get().delete(where=self.where_clause)
 
     def _validate_mutable(self, op_name: str, allow_select: bool) -> None:

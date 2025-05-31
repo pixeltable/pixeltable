@@ -6,8 +6,8 @@ from uuid import UUID
 
 from pixeltable.env import Env
 from pixeltable.metadata import schema
-
 from .column import Column
+from .globals import MediaValidation
 from .table_version import TableVersion
 from .table_version_handle import TableVersionHandle
 
@@ -83,6 +83,7 @@ class TableVersionPath:
         if self.base is not None:
             self.base.clear_cached_md()
 
+    @property
     def tbl_id(self) -> UUID:
         """Return the id of the table/view that this path represents"""
         return self.tbl_version.id
@@ -91,6 +92,11 @@ class TableVersionPath:
         """Return the version of the table/view that this path represents"""
         self.refresh_cached_md()
         return self._cached_tbl_version.version
+
+    def schema_version(self) -> int:
+        """Return the version of the table/view that this path represents"""
+        self.refresh_cached_md()
+        return self._cached_tbl_version.schema_version
 
     def tbl_name(self) -> str:
         """Return the name of the table/view that this path represents"""
@@ -103,10 +109,11 @@ class TableVersionPath:
 
     def is_snapshot(self) -> bool:
         """Return True if this is a path of snapshot versions"""
-        self.refresh_cached_md()
-        if not self._cached_tbl_version.is_snapshot:
-            return False
-        return self.base.is_snapshot() if self.base is not None else True
+        return self.tbl_version.is_snapshot
+        # self.refresh_cached_md()
+        # if not self._cached_tbl_version.is_snapshot:
+        #     return False
+        # return self.base.is_snapshot() if self.base is not None else True
 
     def is_view(self) -> bool:
         self.refresh_cached_md()
@@ -116,9 +123,29 @@ class TableVersionPath:
         self.refresh_cached_md()
         return self._cached_tbl_version.is_component_view
 
+    def is_replica(self) -> bool:
+        self.refresh_cached_md()
+        return self._cached_tbl_version.is_replica
+
+    def is_mutable(self) -> bool:
+        self.refresh_cached_md()
+        return self._cached_tbl_version.is_mutable
+
     def is_insertable(self) -> bool:
         self.refresh_cached_md()
         return self._cached_tbl_version.is_insertable
+
+    def comment(self) -> str:
+        self.refresh_cached_md()
+        return self._cached_tbl_version.comment
+
+    def num_retained_versions(self) -> int:
+        self.refresh_cached_md()
+        return self._cached_tbl_version.num_retained_versions
+
+    def media_validation(self) -> MediaValidation:
+        self.refresh_cached_md()
+        return self._cached_tbl_version.media_validation
 
     def get_tbl_versions(self) -> list[TableVersionHandle]:
         """Return all tbl versions"""

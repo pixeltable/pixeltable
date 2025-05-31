@@ -316,6 +316,11 @@ class ColumnRef(Expr):
         }
 
     @classmethod
+    def get_column_id(cls, d: dict) -> catalog.QColumnId:
+        tbl_id, col_id = UUID(d['tbl_id']), d['col_id']
+        return catalog.QColumnId(tbl_id, col_id)
+
+    @classmethod
     def get_column(cls, d: dict) -> catalog.Column:
         tbl_id, version, col_id = UUID(d['tbl_id']), d['tbl_version'], d['col_id']
         tbl_version = catalog.Catalog.get().get_tbl_version(tbl_id, version)

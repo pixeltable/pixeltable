@@ -141,7 +141,7 @@ class InsertableTable(Table):
         from pixeltable.catalog import Catalog
         from pixeltable.io.table_data_conduit import UnkTableDataConduit
 
-        with Catalog.get().begin_xact(tbl_id=self._id, for_write=True):
+        with Catalog.get().begin_xact(tbl_id=self._id, for_write=True, lock_mutable_tree=True):
             table = self
             if source is None:
                 source = [kwargs]
@@ -171,7 +171,7 @@ class InsertableTable(Table):
         from pixeltable.io.table_data_conduit import DFTableDataConduit
 
         status = pxt.UpdateStatus()
-        with Catalog.get().begin_xact(tbl_id=self._id, for_write=True):
+        with Catalog.get().begin_xact(tbl_id=self._id, for_write=True, lock_mutable_tree=True):
             if isinstance(data_source, DFTableDataConduit):
                 status += self._tbl_version.get().insert(
                     rows=None, df=data_source.pxt_df, print_stats=print_stats, fail_on_exception=fail_on_exception
@@ -231,7 +231,7 @@ class InsertableTable(Table):
         """
         from pixeltable.catalog import Catalog
 
-        with Catalog.get().begin_xact(tbl_id=self._id, for_write=True):
+        with Catalog.get().begin_xact(tbl_id=self._id, for_write=True, lock_mutable_tree=True):
             return self._tbl_version.get().delete(where=where)
 
     @property

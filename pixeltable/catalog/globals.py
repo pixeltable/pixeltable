@@ -5,6 +5,7 @@ import enum
 import itertools
 import logging
 from typing import Optional
+from uuid import UUID
 
 from typing_extensions import Self
 
@@ -19,6 +20,16 @@ _ROWID_COLUMN_NAME = '_rowid'
 # Set of symbols that are predefined in the `InsertableTable` class (and are therefore not allowed as column names).
 # This will be populated lazily to avoid circular imports.
 _PREDEF_SYMBOLS: Optional[set[str]] = None
+
+
+@dataclasses.dataclass
+class QColumnId:
+    """Qualified column id"""
+    tbl_id: UUID
+    col_id: int
+
+    def __hash__(self) -> int:
+        return hash((self.tbl_id, self.col_id))
 
 
 @dataclasses.dataclass

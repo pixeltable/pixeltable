@@ -174,6 +174,11 @@ class TableMd:
     # - every row is assigned a unique and immutable rowid on insertion
     next_row_id: int
 
+    # sequence number to track changes in the set of mutable views of this table (ie, this table = the view base)
+    # - incremented for each add/drop of a mutable view
+    # - only maintained for mutable tables
+    view_sn: int
+
     # Metadata format for external stores:
     # {'class': 'pixeltable.io.label_studio.LabelStudioProject', 'md': {'project_id': 3}}
     external_stores: list[dict[str, Any]]
