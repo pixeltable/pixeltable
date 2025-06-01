@@ -164,6 +164,9 @@ class Catalog:
         self._column_dependents = None
         self._init_store()
 
+    def _dropped_tbl_error_msg(self, tbl_id: UUID) -> str:
+        return f'Table was dropped (no record found for {tbl_id})'
+
     def validate(self) -> None:
         """Validate structural consistency of cached metadata"""
         for (tbl_id, effective_version), tbl_version in self._tbl_versions.items():
@@ -968,17 +971,15 @@ class Catalog:
             )
             assert result.rowcount == 1, result.rowcount
 
-        # invalidate the TableVersion instance, to make sure that existing references to it find out it has been
-        # dropped; do this before calling _drop()
-        tv = tbl._tbl_version.get()
-        print(f'before: {tv.is_validated}')
-        tv.is_validated = False
-        print(f'after: {tv.is_validated}')
-        # TODO: call TV.drop() instead?
-        tbl._drop()
-        #assert (tv.id, tv.effective_version) in self._tbl_versions
-        #del self._tbl_versions[(tv.id, tv.effective_version)]
+        if tbl._tbl_version is not None:
+            tv = tbl._tbl_version.get()
+            # invalidate the TableVersion instance so that existing references to it can find out it has been dropped
+            tv.is_validated = False
+            tv.drop()
+            assert (tv.id, tv.effective_version) in self._tbl_versions
+            del self._tbl_versions[(tv.id, tv.effective_version)]
 
+        self.delete_tbl_md(tbl._id)
         assert tbl._id in self._tbls
         del self._tbls[tbl._id]
         _logger.info(f'Dropped table `{tbl._path()}`.')
@@ -1063,6 +1064,11 @@ class Catalog:
     def get_view_ids(self, tbl_id: UUID, for_update: bool = False) -> list[UUID]:
         """Return the ids of views that directly reference the given table"""
         conn = Env.get().conn
+        # check whether this table still exists
+        q = sql.select(sql.func.count()).select_from(schema.Table).where(schema.Table.id == tbl_id)
+        tbl_count = conn.execute(q).scalar()
+        if tbl_count == 0:
+            raise excs.Error(self._dropped_tbl_error_msg(tbl_id))
         q = sql.select(schema.Table.id).where(sql.text(f"md->'view_md'->'base_versions'->0->>0 = {tbl_id.hex!r}"))
         if for_update:
             q = q.with_for_update()
@@ -1091,13 +1097,13 @@ class Catalog:
                     # the cached metadata is invalid
                     _logger.debug(
                         f'reloading metadata for table {tbl_id} '
-                        f'(cached version: {tv.version}, current version: {current_version}'
+                        f'(cached/current version: {tv.version}/{current_version}, '
+                        f'cached/current view_sn: {tv.tbl_md.view_sn}/{view_sn})'
                         # f', id: {id(tv):x})'
                     )
                     print(
                         f'reloading metadata for table {tv.name} ({tbl_id}) '
                         f'(cached version: {tv.version}, current version: {current_version}, '
-                        f'cached view_sn: {tv.tbl_md.view_sn}, view_sn: {view_sn})'
                         # f', id: {id(tv):x})'
                     )
                     tv = self._load_tbl_version(tbl_id, None)
@@ -1264,7 +1270,7 @@ class Catalog:
 
         row = conn.execute(q).one_or_none()
         if row is None:
-            raise excs.Error(f'Table was dropped (no record found for {tbl_id}:{effective_version})')
+            raise excs.Error(self._dropped_tbl_error_msg(tbl_id))
         tbl_record, version_record, schema_version_record = _unpack_row(
             row, [schema.Table, schema.TableVersion, schema.TableSchemaVersion]
         )
@@ -1561,4 +1567,3 @@ class Catalog:
     #
     #             if _logger.isEnabledFor(logging.DEBUG):
     #                 self.validate()
-

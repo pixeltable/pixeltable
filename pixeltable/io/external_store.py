@@ -202,7 +202,7 @@ class Project(ExternalStore, abc.ABC):
         resolved_col_mapping: dict[Column, str] = {}
 
         # Validate names
-        t_cols = set(table._schema.keys())
+        t_cols = set(table._schema().keys())
         for t_col, ext_col in col_mapping.items():
             if t_col not in t_cols:
                 if is_user_specified_col_mapping:
@@ -225,7 +225,7 @@ class Project(ExternalStore, abc.ABC):
             assert isinstance(col_ref, exprs.ColumnRef)
             resolved_col_mapping[col_ref.col] = ext_col
         # Validate column specs
-        t_col_types = table._schema
+        t_col_types = table._schema()
         for t_col, ext_col in col_mapping.items():
             t_col_type = t_col_types[t_col]
             if ext_col in export_cols:

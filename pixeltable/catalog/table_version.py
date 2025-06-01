@@ -332,24 +332,23 @@ class TableVersion:
         return tbl_version
 
     def drop(self) -> None:
-        from .catalog import Catalog
-
         if self.is_view and self.is_mutable:
             # update mutable_views
+            # TODO: invalidate base to force reload
             from .table_version_handle import TableVersionHandle
 
             assert self.base is not None
             if self.base.get().is_mutable:
                 self.base.get().mutable_views.remove(TableVersionHandle.create(self))
 
-        cat = Catalog.get()
+        #cat = Catalog.get()
         # delete this table and all associated data
         MediaStore.delete(self.id)
         FileCache.get().clear(tbl_id=self.id)
-        cat.delete_tbl_md(self.id)
+        #cat.delete_tbl_md(self.id)
         self.store_tbl.drop()
         # de-register table version from catalog
-        cat.remove_tbl_version(self)
+        #cat.remove_tbl_version(self)
 
     def _init_schema(self) -> None:
         # create columns first, so the indices can reference them

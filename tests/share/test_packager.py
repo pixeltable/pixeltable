@@ -179,7 +179,7 @@ class TestPackager:
         """
         assert tbl._tbl_version.get().is_snapshot
 
-        schema = tbl._schema
+        schema = tbl._schema()
         depth = tbl._tbl_version_path.path_len()
         result_set = tbl.head(n=5000)
 
@@ -199,7 +199,7 @@ class TestPackager:
 
     def __check_table(self, bundle_info: 'TestPackager.BundleInfo', tbl_name: str) -> None:
         t = pxt.get_table(tbl_name)
-        assert t._schema == bundle_info.schema
+        assert t._schema() == bundle_info.schema
         assert t._tbl_version_path.path_len() == bundle_info.depth
         reconstituted_data = t.head(n=5000)
         assert_resultset_eq(bundle_info.result_set, reconstituted_data)

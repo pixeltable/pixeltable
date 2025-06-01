@@ -46,9 +46,9 @@ class TableVersionHandle:
         from .catalog import Catalog
 
         cat = Catalog.get()
-        print(f'get(): tbl_id={self.id}, effective_version={self.effective_version} tbl_version={id(self._tbl_version) if self._tbl_version else None}')
-        if not self._tbl_version is None:
-            print(f'validated={self._tbl_version.is_validated}')
+        # print(f'get(): tbl_id={self.id}, effective_version={self.effective_version} tbl_version={id(self._tbl_version) if self._tbl_version else None}')
+        # if not self._tbl_version is None:
+        #     print(f'validated={self._tbl_version.is_validated}')
         if self._tbl_version is None or not self._tbl_version.is_validated:
             if self.effective_version is not None and self._tbl_version is not None:
                 # this is a snapshot version; we need to make sure we refer to the instance cached
@@ -60,8 +60,8 @@ class TableVersionHandle:
             else:
                 self._tbl_version = Catalog.get().get_tbl_version(self.id, self.effective_version)
         if self.effective_version is None:
-            print(
-                f'verify: tbl_id={self.id}, effective_version={self.effective_version} tbl_version={id(self._tbl_version)} validated={self._tbl_version.is_validated}')
+            # print(
+            #     f'verify: tbl_id={self.id}, effective_version={self.effective_version} tbl_version={id(self._tbl_version)} validated={self._tbl_version.is_validated}')
             # make sure we don't see a discarded instance of a live TableVersion
             tvs = list(Catalog.get()._tbl_versions.values())
             assert self._tbl_version in tvs

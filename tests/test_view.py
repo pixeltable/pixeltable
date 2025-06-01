@@ -194,7 +194,6 @@ class TestView:
         v3 = pxt.create_view('test_view', t, if_exists='replace_force')
         assert v3 != v2
         assert v3._id != id_before
-        assert v_on_v._is_dropped
         assert 'test_view_on_view' not in pxt.list_tables()
 
         # scenario 3: path exists but is not a view
@@ -226,7 +225,7 @@ class TestView:
         # create a view and add a column with default value
         v = pxt.create_view('test_view', t, additional_columns={'v1': pxt.Int})
         v.add_computed_column(vcol='xxx')
-        assert 'vcol' in v.columns
+        assert 'vcol' in v.columns()
         assert v.select(v.vcol).collect()[0]['vcol'] == 'xxx'
 
         # add column with same name as an existing column.
@@ -258,7 +257,7 @@ class TestView:
             v.add_computed_column(**{col_name: t.c2 + t.c3}, if_exists='invalid')
         with pytest.raises(excs.Error, match=re.escape(expected_err)):
             v.add_columns({col_name: pxt.Int, non_existing_col1: pxt.String}, if_exists='invalid')  # type: ignore[arg-type]
-        assert col_name in v.columns
+        assert col_name in v.columns()
         assert v.select().collect()[0][col_name] == orig_val
 
         # by default, raises an error if the column already exists
@@ -269,21 +268,21 @@ class TestView:
             v.add_computed_column(**{col_name: t.c2 + t.c3})
         with pytest.raises(excs.Error, match=expected_err):
             v.add_columns({col_name: pxt.Int, non_existing_col2: pxt.String})
-        assert col_name in v.columns
+        assert col_name in v.columns()
         assert v.select(getattr(v, col_name)).collect()[0][col_name] == orig_val
-        assert non_existing_col2 not in v.columns
+        assert non_existing_col2 not in v.columns()
 
         # if_exists='ignore' will not add the column if it already exists
         v.add_column(**{col_name: pxt.Int}, if_exists='ignore')
-        assert col_name in v.columns
+        assert col_name in v.columns()
         assert v.select().collect()[0][col_name] == orig_val
         v.add_computed_column(**{col_name: t.c2 + t.c3}, if_exists='ignore')
-        assert col_name in v.columns
+        assert col_name in v.columns()
         assert v.select().collect()[0][col_name] == orig_val
         v.add_columns({col_name: pxt.Int, non_existing_col2: pxt.String}, if_exists='ignore')
-        assert col_name in v.columns
+        assert col_name in v.columns()
         assert v.select().collect()[0][col_name] == orig_val
-        assert non_existing_col2 in v.columns
+        assert non_existing_col2 in v.columns()
 
         # if_exists='replace' will replace the column if it already exists.
         # for a column specific to view. For a base table column, it will raise an error.
@@ -292,31 +291,31 @@ class TestView:
                 v.add_column(**{col_name: pxt.String}, if_exists='replace')
             error_msg = str(exc_info.value).lower()
             assert 'is a base table column' in error_msg and 'cannot replace' in error_msg
-            assert col_name in v.columns
+            assert col_name in v.columns()
             assert v.select().collect()[0][col_name] == orig_val
             with pytest.raises(excs.Error) as exc_info:
                 v.add_computed_column(**{col_name: t.c2 + t.c3}, if_exists='replace')
             error_msg = str(exc_info.value).lower()
             assert 'is a base table column' in error_msg and 'cannot replace' in error_msg
-            assert col_name in v.columns
+            assert col_name in v.columns()
             assert v.select(getattr(v, col_name)).collect()[0][col_name] == orig_val
             with pytest.raises(excs.Error) as exc_info:
                 v.add_columns({col_name: pxt.String, non_existing_col3: pxt.String}, if_exists='replace')
             error_msg = str(exc_info.value).lower()
             assert 'is a base table column' in error_msg and 'cannot replace' in error_msg
-            assert col_name in v.columns
+            assert col_name in v.columns()
             assert v.select(getattr(v, col_name)).collect()[0][col_name] == orig_val
-            assert non_existing_col3 not in v.columns
+            assert non_existing_col3 not in v.columns()
         else:
             v.add_columns({col_name: pxt.Int, non_existing_col4: pxt.String}, if_exists='replace')
-            assert col_name in v.columns
+            assert col_name in v.columns()
             assert v.select(getattr(v, col_name)).collect()[0][col_name] is None
-            assert non_existing_col4 in v.columns
+            assert non_existing_col4 in v.columns()
             v.add_computed_column(**{col_name: 'aaa'}, if_exists='replace')
-            assert col_name in v.columns
+            assert col_name in v.columns()
             assert v.select(getattr(v, col_name)).collect()[0][col_name] == 'aaa'
             v.add_computed_column(**{col_name: t.c2 + t.c3}, if_exists='replace')
-            assert col_name in v.columns
+            assert col_name in v.columns()
             row0 = v.select().collect()[0]
             assert row0[col_name] == row0['c2'] + row0['c3']
 
@@ -806,11 +805,11 @@ class TestView:
         # create view with filter and computed columns
         schema = {'v1': s.c3 * 2.0, 'v2': s.c6.f5}
         v = pxt.create_view('test_view', s.where(s.c2 < 10), additional_columns=schema)
-        orig_view_cols = v._schema.keys()
+        orig_view_cols = v._schema().keys()
         view_s = pxt.create_snapshot('test_view_snap', v)
         with catalog.Catalog.get().begin_xact(for_write=False):
             _ = catalog.Catalog.get().load_replica_md(view_s)
-        assert set(view_s._schema.keys()) == set(orig_view_cols)
+        assert set(view_s._schema().keys()) == set(orig_view_cols)
 
         def check(s1: pxt.Table, v: pxt.Table, s2: pxt.Table) -> None:
             assert s1.where(s1.c2 < 10).count() == v.count()
@@ -830,14 +829,14 @@ class TestView:
         v.add_computed_column(v3=v.v1 * 2.0)
         v.add_computed_column(v4=v.v2[0])
         check(s, v, view_s)
-        assert set(view_s._schema.keys()) == set(orig_view_cols)
+        assert set(view_s._schema().keys()) == set(orig_view_cols)
 
         # check md after reload
         reload_catalog()
         t = pxt.get_table('test_tbl')
         view_s = pxt.get_table('test_view_snap')
         check(s, v, view_s)
-        assert set(view_s._schema.keys()) == set(orig_view_cols)
+        assert set(view_s._schema().keys()) == set(orig_view_cols)
 
         # insert data: no changes to snapshot
         rows = list(t.select(t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7, t.c10).where(t.c2 < 20).collect())

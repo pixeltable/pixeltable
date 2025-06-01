@@ -329,7 +329,6 @@ class TestLabelStudio:
         # 'person' should be present ('knife' sometimes is too, but it's nondeterministic)
         assert 'person' in found_labels
 
-    @pytest.mark.skip('temporarily disabled')
     @pytest.mark.xdist_group('label_studio')
     def test_label_studio_sync_to_base_table(self, ls_image_table: pxt.InsertableTable) -> None:
         skip_test_if_not_installed('label_studio_sdk')

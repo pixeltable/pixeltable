@@ -37,6 +37,8 @@ class View(Table):
     def __init__(self, id: UUID, dir_id: UUID, name: str, tbl_version_path: TableVersionPath, snapshot_only: bool):
         super().__init__(id, dir_id, name, tbl_version_path)
         self._snapshot_only = snapshot_only
+        if not snapshot_only:
+            self._tbl_version = tbl_version_path.tbl_version
 
     @classmethod
     def _display_name(cls) -> str:
@@ -246,15 +248,8 @@ class View(Table):
             base=cls._get_snapshot_path(tbl_version_path.base) if tbl_version_path.base is not None else None,
         )
 
-    def _drop(self) -> None:
-        if self._snapshot_only:
-            # there is no TableVersion to drop
-            catalog.Catalog.get().delete_tbl_md(self._id)
-        else:
-            super()._drop()
-
-    def get_metadata(self) -> dict[str, Any]:
-        md = super().get_metadata()
+    def _get_metadata(self) -> dict[str, Any]:
+        md = super()._get_metadata()
         md['is_view'] = True
         md['is_snapshot'] = self._tbl_version_path.is_snapshot()
         return md
@@ -275,11 +270,10 @@ class View(Table):
     def delete(self, where: Optional[exprs.Expr] = None) -> UpdateStatus:
         raise excs.Error(f'{self._display_name()} {self._name!r}: cannot delete from view')
 
-    @property
     def _base_table(self) -> Optional['Table']:
         # if this is a pure snapshot, our tbl_version_path only reflects the base (there is no TableVersion instance
         # for the snapshot itself)
-        base_id = self._tbl_version.id if self._snapshot_only else self._tbl_version_path.base.tbl_version.id
+        base_id = self._tbl_version_path.tbl_id if self._snapshot_only else self._tbl_version_path.base.tbl_id
         return catalog.Catalog.get().get_table_by_id(base_id)
 
     @property
@@ -294,7 +288,7 @@ class View(Table):
         display_name = 'Snapshot' if self._snapshot_only else 'View'
         result = [f'{display_name} {self._path()!r}']
         bases_descrs: list[str] = []
-        for base, effective_version in zip(self._base_tables, self._effective_base_versions):
+        for base, effective_version in zip(self._base_tables(), self._effective_base_versions):
             if effective_version is None:
                 bases_descrs.append(f'{base._path()!r}')
             else:
@@ -302,6 +296,6 @@ class View(Table):
                 bases_descrs.append(f'{base_descr!r}')
         result.append(f' (of {", ".join(bases_descrs)})')
 
-        if self._tbl_version.get().predicate is not None:
-            result.append(f'\nWhere: {self._tbl_version.get().predicate!s}')
+        if self._tbl_version_path.tbl_version.get().predicate is not None:
+            result.append(f'\nWhere: {self._tbl_version_path.tbl_version.get().predicate!s}')
         return ''.join(result)

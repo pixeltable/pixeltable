@@ -79,10 +79,10 @@ class TestParquet:
         num_elts = tab.count()
         arrow_tab: pa.Table = parquet.read_table(str(parquet_dir))
         assert num_elts == arrow_tab.num_rows
-        assert set(tab._schema.keys()) == set(arrow_tab.column_names)
+        assert set(tab._schema().keys()) == set(arrow_tab.column_names)
 
         result_set = tab.order_by(tab.c_id).collect()
-        column_types = tab._schema
+        column_types = tab._schema()
 
         for tup, arrow_tup in zip(result_set, iter_tuples(arrow_tab)):
             assert tup['c_id'] == arrow_tup['c_id']
@@ -172,7 +172,7 @@ class TestParquet:
 
         it = pxt.io.import_parquet('imported_test1', parquet_path=str(export_file1))
         assert it.count() == t.count()
-        assert it._schema == t._schema
+        assert it._schema() == t._schema()
         assert it.select(it.c1).collect() == t.select(t.c1).collect()
         assert it.select(it.c2).collect() == t.select(t.c2).collect()
         assert it.select(it.c3).collect() == t.select(t.c3).collect(), it.select(it.c3).collect()
@@ -187,7 +187,7 @@ class TestParquet:
 
         it = pxt.io.import_parquet('imported_test3', parquet_path=str(export_file3))
         assert it.count() == 1
-        assert it._schema == t._schema
+        assert it._schema() == t._schema()
         assert it.select(it.c1).collect() == t.where(t.c1 == 1).select(t.c1).collect()
         assert it.select(it.c2).collect() == t.where(t.c1 == 1).select(t.c2).collect()
         assert it.select(it.c3).collect() == t.where(t.c1 == 1).select(t.c3).collect()
@@ -215,13 +215,13 @@ class TestParquet:
         assert 'exported' in pxt.list_tables()
         assert exported_tab is not None
         assert tab.count() == exported_tab.count()
-        assert tab._schema == exported_tab._schema
+        assert tab._schema() == exported_tab._schema()
         result_after = exported_tab.order_by(exported_tab.c_id).collect()
         for tup1, tup2 in zip(result_before, result_after):
             for (col1, val1), (col2, val2) in zip(tup1.items(), tup2.items()):
                 assert col1 == col2
-                assert tab._schema[col1] == exported_tab._schema[col2]
-                if tab._schema[col1].is_array_type():
+                assert tab._schema()[col1] == exported_tab._schema()[col2]
+                if tab._schema()[col1].is_array_type():
                     assert val1.all() == val2.all()
                 else:
                     assert val1 == val2
