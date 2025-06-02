@@ -707,6 +707,9 @@ class Planner:
         )
         row_builder = exprs.RowBuilder(base_analyzer.all_exprs, stored_cols, [])
 
+        if target.sample_clause is not None and base_analyzer.filter is not None:
+            raise excs.Error(f'Filter {base_analyzer.filter} not expressible in SQL')
+
         # execution plan:
         # 1. materialize exprs computed from the base that are needed for stored view columns
         # 2. if it's an iterator view, expand the base rows into component rows
@@ -896,7 +899,7 @@ class Planner:
             exact_version_only = []
 
         # Modify clauses to include sample clause
-        where, group_by_clause, order_by_clause, limit, sample_clause = cls.create_sample_clauses(
+        where, group_by_clause, order_by_clause, limit, sample = cls.create_sample_clauses(
             from_clause, sample_clause, where_clause, group_by_clause, order_by_clause, limit
         )
 
@@ -908,6 +911,8 @@ class Planner:
             order_by_clause=order_by_clause,
         )
         row_builder = exprs.RowBuilder(analyzer.all_exprs, [], [])
+        if sample_clause is not None and analyzer.filter is not None:
+            raise excs.Error(f'Filter {analyzer.filter} not expressible in SQL')
 
         analyzer.finalize(row_builder)
         # select_list: we need to materialize everything that's been collected
@@ -918,7 +923,7 @@ class Planner:
             analyzer=analyzer,
             eval_ctx=eval_ctx,
             limit=limit,
-            sample_clause=sample_clause,
+            sample_clause=sample,
             with_pk=True,
             exact_version_only=exact_version_only,
         )

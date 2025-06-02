@@ -17,7 +17,7 @@ from pixeltable import catalog, exceptions as excs, exec, exprs, plan, type_syst
 from pixeltable.catalog import Catalog, is_valid_identifier
 from pixeltable.catalog.globals import UpdateStatus
 from pixeltable.env import Env
-from pixeltable.plan import Analyzer, Planner, SampleClause
+from pixeltable.plan import Planner, SampleClause
 from pixeltable.type_system import ColumnType
 from pixeltable.utils.description_helper import DescriptionHelper
 from pixeltable.utils.formatter import Formatter
@@ -1118,12 +1118,6 @@ class DataFrame:
                         f'({",".join(tbl.tbl_name() for tbl in self._from_clause.tbls)})'
                     )
                 stratify_exprs.append(expr)
-
-        if self.where_clause is not None:
-            # We require that the sampled rows can be identified via SQL, rather than via a Python filter
-            analyzer = Analyzer(self._from_clause, [], self.where_clause)
-            if analyzer.filter is not None:
-                raise excs.Error(f'Filter {analyzer.filter} not expressible in SQL')
 
         sample_clause = SampleClause(None, n, n_per_stratum, fraction, seed, stratify_exprs)
 

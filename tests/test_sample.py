@@ -118,7 +118,7 @@ class TestSampling:
 
         # Preceding where clauses must be suitable for direct sql translation
         with pytest.raises(excs.Error, match='not expressible in SQL'):
-            _ = t.select().where(t.c2.apply(str) == '11').sample(n=10)
+            t.select().where(t.c2.apply(str) == '11').sample(n=10).collect()
 
     def test_sample_display(self, test_tbl: catalog.Table) -> None:
         t = test_tbl
