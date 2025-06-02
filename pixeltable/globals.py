@@ -423,8 +423,6 @@ def get_table(path: str) -> catalog.Table:
     """
     path_obj = catalog.Path(path)
     tbl = Catalog.get().get_table(path_obj)
-    tv = tbl._tbl_version.get()
-    _logger.debug(f'get_table(): tbl={tv.id}:{tv.effective_version} sa_tbl={id(tv.store_tbl.sa_tbl):x} tv={id(tv):x}')
     return tbl
 
 

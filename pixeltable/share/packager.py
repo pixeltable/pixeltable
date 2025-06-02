@@ -108,7 +108,7 @@ class TablePackager:
         # We use snappy compression for the Parquet tables; the entire bundle will be bzip2-compressed later, so
         # faster compression should provide good performance while still reducing temporary storage utilization.
         parquet_writer = pq.ParquetWriter(parquet_file, parquet_schema, compression='SNAPPY')
-        filter_tv = self.table._tbl_version.get()
+        filter_tv = self.table._tbl_version_path.tbl_version.get()
         row_iter = tv.store_tbl.dump_rows(tv.version, filter_tv.store_tbl, filter_tv.version)
         for pa_table in self.__to_pa_tables(row_iter, sql_types, media_cols, parquet_schema):
             parquet_writer.write_table(pa_table)

@@ -179,7 +179,7 @@ class TestParquet:
 
         it = pxt.io.import_parquet('imported_test2', parquet_path=str(export_file2))
         assert it.count() == t.count()
-        assert it.columns == ['c1', 'c2']
+        assert it.columns() == ['c1', 'c2']
         assert it.c1.col_type == t.c1.col_type
         assert it.c2.col_type == t.c2.col_type
         assert it.select(it.c1).collect() == t.select(t.c1).collect()

@@ -42,7 +42,7 @@ class Column:
     sa_errortype_col: Optional[sql.schema.Column]
     _value_expr: Optional[exprs.Expr]
     value_expr_dict: Optional[dict[str, Any]]
-    #dependent_cols: set[Column]
+    # dependent_cols: set[Column]
     # we store a TableVersion here, not a TableVersionHandle, because this column is owned by that TableVersion instance
     # (re-resolving it later to a different instance doesn't make sense)
     tbl: Optional[TableVersion]
@@ -62,6 +62,7 @@ class Column:
         sa_col_type: Optional[sql.sqltypes.TypeEngine] = None,
         records_errors: Optional[bool] = None,
         value_expr_dict: Optional[dict[str, Any]] = None,
+        tbl: Optional[TableVersion] = None,
     ):
         """Column constructor.
 
@@ -86,6 +87,7 @@ class Column:
         if name is not None and not is_valid_identifier(name):
             raise excs.Error(f"Invalid column name: '{name}'")
         self.name = name
+        self.tbl = tbl
         if col_type is None and computed_with is None:
             raise excs.Error(f'Column `{name}`: col_type is required if computed_with is not specified')
 
@@ -94,6 +96,7 @@ class Column:
         if computed_with is not None:
             value_expr = exprs.Expr.from_object(computed_with)
             if value_expr is None:
+                # TODO: this shouldn't be a user-facing error
                 raise excs.Error(
                     f'Column {name}: computed_with needs to be a valid Pixeltable expression, '
                     f'but it is a {type(computed_with)}'
@@ -109,7 +112,7 @@ class Column:
         assert self.col_type is not None
 
         self.stored = stored
-        #self.dependent_cols = set()  # cols with value_exprs that reference us; set by TableVersion
+        # self.dependent_cols = set()  # cols with value_exprs that reference us; set by TableVersion
         self.id = col_id
         self.is_pk = is_pk
         self._media_validation = media_validation
@@ -126,31 +129,30 @@ class Column:
         self.sa_errormsg_col = None
         self.sa_errortype_col = None
 
-        self.tbl = None  # set by owning TableVersion
+    def init_value_expr(self) -> None:
+        from pixeltable import exprs
+
+        if self._value_expr is not None or self.value_expr_dict is None:
+            return
+        self._value_expr = exprs.Expr.from_dict(self.value_expr_dict)
+        self._value_expr.bind_rel_paths()
+        if not self._value_expr.is_valid:
+            message = (
+                dedent(
+                    f"""
+                    The computed column {self.name!r} in table {self.tbl.name!r} is no longer valid.
+                    {{validation_error}}
+                    You can continue to query existing data from this column, but evaluating it on new data will raise an error.
+                    """  # noqa: E501
+                )
+                .strip()
+                .format(validation_error=self._value_expr.validation_error)
+            )
+            warnings.warn(message, category=excs.PixeltableWarning, stacklevel=2)
 
     @property
     def value_expr(self) -> Optional[exprs.Expr]:
-        """Instantiate value_expr on-demand"""
-        # TODO: instantiate expr in the c'tor and add an Expr.prepare() that can create additional state after the
-        # catalog has been fully loaded; that way, we encounter bugs in the serialization/deserialization logic earlier
-        if self.value_expr_dict is not None and self._value_expr is None:
-            from pixeltable import exprs
-
-            self._value_expr = exprs.Expr.from_dict(self.value_expr_dict)
-            self._value_expr.bind_rel_paths()
-            if not self._value_expr.is_valid:
-                message = (
-                    dedent(
-                        f"""
-                        The computed column {self.name!r} in table {self.tbl.name!r} is no longer valid.
-                        {{validation_error}}
-                        You can continue to query existing data from this column, but evaluating it on new data will raise an error.
-                        """  # noqa: E501
-                    )
-                    .strip()
-                    .format(validation_error=self._value_expr.validation_error)
-                )
-                warnings.warn(message, category=excs.PixeltableWarning, stacklevel=2)
+        assert self.value_expr_dict is None or self._value_expr is not None
         return self._value_expr
 
     def set_value_expr(self, value_expr: exprs.Expr) -> None:

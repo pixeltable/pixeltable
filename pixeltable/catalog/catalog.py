@@ -5,10 +5,10 @@ import functools
 import logging
 import random
 import time
+from collections import defaultdict
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Callable, Iterator, Optional, TypeVar
 from uuid import UUID
-from collections import defaultdict
 
 import psycopg
 import sqlalchemy as sql
@@ -17,6 +17,7 @@ from pixeltable import exceptions as excs
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
 from pixeltable.metadata import schema
+
 from .column import Column
 from .dir import Dir
 from .globals import IfExistsParam, IfNotExistsParam, MediaValidation, QColumnId
@@ -242,7 +243,14 @@ class Catalog:
                 with Env.get().begin_xact() as conn:
                     if tbl_id is not None and for_write:
                         try:
-                            self._acquire_tbl_xlock(tbl_id=tbl_id, lock_mutable_tree=lock_mutable_tree)
+                            if not self._acquire_tbl_xlock(
+                                tbl_id=tbl_id, lock_mutable_tree=lock_mutable_tree, raise_if_not_exists=True
+                            ):
+                                # this is a snapshot
+                                self._in_write_xact = False
+                                yield conn
+                                return
+
                             if lock_mutable_tree:
                                 self._x_locked_tbl_ids = self._get_mutable_tree(tbl_id)
                                 self._compute_column_dependents(self._x_locked_tbl_ids)
@@ -290,11 +298,12 @@ class Catalog:
         dir_id: Optional[UUID] = None,
         tbl_name: Optional[str] = None,
         lock_mutable_tree: bool = False,
-    ) -> None:
+        raise_if_not_exists: bool = False,
+    ) -> bool:
         """Force acquisition of an X-lock on a Table record via a blind update
 
-        Either tbl_id or dir_id/tbl_name need to be specified
-
+        Either tbl_id or dir_id/tbl_name need to be specified.
+        Returns True if the table was locked, False if it was a snapshot or not found.
         """
         assert (tbl_id is None) != (dir_id is None)
         assert (dir_id is None) == (tbl_name is None)
@@ -308,16 +317,23 @@ class Catalog:
                 where_clause = sql.and_(where_clause, schema.Table.md['user'].astext == Env.get().user)
 
         conn = Env.get().conn
-        conn.execute(sql.select(schema.Table).where(where_clause).with_for_update(nowait=True))
+        row = conn.execute(sql.select(schema.Table).where(where_clause).with_for_update(nowait=True)).one_or_none()
+        if row is None:
+            if raise_if_not_exists:
+                raise excs.Error(self._dropped_tbl_error_msg(tbl_id))
+            return False  # nothing to lock
+        if row.md['view_md'] is not None and row.md['view_md']['is_snapshot']:
+            return False  # nothing to lock
         conn.execute(sql.update(schema.Table).values(lock_dummy=1).where(where_clause))
         if not lock_mutable_tree:
-            return
+            return True
 
         # also lock mutable views
         assert tbl_id is not None
         tv = self.get_tbl_version(tbl_id, None)
         for view in tv.mutable_views:
             self._acquire_tbl_xlock(tbl_id=view.id, lock_mutable_tree=True)
+        return True
 
     def _get_mutable_tree(self, tbl_id: UUID) -> set[UUID]:
         """Returns ids of all tables that form the tree of mutable views starting at tbl_id; includes the root."""
@@ -335,7 +351,7 @@ class Catalog:
             assert tbl_id in self._column_dependencies
             for col, dependencies in self._column_dependencies[tbl_id].items():
                 for dependency in dependencies:
-                    #assert dependency.tbl_id in mutable_tree
+                    # assert dependency.tbl_id in mutable_tree
                     if dependency.tbl_id not in mutable_tree:
                         continue
                     dependents = self._column_dependents[dependency]
@@ -589,12 +605,12 @@ class Catalog:
             tbl = self._load_tbl(tbl_id)
             if tbl is None:
                 return None
-            # if this is a mutable table, we also need to have its mutable views loaded, in order to track column
-            # dependencies
-            tbl_version = tbl._tbl_version.get()
-            if tbl_version.is_mutable:
-                for v in tbl_version.mutable_views:
-                    _ = self.get_table_by_id(v.id)
+            # # if this is a mutable table, we also need to have its mutable views loaded, in order to track column
+            # # dependencies
+            # tbl_version = tbl._tbl_version.get()
+            # if tbl_version.is_mutable:
+            #     for v in tbl_version.mutable_views:
+            #         _ = self.get_table_by_id(v.id)
         return self._tbls[tbl_id]
 
     @_retry_loop(for_write=True)
@@ -847,13 +863,13 @@ class Catalog:
     def _get_table(self, path: Path) -> Table:
         obj = Catalog.get()._get_schema_object(path, expected=Table, raise_if_not_exists=True)
         assert isinstance(obj, Table)
-        tbl_version = obj._tbl_version.get()
-        # TODO: instead of calling this here, move the logic into TableVersion.init(), which is called after
-        # registering the instance in _tbl_versions
-        tbl_version.ensure_md_loaded()
-        # if this table has mutable views, we need to load those as well, in order to record column dependencies
-        for v in tbl_version.mutable_views:
-            self.get_table_by_id(v.id)
+        # tbl_version = obj._tbl_version.get()
+        # # TODO: instead of calling this here, move the logic into TableVersion.init(), which is called after
+        # # registering the instance in _tbl_versions
+        # tbl_version.ensure_md_loaded()
+        # # if this table has mutable views, we need to load those as well, in order to record column dependencies
+        # for v in tbl_version.mutable_views:
+        #     self.get_table_by_id(v.id)
         return obj
 
     # @_retry_loop(for_write=True)
@@ -977,7 +993,7 @@ class Catalog:
             tv.is_validated = False
             tv.drop()
             assert (tv.id, tv.effective_version) in self._tbl_versions
-            del self._tbl_versions[(tv.id, tv.effective_version)]
+            del self._tbl_versions[tv.id, tv.effective_version]
 
         self.delete_tbl_md(tbl._id)
         assert tbl._id in self._tbls
@@ -1353,7 +1369,7 @@ class Catalog:
 
         # If `tbl` is a named pure snapshot, we're not quite done, since the snapshot metadata won't appear in the
         # TableVersionPath. We need to prepend it separately.
-        if tbl._id != tbl._tbl_version.id:
+        if isinstance(tbl, View) and tbl._snapshot_only:
             snapshot_md = self.load_tbl_md(tbl._id, 0)
             md = [snapshot_md, *md]
 
@@ -1427,6 +1443,7 @@ class Catalog:
     def record_column_dependencies(self, tbl_version: TableVersion) -> None:
         """Update self._column_dependencies. Only valid for non-snapshot versions."""
         from pixeltable.exprs import Expr
+
         assert not tbl_version.is_snapshot
         dependencies: dict[QColumnId, set[QColumnId]] = {}
         for col in tbl_version.cols_by_id.values():

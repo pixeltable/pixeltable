@@ -158,22 +158,6 @@ class TableVersion:
         self.idxs_by_name = {}
         self.external_stores = {}
 
-    def init(self) -> None:
-        """
-        Initialize schema-related in-memory metadata separately, now that this TableVersion instance is visible
-        in Catalog.
-        """
-        from .catalog import Catalog
-
-        cat = Catalog.get()
-        assert (self.id, self.effective_version) in cat._tbl_versions
-        self._init_schema()
-        if not self.is_snapshot:
-            cat.record_column_dependencies(self)
-
-        # init external stores; this needs to happen after the schema is created
-        self._init_external_stores()
-
     def __hash__(self) -> int:
         return hash(self.id)
 
@@ -341,14 +325,30 @@ class TableVersion:
             if self.base.get().is_mutable:
                 self.base.get().mutable_views.remove(TableVersionHandle.create(self))
 
-        #cat = Catalog.get()
+        # cat = Catalog.get()
         # delete this table and all associated data
         MediaStore.delete(self.id)
         FileCache.get().clear(tbl_id=self.id)
-        #cat.delete_tbl_md(self.id)
+        # cat.delete_tbl_md(self.id)
         self.store_tbl.drop()
         # de-register table version from catalog
-        #cat.remove_tbl_version(self)
+        # cat.remove_tbl_version(self)
+
+    def init(self) -> None:
+        """
+        Initialize schema-related in-memory metadata separately, now that this TableVersion instance is visible
+        in Catalog.
+        """
+        from .catalog import Catalog
+
+        cat = Catalog.get()
+        assert (self.id, self.effective_version) in cat._tbl_versions
+        self._init_schema()
+        if not self.is_snapshot:
+            cat.record_column_dependencies(self)
+
+        # init external stores; this needs to happen after the schema is created
+        self._init_external_stores()
 
     def _init_schema(self) -> None:
         # create columns first, so the indices can reference them
@@ -357,6 +357,10 @@ class TableVersion:
             self._init_idxs()
         # create the sa schema only after creating the columns and indices
         self._init_sa_schema()
+
+        # created value_exprs after everything else has been initialized
+        for col in self.cols_by_id.values():
+            col.init_value_expr()
 
     def _init_cols(self) -> None:
         """Initialize self.cols with the columns visible in our effective version"""
@@ -384,6 +388,7 @@ class TableVersion:
                 schema_version_add=col_md.schema_version_add,
                 schema_version_drop=col_md.schema_version_drop,
                 value_expr_dict=col_md.value_expr,
+                tbl=self,
             )
             col.tbl = self
             self.cols.append(col)
@@ -470,11 +475,6 @@ class TableVersion:
         Catalog.get().store_tbl_md(
             self.id, self._tbl_md, version_md, self._schema_version_md if new_schema_version else None
         )
-
-    def ensure_md_loaded(self) -> None:
-        """Ensure that table metadata is loaded."""
-        for col in self.cols_by_id.values():
-            _ = col.value_expr
 
     def _store_idx_name(self, idx_id: int) -> str:
         """Return name of index in the store, which needs to be globally unique"""

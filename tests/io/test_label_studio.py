@@ -341,7 +341,6 @@ class TestLabelStudio:
 
         # Link a project to the view, but with annotations going to a column of the base table,
         # and ensure that they propagate correctly.
-        # TODO: this requires Catalog.begin_xact() to take a list of tables to lock
         sync_status = pxt.io.create_label_studio_project(
             v2,
             label_config=self.test_config_image,

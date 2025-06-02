@@ -25,6 +25,7 @@ _PREDEF_SYMBOLS: Optional[set[str]] = None
 @dataclasses.dataclass
 class QColumnId:
     """Qualified column id"""
+
     tbl_id: UUID
     col_id: int
 

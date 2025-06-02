@@ -151,12 +151,16 @@ class Table(SchemaObject):
         with Catalog.get().begin_xact(for_write=False):
             return [t._path() for t in self._get_views(recursive=recursive)]
 
-    def _get_views(self, *, recursive: bool = True) -> list['Table']:
+    def _get_views(self, *, recursive: bool = True, include_snapshots: bool = True) -> list['Table']:
         cat = catalog.Catalog.get()
         view_ids = cat.get_view_ids(self._id)
         views = [cat.get_table_by_id(id) for id in view_ids]
+        if not include_snapshots:
+            views = [t for t in views if not t._tbl_version_path.is_snapshot()]
         if recursive:
-            views.extend([t for view in views for t in view._get_views(recursive=True)])
+            views.extend(
+                [t for view in views for t in view._get_views(recursive=True, include_snapshots=include_snapshots)]
+            )
         return views
 
     def _df(self) -> 'pxt.dataframe.DataFrame':
@@ -257,6 +261,7 @@ class Table(SchemaObject):
 
     def base_table(self) -> Optional['Table']:
         from pixeltable.catalog import Catalog
+
         with Catalog.get().begin_xact(for_write=False):
             return self._base_table()
 
@@ -532,7 +537,7 @@ class Table(SchemaObject):
         """
         from pixeltable.catalog import Catalog
 
-        with Catalog.get().begin_xact(tbl_id=self._id, for_write=True):
+        with Catalog.get().begin_xact(tbl_id=self._id, for_write=True, lock_mutable_tree=True):
             # verify kwargs
             if self._tbl_version_path.is_snapshot():
                 raise excs.Error('Cannot add column to a snapshot.')
@@ -815,11 +820,12 @@ class Table(SchemaObject):
                     f'{", ".join(c.name for c in dependent_user_cols)}'
                 )
 
+            _ = self._get_views(recursive=True, include_snapshots=False)
             # See if this column has a dependent store. We need to look through all stores in all
             # (transitive) views of this table.
             dependent_stores = [
                 (view, store)
-                for view in (self, *self._get_views(recursive=True))
+                for view in (self, *self._get_views(recursive=True, include_snapshots=False))
                 for store in view._tbl_version.get().external_stores.values()
                 if col in store.get_local_columns()
             ]
@@ -962,7 +968,7 @@ class Table(SchemaObject):
         """
         from pixeltable.catalog import Catalog
 
-        with Catalog.get().begin_xact(tbl_id=self._id, for_write=True):
+        with Catalog.get().begin_xact(tbl_id=self._id, for_write=True, lock_mutable_tree=True):
             if self._tbl_version_path.is_snapshot():
                 raise excs.Error('Cannot add an index to a snapshot')
             col = self._resolve_column_parameter(column)
@@ -1051,7 +1057,7 @@ class Table(SchemaObject):
         if (column is None) == (idx_name is None):
             raise excs.Error("Exactly one of 'column' or 'idx_name' must be provided")
 
-        with Catalog.get().begin_xact(tbl_id=self._id, for_write=True):
+        with Catalog.get().begin_xact(tbl_id=self._id, for_write=True, lock_mutable_tree=True):
             col: Column = None
             if idx_name is None:
                 col = self._resolve_column_parameter(column)
@@ -1147,6 +1153,7 @@ class Table(SchemaObject):
         if_not_exists: Literal['error', 'ignore'] = 'error',
     ) -> None:
         from pixeltable.catalog import Catalog
+
         if self._tbl_version_path.is_snapshot():
             raise excs.Error('Cannot drop an index from a snapshot')
         assert (col is None) != (idx_name is None)
@@ -1179,7 +1186,9 @@ class Table(SchemaObject):
 
         # Find out if anything depends on this index
         val_col = idx_info.val_col
-        dependent_user_cols = [c for c in Catalog.get().get_column_dependents(val_col.tbl.id, val_col.id) if c.name is not None]
+        dependent_user_cols = [
+            c for c in Catalog.get().get_column_dependents(val_col.tbl.id, val_col.id) if c.name is not None
+        ]
         if len(dependent_user_cols) > 0:
             raise excs.Error(
                 f'Cannot drop index because the following columns depend on it:\n'
@@ -1315,6 +1324,8 @@ class Table(SchemaObject):
         from pixeltable.catalog import Catalog
 
         with Catalog.get().begin_xact(tbl_id=self._id, for_write=True, lock_mutable_tree=True):
+            if self._tbl_version_path.is_snapshot():
+                raise excs.Error('Cannot update a snapshot')
             status = self._tbl_version.get().update(value_spec, where, cascade)
             FileCache.get().emit_eviction_warnings()
             return status
@@ -1433,7 +1444,7 @@ class Table(SchemaObject):
         from pixeltable.catalog import Catalog
 
         with Catalog.get().begin_xact(tbl_id=self._id, for_write=True):
-            if self._tbl_version.get().is_snapshot:
+            if self._tbl_version_path.is_snapshot():
                 raise excs.Error(f'Table `{self._name}` is a snapshot, so it cannot be linked to an external store.')
             if store.name in self.external_stores():
                 raise excs.Error(f'Table `{self._name}` already has an external store with that name: {store.name}')
@@ -1463,6 +1474,8 @@ class Table(SchemaObject):
         """
         from pixeltable.catalog import Catalog
 
+        if self._tbl_version_path.is_snapshot():
+            return
         with Catalog.get().begin_xact(tbl_id=self._id, for_write=True):
             all_stores = self.external_stores()
 
@@ -1501,7 +1514,12 @@ class Table(SchemaObject):
         """
         from pixeltable.catalog import Catalog
 
-        with Catalog.get().begin_xact(tbl_id=self._id, for_write=True, lock_mutable_tree=True):
+        if self._tbl_version_path.is_snapshot():
+            return pxt.io.SyncStatus.empty()
+        # we lock the entire tree starting at the root base table in order to ensure that all synced columns can
+        # have their updates propagated down the tree
+        base_tv = self._tbl_version_path.get_tbl_versions()[-1]
+        with Catalog.get().begin_xact(tbl_id=base_tv.id, for_write=True, lock_mutable_tree=True):
             all_stores = self.external_stores()
 
             if stores is None:

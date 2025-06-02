@@ -2345,9 +2345,9 @@ class TestTable:
         with pytest.raises(excs.Error, match=unknown_tbl_msg):
             _ = t.sync()
 
-        with pytest.raises(excs.Error, match=unknown_tbl_msg) as exc_info:
+        with pytest.raises(excs.Error, match=unknown_tbl_msg):
             _ = t.to_coco_dataset()
-        with pytest.raises(excs.Error, match=unknown_tbl_msg) as exc_info:
+        with pytest.raises(excs.Error, match=unknown_tbl_msg):
             _ = t.to_pytorch_dataset()
 
         with pytest.raises(excs.Error, match=unknown_tbl_msg):
