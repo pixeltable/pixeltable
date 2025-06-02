@@ -23,7 +23,7 @@ import PIL
 import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable import env, exprs
-from pixeltable.func import Batch, Tools
+from pixeltable.func import Batch, Tools, ToolChoice
 from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
@@ -176,9 +176,7 @@ async def speech(
     *,
     model: str,
     voice: str,
-    response_format: Optional[str] = None,
-    speed: Optional[float] = None,
-    timeout: Optional[float] = None,
+    options: Optional[dict[str, Any]] = None,
 ) -> pxt.Audio:
     """
     Generates audio from the input text.
@@ -199,8 +197,8 @@ async def speech(
         model: The model to use for speech synthesis.
         voice: The voice profile to use for speech synthesis. Supported options include:
             `alloy`, `echo`, `fable`, `onyx`, `nova`, and `shimmer`.
-
-    For details on the other parameters, see: <https://platform.openai.com/docs/api-reference/audio/createSpeech>
+        options: Additional options for the OpenAI `audio/speech` API. For details on the available parameters, see:
+            <https://platform.openai.com/docs/api-reference/audio/createSpeech>
 
     Returns:
         An audio file containing the synthesized speech.
@@ -211,15 +209,16 @@ async def speech(
 
         >>> tbl.add_computed_column(audio=speech(tbl.text, model='tts-1', voice='nova'))
     """
+    if options is None:
+        options = {}
+
     content = await _openai_client().audio.speech.create(
         input=input,
         model=model,
         voice=voice,  # type: ignore
-        response_format=_opt(response_format),  # type: ignore
-        speed=_opt(speed),
-        timeout=_opt(timeout),
+        **options,
     )
-    ext = response_format or 'mp3'
+    ext = options.get('response_format', 'mp3')
     output_filename = str(env.Env.get().tmp_dir / f'{uuid.uuid4()}.{ext}')
     content.write_to_file(output_filename)
     return output_filename
@@ -230,10 +229,7 @@ async def transcriptions(
     audio: pxt.Audio,
     *,
     model: str,
-    language: Optional[str] = None,
-    prompt: Optional[str] = None,
-    temperature: Optional[float] = None,
-    timeout: Optional[float] = None,
+    options: Optional[dict[str, Any]] = None,
 ) -> dict:
     """
     Transcribes audio into the input language.
@@ -252,8 +248,8 @@ async def transcriptions(
     Args:
         audio: The audio to transcribe.
         model: The model to use for speech transcription.
-
-    For details on the other parameters, see: <https://platform.openai.com/docs/api-reference/audio/createTranscription>
+        options: Additional options for the OpenAI `audio/transcriptions` API. For details on the available parameters,
+            see: <https://platform.openai.com/docs/api-reference/audio/createTranscription>
 
     Returns:
         A dictionary containing the transcription and other metadata.
@@ -264,14 +260,14 @@ async def transcriptions(
 
         >>> tbl.add_computed_column(transcription=transcriptions(tbl.audio, model='whisper-1', language='en'))
     """
+    if options is None:
+        options = {}
+
     file = pathlib.Path(audio)
     transcription = await _openai_client().audio.transcriptions.create(
         file=file,
         model=model,
-        language=_opt(language),
-        prompt=_opt(prompt),
-        temperature=_opt(temperature),
-        timeout=_opt(timeout),
+        **options,
     )
     return transcription.dict()
 
@@ -281,9 +277,7 @@ async def translations(
     audio: pxt.Audio,
     *,
     model: str,
-    prompt: Optional[str] = None,
-    temperature: Optional[float] = None,
-    timeout: Optional[float] = None,
+    options: Optional[dict[str, Any]] = None,
 ) -> dict:
     """
     Translates audio into English.
@@ -302,8 +296,8 @@ async def translations(
     Args:
         audio: The audio to translate.
         model: The model to use for speech transcription and translation.
-
-    For details on the other parameters, see: <https://platform.openai.com/docs/api-reference/audio/createTranslation>
+        options: Additional options for the OpenAI `audio/translations` API. For details on the available parameters,
+            see: <https://platform.openai.com/docs/api-reference/audio/createTranslation>
 
     Returns:
         A dictionary containing the translation and other metadata.
@@ -314,9 +308,12 @@ async def translations(
 
         >>> tbl.add_computed_column(translation=translations(tbl.audio, model='whisper-1', language='en'))
     """
+    if options is None:
+        options = {}
+
     file = pathlib.Path(audio)
     translation = await _openai_client().audio.translations.create(
-        file=file, model=model, prompt=_opt(prompt), temperature=_opt(temperature), timeout=_opt(timeout)
+        file=file, model=model, **options
     )
     return translation.dict()
 
@@ -353,8 +350,15 @@ def _is_model_family(model: str, family: str) -> bool:
 
 
 def _chat_completions_get_request_resources(
-    messages: list, model: str, max_completion_tokens: Optional[int], max_tokens: Optional[int], n: Optional[int]
+    messages: list, model: str, options: Optional[dict[str, Any]]
 ) -> dict[str, int]:
+    if options is None:
+        options = {}
+
+    max_completion_tokens = options.get('max_completion_tokens')
+    max_tokens = options.get('max_tokens')
+    n = options.get('n')
+
     completion_tokens = (n or 1) * (max_completion_tokens or max_tokens or _default_max_tokens(model))
 
     num_tokens = 0.0
@@ -373,24 +377,9 @@ async def chat_completions(
     messages: list,
     *,
     model: str,
-    frequency_penalty: Optional[float] = None,
-    logit_bias: Optional[dict[str, int]] = None,
-    logprobs: Optional[bool] = None,
-    top_logprobs: Optional[int] = None,
-    max_completion_tokens: Optional[int] = None,
-    max_tokens: Optional[int] = None,
-    n: Optional[int] = None,
-    presence_penalty: Optional[float] = None,
-    reasoning_effort: Optional[Literal['low', 'medium', 'high']] = None,
-    response_format: Optional[dict] = None,
-    seed: Optional[int] = None,
-    stop: Optional[list[str]] = None,
-    temperature: Optional[float] = None,
-    tools: Optional[list[dict]] = None,
-    tool_choice: Optional[dict] = None,
-    top_p: Optional[float] = None,
-    user: Optional[str] = None,
-    timeout: Optional[float] = None,
+    options: Optional[dict[str, Any]] = None,
+    tools: Optional[list[Tools]] = None,
+    tool_choice: Optional[ToolChoice] = None,
 ) -> dict:
     """
     Creates a model response for the given chat conversation.
@@ -409,8 +398,8 @@ async def chat_completions(
     Args:
         messages: A list of messages to use for chat completion, as described in the OpenAI API documentation.
         model: The model to use for chat completion.
-
-    For details on the other parameters, see: <https://platform.openai.com/docs/api-reference/chat>
+        options: Additional options for the OpenAI `chat/completions` API. For details on the available parameters,
+            see: <https://platform.openai.com/docs/api-reference/chat/create>
 
     Returns:
         A dictionary containing the response and other metadata.
@@ -425,22 +414,23 @@ async def chat_completions(
             ]
             tbl.add_computed_column(response=chat_completions(messages, model='gpt-4o-mini'))
     """
-    if tools is not None:
-        tools = [{'type': 'function', 'function': tool} for tool in tools]
+    if options is None:
+        options = {}
 
-    tool_choice_: Union[str, dict, None] = None
+    if tools is not None:
+        options['tools'] = [{'type': 'function', 'function': tool} for tool in tools]
+
     if tool_choice is not None:
         if tool_choice['auto']:
-            tool_choice_ = 'auto'
+            options['tool_choice'] = 'auto'
         elif tool_choice['required']:
-            tool_choice_ = 'required'
+            options['tool_choice'] = 'required'
         else:
             assert tool_choice['tool'] is not None
-            tool_choice_ = {'type': 'function', 'function': {'name': tool_choice['tool']}}
+            options['tool_choice'] = {'type': 'function', 'function': {'name': tool_choice['tool']}}
 
-    extra_body: Optional[dict[str, Any]] = None
     if tool_choice is not None and not tool_choice['parallel_tool_calls']:
-        extra_body = {'parallel_tool_calls': False}
+        options['parallel_tool_calls'] = False
 
     # make sure the pool info exists prior to making the request
     resource_pool = _rate_limits_pool(model)
@@ -448,29 +438,10 @@ async def chat_completions(
         resource_pool, lambda: OpenAIRateLimitsInfo(_chat_completions_get_request_resources)
     )
 
-    # cast(Any, ...): avoid mypy errors
     result = await _openai_client().chat.completions.with_raw_response.create(
         messages=messages,
         model=model,
-        frequency_penalty=_opt(frequency_penalty),
-        logit_bias=_opt(logit_bias),
-        logprobs=_opt(logprobs),
-        top_logprobs=_opt(top_logprobs),
-        max_completion_tokens=_opt(max_completion_tokens),
-        max_tokens=_opt(max_tokens),
-        n=_opt(n),
-        presence_penalty=_opt(presence_penalty),
-        reasoning_effort=_opt(reasoning_effort),
-        response_format=_opt(cast(Any, response_format)),
-        seed=_opt(seed),
-        stop=_opt(stop),
-        temperature=_opt(temperature),
-        tools=_opt(cast(Any, tools)),
-        tool_choice=_opt(cast(Any, tool_choice_)),
-        top_p=_opt(top_p),
-        user=_opt(user),
-        timeout=_opt(timeout),
-        extra_body=extra_body,
+        **options,
     )
 
     requests_info, tokens_info = _get_header_info(result.headers)
@@ -685,11 +656,7 @@ async def image_generations(
     prompt: str,
     *,
     model: str = 'dall-e-2',
-    quality: Optional[str] = None,
-    size: Optional[str] = None,
-    style: Optional[str] = None,
-    user: Optional[str] = None,
-    timeout: Optional[float] = None,
+    options: Optional[dict[str, Any]] = None,
 ) -> PIL.Image.Image:
     """
     Creates an image given a prompt.
@@ -708,8 +675,8 @@ async def image_generations(
     Args:
         prompt: Prompt for the image.
         model: The model to use for the generations.
-
-    For details on the other parameters, see: <https://platform.openai.com/docs/api-reference/images/create>
+        options: Additional options for the OpenAI `images/generations` API. For details on the available parameters,
+            see: <https://platform.openai.com/docs/api-reference/images/create>
 
     Returns:
         The generated image.
@@ -720,16 +687,15 @@ async def image_generations(
 
         >>> tbl.add_computed_column(gen_image=image_generations(tbl.text, model='dall-e-2'))
     """
+    if options is None:
+        options = {}
+
     # TODO(aaron-siegel): Decompose CPU/GPU ops into separate functions
     result = await _openai_client().images.generate(
         prompt=prompt,
-        model=_opt(model),
-        quality=_opt(quality),  # type: ignore
-        size=_opt(size),  # type: ignore
-        style=_opt(style),  # type: ignore
-        user=_opt(user),
+        model=model,
         response_format='b64_json',
-        timeout=_opt(timeout),
+        **options,
     )
     b64_str = result.data[0].b64_json
     b64_bytes = base64.b64decode(b64_str)
@@ -739,9 +705,11 @@ async def image_generations(
 
 
 @image_generations.conditional_return_type
-def _(size: Optional[str] = None) -> ts.ImageType:
-    if size is None:
+def _(options: Optional[dict[str, Any]] = None) -> ts.ImageType:
+    if options is None or 'size' not in options:
+        # default size is 1024x1024
         return ts.ImageType(size=(1024, 1024))
+    size = options['size']
     x_pos = size.find('x')
     if x_pos == -1:
         return ts.ImageType()
@@ -787,7 +755,7 @@ async def moderations(input: str, *, model: str = 'omni-moderation-latest') -> d
 
         >>> tbl.add_computed_column(moderations=moderations(tbl.text, model='text-moderation-stable'))
     """
-    result = await _openai_client().moderations.create(input=input, model=_opt(model))
+    result = await _openai_client().moderations.create(input=input, model=model)
     return result.dict()
 
 
