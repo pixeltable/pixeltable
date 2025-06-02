@@ -25,6 +25,7 @@ from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.media_store import MediaStore
 
 from .utils import (
+    TESTS_DIR,
     ReloadTester,
     assert_resultset_eq,
     create_table_data,
@@ -849,8 +850,7 @@ class TestTable:
         t = pxt.create_table('test', {'img': pxt.Image})
 
         # File path contains unusual characters such as '#'
-        tests_dir = os.path.dirname(__file__)
-        path = Path(tests_dir) / 'data/images/#_strange_file name!@$.jpg'
+        path = TESTS_DIR / 'data/images/#_strange_file name!@$.jpg'
         validate_update_status(t.insert(img=str(path)), 1)
         # Run a query that selects both the image and its path, to ensure it's loadable
         res = reload_tester.run_query(t.select(t.img, path=t.img.localpath))
@@ -915,6 +915,13 @@ class TestTable:
         pxt.drop_table('test')
         cache_stats = FileCache.get().stats()
         assert cache_stats.total_size == 0
+
+    def test_image_formats(self, reset_db: None) -> None:
+        tbl = pxt.create_table('test', {'img': pxt.Image})
+        files = [
+            'sewing-threads.heic'  # HEIC format
+        ]
+        tbl.insert({'img': f'{TESTS_DIR}/data/images/{file}'} for file in files)
 
     def test_video_url(self, reset_db: None) -> None:
         skip_test_if_not_installed('boto3')
