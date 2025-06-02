@@ -1,13 +1,11 @@
 import json
-from typing import TYPE_CHECKING, Any, Optional, Union, cast
+from typing import TYPE_CHECKING, Any, Optional
 
 import httpx
 
 import pixeltable as pxt
 from pixeltable import env
 from pixeltable.utils.code import local_public_names
-
-from .openai import _opt
 
 if TYPE_CHECKING:
     import openai
@@ -34,8 +32,8 @@ async def chat_completions(
     *,
     model: str,
     options: Optional[dict[str, Any]] = None,
-    tools: Optional[pxt.func.Tools] = None,
-    tool_choice: Optional[pxt.func.ToolChoice] = None,
+    tools: Optional[list[dict[str, Any]]] = None,
+    tool_choice: Optional[dict[str, Any]] = None,
 ) -> dict:
     """
     Creates a model response for the given chat conversation.
@@ -91,9 +89,7 @@ async def chat_completions(
         options['extra_body']['parallel_tool_calls'] = False
 
     result = await _deepseek_client().chat.completions.with_raw_response.create(
-        messages=messages,
-        model=model,
-        **options,
+        messages=messages, model=model, **options
     )
 
     return json.loads(result.text)

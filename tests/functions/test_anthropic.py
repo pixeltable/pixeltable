@@ -32,7 +32,7 @@ class TestAnthropic:
                     'temperature': 0.7,
                     'top_k': 40,
                     'top_p': 0.9,
-                }
+                },
             )
         )
         validate_update_status(t.insert(input="How's everything going today?"), 1)

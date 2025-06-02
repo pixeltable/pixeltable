@@ -30,7 +30,7 @@ class TestMistral:
                     'random_seed': 4171780,
                     'response_format': {'type': 'text'},
                     'safe_prompt': True,
-                }
+                },
             )
         )
         validate_update_status(t.insert(input='What three species of fish have the highest mercury content?'), 1)

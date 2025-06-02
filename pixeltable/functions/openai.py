@@ -14,7 +14,7 @@ import math
 import pathlib
 import re
 import uuid
-from typing import TYPE_CHECKING, Any, Callable, Literal, Optional, Type, TypeVar, Union, cast
+from typing import TYPE_CHECKING, Any, Callable, Optional, Type, TypeVar, Union
 
 import httpx
 import numpy as np
@@ -23,7 +23,7 @@ import PIL
 import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable import env, exprs
-from pixeltable.func import Batch, Tools, ToolChoice
+from pixeltable.func import Batch, Tools
 from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
@@ -171,13 +171,7 @@ def _get_header_info(
 
 
 @pxt.udf
-async def speech(
-    input: str,
-    *,
-    model: str,
-    voice: str,
-    options: Optional[dict[str, Any]] = None,
-) -> pxt.Audio:
+async def speech(input: str, *, model: str, voice: str, options: Optional[dict[str, Any]] = None) -> pxt.Audio:
     """
     Generates audio from the input text.
 
@@ -225,12 +219,7 @@ async def speech(
 
 
 @pxt.udf
-async def transcriptions(
-    audio: pxt.Audio,
-    *,
-    model: str,
-    options: Optional[dict[str, Any]] = None,
-) -> dict:
+async def transcriptions(audio: pxt.Audio, *, model: str, options: Optional[dict[str, Any]] = None) -> dict:
     """
     Transcribes audio into the input language.
 
@@ -264,21 +253,12 @@ async def transcriptions(
         options = {}
 
     file = pathlib.Path(audio)
-    transcription = await _openai_client().audio.transcriptions.create(
-        file=file,
-        model=model,
-        **options,
-    )
+    transcription = await _openai_client().audio.transcriptions.create(file=file, model=model, **options)
     return transcription.dict()
 
 
 @pxt.udf
-async def translations(
-    audio: pxt.Audio,
-    *,
-    model: str,
-    options: Optional[dict[str, Any]] = None,
-) -> dict:
+async def translations(audio: pxt.Audio, *, model: str, options: Optional[dict[str, Any]] = None) -> dict:
     """
     Translates audio into English.
 
@@ -312,9 +292,7 @@ async def translations(
         options = {}
 
     file = pathlib.Path(audio)
-    translation = await _openai_client().audio.translations.create(
-        file=file, model=model, **options
-    )
+    translation = await _openai_client().audio.translations.create(file=file, model=model, **options)
     return translation.dict()
 
 
@@ -378,8 +356,8 @@ async def chat_completions(
     *,
     model: str,
     options: Optional[dict[str, Any]] = None,
-    tools: Optional[list[Tools]] = None,
-    tool_choice: Optional[ToolChoice] = None,
+    tools: Optional[list[dict[str, Any]]] = None,
+    tool_choice: Optional[dict[str, Any]] = None,
 ) -> dict:
     """
     Creates a model response for the given chat conversation.
@@ -438,11 +416,7 @@ async def chat_completions(
         resource_pool, lambda: OpenAIRateLimitsInfo(_chat_completions_get_request_resources)
     )
 
-    result = await _openai_client().chat.completions.with_raw_response.create(
-        messages=messages,
-        model=model,
-        **options,
-    )
+    result = await _openai_client().chat.completions.with_raw_response.create(messages=messages, model=model, **options)
 
     requests_info, tokens_info = _get_header_info(result.headers)
     rate_limits_info.record(requests=requests_info, tokens=tokens_info)
@@ -653,10 +627,7 @@ def _(model: str, dimensions: Optional[int] = None) -> ts.ArrayType:
 
 @pxt.udf
 async def image_generations(
-    prompt: str,
-    *,
-    model: str = 'dall-e-2',
-    options: Optional[dict[str, Any]] = None,
+    prompt: str, *, model: str = 'dall-e-2', options: Optional[dict[str, Any]] = None
 ) -> PIL.Image.Image:
     """
     Creates an image given a prompt.
@@ -691,12 +662,7 @@ async def image_generations(
         options = {}
 
     # TODO(aaron-siegel): Decompose CPU/GPU ops into separate functions
-    result = await _openai_client().images.generate(
-        prompt=prompt,
-        model=model,
-        response_format='b64_json',
-        **options,
-    )
+    result = await _openai_client().images.generate(prompt=prompt, model=model, response_format='b64_json', **options)
     b64_str = result.data[0].b64_json
     b64_bytes = base64.b64decode(b64_str)
     img = PIL.Image.open(io.BytesIO(b64_bytes))

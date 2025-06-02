@@ -50,12 +50,7 @@ def _retry(fn: Callable[..., T]) -> Callable[..., T]:
 
 
 @pxt.udf(resource_pool='request-rate:together:chat')
-async def completions(
-    prompt: str,
-    *,
-    model: str,
-    options: Optional[dict[str, Any]] = None,
-) -> dict:
+async def completions(prompt: str, *, model: str, options: Optional[dict[str, Any]] = None) -> dict:
     """
     Generate completions based on a given prompt using a specified model.
 
@@ -88,20 +83,13 @@ async def completions(
     if options is None:
         options = {}
 
-    result = await _together_client().completions.create(
-        prompt=prompt,
-        model=model,
-        **options,
-    )
+    result = await _together_client().completions.create(prompt=prompt, model=model, **options)
     return result.dict()
 
 
 @pxt.udf(resource_pool='request-rate:together:chat')
 async def chat_completions(
-    messages: list[dict[str, str]],
-    *,
-    model: str,
-    options: Optional[dict[str, Any]] = None,
+    messages: list[dict[str, str]], *, model: str, options: Optional[dict[str, Any]] = None
 ) -> dict:
     """
     Generate chat completions based on a given prompt using a specified model.
@@ -136,11 +124,7 @@ async def chat_completions(
     if options is None:
         options = {}
 
-    result = await _together_client().chat.completions.create(
-        messages=messages,
-        model=model,
-        **options,
-    )
+    result = await _together_client().chat.completions.create(messages=messages, model=model, **options)
     return result.dict()
 
 
@@ -199,12 +183,7 @@ def _(model: str) -> ts.ArrayType:
 
 
 @pxt.udf(resource_pool='request-rate:together:images')
-async def image_generations(
-    prompt: str,
-    *,
-    model: str,
-    options: Optional[dict[str, Any]] = None,
-) -> PIL.Image.Image:
+async def image_generations(prompt: str, *, model: str, options: Optional[dict[str, Any]] = None) -> PIL.Image.Image:
     """
     Generate images based on a given prompt using a specified model.
 
@@ -239,9 +218,7 @@ async def image_generations(
     if options is None:
         options = {}
 
-    result = await _together_client().images.generate(
-        prompt=prompt, model=model, **options
-    )
+    result = await _together_client().images.generate(prompt=prompt, model=model, **options)
     if result.data[0].b64_json is not None:
         b64_bytes = base64.b64decode(result.data[0].b64_json)
         img = PIL.Image.open(io.BytesIO(b64_bytes))

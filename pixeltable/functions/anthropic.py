@@ -8,7 +8,7 @@ the [Working with Anthropic](https://pixeltable.readme.io/docs/working-with-anth
 import datetime
 import json
 import logging
-from typing import TYPE_CHECKING, Any, Iterable, Optional, TypeVar, Union, cast
+from typing import TYPE_CHECKING, Any, Iterable, Optional, cast
 
 import httpx
 
@@ -75,8 +75,8 @@ async def messages(
     model: str,
     max_tokens: int = 1024,
     options: Optional[dict[str, Any]] = None,
-    tools: Optional[pxt.func.Tools] = None,
-    tool_choice: Optional[pxt.func.ToolChoice] = None,
+    tools: Optional[list[dict[str, Any]]] = None,
+    tool_choice: Optional[dict[str, Any]] = None,
 ) -> dict:
     """
     Create a Message.
@@ -148,10 +148,7 @@ async def messages(
     from anthropic.types import MessageParam
 
     result = await _anthropic_client().messages.with_raw_response.create(
-        messages=cast(Iterable[MessageParam], messages),
-        model=model,
-        max_tokens=max_tokens,
-        **options
+        messages=cast(Iterable[MessageParam], messages), model=model, max_tokens=max_tokens, **options
     )
 
     requests_limit_str = result.headers.get('anthropic-ratelimit-requests-limit')

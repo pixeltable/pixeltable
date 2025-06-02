@@ -1,7 +1,6 @@
 import pytest
 
 import pixeltable as pxt
-import pixeltable.exceptions as excs
 
 from ..conftest import DO_RERUN
 from ..utils import skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
@@ -17,7 +16,9 @@ class TestTogether:
 
         t = pxt.create_table('test_tbl', {'input': pxt.String})
         t.add_computed_column(
-            output=completions(prompt=t.input, model='meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo', options={'stop': ['\n']})
+            output=completions(
+                prompt=t.input, model='meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo', options={'stop': ['\n']}
+            )
         )
         t.add_computed_column(
             output_2=completions(
@@ -33,7 +34,7 @@ class TestTogether:
                     'logprobs': 1,
                     'echo': True,
                     'n': 3,
-                }
+                },
             )
         )
         validate_update_status(t.insert(input='I am going to the '), 1)
@@ -49,7 +50,9 @@ class TestTogether:
         t = pxt.create_table('test_tbl', {'input': pxt.String})
         messages = [{'role': 'user', 'content': t.input}]
         t.add_computed_column(
-            output=chat_completions(messages=messages, model='meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo', options={'stop': ['\n']})
+            output=chat_completions(
+                messages=messages, model='meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo', options={'stop': ['\n']}
+            )
         )
         t.add_computed_column(
             output_2=chat_completions(
@@ -66,7 +69,7 @@ class TestTogether:
                     'n': 3,
                     'safety_model': 'Meta-Llama/Meta-Llama-Guard-3-8B',
                     'response_format': {'type': 'json_object'},
-                }
+                },
             )
         )
         validate_update_status(t.insert(input='Give me a typical example of a JSON structure.'), 1)
@@ -91,7 +94,9 @@ class TestTogether:
         from pixeltable.functions.together import image_generations
 
         t = pxt.create_table('test_tbl', {'input': pxt.String, 'negative_prompt': pxt.String})
-        t.add_computed_column(img=image_generations(t.input, model='black-forest-labs/FLUX.1-schnell', options={'steps': 5}))
+        t.add_computed_column(
+            img=image_generations(t.input, model='black-forest-labs/FLUX.1-schnell', options={'steps': 5})
+        )
         t.add_computed_column(
             img_2=image_generations(
                 t.input,
@@ -102,7 +107,7 @@ class TestTogether:
                     'height': 1024,
                     'seed': 4171780,
                     'negative_prompt': t.negative_prompt,
-                }
+                },
             )
         )
         validate_update_status(

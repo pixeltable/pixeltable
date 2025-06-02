@@ -29,10 +29,7 @@ def _fireworks_client() -> 'fireworks.client.Fireworks':
 
 @pxt.udf(resource_pool='request-rate:fireworks')
 async def chat_completions(
-    messages: list[dict[str, str]],
-    *,
-    model: str,
-    options: Optional[dict[str, Any]] = None,
+    messages: list[dict[str, str]], *, model: str, options: Optional[dict[str, Any]] = None
 ) -> dict:
     """
     Creates a model response for the given chat conversation.
@@ -77,9 +74,7 @@ async def chat_completions(
         options['request_timeout'] = Config.get().get_int_value('timeout', section='fireworks') or 600
     # TODO: this timeout doesn't really work, I think it only applies to returning the stream, but not to the timing
     # of the chunks; addressing this would require a timeout for the task running this udf
-    stream = _fireworks_client().chat.completions.acreate(
-        model=model, messages=messages, **options
-    )
+    stream = _fireworks_client().chat.completions.acreate(model=model, messages=messages, **options)
     chunks = []
     async for chunk in stream:
         chunks.append(chunk)

@@ -32,7 +32,7 @@ class TestDeepseek:
                     'stop': ['\n'],
                     'temperature': 0.7,
                     'top_p': 0.8,
-                }
+                },
             )
         )
         t.add_computed_column(reasoning_output=chat_completions(model='deepseek-reasoner', messages=t.input_msgs))

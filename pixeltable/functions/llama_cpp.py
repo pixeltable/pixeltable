@@ -35,8 +35,8 @@ def create_chat_completion(
         repo_id: The Hugging Face model repo id (if using a pretrained model).
         repo_filename: A filename or glob pattern to match the model file in the repo (optional, if using a
             pretrained model).
-        options: Additional arguments for the llama_cpp `create_chat_completions` API, such as `max_tokens`, `temperature`,
-            `top_p`, and `top_k`. For details, see the
+        options: Additional arguments for the llama_cpp `create_chat_completions` API, such as `max_tokens`,
+            `temperature`, `top_p`, and `top_k`. For details, see the
             [llama_cpp create_chat_completions documentation](https://llama-cpp-python.readthedocs.io/en/latest/api-reference/#llama_cpp.Llama.create_chat_completion).
     """
     Env.get().require_package('llama_cpp', min_version=[0, 3, 1])

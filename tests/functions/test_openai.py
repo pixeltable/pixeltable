@@ -36,11 +36,15 @@ class TestOpenai:
         from pixeltable.functions.openai import speech, transcriptions, translations
 
         t.add_computed_column(speech=speech(t.input, model='tts-1', voice='onyx'))
-        t.add_computed_column(speech_2=speech(t.input, model='tts-1', voice='onyx', options={'response_format': 'flac', 'speed': 1.05}))
+        t.add_computed_column(
+            speech_2=speech(t.input, model='tts-1', voice='onyx', options={'response_format': 'flac', 'speed': 1.05})
+        )
         t.add_computed_column(transcription=transcriptions(t.speech, model='whisper-1'))
         t.add_computed_column(
             transcription_2=transcriptions(
-                t.speech, model='whisper-1', options={'language': 'en', 'prompt': 'Transcribe the contents of this recording.'}
+                t.speech,
+                model='whisper-1',
+                options={'language': 'en', 'prompt': 'Transcribe the contents of this recording.'},
             )
         )
         t.add_computed_column(translation=translations(t.speech, model='whisper-1'))
@@ -91,12 +95,14 @@ class TestOpenai:
                     'temperature': 0.7,
                     'top_p': 0.8,
                     'user': 'pixeltable',
-                }
+                },
             )
         )
         # test with JSON output enforced
         t.add_computed_column(
-            chat_output_4=chat_completions(model='gpt-4o-mini', messages=msgs, options={'response_format': {'type': 'json_object'}})
+            chat_output_4=chat_completions(
+                model='gpt-4o-mini', messages=msgs, options={'response_format': {'type': 'json_object'}}
+            )
         )
         validate_update_status(t.insert(input='Give me an example of a typical JSON structure.'), 1)
         result = t.collect()
@@ -339,7 +345,9 @@ class TestOpenai:
             }
         ]
         t.add_computed_column(
-            response_2=chat_completions(model='gpt-4o-mini', messages=msgs, options={'max_tokens': 300}).choices[0].message.content
+            response_2=chat_completions(model='gpt-4o-mini', messages=msgs, options={'max_tokens': 300})
+            .choices[0]
+            .message.content
         )
         validate_update_status(t.insert(prompt="What's in this image?", img=SAMPLE_IMAGE_URL), 1)
         result = t.collect()['response_2'][0]
@@ -399,7 +407,9 @@ class TestOpenai:
 
         t.add_computed_column(img=image_generations(t.input))
         # Test dall-e-2 options
-        t.add_computed_column(img_2=image_generations(t.input, model='dall-e-2', options={'size': '512x512', 'user': 'pixeltable'}))
+        t.add_computed_column(
+            img_2=image_generations(t.input, model='dall-e-2', options={'size': '512x512', 'user': 'pixeltable'})
+        )
         # image size information was captured correctly
         type_info = t._schema
         assert isinstance(type_info['img_2'], ts.ImageType)

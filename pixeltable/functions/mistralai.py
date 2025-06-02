@@ -32,10 +32,7 @@ def _mistralai_client() -> 'mistralai.Mistral':
 
 @pxt.udf(resource_pool='request-rate:mistral')
 async def chat_completions(
-    messages: list[dict[str, str]],
-    *,
-    model: str,
-    options: Optional[dict[str, Any]] = None,
+    messages: list[dict[str, str]], *, model: str, options: Optional[dict[str, Any]] = None
 ) -> dict:
     """
     Chat Completion API.
