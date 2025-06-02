@@ -52,7 +52,8 @@ class StoreBase:
         # We need to declare a `base` variable here, even though it's only defined for instances of `StoreView`,
         # since it's referenced by various methods of `StoreBase`
         self.base = tbl_version.base.get().store_tbl if tbl_version.base is not None else None
-        self.create_sa_tbl()
+        # we're passing in tbl_version to avoid a circular call to TableVersionHandle.get()
+        self.create_sa_tbl(tbl_version)
 
     def system_columns(self) -> list[sql.Column]:
         return [*self._pk_cols, self.v_max_col]
@@ -77,11 +78,13 @@ class StoreBase:
         self._pk_cols = [*rowid_cols, self.v_min_col]
         return [*rowid_cols, self.v_min_col, self.v_max_col]
 
-    def create_sa_tbl(self) -> None:
+    def create_sa_tbl(self, tbl_version: Optional[catalog.TableVersion] = None) -> None:
         """Create self.sa_tbl from self.tbl_version."""
+        if tbl_version is None:
+            tbl_version = self.tbl_version.get()
         system_cols = self._create_system_columns()
         all_cols = system_cols.copy()
-        for col in [c for c in self.tbl_version.get().cols if c.is_stored]:
+        for col in [c for c in tbl_version.cols if c.is_stored]:
             # re-create sql.Column for each column, regardless of whether it already has sa_col set: it was bound
             # to the last sql.Table version we created and cannot be reused
             col.create_sa_cols()
@@ -99,16 +102,17 @@ class StoreBase:
         # - base x view joins can be executed as merge joins
         # - speeds up ORDER BY rowid DESC
         # - allows filtering for a particular table version in index scan
-        idx_name = f'sys_cols_idx_{self.tbl_version.id.hex}'
+        idx_name = f'sys_cols_idx_{tbl_version.id.hex}'
         idxs.append(sql.Index(idx_name, *system_cols))
 
         # v_min/v_max indices: speeds up base table scans needed to propagate a base table insert or delete
-        idx_name = f'vmin_idx_{self.tbl_version.id.hex}'
+        idx_name = f'vmin_idx_{tbl_version.id.hex}'
         idxs.append(sql.Index(idx_name, self.v_min_col, postgresql_using=Env.get().dbms.version_index_type))
-        idx_name = f'vmax_idx_{self.tbl_version.id.hex}'
+        idx_name = f'vmax_idx_{tbl_version.id.hex}'
         idxs.append(sql.Index(idx_name, self.v_max_col, postgresql_using=Env.get().dbms.version_index_type))
 
         self.sa_tbl = sql.Table(self._storage_name(), self.sa_md, *all_cols, *idxs)
+        # _logger.debug(f'created sa tbl for {tbl_version.id!s} (sa_tbl={id(self.sa_tbl):x}, tv={id(tbl_version):x})')
 
     @abc.abstractmethod
     def _rowid_join_predicate(self) -> sql.ColumnElement[bool]:
@@ -285,7 +289,7 @@ class StoreBase:
                         else:
                             if col.col_type.is_image_type() and result_row.file_urls[value_expr_slot_idx] is None:
                                 # we have yet to store this image
-                                filepath = str(MediaStore.prepare_media_path(col.tbl.id, col.id, col.tbl.get().version))
+                                filepath = str(MediaStore.prepare_media_path(col.tbl.id, col.id, col.tbl.version))
                                 result_row.flush_img(value_expr_slot_idx, filepath)
                             val = result_row.get_stored_val(value_expr_slot_idx, col.sa_col.type)
                             if col.col_type.is_media_type():
@@ -415,9 +419,7 @@ class StoreBase:
             number of deleted rows
         """
         where_clause = sql.true() if where_clause is None else where_clause
-        where_clause = sql.and_(
-            self.v_min_col < current_version, self.v_max_col == schema.Table.MAX_VERSION, where_clause
-        )
+        version_clause = sql.and_(self.v_min_col < current_version, self.v_max_col == schema.Table.MAX_VERSION)
         rowid_join_clause = self._rowid_join_predicate()
         base_versions_clause = (
             sql.true() if len(base_versions) == 0 else self.base._versions_clause(base_versions, match_on_vmin)
@@ -428,10 +430,12 @@ class StoreBase:
             set_clause[index_info.undo_col.sa_col] = index_info.val_col.sa_col
             # set value column to NULL
             set_clause[index_info.val_col.sa_col] = None
+
         stmt = (
             sql.update(self.sa_tbl)
             .values(set_clause)
             .where(where_clause)
+            .where(version_clause)
             .where(rowid_join_clause)
             .where(base_versions_clause)
         )
@@ -528,10 +532,12 @@ class StoreComponentView(StoreView):
         self.rowid_cols.append(self.pos_col)
         return self.rowid_cols
 
-    def create_sa_tbl(self) -> None:
-        super().create_sa_tbl()
+    def create_sa_tbl(self, tbl_version: Optional[catalog.TableVersion] = None) -> None:
+        if tbl_version is None:
+            tbl_version = self.tbl_version.get()
+        super().create_sa_tbl(tbl_version)
         # we need to fix up the 'pos' column in TableVersion
-        self.tbl_version.get().cols_by_name['pos'].sa_col = self.pos_col
+        tbl_version.cols_by_name['pos'].sa_col = self.pos_col
 
     def _rowid_join_predicate(self) -> sql.ColumnElement[bool]:
         return sql.and_(

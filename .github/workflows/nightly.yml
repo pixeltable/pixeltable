@@ -125,7 +125,11 @@ jobs:
         uses: conda-incubator/setup-miniconda@v3
         with:
           miniconda-version: latest
-          python-version: 3.10
+          activate-environment: pxt
           use-only-tar-bz2: true  # Needed to use conda with cache action
+      - name: Install python
+        run: |
+          conda install -y python=${{ matrix.python-version }} pip=25.0
+          conda info
       - name: Run isolated notebook tests
         run: ./scripts/run-isolated-nb-tests.sh

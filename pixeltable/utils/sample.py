@@ -2,6 +2,7 @@ import sqlalchemy as sql
 
 from pixeltable.func.udf import udf
 
+
 @udf
 def sample_key(seed: int, *key_fields: int) -> str:
     """

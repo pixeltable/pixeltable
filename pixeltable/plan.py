@@ -382,7 +382,7 @@ class Planner:
 
         # create InMemoryDataNode for 'rows'
         plan: exec.ExecNode = exec.InMemoryDataNode(
-            TableVersionHandle(tbl.id, tbl.effective_version), rows, row_builder, tbl.next_rowid
+            TableVersionHandle(tbl.id, tbl.effective_version), rows, row_builder, tbl.next_row_id
         )
 
         media_input_col_info = [
@@ -485,7 +485,7 @@ class Planner:
 
         cls.__check_valid_columns(tbl.tbl_version.get(), recomputed_cols, 'updated in')
 
-        recomputed_base_cols = {col for col in recomputed_cols if col.tbl == tbl.tbl_version}
+        recomputed_base_cols = {col for col in recomputed_cols if col.tbl.id == tbl.tbl_version.id}
         copied_cols = [
             col
             for col in target.cols_by_id.values()
@@ -509,7 +509,7 @@ class Planner:
         for i, col in enumerate(all_base_cols):
             plan.row_builder.add_table_column(col, select_list[i].slot_idx)
         recomputed_user_cols = [c for c in recomputed_cols if c.name is not None]
-        return plan, [f'{c.tbl.get().name}.{c.name}' for c in updated_cols + recomputed_user_cols], recomputed_user_cols
+        return plan, [f'{c.tbl.name}.{c.name}' for c in updated_cols + recomputed_user_cols], recomputed_user_cols
 
     @classmethod
     def __check_valid_columns(
@@ -565,7 +565,7 @@ class Planner:
         recomputed_cols.update(idx_val_cols)
         # we only need to recompute stored columns (unstored ones are substituted away)
         recomputed_cols = {c for c in recomputed_cols if c.is_stored}
-        recomputed_base_cols = {col for col in recomputed_cols if col.tbl == target}
+        recomputed_base_cols = {col for col in recomputed_cols if col.tbl.id == target.id}
         copied_cols = [
             col
             for col in target.cols_by_id.values()

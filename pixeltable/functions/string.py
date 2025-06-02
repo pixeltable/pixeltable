@@ -12,7 +12,12 @@ t.select(t.str_col.capitalize()).collect()
 """
 
 import builtins
+import re
+import textwrap
+from string import whitespace
 from typing import Any, Optional
+
+import sqlalchemy as sql
 
 import pixeltable as pxt
 from pixeltable.utils.code import local_public_names
@@ -26,6 +31,11 @@ def capitalize(self: str) -> str:
     Equivalent to [`str.capitalize()`](https://docs.python.org/3/library/stdtypes.html#str.capitalize).
     """
     return self.capitalize()
+
+
+@capitalize.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    return sql.func.concat(sql.func.upper(sql.func.left(self, 1)), sql.func.lower(sql.func.right(self, -1)))
 
 
 @pxt.udf(is_method=True)
@@ -53,26 +63,47 @@ def center(self: str, width: int, fillchar: str = ' ') -> str:
 
 
 @pxt.udf(is_method=True)
-def contains(self: str, pattern: str, case: bool = True, flags: int = 0, regex: bool = True) -> bool:
+def contains(self: str, substr: str, case: bool = True) -> bool:
     """
-    Test if string contains pattern or regex.
+    Test if string contains a substring.
 
     Args:
-        pattern: string literal or regular expression
+        substr: string literal or regular expression
         case: if False, ignore case
-        flags: [flags](https://docs.python.org/3/library/re.html#flags) for the `re` module
-        regex: if True, treat pattern as a regular expression
     """
-    if regex:
-        import re
-
-        if not case:
-            flags |= re.IGNORECASE
-        return bool(re.search(pattern, self, flags))
-    elif case:
-        return pattern in self
+    if case:
+        return substr in self
     else:
-        return pattern.lower() in self.lower()
+        return substr.lower() in self.lower()
+
+
+@contains.to_sql
+def _(
+    self: sql.ColumnElement, substr: sql.ColumnElement, case: Optional[sql.ColumnElement] = None
+) -> sql.ColumnElement:
+    # Replace all occurrences of `%`, `_`, and `\` with escaped versions
+    escaped_substr = sql.func.regexp_replace(substr, r'(%|_|\\)', r'\\\1', 'g')
+    if case is None:
+        # Default `case` is True, so we do a case-sensitive comparison
+        return self.like(sql.func.concat('%', escaped_substr, '%'))
+    else:
+        # Toggle case-sensitivity based on the value of `case`
+        return sql.case(
+            (case, self.like(sql.func.concat('%', escaped_substr, '%'))),
+            else_=sql.func.lower(self).like(sql.func.concat('%', sql.func.lower(escaped_substr), '%')),
+        )
+
+
+@pxt.udf(is_method=True)
+def contains_re(self: str, pattern: str, flags: int = 0) -> bool:
+    """
+    Test if string contains a regular expression pattern.
+
+    Args:
+        pattern: regular expression pattern
+        flags: [flags](https://docs.python.org/3/library/re.html#flags) for the `re` module
+    """
+    return bool(re.search(pattern, self, flags))
 
 
 @pxt.udf(is_method=True)
@@ -84,22 +115,27 @@ def count(self: str, pattern: str, flags: int = 0) -> int:
         pattern: string literal or regular expression
         flags: [flags](https://docs.python.org/3/library/re.html#flags) for the `re` module
     """
-    import re
-
     return builtins.len(re.findall(pattern, self, flags))
 
 
 @pxt.udf(is_method=True)
-def endswith(self: str, pattern: str) -> bool:
+def endswith(self: str, substr: str) -> bool:
     """
     Return `True` if the string ends with the specified suffix, otherwise return `False`.
 
     Equivalent to [`str.endswith()`](https://docs.python.org/3/library/stdtypes.html#str.endswith).
 
     Args:
-        pattern: string literal
+        substr: string literal
     """
-    return self.endswith(pattern)
+    return self.endswith(substr)
+
+
+@endswith.to_sql
+def _(self: sql.ColumnElement, substr: sql.ColumnElement) -> sql.ColumnElement:
+    # Replace all occurrences of `%`, `_`, and `\` with escaped versions
+    escaped_substr = sql.func.regexp_replace(substr, r'(%|_|\\)', r'\\\1', 'g')
+    return self.like(sql.func.concat('%', escaped_substr))
 
 
 @pxt.udf(is_method=True)
@@ -113,13 +149,11 @@ def fill(self: str, width: int, **kwargs: Any) -> str:
         width: Maximum line width.
         kwargs: Additional keyword arguments to pass to `textwrap.fill()`.
     """
-    import textwrap
-
     return textwrap.fill(self, width, **kwargs)
 
 
 @pxt.udf(is_method=True)
-def find(self: str, substr: str, start: Optional[int] = 0, end: Optional[int] = None) -> int:
+def find(self: str, substr: str, start: int = 0, end: Optional[int] = None) -> int:
     """
     Return the lowest index in string where `substr` is found within the slice `s[start:end]`.
 
@@ -133,6 +167,23 @@ def find(self: str, substr: str, start: Optional[int] = 0, end: Optional[int] = 
     return self.find(substr, start, end)
 
 
+@find.to_sql
+def _(
+    self: sql.ColumnElement,
+    substr: sql.ColumnElement,
+    start: sql.ColumnElement,
+    end: Optional[sql.ColumnElement] = None,
+) -> sql.ColumnElement:
+    sl = pxt.functions.string.slice._to_sql(self, start, end)
+    if sl is None:
+        return None
+
+    strpos = sql.func.strpos(sl, substr)
+    return sql.case(
+        (strpos == 0, -1), (start >= 0, strpos + start - 1), else_=strpos + sql.func.char_length(self) + start - 1
+    )
+
+
 @pxt.udf(is_method=True)
 def findall(self: str, pattern: str, flags: int = 0) -> list:
     """
@@ -144,8 +195,6 @@ def findall(self: str, pattern: str, flags: int = 0) -> list:
         pattern: regular expression pattern
         flags: [flags](https://docs.python.org/3/library/re.html#flags) for the `re` module
     """
-    import re
-
     return re.findall(pattern, self, flags)
 
 
@@ -171,8 +220,6 @@ def fullmatch(self: str, pattern: str, case: bool = True, flags: int = 0) -> boo
         case: if False, ignore case
         flags: [flags](https://docs.python.org/3/library/re.html#flags) for the `re` module
     """
-    import re
-
     if not case:
         flags |= re.IGNORECASE
     _ = bool(re.fullmatch(pattern, self, flags))
@@ -180,7 +227,7 @@ def fullmatch(self: str, pattern: str, case: bool = True, flags: int = 0) -> boo
 
 
 @pxt.udf(is_method=True)
-def index(self: str, substr: str, start: Optional[int] = 0, end: Optional[int] = None) -> int:
+def index(self: str, substr: str, start: int = 0, end: Optional[int] = None) -> int:
     """
     Return the lowest index in string where `substr` is found within the slice `[start:end]`.
     Raises ValueError if `substr` is not found.
@@ -330,6 +377,11 @@ def len(self: str) -> int:
     return builtins.len(self)
 
 
+@len.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    return sql.func.char_length(self)
+
+
 @pxt.udf(is_method=True)
 def ljust(self: str, width: int, fillchar: str = ' ') -> str:
     """
@@ -355,6 +407,11 @@ def lower(self: str) -> str:
     return self.lower()
 
 
+@lower.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    return sql.func.lower(self)
+
+
 @pxt.udf(is_method=True)
 def lstrip(self: str, chars: Optional[str] = None) -> str:
     """
@@ -369,6 +426,11 @@ def lstrip(self: str, chars: Optional[str] = None) -> str:
     return self.lstrip(chars)
 
 
+@lstrip.to_sql
+def _(self: sql.ColumnElement, chars: Optional[sql.ColumnElement] = None) -> sql.ColumnElement:
+    return sql.func.ltrim(self, chars if chars is not None else whitespace)
+
+
 @pxt.udf(is_method=True)
 def match(self: str, pattern: str, case: bool = True, flags: int = 0) -> bool:
     """
@@ -379,8 +441,6 @@ def match(self: str, pattern: str, case: bool = True, flags: int = 0) -> bool:
         case: if False, ignore case
         flags: [flags](https://docs.python.org/3/library/re.html#flags) for the `re` module
     """
-    import re
-
     if not case:
         flags |= re.IGNORECASE
     return bool(re.match(pattern, self, flags))
@@ -440,9 +500,12 @@ def removeprefix(self: str, prefix: str) -> str:
     """
     Remove prefix. If the prefix is not present, returns string.
     """
-    if self.startswith(prefix):
-        return self[builtins.len(prefix) :]
-    return self
+    return self.removeprefix(prefix)
+
+
+@removeprefix.to_sql
+def _(self: sql.ColumnElement, prefix: sql.ColumnElement) -> sql.ColumnElement:
+    return sql.case((startswith._to_sql(self, prefix), sql.func.right(self, -sql.func.char_length(prefix))), else_=self)
 
 
 @pxt.udf(is_method=True)
@@ -450,9 +513,12 @@ def removesuffix(self: str, suffix: str) -> str:
     """
     Remove suffix. If the suffix is not present, returns string.
     """
-    if self.endswith(suffix):
-        return self[: -builtins.len(suffix)]
-    return self
+    return self.removesuffix(suffix)
+
+
+@removesuffix.to_sql
+def _(self: sql.ColumnElement, suffix: sql.ColumnElement) -> sql.ColumnElement:
+    return sql.case((endswith._to_sql(self, suffix), sql.func.left(self, -sql.func.char_length(suffix))), else_=self)
 
 
 @pxt.udf(is_method=True)
@@ -463,32 +529,65 @@ def repeat(self: str, n: int) -> str:
     return self * n
 
 
-@pxt.udf(is_method=True)
-def replace(
-    self: str, pattern: str, repl: str, n: int = -1, case: bool = True, flags: int = 0, regex: bool = False
-) -> str:
-    """
-    Replace occurrences of `pattern` with `repl`.
+@repeat.to_sql
+def _(self: sql.ColumnElement, n: sql.ColumnElement) -> sql.ColumnElement:
+    return sql.func.repeat(self, n.cast(sql.types.INT))
 
-    Equivalent to [`str.replace()`](https://docs.python.org/3/library/stdtypes.html#str.replace) or
-    [`re.sub()`](https://docs.python.org/3/library/re.html#re.sub), depending on the value of regex.
+
+@pxt.udf(is_method=True)
+def replace(self: str, substr: str, repl: str, n: Optional[int] = None) -> str:
+    """
+    Replace occurrences of `substr` with `repl`.
+
+    Equivalent to [`str.replace()`](https://docs.python.org/3/library/stdtypes.html#str.replace).
 
     Args:
-        pattern: string literal or regular expression
+        substr: string literal
         repl: replacement string
-        n: number of replacements to make (-1 for all)
-        case: if False, ignore case
-        flags: [flags](https://docs.python.org/3/library/re.html#flags) for the `re` module
-        regex: if True, treat pattern as a regular expression
+        n: number of replacements to make (if `None`, replace all occurrences)
     """
-    if regex:
-        import re
+    return self.replace(substr, repl, n or -1)
 
-        if not case:
-            flags |= re.IGNORECASE
-        return re.sub(pattern, repl, self, count=(0 if n == -1 else n), flags=flags)
-    else:
-        return self.replace(pattern, repl, n)
+
+@replace.to_sql
+def _(
+    self: sql.ColumnElement, substr: sql.ColumnElement, repl: sql.ColumnElement, n: Optional[sql.ColumnElement] = None
+) -> sql.ColumnElement:
+    if n is not None:
+        return None  # SQL does not support bounding the number of replacements
+
+    return sql.func.replace(self, substr, repl)
+
+
+@pxt.udf(is_method=True)
+def replace_re(self: str, pattern: str, repl: str, n: Optional[int] = None, flags: int = 0) -> str:
+    """
+    Replace occurrences of a regular expression pattern with `repl`.
+
+    Equivalent to [`re.sub()`](https://docs.python.org/3/library/re.html#re.sub).
+
+    Args:
+        pattern: regular expression pattern
+        repl: replacement string
+        n: number of replacements to make (if `None`, replace all occurrences)
+        flags: [flags](https://docs.python.org/3/library/re.html#flags) for the `re` module
+    """
+    return re.sub(pattern, repl, self, count=(n or 0), flags=flags)
+
+
+@pxt.udf(is_method=True)
+def reverse(self: str) -> str:
+    """
+    Return a reversed copy of the string.
+
+    Equivalent to `str[::-1]`.
+    """
+    return self[::-1]
+
+
+@reverse.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    return sql.func.reverse(self)
 
 
 @pxt.udf(is_method=True)
@@ -556,6 +655,11 @@ def rstrip(self: str, chars: Optional[str] = None) -> str:
     return self.rstrip(chars)
 
 
+@rstrip.to_sql
+def _(self: sql.ColumnElement, chars: Optional[sql.ColumnElement] = None) -> sql.ColumnElement:
+    return sql.func.rtrim(self, chars if chars is not None else whitespace)
+
+
 @pxt.udf(is_method=True)
 def slice(self: str, start: Optional[int] = None, stop: Optional[int] = None, step: Optional[int] = None) -> str:
     """
@@ -567,6 +671,41 @@ def slice(self: str, start: Optional[int] = None, stop: Optional[int] = None, st
         step: slice step
     """
     return self[start:stop:step]
+
+
+@slice.to_sql
+def _(
+    self: sql.ColumnElement,
+    start: Optional[sql.ColumnElement] = None,
+    stop: Optional[sql.ColumnElement] = None,
+    step: Optional[sql.ColumnElement] = None,
+) -> sql.ColumnElement:
+    if step is not None:
+        return None
+
+    if start is not None:
+        start = start.cast(sql.types.INT)  # Postgres won't accept a BIGINT
+        start = sql.case(
+            (start >= 0, start + 1),  # SQL is 1-based, Python is 0-based
+            else_=sql.func.char_length(self) + start + 1,  # negative index
+        )
+        start = sql.func.greatest(start, 1)
+
+    if stop is not None:
+        stop = stop.cast(sql.types.INT)  # Postgres won't accept a BIGINT
+        stop = sql.case(
+            (stop >= 0, stop + 1),  # SQL is 1-based, Python is 0-based
+            else_=sql.func.char_length(self) + stop + 1,  # negative index
+        )
+        stop = sql.func.greatest(stop, 0)
+
+    if start is None:
+        if stop is None:
+            return self
+        return sql.func.substr(self, 1, stop)
+    if stop is None:
+        return sql.func.substr(self, start)
+    return sql.func.substr(self, start, sql.func.greatest(stop - start, 0))
 
 
 @pxt.udf(is_method=True)
@@ -585,16 +724,23 @@ def slice_replace(
 
 
 @pxt.udf(is_method=True)
-def startswith(self: str, pattern: str) -> int:
+def startswith(self: str, substr: str) -> int:
     """
-    Return `True` if string starts with `pattern`, otherwise return `False`.
+    Return `True` if string starts with `substr`, otherwise return `False`.
 
     Equivalent to [`str.startswith()`](https://docs.python.org/3/library/stdtypes.html#str.startswith).
 
     Args:
-        pattern: string literal
+        substr: string literal
     """
-    return self.startswith(pattern)
+    return self.startswith(substr)
+
+
+@startswith.to_sql
+def _(self: sql.ColumnElement, substr: sql.ColumnElement) -> sql.ColumnElement:
+    # Replace all occurrences of `%`, `_`, and `\` with escaped versions
+    escaped_substr = sql.func.regexp_replace(substr, r'(%|_|\\)', r'\\\1', 'g')
+    return self.like(sql.func.concat(escaped_substr, '%'))
 
 
 @pxt.udf(is_method=True)
@@ -608,6 +754,11 @@ def strip(self: str, chars: Optional[str] = None) -> str:
         chars: The set of characters to be removed. If omitted or `None`, whitespace characters are removed.
     """
     return self.strip(chars)
+
+
+@strip.to_sql
+def _(self: sql.ColumnElement, chars: Optional[sql.ColumnElement] = None) -> sql.ColumnElement:
+    return sql.func.trim(self, chars if chars is not None else whitespace)
 
 
 @pxt.udf(is_method=True)
@@ -641,6 +792,11 @@ def upper(self: str) -> str:
     return self.upper()
 
 
+@upper.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    return sql.func.upper(self)
+
+
 @pxt.udf(is_method=True)
 def wrap(self: str, width: int, **kwargs: Any) -> list[str]:
     """
@@ -653,8 +809,6 @@ def wrap(self: str, width: int, **kwargs: Any) -> list[str]:
         width: Maximum line width.
         kwargs: Additional keyword arguments to pass to `textwrap.fill()`.
     """
-    import textwrap
-
     return textwrap.wrap(self, width, **kwargs)
 
 

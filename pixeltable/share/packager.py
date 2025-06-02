@@ -7,6 +7,7 @@ import urllib.request
 import uuid
 from pathlib import Path
 from typing import Any, Iterator, Optional
+from uuid import UUID
 
 import more_itertools
 import pyarrow as pa
@@ -51,7 +52,7 @@ class TablePackager:
         self.media_files = {}
 
         # Load metadata
-        with Env.get().begin_xact():
+        with catalog.Catalog.get().begin_xact(for_write=False):
             tbl_md = catalog.Catalog.get().load_replica_md(table)
             self.md = {
                 'pxt_version': pxt.__version__,
@@ -66,15 +67,15 @@ class TablePackager:
         Export the table to a tarball containing Parquet tables and media files.
         """
         assert not self.tmp_dir.exists()  # Packaging can only be done once per TablePackager instance
-        _logger.info(f"Packaging table '{self.table._path}' and its ancestors in: {self.tmp_dir}")
+        _logger.info(f"Packaging table '{self.table._path()}' and its ancestors in: {self.tmp_dir}")
         self.tmp_dir.mkdir()
         with open(self.tmp_dir / 'metadata.json', 'w', encoding='utf8') as fp:
             json.dump(self.md, fp)
         self.tables_dir = self.tmp_dir / 'tables'
         self.tables_dir.mkdir()
-        with Env.get().begin_xact():
+        with catalog.Catalog.get().begin_xact(for_write=False):
             for tv in self.table._tbl_version_path.get_tbl_versions():
-                _logger.info(f"Exporting table '{tv.get().name}:{tv.get().version}'.")
+                _logger.info(f"Exporting table '{tv.get().versioned_name}'.")
                 self.__export_table(tv.get())
         _logger.info('Building archive.')
         bundle_path = self.__build_tarball()
@@ -253,13 +254,26 @@ class TableRestorer:
         tbl_md = [schema.FullTableMd.from_dict(t) for t in self.md['md']['tables']]
 
         # Create the replica table
-        # TODO: This needs to be made concurrency-safe.
-        replica_tbl = catalog.Catalog.get().create_replica(catalog.Path(self.tbl_path), tbl_md)
-        assert replica_tbl._tbl_version.get().is_snapshot
+        # The logic here needs to be completely restructured in order to make it concurrency-safe.
+        # - Catalog.create_replica() needs to write the metadata and also create the physical store tables
+        #   and populate them, otherwise concurrent readers will see an inconsistent state (table metadata w/o
+        #   an actual table)
+        # - this could be done one replica at a time (instead of the entire hierarchy)
+        cat = catalog.Catalog.get()
+        cat.create_replica(catalog.Path(self.tbl_path), tbl_md)
+        # don't call get_table() until after the calls to create_replica() and __import_table() below;
+        # the TV instances created by get_table() would be replaced by create_replica(), which creates duplicate
+        # TV instances for the same replica version, which then leads to failures when constructing queries
 
         # Now we need to instantiate and load data for replica_tbl and its ancestors, except that we skip
         # replica_tbl itself if it's a pure snapshot.
-        if replica_tbl._id != replica_tbl._tbl_version.id:
+        target_md = tbl_md[0]
+        is_pure_snapshot = (
+            target_md.tbl_md.view_md is not None
+            and target_md.tbl_md.view_md.predicate is None
+            and len(target_md.schema_version_md.columns) == 0
+        )
+        if is_pure_snapshot:
             ancestor_md = tbl_md[1:]  # Pure snapshot; skip replica_tbl
         else:
             ancestor_md = tbl_md  # Not a pure snapshot; include replica_tbl
@@ -273,7 +287,8 @@ class TableRestorer:
                 _logger.info(f'Importing table {tv.name!r}.')
                 self.__import_table(self.tmp_dir, tv, md)
 
-        return replica_tbl
+        with cat.begin_xact(for_write=False):
+            return cat.get_table_by_id(UUID(tbl_md[0].tbl_md.tbl_id))
 
     def __import_table(self, bundle_path: Path, tv: catalog.TableVersion, tbl_md: schema.FullTableMd) -> None:
         """
