@@ -30,21 +30,16 @@ class TestHistory:
         p = r.to_pandas()
         print(p)
 
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(excs.Error, match='Invalid value for'):
             t.history(max_versions=0)
-        assert 'invalid value for' in str(exc_info.value).lower()
-        with pytest.raises(excs.Error) as exc_info:
+        with pytest.raises(excs.Error, match='Invalid value for'):
             t.history(max_versions=1.5)  # type: ignore[arg-type]
-        assert 'invalid value for' in str(exc_info.value).lower()
-        with pytest.raises(excs.Error) as exc_info:
-            t.history(summarize_data_changes='invalid')  # type: ignore[arg-type]
-        assert 'invalid value for' in str(exc_info.value).lower()
 
         r = t.history(max_versions=3)
         print(r)
         assert len(r) == 3
 
-        r = t.history(summarize_data_changes=True)
+        r = t.history()
         print(r)
         assert len(r) == 13
 

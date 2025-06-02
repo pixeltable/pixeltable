@@ -1554,48 +1554,6 @@ class Table(SchemaObject):
         return list(self._schema.keys())
 
     @classmethod
-    def collect_row_counts_by_version(cls, tbl_id: UUID) -> tuple[dict[int, int], dict[int, int]]:
-        """Return dictionaries from version to inserted and deleted row counts"""
-        # Get active row counts from the table
-        #            q = sql.select(xxx, sql.func.count(1)).select_from(yyy).group_by(xxx)
-        tbl_name_sql = f'tbl_{tbl_id}'.replace('-', '')
-        q_str = f'select v_min, count(1) from {tbl_name_sql} group by v_min'
-        rc_rows = Env.get().conn.execute(sql.text(q_str)).fetchall()
-        irc_dict = {row[0]: row[1] for row in rc_rows}
-
-        q_str = f'select v_max, count(1) from {tbl_name_sql} group by v_max'
-        rc_rows = Env.get().conn.execute(sql.text(q_str)).fetchall()
-        drc_dict = {row[0]: row[1] for row in rc_rows}
-        return irc_dict, drc_dict
-
-    @classmethod
-    def merge_dicts(cls, irc_dict: dict[int, int], drc_dict: dict[int, int]) -> dict[int, tuple[int, int, int]]:
-        """Return dict of version to tuple(added, deleted, updated) row counts"""
-        r = {k: (v, 0, 0) for k, v in irc_dict.items()}  # Report insertion
-        for k, del_ct in drc_dict.items():
-            if k not in r:
-                r[k] = (0, del_ct, 0)  # Report deletion
-            else:
-                ins_ct = r[k][0]
-                assert ins_ct >= del_ct
-                r[k] = (ins_ct - del_ct, 0, del_ct)  # Report delete, update, or upsert
-        return r
-
-    @classmethod
-    def data_change_type(cls, row_change: tuple[int, int, int]) -> str:
-        """Return a string describing the type of data change"""
-        ins_ct, del_ct, upd_ct = row_change
-        if del_ct > 0:
-            return 'delete'
-        if ins_ct > 0 and upd_ct == 0:
-            return 'insert'
-        if upd_ct > 0 and ins_ct == 0:
-            return 'update'
-        if ins_ct > 0 and upd_ct > 0:
-            return 'upsert'
-        return ''
-
-    @classmethod
     def diff_md(cls, old_md: Optional[dict[str, Any]], new_md: Optional[dict[str, Any]]) -> str:
         """Return a string reporting the difference between two schema versions"""
         assert new_md is not None
@@ -1649,13 +1607,11 @@ class Table(SchemaObject):
                 r[ver] = tf
         return r
 
-    def history(self, summarize_data_changes: bool = False, max_versions: int = 1_000_000_000) -> Optional[Any]:
+    def history(self, max_versions: int = 1_000_000_000) -> Optional[Any]:
         """Returns a row of information for each version of this table, most recent first.
 
         Args:
             max_versions: a limit to the number of versions listed
-            summarize_data_changes: if True, add columns summarizing the number of rows inserted, deleted,
-                and updated by a data change
 
         Examples:
             Report history:
@@ -1671,8 +1627,6 @@ class Table(SchemaObject):
         """
         if not isinstance(max_versions, int) or max_versions < 1:
             raise excs.Error(f'Invalid value for max_versions: {max_versions}')
-        if not isinstance(summarize_data_changes, bool):
-            raise excs.Error(f'Invalid value for summarize_data_changes: {summarize_data_changes}')
 
         with Env.get().begin_xact():
             # tbl_id = self._tbl_version_path.tbl_id
@@ -1694,13 +1648,6 @@ class Table(SchemaObject):
             )
             src_rows = Env.get().session.execute(q).fetchall()
 
-            # Construct the data change by version dictionary
-            if summarize_data_changes:
-                irc_dict, drc_dict = self.collect_row_counts_by_version(tbl_id=tbl_id)
-                rc_dict = self.merge_dicts(irc_dict, drc_dict)
-            else:
-                rc_dict = None
-
         # Construct the metadata change dictionary
         md_rows = [[row.TableVersion.version, row.TableSchemaVersion.md['columns']] for row in src_rows]
         md_dict = self.create_md_change_dict(md_rows)
@@ -1716,43 +1663,20 @@ class Table(SchemaObject):
         for row in src_rows[0 : len(src_rows) - over_count]:
             version = row.TableVersion.version
             schema_change = md_dict.get(version, '')
-            if rc_dict is None:
-                change_type = 'schema' if schema_change != '' else 'data'
-                data_change = (0, 0, 0)
-            else:
-                data_change = rc_dict.get(version, (0, 0, 0))
-                if schema_change != '':
-                    change_type = 'schema change'
-                else:
-                    change_type = 'data ' + self.data_change_type(data_change)
+            change_type = 'schema' if schema_change != '' else 'data'
             rpt_row = [
                 version,
                 datetime.datetime.fromtimestamp(row.TableVersion.md['created_at']),
                 change_type,
                 schema_change,
-                data_change[0],
-                data_change[1],
-                data_change[2],
             ]
             rpt_rows.append(rpt_row)
 
         rpt_spec = pxt.dataframe.DataFrameResultSet.ReportSpec
-        if rc_dict is None:
-            report_spec = [
-                rpt_spec('version', ts.IntType(), 0, int),
-                rpt_spec('created_at', ts.TimestampType(), 1, None),
-                rpt_spec('change', ts.StringType(), 2, None),
-                rpt_spec('schema_change', ts.StringType(), 3, None),
-            ]
-        else:
-            report_spec = [
-                rpt_spec('version', ts.IntType(), 0, int),
-                rpt_spec('created_at', ts.TimestampType(), 1, None),
-                rpt_spec('change', ts.StringType(), 2, None),
-                rpt_spec('schema_change', ts.StringType(), 3, None),
-                rpt_spec('inserted', ts.IntType(), 4, int),
-                rpt_spec('deleted', ts.IntType(), 5, int),
-                rpt_spec('updated', ts.IntType(), 6, int),
-            ]
-
+        report_spec = [
+            rpt_spec('version', ts.IntType(), 0, int),
+            rpt_spec('created_at', ts.TimestampType(), 1, None),
+            rpt_spec('change', ts.StringType(), 2, None),
+            rpt_spec('schema_change', ts.StringType(), 3, None),
+        ]
         return pxt.dataframe.DataFrameResultSet._create_report(schema_list=report_spec, src_rows=rpt_rows)
