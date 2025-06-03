@@ -17,6 +17,8 @@ from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
 from pixeltable.metadata import schema
 
+if TYPE_CHECKING:
+    from pixeltable.plan import SampleClause
 from .dir import Dir
 from .globals import IfExistsParam, IfNotExistsParam, MediaValidation
 from .insertable_table import InsertableTable
@@ -526,6 +528,7 @@ class Catalog:
         base: TableVersionPath,
         select_list: Optional[list[tuple[exprs.Expr, Optional[str]]]],
         where: Optional[exprs.Expr],
+        sample_clause: Optional['SampleClause'],
         additional_columns: Optional[dict[str, Any]],
         is_snapshot: bool,
         iterator: Optional[tuple[type[ComponentIterator], dict[str, Any]]],
@@ -554,6 +557,7 @@ class Catalog:
             select_list=select_list,
             additional_columns=additional_columns,
             predicate=where,
+            sample_clause=sample_clause,
             is_snapshot=is_snapshot,
             iterator_cls=iterator_class,
             iterator_args=iterator_args,

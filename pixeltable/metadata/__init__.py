@@ -16,7 +16,7 @@ _console_logger = ConsoleLogger(logging.getLogger('pixeltable'))
 
 
 # current version of the metadata; this is incremented whenever the metadata schema changes
-VERSION = 36
+VERSION = 37
 
 
 def create_system_info(engine: sql.engine.Engine) -> None:
