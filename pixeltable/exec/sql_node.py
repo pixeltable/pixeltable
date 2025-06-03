@@ -530,7 +530,7 @@ class SqlJoinNode(SqlNode):
 
 class SqlSampleNode(SqlNode):
     """
-    Returns rows from a stratified sample with N samples per strata.
+    Returns rows from a stratified sample.
     """
 
     stratify_exprs: Optional[list[exprs.Expr]]
@@ -573,7 +573,8 @@ class SqlSampleNode(SqlNode):
         """
         sql_expr: sql.ColumnElement = sql.cast(seed, sql.Text)
         for e in sql_cols:
-            sql_expr = sql_expr + sql.literal_column("'___'") + sql.cast(e, sql.Text)
+            # Quotes are required below to guarantee that the string is properly presented in SQL
+            sql_expr = sql_expr + sql.literal_column("'___'", sql.Text) + sql.cast(e, sql.Text)
         sql_expr = sql.func.md5(sql_expr)
         return sql_expr
 
@@ -635,12 +636,12 @@ class SqlSampleNode(SqlNode):
         )
         row_rank_cte = sql.select(*select_columns).select_from(self.input_cte).cte('row_rank_cte')
 
-        # Build the join criterion dynamically to accommodate any number of group by columns
+        # Build the join criterion dynamically to accommodate any number of stratify_by expressions
         join_c = sql.true()
         for col in per_strata_count_cte.c[:-1]:
             join_c &= row_rank_cte.c[col.name].isnot_distinct_from(col)
 
-        # Join srcp with per_strata_count_cte to limit returns to the requested fraction of rows
+        # Join with per_strata_count_cte to limit returns to the requested fraction of rows
         final_columns = [*row_rank_cte.c[:-1]]  # exclude the rank column
         stmt = (
             sql.select(*final_columns)
