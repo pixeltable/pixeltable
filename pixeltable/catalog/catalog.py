@@ -987,6 +987,11 @@ class Catalog:
             )
             assert result.rowcount == 1, result.rowcount
 
+        self.delete_tbl_md(tbl._id)
+        assert tbl._id in self._tbls
+        del self._tbls[tbl._id]
+        _logger.info(f'Dropped table `{tbl._path()}`.')
+
         if tbl._tbl_version is not None:
             tv = tbl._tbl_version.get()
             # invalidate the TableVersion instance so that existing references to it can find out it has been dropped
@@ -994,11 +999,6 @@ class Catalog:
             tv.drop()
             assert (tv.id, tv.effective_version) in self._tbl_versions
             del self._tbl_versions[tv.id, tv.effective_version]
-
-        self.delete_tbl_md(tbl._id)
-        assert tbl._id in self._tbls
-        del self._tbls[tbl._id]
-        _logger.info(f'Dropped table `{tbl._path()}`.')
 
     @_retry_loop(for_write=True)
     def create_dir(self, path: Path, if_exists: IfExistsParam, parents: bool) -> Dir:
