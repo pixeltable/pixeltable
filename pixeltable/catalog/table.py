@@ -1608,7 +1608,7 @@ class Table(SchemaObject):
         return r
 
     def history(self, max_versions: int = 1_000_000_000) -> Optional[Any]:
-        """Returns a row of information for each version of this table, most recent first.
+        """Returns rows of information about the versions of this table, most recent first.
 
         Args:
             max_versions: a limit to the number of versions listed
@@ -1623,7 +1623,7 @@ class Table(SchemaObject):
             >>> tbl.history(max_versions=5)
 
         Returns:
-            A list of [`TableVersion`][pixeltable.TableVersion] objects representing all versions of this table.
+            A list of rows of data.
         """
         if not isinstance(max_versions, int) or max_versions < 1:
             raise excs.Error(f'Invalid value for max_versions: {max_versions}')
