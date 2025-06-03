@@ -25,6 +25,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pixeltable_pgserver
 import sqlalchemy as sql
+from pillow_heif import register_heif_opener  # type: ignore[import-untyped]
 from tqdm import TqdmWarning
 
 from pixeltable import exceptions as excs
@@ -598,6 +599,7 @@ class Env:
 
     def _set_up_runtime(self) -> None:
         """Check for and start runtime services"""
+        register_heif_opener()
         self._start_web_server()
         self.__register_packages()
 
