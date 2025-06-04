@@ -103,7 +103,6 @@ def invoke_tools(tools: pxt.func.Tools, response: exprs.Expr) -> exprs.InlineDic
 
 @pxt.udf
 def _gemini_response_to_pxt_tool_calls(response: dict) -> Optional[dict]:
-    print(response)
     pxt_tool_calls: dict[str, list[dict]] = {}
     for part in response['candidates'][0]['content']['parts']:
         tool_call = part.get('function_call')
