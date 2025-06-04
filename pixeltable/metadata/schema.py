@@ -147,6 +147,9 @@ class ViewMd:
     # filter predicate applied to the base table; view-only
     predicate: Optional[dict[str, Any]]
 
+    # sampling predicate applied to the base table; view-only
+    sample_clause: Optional[dict[str, Any]]
+
     # ComponentIterator subclass; only for component views
     iterator_class_fqn: Optional[str]
 
