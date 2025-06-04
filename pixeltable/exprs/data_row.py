@@ -261,6 +261,8 @@ class DataRow:
                 # Default to JPEG unless the image has a transparency layer (which isn't supported by JPEG).
                 # In that case, use WebP instead.
                 format = 'webp' if image.has_transparency_data else 'jpeg'
+                if not filepath.endswith(f".{format}"):
+                    filepath += f".{format}"
                 image.save(filepath, format=format)
             else:
                 # we discard the content of this cell
