@@ -12,6 +12,10 @@ from pixeltable import catalog, exprs, func
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
 
+if TYPE_CHECKING:
+    from pixeltable.plan import SampleClause
+
+
 from .column import Column
 from .globals import _POS_COLUMN_NAME, MediaValidation, UpdateStatus
 from .table import Table
@@ -66,6 +70,7 @@ class View(Table):
         select_list: Optional[list[tuple[exprs.Expr, Optional[str]]]],
         additional_columns: dict[str, Any],
         predicate: Optional['exprs.Expr'],
+        sample_clause: Optional['SampleClause'],
         is_snapshot: bool,
         num_retained_versions: int,
         comment: str,
@@ -73,6 +78,8 @@ class View(Table):
         iterator_cls: Optional[type[ComponentIterator]],
         iterator_args: Optional[dict],
     ) -> View:
+        from pixeltable.plan import SampleClause
+
         # Convert select_list to more additional_columns if present
         include_base_columns: bool = select_list is None
         select_list_columns: List[Column] = []
@@ -84,12 +91,23 @@ class View(Table):
         columns = select_list_columns + columns_from_additional_columns
         cls._verify_schema(columns)
 
-        # verify that filter can be evaluated in the context of the base
+        # verify that filters can be evaluated in the context of the base
         if predicate is not None:
             if not predicate.is_bound_by([base]):
                 raise excs.Error(f'Filter cannot be computed in the context of the base {base.tbl_name()}')
             # create a copy that we can modify and store
             predicate = predicate.copy()
+        if sample_clause is not None:
+            # make sure that the sample clause can be computed in the context of the base
+            if sample_clause.stratify_exprs is not None and not all(
+                stratify_expr.is_bound_by([base]) for stratify_expr in sample_clause.stratify_exprs
+            ):
+                raise excs.Error(f'Sample clause cannot be computed in the context of the base {base.tbl_name()}')
+            # create a copy that we can modify and store
+            sc = sample_clause
+            sample_clause = SampleClause(
+                sc.version, sc.n, sc.n_per_stratum, sc.fraction, sc.seed, sc.stratify_exprs.copy()
+            )
 
         # same for value exprs
         for col in columns:
@@ -160,6 +178,8 @@ class View(Table):
         # if this is a snapshot, we need to retarget all exprs to the snapshot tbl versions
         if is_snapshot:
             predicate = predicate.retarget(base_version_path) if predicate is not None else None
+            if sample_clause is not None:
+                exprs.Expr.retarget_list(sample_clause.stratify_exprs, base_version_path)
             iterator_args_expr = (
                 iterator_args_expr.retarget(base_version_path) if iterator_args_expr is not None else None
             )
@@ -171,6 +191,7 @@ class View(Table):
             is_snapshot=is_snapshot,
             include_base_columns=include_base_columns,
             predicate=predicate.as_dict() if predicate is not None else None,
+            sample_clause=sample_clause.as_dict() if sample_clause is not None else None,
             base_versions=base_version_path.as_md(),
             iterator_class_fqn=iterator_class_fqn,
             iterator_args=iterator_args_expr.as_dict() if iterator_args_expr is not None else None,
@@ -306,4 +327,6 @@ class View(Table):
 
         if self._tbl_version.get().predicate is not None:
             result.append(f'\nWhere: {self._tbl_version.get().predicate!s}')
+        if self._tbl_version.get().sample_clause is not None:
+            result.append(f'\nSample: {self._tbl_version.get().sample_clause!s}')
         return ''.join(result)
