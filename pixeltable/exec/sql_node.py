@@ -120,15 +120,7 @@ class SqlNode(ExecNode):
             # minimize the number of tables that need to be joined to the target table
             self.retarget_rowid_refs(tbl, self.select_list)
 
-#        assert self.sql_elements.contains_all(self.select_list)
-        for e in self.select_list:
-            # ensure that all select list elements are in the sql_elements cache
-            # this is necessary to ensure that the SQL statement can be created
-            if not self.sql_elements.contains(e):
-                _logger.warning(f'SqlNode: select_list element {e} not found in sql_elements cache')
-        assert all(self.sql_elements.get(e) is not None for e in self.select_list)
-
-
+        assert self.sql_elements.contains_all(self.select_list)
         self.set_pk = set_pk
         self.num_pk_cols = 0
         if set_pk:
@@ -316,7 +308,7 @@ class SqlNode(ExecNode):
                 _logger.debug(f'SqlLookupNode stmt:\n{stmt_str}')
             except Exception:
                 # log something if we can't log the compiled stmt
-                stmt_str = repr(stmt)
+                stmt_str = str(stmt)
                 _logger.debug(f'SqlLookupNode proto-stmt:\n{stmt_str}')
             self._log_explain(stmt)
 
@@ -538,40 +530,38 @@ class SqlJoinNode(SqlNode):
 
 class SqlSampleNode(SqlNode):
     """
-    Returns rows from a stratified sample.
+    Returns rows sampled from the input node.
     """
 
-    stratify_exprs: Optional[list[exprs.Expr]]
-    n_samples: Optional[int]
-    fraction_samples: Optional[float]
-    seed: int
     input_cte: Optional[sql.CTE]
     pk_count: int
+    stratify_exprs: Optional[list[exprs.Expr]]
+    sample_clause: 'SampleClause'
 
     def __init__(
         self,
         row_builder: exprs.RowBuilder,
         input: SqlNode,
         select_list: Iterable[exprs.Expr],
+        sample_clause: 'SampleClause',
         stratify_exprs: Optional[list[exprs.Expr]] = None,
-        sample_clause: Optional['SampleClause'] = None,
     ):
         """
         Args:
             select_list: can contain calls to AggregateFunctions
             stratify_exprs: list of expressions to group by
-            n: number of samples per strata
+            n: number of samples
         """
+        assert isinstance(input, SqlNode)
         self.input_cte, input_col_map = input.to_cte(keep_pk=True)
         self.pk_count = input.num_pk_cols
         assert self.pk_count > 1
         sql_elements = exprs.SqlElementCache(input_col_map)
+        assert stratify_exprs is None or sql_elements.contains_all(stratify_exprs)
         super().__init__(input.tbl, row_builder, select_list, sql_elements, set_pk=True)
         self.stratify_exprs = stratify_exprs
-        self.n_samples = sample_clause.n
-        self.n_per_stratum = sample_clause.n_per_stratum
-        self.fraction_samples = sample_clause.fraction
-        self.seed = sample_clause.seed if sample_clause.seed is not None else 0
+        self.sample_clause = sample_clause
+        assert isinstance(self.sample_clause.seed, int)
 
     @classmethod
     def key_sql_expr(cls, seed: sql.ColumnElement, sql_cols: Iterable[sql.ColumnElement]) -> sql.ColumnElement:
@@ -590,28 +580,29 @@ class SqlSampleNode(SqlNode):
         """Create an expression for randomly ordering rows with a given seed"""
         rowid_cols = [*cte.c[-self.pk_count : -1]]  # exclude the version column
         assert len(rowid_cols) > 0
-        return self.key_sql_expr(sql.literal_column(str(self.seed)), rowid_cols)
+        return self.key_sql_expr(sql.literal_column(str(self.sample_clause.seed)), rowid_cols)
 
     def _create_stmt(self) -> sql.Select:
-        if self.fraction_samples is not None:
+        from pixeltable.plan import SampleClause
+
+        if self.sample_clause.fraction is not None:
             if self.stratify_exprs is None or len(self.stratify_exprs) == 0:
-                from pixeltable.plan import SampleClause
                 # If non-stratified sampling, construct a where clause, order_by, and limit clauses
                 s_key = self._create_key_sql(self.input_cte)
 
                 # Construct a suitable where clause
-                fraction_sql = sql.cast(SampleClause.fraction_to_md5_hex(float(self.fraction_samples)), sql.Text)
+                fraction_sql = sql.cast(SampleClause.fraction_to_md5_hex(float(self.sample_clause.fraction)), sql.Text)
                 order_by = self._create_key_sql(self.input_cte)
                 return sql.select(*self.input_cte.c).where(s_key < fraction_sql).order_by(order_by)
 
-            return self._create_stmt_fraction(self.fraction_samples)
+            return self._create_stmt_fraction(self.sample_clause.fraction)
         else:
             if self.stratify_exprs is None or len(self.stratify_exprs) == 0:
                 # No stratification, just return n samples from the input CTE
                 order_by = self._create_key_sql(self.input_cte)
-                return sql.select(*self.input_cte.c).order_by(order_by).limit(self.n_samples)
+                return sql.select(*self.input_cte.c).order_by(order_by).limit(self.sample_clause.n)
 
-            return self._create_stmt_n(self.n_samples, self.n_per_stratum)
+            return self._create_stmt_n(self.sample_clause.n, self.sample_clause.n_per_stratum)
 
     def _create_stmt_n(self, n: Optional[int], n_per_stratum: Optional[int]) -> sql.Select:
         """Create a Select stmt that returns n samples"""
