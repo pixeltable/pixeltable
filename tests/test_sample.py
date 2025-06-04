@@ -326,6 +326,12 @@ class TestSampling:
         print('\n\nINSERT ONE IMAGE\n')
         t.insert(image=SAMPLE_IMAGE_URL)
 
+        print('\n\nSAMPLE IMAGE FROM TABLE\n')
+        df = t.select().sample(fraction=0.001)
+        r = df.collect()
+        print(f'total rows: {t.count()}, sample rows: {len(r)}')
+        assert t.count() > len(r)
+
         print('\n\nCREATE ITERATOR VIEW\n')
         v = pxt.create_view(
             'test_view',
@@ -340,6 +346,7 @@ class TestSampling:
         df = v.select().sample(fraction=0.1)
         r = df.collect()
         print(f'total rows: {v_rows}, sample rows: {len(r)}')
+        assert v_rows > len(r)
         print(r)
 
         print('\n\nCREATE VIEW OF SAMPLE OF VIEW\n')

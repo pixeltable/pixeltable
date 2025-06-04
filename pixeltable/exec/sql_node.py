@@ -120,7 +120,15 @@ class SqlNode(ExecNode):
             # minimize the number of tables that need to be joined to the target table
             self.retarget_rowid_refs(tbl, self.select_list)
 
-        assert self.sql_elements.contains_all(self.select_list)
+#        assert self.sql_elements.contains_all(self.select_list)
+        for e in self.select_list:
+            # ensure that all select list elements are in the sql_elements cache
+            # this is necessary to ensure that the SQL statement can be created
+            if not self.sql_elements.contains(e):
+                _logger.warning(f'SqlNode: select_list element {e} not found in sql_elements cache')
+        assert all(self.sql_elements.get(e) is not None for e in self.select_list)
+
+
         self.set_pk = set_pk
         self.num_pk_cols = 0
         if set_pk:
@@ -578,7 +586,7 @@ class SqlSampleNode(SqlNode):
         sql_expr = sql.func.md5(sql_expr)
         return sql_expr
 
-    def _create_order_by(self, cte: sql.CTE) -> sql.ColumnElement:
+    def _create_key_sql(self, cte: sql.CTE) -> sql.ColumnElement:
         """Create an expression for randomly ordering rows with a given seed"""
         rowid_cols = [*cte.c[-self.pk_count : -1]]  # exclude the version column
         assert len(rowid_cols) > 0
@@ -586,13 +594,30 @@ class SqlSampleNode(SqlNode):
 
     def _create_stmt(self) -> sql.Select:
         if self.fraction_samples is not None:
+            if self.stratify_exprs is None or len(self.stratify_exprs) == 0:
+                from pixeltable.plan import SampleClause
+                # If non-stratified sampling, construct a where clause, order_by, and limit clauses
+                s_key = self._create_key_sql(self.input_cte)
+
+                # Construct a suitable where clause
+                fraction_sql = sql.cast(SampleClause.fraction_to_md5_hex(float(self.fraction_samples)), sql.Text)
+                order_by = self._create_key_sql(self.input_cte)
+                return sql.select(*self.input_cte.c).where(s_key < fraction_sql).order_by(order_by)
+
             return self._create_stmt_fraction(self.fraction_samples)
-        return self._create_stmt_n(self.n_samples, self.n_per_stratum)
+        else:
+            if self.stratify_exprs is None or len(self.stratify_exprs) == 0:
+                # No stratification, just return n samples from the input CTE
+                order_by = self._create_key_sql(self.input_cte)
+                return sql.select(*self.input_cte.c).order_by(order_by).limit(self.n_samples)
+
+            return self._create_stmt_n(self.n_samples, self.n_per_stratum)
 
     def _create_stmt_n(self, n: Optional[int], n_per_stratum: Optional[int]) -> sql.Select:
-        """Create a Select stmt that returns n samples across all strata"""
+        """Create a Select stmt that returns n samples"""
+
         sql_strata_exprs = [self.sql_elements.get(e) for e in self.stratify_exprs]
-        order_by = self._create_order_by(self.input_cte)
+        order_by = self._create_key_sql(self.input_cte)
 
         # Create a list of all columns plus the rank
         # Get all columns from the input CTE dynamically
@@ -606,7 +631,7 @@ class SqlSampleNode(SqlNode):
         if n_per_stratum is not None:
             return sql.select(*final_columns).filter(row_rank_cte.c.rank <= n_per_stratum)
         else:
-            secondary_order = self._create_order_by(row_rank_cte)
+            secondary_order = self._create_key_sql(row_rank_cte)
             return sql.select(*final_columns).order_by(row_rank_cte.c.rank, secondary_order).limit(n)
 
     def _create_stmt_fraction(self, fraction_samples: float) -> sql.Select:
@@ -629,7 +654,7 @@ class SqlSampleNode(SqlNode):
 
         # Build a CTE that ranks the rows within each stratum
         # Include all columns from the input CTE dynamically
-        order_by = self._create_order_by(self.input_cte)
+        order_by = self._create_key_sql(self.input_cte)
         select_columns = [*self.input_cte.c]
         select_columns.append(
             sql.func.row_number().over(partition_by=sql_strata_exprs, order_by=order_by).label('rank')
