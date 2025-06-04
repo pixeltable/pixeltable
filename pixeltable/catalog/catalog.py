@@ -208,7 +208,7 @@ class Catalog:
 
     @contextmanager
     def begin_xact(
-        self, *, tbl_id: Optional[UUID] = None, for_write: bool = False, lock_mutable_tree: bool = False
+        self, *, tbl: Optional[TableVersionPath] = None, for_write: bool = False, lock_mutable_tree: bool = False
     ) -> Iterator[sql.Connection]:
         """
         Return a context manager that yields a connection to the database. Idempotent.
@@ -224,9 +224,9 @@ class Catalog:
           to minimize (maybe avoid altogether) loosing that work
         """
         if Env.get().in_xact:
-            if tbl_id is not None and for_write:
+            if tbl is not None and for_write:
                 # make sure that we requested the required table lock at the beginning of the transaction
-                assert tbl_id in self._x_locked_tbl_ids, f'{tbl_id} not in {self._x_locked_tbl_ids}'
+                assert tbl.tbl_id in self._x_locked_tbl_ids, f'{tbl.tbl_id} not in {self._x_locked_tbl_ids}'
             yield Env.get().conn
             return
 
@@ -241,10 +241,10 @@ class Catalog:
         while True:
             try:
                 with Env.get().begin_xact() as conn:
-                    if tbl_id is not None and for_write:
+                    if tbl is not None:
                         try:
-                            if not self._acquire_tbl_xlock(
-                                tbl_id=tbl_id, lock_mutable_tree=lock_mutable_tree, raise_if_not_exists=True
+                            if not self._acquire_path_locks(
+                                path=tbl, for_write=for_write, lock_mutable_tree=lock_mutable_tree, raise_if_not_exists=True
                             ):
                                 # this is a snapshot
                                 self._in_write_xact = False
@@ -252,10 +252,10 @@ class Catalog:
                                 return
 
                             if lock_mutable_tree:
-                                self._x_locked_tbl_ids = self._get_mutable_tree(tbl_id)
+                                self._x_locked_tbl_ids = self._get_mutable_tree(tbl.tbl_id)
                                 self._compute_column_dependents(self._x_locked_tbl_ids)
                             else:
-                                self._x_locked_tbl_ids = {tbl_id}
+                                self._x_locked_tbl_ids = {tbl.tbl_id}
 
                         except sql.exc.DBAPIError as e:
                             if isinstance(
@@ -294,11 +294,40 @@ class Catalog:
     def _acquire_tbl_xlock(
         self,
         *,
-        tbl_id: Optional[UUID] = None,
-        dir_id: Optional[UUID] = None,
-        tbl_name: Optional[str] = None,
-        lock_mutable_tree: bool = False,
+        dir_id: UUID,
+        tbl_name: str,
         raise_if_not_exists: bool = False,
+    ) -> bool:
+        """Force acquisition of an X-lock on a Table record via a blind update
+
+        Either tbl_id or dir_id/tbl_name need to be specified.
+        Returns True if the table was locked, False if it was a snapshot or not found.
+        """
+        where_clause: sql.ColumnElement
+        where_clause = sql.and_(schema.Table.dir_id == dir_id, schema.Table.md['name'].astext == tbl_name)
+        user = Env.get().user
+        if user is not None:
+            where_clause = sql.and_(where_clause, schema.Table.md['user'].astext == Env.get().user)
+
+        conn = Env.get().conn
+        row = conn.execute(sql.select(schema.Table).where(where_clause).with_for_update(nowait=True)).one_or_none()
+        if row is None:
+            if raise_if_not_exists:
+                raise excs.Error(self._dropped_tbl_error_msg(tbl_id))
+            return False  # nothing to lock
+        if row.md['view_md'] is not None and row.md['view_md']['is_snapshot']:
+            return False  # nothing to lock
+        conn.execute(sql.update(schema.Table).values(lock_dummy=1).where(where_clause))
+        return True
+
+    def _acquire_path_locks(
+            self,
+            *,
+            tbl_id: Optional[UUID] = None,
+            dir_id: Optional[UUID] = None,
+            tbl_name: Optional[str] = None,
+            lock_mutable_tree: bool = False,
+            raise_if_not_exists: bool = False,
     ) -> bool:
         """Force acquisition of an X-lock on a Table record via a blind update
 
