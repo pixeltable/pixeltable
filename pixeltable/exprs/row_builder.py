@@ -448,7 +448,14 @@ class RowBuilder:
             else:
                 if col.col_type.is_image_type() and data_row.file_urls[slot_idx] is None:
                     # we have yet to store this image
-                    filepath = str(MediaStore.prepare_media_path(col.tbl.id, col.id, col.tbl.version))
+                    filepath = str(
+                        MediaStore.prepare_media_path(
+                            tbl_id=col.tbl.id, 
+                            col_id=col.id, 
+                            version=col.tbl.version, 
+                            ext=".jpeg",
+                        )
+                    )
                     data_row.flush_img(slot_idx, filepath)
                 val = data_row.get_stored_val(slot_idx, col.get_sa_col_type())
                 table_row[col.store_name()] = val
