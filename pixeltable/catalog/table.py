@@ -474,7 +474,7 @@ class Table(SchemaObject):
         from pixeltable.catalog import Catalog
 
         # lock_mutable_tree=True: we might end up having to drop existing columns, which requires locking the tree
-        with Catalog.get().begin_xact(tbl_id=self._id, for_write=True, lock_mutable_tree=True):
+        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
             if self._tbl_version_path.is_snapshot():
                 raise excs.Error('Cannot add column to a snapshot.')
             col_schema = {
@@ -537,7 +537,7 @@ class Table(SchemaObject):
         """
         from pixeltable.catalog import Catalog
 
-        with Catalog.get().begin_xact(tbl_id=self._id, for_write=True, lock_mutable_tree=True):
+        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
             # verify kwargs
             if self._tbl_version_path.is_snapshot():
                 raise excs.Error('Cannot add column to a snapshot.')
@@ -603,7 +603,7 @@ class Table(SchemaObject):
         """
         from pixeltable.catalog import Catalog
 
-        with Catalog.get().begin_xact(tbl_id=self._id, for_write=True, lock_mutable_tree=True):
+        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
             if self._tbl_version_path.is_snapshot():
                 raise excs.Error('Cannot add column to a snapshot.')
             if len(kwargs) != 1:
@@ -790,7 +790,7 @@ class Table(SchemaObject):
 
         cat = Catalog.get()
         # lock_mutable_tree=True: we need to be able to see whether any transitive view has column dependents
-        with cat.begin_xact(tbl_id=self._id, for_write=True, lock_mutable_tree=True):
+        with cat.begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
             if self._tbl_version_path.is_snapshot():
                 raise excs.Error('Cannot drop column from a snapshot.')
             col: Column = None
@@ -859,7 +859,7 @@ class Table(SchemaObject):
         """
         from pixeltable.catalog import Catalog
 
-        with Catalog.get().begin_xact(tbl_id=self._id, for_write=True):
+        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=False):
             self._tbl_version.get().rename_column(old_name, new_name)
 
     def _list_index_info_for_test(self) -> list[dict[str, Any]]:
@@ -968,7 +968,7 @@ class Table(SchemaObject):
         """
         from pixeltable.catalog import Catalog
 
-        with Catalog.get().begin_xact(tbl_id=self._id, for_write=True, lock_mutable_tree=True):
+        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
             if self._tbl_version_path.is_snapshot():
                 raise excs.Error('Cannot add an index to a snapshot')
             col = self._resolve_column_parameter(column)
@@ -1057,7 +1057,7 @@ class Table(SchemaObject):
         if (column is None) == (idx_name is None):
             raise excs.Error("Exactly one of 'column' or 'idx_name' must be provided")
 
-        with Catalog.get().begin_xact(tbl_id=self._id, for_write=True, lock_mutable_tree=True):
+        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
             col: Column = None
             if idx_name is None:
                 col = self._resolve_column_parameter(column)
@@ -1136,7 +1136,7 @@ class Table(SchemaObject):
         if (column is None) == (idx_name is None):
             raise excs.Error("Exactly one of 'column' or 'idx_name' must be provided")
 
-        with Catalog.get().begin_xact(tbl_id=self._id, for_write=True):
+        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=False):
             col: Column = None
             if idx_name is None:
                 col = self._resolve_column_parameter(column)
@@ -1323,7 +1323,7 @@ class Table(SchemaObject):
         """
         from pixeltable.catalog import Catalog
 
-        with Catalog.get().begin_xact(tbl_id=self._id, for_write=True, lock_mutable_tree=True):
+        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
             if self._tbl_version_path.is_snapshot():
                 raise excs.Error('Cannot update a snapshot')
             status = self._tbl_version.get().update(value_spec, where, cascade)
@@ -1363,7 +1363,7 @@ class Table(SchemaObject):
         """
         from pixeltable.catalog import Catalog
 
-        with Catalog.get().begin_xact(tbl_id=self._id, for_write=True, lock_mutable_tree=True):
+        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
             if self._tbl_version_path.is_snapshot():
                 raise excs.Error('Cannot update a snapshot')
             rows = list(rows)
@@ -1427,7 +1427,7 @@ class Table(SchemaObject):
         """
         from pixeltable.catalog import Catalog
 
-        with Catalog.get().begin_xact(tbl_id=self._id, for_write=True, lock_mutable_tree=True):
+        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
             if self._tbl_version_path.is_snapshot():
                 raise excs.Error('Cannot revert a snapshot')
             self._tbl_version.get().revert()
@@ -1443,7 +1443,7 @@ class Table(SchemaObject):
         """
         from pixeltable.catalog import Catalog
 
-        with Catalog.get().begin_xact(tbl_id=self._id, for_write=True):
+        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=False):
             if self._tbl_version_path.is_snapshot():
                 raise excs.Error(f'Table `{self._name}` is a snapshot, so it cannot be linked to an external store.')
             if store.name in self.external_stores():
@@ -1476,7 +1476,7 @@ class Table(SchemaObject):
 
         if self._tbl_version_path.is_snapshot():
             return
-        with Catalog.get().begin_xact(tbl_id=self._id, for_write=True):
+        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=False):
             all_stores = self.external_stores()
 
             if stores is None:
@@ -1519,7 +1519,7 @@ class Table(SchemaObject):
         # we lock the entire tree starting at the root base table in order to ensure that all synced columns can
         # have their updates propagated down the tree
         base_tv = self._tbl_version_path.get_tbl_versions()[-1]
-        with Catalog.get().begin_xact(tbl_id=base_tv.id, for_write=True, lock_mutable_tree=True):
+        with Catalog.get().begin_xact(tbl=TableVersionPath(base_tv), for_write=True, lock_mutable_tree=True):
             all_stores = self.external_stores()
 
             if stores is None:

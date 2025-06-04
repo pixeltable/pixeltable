@@ -53,6 +53,8 @@ def random_tbl_op(t: pxt.Table) -> None:
             debug_print(f'CREATING VIEW {view_name}')
             v = pxt.create_view(view_name, t, additional_columns={'v_1': t.c1 + 1}, if_exists='ignore')
             debug_print(f'CREATED VIEW {v._id}')
+            cnt = v.where(v.v_1 == None).count()
+            assert cnt == 0, cnt
         else:
             debug_print(f'DROPPING VIEW {views[0]}')
             pxt.drop_table(views[0], if_not_exists='ignore')

@@ -431,7 +431,9 @@ class DataFrame:
         raise excs.Error(msg) from e
 
     def _output_row_iterator(self) -> Iterator[list]:
-        with Catalog.get().begin_xact(for_write=False):
+        # TODO: extend begin_xact() to accept multiple TVPs for joins
+        single_tbl = self._first_tbl if len(self._from_clause.tbls) == 1 else None
+        with Catalog.get().begin_xact(tbl=single_tbl, for_write=False):
             try:
                 for data_row in self._exec():
                     yield [data_row[e.slot_idx] for e in self._select_list_exprs]
@@ -463,7 +465,7 @@ class DataFrame:
 
         from pixeltable.plan import Planner
 
-        with Catalog.get().begin_xact(for_write=False) as conn:
+        with Catalog.get().begin_xact(tbl=self._first_tbl, for_write=False) as conn:
             stmt = Planner.create_count_stmt(self._first_tbl, self.where_clause)
             result: int = conn.execute(stmt).scalar_one()
             assert isinstance(result, int)
@@ -988,8 +990,7 @@ class DataFrame:
             >>> df = person.where(t.year == 2014).update({'age': 30})
         """
         self._validate_mutable('update', False)
-        tbl_id = self._first_tbl.tbl_id
-        with Catalog.get().begin_xact(tbl_id=tbl_id, for_write=True, lock_mutable_tree=True):
+        with Catalog.get().begin_xact(tbl=self._first_tbl, for_write=True, lock_mutable_tree=True):
             return self._first_tbl.tbl_version.get().update(value_spec, where=self.where_clause, cascade=cascade)
 
     def delete(self) -> UpdateStatus:
@@ -1012,8 +1013,7 @@ class DataFrame:
         self._validate_mutable('delete', False)
         if not self._first_tbl.is_insertable():
             raise excs.Error('Cannot delete from view')
-        tbl_id = self._first_tbl.tbl_id
-        with Catalog.get().begin_xact(tbl_id=tbl_id, for_write=True, lock_mutable_tree=True):
+        with Catalog.get().begin_xact(tbl=self._first_tbl, for_write=True, lock_mutable_tree=True):
             return self._first_tbl.tbl_version.get().delete(where=self.where_clause)
 
     def _validate_mutable(self, op_name: str, allow_select: bool) -> None:
@@ -1131,7 +1131,8 @@ class DataFrame:
             assert data_file_path.is_file()
             return data_file_path
         else:
-            with Catalog.get().begin_xact(for_write=False):
+            # TODO: extend begin_xact() to accept multiple TVPs for joins
+            with Catalog.get().begin_xact(tbl=self._first_tbl, for_write=False):
                 return write_coco_dataset(self, dest_path)
 
     def to_pytorch_dataset(self, image_format: str = 'pt') -> 'torch.utils.data.IterableDataset':
@@ -1176,7 +1177,7 @@ class DataFrame:
         if dest_path.exists():  # fast path: use cache
             assert dest_path.is_dir()
         else:
-            with Catalog.get().begin_xact(for_write=False):
+            with Catalog.get().begin_xact(tbl=self._first_tbl, for_write=False):
                 export_parquet(self, dest_path, inline_images=True)
 
         return PixeltablePytorchDataset(path=dest_path, image_format=image_format)
