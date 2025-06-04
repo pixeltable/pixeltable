@@ -548,9 +548,10 @@ class SqlSampleNode(SqlNode):
     ):
         """
         Args:
+            input: SqlNode to sample from
             select_list: can contain calls to AggregateFunctions
-            stratify_exprs: list of expressions to group by
-            n: number of samples
+            sample_clause: specifies the sampling method
+            stratify_exprs: Analyzer processed list of expressions to stratify by.
         """
         assert isinstance(input, SqlNode)
         self.input_cte, input_col_map = input.to_cte(keep_pk=True)
@@ -605,7 +606,7 @@ class SqlSampleNode(SqlNode):
             return self._create_stmt_n(self.sample_clause.n, self.sample_clause.n_per_stratum)
 
     def _create_stmt_n(self, n: Optional[int], n_per_stratum: Optional[int]) -> sql.Select:
-        """Create a Select stmt that returns n samples"""
+        """Create a Select stmt that returns n samples across all strata or n_per_stratum samples per stratum"""
 
         sql_strata_exprs = [self.sql_elements.get(e) for e in self.stratify_exprs]
         order_by = self._create_key_sql(self.input_cte)
