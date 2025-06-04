@@ -8,12 +8,13 @@ from typing import Callable
 import sqlalchemy as sql
 from sqlalchemy import orm
 
+import pixeltable.exceptions as excs
 from pixeltable.utils.console_output import ConsoleLogger
 
 from .schema import SystemInfo, SystemInfoMd
 
 _console_logger = ConsoleLogger(logging.getLogger('pixeltable'))
-
+_logger = logging.getLogger('pixeltable')
 
 # current version of the metadata; this is incremented whenever the metadata schema changes
 VERSION = 36
@@ -55,10 +56,12 @@ def upgrade_md(engine: sql.engine.Engine) -> None:
         system_info = session.query(SystemInfo).one().md
         md_version = system_info['schema_version']
         assert isinstance(md_version, int)
+        _logger.info(f'Current database version: {md_version}, installed version: {VERSION}')
         if md_version > VERSION:
-            raise RuntimeError(
-                f'Metadata version {md_version} is newer than current version {VERSION}. '
-                f'Please update pixeltable to the latest version.'
+            raise excs.Error(
+                f'This Pixeltable database was created with a newer Pixeltable version ({md_version})'
+                f' than the one currently installed ({VERSION}).\n'
+                'Please update to the latest Pixeltable version by running: pip install --upgrade pixeltable'
             )
         if md_version == VERSION:
             return
