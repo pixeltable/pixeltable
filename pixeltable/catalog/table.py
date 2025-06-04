@@ -1554,60 +1554,67 @@ class Table(SchemaObject):
         return list(self._schema.keys())
 
     @classmethod
-    def diff_md(cls, old_md: Optional[dict[str, Any]], new_md: Optional[dict[str, Any]]) -> str:
+    def _diff_md(cls, old_md: Optional[dict[str, Any]], new_md: Optional[dict[str, Any]]) -> str:
         """Return a string reporting the difference between two schema versions"""
         assert new_md is not None
         if old_md is None:
             return 'Initial Version'
         if old_md == new_md:
             return ''
-        r = ''
         added = {k: v['name'] for k, v in new_md.items() if k not in old_md}
-        if len(added) > 0:
-            r += 'Added: ' + ' '.join(added.values())
         changed = {
-            k: old_md[k]['name'] + ' to ' + v['name']
+            k: f'{old_md[k]["name"]} to {v["name"]}'
             for k, v in new_md.items()
             if k in old_md and old_md[k]['name'] != v['name']
         }
-        if len(changed) > 0:
-            r += 'Changed: ' + ' '.join(changed.values())
         deleted = {k: v['name'] for k, v in old_md.items() if k not in new_md}
+        if len(added) == 0 and len(changed) == 0 and len(deleted) == 0:
+            return ''
+        # Format the result
+        t = []
+        if len(added) > 0:
+            t.append('Added: ' + ', '.join(added.values()))
+        if len(changed) > 0:
+            t.append('Changed: ' + ', '.join(changed.values()))
         if len(deleted) > 0:
-            r += 'Deleted: ' + ' '.join(deleted.values())
+            t.append('Deleted: ' + ', '.join(deleted.values()))
+        r = ', '.join(t)
         return r
 
     @classmethod
-    def create_md_change_dict(cls, src_rows: list[list[Any]]) -> dict[int, str]:
-        """Return a dictionary of schema changes by version given a list of version, column md"""
+    def _create_md_change_dict(cls, md_list: list[tuple[int, dict[str, Any]]]) -> dict[int, str]:
+        """Return a dictionary of schema changes by version
+        Args:
+            md_list: a list of tuples, each containing a version number and a metadata dictionary.
+        """
         r: dict[int, str] = {}
-        if src_rows is None or len(src_rows) == 0:
+        if md_list is None or len(md_list) == 0:
             return r
-        src_rows.sort()
+        md_list.sort()
 
-        v0 = src_rows[0][0]
+        v0 = md_list[0][0]
         if v0 == 0:
             ofld = None
             ver_old = -1
             start = 0
         else:
-            ofld = src_rows[0][1]
+            ofld = md_list[0][1]
             ver_old = v0
             start = 1
 
-        for row in src_rows[start:]:
+        for row in md_list[start:]:
             ver = row[0]
             if ver == ver_old:
                 continue
             assert ver > ver_old
             nfld = row[1]
-            tf = cls.diff_md(ofld, nfld)
+            tf = cls._diff_md(ofld, nfld)
             ofld = nfld
             if tf != '':
                 r[ver] = tf
         return r
 
-    def history(self, max_versions: int = 1_000_000_000) -> Optional[Any]:
+    def history(self, max_versions: int = 1_000_000_000) -> pixeltable.dataframe.DataFrameResultSet:
         """Returns rows of information about the versions of this table, most recent first.
 
         Args:
@@ -1649,28 +1656,28 @@ class Table(SchemaObject):
             src_rows = Env.get().session.execute(q).fetchall()
 
         # Construct the metadata change dictionary
-        md_rows = [[row.TableVersion.version, row.TableSchemaVersion.md['columns']] for row in src_rows]
-        md_dict = self.create_md_change_dict(md_rows)
+        md_list = [(row.TableVersion.version, row.TableSchemaVersion.md['columns']) for row in src_rows]
+        md_dict = self._create_md_change_dict(md_list)
 
-        # Construct report rows
+        # Construct report lines
         if max_versions is not None and len(src_rows) > max_versions:
             assert len(src_rows) == max_versions + 1
             over_count = 1
         else:
             over_count = 0
 
-        rpt_rows: list[list[Any]] = []
+        rpt_lines: list[list[Any]] = []
         for row in src_rows[0 : len(src_rows) - over_count]:
             version = row.TableVersion.version
             schema_change = md_dict.get(version, '')
             change_type = 'schema' if schema_change != '' else 'data'
-            rpt_row = [
+            rpt_line = [
                 version,
                 datetime.datetime.fromtimestamp(row.TableVersion.md['created_at']),
                 change_type,
                 schema_change,
             ]
-            rpt_rows.append(rpt_row)
+            rpt_lines.append(rpt_line)
 
         rpt_spec = pxt.dataframe.DataFrameResultSet.ReportSpec
         report_spec = [
@@ -1679,4 +1686,4 @@ class Table(SchemaObject):
             rpt_spec('change', ts.StringType(), 2, None),
             rpt_spec('schema_change', ts.StringType(), 3, None),
         ]
-        return pxt.dataframe.DataFrameResultSet._create_report(schema_list=report_spec, src_rows=rpt_rows)
+        return pxt.dataframe.DataFrameResultSet._create_report(schema_list=report_spec, src_rows=rpt_lines)
