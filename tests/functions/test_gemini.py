@@ -10,7 +10,6 @@ from ..utils import skip_test_if_no_client, skip_test_if_not_installed, stock_pr
 
 @pytest.mark.remote_api
 @pytest.mark.flaky(reruns=3, reruns_delay=8, condition=DO_RERUN)
-@pytest.mark.skip('temporarily disabled')
 class TestGemini:
     def test_generate_content(self, reset_db: None) -> None:
         skip_test_if_not_installed('google.genai')
