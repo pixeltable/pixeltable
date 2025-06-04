@@ -8,6 +8,7 @@ from typing import Callable
 import sqlalchemy as sql
 from sqlalchemy import orm
 
+import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable.utils.console_output import ConsoleLogger
 
@@ -59,8 +60,8 @@ def upgrade_md(engine: sql.engine.Engine) -> None:
         _logger.info(f'Current database version: {md_version}, installed version: {VERSION}')
         if md_version > VERSION:
             raise excs.Error(
-                f'This Pixeltable database was created with a newer Pixeltable version ({md_version})'
-                f' than the one currently installed ({VERSION}).\n'
+                'This Pixeltable database was created with a newer Pixeltable version '
+                f'than the one currently installed ({pxt.__version__}).\n'
                 'Please update to the latest Pixeltable version by running: pip install --upgrade pixeltable'
             )
         if md_version == VERSION:
