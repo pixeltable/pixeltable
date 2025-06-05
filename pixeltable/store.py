@@ -7,7 +7,7 @@ import sys
 import urllib.parse
 import urllib.request
 import warnings
-from typing import Any, Iterable, Iterator, Literal, Optional, Union
+from typing import Any, Iterable, Iterator, Literal, Optional, Sequence, Union
 
 import more_itertools
 import sqlalchemy as sql
@@ -41,12 +41,13 @@ class StoreBase:
     v_max_col: sql.Column
     base: Optional[StoreBase]
 
-    __INSERT_BATCH_SIZE = 1000
+    __INSERT_BATCH_SIZE = 10_000
 
     def __init__(self, tbl_version: catalog.TableVersion):
         self.tbl_version = catalog.TableVersionHandle(
             tbl_version.id, tbl_version.effective_version, tbl_version=tbl_version
         )
+        self.buffer = []
         self.sa_md = sql.MetaData()
         self.sa_tbl = None
         # We need to declare a `base` variable here, even though it's only defined for instances of `StoreView`,
@@ -145,26 +146,28 @@ class StoreBase:
         return new_file_url
 
     def _move_tmp_media_files(
-        self, table_rows: list[dict[str, Any]], media_cols: list[catalog.Column], v_min: int
+        self, table_rows: list[dict[str, Any]], media_cols_by_sql_idx: dict[int, catalog.Column], v_min: int
     ) -> None:
         """Move tmp media files that we generated to a permanent location"""
-        for c in media_cols:
+        for n, col in media_cols_by_sql_idx.items():
             for table_row in table_rows:
-                file_url = table_row[c.store_name()]
-                table_row[c.store_name()] = self._move_tmp_media_file(file_url, c, v_min)
+                file_url = table_row[n]
+                if file_url is not None:
+                    assert isinstance(file_url, str)
+                    table_row[n] = self._move_tmp_media_file(file_url, col, v_min)
 
     def _create_table_row(
         self, input_row: exprs.DataRow, row_builder: exprs.RowBuilder, exc_col_ids: set[int], pk: tuple[int, ...]
-    ) -> tuple[dict[str, Any], int]:
+    ) -> tuple[tuple[Any], int]:
         """Return Tuple[complete table row, # of exceptions] for insert()
         Creates a row that includes the PK columns, with the values from input_row.pk.
         Returns:
             Tuple[complete table row, # of exceptions]
         """
+        table_row: Sequence[Any]
         table_row, num_excs = row_builder.create_table_row(input_row, exc_col_ids)
         assert len(pk) == len(self._pk_cols)
-        for pk_col, pk_val in zip(self._pk_cols, pk):
-            table_row[pk_col.name] = pk_val
+        table_row = (*pk, *table_row)
         return table_row, num_excs
 
     def count(self) -> int:
@@ -341,49 +344,76 @@ class StoreBase:
         cols_with_excs: set[int] = set()
         progress_bar: Optional[tqdm] = None  # create this only after we started executing
         row_builder = exec_plan.row_builder
-        media_cols = [info.col for info in row_builder.table_columns if info.col.col_type.is_media_type()]
-        conn = Env.get().conn
+
+        store_col_names: list[str] = [pk_col.name for pk_col in self._pk_cols]
+        media_cols_by_sql_idx: dict[int, catalog.Column] = {}
+        for col in row_builder.table_columns:
+            if col.col.col_type.is_media_type():
+                media_cols_by_sql_idx[len(store_col_names)] = col.col
+            store_col_names.append(col.col.store_name())
+            if col.col._records_errors:
+                store_col_names.append(col.col.errortype_store_name())
+                store_col_names.append(col.col.errormsg_store_name())
 
         try:
+            table_rows: list[tuple[Any]] = []
             exec_plan.open()
+
             for row_batch in exec_plan:
                 num_rows += len(row_batch)
-                for batch_start_idx in range(0, len(row_batch), self.__INSERT_BATCH_SIZE):
-                    # compute batch of rows and convert them into table rows
-                    table_rows: list[dict[str, Any]] = []
-                    batch_stop_idx = min(batch_start_idx + self.__INSERT_BATCH_SIZE, len(row_batch))
-                    for row_idx in range(batch_start_idx, batch_stop_idx):
-                        row = row_batch[row_idx]
-                        # if abort_on_exc == True, we need to check for media validation exceptions
-                        if abort_on_exc and row.has_exc():
-                            exc = row.get_first_exc()
-                            raise exc
+                batch_table_rows: list[tuple[Any]] = []
 
-                        rowid = (next(rowids),) if rowids is not None else row.pk[:-1]
-                        pk = (*rowid, v_min)
-                        table_row, num_row_exc = self._create_table_row(row, row_builder, cols_with_excs, pk=pk)
-                        num_excs += num_row_exc
-                        table_rows.append(table_row)
+                # compute batch of rows and convert them into table rows
+                for row in row_batch:
+                    # if abort_on_exc == True, we need to check for media validation exceptions
+                    if abort_on_exc and row.has_exc():
+                        exc = row.get_first_exc()
+                        raise exc
 
-                        if show_progress:
-                            if progress_bar is None:
-                                warnings.simplefilter('ignore', category=TqdmWarning)
-                                progress_bar = tqdm(
-                                    desc=f'Inserting rows into `{self.tbl_version.get().name}`',
-                                    unit=' rows',
-                                    ncols=100,
-                                    file=sys.stdout,
-                                )
-                            progress_bar.update(1)
+                    rowid = (next(rowids),) if rowids is not None else row.pk[:-1]
+                    pk = (*rowid, v_min)
+                    table_row, num_row_exc = self._create_table_row(row, row_builder, cols_with_excs, pk)
+                    num_excs += num_row_exc
+                    batch_table_rows.append(table_row)
 
-                    # insert batch of rows
-                    self._move_tmp_media_files(table_rows, media_cols, v_min)
-                    conn.execute(sql.insert(self.sa_tbl), table_rows)
+                    if show_progress:
+                        if progress_bar is None:
+                            warnings.simplefilter('ignore', category=TqdmWarning)
+                            progress_bar = tqdm(
+                                desc=f'Inserting rows into `{self.tbl_version.get().name}`',
+                                unit=' rows',
+                                ncols=100,
+                                file=sys.stdout,
+                            )
+                        progress_bar.update(1)
+
+                self._move_tmp_media_files(batch_table_rows, media_cols_by_sql_idx, v_min)
+                table_rows.extend(batch_table_rows)
+
+                # if a batch is ready for insertion into the database, insert it
+                if len(table_rows) >= 10_000:
+                    self.sql_insert(store_col_names, table_rows)
+                    table_rows.clear()
+
+            # insert any remaining rows
+            if len(table_rows) > 0:
+                self.sql_insert(store_col_names, table_rows)
+
             if progress_bar is not None:
                 progress_bar.close()
+
             return num_rows, num_excs, cols_with_excs
+
         finally:
             exec_plan.close()
+
+    def sql_insert(self, store_col_names: list[str], table_rows: list[tuple[Any]]) -> None:
+        assert len(table_rows) > 0
+        conn = Env.get().conn
+        col_names_str = ", ".join(store_col_names)
+        placeholders_str = ", ".join(f'%s' for n in range(len(store_col_names)))
+        stmt_text = f'INSERT INTO {self.sa_tbl.name} ({col_names_str}) VALUES ({placeholders_str})'
+        conn.exec_driver_sql(stmt_text, table_rows)
 
     def _versions_clause(self, versions: list[Optional[int]], match_on_vmin: bool) -> sql.ColumnElement[bool]:
         """Return filter for base versions"""

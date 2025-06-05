@@ -427,33 +427,31 @@ class RowBuilder:
                         expr, f'expression {expr}', data_row.get_exc(expr.slot_idx), exc_tb, input_vals, 0
                     ) from exc
 
-    def create_table_row(self, data_row: DataRow, exc_col_ids: set[int]) -> tuple[dict[str, Any], int]:
+    def create_table_row(self, data_row: DataRow, exc_col_ids: set[int]) -> tuple[list[Any], int]:
         """Create a table row from the slots that have an output column assigned
 
         Return tuple[dict that represents a stored row (can be passed to sql.insert()), # of exceptions]
             This excludes system columns.
         """
         num_excs = 0
-        table_row: dict[str, Any] = {}
+        table_row: list[Any] = []
         for info in self.table_columns:
             col, slot_idx = info.col, info.slot_idx
             if data_row.has_exc(slot_idx):
                 # exceptions get stored in the errortype/-msg columns
+                assert col._records_errors
                 exc = data_row.get_exc(slot_idx)
                 num_excs += 1
                 exc_col_ids.add(col.id)
-                table_row[col.store_name()] = None
-                table_row[col.errortype_store_name()] = type(exc).__name__
-                table_row[col.errormsg_store_name()] = str(exc)
+                table_row.extend((None, type(exc).__name__, str(exc)))
             else:
                 if col.col_type.is_image_type() and data_row.file_urls[slot_idx] is None:
                     # we have yet to store this image
                     filepath = str(MediaStore.prepare_media_path(col.tbl.id, col.id, col.tbl.version))
                     data_row.flush_img(slot_idx, filepath)
                 val = data_row.get_stored_val(slot_idx, col.get_sa_col_type())
-                table_row[col.store_name()] = val
-                # we unfortunately need to set these, even if there are no errors
-                table_row[col.errortype_store_name()] = None
-                table_row[col.errormsg_store_name()] = None
+                table_row.append(val)
+                if col._records_errors:
+                    table_row.extend((None, None))
 
         return table_row, num_excs
