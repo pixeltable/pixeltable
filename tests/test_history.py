@@ -31,11 +31,11 @@ class TestHistory:
         print(p)
 
         with pytest.raises(excs.Error, match='Invalid value for'):
-            t.history(max_versions=0)
+            t.history(n=0)
         with pytest.raises(excs.Error, match='Invalid value for'):
-            t.history(max_versions=1.5)  # type: ignore[arg-type]
+            t.history(n=1.5)  # type: ignore[arg-type]
 
-        r = t.history(max_versions=3)
+        r = t.history(n=3)
         print(r)
         assert len(r) == 3
 

@@ -6,7 +6,7 @@ import logging
 import random
 import time
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, Callable, Iterator, Optional, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Iterator, Optional, Sequence, TypeVar
 from uuid import UUID
 
 import psycopg
@@ -1001,6 +1001,30 @@ class Catalog:
         view = View(tbl_id, tbl_record.dir_id, tbl_md.name, view_path, snapshot_only=pure_snapshot)
         self._tbls[tbl_id] = view
         return view
+
+    @_retry_loop(for_write=False)
+    def collect_tbl_history(
+        self, tbl_id: UUID, n: int
+    ) -> Sequence[sql.Row[tuple[schema.TableVersion, schema.TableSchemaVersion]]]:
+        """
+        Returns the history of all versions of the table with the given UUID.
+        The history is returned as a list of FullTableMd objects, ordered by version number.
+        """
+        q = (
+            sql.select(schema.TableVersion, schema.TableSchemaVersion)
+            .select_from(schema.TableVersion)
+            .join(
+                schema.TableSchemaVersion,
+                sql.cast(schema.TableVersion.md['schema_version'], sql.Integer)
+                == schema.TableSchemaVersion.schema_version,
+            )
+            .where(schema.TableVersion.tbl_id == tbl_id)
+            .where(schema.TableSchemaVersion.tbl_id == tbl_id)
+            .order_by(schema.TableVersion.version.desc())
+            .limit(n + 1)
+        )
+        src_rows = Env.get().session.execute(q).fetchall()
+        return src_rows
 
     def load_tbl_md(self, tbl_id: UUID, effective_version: Optional[int]) -> schema.FullTableMd:
         """

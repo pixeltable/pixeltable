@@ -17,7 +17,6 @@ import sqlalchemy as sql
 
 import pixeltable as pxt
 from pixeltable import catalog, env, exceptions as excs, exprs, index, type_system as ts
-from pixeltable.env import Env
 from pixeltable.metadata import schema
 
 from ..exprs import ColumnRef
@@ -1614,11 +1613,11 @@ class Table(SchemaObject):
                 r[ver] = tf
         return r
 
-    def history(self, max_versions: int = 1_000_000_000) -> pixeltable.dataframe.DataFrameResultSet:
+    def history(self, n: Optional[int] = None) -> pixeltable.dataframe.DataFrameResultSet:
         """Returns rows of information about the versions of this table, most recent first.
 
         Args:
-            max_versions: a limit to the number of versions listed
+            n: a limit to the number of versions listed
 
         Examples:
             Report history:
@@ -1627,41 +1626,30 @@ class Table(SchemaObject):
 
             Report only the most recent 5 changes to the table:
 
-            >>> tbl.history(max_versions=5)
+            >>> tbl.history(n=5)
 
         Returns:
             A list of rows of data.
         """
-        if not isinstance(max_versions, int) or max_versions < 1:
-            raise excs.Error(f'Invalid value for max_versions: {max_versions}')
+        from pixeltable.catalog import Catalog
 
-        with Env.get().begin_xact():
-            # tbl_id = self._tbl_version_path.tbl_id
+        if n is None:
+            n = 1000_000_000
+        if not isinstance(n, int) or n < 1:
+            raise excs.Error(f'Invalid value for n: {n}')
+
+        with Catalog.get().begin_xact(tbl_id=self._id):
+            self._check_is_dropped()
             tbl_id = self._id
-            if tbl_id is None:
-                raise excs.Error('Cannot get history of a table that has been dropped')
-            q = (
-                sql.select(schema.TableVersion, schema.TableSchemaVersion)
-                .select_from(schema.TableVersion)
-                .join(
-                    schema.TableSchemaVersion,
-                    sql.cast(schema.TableVersion.md['schema_version'], sql.Integer)
-                    == schema.TableSchemaVersion.schema_version,
-                )
-                .where(schema.TableVersion.tbl_id == tbl_id)
-                .where(schema.TableSchemaVersion.tbl_id == tbl_id)
-                .order_by(schema.TableVersion.version.desc())
-                .limit(max_versions + 1)
-            )
-            src_rows = Env.get().session.execute(q).fetchall()
+            src_rows = Catalog.get().collect_tbl_history(tbl_id, n)
 
         # Construct the metadata change dictionary
         md_list = [(row.TableVersion.version, row.TableSchemaVersion.md['columns']) for row in src_rows]
         md_dict = self._create_md_change_dict(md_list)
 
         # Construct report lines
-        if max_versions is not None and len(src_rows) > max_versions:
-            assert len(src_rows) == max_versions + 1
+        if n is not None and len(src_rows) > n:
+            assert len(src_rows) == n + 1
             over_count = 1
         else:
             over_count = 0
