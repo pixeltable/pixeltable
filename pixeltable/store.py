@@ -125,13 +125,14 @@ class StoreBase:
 
     def _move_tmp_media_file(self, file_url: Optional[str], col: catalog.Column, v_min: int) -> str:
         """Move tmp media file with given url to Env.media_dir and return new url, or given url if not a tmp_dir file"""
-        pxt_tmp_dir = str(Env.get().tmp_dir)
         if file_url is None:
             return None
+        assert isinstance(file_url, str)
+        pxt_tmp_dir = str(Env.get().tmp_dir)
         parsed = urllib.parse.urlparse(file_url)
         # We should never be passed a local file path here. The "len > 1" ensures that Windows
         # file paths aren't mistaken for URLs with a single-character scheme.
-        assert len(parsed.scheme) > 1
+        assert len(parsed.scheme) > 1, file_url
         if parsed.scheme != 'file':
             # remote url
             return file_url
@@ -146,28 +147,23 @@ class StoreBase:
         return new_file_url
 
     def _move_tmp_media_files(
-        self, table_rows: list[dict[str, Any]], media_cols_by_sql_idx: dict[int, catalog.Column], v_min: int
+        self, table_row: list[Any], media_cols_by_sql_idx: dict[int, catalog.Column], v_min: int
     ) -> None:
         """Move tmp media files that we generated to a permanent location"""
         for n, col in media_cols_by_sql_idx.items():
-            for table_row in table_rows:
-                file_url = table_row[n]
-                if file_url is not None:
-                    assert isinstance(file_url, str)
-                    table_row[n] = self._move_tmp_media_file(file_url, col, v_min)
+            table_row[n] = self._move_tmp_media_file(table_row[n], col, v_min)
 
     def _create_table_row(
         self, input_row: exprs.DataRow, row_builder: exprs.RowBuilder, exc_col_ids: set[int], pk: tuple[int, ...]
-    ) -> tuple[tuple[Any], int]:
+    ) -> tuple[list[Any], int]:
         """Return Tuple[complete table row, # of exceptions] for insert()
         Creates a row that includes the PK columns, with the values from input_row.pk.
         Returns:
             Tuple[complete table row, # of exceptions]
         """
-        table_row: Sequence[Any]
         table_row, num_excs = row_builder.create_table_row(input_row, exc_col_ids)
         assert len(pk) == len(self._pk_cols)
-        table_row = (*pk, *table_row)
+        table_row = [*pk, *table_row]
         return table_row, num_excs
 
     def count(self) -> int:
@@ -351,7 +347,7 @@ class StoreBase:
             if col.col.col_type.is_media_type():
                 media_cols_by_sql_idx[len(store_col_names)] = col.col
             store_col_names.append(col.col.store_name())
-            if col.col._records_errors:
+            if col.col.records_errors:
                 store_col_names.append(col.col.errortype_store_name())
                 store_col_names.append(col.col.errormsg_store_name())
 
@@ -361,7 +357,7 @@ class StoreBase:
 
             for row_batch in exec_plan:
                 num_rows += len(row_batch)
-                batch_table_rows: list[tuple[Any]] = []
+                batch_table_rows: list[list[Any]] = []
 
                 # compute batch of rows and convert them into table rows
                 for row in row_batch:
@@ -374,7 +370,6 @@ class StoreBase:
                     pk = (*rowid, v_min)
                     table_row, num_row_exc = self._create_table_row(row, row_builder, cols_with_excs, pk)
                     num_excs += num_row_exc
-                    batch_table_rows.append(table_row)
 
                     if show_progress:
                         if progress_bar is None:
@@ -387,11 +382,13 @@ class StoreBase:
                             )
                         progress_bar.update(1)
 
-                self._move_tmp_media_files(batch_table_rows, media_cols_by_sql_idx, v_min)
+                    self._move_tmp_media_files(table_row, media_cols_by_sql_idx, v_min)
+                    batch_table_rows.append(tuple(table_row))
+
                 table_rows.extend(batch_table_rows)
 
                 # if a batch is ready for insertion into the database, insert it
-                if len(table_rows) >= 10_000:
+                if len(table_rows) >= self.__INSERT_BATCH_SIZE:
                     self.sql_insert(store_col_names, table_rows)
                     table_rows.clear()
 
@@ -410,10 +407,15 @@ class StoreBase:
     def sql_insert(self, store_col_names: list[str], table_rows: list[tuple[Any]]) -> None:
         assert len(table_rows) > 0
         conn = Env.get().conn
-        col_names_str = ", ".join(store_col_names)
-        placeholders_str = ", ".join(f'%s' for n in range(len(store_col_names)))
-        stmt_text = f'INSERT INTO {self.sa_tbl.name} ({col_names_str}) VALUES ({placeholders_str})'
-        conn.exec_driver_sql(stmt_text, table_rows)
+        conn.execute(sql.insert(self.sa_tbl), [dict(zip(store_col_names, table_row)) for table_row in table_rows])
+
+        # TODO: Inserting directly via psycopg delivers a small performance benefit, but is somewhat fraught due to
+        #     differences in the data representation that SQLAlchemy/psycopg expect. The below code will do the
+        #     insertion in psycopg and can be used if/when we decide to pursue that optimization.
+        # col_names_str = ", ".join(store_col_names)
+        # placeholders_str = ", ".join('%s' for _ in store_col_names)
+        # stmt_text = f'INSERT INTO {self.sa_tbl.name} ({col_names_str}) VALUES ({placeholders_str})'
+        # conn.exec_driver_sql(stmt_text, table_rows)
 
     def _versions_clause(self, versions: list[Optional[int]], match_on_vmin: bool) -> sql.ColumnElement[bool]:
         """Return filter for base versions"""

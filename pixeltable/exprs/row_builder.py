@@ -438,12 +438,13 @@ class RowBuilder:
         for info in self.table_columns:
             col, slot_idx = info.col, info.slot_idx
             if data_row.has_exc(slot_idx):
-                # exceptions get stored in the errortype/-msg columns
-                assert col._records_errors
                 exc = data_row.get_exc(slot_idx)
                 num_excs += 1
                 exc_col_ids.add(col.id)
-                table_row.extend((None, type(exc).__name__, str(exc)))
+                table_row.append(None)
+                if col.records_errors:
+                    # exceptions get stored in the errortype/-msg columns
+                    table_row.extend((type(exc).__name__, str(exc)))
             else:
                 if col.col_type.is_image_type() and data_row.file_urls[slot_idx] is None:
                     # we have yet to store this image
@@ -451,7 +452,7 @@ class RowBuilder:
                     data_row.flush_img(slot_idx, filepath)
                 val = data_row.get_stored_val(slot_idx, col.get_sa_col_type())
                 table_row.append(val)
-                if col._records_errors:
+                if col.records_errors:
                     table_row.extend((None, None))
 
         return table_row, num_excs
