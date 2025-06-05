@@ -202,7 +202,7 @@ class Catalog:
                         if tv._tbl_version is not None
                     )
                     assert TableVersionHandle.create(tbl_version) in self._tbl_versions[base.id, None].mutable_views, (
-                        f'{tbl_version.name} missing in {mutable_view_ids} ({mutable_view_names})'
+                        f'{tbl_version.name} ({tbl_version.id}) missing in {mutable_view_ids} ({mutable_view_names})'
                     )
 
             if len(tbl_version.mutable_views) > 0:
@@ -274,6 +274,9 @@ class Catalog:
                                     self._compute_column_dependents(self._x_locked_tbl_ids)
                                 else:
                                     self._x_locked_tbl_ids = {tbl.tbl_id}
+                                if _logger.isEnabledFor(logging.DEBUG):
+                                    # validate only when we don't see errors
+                                    self.validate()
 
                         except sql.exc.DBAPIError as e:
                             if isinstance(
@@ -290,9 +293,9 @@ class Catalog:
                     self._in_write_xact = for_write
                     yield conn
 
-                    if _logger.isEnabledFor(logging.DEBUG):
-                        # validate only when we don't see errors
-                        self.validate()
+                    # if _logger.isEnabledFor(logging.DEBUG):
+                    #     # validate only when we don't see errors
+                    #     self.validate()
                     return
 
             except sql.exc.DBAPIError as e:
