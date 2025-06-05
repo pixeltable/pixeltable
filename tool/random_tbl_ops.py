@@ -71,6 +71,9 @@ def random_tbl_op(t: pxt.Table) -> None:
         except pxt.Error as e:
             debug_print(str(e))
 
+    # TODO: add/drop columns when we do compaction, otherwise we very quickly run into the limit on the number
+    # of columns of a Postgres table
+
     # else:
     #     # add or drop columns
     #     num_cols = len(t.get_metadata()['schema'])
@@ -92,7 +95,10 @@ def main() -> None:
     t.add_computed_column(computed1=t.c1 + 10, if_exists='ignore')
 
     while True:
-        random_tbl_op(t)
+        try:
+            random_tbl_op(t)
+        except pxt.Error as e:
+            print(f'ERROR: {e}')
         time.sleep(random.uniform(0.1, 0.5))
 
 

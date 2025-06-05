@@ -171,7 +171,7 @@ class TestView:
         id_before = v2._id
 
         # scenario 2: a view exists at the path, but has dependency
-        v_on_v = pxt.create_view('test_view_on_view', v2)
+        _v_on_v = pxt.create_view('test_view_on_view', v2)
         with pytest.raises(excs.Error, match='is an existing view'):
             pxt.create_view('test_view', t)
         # if_exists='ignore' should return the existing view

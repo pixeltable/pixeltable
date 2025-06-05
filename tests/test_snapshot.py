@@ -134,7 +134,7 @@ class TestSnapshot:
         # Note that when a view is created on a snapshot, the view is
         # dependent of the snapshot iff the snapshot has additional columns
         # not present in the base table/view of that snapshot.
-        v_on_s1 = pxt.create_view('test_view_on_snapshot1', s12)
+        _v_on_s1 = pxt.create_view('test_view_on_snapshot1', s12)
         with pytest.raises(pxt.Error, match='is an existing'):
             pxt.create_snapshot(sname, t)
         # if_exists='ignore' should return the existing snapshot

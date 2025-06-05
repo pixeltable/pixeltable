@@ -31,8 +31,9 @@ from .table_version_path import TableVersionPath
 from .view import View
 
 if TYPE_CHECKING:
-    from .. import DataFrame, exprs
     from pixeltable.plan import SampleClause
+
+    from .. import DataFrame, exprs
 
 
 _logger = logging.getLogger('pixeltable')
@@ -78,22 +79,24 @@ def _retry_loop(*, for_write: bool) -> Callable[[Callable[..., T]], Callable[...
                     # in order for retry to work, we need to make sure that there aren't any prior db updates
                     # that are part of an ongoing transaction
                     assert not Env.get().in_xact
-                    with Catalog.get().begin_xact(for_write=for_write):
+                    with Catalog.get().begin_xact(for_write=for_write, convert_db_excs=False):
                         return op(*args, **kwargs)
                 except sql.exc.DBAPIError as e:
                     # TODO: what other exceptions should we be looking for?
                     if isinstance(e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)):
                         if num_retries < _MAX_RETRIES or _MAX_RETRIES == 0:
                             num_retries += 1
-                            print(f'Retrying ({num_retries} after {type(e.orig)}')
-                            _logger.debug(f'Retrying ({num_retries} after {type(e.orig)}')
+                            print(f'Retrying ({num_retries}) after {type(e.orig)}')
+                            _logger.debug(f'Retrying ({num_retries}) after {type(e.orig)}')
                             time.sleep(random.uniform(0.1, 0.5))
                         else:
                             raise excs.Error(f'Serialization retry limit ({_MAX_RETRIES}) exceeded') from e
                     else:
                         raise
                 except Exception as e:
-                    print(f'loop(): caught {e}')
+                    # for informational/debugging purposes
+                    _logger.debug(f'retry_loop(): passing along {e}')
+                    print(f'retry_loop(): passing along {e}')
                     raise
 
         return loop
@@ -209,7 +212,12 @@ class Catalog:
 
     @contextmanager
     def begin_xact(
-        self, *, tbl: Optional[TableVersionPath] = None, for_write: bool = False, lock_mutable_tree: bool = False
+        self,
+        *,
+        tbl: Optional[TableVersionPath] = None,
+        for_write: bool = False,
+        lock_mutable_tree: bool = False,
+        convert_db_excs: bool = True,
     ) -> Iterator[sql.Connection]:
         """
         Return a context manager that yields a connection to the database. Idempotent.
@@ -217,12 +225,17 @@ class Catalog:
         It is mandatory to call this method, not Env.begin_xact(), if the transaction accesses any table data
         or metadata.
 
-        Lock acquisition:
-        - x-locks Table records by updating Table.lock_dummy
+        If tbl != None, follows this locking protocol:
+        - validates/reloads the TableVersion instances of the ancestors (in the hope that this reduces potential SerializationErrors later on)
+        - if for_write == True, x-locks Table record (by updating Table.lock_dummy; see _acquire_tbl_xlock())
+        - if for_write == False, validates TableVersion instance
+        - if lock_mutable_tree == True, also x-locks all mutable views of the table
         - this needs to be done in a retry loop, because Postgres can decide to abort the transaction
           (SerializationFailure, LockNotAvailable)
         - for that reason, we do all lock acquisition prior to doing any real work (eg, compute column values),
-          to minimize (maybe avoid altogether) loosing that work
+          to minimize the probability of loosing that work
+
+        If convert_db_excs == True, convert DBAPIErrors into excs.Errors.
         """
         if Env.get().in_xact:
             if tbl is not None and for_write:
@@ -249,10 +262,7 @@ class Catalog:
                     if tbl is not None:
                         try:
                             if not self._acquire_path_locks(
-                                path=tbl,
-                                for_write=for_write,
-                                lock_mutable_tree=lock_mutable_tree,
-                                raise_if_not_exists=True,
+                                tbl=tbl, for_write=for_write, lock_mutable_tree=lock_mutable_tree
                             ):
                                 # this is a snapshot
                                 yield conn
@@ -270,7 +280,7 @@ class Catalog:
                                 e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)
                             ) and (num_retries < _MAX_RETRIES or _MAX_RETRIES == 0):
                                 num_retries += 1
-                                print(f'begin_xact(): Retrying ({num_retries}) after {type(e.orig)} (DBapierror)')
+                                # print(f'begin_xact(): Retrying ({num_retries}) after {type(e.orig)} (DBapierror)')
                                 _logger.debug(f'Retrying ({num_retries}) after {type(e.orig)}')
                                 time.sleep(random.uniform(0.1, 0.5))
                                 continue
@@ -279,27 +289,38 @@ class Catalog:
 
                     self._in_write_xact = for_write
                     yield conn
+
+                    if _logger.isEnabledFor(logging.DEBUG):
+                        # validate only when we don't see errors
+                        self.validate()
                     return
 
             except sql.exc.DBAPIError as e:
+                # we got some db error during the actual operation (not just while trying to get locks on the metadata
+                # records): we convert these into Errors, if asked to do so, and abort
                 # TODO: what other concurrency-related exceptions should we expect?
-                if isinstance(e.orig, (psycopg.errors.UndefinedTable)):
-                    # the table got dropped while we're running a query
-                    _logger.debug(f'begin_xact({tbl.tbl_name()}): Caught {type(e.orig)} (DBapierror): {e!r}')
-                    print(f'begin_xact({tbl.tbl_name()}): Caught {type(e.orig)} (DBapierror): {e!r}')
+                # we always convert UndefinedTable exceptions (they can't be retried)
+                if isinstance(e.orig, psycopg.errors.UndefinedTable):
+                    # the table got dropped in the middle of the table operation
+                    _logger.debug(
+                        f'Exception: undefined table ({tbl.tbl_name()}): Caught {type(e.orig)} (DBapierror): {e!r}'
+                    )
+                    # print(f'begin_xact({tbl.tbl_name()}): Caught {type(e.orig)} (DBapierror): {e!r}')
                     assert tbl is not None
-                    raise excs.Error(f'Table was dropped: {tbl.tbl_name()}')
+                    raise excs.Error(f'Table was dropped: {tbl.tbl_name()}') from None
+                elif isinstance(e.orig, psycopg.errors.SerializationFailure) and convert_db_excs:
+                    # we still got a serialization error, despite getting x-locks at the beginning
+                    msg = f'{tbl.tbl_name()} ({tbl.tbl_id})' if tbl is not None else ''
+                    print(f'Serialization failure: {msg} ({e})')
+                    _logger.debug(f'Exception: serialization failure: {msg} ({e})')
+                    raise excs.Error('Serialization failure. Please re-run the operation.') from None
                 else:
                     raise
-
 
             finally:
                 self._in_write_xact = False
                 self._x_locked_tbl_ids = set()
                 self._column_dependents = None
-
-                if _logger.isEnabledFor(logging.DEBUG):
-                    self.validate()
 
                 # invalidate cached current TableVersion instances
                 for tv in self._tbl_versions.values():
@@ -312,28 +333,24 @@ class Catalog:
         return self._in_write_xact
 
     def _acquire_path_locks(
-        self,
-        *,
-        path: TableVersionPath,
-        for_write: bool = False,
-        lock_mutable_tree: bool = False,
-        raise_if_not_exists: bool = False,
+        self, *, tbl: TableVersionPath, for_write: bool = False, lock_mutable_tree: bool = False
     ) -> bool:
-        """Force acquisition of an X-lock on a Table record via a blind update
-
-        Either tbl_id or dir_id/tbl_name need to be specified.
-        Returns True if the table was locked, False if it was a snapshot or not found.
         """
-        # make sure we have validated TableVersions for the path, starting at the root;
-        # we need those even during insert, for computed columns that references base tables
+        Path locking protocol:
+        - refresh cached TableVersions of ancestors (we need those even during inserts, for computed columns that
+          reference the base tables)
+        - refresh cached TableVersion of tbl or get X-lock, depending on for_write
+        - if lock_mutable_tree, also X-lock all mutable views of tbl
+
+        Returns False if trying to lock a pure snapshot with for_write == True
+        Raises Error if tbl doesn't exist.
+        """
         start_idx = 1 if for_write else 0
-        for handle in path.get_tbl_versions()[start_idx::-1]:
+        for handle in tbl.get_tbl_versions()[start_idx::-1]:
             _ = self.get_tbl_version(handle.id, handle.effective_version)
         if not for_write:
             return True  # nothing left to lock
-        return self._acquire_tbl_xlock(
-            tbl_id=path.tbl_id, lock_mutable_tree=lock_mutable_tree, raise_if_not_exists=raise_if_not_exists
-        )
+        return self._acquire_tbl_xlock(tbl_id=tbl.tbl_id, lock_mutable_tree=lock_mutable_tree, raise_if_not_exists=True)
 
     def _acquire_tbl_xlock(
         self,
@@ -348,9 +365,13 @@ class Catalog:
 
         Either tbl_id or dir_id/tbl_name need to be specified.
         Returns True if the table was locked, False if it was a snapshot or not found.
+        If lock_mutable_tree, recursively locks all mutable views of the table.
+
+        Returns False if the table is a snapshot or not found and !raise_if_not_exists.
         """
         where_clause: sql.ColumnElement
         if tbl_id is not None:
+            # print(f'x-lock on {tbl_id}')
             where_clause = schema.Table.id == tbl_id
         else:
             where_clause = sql.and_(schema.Table.dir_id == dir_id, schema.Table.md['name'].astext == tbl_name)
@@ -900,69 +921,9 @@ class Catalog:
 
     @_retry_loop(for_write=False)
     def get_table(self, path: Path) -> Table:
-        obj = self._get_table(path)
-        return obj
-
-    def _get_table(self, path: Path) -> Table:
         obj = Catalog.get()._get_schema_object(path, expected=Table, raise_if_not_exists=True)
         assert isinstance(obj, Table)
-        # tbl_version = obj._tbl_version.get()
-        # # TODO: instead of calling this here, move the logic into TableVersion.init(), which is called after
-        # # registering the instance in _tbl_versions
-        # tbl_version.ensure_md_loaded()
-        # # if this table has mutable views, we need to load those as well, in order to record column dependencies
-        # for v in tbl_version.mutable_views:
-        #     self.get_table_by_id(v.id)
         return obj
-
-    # @_retry_loop(for_write=True)
-    # def drop_table(self, path: Path, if_not_exists: IfNotExistsParam, force: bool) -> None:
-    #     _, _, src_obj = self._prepare_dir_op(
-    #         drop_dir_path=path.parent,
-    #         drop_name=path.name,
-    #         drop_expected=Table,
-    #         raise_if_not_exists=if_not_exists == IfNotExistsParam.ERROR and not force,
-    #     )
-    #     if src_obj is None:
-    #         _logger.info(f'Skipped table {str(path)!r} (does not exist).')
-    #         return
-    #     assert isinstance(src_obj, Table)
-    #     self._drop_tbl(src_obj, force=force, is_replace=False)
-    #
-    # def _drop_tbl(self, tbl: Table, force: bool, is_replace: bool) -> None:
-    #     """
-    #     Drop the table (and recursively its views, if force == True).
-    #
-    #     Locking protocol:
-    #     - X-lock base before X-locking any view
-    #     - deadlock-free wrt to TableVersion.insert() (insert propagation also proceeds top-down)
-    #     - X-locks parent dir prior to calling TableVersion.drop(): prevent concurrent creation of another SchemaObject
-    #       in the same directory with the same name (which could lead to duplicate names if we get rolled back)
-    #     """
-    #     view_ids = self.get_view_ids(tbl._id, for_update=True)
-    #     if len(view_ids) > 0:
-    #         if not force:
-    #             is_snapshot = tbl._tbl_version_path.is_snapshot()
-    #             obj_type_str = 'Snapshot' if is_snapshot else tbl._display_name().capitalize()
-    #             msg: str
-    #             if is_replace:
-    #                 msg = (
-    #                     f'{obj_type_str} {tbl._path()} already exists and has dependents. '
-    #                     "Use `if_exists='replace_force'` to replace it."
-    #                 )
-    #             else:
-    #                 msg = f'{obj_type_str} {tbl._path()} has dependents.'
-    #             raise excs.Error(msg)
-    #
-    #         for view_id in view_ids:
-    #             view = self.get_table_by_id(view_id)
-    #             self._drop_tbl(view, force=force, is_replace=is_replace)
-    #
-    #     _ = self.get_dir(tbl._dir_id, for_update=True)  # X-lock the parent directory
-    #     tbl._drop()
-    #     assert tbl._id in self._tbls
-    #     del self._tbls[tbl._id]
-    #     _logger.info(f'Dropped table `{tbl._path()}`.')
 
     @_retry_loop(for_write=True)
     def drop_table(self, path: Path, if_not_exists: IfNotExistsParam, force: bool) -> None:
@@ -1367,12 +1328,27 @@ class Catalog:
                 assert tbl_md.current_schema_version == version_md.schema_version
             if schema_version_md is not None:
                 assert tbl_md.current_schema_version == schema_version_md.schema_version
+            # print(f'updating table metadata for {tbl_id}')
             result = conn.execute(
                 sql.update(schema.Table.__table__)
                 .values({schema.Table.md: dataclasses.asdict(tbl_md)})
                 .where(schema.Table.id == tbl_id)
             )
             assert result.rowcount == 1, result.rowcount
+
+            # try:
+            #     result = conn.execute(
+            #         sql.update(schema.Table.__table__)
+            #         .values({schema.Table.md: dataclasses.asdict(tbl_md)})
+            #         .where(schema.Table.id == tbl_id)
+            #     )
+            #     assert result.rowcount == 1, result.rowcount
+            # except sql.exc.DBAPIError as e:
+            #     if isinstance(e.orig, psycopg.errors.SerializationFailure):
+            #         print(f'Serialization failure: {tbl_id} ({e})')
+            #         raise excs.Error(f'Serialization failure. Please re-run the operation.') from None
+            #     else:
+            #         raise
 
         if version_md is not None:
             assert version_md.tbl_id == str(tbl_id)
@@ -1555,79 +1531,3 @@ class Catalog:
             assert isinstance(obj, Table)
             self._drop_tbl(obj, force=if_exists == IfExistsParam.REPLACE_FORCE, is_replace=True)
         return None
-
-    # @contextmanager
-    # def __begin_xact(self, *, tbl_id: Optional[UUID] = None, for_write: bool = False) -> Iterator[sql.Connection]:
-    #     """
-    #     Return a context manager that yields a connection to the database. Idempotent.
-    #
-    #     It is mandatory to call this method, not Env.begin_xact(), if the transaction accesses any table data
-    #     or metadata.
-    #
-    #     Lock acquisition:
-    #     - x-locks Table records by updating Table.lock_dummy
-    #     - this needs to be done in a retry loop, because Postgres can decide to abort the transaction
-    #       (SerializationFailure, LockNotAvailable)
-    #     - for that reason, we do all lock acquisition prior to doing any real work (eg, compute column values),
-    #       to minimize (maybe avoid altogether) loosing that work
-    #     """
-    #     if Env.get().in_xact:
-    #         if tbl_id is not None and for_write:
-    #             # make sure that we requested the required table lock at the beginning of the transaction
-    #             assert tbl_id == self._x_locked_tbl_id, f'{tbl_id} != {self._x_locked_tbl_id}'
-    #         yield Env.get().conn
-    #         return
-    #
-    #     # tv_msg = '\n'.join(
-    #     #     [
-    #     #         f'{tv.id}:{tv.effective_version} : tv={id(tv):x} sa_tbl={id(tv.store_tbl.sa_tbl):x}'
-    #     #         for tv in self._tbl_versions.values()
-    #     #     ]
-    #     # )
-    #     # _logger.debug(f'begin_xact(): {tv_msg}')
-    #     num_retries = 0
-    #     while True:
-    #         try:
-    #             with Env.get().begin_xact() as conn:
-    #                 if tbl_id is not None and for_write:
-    #                     self._acquire_tbl_xlock(tbl_id=tbl_id, lock_mutable_tree=False)
-    #                     self._x_locked_tbl_id = tbl_id
-    #
-    #                 self._in_write_xact = for_write
-    #                 yield conn
-    #                 return
-    #         except sql.exc.DBAPIError as e:
-    #             if isinstance(e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)) and (
-    #                 num_retries < _MAX_RETRIES or _MAX_RETRIES == 0
-    #             ):
-    #                 num_retries += 1
-    #                 print(f'begin_xact(): Retrying ({num_retries}) after {type(e.orig)} (DBapierror)')
-    #                 _logger.debug(f'Retrying ({num_retries}) after {type(e.orig)}')
-    #                 time.sleep(random.uniform(0.1, 0.5))
-    #             else:
-    #                 raise
-    #         except sql.exc.OperationalError as e:
-    #             if isinstance(e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)) and (
-    #                 num_retries < _MAX_RETRIES or _MAX_RETRIES == 0
-    #             ):
-    #                 num_retries += 1
-    #                 print(f'Retrying ({num_retries}) after {type(e.orig)} (operationalerror)')
-    #                 _logger.debug(f'Retrying ({num_retries}) after {type(e.orig)}')
-    #                 time.sleep(random.uniform(0.1, 0.5))
-    #             else:
-    #                 raise
-    #         except Exception as e:
-    #             print(f'begin_xact(): caught {e}')
-    #             raise
-    #         finally:
-    #             self._in_write_xact = False
-    #             self._x_locked_tbl_id = None
-    #
-    #             # invalidate cached current TableVersion instances
-    #             for tv in self._tbl_versions.values():
-    #                 if tv.effective_version is None:
-    #                     _logger.debug(f'invalidating table version {tv.id}:None (tv={id(tv):x})')
-    #                     tv.is_validated = False
-    #
-    #             if _logger.isEnabledFor(logging.DEBUG):
-    #                 self.validate()

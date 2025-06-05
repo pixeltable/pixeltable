@@ -238,7 +238,7 @@ class TablePackager:
         - Documents are replaced by a thumbnail as a base64-encoded webp
         """
         # First 8 columns
-        preview_cols = dict(itertools.islice(self.table._schema.items(), 0, 8))
+        preview_cols = dict(itertools.islice(self.table._schema().items(), 0, 8))
         select_list = [self.table[col_name] for col_name in preview_cols]
         # First 5 rows
         rows = list(self.table.select(*select_list).head(n=5))

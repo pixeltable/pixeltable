@@ -133,10 +133,15 @@ class ExprEvalNode(ExecNode):
         except StopAsyncIteration:
             self.input_complete = True
             _logger.debug(f'finished input: #input_rows={self.num_input_rows}, #avail={self.avail_input_rows}')
-        except excs.Error as err:
-            self.error = err
+        # TODO: do we still need this? presumably not
+        # except excs.Error as err:
+        #     self.error = err
+        #     self.exc_event.set()
+
+        # make sure to pass DBAPIError through, so the transaction handling logic sees it
+        except Exception as exc:
+            self.error = exc
             self.exc_event.set()
-        # TODO: should we also handle Exception here and create an excs.Error from it?
 
     @property
     def total_buffered(self) -> int:
