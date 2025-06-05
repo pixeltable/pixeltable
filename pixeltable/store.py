@@ -14,13 +14,13 @@ import sqlalchemy as sql
 from tqdm import TqdmWarning, tqdm
 
 from pixeltable import catalog, exceptions as excs, exprs
+from pixeltable.catalog.globals import UpdateStatus
 from pixeltable.env import Env
 from pixeltable.exec import ExecNode
 from pixeltable.metadata import schema
 from pixeltable.utils.exception_handler import run_cleanup
 from pixeltable.utils.media_store import MediaStore
 from pixeltable.utils.sql import log_explain, log_stmt
-from pixeltable.catalog.globals import UpdateStatus
 
 _logger = logging.getLogger('pixeltable')
 
@@ -330,7 +330,7 @@ class StoreBase:
         show_progress: bool = True,
         rowids: Optional[Iterator[int]] = None,
         abort_on_exc: bool = False,
-    ) -> tuple[int, int, set[int], UpdateStatus]:
+    ) -> tuple[set[int], UpdateStatus]:
         """Insert rows into the store table and update the catalog table's md
         Returns:
             number of inserted rows, number of exceptions, set of column ids that have exceptions
@@ -382,12 +382,8 @@ class StoreBase:
                     conn.execute(sql.insert(self.sa_tbl), table_rows)
             if progress_bar is not None:
                 progress_bar.close()
-            return num_rows, num_excs, cols_with_excs, UpdateStatus(
-                num_rows=num_rows,
-                num_excs=num_excs,
-#                num_computed_values=len(row_builder.table_columns),
-#                updated_cols=[col.name for col in row_builder.table_columns],
-                cols_with_excs=[col.name for col in row_builder.table_columns if col.id in cols_with_excs],
+            return cols_with_excs, UpdateStatus(
+                num_rows=num_rows, num_excs=num_excs, num_computed_values=exec_plan.ctx.num_computed_exprs * num_rows
             )
         finally:
             exec_plan.close()

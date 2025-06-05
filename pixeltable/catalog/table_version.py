@@ -909,10 +909,9 @@ class TableVersion:
         """Insert rows produced by exec_plan and propagate to views"""
         # we're creating a new version
         self.version += 1
-        _, _, cols_with_excs, result = self.store_tbl.insert_rows(
+        cols_with_excs, result = self.store_tbl.insert_rows(
             exec_plan, v_min=self.version, rowids=rowids, abort_on_exc=abort_on_exc
         )
-        result.num_computed_values += exec_plan.ctx.num_computed_exprs * result.num_rows
         result.cols_with_excs = [f'{self.name}.{self.cols_by_id[cid].name}' for cid in cols_with_excs]
         self._write_md(new_version=True, new_version_ts=timestamp, new_schema_version=False)
 
@@ -925,7 +924,7 @@ class TableVersion:
             result += status
 
         if print_stats:
-            plan.ctx.profile.print(num_rows=status.num_rows) # This is the net rows across after propagations
+            plan.ctx.profile.print(num_rows=status.num_rows)  # This is the net rows after all propagations
         _logger.info(f'TableVersion {self.name}: new version {self.version}')
         return result
 
@@ -1067,9 +1066,7 @@ class TableVersion:
         if plan is not None:
             # we're creating a new version
             self.version += 1
-            _, _, cols_with_excs, result = self.store_tbl.insert_rows(
-                plan, v_min=self.version, show_progress=show_progress
-            )
+            cols_with_excs, result = self.store_tbl.insert_rows(plan, v_min=self.version, show_progress=show_progress)
             result.cols_with_excs = [f'{self.name}.{self.cols_by_id[cid].name}' for cid in cols_with_excs]
             self.store_tbl.delete_rows(
                 self.version, base_versions=base_versions, match_on_vmin=True, where_clause=where_clause
@@ -1142,11 +1139,12 @@ class TableVersion:
             # we're creating a new version
             self.version += 1
             self._write_md(new_version=True, new_version_ts=timestamp, new_schema_version=False)
+        propagate_num_rows = 0
         for view in self.mutable_views:
-            num_rows += view.get().propagate_delete(
+            propagate_num_rows += view.get().propagate_delete(
                 where=None, base_versions=[self.version, *base_versions], timestamp=timestamp
             )
-        return num_rows
+        return propagate_num_rows + num_rows
 
     def revert(self) -> None:
         """Reverts the table to the previous version."""

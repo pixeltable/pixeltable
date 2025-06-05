@@ -1080,15 +1080,21 @@ class Catalog:
         schema_version_md: Optional[schema.TableSchemaVersionMd],
     ) -> None:
         """
-        Stores metadata to the DB. If specified, `tbl_md` will be updated in place (only one such record can exist
-        per UUID); `version_md` and `schema_version_md` will be inserted as new records.
+        Stores metadata to the DB.
+
+        Args:
+            tbl_id: UUID of the table to store metadata for.
+            dir_id: If specified, the tbl_md will be added to the given directory; if None, the table must already exist
+            tbl_md: If specified, `tbl_md` will be inserted, or updated (only one such record can exist per UUID)
+            version_md: inserted as a new record if present
+            schema_version_md: will be inserted as a new record if present
 
         If inserting `version_md` or `schema_version_md` would be a primary key violation, an exception will be raised.
         """
         assert self._in_write_xact
         session = Env.get().session
-        assert session is not None, 'Cannot store metadata outside of a transaction.'
 
+        # Construct and insert or update table record if requested.
         if tbl_md is not None:
             assert tbl_md.tbl_id == str(tbl_id)
             if version_md is not None:
@@ -1097,10 +1103,11 @@ class Catalog:
             if schema_version_md is not None:
                 assert tbl_md.current_schema_version == schema_version_md.schema_version
             if dir_id is not None:
-                # We are creating a new table.
+                # We are inserting a record while creating a new table.
                 tbl_record = schema.Table(id=tbl_id, dir_id=dir_id, md=dataclasses.asdict(tbl_md))
                 session.add(tbl_record)
             else:
+                # Update the existing table record.
                 result = session.execute(
                     sql.update(schema.Table.__table__)
                     .values({schema.Table.md: dataclasses.asdict(tbl_md)})
@@ -1108,6 +1115,7 @@ class Catalog:
                 )
                 assert result.rowcount == 1, result.rowcount
 
+        # Construct and insert new table version record if requested.
         if version_md is not None:
             assert version_md.tbl_id == str(tbl_id)
             if schema_version_md is not None:
@@ -1117,6 +1125,7 @@ class Catalog:
             )
             session.add(tbl_version_record)
 
+        # Construct and insert a new schema version record if requested.
         if schema_version_md is not None:
             assert schema_version_md.tbl_id == str(tbl_id)
             schema_version_record = schema.TableSchemaVersion(
