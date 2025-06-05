@@ -1,8 +1,8 @@
 import sysconfig
 
+import numpy as np
 import pytest
 from PIL import Image
-import numpy as np
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
@@ -24,11 +24,9 @@ class TestFiftyone:
             'other_classifications': pxt.Json,
         }
         t = pxt.create_table('test_tbl', schema)
-        images: list[str | Image] = get_image_files()[:5]
-        images += [
-            Image.fromarray(np.random.randint(0, 256, (512, 512, 3), dtype=np.uint8))
-            for _ in range(5)
-        ]
+        images: list[str | Image.Image] = [
+            Image.fromarray(np.random.randint(0, 256, (512, 512, 3), dtype=np.uint8)) for _ in range(5)
+        ] + get_image_files()[:5]
         t.insert({'id': n, 'image': images[n]} for n in range(len(images)))
 
         sample_cls = [{'label': 'cat', 'confidence': 0.5}, {'label': 'tiger', 'confidence': 0.3}]
