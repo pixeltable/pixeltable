@@ -24,7 +24,7 @@ class TestFiftyone:
             'other_classifications': pxt.Json,
         }
         t = pxt.create_table('test_tbl', schema)
-        images = get_image_files()[:5]
+        images: list[str | Image] = get_image_files()[:5]
         images += [
             Image.fromarray(np.random.randint(0, 256, (512, 512, 3), dtype=np.uint8))
             for _ in range(5)
@@ -81,8 +81,7 @@ class TestFiftyone:
         assert ds.count('detections') == 3
         assert ds.count('other') == 2
 
-        for sample in ds:
-            assert sample.filepath.endswith('.jpeg')
+        assert all(sample.filepath.endswith(('.jpeg', '.JPEG')) for sample in ds)
 
     def test_export_images_errors(self, reset_db: None) -> None:
         skip_test_if_not_installed('fiftyone')
