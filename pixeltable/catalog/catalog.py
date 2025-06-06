@@ -86,7 +86,7 @@ def _retry_loop(*, for_write: bool) -> Callable[[Callable[..., T]], Callable[...
                     if isinstance(e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)):
                         if num_retries < _MAX_RETRIES or _MAX_RETRIES == 0:
                             num_retries += 1
-                            print(f'Retrying ({num_retries}) after {type(e.orig)}')
+                            # print(f'Retrying ({num_retries}) after {type(e.orig)}')
                             _logger.debug(f'Retrying ({num_retries}) after {type(e.orig)}')
                             time.sleep(random.uniform(0.1, 0.5))
                         else:
@@ -96,7 +96,7 @@ def _retry_loop(*, for_write: bool) -> Callable[[Callable[..., T]], Callable[...
                 except Exception as e:
                     # for informational/debugging purposes
                     _logger.debug(f'retry_loop(): passing along {e}')
-                    print(f'retry_loop(): passing along {e}')
+                    # print(f'retry_loop(): passing along {e}')
                     raise
 
         return loop
@@ -117,8 +117,8 @@ class Catalog:
       duplicate references to that table in the From clause (ie, incorrect Cartesian products)
     - in order to allow multiple concurrent Python processes to perform updates (data and/or schema) against a shared
       Pixeltable instance, Catalog needs to reload metadata from the store when there are changes
-    - concurrent changes are detected by comparing TableVersion.version with the stored current version
-      (TableMd.current_version)
+    - concurrent changes are detected by comparing TableVersion.version/view_sn with the stored current version
+      (TableMd.current_version/view_sn)
     - cached live TableVersion instances (those with effective_version == None) are validated against the stored
       metadata on transaction boundaries; this is recorded in TableVersion.is_validated
     - metadata validation is only needed for live TableVersion instances (snapshot instances are immutable)
@@ -226,16 +226,17 @@ class Catalog:
         or metadata.
 
         If tbl != None, follows this locking protocol:
-        - validates/reloads the TableVersion instances of the ancestors (in the hope that this reduces potential SerializationErrors later on)
+        - validates/reloads the TableVersion instances of tbl's ancestors (in the hope that this reduces potential
+          SerializationErrors later on)
         - if for_write == True, x-locks Table record (by updating Table.lock_dummy; see _acquire_tbl_xlock())
         - if for_write == False, validates TableVersion instance
         - if lock_mutable_tree == True, also x-locks all mutable views of the table
         - this needs to be done in a retry loop, because Postgres can decide to abort the transaction
           (SerializationFailure, LockNotAvailable)
         - for that reason, we do all lock acquisition prior to doing any real work (eg, compute column values),
-          to minimize the probability of loosing that work
+          to minimize the probability of loosing that work due to a forced abort
 
-        If convert_db_excs == True, convert DBAPIErrors into excs.Errors.
+        If convert_db_excs == True, converts DBAPIErrors into excs.Errors.
         """
         if Env.get().in_xact:
             if tbl is not None and for_write:
@@ -292,21 +293,18 @@ class Catalog:
 
                     self._in_write_xact = for_write
                     yield conn
-
-                    # if _logger.isEnabledFor(logging.DEBUG):
-                    #     # validate only when we don't see errors
-                    #     self.validate()
                     return
 
             except sql.exc.DBAPIError as e:
                 # we got some db error during the actual operation (not just while trying to get locks on the metadata
                 # records): we convert these into Errors, if asked to do so, and abort
                 # TODO: what other concurrency-related exceptions should we expect?
+
                 # we always convert UndefinedTable exceptions (they can't be retried)
                 if isinstance(e.orig, psycopg.errors.UndefinedTable):
                     # the table got dropped in the middle of the table operation
                     _logger.debug(
-                        f'Exception: undefined table ({tbl.tbl_name()}): Caught {type(e.orig)} (DBapierror): {e!r}'
+                        f'Exception: undefined table ({tbl.tbl_name()}): Caught {type(e.orig)}: {e!r}'
                     )
                     # print(f'begin_xact({tbl.tbl_name()}): Caught {type(e.orig)} (DBapierror): {e!r}')
                     assert tbl is not None
@@ -314,7 +312,7 @@ class Catalog:
                 elif isinstance(e.orig, psycopg.errors.SerializationFailure) and convert_db_excs:
                     # we still got a serialization error, despite getting x-locks at the beginning
                     msg = f'{tbl.tbl_name()} ({tbl.tbl_id})' if tbl is not None else ''
-                    print(f'Serialization failure: {msg} ({e})')
+                    # print(f'Serialization failure: {msg} ({e})')
                     _logger.debug(f'Exception: serialization failure: {msg} ({e})')
                     raise excs.Error('Serialization failure. Please re-run the operation.') from None
                 else:
@@ -416,13 +414,13 @@ class Catalog:
             assert tbl_id in self._column_dependencies
             for col, dependencies in self._column_dependencies[tbl_id].items():
                 for dependency in dependencies:
-                    # assert dependency.tbl_id in mutable_tree
                     if dependency.tbl_id not in mutable_tree:
                         continue
                     dependents = self._column_dependents[dependency]
                     dependents.add(col)
 
     def get_column_dependents(self, tbl_id: UUID, col_id: int) -> set[Column]:
+        """Return all Columns that transitively depend on the given column."""
         assert self._column_dependents is not None
         dependents = self._column_dependents[QColumnId(tbl_id, col_id)]
         result: set[Column] = set()
@@ -958,7 +956,7 @@ class Catalog:
         - X-lock base before X-locking any view
         - deadlock-free wrt to TableVersion.insert() (insert propagation also proceeds top-down)
         - X-locks parent dir prior to calling TableVersion.drop(): prevent concurrent creation of another SchemaObject
-          in the same directory with the same name (which could lead to duplicate names if we get rolled back)
+          in the same directory with the same name (which could lead to duplicate names if we get aborted)
         """
         self._acquire_dir_xlock(dir_id=tbl._dir_id)
         self._acquire_tbl_xlock(tbl_id=tbl._id, lock_mutable_tree=False)
@@ -1128,11 +1126,11 @@ class Catalog:
                         f'(cached/current version: {tv.version}/{current_version}, '
                         f'cached/current view_sn: {tv.tbl_md.view_sn}/{view_sn})'
                     )
-                    print(
-                        f'reloading metadata for table {tv.name} ({tbl_id}) '
-                        f'(cached/current version: {tv.version}/{current_version}, '
-                        f'cached/current view_sn: {tv.tbl_md.view_sn}/{view_sn})'
-                    )
+                    # print(
+                    #     f'reloading metadata for table {tv.name} ({tbl_id}) '
+                    #     f'(cached/current version: {tv.version}/{current_version}, '
+                    #     f'cached/current view_sn: {tv.tbl_md.view_sn}/{view_sn})'
+                    # )
                     tv = self._load_tbl_version(tbl_id, None)
                 else:
                     # the cached metadata is valid
@@ -1338,20 +1336,6 @@ class Catalog:
                 .where(schema.Table.id == tbl_id)
             )
             assert result.rowcount == 1, result.rowcount
-
-            # try:
-            #     result = conn.execute(
-            #         sql.update(schema.Table.__table__)
-            #         .values({schema.Table.md: dataclasses.asdict(tbl_md)})
-            #         .where(schema.Table.id == tbl_id)
-            #     )
-            #     assert result.rowcount == 1, result.rowcount
-            # except sql.exc.DBAPIError as e:
-            #     if isinstance(e.orig, psycopg.errors.SerializationFailure):
-            #         print(f'Serialization failure: {tbl_id} ({e})')
-            #         raise excs.Error(f'Serialization failure. Please re-run the operation.') from None
-            #     else:
-            #         raise
 
         if version_md is not None:
             assert version_md.tbl_id == str(tbl_id)

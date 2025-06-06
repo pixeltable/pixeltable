@@ -1455,18 +1455,6 @@ class TableVersion:
         names = [c.name for c in self.cols_by_name.values() if c.is_computed]
         return names
 
-    # def _record_refd_columns(self, col: Column) -> None:
-    #     """Update Column.dependent_cols for all cols referenced in col.value_expr."""
-    #     from pixeltable import exprs
-    #
-    #     if col.value_expr_dict is not None:
-    #         # if we have a value_expr_dict, use that instead of instantiating the value_expr
-    #         refd_cols = exprs.Expr.get_refd_column_ids(col.value_expr_dict)
-    #     else:
-    #         refd_cols = [e.col for e in col.value_expr.subexprs(expr_class=exprs.ColumnRef)]
-    #     for refd_col in refd_cols:
-    #         refd_col.dependent_cols.add(col)
-
     def get_idx_val_columns(self, cols: Iterable[Column]) -> set[Column]:
         result = {info.val_col for col in cols for info in col.get_idx_info().values()}
         return result
