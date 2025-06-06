@@ -7,7 +7,7 @@ import sys
 import urllib.parse
 import urllib.request
 import warnings
-from typing import Any, Iterable, Iterator, Literal, Optional, Sequence, Union
+from typing import Any, Iterable, Iterator, Literal, Optional, Union
 
 import more_itertools
 import sqlalchemy as sql
