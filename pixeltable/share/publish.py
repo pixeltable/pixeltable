@@ -20,13 +20,15 @@ from .packager import TablePackager, TableRestorer
 PIXELTABLE_API_URL = 'https://dev-internal-api.pixeltable.com'
 
 
-def push_replica(dest_tbl_uri: str, src_tbl: pxt.Table, bucket: str = None, is_public: bool = False) -> str:
+def push_replica(
+    dest_tbl_uri: str, src_tbl: pxt.Table, bucket: str | None = None, is_public: bool | None = False
+) -> str:
     if not src_tbl._tbl_version.get().is_snapshot:
         raise excs.Error('Only snapshots may be published.')
 
-    packager = TablePackager(src_tbl, additional_md={'table_uri': dest_tbl_uri,
-                                                     'bucket_name': bucket,
-                                                     'is_public': is_public})
+    packager = TablePackager(
+        src_tbl, additional_md={'table_uri': dest_tbl_uri, 'bucket_name': bucket, 'is_public': is_public}
+    )
     request_json = packager.md | {'operation_type': 'publish_snapshot'}
     headers_json = {'X-api-key': Env.get().pxt_api_key, 'Content-Type': 'application/json'}
     response = requests.post(PIXELTABLE_API_URL, json=request_json, headers=headers_json)
@@ -102,6 +104,7 @@ def _upload_bundle_to_s3(bundle: Path, parsed_location: urllib.parse.ParseResult
         Filename=str(bundle), Bucket=bucket, Key=remote_path, ExtraArgs=upload_args, Callback=progress_bar.update
     )
 
+
 def pull_replica(dest_path: str, src_tbl_uri: str) -> pxt.Table:
     headers_json = {'X-api-key': Env.get().pxt_api_key, 'Content-Type': 'application/json'}
     clone_request_json = {'operation_type': 'clone_snapshot', 'table_uri': src_tbl_uri}
@@ -117,7 +120,7 @@ def pull_replica(dest_path: str, src_tbl_uri: str) -> pxt.Table:
     bundle_uri = response_json['destination_uri']
     bundle_filename = primary_tbl_additional_md['datafile']
     parsed_location = urllib.parse.urlparse(bundle_uri)
-    if bundle_uri_destination== 's3':
+    if bundle_uri_destination == 's3':
         bundle_path = _download_bundle_from_s3(parsed_location, bundle_filename)
     elif bundle_uri_destination == 'r2':
         bundle_path = _download_bundle_from_r2(parsed_location)
@@ -159,6 +162,7 @@ def _download_bundle_from_s3(parsed_location: urllib.parse.ParseResult, bundle_f
     s3_client.download_file(Bucket=bucket, Key=remote_path, Filename=str(bundle_path), Callback=progress_bar.update)
     return bundle_path
 
+
 def _upload_bundle_to_r2(bundle: Path, parsed_location: urllib.parse.ParseResult) -> None:
     try:
         print(parsed_location.geturl())
@@ -168,19 +172,21 @@ def _upload_bundle_to_r2(bundle: Path, parsed_location: urllib.parse.ParseResult
             response = requests.put(parsed_location.geturl(), data=f, headers=headers)
             response.raise_for_status()
     except Exception as e:
-        raise excs.Error(f"Failed to upload bundle: {str(e)}")
+        raise excs.Error(f'Failed to upload bundle: {e}') from e
+
 
 def _download_bundle_from_r2(parsed_location: urllib.parse.ParseResult) -> Path:
     bundle_path = Path(Env.get().create_tmp_path())
     try:
-      print(parsed_location.geturl())
-      response = requests.get(parsed_location.geturl())
-      response.raise_for_status()
-      with open(bundle_path, 'wb') as f:
-          f.write(response.content)
+        print(parsed_location.geturl())
+        response = requests.get(parsed_location.geturl())
+        response.raise_for_status()
+        with open(bundle_path, 'wb') as f:
+            f.write(response.content)
+        return bundle_path
     except Exception as e:
-        raise excs.Error(f"Failed to download bundle: {str(e)}")
-    return bundle_path
+        raise excs.Error(f'Failed to download bundle: {e}') from e
+
 
 def delete_replica(dest_path: str) -> None:
     headers_json = {'X-api-key': Env.get().pxt_api_key, 'Content-Type': 'application/json'}

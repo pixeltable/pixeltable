@@ -371,8 +371,9 @@ def create_snapshot(
     )
 
 
-def create_replica(destination: str, source: Union[str, catalog.Table],
-                   bucket_name: str = None, is_public: bool = False) -> Optional[catalog.Table]:
+def create_replica(
+    destination: str, source: Union[str, catalog.Table], bucket_name: str | None = None, is_public: bool | None = False
+) -> Optional[catalog.Table]:
     """
     Create a replica of a table. Can be used either to create a remote replica of a local table, or to create a local
     replica of a remote table. A given table can have at most one replica per Pixeltable instance.
