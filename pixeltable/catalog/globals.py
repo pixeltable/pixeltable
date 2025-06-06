@@ -6,8 +6,6 @@ import itertools
 import logging
 from typing import Optional
 
-from typing_extensions import Self
-
 import pixeltable.exceptions as excs
 
 _logger = logging.getLogger('pixeltable')
@@ -19,6 +17,44 @@ _ROWID_COLUMN_NAME = '_rowid'
 # Set of symbols that are predefined in the `InsertableTable` class (and are therefore not allowed as column names).
 # This will be populated lazily to avoid circular imports.
 _PREDEF_SYMBOLS: Optional[set[str]] = None
+
+
+@dataclasses.dataclass()
+class RowCountStats:
+    """
+    Statistics about the counts of rows affected by a table operation.
+    """
+
+    ins_rows: int = 0  # rows inserted
+    del_rows: int = 0  # rows deleted
+    upd_rows: int = 0  # rows updated
+    exc_rows: int = 0  # rows that had exceptions during the operation
+    num_excs: int = 0  # total number of exceptions
+
+    @property
+    def is_empty(self) -> bool:
+        """
+        Return true if the row count stats are empty (i.e., all counts are zero).
+        """
+        return (
+            self.ins_rows == 0
+            and self.del_rows == 0
+            and self.upd_rows == 0
+            and self.exc_rows == 0
+            and self.num_excs == 0
+        )
+
+    def accumulate(self, other: 'RowCountStats') -> 'RowCountStats':
+        """
+        Accumulate the row count stats from another RowCountStats object.
+        """
+        return RowCountStats(
+            ins_rows=self.ins_rows + other.ins_rows,
+            del_rows=self.del_rows + other.del_rows,
+            upd_rows=self.upd_rows + other.upd_rows,
+            exc_rows=self.exc_rows + other.exc_rows,
+            num_excs=self.num_excs + other.num_excs,
+        )
 
 
 @dataclasses.dataclass
@@ -34,13 +70,28 @@ class UpdateStatus:
     updated_cols: list[str] = dataclasses.field(default_factory=list)
     cols_with_excs: list[str] = dataclasses.field(default_factory=list)
 
-    def __iadd__(self, other: 'UpdateStatus') -> Self:
+    # stats for the rows affected by the operation
+    row_count_stats: RowCountStats = dataclasses.field(default_factory=lambda: RowCountStats())
+
+    # stats for changes cascaded to other tables
+    cascade_row_count_stats: RowCountStats = dataclasses.field(default_factory=lambda: RowCountStats())
+
+    def accumulate(self, other: 'UpdateStatus', cascade: bool = False) -> None:
+        """
+        Accumulate the update status from another UpdateStatus object.
+        """
         self.num_rows += other.num_rows
         self.num_computed_values += other.num_computed_values
         self.num_excs += other.num_excs
         self.updated_cols = list(dict.fromkeys(self.updated_cols + other.updated_cols))
         self.cols_with_excs = list(dict.fromkeys(self.cols_with_excs + other.cols_with_excs))
-        return self
+
+        if cascade:
+            # If the other stats are a result of a cascaded operation, accumulate all stats into cascade stats
+            self.cascade_row_count_stats = self.cascade_row_count_stats.accumulate(other.row_count_stats)
+        else:
+            self.row_count_stats = self.row_count_stats.accumulate(other.row_count_stats)
+        self.cascade_row_count_stats = self.cascade_row_count_stats.accumulate(other.cascade_row_count_stats)
 
     @property
     def insert_msg(self) -> str:

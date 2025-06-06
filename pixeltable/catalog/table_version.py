@@ -921,7 +921,7 @@ class TableVersion:
 
             plan, _ = Planner.create_view_load_plan(view.get().path, propagates_insert=True)
             status = view.get()._insert(plan, timestamp, print_stats=print_stats)
-            result += status
+            result.accumulate(status, True)
 
         if print_stats:
             plan.ctx.profile.print(num_rows=status.num_rows)  # This is the net rows after all propagations
@@ -999,7 +999,7 @@ class TableVersion:
                 raise excs.Error(f'batch_update(): {len(unmatched_rows)} row(s) not found')
             if insert_if_not_exists:
                 insert_status = self.insert(unmatched_rows, None, print_stats=False, fail_on_exception=False)
-                result += insert_status
+                result.accumulate(insert_status, True)
         return result
 
     def _validate_update_spec(
@@ -1086,7 +1086,7 @@ class TableVersion:
                 status = view.get().propagate_update(
                     plan, None, recomputed_view_cols, base_versions=base_versions, timestamp=timestamp, cascade=True
                 )
-                result += status
+                result.accumulate(status, True)
 
         return result
 
