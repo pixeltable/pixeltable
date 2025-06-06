@@ -165,7 +165,6 @@ def _download_bundle_from_s3(parsed_location: urllib.parse.ParseResult, bundle_f
 
 def _upload_bundle_to_r2(bundle: Path, parsed_location: urllib.parse.ParseResult) -> None:
     try:
-        print(parsed_location.geturl())
         with open(bundle, 'rb') as f:
             file_size = os.path.getsize(bundle)
             headers = {'Content-Length': str(file_size)}
@@ -178,7 +177,6 @@ def _upload_bundle_to_r2(bundle: Path, parsed_location: urllib.parse.ParseResult
 def _download_bundle_from_r2(parsed_location: urllib.parse.ParseResult) -> Path:
     bundle_path = Path(Env.get().create_tmp_path())
     try:
-        print(parsed_location.geturl())
         response = requests.get(parsed_location.geturl())
         response.raise_for_status()
         with open(bundle_path, 'wb') as f:
