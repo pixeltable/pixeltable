@@ -207,7 +207,6 @@ class TableVersion:
         # base_path: Optional[pxt.catalog.TableVersionPath] = None,
         view_md: Optional[schema.ViewMd] = None,
     ) -> tuple[UUID, Optional[TableVersion]]:
-        session = Env.get().session
         user = Env.get().user
 
         # assign ids
@@ -224,8 +223,9 @@ class TableVersion:
         # Column.dependent_cols for existing cols is wrong at this point, but init() will set it correctly
         column_md = cls._create_column_md(cols)
         tbl_id = uuid.uuid4()
+        tbl_id_str = str(tbl_id)
         table_md = schema.TableMd(
-            tbl_id=str(tbl_id),
+            tbl_id=tbl_id_str,
             name=name,
             user=user,
             is_replica=False,
@@ -240,16 +240,10 @@ class TableVersion:
             view_md=view_md,
             additional_md={},
         )
-        # create a schema.Table here, we need it to call our c'tor;
-        # don't add it to the session yet, we might add index metadata
-        tbl_record = schema.Table(id=tbl_id, dir_id=dir_id, md=dataclasses.asdict(table_md))
 
         # create schema.TableVersion
         table_version_md = schema.TableVersionMd(
-            tbl_id=str(tbl_record.id), created_at=timestamp, version=0, schema_version=0, additional_md={}
-        )
-        tbl_version_record = schema.TableVersion(
-            tbl_id=tbl_record.id, version=0, md=dataclasses.asdict(table_version_md)
+            tbl_id=tbl_id_str, created_at=timestamp, version=0, schema_version=0, additional_md={}
         )
 
         # create schema.TableSchemaVersion
@@ -263,7 +257,7 @@ class TableVersion:
             schema_col_md[col.id] = md
 
         schema_version_md = schema.TableSchemaVersionMd(
-            tbl_id=str(tbl_record.id),
+            tbl_id=tbl_id_str,
             schema_version=0,
             preceding_schema_version=None,
             columns=schema_col_md,
@@ -272,9 +266,8 @@ class TableVersion:
             media_validation=media_validation.name.lower(),
             additional_md={},
         )
-        schema_version_record = schema.TableSchemaVersion(
-            tbl_id=tbl_record.id, schema_version=0, md=dataclasses.asdict(schema_version_md)
-        )
+
+        cat = pxt.catalog.Catalog.get()
 
         # if this is purely a snapshot (it doesn't require any additional storage for columns and it doesn't have a
         # predicate to apply at runtime), we don't create a physical table and simply use the base's table version path
@@ -285,22 +278,23 @@ class TableVersion:
             and view_md.sample_clause is None
             and len(cols) == 0
         ):
-            session.add(tbl_record)
-            session.add(tbl_version_record)
-            session.add(schema_version_record)
-            return tbl_record.id, None
+            cat.store_tbl_md(
+                tbl_id=tbl_id,
+                dir_id=dir_id,
+                tbl_md=table_md,
+                version_md=table_version_md,
+                schema_version_md=schema_version_md,
+            )
+            return tbl_id, None
 
         # assert (base_path is not None) == (view_md is not None)
         is_snapshot = view_md is not None and view_md.is_snapshot
         effective_version = 0 if is_snapshot else None
         base_path = pxt.catalog.TableVersionPath.from_md(view_md.base_versions) if view_md is not None else None
         base = base_path.tbl_version if base_path is not None else None
-        tbl_version = cls(
-            tbl_record.id, table_md, effective_version, schema_version_md, [], base_path=base_path, base=base
-        )
+        tbl_version = cls(tbl_id, table_md, effective_version, schema_version_md, [], base_path=base_path, base=base)
         # TODO: break this up, so that Catalog.create_table() registers tbl_version
-        cat = pxt.catalog.Catalog.get()
-        cat._tbl_versions[tbl_record.id, effective_version] = tbl_version
+        cat._tbl_versions[tbl_id, effective_version] = tbl_version
         tbl_version.init()
         tbl_version.store_tbl.create()
         is_mutable = not is_snapshot and not table_md.is_replica
@@ -317,12 +311,14 @@ class TableVersion:
                 status = tbl_version._add_default_index(col)
                 assert status is None or status.num_excs == 0
 
-        # we re-create the tbl_record here, now that we have new index metadata
-        tbl_record = schema.Table(id=tbl_id, dir_id=dir_id, md=dataclasses.asdict(tbl_version.tbl_md))
-        session.add(tbl_record)
-        session.add(tbl_version_record)
-        session.add(schema_version_record)
-        return tbl_record.id, tbl_version
+        cat.store_tbl_md(
+            tbl_id=tbl_id,
+            dir_id=dir_id,
+            tbl_md=tbl_version.tbl_md,
+            version_md=table_version_md,
+            schema_version_md=schema_version_md,
+        )
+        return tbl_id, tbl_version
 
     @classmethod
     def create_replica(cls, md: schema.FullTableMd) -> TableVersion:
@@ -479,7 +475,7 @@ class TableVersion:
         )
 
         Catalog.get().store_tbl_md(
-            self.id, self._tbl_md, version_md, self._schema_version_md if new_schema_version else None
+            self.id, None, self._tbl_md, version_md, self._schema_version_md if new_schema_version else None
         )
 
     def ensure_md_loaded(self) -> None:
@@ -913,13 +909,9 @@ class TableVersion:
         """Insert rows produced by exec_plan and propagate to views"""
         # we're creating a new version
         self.version += 1
-        result = UpdateStatus()
-        num_rows, num_excs, cols_with_excs = self.store_tbl.insert_rows(
+        cols_with_excs, result = self.store_tbl.insert_rows(
             exec_plan, v_min=self.version, rowids=rowids, abort_on_exc=abort_on_exc
         )
-        result.num_rows = num_rows
-        result.num_excs = num_excs
-        result.num_computed_values += exec_plan.ctx.num_computed_exprs * num_rows
         result.cols_with_excs = [f'{self.name}.{self.cols_by_id[cid].name}' for cid in cols_with_excs]
         self._write_md(new_version=True, new_version_ts=timestamp, new_schema_version=False)
 
@@ -929,14 +921,10 @@ class TableVersion:
 
             plan, _ = Planner.create_view_load_plan(view.get().path, propagates_insert=True)
             status = view.get()._insert(plan, timestamp, print_stats=print_stats)
-            result.num_rows += status.num_rows
-            result.num_excs += status.num_excs
-            result.num_computed_values += status.num_computed_values
-            result.cols_with_excs += status.cols_with_excs
+            result.accumulate(status, True)
 
-        result.cols_with_excs = list(dict.fromkeys(result.cols_with_excs).keys())  # remove duplicates
         if print_stats:
-            plan.ctx.profile.print(num_rows=num_rows)
+            plan.ctx.profile.print(num_rows=status.num_rows)  # This is the net rows after all propagations
         _logger.info(f'TableVersion {self.name}: new version {self.version}')
         return result
 
@@ -1011,7 +999,7 @@ class TableVersion:
                 raise excs.Error(f'batch_update(): {len(unmatched_rows)} row(s) not found')
             if insert_if_not_exists:
                 insert_status = self.insert(unmatched_rows, None, print_stats=False, fail_on_exception=False)
-                result += insert_status
+                result.accumulate(insert_status, True)
         return result
 
     def _validate_update_spec(
@@ -1078,9 +1066,7 @@ class TableVersion:
         if plan is not None:
             # we're creating a new version
             self.version += 1
-            result.num_rows, result.num_excs, cols_with_excs = self.store_tbl.insert_rows(
-                plan, v_min=self.version, show_progress=show_progress
-            )
+            cols_with_excs, result = self.store_tbl.insert_rows(plan, v_min=self.version, show_progress=show_progress)
             result.cols_with_excs = [f'{self.name}.{self.cols_by_id[cid].name}' for cid in cols_with_excs]
             self.store_tbl.delete_rows(
                 self.version, base_versions=base_versions, match_on_vmin=True, where_clause=where_clause
@@ -1100,11 +1086,8 @@ class TableVersion:
                 status = view.get().propagate_update(
                     plan, None, recomputed_view_cols, base_versions=base_versions, timestamp=timestamp, cascade=True
                 )
-                result.num_rows += status.num_rows
-                result.num_excs += status.num_excs
-                result.cols_with_excs += status.cols_with_excs
+                result.accumulate(status, True)
 
-        result.cols_with_excs = list(dict.fromkeys(result.cols_with_excs).keys())  # remove duplicates
         return result
 
     def delete(self, where: Optional[exprs.Expr] = None) -> UpdateStatus:
@@ -1156,11 +1139,12 @@ class TableVersion:
             # we're creating a new version
             self.version += 1
             self._write_md(new_version=True, new_version_ts=timestamp, new_schema_version=False)
+        propagate_num_rows = 0
         for view in self.mutable_views:
-            num_rows += view.get().propagate_delete(
+            propagate_num_rows += view.get().propagate_delete(
                 where=None, base_versions=[self.version, *base_versions], timestamp=timestamp
             )
-        return num_rows
+        return propagate_num_rows + num_rows
 
     def revert(self) -> None:
         """Reverts the table to the previous version."""
