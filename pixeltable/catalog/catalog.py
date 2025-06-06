@@ -303,9 +303,7 @@ class Catalog:
                 # we always convert UndefinedTable exceptions (they can't be retried)
                 if isinstance(e.orig, psycopg.errors.UndefinedTable):
                     # the table got dropped in the middle of the table operation
-                    _logger.debug(
-                        f'Exception: undefined table ({tbl.tbl_name()}): Caught {type(e.orig)}: {e!r}'
-                    )
+                    _logger.debug(f'Exception: undefined table ({tbl.tbl_name()}): Caught {type(e.orig)}: {e!r}')
                     # print(f'begin_xact({tbl.tbl_name()}): Caught {type(e.orig)} (DBapierror): {e!r}')
                     assert tbl is not None
                     raise excs.Error(f'Table was dropped: {tbl.tbl_name()}') from None
