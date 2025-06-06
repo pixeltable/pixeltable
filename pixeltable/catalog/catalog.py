@@ -718,7 +718,7 @@ class Catalog:
                     'This is likely due to data corruption in the replicated table.'
                 )
 
-        self.store_tbl_md(UUID(tbl_id), new_tbl_md, new_version_md, new_schema_version_md)
+        self.store_tbl_md(UUID(tbl_id), None, new_tbl_md, new_version_md, new_schema_version_md)
 
     @_retry_loop(for_write=False)
     def get_table(self, path: Path) -> Table:
@@ -1074,6 +1074,7 @@ class Catalog:
     def store_tbl_md(
         self,
         tbl_id: UUID,
+        dir_id: Optional[UUID],
         tbl_md: Optional[schema.TableMd],
         version_md: Optional[schema.TableVersionMd],
         schema_version_md: Optional[schema.TableSchemaVersionMd],
@@ -1084,8 +1085,9 @@ class Catalog:
 
         If inserting `version_md` or `schema_version_md` would be a primary key violation, an exception will be raised.
         """
-        conn = Env.get().conn
         assert self._in_write_xact
+        session = Env.get().session
+        assert session is not None, 'Cannot store metadata outside of a transaction.'
 
         if tbl_md is not None:
             assert tbl_md.tbl_id == str(tbl_id)
@@ -1094,32 +1096,34 @@ class Catalog:
                 assert tbl_md.current_schema_version == version_md.schema_version
             if schema_version_md is not None:
                 assert tbl_md.current_schema_version == schema_version_md.schema_version
-            result = conn.execute(
-                sql.update(schema.Table.__table__)
-                .values({schema.Table.md: dataclasses.asdict(tbl_md)})
-                .where(schema.Table.id == tbl_id)
-            )
-            assert result.rowcount == 1, result.rowcount
+            if dir_id is not None:
+                # We are creating a new table.
+                tbl_record = schema.Table(id=tbl_id, dir_id=dir_id, md=dataclasses.asdict(tbl_md))
+                session.add(tbl_record)
+            else:
+                result = session.execute(
+                    sql.update(schema.Table.__table__)
+                    .values({schema.Table.md: dataclasses.asdict(tbl_md)})
+                    .where(schema.Table.id == tbl_id)
+                )
+                assert result.rowcount == 1, result.rowcount
 
         if version_md is not None:
             assert version_md.tbl_id == str(tbl_id)
             if schema_version_md is not None:
                 assert version_md.schema_version == schema_version_md.schema_version
-            conn.execute(
-                sql.insert(schema.TableVersion.__table__).values(
-                    tbl_id=tbl_id, version=version_md.version, md=dataclasses.asdict(version_md)
-                )
+            tbl_version_record = schema.TableVersion(
+                tbl_id=tbl_id, version=version_md.version, md=dataclasses.asdict(version_md)
             )
+            session.add(tbl_version_record)
 
         if schema_version_md is not None:
             assert schema_version_md.tbl_id == str(tbl_id)
-            conn.execute(
-                sql.insert(schema.TableSchemaVersion.__table__).values(
-                    tbl_id=tbl_id,
-                    schema_version=schema_version_md.schema_version,
-                    md=dataclasses.asdict(schema_version_md),
-                )
+            schema_version_record = schema.TableSchemaVersion(
+                tbl_id=tbl_id, schema_version=schema_version_md.schema_version, md=dataclasses.asdict(schema_version_md)
             )
+            session.add(schema_version_record)
+        session.flush()  # Inform SQLAlchemy that we want to write these changes to the DB.
 
     def delete_tbl_md(self, tbl_id: UUID) -> None:
         """
