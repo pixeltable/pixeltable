@@ -3,7 +3,7 @@ from __future__ import annotations
 import dataclasses
 import enum
 from textwrap import dedent
-from typing import Any, Iterable, Literal, NamedTuple, Optional, Sequence
+from typing import Any, Iterable, Literal, Optional, Sequence
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -12,7 +12,6 @@ import pixeltable as pxt
 from pixeltable import catalog, exceptions as excs, exec, exprs
 from pixeltable.catalog import Column, TableVersionHandle
 from pixeltable.exec.sql_node import OrderByClause, OrderByItem, combine_order_by_clauses, print_order_by_clause
-from pixeltable.utils.sample import sample_key
 
 
 def _is_agg_fn_call(e: exprs.Expr) -> bool:
@@ -159,16 +158,6 @@ class SampleClause:
         return format(threshold_int, '08x') + 'ffffffffffffffffffffffff'
 
 
-class SamplingClauses(NamedTuple):
-    """Clauses provided when rewriting a SampleClause"""
-
-    where: exprs.Expr
-    group_by_clause: Optional[list[exprs.Expr]]
-    order_by_clause: Optional[list[tuple[exprs.Expr, bool]]]
-    limit: Optional[exprs.Expr]
-    sample_clause: Optional[SampleClause]
-
-
 class Analyzer:
     """
     Performs semantic analysis of a query and stores the analysis state.
@@ -180,6 +169,8 @@ class Analyzer:
     group_by_clause: Optional[list[exprs.Expr]]  # None for non-aggregate queries; [] for agg query w/o grouping
     grouping_exprs: list[exprs.Expr]  # [] for non-aggregate queries or agg query w/o grouping
     order_by_clause: OrderByClause
+    stratify_exprs: Optional[list[exprs.Expr]]
+    sample_clause: Optional[SampleClause]  # None if no sampling clause is present
 
     sql_elements: exprs.SqlElementCache
 
@@ -200,6 +191,7 @@ class Analyzer:
         where_clause: Optional[exprs.Expr] = None,
         group_by_clause: Optional[list[exprs.Expr]] = None,
         order_by_clause: Optional[list[tuple[exprs.Expr, bool]]] = None,
+        sample_clause: Optional[SampleClause] = None,
     ):
         if order_by_clause is None:
             order_by_clause = []
@@ -213,6 +205,11 @@ class Analyzer:
         self.group_by_clause = (
             [e.resolve_computed_cols() for e in group_by_clause] if group_by_clause is not None else None
         )
+        self.sample_clause = sample_clause
+        if self.sample_clause is not None and self.sample_clause.is_stratified:
+            self.stratify_exprs = [e.resolve_computed_cols() for e in sample_clause.stratify_exprs]
+        else:
+            self.stratify_exprs = None
         self.order_by_clause = [OrderByItem(e.resolve_computed_cols(), asc) for e, asc in order_by_clause]
 
         self.sql_where_clause = None
@@ -228,8 +225,12 @@ class Analyzer:
                 self.all_exprs.append(join_clause.join_predicate)
         if self.group_by_clause is not None:
             self.all_exprs.extend(self.group_by_clause)
+        if self.stratify_exprs is not None:
+            self.all_exprs.extend(self.stratify_exprs)
         self.all_exprs.extend(e for e, _ in self.order_by_clause)
         if self.filter is not None:
+            if sample_clause is not None:
+                raise excs.Error(f'Filter {self.filter} not expressible in SQL')
             self.all_exprs.append(self.filter)
 
         self.agg_order_by = []
@@ -691,25 +692,13 @@ class Planner:
         # 2. for component views: iterator args
         iterator_args = [target.iterator_args] if target.iterator_args is not None else []
 
-        # If this contains a sample specification, modify / create where, group_by, order_by, and limit clauses
         from_clause = FromClause(tbls=[view.base])
-        where, group_by_clause, order_by_clause, limit, sample_clause = cls.create_sample_clauses(
-            from_clause, target.sample_clause, target.predicate, None, [], None
-        )
-
-        # if we're propagating an insert, we only want to see those base rows that were created for the current version
         base_analyzer = Analyzer(
-            from_clause,
-            iterator_args,
-            where_clause=where,
-            group_by_clause=group_by_clause,
-            order_by_clause=order_by_clause,
+            from_clause, iterator_args, where_clause=target.predicate, sample_clause=target.sample_clause
         )
         row_builder = exprs.RowBuilder(base_analyzer.all_exprs, stored_cols, [])
 
-        if target.sample_clause is not None and base_analyzer.filter is not None:
-            raise excs.Error(f'Filter {base_analyzer.filter} not expressible in SQL')
-
+        # if we're propagating an insert, we only want to see those base rows that were created for the current version
         # execution plan:
         # 1. materialize exprs computed from the base that are needed for stored view columns
         # 2. if it's an iterator view, expand the base rows into component rows
@@ -723,19 +712,13 @@ class Planner:
 
         # Create a new analyzer reflecting exactly what is required from the base table
         base_analyzer = Analyzer(
-            from_clause,
-            base_output_exprs,
-            where_clause=where,
-            group_by_clause=group_by_clause,
-            order_by_clause=order_by_clause,
+            from_clause, base_output_exprs, where_clause=target.predicate, sample_clause=target.sample_clause
         )
         base_eval_ctx = row_builder.create_eval_ctx(base_analyzer.all_exprs)
         plan = cls._create_query_plan(
             row_builder=row_builder,
             analyzer=base_analyzer,
             eval_ctx=base_eval_ctx,
-            limit=limit,
-            sample_clause=sample_clause,
             with_pk=True,
             exact_version_only=view.get_bases() if propagates_insert else [],
         )
@@ -819,62 +802,6 @@ class Planner:
         return prefetch_node
 
     @classmethod
-    def create_sample_clauses(
-        cls,
-        from_clause: FromClause,
-        sample_clause: SampleClause,
-        where_clause: Optional[exprs.Expr],
-        group_by_clause: Optional[list[exprs.Expr]],
-        order_by_clause: Optional[list[tuple[exprs.Expr, bool]]],
-        limit: Optional[exprs.Expr],
-    ) -> SamplingClauses:
-        """tuple[
-            exprs.Expr,
-            Optional[list[exprs.Expr]],
-            Optional[list[tuple[exprs.Expr, bool]]],
-            Optional[exprs.Expr],
-            Optional[SampleClause],
-        ]:"""
-        """Construct clauses required for sampling under various conditions.
-        If there is no sampling, then return the original clauses.
-        If the sample is stratified, then return only the group by clause. The rest of the
-        mechanism for stratified sampling is provided by the SampleSqlNode.
-        If the sample is non-stratified, then rewrite the query to accommodate the supplied where clause,
-        and provide the other clauses required for sampling
-        """
-
-        # If no sample clause, return the original clauses
-        if sample_clause is None:
-            return SamplingClauses(where_clause, group_by_clause, order_by_clause, limit, None)
-
-        # If the sample clause is stratified, create a group by clause
-        if sample_clause.is_stratified:
-            group_by = sample_clause.stratify_exprs
-            # Note that limit is not possible here
-            return SamplingClauses(where_clause, group_by, order_by_clause, None, sample_clause)
-
-        else:
-            # If non-stratified sampling, construct a where clause, order_by, and limit clauses
-            # Construct an expression for sorting rows and limiting row counts
-            s_key = sample_key(
-                exprs.Literal(sample_clause.seed), *cls.rowid_columns(from_clause._first_tbl.tbl_version)
-            )
-
-            # Construct a suitable where clause
-            where = where_clause
-            if sample_clause.fraction is not None:
-                fraction_md5_hex = exprs.Expr.from_object(
-                    sample_clause.fraction_to_md5_hex(float(sample_clause.fraction))
-                )
-                f_where = s_key < fraction_md5_hex
-                where = where & f_where if where is not None else f_where
-
-            order_by: list[tuple[exprs.Expr, bool]] = [(s_key, True)]
-            limit = exprs.Literal(sample_clause.n)
-            # Note that group_by is not possible here
-            return SamplingClauses(where, None, order_by, limit, None)
-
-    @classmethod
     def create_query_plan(
         cls,
         from_clause: FromClause,
@@ -898,21 +825,15 @@ class Planner:
         if exact_version_only is None:
             exact_version_only = []
 
-        # Modify clauses to include sample clause
-        where, group_by_clause, order_by_clause, limit, sample = cls.create_sample_clauses(
-            from_clause, sample_clause, where_clause, group_by_clause, order_by_clause, limit
-        )
-
         analyzer = Analyzer(
             from_clause,
             select_list,
-            where_clause=where,
+            where_clause=where_clause,
             group_by_clause=group_by_clause,
             order_by_clause=order_by_clause,
+            sample_clause=sample_clause,
         )
         row_builder = exprs.RowBuilder(analyzer.all_exprs, [], [])
-        if sample_clause is not None and analyzer.filter is not None:
-            raise excs.Error(f'Filter {analyzer.filter} not expressible in SQL')
 
         analyzer.finalize(row_builder)
         # select_list: we need to materialize everything that's been collected
@@ -923,7 +844,6 @@ class Planner:
             analyzer=analyzer,
             eval_ctx=eval_ctx,
             limit=limit,
-            sample_clause=sample,
             with_pk=True,
             exact_version_only=exact_version_only,
         )
@@ -939,7 +859,6 @@ class Planner:
         analyzer: Analyzer,
         eval_ctx: exprs.RowBuilder.EvalCtx,
         limit: Optional[exprs.Expr] = None,
-        sample_clause: Optional[SampleClause] = None,
         with_pk: bool = False,
         exact_version_only: Optional[list[catalog.TableVersionHandle]] = None,
     ) -> exec.ExecNode:
@@ -983,6 +902,10 @@ class Planner:
         if analyzer.group_by_clause is not None:
             candidates.extend(
                 exprs.Expr.list_subexprs(analyzer.group_by_clause, filter=sql_elements.contains, traverse_matches=False)
+            )
+        if analyzer.stratify_exprs is not None:
+            candidates.extend(
+                exprs.Expr.list_subexprs(analyzer.stratify_exprs, filter=sql_elements.contains, traverse_matches=False)
             )
         # not isinstance(...): we don't want to materialize Literals via a Select
         sql_exprs = exprs.ExprSet(e for e in candidates if not isinstance(e, exprs.Literal))
@@ -1028,6 +951,15 @@ class Planner:
             # we need to order the input for window functions
             plan.set_order_by(analyzer.get_window_fn_ob_clause())
 
+        if analyzer.sample_clause is not None:
+            plan = exec.SqlSampleNode(
+                row_builder,
+                input=plan,
+                select_list=tbl_scan_exprs,
+                sample_clause=analyzer.sample_clause,
+                stratify_exprs=analyzer.stratify_exprs,
+            )
+
         plan = cls._insert_prefetch_node(tbl.tbl_version.id, row_builder, plan)
 
         if analyzer.group_by_clause is not None:
@@ -1050,26 +982,12 @@ class Planner:
                 sql_elements.contains_all(analyzer.select_list)
                 and sql_elements.contains_all(analyzer.grouping_exprs)
                 and isinstance(plan, exec.SqlNode)
-                and plan.to_cte(keep_pk=(sample_clause is not None)) is not None
+                and plan.to_cte() is not None
             ):
-                if sample_clause is not None:
-                    plan = exec.SqlSampleNode(
-                        row_builder,
-                        input=plan,
-                        select_list=analyzer.select_list,
-                        stratify_exprs=analyzer.group_by_clause,
-                        sample_clause=sample_clause,
-                    )
-                else:
-                    plan = exec.SqlAggregationNode(
-                        row_builder,
-                        input=plan,
-                        select_list=analyzer.select_list,
-                        group_by_items=analyzer.group_by_clause,
-                    )
+                plan = exec.SqlAggregationNode(
+                    row_builder, input=plan, select_list=analyzer.select_list, group_by_items=analyzer.group_by_clause
+                )
             else:
-                if sample_clause is not None:
-                    raise excs.Error('Sample clause not supported with Python aggregation')
                 input_sql_node = plan.get_node(exec.SqlNode)
                 assert combined_ordering is not None
                 input_sql_node.set_order_by(combined_ordering)
