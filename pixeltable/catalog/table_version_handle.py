@@ -34,6 +34,10 @@ class TableVersionHandle:
     def __hash__(self) -> int:
         return hash((self.id, self.effective_version))
 
+    @property
+    def is_snapshot(self) -> bool:
+        return self.effective_version is not None
+
     @classmethod
     def create(cls, tbl_version: TableVersion) -> TableVersionHandle:
         return cls(tbl_version.id, tbl_version.effective_version, tbl_version)
@@ -53,7 +57,6 @@ class TableVersionHandle:
             else:
                 self._tbl_version = Catalog.get().get_tbl_version(self.id, self.effective_version)
         if self.effective_version is None:
-            # make sure we don't see a discarded instance of a live TableVersion
             tvs = list(Catalog.get()._tbl_versions.values())
             assert self._tbl_version in tvs
         return self._tbl_version

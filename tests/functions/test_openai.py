@@ -356,7 +356,7 @@ class TestOpenai:
         t.add_computed_column(
             text_3=embeddings(model='text-embedding-3-small', input=t.input, dimensions=1024, user='pixeltable')
         )
-        type_info = t._schema
+        type_info = t._schema()
         assert isinstance(type_info['ada_embed'], ts.ArrayType)
         assert type_info['ada_embed'].shape == (1536,)
         assert isinstance(type_info['text_3'], ts.ArrayType)
@@ -400,7 +400,7 @@ class TestOpenai:
         # Test dall-e-2 options
         t.add_computed_column(img_2=image_generations(t.input, model='dall-e-2', size='512x512', user='pixeltable'))
         # image size information was captured correctly
-        type_info = t._schema
+        type_info = t._schema()
         assert isinstance(type_info['img_2'], ts.ImageType)
         assert type_info['img_2'].size == (512, 512)
 

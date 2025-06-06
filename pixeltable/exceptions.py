@@ -10,6 +10,12 @@ class Error(Exception):
 
 
 class ExprEvalError(Exception):
+    """
+    Used during query execution to signal expr evaluation failures.
+
+    NOT A USER-FACING EXCEPTION. All ExprEvalError instances need to be converted into Error instances.
+    """
+
     expr: 'exprs.Expr'
     expr_msg: str
     exc: Exception
