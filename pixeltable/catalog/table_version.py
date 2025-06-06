@@ -909,13 +909,10 @@ class TableVersion:
         """Insert rows produced by exec_plan and propagate to views"""
         # we're creating a new version
         self.version += 1
-        result = UpdateStatus()
-        num_rows, num_excs, cols_with_excs = self.store_tbl.insert_rows(
+        _, _, cols_with_excs, result = self.store_tbl.insert_rows(
             exec_plan, v_min=self.version, rowids=rowids, abort_on_exc=abort_on_exc
         )
-        result.num_rows = num_rows
-        result.num_excs = num_excs
-        result.num_computed_values += exec_plan.ctx.num_computed_exprs * num_rows
+        result.num_computed_values += exec_plan.ctx.num_computed_exprs * result.num_rows
         result.cols_with_excs = [f'{self.name}.{self.cols_by_id[cid].name}' for cid in cols_with_excs]
         self._write_md(new_version=True, new_version_ts=timestamp, new_schema_version=False)
 
@@ -925,14 +922,10 @@ class TableVersion:
 
             plan, _ = Planner.create_view_load_plan(view.get().path, propagates_insert=True)
             status = view.get()._insert(plan, timestamp, print_stats=print_stats)
-            result.num_rows += status.num_rows
-            result.num_excs += status.num_excs
-            result.num_computed_values += status.num_computed_values
-            result.cols_with_excs += status.cols_with_excs
+            result += status
 
-        result.cols_with_excs = list(dict.fromkeys(result.cols_with_excs).keys())  # remove duplicates
         if print_stats:
-            plan.ctx.profile.print(num_rows=num_rows)
+            plan.ctx.profile.print(num_rows=status.num_rows) # This is the net rows across after propagations
         _logger.info(f'TableVersion {self.name}: new version {self.version}')
         return result
 
@@ -1074,7 +1067,7 @@ class TableVersion:
         if plan is not None:
             # we're creating a new version
             self.version += 1
-            result.num_rows, result.num_excs, cols_with_excs = self.store_tbl.insert_rows(
+            _, _, cols_with_excs, result = self.store_tbl.insert_rows(
                 plan, v_min=self.version, show_progress=show_progress
             )
             result.cols_with_excs = [f'{self.name}.{self.cols_by_id[cid].name}' for cid in cols_with_excs]
@@ -1096,11 +1089,8 @@ class TableVersion:
                 status = view.get().propagate_update(
                     plan, None, recomputed_view_cols, base_versions=base_versions, timestamp=timestamp, cascade=True
                 )
-                result.num_rows += status.num_rows
-                result.num_excs += status.num_excs
-                result.cols_with_excs += status.cols_with_excs
+                result += status
 
-        result.cols_with_excs = list(dict.fromkeys(result.cols_with_excs).keys())  # remove duplicates
         return result
 
     def delete(self, where: Optional[exprs.Expr] = None) -> UpdateStatus:
