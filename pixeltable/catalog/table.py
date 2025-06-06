@@ -1591,26 +1591,24 @@ class Table(SchemaObject):
             return r
         md_list.sort()
 
-        v0 = md_list[0][0]
-        if v0 == 0:
-            ofld = None
-            ver_old = -1
+        first_retrieved_version = md_list[0][0]
+        if first_retrieved_version == 0:
+            prev_md = None
+            prev_ver = -1
             start = 0
         else:
-            ofld = md_list[0][1]
-            ver_old = v0
+            prev_md = md_list[0][1]
+            prev_ver = first_retrieved_version
             start = 1
 
-        for row in md_list[start:]:
-            ver = row[0]
-            if ver == ver_old:
+        for ver, curr_md in md_list[start:]:
+            if ver == prev_ver:
                 continue
-            assert ver > ver_old
-            nfld = row[1]
-            tf = cls._diff_md(ofld, nfld)
-            ofld = nfld
+            assert ver > prev_ver
+            tf = cls._diff_md(prev_md, curr_md)
             if tf != '':
                 r[ver] = tf
+            prev_md = curr_md
         return r
 
     def history(self, n: Optional[int] = None) -> pixeltable.dataframe.DataFrameResultSet:
@@ -1638,17 +1636,16 @@ class Table(SchemaObject):
         if not isinstance(n, int) or n < 1:
             raise excs.Error(f'Invalid value for n: {n}')
 
-        with Catalog.get().begin_xact(tbl_id=self._id):
-            self._check_is_dropped()
-            tbl_id = self._id
-            src_rows = Catalog.get().collect_tbl_history(tbl_id, n)
+        # Retrieve the table history components from the catalog
+        tbl_id = self._id
+        src_rows = Catalog.get().collect_tbl_history(tbl_id, n)
 
-        # Construct the metadata change dictionary
+        # Construct the metadata change description dictionary
         md_list = [(row.TableVersion.version, row.TableSchemaVersion.md['columns']) for row in src_rows]
         md_dict = self._create_md_change_dict(md_list)
 
         # Construct report lines
-        if n is not None and len(src_rows) > n:
+        if len(src_rows) > n:
             assert len(src_rows) == n + 1
             over_count = 1
         else:
