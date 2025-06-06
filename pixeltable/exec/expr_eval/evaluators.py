@@ -316,7 +316,9 @@ class JsonMapperDispatcher(Evaluator):
                 )
                 for _ in src
             ]
+            print(src)
             for nested_row, anchor_val in zip(nested_rows, src):
+                assert self.scope_anchor.slot_idx is not None
                 nested_row[self.scope_anchor.slot_idx] = anchor_val
                 for slot_idx_, nested_slot_idx in self.external_slot_map.items():
                     nested_row[nested_slot_idx] = row[slot_idx_]

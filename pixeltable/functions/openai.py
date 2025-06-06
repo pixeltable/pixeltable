@@ -822,7 +822,7 @@ def _openai_response_to_pxt_tool_calls(response: dict) -> Optional[dict]:
         tool_name = tool_call['function']['name']
         if tool_name not in pxt_tool_calls:
             pxt_tool_calls[tool_name] = []
-        pxt_tool_calls[tool_name].append({'args': json.loads(tool_call['function']['arguments'])})
+        pxt_tool_calls[tool_name].append({'args': json.loads(tool_call['function']['arguments']) or {'dummy': 5}})
     return pxt_tool_calls
 
 

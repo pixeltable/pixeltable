@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING, Any, Callable, Optional, TypeVar, Union
 
 import pydantic
 
-import pixeltable.exceptions as excs
+from pixeltable import exceptions as excs, type_system as ts
 
 from .function import Function
 from .signature import Parameter
@@ -52,9 +52,16 @@ class Tool(pydantic.BaseModel):
     # {tool_name: [{'args': {name1: value1, name2: value2, ...}}, ...], ...}
     def invoke(self, tool_calls: 'exprs.Expr') -> 'exprs.Expr':
         import pixeltable.functions as pxtf
+        from pixeltable import exprs
 
         func_name = self.name or self.fn.name
-        return pxtf.map(tool_calls[func_name]['*'], lambda x: self.__invoke_kwargs(x.args))
+        if self.fn.arity == 0:
+            # TODO: There is a bug in the evaluator's handling of JsonMapper expressions that don't actually contain
+            #     RELATIVE_PATH_ROOT as a subexpression; in such cases, `scope_anchor` never gets assigned a slot idx.
+            #     This is a workaround until we fix that bug.
+            return exprs.InlineList((self.fn(),))
+        else:
+            return pxtf.map(tool_calls[func_name]['*'], lambda x: self.__invoke_kwargs(x.args))
 
     def __invoke_kwargs(self, kwargs: 'exprs.Expr') -> 'exprs.FunctionCall':
         kwargs = {param.name: self.__extract_tool_arg(param, kwargs) for param in self.parameters.values()}

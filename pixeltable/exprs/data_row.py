@@ -214,6 +214,7 @@ class DataRow:
         """Assign in-memory cell value
         This allows overwriting
         """
+        assert isinstance(idx, int)
         assert self.excs[idx] is None
 
         if (idx in self.img_slot_idxs or idx in self.media_slot_idxs) and isinstance(val, str):
