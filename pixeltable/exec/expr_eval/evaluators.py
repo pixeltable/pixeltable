@@ -316,7 +316,6 @@ class JsonMapperDispatcher(Evaluator):
                 )
                 for _ in src
             ]
-            print(src)
             for nested_row, anchor_val in zip(nested_rows, src):
                 assert self.scope_anchor.slot_idx is not None
                 nested_row[self.scope_anchor.slot_idx] = anchor_val

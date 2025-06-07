@@ -285,7 +285,7 @@ class ExprEvalNode(ExecNode):
                     if isinstance(self.error, excs.ExprEvalError):
                         raise self.error from self.error.exc
                     else:
-                        raise excs.Error('An error occurred during expression evaluation.') from self.error
+                        raise self.error
                 if completed_aw in done:
                     self._log_state('completed_aw done')
                     completed_aw = None
