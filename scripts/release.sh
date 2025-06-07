@@ -37,6 +37,10 @@ if [ -z "$PYPI_API_KEY" ]; then
   PYPI_API_KEY=$(
     python -c "import toml,sys; y = toml.load(sys.stdin); print(y['pypi']['api_key'])" < ~/.pixeltable/config.toml
   )
+  if [ -z "$PYPI_API_KEY" ]; then
+    echo "Could not find PYPI_API_KEY in environment or ~/.pixeltable/config.toml."
+    exit 1
+  fi
 fi
 
 git fetch home
@@ -50,6 +54,12 @@ fi
 
 echo ""
 echo "This will publish version v$VERSION to PyPI. Enter to confirm; Ctrl-C to abort."
+if [[ "$VERSION" == *pre* ]]; then
+  echo "Note: this is a pre-release version."
+  IS_PRE_RELEASE=true
+else
+  IS_PRE_RELEASE=false
+fi
 read
 
 git tag "v$VERSION"
@@ -59,10 +69,13 @@ echo "v$VERSION tag created and pushed to home repo."
 echo "Enter to proceed; Ctrl-C to abort."
 read
 
-git tag -d release || true
-git push --delete home release || true
-git tag release
-git push home release
+if [ $IS_PRE_RELEASE == false ]; then
+  echo "Updating release tag ..."
+  git tag -d release || true
+  git push --delete home release || true
+  git tag release
+  git push home release
+fi
 
 if [ -f 'Makefile' ]; then
   echo "Running make clean ..."
@@ -72,6 +85,12 @@ fi
 poetry build
 poetry publish --username __token__ --password "$PYPI_API_KEY"
 
+if [ $IS_PRE_RELEASE == true ]; then
+  GH_OPTS="--prerelease"
+else
+  GH_OPTS=""
+fi
+
 echo "Creating release on github ..."
-gh release create "v$VERSION" --generate-notes --repo "pixeltable/$PROJECT_NAME"
+gh release create "v$VERSION" --generate-notes --repo "pixeltable/$PROJECT_NAME" $GH_OPTS
 open "https://github.com/pixeltable/$PROJECT_NAME/releases/tag/v$VERSION"
