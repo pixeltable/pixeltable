@@ -14,15 +14,14 @@ import math
 import pathlib
 import re
 import uuid
-from typing import TYPE_CHECKING, Any, Callable, Optional, Type, TypeVar, Union
+from typing import TYPE_CHECKING, Any, Callable, Optional, Type
 
 import httpx
 import numpy as np
 import PIL
 
 import pixeltable as pxt
-import pixeltable.type_system as ts
-from pixeltable import env, exprs
+from pixeltable import env, exprs, type_system as ts
 from pixeltable.func import Batch, Tools
 from pixeltable.utils.code import local_public_names
 
@@ -428,10 +427,15 @@ def _vision_get_request_resources(
     prompt: str,
     image: PIL.Image.Image,
     model: str,
-    max_completion_tokens: Optional[int],
-    max_tokens: Optional[int],
-    n: Optional[int],
+    model_kwargs: Optional[dict[str, Any]] = None,
 ) -> dict[str, int]:
+    if model_kwargs is None:
+        model_kwargs = {}
+
+    max_completion_tokens = model_kwargs.get('max_completion_tokens')
+    max_tokens = model_kwargs.get('max_tokens')
+    n = model_kwargs.get('n')
+
     completion_tokens = (n or 1) * (max_completion_tokens or max_tokens or _default_max_tokens(model))
     prompt_tokens = len(prompt) / 4
 
@@ -464,10 +468,7 @@ async def vision(
     image: PIL.Image.Image,
     *,
     model: str,
-    max_completion_tokens: Optional[int] = None,
-    max_tokens: Optional[int] = None,
-    n: Optional[int] = 1,
-    timeout: Optional[float] = None,
+    model_kwargs: Optional[dict[str, Any]] = None,
 ) -> str:
     """
     Analyzes an image with the OpenAI vision capability. This is a convenience function that takes an image and
@@ -497,6 +498,9 @@ async def vision(
 
         >>> tbl.add_computed_column(response=vision("What's in this image?", tbl.image, model='gpt-4o-mini'))
     """
+    if model_kwargs is None:
+        model_kwargs = {}
+
     # TODO(aaron-siegel): Decompose CPU/GPU ops into separate functions
     bytes_arr = io.BytesIO()
     image.save(bytes_arr, format='png')
@@ -521,10 +525,7 @@ async def vision(
     result = await _openai_client().chat.completions.with_raw_response.create(
         messages=messages,  # type: ignore
         model=model,
-        max_completion_tokens=_opt(max_completion_tokens),
-        max_tokens=_opt(max_tokens),
-        n=_opt(n),
-        timeout=_opt(timeout),
+        **model_kwargs,
     )
 
     requests_info, tokens_info = _get_header_info(result.headers)
@@ -554,9 +555,7 @@ async def embeddings(
     input: Batch[str],
     *,
     model: str,
-    dimensions: Optional[int] = None,
-    user: Optional[str] = None,
-    timeout: Optional[float] = None,
+    model_kwargs: Optional[dict[str, Any]] = None,
 ) -> Batch[pxt.Array[(None,), pxt.Float]]:
     """
     Creates an embedding vector representing the input text.
@@ -575,10 +574,8 @@ async def embeddings(
     Args:
         input: The text to embed.
         model: The model to use for the embedding.
-        dimensions: The vector length of the embedding. If not specified, Pixeltable will use
-            a default value based on the model.
-
-    For details on the other parameters, see: <https://platform.openai.com/docs/api-reference/embeddings>
+        model_kwargs: Additional keyword args for the OpenAI `embeddings` API. For details on the available
+            parameters, see: <https://platform.openai.com/docs/api-reference/embeddings>
 
     Returns:
         An array representing the application of the given embedding to `input`.
@@ -593,6 +590,9 @@ async def embeddings(
 
         >>> tbl.add_embedding_index(embedding=embeddings.using(model='text-embedding-3-small'))
     """
+    if model_kwargs is None:
+        model_kwargs = {}
+
     _logger.debug(f'embeddings: batch_size={len(input)}')
     resource_pool = _rate_limits_pool(model)
     rate_limits_info = env.Env.get().get_resource_pool_info(
@@ -601,10 +601,8 @@ async def embeddings(
     result = await _openai_client().embeddings.with_raw_response.create(
         input=input,
         model=model,
-        dimensions=_opt(dimensions),
-        user=_opt(user),
         encoding_format='float',
-        timeout=_opt(timeout),
+        **model_kwargs,
     )
     requests_info, tokens_info = _get_header_info(result.headers)
     rate_limits_info.record(requests=requests_info, tokens=tokens_info)
@@ -612,7 +610,10 @@ async def embeddings(
 
 
 @embeddings.conditional_return_type
-def _(model: str, dimensions: Optional[int] = None) -> ts.ArrayType:
+def _(model: str, model_kwargs: Optional[dict[str, Any]] = None) -> ts.ArrayType:
+    dimensions: Optional[int] = None
+    if model_kwargs is not None:
+        dimensions = model_kwargs.get('dimensions')
     if dimensions is None:
         if model not in _embedding_dimensions_cache:
             # TODO: find some other way to retrieve a sample
@@ -758,15 +759,6 @@ def _openai_response_to_pxt_tool_calls(response: dict) -> Optional[dict]:
             pxt_tool_calls[tool_name] = []
         pxt_tool_calls[tool_name].append({'args': json.loads(tool_call['function']['arguments'])})
     return pxt_tool_calls
-
-
-_T = TypeVar('_T')
-
-
-def _opt(arg: _T) -> Union[_T, 'openai.NotGiven']:
-    import openai
-
-    return arg if arg is not None else openai.NOT_GIVEN
 
 
 __all__ = local_public_names(__name__)
