@@ -183,7 +183,7 @@ def _(model: str) -> ts.ArrayType:
 
 
 @pxt.udf(resource_pool='request-rate:together:images')
-async def image_generations(prompt: str, *, model: str, options: Optional[dict[str, Any]] = None) -> PIL.Image.Image:
+async def image_generations(prompt: str, *, model: str, model_kwargs: Optional[dict[str, Any]] = None) -> PIL.Image.Image:
     """
     Generate images based on a given prompt using a specified model.
 
@@ -201,7 +201,7 @@ async def image_generations(prompt: str, *, model: str, options: Optional[dict[s
     Args:
         prompt: A description of the desired images.
         model: The model to use for image generation.
-        options: Additional options for the Together `images/generations` API.
+        model_kwargs: Additional keyword args for the Together `images/generations` API.
             For details on the available parameters, see: <https://docs.together.ai/reference/post_images-generations>
 
     Returns:
@@ -215,10 +215,10 @@ async def image_generations(prompt: str, *, model: str, options: Optional[dict[s
         ...     response=image_generations(tbl.prompt, model='stabilityai/stable-diffusion-xl-base-1.0')
         ... )
     """
-    if options is None:
-        options = {}
+    if model_kwargs is None:
+        model_kwargs = {}
 
-    result = await _together_client().images.generate(prompt=prompt, model=model, **options)
+    result = await _together_client().images.generate(prompt=prompt, model=model, **model_kwargs)
     if result.data[0].b64_json is not None:
         b64_bytes = base64.b64decode(result.data[0].b64_json)
         img = PIL.Image.open(io.BytesIO(b64_bytes))

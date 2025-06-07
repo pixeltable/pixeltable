@@ -23,7 +23,7 @@ class TestDeepseek:
             chat_output_2=chat_completions(
                 model='deepseek-chat',
                 messages=msgs,
-                options={
+                model_kwargs={
                     'frequency_penalty': 0.1,
                     'logprobs': True,
                     'top_logprobs': 3,

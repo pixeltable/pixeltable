@@ -17,14 +17,14 @@ class TestTogether:
         t = pxt.create_table('test_tbl', {'input': pxt.String})
         t.add_computed_column(
             output=completions(
-                prompt=t.input, model='meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo', options={'stop': ['\n']}
+                prompt=t.input, model='meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo', model_kwargs={'stop': ['\n']}
             )
         )
         t.add_computed_column(
             output_2=completions(
                 prompt=t.input,
                 model='meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo',
-                options={
+                model_kwargs={
                     'max_tokens': 300,
                     'stop': ['\n'],
                     'temperature': 0.7,
@@ -51,14 +51,14 @@ class TestTogether:
         messages = [{'role': 'user', 'content': t.input}]
         t.add_computed_column(
             output=chat_completions(
-                messages=messages, model='meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo', options={'stop': ['\n']}
+                messages=messages, model='meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo', model_kwargs={'stop': ['\n']}
             )
         )
         t.add_computed_column(
             output_2=chat_completions(
                 messages=messages,
                 model='meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo',
-                options={
+                model_kwargs={
                     'max_tokens': 300,
                     'stop': ['\n'],
                     'temperature': 0.7,
@@ -95,13 +95,13 @@ class TestTogether:
 
         t = pxt.create_table('test_tbl', {'input': pxt.String, 'negative_prompt': pxt.String})
         t.add_computed_column(
-            img=image_generations(t.input, model='black-forest-labs/FLUX.1-schnell', options={'steps': 5})
+            img=image_generations(t.input, model='black-forest-labs/FLUX.1-schnell', model_kwargs={'steps': 5})
         )
         t.add_computed_column(
             img_2=image_generations(
                 t.input,
                 model='black-forest-labs/FLUX.1-schnell',
-                options={
+                model_kwargs={
                     'steps': 5,
                     'width': 768,
                     'height': 1024,

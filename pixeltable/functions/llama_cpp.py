@@ -17,7 +17,7 @@ def create_chat_completion(
     model_path: Optional[str] = None,
     repo_id: Optional[str] = None,
     repo_filename: Optional[str] = None,
-    options: Optional[dict[str, Any]] = None,
+    model_kwargs: Optional[dict[str, Any]] = None,
 ) -> dict:
     """
     Generate a chat completion from a list of messages.
@@ -35,14 +35,14 @@ def create_chat_completion(
         repo_id: The Hugging Face model repo id (if using a pretrained model).
         repo_filename: A filename or glob pattern to match the model file in the repo (optional, if using a
             pretrained model).
-        options: Additional arguments for the llama_cpp `create_chat_completions` API, such as `max_tokens`,
+        model_kwargs: Additional keyword args for the llama_cpp `create_chat_completions` API, such as `max_tokens`,
             `temperature`, `top_p`, and `top_k`. For details, see the
             [llama_cpp create_chat_completions documentation](https://llama-cpp-python.readthedocs.io/en/latest/api-reference/#llama_cpp.Llama.create_chat_completion).
     """
     Env.get().require_package('llama_cpp', min_version=[0, 3, 1])
 
-    if options is None:
-        options = {}
+    if model_kwargs is None:
+        model_kwargs = {}
 
     if (model_path is None) == (repo_id is None):
         raise excs.Error('Exactly one of `model_path` or `repo_id` must be provided.')
@@ -56,7 +56,7 @@ def create_chat_completion(
     else:
         Env.get().require_package('huggingface_hub')
         llm = _lookup_pretrained_model(repo_id, repo_filename, n_gpu_layers)
-    return llm.create_chat_completion(messages, **options)  # type: ignore
+    return llm.create_chat_completion(messages, **model_kwargs)  # type: ignore
 
 
 def _is_gpu_available() -> bool:

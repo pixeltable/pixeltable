@@ -74,7 +74,7 @@ async def messages(
     *,
     model: str,
     max_tokens: int = 1024,
-    options: Optional[dict[str, Any]] = None,
+    model_kwargs: Optional[dict[str, Any]] = None,
     tools: Optional[list[dict[str, Any]]] = None,
     tool_choice: Optional[dict[str, Any]] = None,
 ) -> dict:
@@ -95,7 +95,7 @@ async def messages(
     Args:
         messages: Input messages.
         model: The model that will complete your prompt.
-        options: Additional options for the Anthropic `messages` API.
+        model_kwargs: Additional keyword args for the Anthropic `messages` API.
             For details on the available parameters, see: <https://docs.anthropic.com/en/api/messages>
         tools: An optional list of Pixeltable tools to use for the request.
         tool_choice: An optional tool choice configuration.
@@ -110,12 +110,12 @@ async def messages(
         >>> msgs = [{'role': 'user', 'content': tbl.prompt}]
         ... tbl.add_computed_column(response=messages(msgs, model='claude-3-5-sonnet-20241022'))
     """
-    if options is None:
-        options = {}
+    if model_kwargs is None:
+        model_kwargs = {}
 
     if tools is not None:
         # Reformat `tools` into Anthropic format
-        options['tools'] = [
+        model_kwargs['tools'] = [
             {
                 'name': tool['name'],
                 'description': tool['description'],
@@ -130,14 +130,14 @@ async def messages(
 
     if tool_choice is not None:
         if tool_choice['auto']:
-            options['tool_choice'] = {'type': 'auto'}
+            model_kwargs['tool_choice'] = {'type': 'auto'}
         elif tool_choice['required']:
-            options['tool_choice'] = {'type': 'any'}
+            model_kwargs['tool_choice'] = {'type': 'any'}
         else:
             assert tool_choice['tool'] is not None
-            options['tool_choice'] = {'type': 'tool', 'name': tool_choice['tool']}
+            model_kwargs['tool_choice'] = {'type': 'tool', 'name': tool_choice['tool']}
         if not tool_choice['parallel_tool_calls']:
-            options['tool_choice']['disable_parallel_tool_use'] = True
+            model_kwargs['tool_choice']['disable_parallel_tool_use'] = True
 
     # make sure the pool info exists prior to making the request
     resource_pool_id = f'rate-limits:anthropic:{model}'
@@ -148,7 +148,7 @@ async def messages(
     from anthropic.types import MessageParam
 
     result = await _anthropic_client().messages.with_raw_response.create(
-        messages=cast(Iterable[MessageParam], messages), model=model, max_tokens=max_tokens, **options
+        messages=cast(Iterable[MessageParam], messages), model=model, max_tokens=max_tokens, **model_kwargs
     )
 
     requests_limit_str = result.headers.get('anthropic-ratelimit-requests-limit')

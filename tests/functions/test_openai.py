@@ -37,14 +37,14 @@ class TestOpenai:
 
         t.add_computed_column(speech=speech(t.input, model='tts-1', voice='onyx'))
         t.add_computed_column(
-            speech_2=speech(t.input, model='tts-1', voice='onyx', options={'response_format': 'flac', 'speed': 1.05})
+            speech_2=speech(t.input, model='tts-1', voice='onyx', model_kwargs={'response_format': 'flac', 'speed': 1.05})
         )
         t.add_computed_column(transcription=transcriptions(t.speech, model='whisper-1'))
         t.add_computed_column(
             transcription_2=transcriptions(
                 t.speech,
                 model='whisper-1',
-                options={'language': 'en', 'prompt': 'Transcribe the contents of this recording.'},
+                model_kwargs={'language': 'en', 'prompt': 'Transcribe the contents of this recording.'},
             )
         )
         t.add_computed_column(translation=translations(t.speech, model='whisper-1'))
@@ -52,7 +52,7 @@ class TestOpenai:
             translation_2=translations(
                 t.speech,
                 model='whisper-1',
-                options={'prompt': 'Translate the recording from Spanish into English.', 'temperature': 0.05},
+                model_kwargs={'prompt': 'Translate the recording from Spanish into English.', 'temperature': 0.05},
             )
         )
         validate_update_status(
@@ -83,7 +83,7 @@ class TestOpenai:
             chat_output_3=chat_completions(
                 model='gpt-4o-mini',
                 messages=msgs,
-                options={
+                model_kwargs={
                     'frequency_penalty': 0.1,
                     'logprobs': True,
                     'top_logprobs': 3,
@@ -101,7 +101,7 @@ class TestOpenai:
         # test with JSON output enforced
         t.add_computed_column(
             chat_output_4=chat_completions(
-                model='gpt-4o-mini', messages=msgs, options={'response_format': {'type': 'json_object'}}
+                model='gpt-4o-mini', messages=msgs, model_kwargs={'response_format': {'type': 'json_object'}}
             )
         )
         validate_update_status(t.insert(input='Give me an example of a typical JSON structure.'), 1)
@@ -129,7 +129,7 @@ class TestOpenai:
         msgs = [{'role': 'user', 'content': t.input}]
         t.add_computed_column(input_msgs=msgs)
         t.add_computed_column(
-            chat_output=chat_completions(model='o3-mini', messages=t.input_msgs, options={'reasoning_effort': 'low'})
+            chat_output=chat_completions(model='o3-mini', messages=t.input_msgs, model_kwargs={'reasoning_effort': 'low'})
         )
         validate_update_status(
             t.insert(
@@ -345,7 +345,7 @@ class TestOpenai:
             }
         ]
         t.add_computed_column(
-            response_2=chat_completions(model='gpt-4o-mini', messages=msgs, options={'max_tokens': 300})
+            response_2=chat_completions(model='gpt-4o-mini', messages=msgs, model_kwargs={'max_tokens': 300})
             .choices[0]
             .message.content
         )
@@ -408,7 +408,7 @@ class TestOpenai:
         t.add_computed_column(img=image_generations(t.input))
         # Test dall-e-2 options
         t.add_computed_column(
-            img_2=image_generations(t.input, model='dall-e-2', options={'size': '512x512', 'user': 'pixeltable'})
+            img_2=image_generations(t.input, model='dall-e-2', model_kwargs={'size': '512x512', 'user': 'pixeltable'})
         )
         # image size information was captured correctly
         type_info = t._schema

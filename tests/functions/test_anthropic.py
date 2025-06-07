@@ -25,7 +25,7 @@ class TestAnthropic:
                 messages=msgs,
                 model='claude-3-haiku-20240307',
                 max_tokens=300,
-                options={
+                model_kwargs={
                     'metadata': {'user_id': 'pixeltable'},
                     'stop_sequences': ['STOP'],
                     'system': 'You are an ordinary person walking down the street.',

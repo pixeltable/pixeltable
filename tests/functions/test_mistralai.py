@@ -22,7 +22,7 @@ class TestMistral:
             output2=chat_completions(
                 messages=msgs,
                 model='mistral-small-latest',
-                options={
+                model_kwargs={
                     'temperature': 0.8,
                     'top_p': 0.95,
                     'max_tokens': 300,

@@ -36,7 +36,7 @@ class TestLlamaCpp:
                 t.messages,
                 repo_id='Qwen/Qwen2-0.5B-Instruct-GGUF',
                 repo_filename='*q3_k_m.gguf',
-                options={'max_tokens': 100, 'temperature': 0.7, 'top_p': 0.9, 'top_k': 20},
+                model_kwargs={'max_tokens': 100, 'temperature': 0.7, 'top_p': 0.9, 'top_k': 20},
             )
         )
 
