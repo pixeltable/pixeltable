@@ -8,7 +8,13 @@ import pixeltable.functions as pxtf
 import pixeltable.type_system as ts
 
 from ..conftest import DO_RERUN
-from ..utils import SAMPLE_IMAGE_URL, skip_test_if_not_installed, stock_price, validate_update_status
+from ..utils import (
+    SAMPLE_IMAGE_URL,
+    skip_test_if_no_client,
+    skip_test_if_not_installed,
+    stock_price,
+    validate_update_status
+)
 
 
 @pxt.udf
@@ -42,7 +48,7 @@ class TestOpenai:
     @pytest.mark.expensive
     def test_audio(self, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
-        TestOpenai.skip_test_if_no_openai_client()
+        skip_test_if_no_client('openai')
         t = pxt.create_table('test_tbl', {'input': pxt.String})
         from pixeltable.functions.openai import speech, transcriptions, translations
 
@@ -82,7 +88,7 @@ class TestOpenai:
 
     def test_chat_completions(self, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
-        TestOpenai.skip_test_if_no_openai_client()
+        skip_test_if_no_client('openai')
         t = pxt.create_table('test_tbl', {'input': pxt.String})
         from pixeltable.functions.openai import chat_completions
 
@@ -135,7 +141,7 @@ class TestOpenai:
     @pytest.mark.expensive
     def test_reasoning_models(self, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
-        TestOpenai.skip_test_if_no_openai_client()
+        skip_test_if_no_client('openai')
         t = pxt.create_table('test_tbl', {'input': pxt.String})
         from pixeltable.functions.openai import chat_completions
 
@@ -158,7 +164,7 @@ class TestOpenai:
 
     def test_reuse_client(self, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
-        TestOpenai.skip_test_if_no_openai_client()
+        skip_test_if_no_client('openai')
         t = pxt.create_table('test_openai', {'input': pxt.String})
         from pixeltable.functions import openai
 
@@ -181,7 +187,7 @@ class TestOpenai:
     @pytest.mark.flaky(reruns=6, reruns_delay=8, condition=DO_RERUN)
     def test_tool_invocations(self, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
-        TestOpenai.skip_test_if_no_openai_client()
+        skip_test_if_no_client('openai')
         from pixeltable.functions.openai import chat_completions, invoke_tools
 
         tools = pxt.tools(stock_price, weather)
@@ -277,7 +283,7 @@ class TestOpenai:
 
     def test_custom_tool_invocations(self, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
-        TestOpenai.skip_test_if_no_openai_client()
+        skip_test_if_no_client('openai')
         from pixeltable.functions.openai import chat_completions, invoke_tools
 
         t = pxt.create_table('test_tbl', {'prompt': pxt.String})
@@ -298,7 +304,7 @@ class TestOpenai:
 
     def test_nullary_tool_invocations(self, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
-        TestOpenai.skip_test_if_no_openai_client()
+        skip_test_if_no_client('openai')
         from pixeltable.functions.openai import chat_completions, invoke_tools
 
         t = pxt.create_table('test_tbl', {'prompt': pxt.String})
@@ -317,7 +323,7 @@ class TestOpenai:
     @pytest.mark.parametrize('as_retrieval_udf', [False, True])
     def test_query_as_tool(self, as_retrieval_udf: bool, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
-        TestOpenai.skip_test_if_no_openai_client()
+        skip_test_if_no_client('openai')
         from pixeltable.functions.openai import chat_completions, invoke_tools
 
         t = pxt.create_table('customer_tbl', {'customer_id': pxt.String, 'name': pxt.String})
@@ -358,7 +364,7 @@ class TestOpenai:
     @pytest.mark.expensive
     def test_gpt_4_vision(self, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
-        TestOpenai.skip_test_if_no_openai_client()
+        skip_test_if_no_client('openai')
         t = pxt.create_table('test_tbl', {'prompt': pxt.String, 'img': pxt.Image})
         from pixeltable.functions.openai import chat_completions, vision
         from pixeltable.functions.string import format
@@ -388,7 +394,7 @@ class TestOpenai:
 
     def test_embeddings(self, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
-        TestOpenai.skip_test_if_no_openai_client()
+        skip_test_if_no_client('openai')
         from pixeltable.functions.openai import embeddings
 
         t = pxt.create_table('test_tbl', {'input': pxt.String})
@@ -424,7 +430,7 @@ class TestOpenai:
 
     def test_moderations(self, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
-        TestOpenai.skip_test_if_no_openai_client()
+        skip_test_if_no_client('openai')
         t = pxt.create_table('test_tbl', {'input': pxt.String})
         from pixeltable.functions.openai import moderations
 
@@ -436,7 +442,7 @@ class TestOpenai:
     @pytest.mark.expensive
     def test_image_generations(self, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
-        TestOpenai.skip_test_if_no_openai_client()
+        skip_test_if_no_client('openai')
         t = pxt.create_table('test_tbl', {'input': pxt.String})
         from pixeltable.functions.openai import image_generations
 
@@ -457,7 +463,7 @@ class TestOpenai:
     @pytest.mark.skip('Test is expensive and slow')
     def test_image_generations_dall_e_3(self, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
-        TestOpenai.skip_test_if_no_openai_client()
+        skip_test_if_no_client('openai')
         t = pxt.create_table('test_tbl', {'input': pxt.String})
         from pixeltable.functions.openai import image_generations
 
@@ -473,7 +479,7 @@ class TestOpenai:
     @pytest.mark.expensive
     def test_table_udf_tools(self, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
-        TestOpenai.skip_test_if_no_openai_client()
+        skip_test_if_no_client('openai')
         from pixeltable.functions.openai import chat_completions, invoke_tools
 
         # Register tools
@@ -592,14 +598,3 @@ class TestOpenai:
         r2 = manager.select(manager.answer).collect()
         assert len(r2) == 2
         assert any('Apple' in answer for answer in r2['answer'])
-
-    # This ensures that the test will be skipped, rather than returning an error, when no API key is
-    # available (for example, when a PR runs in CI).
-    @staticmethod
-    def skip_test_if_no_openai_client() -> None:
-        try:
-            import pixeltable.functions.openai
-
-            _ = pixeltable.functions.openai._openai_client()
-        except excs.Error as exc:
-            pytest.skip(str(exc))
