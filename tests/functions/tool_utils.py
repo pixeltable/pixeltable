@@ -5,6 +5,7 @@ import pixeltable as pxt
 
 def run_tool_invocations_test(
     make_table: Callable[[pxt.func.Tools, pxt.func.ToolChoice], pxt.Table],
+    test_multiple_tool_use: bool = True,
     test_tool_choice: bool = False,
     test_individual_tool_choice: bool = False,
 ) -> None:
@@ -58,23 +59,6 @@ def run_tool_invocations_test(
                 {'stock_price': [0.0], 'weather': ['Cloudy with a chance of meatballs']},
             ]
 
-        # Request for both stock price and weather
-        print('Checking double inquiry')
-        if tool_choice is None or (tool_choice.parallel_tool_calls and tool_choice.tool is None):
-            # Both tools invoked in parallel
-            assert res[2]['tool_calls'] == {'stock_price': [131.17], 'weather': ['Cloudy with a chance of meatballs']}
-        elif tool_choice.tool == 'stock_price':
-            assert res[2]['tool_calls'] == {'stock_price': [131.17], 'weather': None}
-        elif tool_choice.tool == 'weather':
-            assert res[2]['tool_calls'] == {'stock_price': None, 'weather': ['Cloudy with a chance of meatballs']}
-        else:
-            # Only one tool invoked, but it's not specified which
-            assert not tool_choice.parallel_tool_calls
-            assert res[2]['tool_calls'] in [
-                {'stock_price': [131.17], 'weather': None},
-                {'stock_price': None, 'weather': ['Cloudy with a chance of meatballs']},
-            ]
-
         print('Checking random question')
         if tool_choice is None or tool_choice.auto:
             assert res[3]['tool_calls'] == {'stock_price': None, 'weather': None}
@@ -88,10 +72,28 @@ def run_tool_invocations_test(
                 {'stock_price': None, 'weather': ['Unknown city']},
             ]
 
-        print('Checking multiple stock prices question')
-        if tool_choice is None or tool_choice.auto:
-            # If you specify an explicit tool, it seems to only call it once.
-            assert res[4]['tool_calls'] == {'stock_price': [131.17, 82.88], 'weather': None}
+        if test_multiple_tool_use:
+            # Request for both stock price and weather
+            print('Checking double inquiry')
+            if tool_choice is None or (tool_choice.parallel_tool_calls and tool_choice.tool is None):
+                # Both tools invoked in parallel
+                assert res[2]['tool_calls'] == {'stock_price': [131.17], 'weather': ['Cloudy with a chance of meatballs']}
+            elif tool_choice.tool == 'stock_price':
+                assert res[2]['tool_calls'] == {'stock_price': [131.17], 'weather': None}
+            elif tool_choice.tool == 'weather':
+                assert res[2]['tool_calls'] == {'stock_price': None, 'weather': ['Cloudy with a chance of meatballs']}
+            else:
+                # Only one tool invoked, but it's not specified which
+                assert not tool_choice.parallel_tool_calls
+                assert res[2]['tool_calls'] in [
+                    {'stock_price': [131.17], 'weather': None},
+                    {'stock_price': None, 'weather': ['Cloudy with a chance of meatballs']},
+                ]
+
+            print('Checking multiple stock prices question')
+            if tool_choice is None or tool_choice.auto:
+                # If you specify an explicit tool, it seems to only call it once.
+                assert res[4]['tool_calls'] == {'stock_price': [131.17, 82.88], 'weather': None}
 
 
 # Mock UDF for testing LLM tool invocations

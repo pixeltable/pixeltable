@@ -7,7 +7,7 @@ import pixeltable.type_system as ts
 
 from ..conftest import DO_RERUN
 from ..utils import SAMPLE_IMAGE_URL, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
-from .tool_invocations import run_tool_invocations_test, server_state, stock_price, weather
+from .tool_utils import run_tool_invocations_test, server_state, stock_price, weather
 
 
 @pytest.mark.remote_api

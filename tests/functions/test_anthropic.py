@@ -4,7 +4,7 @@ import pixeltable as pxt
 
 from ..conftest import DO_RERUN
 from ..utils import skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
-from .tool_invocations import run_tool_invocations_test
+from .tool_utils import run_tool_invocations_test
 
 
 @pytest.mark.remote_api
