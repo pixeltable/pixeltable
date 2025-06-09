@@ -276,6 +276,13 @@ class Expr(abc.ABC):
         tbl_versions = {tbl_version.id: tbl_version.get() for tbl_version in tbl.get_tbl_versions()}
         return self._retarget(tbl_versions)
 
+    @classmethod
+    def retarget_list(cls, expr_list: list[Expr], tbl: catalog.TableVersionPath) -> None:
+        """Retarget ColumnRefs in expr_list to the specific TableVersions in tbl."""
+        tbl_versions = {tbl_version.id: tbl_version.get() for tbl_version in tbl.get_tbl_versions()}
+        for i in range(len(expr_list)):
+            expr_list[i] = expr_list[i]._retarget(tbl_versions)
+
     def _retarget(self, tbl_versions: dict[UUID, catalog.TableVersion]) -> Self:
         for i in range(len(self.components)):
             self.components[i] = self.components[i]._retarget(tbl_versions)

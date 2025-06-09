@@ -23,6 +23,10 @@ from pixeltable.utils.exception_handler import run_cleanup_on_exception
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.media_store import MediaStore
 
+if TYPE_CHECKING:
+    from pixeltable.plan import SampleClause
+
+
 from ..func.globals import resolve_symbol
 from .column import Column
 from .globals import _POS_COLUMN_NAME, _ROWID_COLUMN_NAME, MediaValidation, UpdateStatus, is_valid_identifier
@@ -66,6 +70,8 @@ class TableVersion:
     path: Optional[pxt.catalog.TableVersionPath]  # only set for live tables; needed to resolve computed cols
     base: Optional[TableVersionHandle]  # only set for views
     predicate: Optional[exprs.Expr]
+    sample_clause: Optional['SampleClause']
+
     iterator_cls: Optional[type[ComponentIterator]]
     iterator_args: Optional[exprs.InlineDict]
     num_iterator_cols: int
@@ -132,9 +138,12 @@ class TableVersion:
 
         # view-specific initialization
         from pixeltable import exprs
+        from pixeltable.plan import SampleClause
 
         predicate_dict = None if self.view_md is None or self.view_md.predicate is None else self.view_md.predicate
         self.predicate = exprs.Expr.from_dict(predicate_dict) if predicate_dict is not None else None
+        sample_dict = None if self.view_md is None or self.view_md.sample_clause is None else self.view_md.sample_clause
+        self.sample_clause = SampleClause.from_dict(sample_dict) if sample_dict is not None else None
 
         # component view-specific initialization
         self.iterator_cls = None
@@ -269,7 +278,13 @@ class TableVersion:
 
         # if this is purely a snapshot (it doesn't require any additional storage for columns and it doesn't have a
         # predicate to apply at runtime), we don't create a physical table and simply use the base's table version path
-        if view_md is not None and view_md.is_snapshot and view_md.predicate is None and len(cols) == 0:
+        if (
+            view_md is not None
+            and view_md.is_snapshot
+            and view_md.predicate is None
+            and view_md.sample_clause is None
+            and len(cols) == 0
+        ):
             session.add(tbl_record)
             session.add(tbl_version_record)
             session.add(schema_version_record)
@@ -906,7 +921,7 @@ class TableVersion:
         result.num_excs = num_excs
         result.num_computed_values += exec_plan.ctx.num_computed_exprs * num_rows
         result.cols_with_excs = [f'{self.name}.{self.cols_by_id[cid].name}' for cid in cols_with_excs]
-        self._write_md(new_version=True, new_version_ts=time.time(), new_schema_version=False)
+        self._write_md(new_version=True, new_version_ts=timestamp, new_schema_version=False)
 
         # update views
         for view in self.mutable_views:

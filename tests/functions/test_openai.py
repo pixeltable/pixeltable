@@ -25,6 +25,17 @@ def weather(city: str) -> Optional[str]:
         return 'Unknown city'
 
 
+@pxt.udf
+def server_state() -> str:
+    """
+    Get the current server state.
+
+    Returns:
+        The current server state.
+    """
+    return 'Running (0x4171780)'
+
+
 @pytest.mark.remote_api
 @pytest.mark.flaky(reruns=3, reruns_delay=8, condition=DO_RERUN)
 class TestOpenai:
@@ -284,6 +295,24 @@ class TestOpenai:
 
         assert res[0]['output'] is None
         assert res[0]['tool_calls'] == {'banana_quantity': [131.17]}
+
+    def test_nullary_tool_invocations(self, reset_db: None) -> None:
+        skip_test_if_not_installed('openai')
+        TestOpenai.skip_test_if_no_openai_client()
+        from pixeltable.functions.openai import chat_completions, invoke_tools
+
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String})
+        messages = [{'role': 'user', 'content': t.prompt}]
+        tools = pxt.tools(server_state)
+
+        t.add_computed_column(response=chat_completions(model='gpt-4o-mini', messages=messages, tools=tools))
+        t.add_computed_column(output=t.response.choices[0].message.content)
+        t.add_computed_column(tool_calls=invoke_tools(tools, t.response))
+        t.insert(prompt='What is the current server state?')
+        res = t.select(t.output, t.tool_calls).head()
+
+        assert res[0]['output'] is None
+        assert res[0]['tool_calls'] == {'server_state': ['Running (0x4171780)']}
 
     @pytest.mark.parametrize('as_retrieval_udf', [False, True])
     def test_query_as_tool(self, as_retrieval_udf: bool, reset_db: None) -> None:
