@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING, Any, Callable, Optional, TypeVar, Union
 
 import pydantic
 
-import pixeltable.exceptions as excs
+from pixeltable import exceptions as excs
 
 from .function import Function
 from .signature import Parameter

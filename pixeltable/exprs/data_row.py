@@ -214,6 +214,7 @@ class DataRow:
         """Assign in-memory cell value
         This allows overwriting
         """
+        assert isinstance(idx, int)
         assert self.excs[idx] is None
 
         if (idx in self.img_slot_idxs or idx in self.media_slot_idxs) and isinstance(val, str):
@@ -253,14 +254,15 @@ class DataRow:
         assert self.excs[index] is None
         if self.file_paths[index] is None:
             if filepath is not None:
-                # we want to save this to a file
-                self.file_paths[index] = filepath
-                self.file_urls[index] = urllib.parse.urljoin('file:', urllib.request.pathname2url(filepath))
                 image = self.vals[index]
                 assert isinstance(image, PIL.Image.Image)
                 # Default to JPEG unless the image has a transparency layer (which isn't supported by JPEG).
                 # In that case, use WebP instead.
                 format = 'webp' if image.has_transparency_data else 'jpeg'
+                if not filepath.endswith(f'.{format}'):
+                    filepath += f'.{format}'
+                self.file_paths[index] = filepath
+                self.file_urls[index] = urllib.parse.urljoin('file:', urllib.request.pathname2url(filepath))
                 image.save(filepath, format=format)
             else:
                 # we discard the content of this cell

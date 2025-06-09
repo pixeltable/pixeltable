@@ -921,7 +921,7 @@ class TableVersion:
         result.num_excs = num_excs
         result.num_computed_values += exec_plan.ctx.num_computed_exprs * num_rows
         result.cols_with_excs = [f'{self.name}.{self.cols_by_id[cid].name}' for cid in cols_with_excs]
-        self._write_md(new_version=True, new_version_ts=time.time(), new_schema_version=False)
+        self._write_md(new_version=True, new_version_ts=timestamp, new_schema_version=False)
 
         # update views
         for view in self.mutable_views:
