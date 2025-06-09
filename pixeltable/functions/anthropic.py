@@ -42,8 +42,12 @@ class AnthropicRateLimitsInfo(env.RateLimitsInfo):
     def __init__(self) -> None:
         super().__init__(self._get_request_resources)
 
-    def _get_request_resources(self, messages: dict, max_tokens: int) -> dict[str, int]:
+    def _get_request_resources(self, messages: dict, model_kwargs: Optional[dict[str, Any]]) -> dict[str, int]:
         input_len = 0
+        # Default to 1024 tokens if not specified
+        # TODO: This won't work for reasoning models; we should do something similar to OpenAI where we look up a
+        #     model-dependent default.
+        max_tokens = model_kwargs.get('max_tokens', 1024)
         for message in messages:
             if 'role' in message:
                 input_len += len(message['role'])
@@ -73,7 +77,6 @@ async def messages(
     messages: list[dict[str, str]],
     *,
     model: str,
-    max_tokens: int = 1024,
     model_kwargs: Optional[dict[str, Any]] = None,
     tools: Optional[list[dict[str, Any]]] = None,
     tool_choice: Optional[dict[str, Any]] = None,
@@ -148,7 +151,7 @@ async def messages(
     from anthropic.types import MessageParam
 
     result = await _anthropic_client().messages.with_raw_response.create(
-        messages=cast(Iterable[MessageParam], messages), model=model, max_tokens=max_tokens, **model_kwargs
+        messages=cast(Iterable[MessageParam], messages), model=model, **model_kwargs
     )
 
     requests_limit_str = result.headers.get('anthropic-ratelimit-requests-limit')

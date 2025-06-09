@@ -50,7 +50,7 @@ def _retry(fn: Callable[..., T]) -> Callable[..., T]:
 
 
 @pxt.udf(resource_pool='request-rate:together:chat')
-async def completions(prompt: str, *, model: str, options: Optional[dict[str, Any]] = None) -> dict:
+async def completions(prompt: str, *, model: str, model_kwargs: Optional[dict[str, Any]] = None) -> dict:
     """
     Generate completions based on a given prompt using a specified model.
 
@@ -68,7 +68,7 @@ async def completions(prompt: str, *, model: str, options: Optional[dict[str, An
     Args:
         prompt: A string providing context for the model to complete.
         model: The name of the model to query.
-        options: Additional options for the Together `completions` API.
+        model_kwargs: Additional keyword arguments for the Together `completions` API.
             For details on the available parameters, see: <https://docs.together.ai/reference/completions-1>
 
     Returns:
@@ -80,16 +80,16 @@ async def completions(prompt: str, *, model: str, options: Optional[dict[str, An
 
         >>> tbl.add_computed_column(response=completions(tbl.prompt, model='mistralai/Mixtral-8x7B-v0.1'))
     """
-    if options is None:
-        options = {}
+    if model_kwargs is None:
+        model_kwargs = {}
 
-    result = await _together_client().completions.create(prompt=prompt, model=model, **options)
+    result = await _together_client().completions.create(prompt=prompt, model=model, **model_kwargs)
     return result.dict()
 
 
 @pxt.udf(resource_pool='request-rate:together:chat')
 async def chat_completions(
-    messages: list[dict[str, str]], *, model: str, options: Optional[dict[str, Any]] = None
+    messages: list[dict[str, str]], *, model: str, model_kwargs: Optional[dict[str, Any]] = None
 ) -> dict:
     """
     Generate chat completions based on a given prompt using a specified model.
@@ -108,7 +108,7 @@ async def chat_completions(
     Args:
         messages: A list of messages comprising the conversation so far.
         model: The name of the model to query.
-        options: Additional options for the Together `chat/completions` API.
+        model_kwargs: Additional keyword arguments for the Together `chat/completions` API.
             For details on the available parameters, see: <https://docs.together.ai/reference/chat-completions-1>
 
     Returns:
@@ -121,10 +121,10 @@ async def chat_completions(
         >>> messages = [{'role': 'user', 'content': tbl.prompt}]
         ... tbl.add_computed_column(response=chat_completions(messages, model='mistralai/Mixtral-8x7B-v0.1'))
     """
-    if options is None:
-        options = {}
+    if model_kwargs is None:
+        model_kwargs = {}
 
-    result = await _together_client().chat.completions.create(messages=messages, model=model, **options)
+    result = await _together_client().chat.completions.create(messages=messages, model=model, **model_kwargs)
     return result.dict()
 
 
