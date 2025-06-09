@@ -544,7 +544,7 @@ class SqlSampleNode(SqlNode):
         input: SqlNode,
         select_list: Iterable[exprs.Expr],
         sample_clause: 'SampleClause',
-        stratify_exprs: Optional[list[exprs.Expr]] = None,
+        stratify_exprs: list[exprs.Expr],
     ):
         """
         Args:
@@ -558,7 +558,7 @@ class SqlSampleNode(SqlNode):
         self.pk_count = input.num_pk_cols
         assert self.pk_count > 1
         sql_elements = exprs.SqlElementCache(input_col_map)
-        assert stratify_exprs is None or sql_elements.contains_all(stratify_exprs)
+        assert sql_elements.contains_all(stratify_exprs)
         super().__init__(input.tbl, row_builder, select_list, sql_elements, set_pk=True)
         self.stratify_exprs = stratify_exprs
         self.sample_clause = sample_clause
@@ -587,7 +587,7 @@ class SqlSampleNode(SqlNode):
         from pixeltable.plan import SampleClause
 
         if self.sample_clause.fraction is not None:
-            if self.stratify_exprs is None or len(self.stratify_exprs) == 0:
+            if len(self.stratify_exprs) == 0:
                 # If non-stratified sampling, construct a where clause, order_by, and limit clauses
                 s_key = self._create_key_sql(self.input_cte)
 
@@ -598,7 +598,7 @@ class SqlSampleNode(SqlNode):
 
             return self._create_stmt_fraction(self.sample_clause.fraction)
         else:
-            if self.stratify_exprs is None or len(self.stratify_exprs) == 0:
+            if len(self.stratify_exprs) == 0:
                 # No stratification, just return n samples from the input CTE
                 order_by = self._create_key_sql(self.input_cte)
                 return sql.select(*self.input_cte.c).order_by(order_by).limit(self.sample_clause.n)
@@ -631,7 +631,7 @@ class SqlSampleNode(SqlNode):
 
         # Build the strata count CTE
         # Produces a table of the form:
-        #   ([stratify_exprs], s_s_size)
+        #   (*stratify_exprs, s_s_size)
         # where s_s_size is the number of samples to take from each stratum
         sql_strata_exprs = [self.sql_elements.get(e) for e in self.stratify_exprs]
         per_strata_count_cte = (

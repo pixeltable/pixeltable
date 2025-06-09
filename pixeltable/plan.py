@@ -169,7 +169,7 @@ class Analyzer:
     group_by_clause: Optional[list[exprs.Expr]]  # None for non-aggregate queries; [] for agg query w/o grouping
     grouping_exprs: list[exprs.Expr]  # [] for non-aggregate queries or agg query w/o grouping
     order_by_clause: OrderByClause
-    stratify_exprs: Optional[list[exprs.Expr]]
+    stratify_exprs: list[exprs.Expr]  # [] if no stratiifcation is required
     sample_clause: Optional[SampleClause]  # None if no sampling clause is present
 
     sql_elements: exprs.SqlElementCache
@@ -209,7 +209,7 @@ class Analyzer:
         if self.sample_clause is not None and self.sample_clause.is_stratified:
             self.stratify_exprs = [e.resolve_computed_cols() for e in sample_clause.stratify_exprs]
         else:
-            self.stratify_exprs = None
+            self.stratify_exprs = []
         self.order_by_clause = [OrderByItem(e.resolve_computed_cols(), asc) for e, asc in order_by_clause]
 
         self.sql_where_clause = None
@@ -225,8 +225,7 @@ class Analyzer:
                 self.all_exprs.append(join_clause.join_predicate)
         if self.group_by_clause is not None:
             self.all_exprs.extend(self.group_by_clause)
-        if self.stratify_exprs is not None:
-            self.all_exprs.extend(self.stratify_exprs)
+        self.all_exprs.extend(self.stratify_exprs)
         self.all_exprs.extend(e for e, _ in self.order_by_clause)
         if self.filter is not None:
             if sample_clause is not None:
@@ -885,6 +884,7 @@ class Planner:
         # - join clause subexprs
         # - subexprs of Where clause conjuncts that can't be run in SQL
         # - all grouping exprs
+        # - all stratify exprs
         candidates = list(
             exprs.Expr.list_subexprs(
                 analyzer.select_list,
@@ -899,14 +899,12 @@ class Planner:
             candidates.extend(
                 exprs.Expr.subexprs(analyzer.filter, filter=sql_elements.contains, traverse_matches=False)
             )
-        if analyzer.group_by_clause is not None:
-            candidates.extend(
-                exprs.Expr.list_subexprs(analyzer.group_by_clause, filter=sql_elements.contains, traverse_matches=False)
-            )
-        if analyzer.stratify_exprs is not None:
-            candidates.extend(
-                exprs.Expr.list_subexprs(analyzer.stratify_exprs, filter=sql_elements.contains, traverse_matches=False)
-            )
+        candidates.extend(
+            exprs.Expr.list_subexprs(analyzer.grouping_exprs, filter=sql_elements.contains, traverse_matches=False)
+        )
+        candidates.extend(
+            exprs.Expr.list_subexprs(analyzer.stratify_exprs, filter=sql_elements.contains, traverse_matches=False)
+        )
         # not isinstance(...): we don't want to materialize Literals via a Select
         sql_exprs = exprs.ExprSet(e for e in candidates if not isinstance(e, exprs.Literal))
 
