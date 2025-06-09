@@ -79,12 +79,7 @@ async def chat_completions(
 
 
 @pxt.udf(resource_pool='request-rate:mistral')
-async def fim_completions(
-    prompt: str,
-    *,
-    model: str,
-    model_kwargs: Optional[dict[str, Any]] = None,
-) -> dict:
+async def fim_completions(prompt: str, *, model: str, model_kwargs: Optional[dict[str, Any]] = None) -> dict:
     """
     Fill-in-the-middle Completion API.
 
@@ -120,11 +115,7 @@ async def fim_completions(
         model_kwargs = {}
 
     Env.get().require_package('mistralai')
-    result = await _mistralai_client().fim.complete_async(
-        prompt=prompt,
-        model=model,
-        **model_kwargs,
-    )
+    result = await _mistralai_client().fim.complete_async(prompt=prompt, model=model, **model_kwargs)
     return result.dict()
 
 

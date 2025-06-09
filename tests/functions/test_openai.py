@@ -37,7 +37,9 @@ class TestOpenai:
 
         t.add_computed_column(speech=speech(t.input, model='tts-1', voice='onyx'))
         t.add_computed_column(
-            speech_2=speech(t.input, model='tts-1', voice='onyx', model_kwargs={'response_format': 'flac', 'speed': 1.05})
+            speech_2=speech(
+                t.input, model='tts-1', voice='onyx', model_kwargs={'response_format': 'flac', 'speed': 1.05}
+            )
         )
         t.add_computed_column(transcription=transcriptions(t.speech, model='whisper-1'))
         t.add_computed_column(
@@ -129,7 +131,9 @@ class TestOpenai:
         msgs = [{'role': 'user', 'content': t.input}]
         t.add_computed_column(input_msgs=msgs)
         t.add_computed_column(
-            chat_output=chat_completions(model='o3-mini', messages=t.input_msgs, model_kwargs={'reasoning_effort': 'low'})
+            chat_output=chat_completions(
+                model='o3-mini', messages=t.input_msgs, model_kwargs={'reasoning_effort': 'low'}
+            )
         )
         validate_update_status(
             t.insert(
@@ -363,7 +367,9 @@ class TestOpenai:
         # Embeddings as computed columns
         t.add_computed_column(ada_embed=embeddings(model='text-embedding-ada-002', input=t.input))
         t.add_computed_column(
-            text_3=embeddings(model='text-embedding-3-small', input=t.input, model_kwargs={'dimensions': 1024, 'user': 'pixeltable'})
+            text_3=embeddings(
+                model='text-embedding-3-small', input=t.input, model_kwargs={'dimensions': 1024, 'user': 'pixeltable'}
+            )
         )
         type_info = t._schema
         assert isinstance(type_info['ada_embed'], ts.ArrayType)

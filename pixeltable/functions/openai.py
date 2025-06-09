@@ -415,7 +415,9 @@ async def chat_completions(
         resource_pool, lambda: OpenAIRateLimitsInfo(_chat_completions_get_request_resources)
     )
 
-    result = await _openai_client().chat.completions.with_raw_response.create(messages=messages, model=model, **model_kwargs)
+    result = await _openai_client().chat.completions.with_raw_response.create(
+        messages=messages, model=model, **model_kwargs
+    )
 
     requests_info, tokens_info = _get_header_info(result.headers)
     rate_limits_info.record(requests=requests_info, tokens=tokens_info)
@@ -424,10 +426,7 @@ async def chat_completions(
 
 
 def _vision_get_request_resources(
-    prompt: str,
-    image: PIL.Image.Image,
-    model: str,
-    model_kwargs: Optional[dict[str, Any]] = None,
+    prompt: str, image: PIL.Image.Image, model: str, model_kwargs: Optional[dict[str, Any]] = None
 ) -> dict[str, int]:
     if model_kwargs is None:
         model_kwargs = {}
@@ -464,11 +463,7 @@ def _vision_get_request_resources(
 
 @pxt.udf
 async def vision(
-    prompt: str,
-    image: PIL.Image.Image,
-    *,
-    model: str,
-    model_kwargs: Optional[dict[str, Any]] = None,
+    prompt: str, image: PIL.Image.Image, *, model: str, model_kwargs: Optional[dict[str, Any]] = None
 ) -> str:
     """
     Analyzes an image with the OpenAI vision capability. This is a convenience function that takes an image and
@@ -552,10 +547,7 @@ def _embeddings_get_request_resources(input: list[str]) -> dict[str, int]:
 
 @pxt.udf(batch_size=32)
 async def embeddings(
-    input: Batch[str],
-    *,
-    model: str,
-    model_kwargs: Optional[dict[str, Any]] = None,
+    input: Batch[str], *, model: str, model_kwargs: Optional[dict[str, Any]] = None
 ) -> Batch[pxt.Array[(None,), pxt.Float]]:
     """
     Creates an embedding vector representing the input text.
@@ -599,10 +591,7 @@ async def embeddings(
         resource_pool, lambda: OpenAIRateLimitsInfo(_embeddings_get_request_resources)
     )
     result = await _openai_client().embeddings.with_raw_response.create(
-        input=input,
-        model=model,
-        encoding_format='float',
-        **model_kwargs,
+        input=input, model=model, encoding_format='float', **model_kwargs
     )
     requests_info, tokens_info = _get_header_info(result.headers)
     rate_limits_info.record(requests=requests_info, tokens=tokens_info)
@@ -663,7 +652,9 @@ async def image_generations(
         model_kwargs = {}
 
     # TODO(aaron-siegel): Decompose CPU/GPU ops into separate functions
-    result = await _openai_client().images.generate(prompt=prompt, model=model, response_format='b64_json', **model_kwargs)
+    result = await _openai_client().images.generate(
+        prompt=prompt, model=model, response_format='b64_json', **model_kwargs
+    )
     b64_str = result.data[0].b64_json
     b64_bytes = base64.b64decode(b64_str)
     img = PIL.Image.open(io.BytesIO(b64_bytes))
