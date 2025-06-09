@@ -6,6 +6,7 @@ import pixeltable as pxt
 
 from ..conftest import DO_RERUN
 from ..utils import skip_test_if_no_client, skip_test_if_not_installed, stock_price, validate_update_status
+from .tool_invocations import run_tool_invocations_test
 
 
 @pytest.mark.remote_api
@@ -44,16 +45,15 @@ class TestGemini:
     def test_tool_invocations(self, reset_db: None) -> None:
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')
-        from pixeltable.functions.gemini import generate_content, invoke_tools
+        from pixeltable.functions import gemini
 
-        tools = pxt.tools(stock_price)
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
-        t.add_computed_column(response=generate_content(t.input, model='gemini-2.0-flash', tools=tools))
-        t.insert(input='What is the stock price of NVDA today?')
-        t.add_computed_column(tool_calls=invoke_tools(tools, t.response))
+        def make_table(tools: pxt.func.Tools, tool_choice: pxt.func.ToolChoice) -> pxt.Table:
+            t = pxt.create_table('test_tbl', {'prompt': pxt.String}, if_exists='replace')
+            t.add_computed_column(response=gemini.generate_content(t.prompt, model='gemini-2.0-flash', tools=tools))
+            t.add_computed_column(tool_calls=gemini.invoke_tools(tools, t.response))
+            return t
 
-        results = t.collect()[0]
-        assert results['tool_calls']['stock_price'] == [131.17]
+        run_tool_invocations_test(make_table)
 
     def test_generate_images(self, reset_db: None) -> None:
         skip_test_if_not_installed('google.genai')

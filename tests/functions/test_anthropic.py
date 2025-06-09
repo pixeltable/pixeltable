@@ -1,12 +1,10 @@
-from typing import Optional
-
 import pytest
 
 import pixeltable as pxt
-from tests.functions.tool_invocations import run_tool_invocations_test
 
 from ..conftest import DO_RERUN
 from ..utils import skip_test_if_no_client, skip_test_if_not_installed, stock_price, validate_update_status
+from .tool_invocations import run_tool_invocations_test
 
 
 @pytest.mark.remote_api
